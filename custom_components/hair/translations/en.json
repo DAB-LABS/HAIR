@@ -1,0 +1,31 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Set up HAIR",
+                "description": "Found {emitter_count} IR emitter(s) and {capture_count} capture device(s). HAIR will create a management panel for your IR devices.",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIR is already configured.",
+            "no_ir_hardware": "No IR hardware detected. You need at least one IR emitter or capture device (ESPHome, Broadlink, etc.). See the [setup guide]({setup_url}) for details."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "HAIR Options",
+                "description": "Configure global settings for IR device management.",
+                "data": {
+                    "capture_timeout": "Capture timeout (seconds)",
+                    "default_repeat_count": "Default IR repeat count"
+                },
+                "data_description": {
+                    "capture_timeout": "How long to wait for an IR signal during capture (5-60 seconds).",
+                    "default_repeat_count": "Number of times to repeat each IR command transmission (1-10)."
+                }
+            }
+        }
+    }
+}

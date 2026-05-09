@@ -1,0 +1,16 @@
+{
+    "domain": "hair",
+    "name": "HAIR - IR Device Manager",
+    "version": "0.1.0",
+    "documentation": "https://github.com/DAB-LABS/HAIR",
+    "issue_tracker": "https://github.com/DAB-LABS/HAIR/issues",
+    "dependencies": ["infrared"],
+    "after_dependencies": ["esphome", "broadlink"],
+    "codeowners": ["@DAB-LABS"],
+    "config_flow": true,
+    "iot_class": "local_push",
+    "integration_type": "hub",
+    "requirements": [],
+    "quality_scale": "silver",
+    "loggers": ["custom_components.hair"]
+}

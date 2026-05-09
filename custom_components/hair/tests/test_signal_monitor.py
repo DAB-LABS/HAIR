@@ -1,0 +1,705 @@
+"""Tests for the SignalMonitor always-on listener."""
+from __future__ import annotations
+
+import asyncio
+import time
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from custom_components.hair.const import (
+    EVENT_SIGNAL_DETECTED,
+    SIGNAL_CLUSTER_THRESHOLD,
+    SIGNAL_RATE_LIMIT_PER_SEC,
+    SIGNAL_REPEAT_SUPPRESS_MS,
+)
+from custom_components.hair.models import (
+    CaptureResult,
+    CommandCategory,
+    IRCommand,
+    IRDevice,
+    UnknownDevice,
+    UnknownSignal,
+)
+from custom_components.hair.signal_monitor import SignalMonitor
+from custom_components.hair.signal_store import SignalStore
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_hass():
+    """Create a minimal mock HomeAssistant."""
+    hass = MagicMock()
+    hass.loop = MagicMock()
+    hass.loop.call_later = MagicMock(return_value=MagicMock())
+    hass.async_create_task = MagicMock()
+    hass.bus = MagicMock()
+    hass.bus.async_listen = MagicMock(return_value=MagicMock())
+    hass.bus.async_fire = MagicMock()
+    hass.services = MagicMock()
+    hass.services.async_call = AsyncMock()
+    return hass
+
+
+def _make_signal_store(hass):
+    store = SignalStore(hass)
+    store._loaded = True
+    return store
+
+
+def _make_hair_store():
+    hair_store = MagicMock()
+    hair_store.get_all_devices = MagicMock(return_value=[])
+    hair_store.get_device = MagicMock(return_value=None)
+    hair_store.async_save = AsyncMock()
+    return hair_store
+
+
+def _make_event(data: dict):
+    event = MagicMock()
+    event.data = data
+    return event
+
+
+def _nec_event(code: str = "0x1234", protocol: str = "NEC") -> dict:
+    return {"protocol": protocol, "code": code}
+
+
+def _raw_event(timings: list[int] | None = None) -> dict:
+    return {"raw": timings or [9000, -4500, 560, -560, 560, -1690]}
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle tests
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycle:
+
+    @pytest.mark.asyncio
+    async def test_start_subscribes_to_bus(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        await monitor.async_start()
+        hass.bus.async_listen.assert_called_once()
+        args = hass.bus.async_listen.call_args
+        assert args[0][0] == "esphome.remote_received"
+
+    @pytest.mark.asyncio
+    async def test_start_loads_store_if_not_loaded(self):
+        hass = _make_hass()
+        store = SignalStore(hass)
+        with patch.object(store, "_store") as mock_inner:
+            mock_inner.async_load = AsyncMock(return_value=None)
+            monitor = SignalMonitor(hass, store, _make_hair_store())
+            await monitor.async_start()
+        assert store.loaded
+
+    @pytest.mark.asyncio
+    async def test_stop_unsubscribes_and_flushes(self):
+        hass = _make_hass()
+        unsub = MagicMock()
+        hass.bus.async_listen.return_value = unsub
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        await monitor.async_start()
+        await monitor.async_stop()
+        unsub.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Event handling -- basic flow
+# ---------------------------------------------------------------------------
+
+
+class TestEventHandling:
+
+    @pytest.mark.asyncio
+    async def test_parseable_event_creates_device_and_signal(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        assert store.device_count == 1
+        devices = store.get_all_devices()
+        assert len(devices) == 1
+        assert devices[0].hit_count == 1
+        assert len(devices[0].signals) == 1
+        assert devices[0].signals[0].hit_count == 1
+
+    @pytest.mark.asyncio
+    async def test_unparseable_event_ignored(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event({}))
+        assert store.device_count == 0
+
+    @pytest.mark.asyncio
+    async def test_nec_repeat_ignored(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event({
+            "protocol": "NEC", "repeat": True,
+        }))
+        assert store.device_count == 0
+
+    @pytest.mark.asyncio
+    async def test_duplicate_signal_increments_counts(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # First event.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        # Clear repeat suppression so second event goes through.
+        monitor._last_seen_times.clear()
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        assert store.device_count == 1
+        device = store.get_all_devices()[0]
+        assert device.hit_count == 2
+        assert device.signals[0].hit_count == 2
+
+    @pytest.mark.asyncio
+    async def test_different_signals_same_device(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Two different codes from the same NEC device address (0x12).
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        assert store.device_count == 1
+        device = store.get_all_devices()[0]
+        assert len(device.signals) == 2
+        assert device.hit_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fires_ha_event(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        hass.bus.async_fire.assert_called_once()
+        args = hass.bus.async_fire.call_args
+        assert args[0][0] == EVENT_SIGNAL_DETECTED
+        summary = args[0][1]
+        assert "device_id" in summary
+        assert "signal_fingerprint" in summary
+        assert summary["protocol"] == "NEC"
+        assert summary["code"] == "0x1234"
+
+    @pytest.mark.asyncio
+    async def test_notifies_subscribers(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        received = []
+        monitor.subscribe(lambda data: received.append(data))
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        assert len(received) == 1
+        assert received[0]["protocol"] == "NEC"
+
+
+# ---------------------------------------------------------------------------
+# Known command check
+# ---------------------------------------------------------------------------
+
+
+class TestKnownCommandCheck:
+
+    @pytest.mark.asyncio
+    async def test_skips_known_command(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        hair_store = _make_hair_store()
+
+        # Set up a known device with a matching command.
+        known_device = IRDevice(
+            name="TV",
+            commands=[IRCommand(name="power", protocol="NEC", code="0x1234")],
+        )
+        hair_store.get_all_devices.return_value = [known_device]
+
+        monitor = SignalMonitor(hass, store, hair_store)
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        assert store.device_count == 0
+
+    @pytest.mark.asyncio
+    async def test_does_not_skip_unknown_command(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        hair_store = _make_hair_store()
+
+        known_device = IRDevice(
+            name="TV",
+            commands=[IRCommand(name="power", protocol="NEC", code="0x5678")],
+        )
+        hair_store.get_all_devices.return_value = [known_device]
+
+        monitor = SignalMonitor(hass, store, hair_store)
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        assert store.device_count == 1
+
+    @pytest.mark.asyncio
+    async def test_raw_signal_not_checked_against_known(self):
+        """Raw-only signals have no protocol/code so can't match known commands."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_raw_event()))
+        assert store.device_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Dismiss list
+# ---------------------------------------------------------------------------
+
+
+class TestDismissCheck:
+
+    @pytest.mark.asyncio
+    async def test_dismissed_device_skipped(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # First, let a signal create a device.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        assert store.device_count == 1
+
+        device = store.get_all_devices()[0]
+        monitor.dismiss_device(device.id)
+
+        # Clear repeat suppression.
+        monitor._last_seen_times.clear()
+
+        # New signal from the same device should be skipped.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+        # Device should still have only 1 signal.
+        device = store.get_device(device.id)
+        assert device.hit_count == 1
+
+    @pytest.mark.asyncio
+    async def test_undismiss_allows_events_again(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        device = store.get_all_devices()[0]
+        monitor.dismiss_device(device.id)
+        monitor.undismiss_device(device.id)
+
+        monitor._last_seen_times.clear()
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        device = store.get_device(device.id)
+        assert device.hit_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimiting:
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_drops_excess(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Blast more than SIGNAL_RATE_LIMIT_PER_SEC events.
+        for i in range(SIGNAL_RATE_LIMIT_PER_SEC + 5):
+            monitor._last_seen_times.clear()
+            await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        device = store.get_all_devices()[0]
+        # Should be capped at the rate limit.
+        assert device.hit_count <= SIGNAL_RATE_LIMIT_PER_SEC
+
+    def test_rate_limit_window_expires(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Fill the bucket.
+        for _ in range(SIGNAL_RATE_LIMIT_PER_SEC):
+            assert monitor._check_rate_limit("fp1")
+
+        # Should be blocked now.
+        assert not monitor._check_rate_limit("fp1")
+
+        # Simulate time passing (clear the bucket manually).
+        monitor._rate_buckets["fp1"] = [
+            time.monotonic() - 2.0
+        ] * SIGNAL_RATE_LIMIT_PER_SEC
+
+        # Should pass again after old entries expire.
+        assert monitor._check_rate_limit("fp1")
+
+
+# ---------------------------------------------------------------------------
+# Repeat suppression
+# ---------------------------------------------------------------------------
+
+
+class TestRepeatSuppression:
+
+    @pytest.mark.asyncio
+    async def test_repeat_within_window_suppressed(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # First event goes through.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        assert store.get_all_devices()[0].hit_count == 1
+
+        # Immediate repeat should be suppressed.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        assert store.get_all_devices()[0].hit_count == 1
+
+    def test_repeat_check_passes_after_window(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+
+        assert monitor._check_repeat("fp1")
+        assert not monitor._check_repeat("fp1")
+
+        # Simulate time beyond suppression window.
+        monitor._last_seen_times["fp1"] = (
+            time.monotonic() - (SIGNAL_REPEAT_SUPPRESS_MS / 1000.0) - 0.01
+        )
+        assert monitor._check_repeat("fp1")
+
+    def test_different_fingerprints_not_suppressed(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+
+        assert monitor._check_repeat("fp1")
+        assert monitor._check_repeat("fp2")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+class TestPublicAPI:
+
+    def test_get_unknown_devices_sorted_by_hits(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        d1 = UnknownDevice(id="d1", fingerprint="fp1", hit_count=5)
+        d2 = UnknownDevice(id="d2", fingerprint="fp2", hit_count=20)
+        d3 = UnknownDevice(id="d3", fingerprint="fp3", hit_count=10)
+        store.add_device(d1)
+        store.add_device(d2)
+        store.add_device(d3)
+
+        result = monitor.get_unknown_devices(min_hits=0)
+        assert [d.id for d in result] == ["d2", "d3", "d1"]
+
+    def test_get_unknown_devices_filters_dismissed(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        d1 = UnknownDevice(id="d1", fingerprint="fp1", hit_count=10)
+        d2 = UnknownDevice(id="d2", fingerprint="fp2", hit_count=5, dismissed=True)
+        store.add_device(d1)
+        store.add_device(d2)
+
+        result = monitor.get_unknown_devices(min_hits=0)
+        assert len(result) == 1
+        assert result[0].id == "d1"
+
+        # With include_dismissed.
+        result = monitor.get_unknown_devices(include_dismissed=True, min_hits=0)
+        assert len(result) == 2
+
+    def test_get_unknown_devices_min_hits_default(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        d1 = UnknownDevice(id="d1", fingerprint="fp1", hit_count=1)
+        d2 = UnknownDevice(id="d2", fingerprint="fp2", hit_count=SIGNAL_CLUSTER_THRESHOLD)
+        store.add_device(d1)
+        store.add_device(d2)
+
+        # Default min_hits = SIGNAL_CLUSTER_THRESHOLD.
+        result = monitor.get_unknown_devices()
+        assert len(result) == 1
+        assert result[0].id == "d2"
+
+    def test_get_unknown_device(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        d = UnknownDevice(id="d1", fingerprint="fp1")
+        store.add_device(d)
+
+        assert monitor.get_unknown_device("d1") is d
+        assert monitor.get_unknown_device("nonexistent") is None
+
+    def test_dismiss_device(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        d = UnknownDevice(id="d1", fingerprint="fp1", hit_count=5)
+        store.add_device(d)
+
+        assert monitor.dismiss_device("d1")
+        assert d.dismissed
+        assert store.is_dismissed("fp1")
+
+    def test_dismiss_nonexistent_returns_false(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        assert not monitor.dismiss_device("nope")
+
+    def test_undismiss_device(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        d = UnknownDevice(id="d1", fingerprint="fp1", hit_count=5)
+        store.add_device(d)
+        monitor.dismiss_device("d1")
+        assert monitor.undismiss_device("d1")
+        assert not d.dismissed
+        assert not store.is_dismissed("fp1")
+
+    def test_clear_all(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        store.add_device(UnknownDevice(id="d1", fingerprint="fp1"))
+        monitor.clear_all()
+        assert store.device_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Assign signal
+# ---------------------------------------------------------------------------
+
+
+class TestAssignSignal:
+
+    @pytest.mark.asyncio
+    async def test_assign_creates_command_and_removes_signal(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        hair_store = _make_hair_store()
+        monitor = SignalMonitor(hass, store, hair_store)
+
+        # Set up an unknown device with a signal.
+        sig = UnknownSignal(
+            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            frequency=38000, hit_count=5,
+        )
+        device = UnknownDevice(
+            id="ud1", fingerprint="dev_fp", signals=[sig], hit_count=5,
+        )
+        store.add_device(device)
+
+        # Set up target HAIR device.
+        hair_device = IRDevice(id="hd1", name="TV")
+        hair_store.get_device.return_value = hair_device
+
+        result = await monitor.assign_signal(
+            "ud1", "sig_fp", "hd1", "Power", "custom",
+        )
+        assert result is True
+        assert len(hair_device.commands) == 1
+        assert hair_device.commands[0].name == "Power"
+        assert hair_device.commands[0].protocol == "NEC"
+        assert hair_device.commands[0].code == "0x1234"
+        # Unknown device should be removed (no signals left).
+        assert store.get_device("ud1") is None
+
+    @pytest.mark.asyncio
+    async def test_assign_keeps_device_with_remaining_signals(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        hair_store = _make_hair_store()
+        monitor = SignalMonitor(hass, store, hair_store)
+
+        sig1 = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1234")
+        sig2 = UnknownSignal(fingerprint="sig2", protocol="NEC", code="0x5678")
+        device = UnknownDevice(
+            id="ud1", fingerprint="dev_fp", signals=[sig1, sig2],
+        )
+        store.add_device(device)
+
+        hair_device = IRDevice(id="hd1", name="TV")
+        hair_store.get_device.return_value = hair_device
+
+        result = await monitor.assign_signal(
+            "ud1", "sig1", "hd1", "Power", "custom",
+        )
+        assert result is True
+        # Device should still exist with 1 signal.
+        remaining = store.get_device("ud1")
+        assert remaining is not None
+        assert len(remaining.signals) == 1
+        assert remaining.signals[0].fingerprint == "sig2"
+
+    @pytest.mark.asyncio
+    async def test_assign_unknown_device_not_found(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        result = await monitor.assign_signal(
+            "nope", "sig", "hd1", "Power", "custom",
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_assign_signal_not_found(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        device = UnknownDevice(id="ud1", fingerprint="dev_fp")
+        store.add_device(device)
+
+        result = await monitor.assign_signal(
+            "ud1", "nonexistent", "hd1", "Power", "custom",
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_assign_hair_device_not_found(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        hair_store = _make_hair_store()
+        monitor = SignalMonitor(hass, store, hair_store)
+
+        sig = UnknownSignal(fingerprint="sig_fp", protocol="NEC", code="0x1234")
+        device = UnknownDevice(id="ud1", fingerprint="dev_fp", signals=[sig])
+        store.add_device(device)
+
+        # hair_store.get_device returns None by default.
+        result = await monitor.assign_signal(
+            "ud1", "sig_fp", "hd1", "Power", "custom",
+        )
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Test signal
+# ---------------------------------------------------------------------------
+
+
+class TestTestSignal:
+
+    @pytest.mark.asyncio
+    async def test_sends_decoded_signal(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        sig = UnknownSignal(
+            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+        )
+        device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
+        store.add_device(device)
+
+        result = await monitor.test_signal("sig_fp", "remote.ir_blaster")
+        assert result is True
+        hass.services.async_call.assert_called_once()
+        call_args = hass.services.async_call.call_args
+        assert call_args[0][0] == "remote"
+        assert call_args[0][1] == "send_command"
+        assert call_args[0][2]["entity_id"] == "remote.ir_blaster"
+
+    @pytest.mark.asyncio
+    async def test_signal_not_found_returns_false(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        result = await monitor.test_signal("nonexistent", "remote.ir_blaster")
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Subscriber management
+# ---------------------------------------------------------------------------
+
+
+class TestSubscribers:
+
+    def test_subscribe_and_unsubscribe(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+
+        cb = MagicMock()
+        monitor.subscribe(cb)
+        assert cb in monitor._subscribers
+
+        monitor.unsubscribe(cb)
+        assert cb not in monitor._subscribers
+
+    def test_unsubscribe_nonexistent_safe(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+        monitor.unsubscribe(MagicMock())  # Should not raise.
+
+    def test_duplicate_subscribe_ignored(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+
+        cb = MagicMock()
+        monitor.subscribe(cb)
+        monitor.subscribe(cb)
+        assert monitor._subscribers.count(cb) == 1
+
+    @pytest.mark.asyncio
+    async def test_subscriber_error_does_not_break_processing(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        bad_cb = MagicMock(side_effect=RuntimeError("boom"))
+        good_cb = MagicMock()
+        monitor.subscribe(bad_cb)
+        monitor.subscribe(good_cb)
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        bad_cb.assert_called_once()
+        good_cb.assert_called_once()

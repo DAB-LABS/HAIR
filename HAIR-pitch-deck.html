@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HAIR — Investor Pitch Deck</title>
+<style>
+    :root {
+        --primary: #ff6b35;
+        --secondary: #2d3047;
+        --accent: #f7c59f;
+        --bg: #fdfcf7;
+        --ink: #1a1a2e;
+        --muted: #6b6b7d;
+        --good: #2ecc71;
+        --bad: #e74c3c;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        line-height: 1.6;
+    }
+
+    .deck-container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .slide {
+        background: white;
+        border-radius: 16px;
+        padding: 60px 70px;
+        margin: 30px 0;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+        min-height: 600px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .slide::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 6px;
+        width: 100%;
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+    }
+
+    .slide-number {
+        position: absolute;
+        bottom: 20px;
+        right: 30px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .slide-tag {
+        display: inline-block;
+        background: var(--accent);
+        color: var(--secondary);
+        padding: 4px 14px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 20px;
+    }
+
+    h1 {
+        font-size: 64px;
+        font-weight: 800;
+        line-height: 1.1;
+        margin-bottom: 20px;
+        letter-spacing: -1.5px;
+    }
+
+    h1.mega {
+        font-size: 96px;
+    }
+
+    h2 {
+        font-size: 44px;
+        font-weight: 700;
+        line-height: 1.15;
+        margin-bottom: 24px;
+        letter-spacing: -1px;
+        color: var(--secondary);
+    }
+
+    h3 {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 16px;
+        color: var(--secondary);
+    }
+
+    p { font-size: 18px; margin-bottom: 16px; color: var(--ink); }
+    p.lead { font-size: 22px; color: var(--muted); margin-bottom: 30px; }
+    p.tiny { font-size: 13px; color: var(--muted); }
+
+    .highlight { color: var(--primary); font-weight: 700; }
+    .strikethrough { text-decoration: line-through; color: var(--muted); }
+
+    /* Title slide */
+    .title-slide {
+        text-align: center;
+        background: linear-gradient(135deg, var(--secondary) 0%, #1a1f3a 100%);
+        color: white;
+        min-height: 700px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .title-slide h1 {
+        font-size: 140px;
+        background: linear-gradient(135deg, var(--primary), var(--accent));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 0;
+    }
+
+    .title-slide .subtitle {
+        font-size: 24px;
+        color: var(--accent);
+        font-weight: 500;
+        margin-bottom: 40px;
+        letter-spacing: 2px;
+    }
+
+    .title-slide .tagline {
+        font-size: 32px;
+        color: white;
+        font-weight: 300;
+        font-style: italic;
+        max-width: 700px;
+        margin: 0 auto;
+    }
+
+    .title-slide .footer {
+        position: absolute;
+        bottom: 40px;
+        font-size: 14px;
+        color: rgba(255,255,255,0.5);
+        letter-spacing: 2px;
+    }
+
+    /* Stats grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+        margin: 40px 0;
+    }
+
+    .stat-card {
+        background: linear-gradient(135deg, #fff7f1, #ffeadc);
+        padding: 30px;
+        border-radius: 12px;
+        text-align: center;
+        border: 2px solid var(--accent);
+    }
+
+    .stat-card .number {
+        font-size: 56px;
+        font-weight: 800;
+        color: var(--primary);
+        line-height: 1;
+        letter-spacing: -2px;
+    }
+
+    .stat-card .label {
+        font-size: 14px;
+        color: var(--secondary);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-top: 10px;
+    }
+
+    .stat-card .source {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 6px;
+        font-style: italic;
+    }
+
+    /* Two column layout */
+    .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+        align-items: start;
+        margin-top: 30px;
+    }
+
+    /* Comparison table */
+    .compare-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 30px 0;
+        font-size: 16px;
+    }
+
+    .compare-table th {
+        background: var(--secondary);
+        color: white;
+        padding: 14px 16px;
+        text-align: left;
+        font-weight: 600;
+    }
+
+    .compare-table td {
+        padding: 14px 16px;
+        border-bottom: 1px solid #eee;
+    }
+
+    .compare-table tr:nth-child(even) { background: #fdfcf7; }
+
+    .compare-table .hair-row {
+        background: #fff7f1 !important;
+        font-weight: 600;
+    }
+
+    .compare-table .check { color: var(--good); font-size: 20px; }
+    .compare-table .ex { color: var(--bad); font-size: 20px; }
+
+    /* Big number callout */
+    .mega-stat {
+        text-align: center;
+        padding: 50px 0;
+    }
+
+    .mega-stat .number {
+        font-size: 180px;
+        font-weight: 800;
+        color: var(--primary);
+        line-height: 1;
+        letter-spacing: -8px;
+    }
+
+    .mega-stat .label {
+        font-size: 28px;
+        color: var(--secondary);
+        font-weight: 500;
+        margin-top: 20px;
+    }
+
+    /* Chart */
+    .chart-bar {
+        margin: 16px 0;
+    }
+
+    .chart-bar .row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .chart-bar .name {
+        width: 200px;
+        font-weight: 600;
+        font-size: 16px;
+        color: var(--secondary);
+    }
+
+    .chart-bar .bar-container {
+        flex: 1;
+        height: 36px;
+        background: #f0f0f0;
+        border-radius: 6px;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .chart-bar .bar {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 12px;
+        color: white;
+        font-weight: 700;
+        font-size: 14px;
+        border-radius: 6px;
+    }
+
+    .bar-zwave { background: linear-gradient(90deg, #4a90e2, #357abd); width: 56%; }
+    .bar-zigbee { background: linear-gradient(90deg, #50c878, #3da661); width: 86%; }
+    .bar-bluetooth { background: linear-gradient(90deg, #9b59b6, #7d4493); width: 57%; }
+    .bar-ir { background: linear-gradient(90deg, var(--primary), #e55a2b); width: 100%; }
+
+    /* Quote */
+    .pull-quote {
+        font-size: 28px;
+        font-weight: 300;
+        font-style: italic;
+        color: var(--secondary);
+        border-left: 6px solid var(--primary);
+        padding: 20px 30px;
+        margin: 40px 0;
+        line-height: 1.4;
+    }
+
+    .pull-quote .attribution {
+        display: block;
+        font-size: 16px;
+        color: var(--muted);
+        margin-top: 12px;
+        font-style: normal;
+        font-weight: 600;
+    }
+
+    /* Feature list */
+    .feature-list {
+        list-style: none;
+        margin: 20px 0;
+    }
+
+    .feature-list li {
+        padding: 12px 0 12px 40px;
+        position: relative;
+        font-size: 18px;
+        line-height: 1.5;
+    }
+
+    .feature-list li::before {
+        content: '✂️';
+        position: absolute;
+        left: 0;
+        font-size: 22px;
+    }
+
+    .feature-list.checks li::before { content: '✓'; color: var(--primary); font-weight: 800; font-size: 24px; }
+    .feature-list.bald li::before { content: '🦲'; }
+
+    /* Tagline showcase */
+    .tagline-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin: 30px 0;
+    }
+
+    .tagline-card {
+        background: linear-gradient(135deg, var(--secondary), #1a1f3a);
+        color: white;
+        padding: 30px;
+        border-radius: 12px;
+        position: relative;
+    }
+
+    .tagline-card .quote {
+        font-size: 24px;
+        font-weight: 600;
+        line-height: 1.3;
+        margin-bottom: 12px;
+    }
+
+    .tagline-card .tone {
+        font-size: 12px;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-weight: 600;
+    }
+
+    /* Roadmap */
+    .roadmap {
+        display: flex;
+        gap: 16px;
+        margin: 40px 0;
+    }
+
+    .roadmap-phase {
+        flex: 1;
+        background: white;
+        border: 2px solid var(--accent);
+        border-radius: 12px;
+        padding: 20px;
+        position: relative;
+    }
+
+    .roadmap-phase.now { border-color: var(--primary); background: #fff7f1; }
+    .roadmap-phase .phase-name { font-weight: 800; color: var(--primary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+    .roadmap-phase .phase-time { font-size: 12px; color: var(--muted); margin: 4px 0 12px; }
+    .roadmap-phase ul { list-style: none; font-size: 14px; }
+    .roadmap-phase ul li { padding: 4px 0; }
+
+    /* CTA */
+    .cta-slide {
+        text-align: center;
+        background: linear-gradient(135deg, var(--primary), #e55a2b);
+        color: white;
+    }
+
+    .cta-slide h1 { color: white; }
+    .cta-slide p { color: rgba(255,255,255,0.95); font-size: 22px; }
+
+    /* Disclaimer */
+    .disclaimer {
+        background: #fffbe8;
+        border: 2px dashed #d4a017;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 30px 0;
+        font-size: 14px;
+    }
+
+    .disclaimer strong { color: #b8860b; }
+
+    /* Print friendly */
+    @media print {
+        body { background: white; }
+        .slide { page-break-after: always; box-shadow: none; }
+    }
+</style>
+</head>
+<body>
+
+<div class="deck-container">
+
+<!-- SLIDE 1: TITLE -->
+<section class="slide title-slide">
+    <div class="subtitle">SERIES SEED PITCH · CONFIDENTIAL · DEFINITELY NOT A SPOOF</div>
+    <h1>HAIR</h1>
+    <p class="tagline">Home Assistant gets a stylish new do.<br>Finally untangling the mess of IR.</p>
+    <div class="footer">DAVID BAILEY · MAY 2026</div>
+</section>
+
+<!-- SLIDE 2: THE PROBLEM -->
+<section class="slide">
+    <span class="slide-tag">The Problem</span>
+    <h2>Home Assistant has a <span class="highlight">tangled, knotted</span> IR situation.</h2>
+    <p class="lead">For years, IR control in HA has been the smart home equivalent of bedhead — functional, but nobody wants to be seen with it.</p>
+
+    <div class="two-col">
+        <div>
+            <h3>The current IR experience</h3>
+            <ul class="feature-list bald">
+                <li>SmartIR requires hand-editing JSON files</li>
+                <li>Broadlink learning is a 7-step Developer Tools dance</li>
+                <li>ESPHome IR demands YAML + firmware flashes</li>
+                <li>SwitchBot/Tuya force you to a cloud you don't trust</li>
+                <li>Logitech Harmony? <span class="strikethrough">Discontinued.</span></li>
+            </ul>
+        </div>
+        <div>
+            <h3>The result</h3>
+            <p>120K+ HA users with IR-capable hardware.</p>
+            <p>Most never finish the setup.</p>
+            <p>The ones who do, never want to do it again.</p>
+            <p style="margin-top: 24px; font-size: 22px; color: var(--primary); font-weight: 700;">It's a bad hair day. Every day.</p>
+        </div>
+    </div>
+    <div class="slide-number">02</div>
+</section>
+
+<!-- SLIDE 3: THE SHIFT -->
+<section class="slide">
+    <span class="slide-tag">The Inflection Point</span>
+    <h2>April 2026: Home Assistant gave IR <span class="highlight">a fresh start.</span></h2>
+    <p class="lead">HA 2026.4 shipped a native infrared entity platform — the first official IR abstraction in the project's history.</p>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="number">2026.4</div>
+            <div class="label">Native IR Platform</div>
+            <div class="source">Released April 1, 2026</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">2026.5</div>
+            <div class="label">Broadlink as emitter</div>
+            <div class="source">Unlocked 75K existing users</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">0</div>
+            <div class="label">Admin UI provided</div>
+            <div class="source">That's the gap</div>
+        </div>
+    </div>
+
+    <div class="pull-quote">
+        HA built the plumbing. Nobody built the salon.
+        <span class="attribution">— Our entire thesis, in one sentence</span>
+    </div>
+    <div class="slide-number">03</div>
+</section>
+
+<!-- SLIDE 4: THE SOLUTION -->
+<section class="slide">
+    <span class="slide-tag">The Solution</span>
+    <h2>Meet HAIR. <span class="highlight">Home Assistant IR, restyled.</span></h2>
+    <p class="lead">A third-party HA integration that makes capturing and managing IR commands feel <em>magical</em>, not technical.</p>
+
+    <div class="two-col">
+        <div>
+            <h3>What we cut out</h3>
+            <ul class="feature-list">
+                <li>YAML files</li>
+                <li>JSON device codes</li>
+                <li>Service-call gymnastics</li>
+                <li>Cloud dependencies</li>
+                <li>Hardware lock-in</li>
+            </ul>
+        </div>
+        <div>
+            <h3>What we style in</h3>
+            <ul class="feature-list checks">
+                <li>2-click capture flow with instant test</li>
+                <li>Guided checklist per device type</li>
+                <li>Auto-mapping to HA entities</li>
+                <li>Works with any IR proxy</li>
+                <li>100% local. 100% UI-driven.</li>
+            </ul>
+        </div>
+    </div>
+
+    <p style="text-align: center; font-size: 24px; margin-top: 30px; font-weight: 700; color: var(--secondary);">
+        Setup time: <span class="strikethrough">7 steps</span> → <span class="highlight">under 60 seconds</span>
+    </p>
+    <div class="slide-number">04</div>
+</section>
+
+<!-- SLIDE 5: MARKET SIZE -->
+<section class="slide">
+    <span class="slide-tag">Market Size</span>
+    <h2>The IR market in HA is <span class="highlight">bigger than you think.</span> Way bigger.</h2>
+
+    <div class="mega-stat">
+        <div class="number">~175K</div>
+        <div class="label">IR-capable Home Assistant installations</div>
+    </div>
+
+    <table class="compare-table">
+        <thead>
+            <tr><th>Source</th><th>Analytics Users</th><th>Total (÷ 20% opt-in)</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Broadlink integration</td><td>~15,000 (6.1%)</td><td>~75,000</td></tr>
+            <tr><td>ESPHome (IR-capable subset)</td><td>~40,000</td><td>~200,000</td></tr>
+            <tr><td>SmartIR (HACS)</td><td>~2,000</td><td>~10,000</td></tr>
+            <tr class="hair-row"><td><strong>HAIR addressable market</strong></td><td><strong>~57,000</strong></td><td><strong>~175,000</strong></td></tr>
+        </tbody>
+    </table>
+
+    <p class="tiny">Sources: Home Assistant Analytics (analytics.home-assistant.io), HACS install reports, GitHub repository statistics. ~1M total active HA installations as of 2026; ~20% opt into analytics.</p>
+    <div class="slide-number">05</div>
+</section>
+
+<!-- SLIDE 6: THE HYPOTHESIS -->
+<section class="slide">
+    <span class="slide-tag">The Big Hypothesis</span>
+    <h2>IR may be <span class="highlight">larger than Z-Wave, Zigbee, or Bluetooth</span> within HA.</h2>
+    <p class="lead">Hot take. Real data.</p>
+
+    <div class="chart-bar">
+        <div class="row">
+            <div class="name">Z-Wave</div>
+            <div class="bar-container"><div class="bar bar-zwave">~97K (9.7%)</div></div>
+        </div>
+        <div class="row">
+            <div class="name">Bluetooth</div>
+            <div class="bar-container"><div class="bar bar-bluetooth">~100K (est.)</div></div>
+        </div>
+        <div class="row">
+            <div class="name">Zigbee (ZHA)</div>
+            <div class="bar-container"><div class="bar bar-zigbee">~150K (15%)</div></div>
+        </div>
+        <div class="row">
+            <div class="name">IR (potential)</div>
+            <div class="bar-container"><div class="bar bar-ir">~125-175K</div></div>
+        </div>
+    </div>
+
+    <div class="two-col" style="margin-top: 40px;">
+        <div>
+            <h3>Why IR wins on paper</h3>
+            <p>• IR blaster: $5–25 vs. Z-Wave stick: $35–50</p>
+            <p>• 5–10 IR devices per household already exist</p>
+            <p>• Mini-splits: 3M+ sold in US since 2022</p>
+            <p>• Zero device replacement required</p>
+        </div>
+        <div>
+            <h3>Why it hasn't yet</h3>
+            <p>• HA treated IR as second-class until 2026.4</p>
+            <p>• Setup UX has been brutal</p>
+            <p>• No native admin tooling existed</p>
+            <p style="color: var(--primary); font-weight: 700; margin-top: 16px;">→ HAIR removes every barrier</p>
+        </div>
+    </div>
+    <div class="slide-number">06</div>
+</section>
+
+<!-- SLIDE 7: THE CLIMATE ANGLE -->
+<section class="slide">
+    <span class="slide-tag">The Hidden Megatrend</span>
+    <h2>Climate control is the <span class="highlight">root</span> of it all.</h2>
+    <p class="lead">Because nobody puts a Zigbee thermostat on a mini-split.</p>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="number">88%</div>
+            <div class="label">US households with AC</div>
+            <div class="source">EIA RECS, 2020</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">3M+</div>
+            <div class="label">Mini-splits sold (US, since 2022)</div>
+            <div class="source">Industry data</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">15%+</div>
+            <div class="label">Annual mini-split growth</div>
+            <div class="source">Single-zone segment</div>
+        </div>
+    </div>
+
+    <div class="pull-quote">
+        Every mini-split ships with an IR remote. Every mini-split owner who runs HA wants thermostat scheduling, automation, and energy optimization. There is currently no good way to give them that.
+        <span class="attribution">— The market opportunity, summarized</span>
+    </div>
+    <div class="slide-number">07</div>
+</section>
+
+<!-- SLIDE 8: COMPETITIVE LANDSCAPE -->
+<section class="slide">
+    <span class="slide-tag">Competition</span>
+    <h2>The competition is having a <span class="highlight">bad hair day</span>.</h2>
+
+    <table class="compare-table">
+        <thead>
+            <tr>
+                <th>Solution</th>
+                <th>Local-First</th>
+                <th>HA-Native</th>
+                <th>UI-Driven</th>
+                <th>Hardware-Agnostic</th>
+                <th>UX</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>SmartIR</strong></td>
+                <td class="check">✓</td>
+                <td class="ex">✗</td>
+                <td class="ex">✗ YAML</td>
+                <td class="ex">✗</td>
+                <td>Brutal</td>
+            </tr>
+            <tr>
+                <td><strong>Broadlink App</strong></td>
+                <td class="ex">✗ Cloud</td>
+                <td class="ex">✗</td>
+                <td class="check">✓</td>
+                <td class="ex">✗ Broadlink only</td>
+                <td>Medium</td>
+            </tr>
+            <tr>
+                <td><strong>SwitchBot</strong></td>
+                <td class="ex">✗ Cloud</td>
+                <td class="ex">✗</td>
+                <td class="check">✓</td>
+                <td class="ex">✗ SwitchBot only</td>
+                <td>Polished</td>
+            </tr>
+            <tr>
+                <td><strong>Tuya / Smart Life</strong></td>
+                <td class="ex">✗ Cloud</td>
+                <td class="ex">✗</td>
+                <td class="check">✓</td>
+                <td class="ex">✗ Tuya only</td>
+                <td>Mediocre</td>
+            </tr>
+            <tr>
+                <td><strong>Logitech Harmony</strong></td>
+                <td class="ex">RIP</td>
+                <td class="ex">RIP</td>
+                <td class="ex">RIP</td>
+                <td class="ex">RIP</td>
+                <td>Was great</td>
+            </tr>
+            <tr class="hair-row">
+                <td><strong>HAIR 💇</strong></td>
+                <td class="check">✓</td>
+                <td class="check">✓</td>
+                <td class="check">✓</td>
+                <td class="check">✓</td>
+                <td><strong>Magical</strong></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p style="margin-top: 30px; text-align: center; font-size: 22px; color: var(--secondary); font-weight: 600;">
+        The corner we occupy is <span class="highlight">empty</span>. And growing.
+    </p>
+    <div class="slide-number">08</div>
+</section>
+
+<!-- SLIDE 9: THE MAGIC MOMENT -->
+<section class="slide">
+    <span class="slide-tag">The Product</span>
+    <h2>The capture flow is the <span class="highlight">cut</span>.</h2>
+    <p class="lead">Everything else is conditioner. The capture experience is the styling that makes users stay.</p>
+
+    <div style="background: #fdfcf7; border-radius: 12px; padding: 30px; margin: 20px 0; border: 2px solid var(--accent);">
+        <h3 style="color: var(--primary);">Old way (e.g., Broadlink):</h3>
+        <ol style="padding-left: 20px; margin-top: 12px;">
+            <li>Open Developer Tools</li>
+            <li>Call <code>broadlink.learn</code> service</li>
+            <li>Point remote at Broadlink</li>
+            <li>Press button</li>
+            <li>Wait for service call return</li>
+            <li>Copy raw data</li>
+            <li>Paste into YAML or SmartIR JSON</li>
+        </ol>
+        <p style="margin-top: 16px; color: var(--bad); font-weight: 700;">7 steps. 3 require dev knowledge. 0 are fun.</p>
+    </div>
+
+    <div style="background: linear-gradient(135deg, #fff7f1, #ffeadc); border-radius: 12px; padding: 30px; border: 2px solid var(--primary);">
+        <h3 style="color: var(--primary);">HAIR way:</h3>
+        <ol style="padding-left: 20px; margin-top: 12px;">
+            <li>Click "Learn" on the suggested command</li>
+            <li>Press the button on your remote</li>
+            <li>Click "Save & Learn Next"</li>
+        </ol>
+        <p style="margin-top: 16px; color: var(--good); font-weight: 700;">3 steps. 0 require dev knowledge. 100% delight.</p>
+    </div>
+    <div class="slide-number">09</div>
+</section>
+
+<!-- SLIDE 10: TAGLINES -->
+<section class="slide">
+    <span class="slide-tag">Brand Voice</span>
+    <h2>Suggested taglines & messaging</h2>
+    <p class="lead">Pick your part. (We have several to choose from.)</p>
+
+    <div class="tagline-grid">
+        <div class="tagline-card">
+            <div class="tone">Hero — confident</div>
+            <div class="quote">"Home Assistant IR, finally styled."</div>
+        </div>
+        <div class="tagline-card">
+            <div class="tone">Witty — playful</div>
+            <div class="quote">"Untangle your remote drawer."</div>
+        </div>
+        <div class="tagline-card">
+            <div class="tone">Functional — clear</div>
+            <div class="quote">"IR command capture. In one cut."</div>
+        </div>
+        <div class="tagline-card">
+            <div class="tone">Cheeky — defiant</div>
+            <div class="quote">"Because YAML is a bad look on anyone."</div>
+        </div>
+        <div class="tagline-card">
+            <div class="tone">Aspirational</div>
+            <div class="quote">"Every remote, in the right place."</div>
+        </div>
+        <div class="tagline-card">
+            <div class="tone">Technical-flex</div>
+            <div class="quote">"Built on HA's native IR platform.<br>Made for everyone else."</div>
+        </div>
+        <div class="tagline-card">
+            <div class="tone">Migration angle</div>
+            <div class="quote">"Goodbye, JSON. Hello, magic."</div>
+        </div>
+        <div class="tagline-card">
+            <div class="tone">The one-liner</div>
+            <div class="quote">"Point. Press. Done."</div>
+        </div>
+    </div>
+    <div class="slide-number">10</div>
+</section>
+
+<!-- SLIDE 11: BRAND MESSAGING -->
+<section class="slide">
+    <span class="slide-tag">Brand Messaging</span>
+    <h2>Voice & tone — the <span class="highlight">parted from the middle</span> approach.</h2>
+
+    <div class="two-col">
+        <div>
+            <h3>What we sound like</h3>
+            <p>• Confident but warm</p>
+            <p>• Technical when it matters, plain when it doesn't</p>
+            <p>• Pun-curious, never pun-drunk</p>
+            <p>• Honest about IR's limits (one-directional, no state feedback)</p>
+            <p>• Anti-cloud, pro-local, pro-user</p>
+        </div>
+        <div>
+            <h3>Pun budget</h3>
+            <p>The HAIR puns are seasoning, not the meal. Reserve them for:</p>
+            <p>✂️ Marketing site hero copy</p>
+            <p>✂️ Release announcement headlines</p>
+            <p>✂️ HACS listing description</p>
+            <p>✂️ Easter eggs in the empty state</p>
+            <p style="margin-top: 16px; color: var(--bad); font-weight: 700;">Do NOT use puns in:</p>
+            <p>Error messages. Setup flow. Documentation.</p>
+        </div>
+    </div>
+
+    <div class="pull-quote">
+        Make the marketing fun. Make the product invisible. Users should feel clever for finding HAIR — not annoyed by us reminding them of the name every screen.
+        <span class="attribution">— Brand principle #1</span>
+    </div>
+    <div class="slide-number">11</div>
+</section>
+
+<!-- SLIDE 12: GO TO MARKET -->
+<section class="slide">
+    <span class="slide-tag">Go-To-Market</span>
+    <h2>The <span class="highlight">growth roadmap.</span></h2>
+
+    <div class="roadmap">
+        <div class="roadmap-phase now">
+            <div class="phase-name">Phase 0</div>
+            <div class="phase-time">Weeks 1-2</div>
+            <ul>
+                <li>Capture core</li>
+                <li>Validate UX with hardware</li>
+                <li>No public release</li>
+            </ul>
+        </div>
+        <div class="roadmap-phase">
+            <div class="phase-name">Phase 1</div>
+            <div class="phase-time">Weeks 3-6</div>
+            <ul>
+                <li>Admin panel</li>
+                <li>Remote entity</li>
+                <li><strong>HACS launch</strong></li>
+            </ul>
+        </div>
+        <div class="roadmap-phase">
+            <div class="phase-name">Phase 2</div>
+            <div class="phase-time">Weeks 7-10</div>
+            <ul>
+                <li>Media player</li>
+                <li>Climate (preset)</li>
+                <li>Fan entities</li>
+            </ul>
+        </div>
+        <div class="roadmap-phase">
+            <div class="phase-name">Phase 2.5</div>
+            <div class="phase-time">Weeks 11-12</div>
+            <ul>
+                <li>SmartIR import</li>
+                <li>Docs + GIFs</li>
+                <li>Community push</li>
+            </ul>
+        </div>
+    </div>
+
+    <h3 style="margin-top: 30px;">Targets</h3>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="number">2K</div>
+            <div class="label">HACS installs · Month 1</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">15K</div>
+            <div class="label">HACS installs · Month 6</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">30-50K</div>
+            <div class="label">HACS installs · Year 1</div>
+        </div>
+    </div>
+    <div class="slide-number">12</div>
+</section>
+
+<!-- SLIDE 13: THE ASK / CTA -->
+<section class="slide cta-slide">
+    <span class="slide-tag" style="background: white; color: var(--primary);">The Ask</span>
+    <h1 class="mega">Let's give HA<br>a fresh cut.</h1>
+    <p style="margin-top: 30px; font-size: 24px;">No funding required. Just feedback, hardware testing,<br>and a willingness to never say "JSON" again.</p>
+
+    <div style="margin-top: 60px; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
+        <div style="background: rgba(255,255,255,0.15); padding: 20px 30px; border-radius: 8px; min-width: 200px;">
+            <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.8;">Phase 0 starts</div>
+            <div style="font-size: 28px; font-weight: 700; margin-top: 8px;">Now</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.15); padding: 20px 30px; border-radius: 8px; min-width: 200px;">
+            <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.8;">Phase 1 ships</div>
+            <div style="font-size: 28px; font-weight: 700; margin-top: 8px;">6 weeks</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.15); padding: 20px 30px; border-radius: 8px; min-width: 200px;">
+            <div style="font-size: 14px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.8;">Repo</div>
+            <div style="font-size: 28px; font-weight: 700; margin-top: 8px;">github.com/dbailey/hair</div>
+        </div>
+    </div>
+
+    <p style="margin-top: 80px; font-size: 18px; opacity: 0.85; font-style: italic;">"Because the only thing worse than bad hair is bad infrared." — David</p>
+</section>
+
+<!-- DISCLAIMER -->
+<section class="slide" style="min-height: auto;">
+    <span class="slide-tag" style="background: #fffbe8; color: #b8860b;">Disclaimer</span>
+    <h3 style="color: var(--secondary);">Real data. Real puns. Definitely not a real Series Seed.</h3>
+    <div class="disclaimer">
+        <p><strong>Note for the lawyers in the room:</strong></p>
+        <p style="margin-top: 12px;">This is a spoof investor deck written for fun. HAIR is a real planned open-source HA integration, but it's not seeking investment, has no valuation, and is not a company. All market data shown is sourced from real Home Assistant Analytics (analytics.home-assistant.io), the EIA Residential Energy Consumption Survey, public GitHub repositories, and industry reports cited in the project research docs (<code>docs/internal/research/</code>). All figures are estimates based on opt-in analytics — actual numbers may be higher.</p>
+        <p style="margin-top: 12px;">No hair was harmed in the making of this deck. The puns, on the other hand, took quite a beating.</p>
+    </div>
+    <p class="tiny" style="margin-top: 20px;">© 2026 David Bailey · For internal/community use only · MIT License (eventual) · Do not redistribute as financial advice, hairstyling advice, or anything in between.</p>
+</section>
+
+</div>
+
+</body>
+</html>

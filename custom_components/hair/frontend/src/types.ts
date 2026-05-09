@@ -1,0 +1,118 @@
+/**
+ * Shared TypeScript type definitions for the HAIR admin panel.
+ *
+ * Mirrors the Python dataclasses in custom_components/hair/models.py.
+ * Field names use snake_case to match the WebSocket payloads emitted
+ * by websocket_api.py.
+ */
+
+export type DeviceTypeId =
+    | "tv"
+    | "ac"
+    | "fan"
+    | "soundbar"
+    | "projector"
+    | "other";
+
+export type CommandCategoryId =
+    | "power"
+    | "volume"
+    | "channel"
+    | "navigation"
+    | "mode"
+    | "temperature"
+    | "fan_speed"
+    | "custom";
+
+export type CommandSourceId = "captured" | "database" | "imported";
+
+export type CaptureProviderTypeId = "esphome" | "broadlink" | "mock";
+
+export interface IRCommand {
+    id: string;
+    name: string;
+    category: CommandCategoryId;
+    source: CommandSourceId;
+    protocol: string | null;
+    code: string | null;
+    raw_timings?: number[] | null;
+    frequency: number;
+    repeat_count: number;
+    created_at: string;
+}
+
+export interface CommandTemplate {
+    name: string;
+    category: CommandCategoryId;
+    essential: boolean;
+}
+
+export interface EntityConfig {
+    platform: string;
+    command_mapping: Record<string, string>;
+    temperature_presets?: number[] | null;
+    hvac_modes?: string[] | null;
+    fan_modes?: string[] | null;
+    swing_modes?: string[] | null;
+}
+
+export interface IRDevice {
+    id: string;
+    name: string;
+    device_type: DeviceTypeId;
+    manufacturer: string | null;
+    model: string | null;
+    emitter_entity_id: string;
+    capture_device_id: string | null;
+    capture_provider_type: CaptureProviderTypeId;
+    commands: IRCommand[];
+    entity_config: EntityConfig;
+    database_id: string | null;
+    created_at: string;
+    updated_at: string;
+    command_count: number;
+}
+
+export interface DeviceSummary {
+    id: string;
+    name: string;
+    device_type: DeviceTypeId;
+    manufacturer: string | null;
+    model: string | null;
+    emitter_entity_id: string;
+    command_count: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CaptureProviderInfo {
+    type: CaptureProviderTypeId;
+    device_id: string;
+    name: string;
+    config_entry_id: string;
+}
+
+export interface CaptureResult {
+    protocol: string | null;
+    code: string | null;
+    raw_timings: number[];
+    frequency: number;
+    confidence: number;
+}
+
+export type CaptureEvent =
+    | { type: "capture_listening" }
+    | {
+          type: "capture_received";
+          result: CaptureResult;
+          duplicate_of?: { id: string; name: string };
+      }
+    | { type: "capture_timeout" }
+    | { type: "capture_error"; error: string }
+    | { type: "capture_cancelled" };
+
+export interface CaptureStartResponse {
+    session_id: string;
+    device_id: string;
+    timeout: number;
+}

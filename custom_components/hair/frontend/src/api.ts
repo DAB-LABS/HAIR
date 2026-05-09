@@ -1,0 +1,172 @@
+/**
+ * Thin wrapper around HA's WebSocket API for the HAIR backend.
+ *
+ * The HA frontend exposes a connection on the panel host element via
+ * the `hass` property; we use `hass.connection.sendMessagePromise` for
+ * one-shot commands and `hass.connection.subscribeMessage` for
+ * streaming capture events.
+ */
+import type {
+    CaptureEvent,
+    CaptureProviderInfo,
+    CaptureStartResponse,
+    CommandTemplate,
+    DeviceSummary,
+    DeviceTypeId,
+    IRCommand,
+    IRDevice,
+} from "./types.js";
+
+interface HaConnection {
+    sendMessagePromise<T = unknown>(message: Record<string, unknown>): Promise<T>;
+    subscribeMessage<T = unknown>(
+        callback: (message: T) => void,
+        message: Record<string, unknown>,
+    ): Promise<() => Promise<void>>;
+}
+
+interface HassLike {
+    connection: HaConnection;
+}
+
+export class HairApi {
+    constructor(private readonly hass: HassLike) {}
+
+    listDevices(): Promise<DeviceSummary[]> {
+        return this.hass.connection.sendMessagePromise<DeviceSummary[]>({
+            type: "hair/devices",
+        });
+    }
+
+    getDevice(deviceId: string): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/device",
+            device_id: deviceId,
+        });
+    }
+
+    createDevice(payload: {
+        name: string;
+        device_type: DeviceTypeId;
+        emitter_entity_id: string;
+        manufacturer?: string | null;
+        model?: string | null;
+        capture_device_id?: string | null;
+        capture_provider_type?: string;
+    }): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/device/create",
+            ...payload,
+        });
+    }
+
+    updateDevice(
+        deviceId: string,
+        patch: Partial<{
+            name: string;
+            manufacturer: string | null;
+            model: string | null;
+            emitter_entity_id: string;
+        }>,
+    ): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/device/update",
+            device_id: deviceId,
+            ...patch,
+        });
+    }
+
+    deleteDevice(deviceId: string): Promise<{ removed: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
+            type: "hair/device/delete",
+            device_id: deviceId,
+        });
+    }
+
+    deleteCommand(deviceId: string, commandId: string): Promise<{ removed: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
+            type: "hair/command/delete",
+            device_id: deviceId,
+            command_id: commandId,
+        });
+    }
+
+    sendCommand(deviceId: string, commandId: string): Promise<{ sent: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ sent: boolean }>({
+            type: "hair/command/send",
+            device_id: deviceId,
+            command_id: commandId,
+        });
+    }
+
+    listTemplates(deviceType: DeviceTypeId): Promise<CommandTemplate[]> {
+        return this.hass.connection.sendMessagePromise<CommandTemplate[]>({
+            type: "hair/templates",
+            device_type: deviceType,
+        });
+    }
+
+    listCaptureProviders(): Promise<CaptureProviderInfo[]> {
+        return this.hass.connection.sendMessagePromise<CaptureProviderInfo[]>({
+            type: "hair/capture/providers",
+        });
+    }
+
+    /**
+     * Start a capture session and stream events to ``onEvent``.
+     * The returned promise resolves with the session id once the server
+     * acknowledges; the unsubscribe function should be called when the
+     * caller is done listening.
+     */
+    async startCapture(
+        deviceId: string,
+        timeout: number,
+        onEvent: (event: CaptureEvent) => void,
+    ): Promise<{ session: CaptureStartResponse; unsubscribe: () => Promise<void> }> {
+        let session: CaptureStartResponse | null = null;
+
+        const unsubscribe = await this.hass.connection.subscribeMessage<
+            CaptureEvent | CaptureStartResponse
+        >(
+            (message) => {
+                if ((message as CaptureEvent).type?.startsWith("capture_")) {
+                    onEvent(message as CaptureEvent);
+                } else if ((message as CaptureStartResponse).session_id) {
+                    session = message as CaptureStartResponse;
+                }
+            },
+            {
+                type: "hair/capture/start",
+                device_id: deviceId,
+                timeout,
+            },
+        );
+
+        // Allow microtask flush so the synchronous result message is
+        // delivered before we resolve.
+        await Promise.resolve();
+        if (session === null) {
+            throw new Error("Capture session did not start");
+        }
+        return { session, unsubscribe };
+    }
+
+    cancelCapture(sessionId: string): Promise<{ cancelled: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ cancelled: boolean }>({
+            type: "hair/capture/cancel",
+            session_id: sessionId,
+        });
+    }
+
+    saveCapturedCommand(payload: {
+        device_id: string;
+        session_id: string;
+        command_name: string;
+        command_category?: string;
+    }): Promise<IRCommand> {
+        return this.hass.connection.sendMessagePromise<IRCommand>({
+            type: "hair/capture/save",
+            ...payload,
+        });
+    }
+}

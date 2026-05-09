@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m compileall -q custom_components/hair)",
+      "Bash(python3 -c \"import json; [json.load\\(open\\(p\\)\\) for p in ['custom_components/hair/manifest.json','custom_components/hair/strings.json','custom_components/hair/icons.json','custom_components/hair/translations/en.json']]; print\\('json OK'\\)\")",
+      "Bash(python3 -m compileall -q custom_components/hair/tests)"
+    ]
+  }
+}

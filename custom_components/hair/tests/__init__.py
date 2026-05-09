@@ -1,0 +1,1 @@
+"""HAIR integration test suite."""

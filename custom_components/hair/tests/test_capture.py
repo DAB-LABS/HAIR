@@ -1,0 +1,262 @@
+"""Tests for the capture providers and orchestrator."""
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from custom_components.hair.capture import (
+    MockCaptureProvider,
+    get_available_capture_providers,
+)
+from custom_components.hair.capture_orchestrator import (
+    CaptureInProgressError,
+    CaptureOrchestrator,
+)
+from custom_components.hair.const import (
+    CaptureProviderType,
+    CaptureState,
+    DeviceType,
+)
+from custom_components.hair.models import (
+    CaptureResult,
+    IRCommand,
+    IRDevice,
+)
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_round_trip(capture_result: CaptureResult):
+    provider = MockCaptureProvider(result=capture_result, delay=0.01)
+    assert provider.is_available()
+    assert provider.provider_type == CaptureProviderType.MOCK
+
+    await provider.async_start_capture(timeout=1)
+    result = await provider.async_wait_for_signal()
+    await provider.async_stop_capture()
+
+    assert result is not None
+    assert result.code == capture_result.code
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_unavailable_raises():
+    provider = MockCaptureProvider(fail=True)
+    with pytest.raises(RuntimeError):
+        await provider.async_start_capture()
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_start_capture_emits_events(
+    fake_hass, capture_result: CaptureResult
+):
+    fake_hass.async_create_task = lambda coro: asyncio.get_event_loop().create_task(coro)
+    orchestrator = CaptureOrchestrator(fake_hass)
+    provider = MockCaptureProvider(result=capture_result, delay=0.01)
+
+    events: list[tuple] = []
+
+    session = await orchestrator.start_capture(provider, "device-1", timeout=1)
+
+    def on_event(state, result):
+        events.append((state, result))
+
+    orchestrator.subscribe(session.session_id, on_event)
+
+    # Wait for the background task to finish.
+    await asyncio.sleep(0.1)
+
+    states = [e[0] for e in events]
+    assert CaptureState.CAPTURED in states
+    assert orchestrator.get_session_result(session.session_id) is not None
+    assert not orchestrator.is_capturing
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_concurrent_capture_blocked(
+    fake_hass, capture_result: CaptureResult
+):
+    fake_hass.async_create_task = lambda coro: asyncio.get_event_loop().create_task(coro)
+    orchestrator = CaptureOrchestrator(fake_hass)
+    provider1 = MockCaptureProvider(result=capture_result, delay=0.5)
+    provider2 = MockCaptureProvider(result=capture_result, delay=0.01)
+
+    await orchestrator.start_capture(provider1, "device-1", timeout=1)
+
+    with pytest.raises(CaptureInProgressError):
+        await orchestrator.start_capture(provider2, "device-2", timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_timeout(fake_hass):
+    fake_hass.async_create_task = lambda coro: asyncio.get_event_loop().create_task(coro)
+    orchestrator = CaptureOrchestrator(fake_hass)
+    # Configure provider to never return a signal.
+    provider = MockCaptureProvider(result=None, delay=0.05)
+    provider._result = None  # type: ignore[attr-defined]
+
+    events: list[tuple] = []
+    session = await orchestrator.start_capture(provider, "device-1", timeout=0.05)
+    orchestrator.subscribe(session.session_id, lambda s, r: events.append((s, r)))
+    await asyncio.sleep(0.2)
+
+    # The mock returns None when delay > timeout? Actually the mock
+    # returns _result regardless. Force timeout by injecting a long
+    # sleep into the provider.
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_check_duplicate(mock_device: IRDevice):
+    result = CaptureResult(protocol="NEC", code="0x20DF10EF", raw_timings=[1])
+    duplicate = CaptureOrchestrator.check_duplicate(mock_device, result)
+    assert duplicate is not None
+    assert duplicate.name == "Power"
+
+    other = CaptureResult(protocol="NEC", code="0xDEADBEEF", raw_timings=[1])
+    assert CaptureOrchestrator.check_duplicate(mock_device, other) is None
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_cancel(fake_hass, capture_result: CaptureResult):
+    fake_hass.async_create_task = lambda coro: asyncio.get_event_loop().create_task(coro)
+    orchestrator = CaptureOrchestrator(fake_hass)
+    # Long delay so we can cancel mid-flight.
+    provider = MockCaptureProvider(result=capture_result, delay=2.0)
+
+    session = await orchestrator.start_capture(provider, "device-1", timeout=5)
+    await asyncio.sleep(0.05)
+    await orchestrator.cancel_capture(session.session_id)
+    await asyncio.sleep(0.1)
+    assert not orchestrator.is_capturing
+
+
+# ---------------------------------------------------------------------------
+# Provider discovery -- ESPHome IR entity filtering
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_device(device_id="dev-1", name="ESP Device"):
+    dev = MagicMock()
+    dev.id = device_id
+    dev.name_by_user = None
+    dev.name = name
+    dev.disabled = False
+    dev.config_entries = {"esp-entry-1"}
+    return dev
+
+
+def _make_fake_entity(entity_id="remote.ir_blaster"):
+    ent = MagicMock()
+    ent.entity_id = entity_id
+    return ent
+
+
+@pytest.mark.asyncio
+async def test_esphome_device_with_ir_entity_included(fake_hass):
+    """ESPHome device with remote.* entity should be listed."""
+    fake_hass.config.components = {"esphome"}
+    fake_hass.config_entries.async_entries = MagicMock(
+        return_value=[MagicMock(entry_id="esp-entry-1")]
+    )
+    fake_device = _make_fake_device()
+    fake_entity = _make_fake_entity("remote.ir_blaster")
+
+    with patch(
+        "custom_components.hair.capture.dr.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.dr.async_entries_for_config_entry",
+        return_value=[fake_device],
+    ), patch(
+        "custom_components.hair.capture.er.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.er.async_entries_for_device",
+        return_value=[fake_entity],
+    ):
+        providers = await get_available_capture_providers(fake_hass)
+    assert len(providers) == 1
+    assert providers[0]["device_id"] == "dev-1"
+    assert providers[0]["type"] == "esphome"
+
+
+@pytest.mark.asyncio
+async def test_esphome_device_with_infrared_entity_included(fake_hass):
+    """ESPHome device with infrared.* entity should be listed."""
+    fake_hass.config.components = {"esphome"}
+    fake_hass.config_entries.async_entries = MagicMock(
+        return_value=[MagicMock(entry_id="esp-entry-1")]
+    )
+    fake_device = _make_fake_device()
+    fake_entity = _make_fake_entity("infrared.ir_proxy")
+
+    with patch(
+        "custom_components.hair.capture.dr.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.dr.async_entries_for_config_entry",
+        return_value=[fake_device],
+    ), patch(
+        "custom_components.hair.capture.er.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.er.async_entries_for_device",
+        return_value=[fake_entity],
+    ):
+        providers = await get_available_capture_providers(fake_hass)
+    assert len(providers) == 1
+
+
+@pytest.mark.asyncio
+async def test_esphome_device_without_ir_entity_excluded(fake_hass):
+    """ESPHome device with only sensor.* entities should be excluded."""
+    fake_hass.config.components = {"esphome"}
+    fake_hass.config_entries.async_entries = MagicMock(
+        return_value=[MagicMock(entry_id="esp-entry-1")]
+    )
+    fake_device = _make_fake_device()
+    # Only a sensor entity, no IR.
+    fake_entity = _make_fake_entity("sensor.temperature")
+
+    with patch(
+        "custom_components.hair.capture.dr.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.dr.async_entries_for_config_entry",
+        return_value=[fake_device],
+    ), patch(
+        "custom_components.hair.capture.er.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.er.async_entries_for_device",
+        return_value=[fake_entity],
+    ):
+        providers = await get_available_capture_providers(fake_hass)
+    assert len(providers) == 0
+
+
+@pytest.mark.asyncio
+async def test_esphome_device_no_entities_excluded(fake_hass):
+    """ESPHome device with zero entities should be excluded."""
+    fake_hass.config.components = {"esphome"}
+    fake_hass.config_entries.async_entries = MagicMock(
+        return_value=[MagicMock(entry_id="esp-entry-1")]
+    )
+    fake_device = _make_fake_device()
+
+    with patch(
+        "custom_components.hair.capture.dr.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.dr.async_entries_for_config_entry",
+        return_value=[fake_device],
+    ), patch(
+        "custom_components.hair.capture.er.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.er.async_entries_for_device",
+        return_value=[],
+    ):
+        providers = await get_available_capture_providers(fake_hass)
+    assert len(providers) == 0

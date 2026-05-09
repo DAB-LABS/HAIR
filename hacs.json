@@ -1,0 +1,6 @@
+{
+    "name": "HAIR - IR Device Manager",
+    "homeassistant": "2026.4.0",
+    "render_readme": true,
+    "zip_release": false
+}
