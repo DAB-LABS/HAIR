@@ -15,6 +15,9 @@ import type {
     DeviceTypeId,
     IRCommand,
     IRDevice,
+    UnknownDevice,
+    UnknownDeviceSummary,
+    UnknownSignalEvent,
 } from "./types.js";
 
 interface HaConnection {
@@ -22,6 +25,10 @@ interface HaConnection {
     subscribeMessage<T = unknown>(
         callback: (message: T) => void,
         message: Record<string, unknown>,
+    ): Promise<() => Promise<void>>;
+    subscribeEvents<T = unknown>(
+        callback: (event: { event_type: string; data: T }) => void,
+        eventType: string,
     ): Promise<() => Promise<void>>;
 }
 
@@ -168,5 +175,81 @@ export class HairApi {
             type: "hair/capture/save",
             ...payload,
         });
+    }
+
+    // --- Signal Monitor (Unknown Devices) ---
+
+    getUnknownDevices(options?: {
+        include_dismissed?: boolean;
+        min_hits?: number;
+    }): Promise<UnknownDeviceSummary[]> {
+        return this.hass.connection.sendMessagePromise<UnknownDeviceSummary[]>({
+            type: "hair/unknown/devices",
+            ...options,
+        });
+    }
+
+    getUnknownDevice(deviceId: string): Promise<UnknownDevice> {
+        return this.hass.connection.sendMessagePromise<UnknownDevice>({
+            type: "hair/unknown/device",
+            device_id: deviceId,
+        });
+    }
+
+    dismissUnknown(deviceId: string): Promise<{ dismissed: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ dismissed: boolean }>({
+            type: "hair/unknown/dismiss",
+            device_id: deviceId,
+        });
+    }
+
+    undismissUnknown(deviceId: string): Promise<{ undismissed: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ undismissed: boolean }>({
+            type: "hair/unknown/undismiss",
+            device_id: deviceId,
+        });
+    }
+
+    assignSignal(payload: {
+        device_id: string;
+        signal_fingerprint: string;
+        hair_device_id: string;
+        command_name: string;
+        command_category?: string;
+    }): Promise<{ assigned: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ assigned: boolean }>({
+            type: "hair/unknown/assign",
+            ...payload,
+        });
+    }
+
+    testSignal(
+        signalFingerprint: string,
+        emitterEntityId: string,
+    ): Promise<{ sent: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ sent: boolean }>({
+            type: "hair/unknown/test",
+            signal_fingerprint: signalFingerprint,
+            emitter_entity_id: emitterEntityId,
+        });
+    }
+
+    clearUnknowns(): Promise<{ cleared: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ cleared: boolean }>({
+            type: "hair/unknown/clear",
+        });
+    }
+
+    /**
+     * Subscribe to live unknown-signal events via HA bus.
+     * Returns an unsubscribe function.
+     */
+    async subscribeUnknownSignals(
+        onEvent: (event: UnknownSignalEvent) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeEvents<UnknownSignalEvent>(
+            (ev) => onEvent(ev.data),
+            "hair_signal_detected",
+        );
     }
 }

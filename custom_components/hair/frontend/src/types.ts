@@ -116,3 +116,51 @@ export interface CaptureStartResponse {
     device_id: string;
     timeout: number;
 }
+
+// ---------------------------------------------------------------------------
+// Signal Monitor (unknown devices)
+// ---------------------------------------------------------------------------
+
+export interface UnknownSignal {
+    fingerprint: string;
+    protocol: string | null;
+    code: string | null;
+    raw_timings: number[];
+    frequency: number;
+    hit_count: number;
+    first_seen: string;
+    last_seen: string;
+}
+
+export interface UnknownDeviceSummary {
+    id: string;
+    fingerprint: string;
+    protocol: string | null;
+    device_address: string | null;
+    signal_count: number;
+    hit_count: number;
+    first_seen: string;
+    last_seen: string;
+    dismissed: boolean;
+}
+
+export interface UnknownDevice {
+    id: string;
+    fingerprint: string;
+    protocol: string | null;
+    device_address: string | null;
+    signals: UnknownSignal[];
+    hit_count: number;
+    first_seen: string;
+    last_seen: string;
+    dismissed: boolean;
+}
+
+export interface UnknownSignalEvent {
+    device_id: string;
+    device_fingerprint: string;
+    signal_fingerprint: string;
+    protocol: string | null;
+    code: string | null;
+    hit_count: number;
+}

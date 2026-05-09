@@ -2,8 +2,8 @@
  * Main panel entry point for HAIR.
  *
  * Renders in the HA Settings sidebar as "IR Devices" and routes between
- * the device list and device detail views. Holds the WebSocket API
- * client and the in-memory device cache.
+ * the device list, device detail, and signal monitor views. Holds the
+ * WebSocket API client and the in-memory device cache.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -11,7 +11,10 @@ import { HairApi } from "./api.js";
 import "./ir-device-list.js";
 import "./ir-device-detail.js";
 import "./ir-add-device-dialog.js";
+import "./ir-signal-monitor.js";
 import type { DeviceSummary, IRDevice } from "./types.js";
+
+type PanelTab = "devices" | "monitor";
 
 @customElement("ha-panel-ir-devices")
 export class HaPanelIrDevices extends LitElement {
@@ -20,6 +23,7 @@ export class HaPanelIrDevices extends LitElement {
     @property({ attribute: false }) public route?: { prefix: string; path: string };
     @property({ attribute: false }) public panel?: { config?: { entry_id?: string } };
 
+    @state() private _activeTab: PanelTab = "devices";
     @state() private _devices: DeviceSummary[] = [];
     @state() private _selectedDevice: IRDevice | null = null;
     @state() private _loading = true;
@@ -103,10 +107,19 @@ export class HaPanelIrDevices extends LitElement {
         await this._refreshDevices();
     }
 
+    private _switchTab(tab: PanelTab): void {
+        if (this._selectedDevice) {
+            this._backToList();
+        }
+        this._activeTab = tab;
+    }
+
     render() {
         if (!this._api) {
             return html`<div class="loading">Loading…</div>`;
         }
+
+        const showTabs = !this._selectedDevice;
 
         return html`
             <ha-top-app-bar-fixed>
@@ -124,6 +137,25 @@ export class HaPanelIrDevices extends LitElement {
                 </span>
             </ha-top-app-bar-fixed>
 
+            ${showTabs
+                ? html`
+                      <div class="tab-bar">
+                          <button
+                              class="tab ${this._activeTab === "devices" ? "active" : ""}"
+                              @click=${() => this._switchTab("devices")}
+                          >
+                              Devices
+                          </button>
+                          <button
+                              class="tab ${this._activeTab === "monitor" ? "active" : ""}"
+                              @click=${() => this._switchTab("monitor")}
+                          >
+                              Signal Monitor
+                          </button>
+                      </div>
+                  `
+                : ""}
+
             <div class="content">
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
@@ -138,31 +170,38 @@ export class HaPanelIrDevices extends LitElement {
                               @device-deleted=${this._onDeviceDeleted}
                           ></ir-device-detail>
                       `
-                    : html`
-                          <ir-device-list
-                              .devices=${this._devices}
-                              .loading=${this._loading}
-                              @device-selected=${(e: CustomEvent<string>) =>
-                                  this._openDevice(e.detail)}
-                              @add-device=${this._openAddDialog}
-                          ></ir-device-list>
+                    : this._activeTab === "devices"
+                      ? html`
+                            <ir-device-list
+                                .devices=${this._devices}
+                                .loading=${this._loading}
+                                @device-selected=${(e: CustomEvent<string>) =>
+                                    this._openDevice(e.detail)}
+                                @add-device=${this._openAddDialog}
+                            ></ir-device-list>
 
-                          ${!this._loading && this._devices.length > 0
-                              ? html`
-                                    <ha-fab
-                                        class="fab"
-                                        label="Add Device"
-                                        extended
-                                        @click=${this._openAddDialog}
-                                    >
-                                        <ha-svg-icon
-                                            slot="icon"
-                                            .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                                        ></ha-svg-icon>
-                                    </ha-fab>
-                                `
-                              : ""}
-                      `}
+                            ${!this._loading && this._devices.length > 0
+                                ? html`
+                                      <ha-fab
+                                          class="fab"
+                                          label="Add Device"
+                                          extended
+                                          @click=${this._openAddDialog}
+                                      >
+                                          <ha-svg-icon
+                                              slot="icon"
+                                              .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
+                                          ></ha-svg-icon>
+                                      </ha-fab>
+                                  `
+                                : ""}
+                        `
+                      : html`
+                            <ir-signal-monitor
+                                .api=${this._api}
+                                .hass=${this.hass}
+                            ></ir-signal-monitor>
+                        `}
             </div>
 
             ${this._addDialogOpen
@@ -184,6 +223,32 @@ export class HaPanelIrDevices extends LitElement {
             background: var(--primary-background-color);
             color: var(--primary-text-color);
             min-height: 100vh;
+        }
+        .tab-bar {
+            display: flex;
+            border-bottom: 1px solid var(--divider-color);
+            padding: 0 16px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .tab {
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            padding: 12px 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            transition: color 150ms ease, border-color 150ms ease;
+            font-family: inherit;
+        }
+        .tab:hover {
+            color: var(--primary-text-color);
+        }
+        .tab.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
         }
         .content {
             padding: 16px;
