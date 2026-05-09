@@ -16,10 +16,8 @@ from typing import Any, Callable
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 
 from .const import (
-    ASSIGN_SERVICE_TIMEOUT_S,
     DOMAIN,
     EVENT_SIGNAL_DETECTED,
-    EVENT_SIGNAL_REMOVED,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
@@ -320,308 +318,97 @@ class SignalMonitor:
         hair_device_id: str,
         command_name: str,
         command_category: str,
-    ) -> dict[str, Any]:
+    ) -> bool:
         """Assign an unknown signal as a named command on a HAIR device.
 
-        Uses lock-first pattern with structured return. Checks idempotency
-        (rejects duplicate fingerprint on target device). Rolls back
-        cleanly on any failure.
+        Best-effort coordinated save: creates the IRCommand on the HAIR
+        device and removes the signal from unknowns. Rolls back the
+        IRCommand on removal failure.
 
-        Returns dict with ``success``, ``command_id``, or ``error``/``code``.
+        Returns True on success, False if device/signal/target not found.
         """
         from .models import CaptureResult, CommandCategory
 
-        async with self._lock:
-            # Validate source.
-            unknown_device = self._signal_store.get_device(device_id)
-            if unknown_device is None:
-                return {"success": False, "code": "device_not_found",
-                        "error": "Unknown device not found"}
-            signal = unknown_device.get_signal(signal_fingerprint)
-            if signal is None:
-                return {"success": False, "code": "signal_not_found",
-                        "error": "Signal not found on device"}
+        # Look up source signal.
+        unknown_device = self._signal_store.get_device(device_id)
+        if unknown_device is None:
+            return False
+        signal = unknown_device.get_signal(signal_fingerprint)
+        if signal is None:
+            return False
 
-            # Validate target.
-            hair_device = self._hair_store.get_device(hair_device_id)
-            if hair_device is None:
-                return {"success": False, "code": "target_not_found",
-                        "error": "Target HAIR device not found"}
+        # Look up target HAIR device.
+        hair_device = self._hair_store.get_device(hair_device_id)
+        if hair_device is None:
+            return False
 
-            # Idempotency: reject if this fingerprint is already assigned.
-            for cmd in hair_device.commands:
-                if (cmd.protocol == signal.protocol
-                        and cmd.code == signal.code
-                        and cmd.protocol is not None
-                        and cmd.code is not None):
-                    return {"success": False, "code": "duplicate_signal",
-                            "error": "Signal already assigned to this device"}
-
-            # Build IRCommand from signal.
-            capture = CaptureResult(
-                protocol=signal.protocol,
-                code=signal.code,
-                raw_timings=list(signal.raw_timings),
-                frequency=signal.frequency,
-            )
-            try:
-                category = CommandCategory(command_category)
-            except ValueError:
-                category = CommandCategory.CUSTOM
-            ir_command = capture.to_command(command_name, category)
-
-            # Mutate both stores in memory.
-            hair_device.add_command(ir_command)
-            command_id = ir_command.id
-            unknown_device.remove_signal(signal_fingerprint)
-            device_emptied = not unknown_device.signals
-            if device_emptied:
-                self._signal_store.remove_device(device_id)
-
-            try:
-                # Persist HAIRStore first (source of truth for commands).
-                await self._hair_store.async_save()
-            except Exception:
-                # Rollback in-memory changes.
-                hair_device.remove_command(command_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                _LOGGER.exception("Failed to save HAIR store during assign")
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to save command"}
-
-            try:
-                # Persist SignalStore second.
-                await self._signal_store.async_save()
-            except Exception:
-                # HAIRStore already saved with the command -- revert it.
-                hair_device.remove_command(command_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                try:
-                    await self._hair_store.async_save()
-                except Exception:
-                    _LOGGER.exception(
-                        "CRITICAL: Failed to rollback HAIR store after "
-                        "signal store save failure"
-                    )
-                _LOGGER.exception("Failed to save signal store during assign")
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to update signal store"}
-
-        return {"success": True, "command_id": command_id}
-
-    async def assign_to_new_device(
-        self,
-        device_id: str,
-        signal_fingerprint: str,
-        device_name: str,
-        device_type: str,
-        emitter_entity_id: str,
-        command_name: str,
-        command_category: str,
-    ) -> dict[str, Any]:
-        """Create a new HAIR device and assign the signal in one atomic op.
-
-        HA device registry and entity creation happen only after both
-        stores have persisted successfully, preventing phantom devices.
-
-        Returns dict with ``success``, ``command_id``, ``device_id``,
-        or ``error``/``code``.
-        """
-        from .models import (
-            CaptureResult,
-            CommandCategory,
-            DeviceType,
-            IRDevice,
+        # Create IRCommand from the signal.
+        capture = CaptureResult(
+            protocol=signal.protocol,
+            code=signal.code,
+            raw_timings=list(signal.raw_timings),
+            frequency=signal.frequency,
         )
+        try:
+            category = CommandCategory(command_category)
+        except ValueError:
+            category = CommandCategory.CUSTOM
+        ir_command = capture.to_command(command_name, category)
 
-        async with self._lock:
-            # Validate source signal.
-            unknown_device = self._signal_store.get_device(device_id)
-            if unknown_device is None:
-                return {"success": False, "code": "device_not_found",
-                        "error": "Unknown device not found"}
-            signal = unknown_device.get_signal(signal_fingerprint)
-            if signal is None:
-                return {"success": False, "code": "signal_not_found",
-                        "error": "Signal not found on device"}
+        # Add command to HAIR device.
+        hair_device.add_command(ir_command)
+        command_id = ir_command.id
 
-            # Validate device type.
-            try:
-                dtype = DeviceType(device_type)
-            except ValueError:
-                return {"success": False, "code": "invalid_device_type",
-                        "error": f"Invalid device type: {device_type}"}
+        try:
+            # Save HAIR device first.
+            await self._hair_store.async_save()
 
-            # Build IRCommand.
-            capture = CaptureResult(
-                protocol=signal.protocol,
-                code=signal.code,
-                raw_timings=list(signal.raw_timings),
-                frequency=signal.frequency,
-            )
-            try:
-                category = CommandCategory(command_category)
-            except ValueError:
-                category = CommandCategory.CUSTOM
-            ir_command = capture.to_command(command_name, category)
-
-            # Create device in memory (NOT persisted yet).
-            new_device = IRDevice(
-                name=device_name,
-                device_type=dtype,
-                emitter_entity_id=emitter_entity_id,
-            )
-            new_device.add_command(ir_command)
-            command_id = ir_command.id
-            new_device_id = new_device.id
-
-            # Add to HAIRStore in memory.
-            self._hair_store.add_device(new_device)
-
-            # Remove signal from unknowns in memory.
-            unknown_device.remove_signal(signal_fingerprint)
-            device_emptied = not unknown_device.signals
-            if device_emptied:
-                self._signal_store.remove_device(device_id)
-
-            try:
+            # Remove signal from unknowns.
+            removed = unknown_device.remove_signal(signal_fingerprint)
+            if not removed:
+                # Rollback: remove the command we just added.
+                hair_device.remove_command(command_id)
                 await self._hair_store.async_save()
-            except Exception:
-                # Rollback: remove device from store, restore signal.
-                self._hair_store.remove_device(new_device_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                _LOGGER.exception(
-                    "Failed to save HAIR store during assign-new-device"
-                )
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to save new device"}
+                return False
 
-            try:
-                await self._signal_store.async_save()
-            except Exception:
-                # Rollback HAIRStore.
-                self._hair_store.remove_device(new_device_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                try:
-                    await self._hair_store.async_save()
-                except Exception:
-                    _LOGGER.exception(
-                        "CRITICAL: Failed to rollback HAIR store after "
-                        "signal store save failure in assign-new-device"
-                    )
-                _LOGGER.exception(
-                    "Failed to save signal store during assign-new-device"
-                )
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to update signal store"}
-
-        # Both stores persisted -- safe to register in HA now.
-        # (Outside the lock since HA registry ops don't touch our stores.)
-        return {
-            "success": True,
-            "command_id": command_id,
-            "device_id": new_device_id,
-            "device": new_device,
-        }
-
-    async def delete_signal(
-        self, device_id: str, signal_fingerprint: str
-    ) -> dict[str, Any]:
-        """Delete a single signal from an unknown device.
-
-        Fires ``hair_signal_removed`` on success. Removes the parent
-        unknown device if no signals remain.
-
-        Returns dict with ``success`` or ``error``/``code``.
-        """
-        async with self._lock:
-            unknown_device = self._signal_store.get_device(device_id)
-            if unknown_device is None:
-                return {"success": False, "code": "device_not_found",
-                        "error": "Unknown device not found"}
-            if not unknown_device.remove_signal(signal_fingerprint):
-                return {"success": False, "code": "signal_not_found",
-                        "error": "Signal not found on device"}
-
-            device_emptied = not unknown_device.signals
-            if device_emptied:
+            # If device has no more signals, remove it.
+            if not unknown_device.signals:
                 self._signal_store.remove_device(device_id)
 
-            try:
-                await self._signal_store.async_save()
-            except Exception:
-                # Best-effort restore.
-                _LOGGER.exception("Failed to save after signal deletion")
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to save after deletion"}
+            await self._signal_store.async_save()
+            return True
 
-        # Fire event outside lock.
-        self._hass.bus.async_fire(EVENT_SIGNAL_REMOVED, {
-            "device_id": device_id,
-            "signal_fingerprint": signal_fingerprint,
-            "device_removed": device_emptied,
-        })
-        return {"success": True, "device_removed": device_emptied}
+        except Exception:
+            # Rollback on any failure.
+            hair_device.remove_command(command_id)
+            _LOGGER.exception("Failed to assign signal, rolled back")
+            return False
 
     async def test_signal(
         self, signal_fingerprint: str, emitter_entity_id: str
-    ) -> dict[str, Any]:
+    ) -> bool:
         """Send an unknown signal through an emitter for user verification.
 
-        Returns structured result dict with ``success`` and error details.
+        Returns True if the signal was found and the send was attempted.
         """
-        # Validate emitter entity exists.
-        state = self._hass.states.get(emitter_entity_id)
-        if state is None:
-            return {"success": False, "code": "entity_not_found",
-                    "error": f"Entity {emitter_entity_id} not found"}
-
-        # Find the signal across all devices.
-        signal = None
+        # Search all devices for this signal.
         for device in self._signal_store.get_all_devices():
             signal = device.get_signal(signal_fingerprint)
             if signal is not None:
-                break
+                # Use HA service call to send IR.
+                service_data: dict[str, Any] = {
+                    "entity_id": emitter_entity_id,
+                }
+                if signal.protocol and signal.code:
+                    service_data["command"] = signal.code
+                elif signal.raw_timings:
+                    service_data["command"] = signal.raw_timings
 
-        if signal is None:
-            return {"success": False, "code": "signal_not_found",
-                    "error": "Signal not found"}
-
-        # Build service data.
-        service_data: dict[str, Any] = {
-            "entity_id": emitter_entity_id,
-        }
-        if signal.protocol and signal.code:
-            service_data["command"] = signal.code
-        elif signal.raw_timings:
-            service_data["command"] = signal.raw_timings
-        else:
-            return {"success": False, "code": "no_signal_data",
-                    "error": "Signal has no code or raw timings"}
-
-        try:
-            await asyncio.wait_for(
-                self._hass.services.async_call(
+                await self._hass.services.async_call(
                     "remote", "send_command", service_data, blocking=True
-                ),
-                timeout=ASSIGN_SERVICE_TIMEOUT_S,
-            )
-        except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):
-            return {"success": False, "code": "send_timeout",
-                    "error": "Emitter timed out"}
-        except Exception as exc:
-            return {"success": False, "code": "send_failed",
-                    "error": f"Emitter did not respond: {exc}"}
-
-        return {"success": True}
+                )
+                return True
+        return False
 
     def clear_all(self) -> None:
         """Wipe the entire unknown signal catalog."""

@@ -64,8 +64,6 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_dismiss_unknown)
     websocket_api.async_register_command(hass, ws_undismiss_unknown)
     websocket_api.async_register_command(hass, ws_assign_signal)
-    websocket_api.async_register_command(hass, ws_assign_new_device)
-    websocket_api.async_register_command(hass, ws_delete_signal)
     websocket_api.async_register_command(hass, ws_test_signal)
     websocket_api.async_register_command(hass, ws_clear_unknowns)
 
@@ -666,24 +664,20 @@ async def ws_assign_signal(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
-    result = await monitor.assign_signal(
+    success = await monitor.assign_signal(
         msg["device_id"],
         msg["signal_fingerprint"],
         msg["hair_device_id"],
         msg["command_name"],
         msg.get("command_category", "custom"),
     )
-    if not result["success"]:
+    if not success:
         connection.send_error(
-            msg["id"],
-            result.get("code", "assign_failed"),
-            result.get("error", "Assign failed"),
+            msg["id"], "assign_failed",
+            "Could not assign signal (device, signal, or target not found)"
         )
         return
-    connection.send_result(msg["id"], {
-        "assigned": True,
-        "command_id": result["command_id"],
-    })
+    connection.send_result(msg["id"], {"assigned": True})
 
 
 @websocket_api.require_admin
@@ -704,104 +698,13 @@ async def ws_test_signal(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
-    result = await monitor.test_signal(
+    success = await monitor.test_signal(
         msg["signal_fingerprint"], msg["emitter_entity_id"]
     )
-    if not result["success"]:
-        connection.send_error(
-            msg["id"],
-            result.get("code", "test_failed"),
-            result.get("error", "Test failed"),
-        )
+    if not success:
+        connection.send_error(msg["id"], "not_found", "Signal not found")
         return
     connection.send_result(msg["id"], {"sent": True})
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/unknown/assign-new-device",
-    vol.Required("device_id"): str,
-    vol.Required("signal_fingerprint"): str,
-    vol.Required("device_name"): str,
-    vol.Required("device_type"): str,
-    vol.Required("emitter_entity_id"): str,
-    vol.Required("command_name"): str,
-    vol.Optional("command_category", default="custom"): str,
-})
-@websocket_api.async_response
-async def ws_assign_new_device(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Create a new HAIR device and assign an unknown signal atomically."""
-    data = _get_first_entry_data(hass)
-    if data is None:
-        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
-        return
-    monitor: SignalMonitor = data["signal_monitor"]
-    result = await monitor.assign_to_new_device(
-        msg["device_id"],
-        msg["signal_fingerprint"],
-        msg["device_name"],
-        msg["device_type"],
-        msg["emitter_entity_id"],
-        msg["command_name"],
-        msg.get("command_category", "custom"),
-    )
-    if not result["success"]:
-        connection.send_error(
-            msg["id"],
-            result.get("code", "assign_failed"),
-            result.get("error", "Assign failed"),
-        )
-        return
-
-    # Register HA device + entities now that both stores are persisted.
-    device_mgr = data["device_manager"]
-    new_device = result["device"]
-    device_mgr._register_ha_device(new_device)
-    await device_mgr._entity_factory.async_create_entities(new_device)
-
-    connection.send_result(msg["id"], {
-        "assigned": True,
-        "device_id": result["device_id"],
-        "command_id": result["command_id"],
-    })
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/delete",
-    vol.Required("device_id"): str,
-    vol.Required("signal_fingerprint"): str,
-})
-@websocket_api.async_response
-async def ws_delete_signal(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Delete a single unknown signal."""
-    data = _get_first_entry_data(hass)
-    if data is None:
-        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
-        return
-    monitor: SignalMonitor = data["signal_monitor"]
-    result = await monitor.delete_signal(
-        msg["device_id"], msg["signal_fingerprint"]
-    )
-    if not result["success"]:
-        connection.send_error(
-            msg["id"],
-            result.get("code", "delete_failed"),
-            result.get("error", "Delete failed"),
-        )
-        return
-    connection.send_result(msg["id"], {
-        "deleted": True,
-        "device_removed": result.get("device_removed", False),
-    })
 
 
 @websocket_api.require_admin

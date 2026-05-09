@@ -36,7 +36,6 @@ EVENT_COMMAND_CAPTURED = f"{DOMAIN}_command_captured"
 EVENT_CAPTURE_TIMEOUT = f"{DOMAIN}_capture_timeout"
 EVENT_CAPTURE_ERROR = f"{DOMAIN}_capture_error"
 EVENT_SIGNAL_DETECTED = f"{DOMAIN}_signal_detected"
-EVENT_SIGNAL_REMOVED = f"{DOMAIN}_signal_removed"
 
 # ---------------------------------------------------------------------------
 # Signal Monitor
@@ -54,7 +53,6 @@ SIGNAL_RATE_LIMIT_PER_SEC = 10
 SIGNAL_WS_PUSH_RATE_LIMIT = 5
 SIGNAL_RAW_QUANTIZE_BIN_US = 50
 SIGNAL_RAW_FINGERPRINT_LEN = 64
-ASSIGN_SERVICE_TIMEOUT_S = 10
 
 
 class DeviceType(StrEnum):

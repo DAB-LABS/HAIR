@@ -839,7 +839,7 @@ async def test_assign_signal_failure(fake_hass):
         },
     )
     conn.send_error.assert_called_once()
-    assert conn.send_error.call_args[0][1] == "assign_failed"
+    assert conn.send_error.call_args[0][1] == "device_not_found"
 
 
 @pytest.mark.asyncio
