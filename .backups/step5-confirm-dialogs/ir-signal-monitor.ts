@@ -82,7 +82,6 @@ export class IrSignalMonitor extends LitElement {
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
     @state() private _flashIds = new Set<string>();
-    @state() private _confirmClearAll = false;
 
     // Dialog state
     @state() private _assignSignal: { deviceId: string; signal: UnknownSignal } | null = null;
@@ -313,8 +312,7 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    private async _doClearAll(): Promise<void> {
-        this._confirmClearAll = false;
+    private async _clearAll(): Promise<void> {
         try {
             await this.api.clearUnknowns();
             this._devices = [];
@@ -355,7 +353,7 @@ export class IrSignalMonitor extends LitElement {
                         ? html`
                               <mwc-button
                                   dense
-                                  @click=${() => (this._confirmClearAll = true)}
+                                  @click=${this._clearAll}
                               >
                                   <ha-svg-icon
                                       .path=${ICON_CLEAR}
@@ -417,19 +415,6 @@ export class IrSignalMonitor extends LitElement {
                           .destructive=${true}
                           @confirmed=${this._confirmDelete}
                           @closed=${this._closeDelete}
-                      ></ir-confirm-dialog>
-                  `
-                : ""}
-
-            ${this._confirmClearAll
-                ? html`
-                      <ir-confirm-dialog
-                          title="Clear All Signals"
-                          message="Remove all unknown signals and devices? This cannot be undone."
-                          confirmLabel="Clear All"
-                          .destructive=${true}
-                          @confirmed=${this._doClearAll}
-                          @closed=${() => (this._confirmClearAll = false)}
                       ></ir-confirm-dialog>
                   `
                 : ""}
@@ -504,15 +489,15 @@ export class IrSignalMonitor extends LitElement {
                                     >
                                 </div>
                                 <div class="signal-actions">
-                                    <button
-                                        class="action-btn"
+                                    <mwc-button
+                                        dense
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
                                             this._openAssign(device.id, sig);
                                         }}
-                                    >Assign</button>
-                                    <button
-                                        class="action-btn"
+                                    >Assign</mwc-button>
+                                    <mwc-button
+                                        dense
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
                                             void this._testSignalInline(sig, device.id);
@@ -520,14 +505,15 @@ export class IrSignalMonitor extends LitElement {
                                         ?disabled=${this._testingFingerprint === sig.fingerprint}
                                     >${this._testingFingerprint === sig.fingerprint
                                         ? (this._testResult ?? "Sending...")
-                                        : "Test"}</button>
-                                    <button
-                                        class="action-btn delete-btn"
+                                        : "Test"}</mwc-button>
+                                    <mwc-button
+                                        dense
+                                        class="delete-btn"
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
                                             this._openDelete(device.id, sig);
                                         }}
-                                    >Delete</button>
+                                    >Delete</mwc-button>
                                 </div>
                             </div>
                         `,
@@ -735,29 +721,11 @@ export class IrSignalMonitor extends LitElement {
             gap: 4px;
             flex-shrink: 0;
         }
-        .action-btn {
-            background: none;
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 4px 10px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            font-family: inherit;
-            color: var(--primary-color);
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            transition: background 150ms ease;
+        .signal-actions mwc-button {
+            --mdc-typography-button-font-size: 0.72rem;
         }
-        .action-btn:hover {
-            background: var(--secondary-background-color);
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        .action-btn.delete-btn {
-            color: var(--error-color, #db4437);
+        .signal-actions .delete-btn {
+            --mdc-theme-primary: var(--error-color, #db4437);
         }
 
         .expanded-actions {

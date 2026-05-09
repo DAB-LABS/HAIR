@@ -6,14 +6,9 @@
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { HairApi } from "./api.js";
-import "./ir-assign-signal-dialog.js";
-import "./ir-confirm-dialog.js";
 import type {
-    AssignResult,
-    SignalRemovedEvent,
     UnknownDeviceSummary,
     UnknownDevice,
-    UnknownSignal,
     UnknownSignalEvent,
 } from "./types.js";
 
@@ -82,28 +77,18 @@ export class IrSignalMonitor extends LitElement {
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
     @state() private _flashIds = new Set<string>();
-    @state() private _confirmClearAll = false;
-
-    // Dialog state
-    @state() private _assignSignal: { deviceId: string; signal: UnknownSignal } | null = null;
-    @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
-    @state() private _testingFingerprint: string | null = null;
-    @state() private _testResult: string | null = null;
 
     private _unsubLive: (() => Promise<void>) | null = null;
-    private _unsubRemoved: (() => Promise<void>) | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
         void this._load();
         void this._subscribeLive();
-        void this._subscribeRemoved();
     }
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
         void this._unsubscribeLive();
-        void this._unsubscribeRemoved();
     }
 
     private async _load(): Promise<void> {
@@ -135,121 +120,6 @@ export class IrSignalMonitor extends LitElement {
             await this._unsubLive();
             this._unsubLive = null;
         }
-    }
-
-    private async _subscribeRemoved(): Promise<void> {
-        try {
-            this._unsubRemoved = await this.api.subscribeSignalRemoved(
-                (ev: SignalRemovedEvent) => {
-                    // Refresh list when a signal is removed (assigned or deleted).
-                    void this._load();
-                    // If the expanded device was affected, refresh or collapse.
-                    if (this._expandedId === ev.device_id) {
-                        if (ev.device_removed) {
-                            this._expandedId = null;
-                            this._expandedDevice = null;
-                        } else {
-                            void this._toggleExpand(ev.device_id);
-                            void this._toggleExpand(ev.device_id);
-                        }
-                    }
-                },
-            );
-        } catch {
-            // Non-fatal.
-        }
-    }
-
-    private async _unsubscribeRemoved(): Promise<void> {
-        if (this._unsubRemoved) {
-            await this._unsubRemoved();
-            this._unsubRemoved = null;
-        }
-    }
-
-    // --- Signal action handlers ---
-
-    private _openAssign(deviceId: string, signal: UnknownSignal): void {
-        this._assignSignal = { deviceId, signal };
-    }
-
-    private _closeAssign(): void {
-        this._assignSignal = null;
-    }
-
-    private async _onSignalAssigned(_ev: CustomEvent<AssignResult>): Promise<void> {
-        this._assignSignal = null;
-        // The signal-removed subscription will auto-refresh the list.
-        // But do a manual reload as a fallback.
-        await this._load();
-        if (this._expandedId) {
-            try {
-                this._expandedDevice = await this.api.getUnknownDevice(this._expandedId);
-            } catch {
-                this._expandedId = null;
-                this._expandedDevice = null;
-            }
-        }
-    }
-
-    private _openDelete(deviceId: string, signal: UnknownSignal): void {
-        this._deleteSignal = { deviceId, signal };
-    }
-
-    private _closeDelete(): void {
-        this._deleteSignal = null;
-    }
-
-    private async _confirmDelete(): Promise<void> {
-        if (!this._deleteSignal) return;
-        const { deviceId, signal } = this._deleteSignal;
-        this._deleteSignal = null;
-        try {
-            await this.api.deleteSignal(deviceId, signal.fingerprint);
-            // Signal-removed event will refresh; manual fallback:
-            await this._load();
-        } catch (err) {
-            this._error = `Delete failed: ${(err as Error).message}`;
-        }
-    }
-
-    private async _testSignalInline(
-        signal: UnknownSignal,
-        deviceId: string,
-    ): Promise<void> {
-        // Find the first emitter entity for a quick inline test.
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            { entity_id: string }
-        >;
-        const emitterId = Object.keys(states).find((id) =>
-            id.startsWith("infrared."),
-        );
-        if (!emitterId) {
-            this._testResult = "No IR emitter found.";
-            this._testingFingerprint = signal.fingerprint;
-            setTimeout(() => {
-                this._testResult = null;
-                this._testingFingerprint = null;
-            }, 3000);
-            return;
-        }
-
-        this._testingFingerprint = signal.fingerprint;
-        this._testResult = null;
-        try {
-            const result = await this.api.testSignal(
-                signal.fingerprint,
-                emitterId,
-            );
-            this._testResult = result.sent ? "Sent!" : "Failed";
-        } catch {
-            this._testResult = "Error";
-        }
-        setTimeout(() => {
-            this._testResult = null;
-            this._testingFingerprint = null;
-        }, 3000);
     }
 
     private _onLiveSignal(ev: UnknownSignalEvent): void {
@@ -313,8 +183,7 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    private async _doClearAll(): Promise<void> {
-        this._confirmClearAll = false;
+    private async _clearAll(): Promise<void> {
         try {
             await this.api.clearUnknowns();
             this._devices = [];
@@ -355,7 +224,7 @@ export class IrSignalMonitor extends LitElement {
                         ? html`
                               <mwc-button
                                   dense
-                                  @click=${() => (this._confirmClearAll = true)}
+                                  @click=${this._clearAll}
                               >
                                   <ha-svg-icon
                                       .path=${ICON_CLEAR}
@@ -394,45 +263,6 @@ export class IrSignalMonitor extends LitElement {
                             ${this._devices.map((d) => this._renderDevice(d))}
                         </div>
                     `}
-
-            ${this._assignSignal
-                ? html`
-                      <ir-assign-signal-dialog
-                          .api=${this.api}
-                          .hass=${this.hass}
-                          .unknownDeviceId=${this._assignSignal.deviceId}
-                          .signal=${this._assignSignal.signal}
-                          @signal-assigned=${this._onSignalAssigned}
-                          @closed=${this._closeAssign}
-                      ></ir-assign-signal-dialog>
-                  `
-                : ""}
-
-            ${this._deleteSignal
-                ? html`
-                      <ir-confirm-dialog
-                          title="Delete Signal"
-                          message="Remove this signal permanently? This cannot be undone."
-                          confirmLabel="Delete"
-                          .destructive=${true}
-                          @confirmed=${this._confirmDelete}
-                          @closed=${this._closeDelete}
-                      ></ir-confirm-dialog>
-                  `
-                : ""}
-
-            ${this._confirmClearAll
-                ? html`
-                      <ir-confirm-dialog
-                          title="Clear All Signals"
-                          message="Remove all unknown signals and devices? This cannot be undone."
-                          confirmLabel="Clear All"
-                          .destructive=${true}
-                          @confirmed=${this._doClearAll}
-                          @closed=${() => (this._confirmClearAll = false)}
-                      ></ir-confirm-dialog>
-                  `
-                : ""}
         `;
     }
 
@@ -502,32 +332,6 @@ export class IrSignalMonitor extends LitElement {
                                     <span title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
-                                </div>
-                                <div class="signal-actions">
-                                    <button
-                                        class="action-btn"
-                                        @click=${(e: Event) => {
-                                            e.stopPropagation();
-                                            this._openAssign(device.id, sig);
-                                        }}
-                                    >Assign</button>
-                                    <button
-                                        class="action-btn"
-                                        @click=${(e: Event) => {
-                                            e.stopPropagation();
-                                            void this._testSignalInline(sig, device.id);
-                                        }}
-                                        ?disabled=${this._testingFingerprint === sig.fingerprint}
-                                    >${this._testingFingerprint === sig.fingerprint
-                                        ? (this._testResult ?? "Sending...")
-                                        : "Test"}</button>
-                                    <button
-                                        class="action-btn delete-btn"
-                                        @click=${(e: Event) => {
-                                            e.stopPropagation();
-                                            this._openDelete(device.id, sig);
-                                        }}
-                                    >Delete</button>
                                 </div>
                             </div>
                         `,
@@ -708,16 +512,12 @@ export class IrSignalMonitor extends LitElement {
         }
         .signal-row {
             display: flex;
+            justify-content: space-between;
             align-items: center;
             padding: 6px 8px;
             background: var(--secondary-background-color);
             border-radius: 4px;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        .signal-info {
-            flex: 1;
-            min-width: 0;
+            gap: 12px;
         }
         .signal-code {
             font-size: 0.82rem;
@@ -729,35 +529,6 @@ export class IrSignalMonitor extends LitElement {
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             white-space: nowrap;
-        }
-        .signal-actions {
-            display: flex;
-            gap: 4px;
-            flex-shrink: 0;
-        }
-        .action-btn {
-            background: none;
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 4px 10px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            font-family: inherit;
-            color: var(--primary-color);
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            transition: background 150ms ease;
-        }
-        .action-btn:hover {
-            background: var(--secondary-background-color);
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        .action-btn.delete-btn {
-            color: var(--error-color, #db4437);
         }
 
         .expanded-actions {
