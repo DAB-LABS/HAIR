@@ -24,12 +24,14 @@ from custom_components.hair.signal_monitor import SignalMonitor
 from custom_components.hair.signal_store import SignalStore
 from custom_components.hair.websocket_api import (
     async_register_websocket_commands,
+    ws_assign_new_device,
     ws_assign_signal,
     ws_cancel_capture,
     ws_clear_unknowns,
     ws_create_device,
     ws_delete_command,
     ws_delete_device,
+    ws_delete_signal,
     ws_dismiss_unknown,
     ws_get_capture_providers,
     ws_get_command_templates,
@@ -918,3 +920,192 @@ async def test_unknown_ws_not_configured(fake_hass):
         {"id": 201, "type": "hair/unknown/device", "device_id": "x"},
     )
     conn.send_error.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# ws_delete_signal
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_signal_success(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    sig1 = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1")
+    sig2 = UnknownSignal(fingerprint="sig2", protocol="NEC", code="0x2")
+    device = UnknownDevice(
+        id="ud1", fingerprint="fp", signals=[sig1, sig2],
+    )
+    monitor._signal_store.add_device(device)
+
+    conn = _make_connection()
+    await ws_delete_signal(
+        fake_hass, conn,
+        {
+            "id": 120,
+            "type": "hair/unknown/signal/delete",
+            "device_id": "ud1",
+            "signal_fingerprint": "sig1",
+        },
+    )
+    conn.send_result.assert_called_once()
+    result = conn.send_result.call_args[0][1]
+    assert result["deleted"] is True
+    assert result["device_removed"] is False
+    # Verify signal was actually removed.
+    remaining = monitor._signal_store.get_device("ud1")
+    assert remaining is not None
+    assert len(remaining.signals) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_signal_last_removes_device(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    sig = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1")
+    device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
+    monitor._signal_store.add_device(device)
+
+    conn = _make_connection()
+    await ws_delete_signal(
+        fake_hass, conn,
+        {
+            "id": 121,
+            "type": "hair/unknown/signal/delete",
+            "device_id": "ud1",
+            "signal_fingerprint": "sig1",
+        },
+    )
+    conn.send_result.assert_called_once()
+    result = conn.send_result.call_args[0][1]
+    assert result["device_removed"] is True
+    assert monitor._signal_store.get_device("ud1") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_signal_not_found(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    conn = _make_connection()
+    await ws_delete_signal(
+        fake_hass, conn,
+        {
+            "id": 122,
+            "type": "hair/unknown/signal/delete",
+            "device_id": "nope",
+            "signal_fingerprint": "x",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "device_not_found"
+
+
+# ---------------------------------------------------------------------------
+# ws_assign_new_device
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_assign_new_device_success(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    manager = MagicMock()
+    manager._register_ha_device = MagicMock()
+    manager._entity_factory = MagicMock()
+    manager._entity_factory.async_create_entities = AsyncMock()
+    _wire_hass(fake_hass, manager=manager, signal_monitor=monitor)
+
+    sig = UnknownSignal(
+        fingerprint="sig_fp", protocol="NEC", code="0x1234",
+        frequency=38000, hit_count=5,
+    )
+    device = UnknownDevice(
+        id="ud1", fingerprint="dev_fp", signals=[sig], hit_count=5,
+    )
+    monitor._signal_store.add_device(device)
+
+    conn = _make_connection()
+    await ws_assign_new_device(
+        fake_hass, conn,
+        {
+            "id": 130,
+            "type": "hair/unknown/assign-new-device",
+            "device_id": "ud1",
+            "signal_fingerprint": "sig_fp",
+            "device_name": "Living Room TV",
+            "device_type": "tv",
+            "emitter_entity_id": "remote.ir_blaster",
+            "command_name": "Power",
+            "command_category": "power",
+        },
+    )
+    conn.send_result.assert_called_once()
+    result = conn.send_result.call_args[0][1]
+    assert result["assigned"] is True
+    assert "device_id" in result
+    assert "command_id" in result
+
+    # HA device registration should have been called.
+    manager._register_ha_device.assert_called_once()
+    manager._entity_factory.async_create_entities.assert_called_once()
+
+    # Unknown signal should be gone.
+    assert monitor._signal_store.get_device("ud1") is None
+
+
+@pytest.mark.asyncio
+async def test_assign_new_device_invalid_type(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    sig = UnknownSignal(fingerprint="sig_fp", protocol="NEC", code="0x1")
+    device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
+    monitor._signal_store.add_device(device)
+
+    conn = _make_connection()
+    await ws_assign_new_device(
+        fake_hass, conn,
+        {
+            "id": 131,
+            "type": "hair/unknown/assign-new-device",
+            "device_id": "ud1",
+            "signal_fingerprint": "sig_fp",
+            "device_name": "Test",
+            "device_type": "invalid_type",
+            "emitter_entity_id": "remote.ir",
+            "command_name": "Power",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_device_type"
+
+    # Signal should NOT have been removed.
+    assert monitor._signal_store.get_device("ud1") is not None
+
+
+@pytest.mark.asyncio
+async def test_assign_new_device_signal_not_found(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    device = UnknownDevice(id="ud1", fingerprint="fp")
+    monitor._signal_store.add_device(device)
+
+    conn = _make_connection()
+    await ws_assign_new_device(
+        fake_hass, conn,
+        {
+            "id": 132,
+            "type": "hair/unknown/assign-new-device",
+            "device_id": "ud1",
+            "signal_fingerprint": "nonexistent",
+            "device_name": "Test",
+            "device_type": "tv",
+            "emitter_entity_id": "remote.ir",
+            "command_name": "Power",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "signal_not_found"

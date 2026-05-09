@@ -164,28 +164,3 @@ export interface UnknownSignalEvent {
     code: string | null;
     hit_count: number;
 }
-
-// ---------------------------------------------------------------------------
-// Signal Action results
-// ---------------------------------------------------------------------------
-
-export interface AssignResult {
-    assigned: boolean;
-    command_id?: string;
-    device_id?: string;
-}
-
-export interface TestSignalResult {
-    sent: boolean;
-}
-
-export interface DeleteSignalResult {
-    deleted: boolean;
-    device_removed: boolean;
-}
-
-export interface SignalRemovedEvent {
-    device_id: string;
-    signal_fingerprint: string;
-    device_removed: boolean;
-}

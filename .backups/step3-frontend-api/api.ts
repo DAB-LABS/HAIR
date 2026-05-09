@@ -7,18 +7,14 @@
  * streaming capture events.
  */
 import type {
-    AssignResult,
     CaptureEvent,
     CaptureProviderInfo,
     CaptureStartResponse,
     CommandTemplate,
-    DeleteSignalResult,
     DeviceSummary,
     DeviceTypeId,
     IRCommand,
     IRDevice,
-    SignalRemovedEvent,
-    TestSignalResult,
     UnknownDevice,
     UnknownDeviceSummary,
     UnknownSignalEvent,
@@ -220,44 +216,18 @@ export class HairApi {
         hair_device_id: string;
         command_name: string;
         command_category?: string;
-    }): Promise<AssignResult> {
-        return this.hass.connection.sendMessagePromise<AssignResult>({
+    }): Promise<{ assigned: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ assigned: boolean }>({
             type: "hair/unknown/assign",
             ...payload,
-        });
-    }
-
-    assignToNewDevice(payload: {
-        device_id: string;
-        signal_fingerprint: string;
-        device_name: string;
-        device_type: string;
-        emitter_entity_id: string;
-        command_name: string;
-        command_category?: string;
-    }): Promise<AssignResult> {
-        return this.hass.connection.sendMessagePromise<AssignResult>({
-            type: "hair/unknown/assign-new-device",
-            ...payload,
-        });
-    }
-
-    deleteSignal(
-        deviceId: string,
-        signalFingerprint: string,
-    ): Promise<DeleteSignalResult> {
-        return this.hass.connection.sendMessagePromise<DeleteSignalResult>({
-            type: "hair/unknown/signal/delete",
-            device_id: deviceId,
-            signal_fingerprint: signalFingerprint,
         });
     }
 
     testSignal(
         signalFingerprint: string,
         emitterEntityId: string,
-    ): Promise<TestSignalResult> {
-        return this.hass.connection.sendMessagePromise<TestSignalResult>({
+    ): Promise<{ sent: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ sent: boolean }>({
             type: "hair/unknown/test",
             signal_fingerprint: signalFingerprint,
             emitter_entity_id: emitterEntityId,
@@ -280,19 +250,6 @@ export class HairApi {
         return this.hass.connection.subscribeEvents<UnknownSignalEvent>(
             (ev) => onEvent(ev.data),
             "hair_signal_detected",
-        );
-    }
-
-    /**
-     * Subscribe to signal-removed events (fired when signals are deleted
-     * or assigned). Returns an unsubscribe function.
-     */
-    async subscribeSignalRemoved(
-        onEvent: (event: SignalRemovedEvent) => void,
-    ): Promise<() => Promise<void>> {
-        return this.hass.connection.subscribeEvents<SignalRemovedEvent>(
-            (ev) => onEvent(ev.data),
-            "hair_signal_removed",
         );
     }
 }
