@@ -60,14 +60,6 @@ class HAIRConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         emitters = await _async_get_emitters(self.hass)
         capture_providers = await get_available_capture_providers(self.hass)
 
-        if not emitters and not capture_providers:
-            return self.async_abort(
-                reason="no_ir_hardware",
-                description_placeholders={
-                    "setup_url": "https://hair.dev/setup-guide",
-                },
-            )
-
         if user_input is None:
             return self.async_show_form(
                 step_id="user",

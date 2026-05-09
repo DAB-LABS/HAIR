@@ -61,8 +61,8 @@ async def test_abort_single_instance(fake_hass):
 
 
 @pytest.mark.asyncio
-async def test_abort_no_ir_hardware(fake_hass):
-    """No emitters and no capture providers should abort."""
+async def test_shows_form_no_ir_hardware(fake_hass):
+    """No emitters and no capture providers should still show the form."""
     fake_hass.states = MagicMock()
     fake_hass.states.async_all = MagicMock(return_value=[])
     fake_hass.config.components = set()
@@ -70,8 +70,10 @@ async def test_abort_no_ir_hardware(fake_hass):
 
     flow = _make_flow(fake_hass)
     result = await flow.async_step_user()
-    assert result["type"] == "abort"
-    assert result["reason"] == "no_ir_hardware"
+    assert result["type"] == "form"
+    assert result["step_id"] == "user"
+    assert result["description_placeholders"]["emitter_count"] == "0"
+    assert result["description_placeholders"]["capture_count"] == "0"
 
 
 @pytest.mark.asyncio
