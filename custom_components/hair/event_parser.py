@@ -13,6 +13,9 @@ from typing import Any
 
 from .const import (
     DEFAULT_CARRIER_FREQUENCY,
+    PRONTO_DEVICE_PREAMBLE_PAIRS,
+    PRONTO_GAP_THRESHOLD,
+    PRONTO_SL_THRESHOLD,
     SIGNAL_RAW_FINGERPRINT_LEN,
     SIGNAL_RAW_QUANTIZE_BIN_US,
 )
@@ -138,10 +141,23 @@ class EventParser:
     ) -> str:
         """Compute a stable fingerprint for a signal.
 
-        For decoded protocols: ``hash(protocol + code)``.
+        For Pronto codes: classify timing words as S(hort)/L(ong) using a
+        threshold and hash the pattern.  This mirrors how real IR receivers
+        decode signals -- they don't care about exact microsecond timing,
+        only whether each pulse is short or long.
+
+        For other decoded protocols: ``hash(protocol + code)``.
         For raw-only: quantize timings to bins, truncate, and hash.
         """
         if protocol and code:
+            if protocol.upper() == "PRONTO":
+                sl = EventParser._pronto_sl_pattern(code)
+                if sl is not None:
+                    payload = f"PRONTO:{sl}"
+                    return hashlib.sha256(
+                        payload.encode()
+                    ).hexdigest()[:16]
+            # Non-Pronto decoded protocol (NEC, Samsung, etc.).
             payload = f"{protocol.upper()}:{code}"
             return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
@@ -152,22 +168,95 @@ class EventParser:
         protocol: str | None,
         device_address: str | None,
         raw_timings: list[int] | None,
+        code: str | None = None,
     ) -> str:
         """Compute a grouping fingerprint for a device.
 
         For decoded protocols with an address: ``hash(protocol + address)``.
-        Otherwise: use a coarsened raw timing hash (first 16 values only,
-        to capture the preamble/header which is shared across all buttons
-        on the same remote).
+        For Pronto codes: use the S/L pattern of the first few burst pairs
+        (the preamble), which is shared across all buttons on the same
+        remote.
+        Otherwise: use a coarsened raw timing hash (first 16 values only).
         """
         if protocol and device_address:
             payload = f"DEV:{protocol.upper()}:{device_address}"
             return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-        # Fallback: hash just the preamble (first 16 timings).
+        # Pronto: use carrier frequency + preamble S/L pattern.
+        # The frequency word (e.g. 006D = 38kHz) discriminates between
+        # remotes using different carrier frequencies.  The preamble
+        # (first burst pair's S/L pattern) adds timing-structure info.
+        if protocol and protocol.upper() == "PRONTO" and code:
+            words = EventParser._parse_pronto_words(code)
+            sl = EventParser._pronto_sl_pattern(code)
+            if words is not None and sl is not None:
+                freq_word = words[1]
+                n = PRONTO_DEVICE_PREAMBLE_PAIRS * 2
+                preamble = sl[:n]
+                payload = f"DEV:PRONTO:{freq_word:04X}:{preamble}"
+                return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+        # Fallback: hash just the preamble (first 16 raw timings).
         return EventParser._raw_fingerprint(
             (raw_timings or [])[:16], prefix="DEV"
         )
+
+    # -----------------------------------------------------------------
+    # Pronto S/L helpers
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _parse_pronto_words(code: str) -> list[int] | None:
+        """Parse a Pronto hex string into a list of integer words.
+
+        Returns ``None`` if the string is malformed or too short
+        (needs at least 4 header words + 1 timing word).
+        """
+        if not code:
+            return None
+        try:
+            words = [int(w, 16) for w in code.strip().split()]
+        except (ValueError, TypeError):
+            return None
+        # Pronto header is 4 words: type, freq, burst1_count, burst2_count.
+        if len(words) < 5:
+            return None
+        return words
+
+    @staticmethod
+    def _pronto_sl_pattern(code: str | None) -> str | None:
+        """Convert a Pronto hex code to an S/L pulse-duration pattern.
+
+        Parses the timing words (after the 4-word header) and classifies
+        each as S(hort), L(ong), or ignores gaps (end-of-signal markers).
+
+        This mirrors how real IR receiver ICs decode signals: they apply
+        a threshold to distinguish short from long pulses, ignoring exact
+        microsecond timing.  The resulting pattern string (e.g. "SSLLSSSS")
+        is deterministic for a given button regardless of timing jitter.
+
+        Returns ``None`` if the code is malformed.
+        """
+        words = EventParser._parse_pronto_words(code)
+        if words is None:
+            return None
+
+        # Skip 4-word header; classify timing words.
+        timings = words[4:]
+        pattern = []
+        for t in timings:
+            if t >= PRONTO_GAP_THRESHOLD:
+                # End-of-signal gap -- stop here.
+                break
+            if t < PRONTO_SL_THRESHOLD:
+                pattern.append("S")
+            else:
+                pattern.append("L")
+
+        if not pattern:
+            return None
+
+        return "".join(pattern)
 
     # -----------------------------------------------------------------
     # Internal helpers

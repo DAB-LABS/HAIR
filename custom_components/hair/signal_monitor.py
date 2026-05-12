@@ -122,7 +122,8 @@ class SignalMonitor:
             parsed.protocol, parsed.code
         )
         dev_fp = EventParser.device_fingerprint(
-            parsed.protocol, device_address, parsed.raw_timings
+            parsed.protocol, device_address, parsed.raw_timings,
+            code=parsed.code,
         )
 
         # Step 3: Check known commands.

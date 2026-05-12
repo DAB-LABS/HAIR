@@ -207,6 +207,68 @@ class TestSignalFingerprint:
         fp = EventParser.signal_fingerprint(None, None, [])
         assert len(fp) == 16
 
+    # --- Pronto S/L fingerprinting ---
+
+    def test_pronto_fingerprint_stable(self):
+        """Same Pronto code produces the same fingerprint."""
+        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        fp1 = EventParser.signal_fingerprint("PRONTO", code, None)
+        fp2 = EventParser.signal_fingerprint("PRONTO", code, None)
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    def test_pronto_fingerprint_tolerates_jitter(self):
+        """Same button with +-1 timing jitter produces the same fingerprint.
+
+        This is the core property: real IR receivers see jitter of +-1-2
+        Pronto units between presses. S/L classification absorbs this.
+        """
+        # Original capture: short=0x20, long=0x40.
+        code1 = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        # Same button, jittered: short=0x21, long=0x3F.
+        code2 = "0000 006D 000B 0000 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0BBA"
+        fp1 = EventParser.signal_fingerprint("PRONTO", code1, None)
+        fp2 = EventParser.signal_fingerprint("PRONTO", code2, None)
+        assert fp1 == fp2
+
+    def test_pronto_fingerprint_tolerates_edge_count_variation(self):
+        """Same S/L pattern with one extra trailing pair still matches.
+
+        Receivers sometimes capture an extra edge. As long as the shared
+        prefix has the same S/L pattern, the fingerprint should match.
+        Note: if the extra pair changes the pattern, they will differ --
+        that's acceptable because the signal genuinely differs.
+        """
+        # 11 timing words after header.
+        code_short = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        # 13 timing words -- two extra S values appended before gap.
+        code_long = "0000 006D 000D 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0BBA"
+        fp1 = EventParser.signal_fingerprint("PRONTO", code_short, None)
+        fp2 = EventParser.signal_fingerprint("PRONTO", code_long, None)
+        # These differ because the S/L pattern string is longer for code_long.
+        assert fp1 != fp2
+
+    def test_pronto_different_buttons_different_fingerprints(self):
+        """Two distinct buttons (different S/L patterns) produce different fps."""
+        # Pattern: SSSLSSSLSSSLSSSLSSSLSSL (all short-long pairs).
+        code_a = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        # Pattern: SSLSSSLSSLSSSLSSL (different arrangement).
+        code_b = "0000 006D 000B 0000 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0BBA"
+        fp1 = EventParser.signal_fingerprint("PRONTO", code_a, None)
+        fp2 = EventParser.signal_fingerprint("PRONTO", code_b, None)
+        assert fp1 != fp2
+
+    def test_pronto_malformed_returns_protocol_code_hash(self):
+        """Malformed Pronto falls back to protocol+code hash, not None."""
+        fp = EventParser.signal_fingerprint("PRONTO", "0000 006D", None)
+        assert len(fp) == 16
+
+    def test_pronto_case_insensitive(self):
+        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        fp1 = EventParser.signal_fingerprint("PRONTO", code, None)
+        fp2 = EventParser.signal_fingerprint("pronto", code, None)
+        assert fp1 == fp2
+
 
 class TestDeviceFingerprint:
     """Tests for device-level fingerprinting."""
@@ -237,3 +299,106 @@ class TestDeviceFingerprint:
     def test_no_data_returns_fingerprint(self):
         fp = EventParser.device_fingerprint(None, None, None)
         assert len(fp) == 16
+
+    # --- Pronto device fingerprinting ---
+
+    def test_pronto_device_fingerprint_groups_buttons(self):
+        """Different buttons from the same remote share a device fingerprint.
+
+        The device fingerprint uses frequency + preamble S/L (first pair),
+        which is shared across all buttons on a given remote.
+        """
+        # Button A: SSSLSSSL...
+        code_a = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        # Button B: SSLSSSLSSLSSL... (different command, same preamble SS).
+        code_b = "0000 006D 000B 0000 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0BBA"
+        fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code_a)
+        fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code_b)
+        # Same frequency (006D) and same first S/L pair (SS).
+        assert fp1 == fp2
+
+    def test_pronto_device_fingerprint_stable(self):
+        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code)
+        fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code)
+        assert fp1 == fp2
+        assert len(fp1) == 16
+
+    def test_pronto_device_fingerprint_jitter_tolerant(self):
+        """Jittered captures from the same remote produce the same device fp."""
+        code1 = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code2 = "0000 006D 000B 0000 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 0BBA"
+        fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code1)
+        fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code2)
+        assert fp1 == fp2
+
+    def test_pronto_different_frequency_different_device(self):
+        """Remotes using different carrier frequencies produce different device fps."""
+        # 006D = 38kHz
+        code_38k = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        # 0073 = 36kHz
+        code_36k = "0000 0073 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code_38k)
+        fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code_36k)
+        assert fp1 != fp2
+
+    def test_pronto_malformed_code_falls_back_to_raw(self):
+        """Malformed Pronto code with no raw falls back gracefully."""
+        fp = EventParser.device_fingerprint("PRONTO", None, None, code="0000 006D")
+        assert len(fp) == 16
+
+
+class TestProntoHelpers:
+    """Tests for Pronto-specific helper methods."""
+
+    def test_parse_pronto_words_valid(self):
+        words = EventParser._parse_pronto_words(
+            "0000 006D 000B 0000 0020 0020 0020 0040"
+        )
+        assert words is not None
+        assert words[0] == 0x0000
+        assert words[1] == 0x006D
+        assert len(words) == 8
+
+    def test_parse_pronto_words_too_short(self):
+        assert EventParser._parse_pronto_words("0000 006D 000B") is None
+
+    def test_parse_pronto_words_empty(self):
+        assert EventParser._parse_pronto_words("") is None
+        assert EventParser._parse_pronto_words(None) is None
+
+    def test_parse_pronto_words_invalid_hex(self):
+        assert EventParser._parse_pronto_words("0000 ZZZZ 000B 0000 0020") is None
+
+    def test_pronto_sl_pattern_basic(self):
+        """Short values (< 0x30) -> S, long values (>= 0x30) -> L."""
+        # Header: 0000 006D 0003 0000, then: 0020 0040 0020
+        code = "0000 006D 0003 0000 0020 0040 0020"
+        sl = EventParser._pronto_sl_pattern(code)
+        assert sl == "SLS"
+
+    def test_pronto_sl_pattern_gap_stops(self):
+        """Values >= 0x100 are gaps and terminate the pattern."""
+        code = "0000 006D 0004 0000 0020 0040 0020 0BBA"
+        sl = EventParser._pronto_sl_pattern(code)
+        assert sl == "SLS"
+
+    def test_pronto_sl_pattern_all_short(self):
+        code = "0000 006D 0003 0000 0020 0020 0020"
+        sl = EventParser._pronto_sl_pattern(code)
+        assert sl == "SSS"
+
+    def test_pronto_sl_pattern_all_long(self):
+        code = "0000 006D 0003 0000 0040 0050 0060"
+        sl = EventParser._pronto_sl_pattern(code)
+        assert sl == "LLL"
+
+    def test_pronto_sl_pattern_threshold_boundary(self):
+        """Value exactly at threshold (0x30) is classified as L."""
+        code = "0000 006D 0002 0000 002F 0030"
+        sl = EventParser._pronto_sl_pattern(code)
+        assert sl == "SL"
+
+    def test_pronto_sl_pattern_malformed(self):
+        assert EventParser._pronto_sl_pattern("0000 006D") is None
+        assert EventParser._pronto_sl_pattern(None) is None

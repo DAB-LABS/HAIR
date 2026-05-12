@@ -54,6 +54,16 @@ SIGNAL_RATE_LIMIT_PER_SEC = 10
 SIGNAL_WS_PUSH_RATE_LIMIT = 5
 SIGNAL_RAW_QUANTIZE_BIN_US = 50
 SIGNAL_RAW_FINGERPRINT_LEN = 64
+
+# Pronto S/L classification threshold (in Pronto timing units).
+# Timing words below this are "short" (S), above are "long" (L).
+# Real-world IR remotes cluster around ~0x20 (short) and ~0x40 (long)
+# with a clear gap between ~0x24 and ~0x3D.
+PRONTO_SL_THRESHOLD = 0x30
+# Timing words above this are treated as end-of-signal gaps.
+PRONTO_GAP_THRESHOLD = 0x100
+# Number of S/L pairs from the preamble used for device grouping.
+PRONTO_DEVICE_PREAMBLE_PAIRS = 1
 ASSIGN_SERVICE_TIMEOUT_S = 10
 
 
