@@ -52,6 +52,9 @@ export class IrAssignSignalDialog extends LitElement {
     /** The signal to assign. */
     @property({ attribute: false }) public signal!: UnknownSignal;
 
+    /** Optional suggested device name from the unknown device label. */
+    @property() public suggestedDeviceName = "";
+
     // --- state ---
     @state() private _mode: AssignMode = "existing";
     @state() private _devices: DeviceSummary[] = [];
@@ -73,6 +76,9 @@ export class IrAssignSignalDialog extends LitElement {
 
     connectedCallback(): void {
         super.connectedCallback();
+        if (this.suggestedDeviceName && !this._newName) {
+            this._newName = this.suggestedDeviceName;
+        }
         void this._loadDevices();
     }
 

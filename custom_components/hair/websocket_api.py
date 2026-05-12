@@ -67,6 +67,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_assign_new_device)
     websocket_api.async_register_command(hass, ws_delete_signal)
     websocket_api.async_register_command(hass, ws_test_signal)
+    websocket_api.async_register_command(hass, ws_rename_unknown)
     websocket_api.async_register_command(hass, ws_clear_unknowns)
 
 
@@ -690,7 +691,7 @@ async def ws_assign_signal(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/test",
     vol.Required("signal_fingerprint"): str,
-    vol.Required("emitter_entity_id"): str,
+    vol.Optional("emitter_entity_id"): str,
 })
 @websocket_api.async_response
 async def ws_test_signal(
@@ -703,9 +704,22 @@ async def ws_test_signal(
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
+
+    emitter_id = msg.get("emitter_entity_id")
+    if not emitter_id:
+        # Default to the first emitter configured on any HAIR device.
+        store = data["store"]
+        for dev in store.get_all_devices():
+            if dev.emitter_entity_id:
+                emitter_id = dev.emitter_entity_id
+                break
+    if not emitter_id:
+        connection.send_error(msg["id"], "no_emitter", "No emitter entity configured")
+        return
+
     monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.test_signal(
-        msg["signal_fingerprint"], msg["emitter_entity_id"]
+        msg["signal_fingerprint"], emitter_id
     )
     if not result["success"]:
         connection.send_error(
@@ -715,6 +729,34 @@ async def ws_test_signal(
         )
         return
     connection.send_result(msg["id"], {"sent": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/rename",
+    vol.Required("device_id"): str,
+    vol.Required("label"): str,
+})
+@websocket_api.async_response
+async def ws_rename_unknown(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Rename an unknown device with a user-friendly label."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    signal_store: SignalStore = data["signal_store"]
+    device = signal_store.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device not found")
+        return
+    label = msg["label"].strip()
+    device.label = label if label else None
+    signal_store.schedule_save()
+    connection.send_result(msg["id"], {"label": device.label})
 
 
 @websocket_api.require_admin

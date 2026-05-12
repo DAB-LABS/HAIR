@@ -255,12 +255,26 @@ export class HairApi {
 
     testSignal(
         signalFingerprint: string,
-        emitterEntityId: string,
+        emitterEntityId?: string,
     ): Promise<TestSignalResult> {
-        return this.hass.connection.sendMessagePromise<TestSignalResult>({
+        const msg: Record<string, unknown> = {
             type: "hair/unknown/test",
             signal_fingerprint: signalFingerprint,
-            emitter_entity_id: emitterEntityId,
+        };
+        if (emitterEntityId) {
+            msg.emitter_entity_id = emitterEntityId;
+        }
+        return this.hass.connection.sendMessagePromise<TestSignalResult>(msg);
+    }
+
+    renameUnknown(
+        deviceId: string,
+        label: string,
+    ): Promise<{ label: string | null }> {
+        return this.hass.connection.sendMessagePromise<{ label: string | null }>({
+            type: "hair/unknown/rename",
+            device_id: deviceId,
+            label,
         });
     }
 

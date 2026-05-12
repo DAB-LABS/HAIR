@@ -138,6 +138,7 @@ export interface UnknownDeviceSummary {
     fingerprint: string;
     protocol: string | null;
     device_address: string | null;
+    label: string | null;
     signal_count: number;
     hit_count: number;
     first_seen: string;
@@ -150,6 +151,7 @@ export interface UnknownDevice {
     fingerprint: string;
     protocol: string | null;
     device_address: string | null;
+    label: string | null;
     signals: UnknownSignal[];
     hit_count: number;
     first_seen: string;

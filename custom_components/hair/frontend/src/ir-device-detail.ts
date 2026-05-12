@@ -263,7 +263,11 @@ export class IrDeviceDetail extends LitElement {
             cursor: default;
         }
         .action-btn.delete-btn {
-            color: var(--error-color, #db4437);
+            color: #b71c1c;
+            border-color: rgba(183, 28, 28, 0.2);
+        }
+        .action-btn.delete-btn:hover {
+            background: rgba(183, 28, 28, 0.06);
         }
         ha-card {
             margin: 16px 0;

@@ -82,10 +82,19 @@ export class IrSignalMonitor extends LitElement {
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
     @state() private _flashIds = new Set<string>();
+    @state() private _flashStats = new Set<string>();
+    /** Last 2 signal fingerprints that received a hit (most recent first). */
+    @state() private _recentFingerprints: string[] = [];
+    /** Signal fingerprints currently in glow animation. */
+    @state() private _glowFingerprints = new Set<string>();
     @state() private _confirmClearAll = false;
 
+    // Inline rename state
+    @state() private _editingDeviceId: string | null = null;
+    @state() private _editLabel = "";
+
     // Dialog state
-    @state() private _assignSignal: { deviceId: string; signal: UnknownSignal } | null = null;
+    @state() private _assignSignal: { deviceId: string; signal: UnknownSignal; label: string | null } | null = null;
     @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
     @state() private _testingFingerprint: string | null = null;
     @state() private _testResult: string | null = null;
@@ -98,6 +107,18 @@ export class IrSignalMonitor extends LitElement {
         void this._load();
         void this._subscribeLive();
         void this._subscribeRemoved();
+    }
+
+    protected updated(changed: PropertyValues): void {
+        super.updated(changed);
+        // Auto-focus the rename input when it appears.
+        if (changed.has("_editingDeviceId") && this._editingDeviceId) {
+            const input = this.shadowRoot?.querySelector<HTMLInputElement>(".rename-input");
+            if (input) {
+                input.focus();
+                input.select();
+            }
+        }
     }
 
     disconnectedCallback(): void {
@@ -167,10 +188,47 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
+    // --- Inline rename ---
+
+    private _startRename(d: UnknownDeviceSummary, e: Event): void {
+        e.stopPropagation();
+        this._editingDeviceId = d.id;
+        this._editLabel = d.label ?? d.protocol ?? "";
+    }
+
+    private async _commitRename(deviceId: string): Promise<void> {
+        const label = this._editLabel.trim();
+        this._editingDeviceId = null;
+        try {
+            const result = await this.api.renameUnknown(deviceId, label);
+            // Update local state
+            const idx = this._devices.findIndex((d) => d.id === deviceId);
+            if (idx >= 0) {
+                const copy = [...this._devices];
+                copy[idx] = { ...copy[idx], label: result.label };
+                this._devices = copy;
+            }
+        } catch (err) {
+            this._error = `Rename failed: ${(err as Error).message}`;
+        }
+    }
+
+    private _cancelRename(): void {
+        this._editingDeviceId = null;
+    }
+
+    private _onRenameKeydown(deviceId: string, e: KeyboardEvent): void {
+        if (e.key === "Enter") {
+            void this._commitRename(deviceId);
+        } else if (e.key === "Escape") {
+            this._cancelRename();
+        }
+    }
+
     // --- Signal action handlers ---
 
-    private _openAssign(deviceId: string, signal: UnknownSignal): void {
-        this._assignSignal = { deviceId, signal };
+    private _openAssign(deviceId: string, signal: UnknownSignal, label?: string | null): void {
+        this._assignSignal = { deviceId, signal, label: label ?? null };
     }
 
     private _closeAssign(): void {
@@ -215,33 +273,13 @@ export class IrSignalMonitor extends LitElement {
 
     private async _testSignalInline(
         signal: UnknownSignal,
-        deviceId: string,
+        _deviceId: string,
     ): Promise<void> {
-        // Find the first emitter entity for a quick inline test.
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            { entity_id: string }
-        >;
-        const emitterId = Object.keys(states).find((id) =>
-            id.startsWith("infrared."),
-        );
-        if (!emitterId) {
-            this._testResult = "No IR emitter found.";
-            this._testingFingerprint = signal.fingerprint;
-            setTimeout(() => {
-                this._testResult = null;
-                this._testingFingerprint = null;
-            }, 3000);
-            return;
-        }
-
         this._testingFingerprint = signal.fingerprint;
         this._testResult = null;
         try {
-            const result = await this.api.testSignal(
-                signal.fingerprint,
-                emitterId,
-            );
+            // Let the backend pick the emitter from configured devices.
+            const result = await this.api.testSignal(signal.fingerprint);
             this._testResult = result.sent ? "Sent!" : "Failed";
         } catch {
             this._testResult = "Error";
@@ -297,13 +335,37 @@ export class IrSignalMonitor extends LitElement {
             }
         }
 
-        // Flash the row briefly.
+        // Flash the device card border briefly.
         this._flashIds = new Set([...this._flashIds, ev.device_id]);
         setTimeout(() => {
             const next = new Set(this._flashIds);
             next.delete(ev.device_id);
             this._flashIds = next;
         }, 800);
+
+        // Flash collapsed stats (hit count / signal count) with accent color.
+        this._flashStats = new Set([...this._flashStats, ev.device_id]);
+        setTimeout(() => {
+            const next = new Set(this._flashStats);
+            next.delete(ev.device_id);
+            this._flashStats = next;
+        }, 1500);
+
+        // Track last 2 active signal fingerprints for Assign button highlighting.
+        if (ev.signal_fingerprint) {
+            const recent = [ev.signal_fingerprint, ...this._recentFingerprints.filter(
+                (fp) => fp !== ev.signal_fingerprint,
+            )].slice(0, 2);
+            this._recentFingerprints = recent;
+
+            // Trigger glow animation on the Assign button.
+            this._glowFingerprints = new Set([...this._glowFingerprints, ev.signal_fingerprint]);
+            setTimeout(() => {
+                const next = new Set(this._glowFingerprints);
+                next.delete(ev.signal_fingerprint);
+                this._glowFingerprints = next;
+            }, 1200);
+        }
     }
 
     private async _toggleExpand(deviceId: string): Promise<void> {
@@ -364,34 +426,22 @@ export class IrSignalMonitor extends LitElement {
             <div class="toolbar">
                 <span class="title">
                     <ha-svg-icon .path=${ICON_SIGNAL}></ha-svg-icon>
-                    Unknown Signals
+                    HAIR Sniffer
                     ${!this._loading
                         ? html`<span class="count">(${this._devices.length})</span>`
                         : ""}
                 </span>
                 <div class="toolbar-actions">
-                    <mwc-button
-                        dense
+                    <button
+                        class="action-btn dismiss-btn"
                         @click=${this._toggleDismissed}
-                    >
-                        <ha-svg-icon
-                            .path=${this._showDismissed ? ICON_DISMISS : ICON_RESTORE}
-                            slot="icon"
-                        ></ha-svg-icon>
-                        ${this._showDismissed ? "Hide Dismissed" : "Show Dismissed"}
-                    </mwc-button>
+                    >${this._showDismissed ? "Hide Dismissed" : "Show Dismissed"}</button>
                     ${this._devices.length > 0
                         ? html`
-                              <mwc-button
-                                  dense
+                              <button
+                                  class="action-btn delete-btn"
                                   @click=${() => (this._confirmClearAll = true)}
-                              >
-                                  <ha-svg-icon
-                                      .path=${ICON_CLEAR}
-                                      slot="icon"
-                                  ></ha-svg-icon>
-                                  Clear All
-                              </mwc-button>
+                              >Clear All</button>
                           `
                         : ""}
                 </div>
@@ -431,6 +481,7 @@ export class IrSignalMonitor extends LitElement {
                           .hass=${this.hass}
                           .unknownDeviceId=${this._assignSignal.deviceId}
                           .signal=${this._assignSignal.signal}
+                          .suggestedDeviceName=${this._assignSignal.label ?? ""}
                           @signal-assigned=${this._onSignalAssigned}
                           @closed=${this._closeAssign}
                       ></ir-assign-signal-dialog>
@@ -468,6 +519,7 @@ export class IrSignalMonitor extends LitElement {
     private _renderDevice(d: UnknownDeviceSummary) {
         const expanded = this._expandedId === d.id;
         const flashing = this._flashIds.has(d.id);
+        const statsFlash = this._flashStats.has(d.id);
 
         return html`
             <ha-card class="device ${flashing ? "flash" : ""} ${d.dismissed ? "dismissed" : ""}">
@@ -477,7 +529,21 @@ export class IrSignalMonitor extends LitElement {
                 >
                     <div class="device-info">
                         <div class="device-header">
-                            <span class="protocol">${d.protocol ?? "RAW"}</span>
+                            ${this._editingDeviceId === d.id
+                                ? html`<input
+                                      class="rename-input"
+                                      type="text"
+                                      .value=${this._editLabel}
+                                      @input=${(e: Event) => { this._editLabel = (e.target as HTMLInputElement).value; }}
+                                      @keydown=${(e: KeyboardEvent) => this._onRenameKeydown(d.id, e)}
+                                      @blur=${() => void this._commitRename(d.id)}
+                                      @click=${(e: Event) => e.stopPropagation()}
+                                  />`
+                                : html`<span
+                                      class="protocol"
+                                      title="Click to rename"
+                                      @click=${(e: Event) => this._startRename(d, e)}
+                                  >${d.label ?? d.protocol ?? "RAW"}</span>`}
                             ${d.device_address
                                 ? html`<span class="address">addr: ${d.device_address}</span>`
                                 : ""}
@@ -485,7 +551,7 @@ export class IrSignalMonitor extends LitElement {
                                 ? html`<span class="dismissed-badge">dismissed</span>`
                                 : ""}
                         </div>
-                        <div class="device-stats">
+                        <div class="device-stats ${statsFlash ? "stats-flash" : ""}">
                             <span class="stat">
                                 <strong>${d.hit_count}</strong> hits
                             </span>
@@ -519,7 +585,10 @@ export class IrSignalMonitor extends LitElement {
                 </div>
                 <div class="signal-list">
                     ${device.signals.map(
-                        (sig) => html`
+                        (sig) => {
+                            const isRecent = this._recentFingerprints.includes(sig.fingerprint);
+                            const isGlowing = this._glowFingerprints.has(sig.fingerprint);
+                            return html`
                             <div class="signal-row">
                                 <div class="signal-info">
                                     ${sig.sl_pattern
@@ -538,14 +607,14 @@ export class IrSignalMonitor extends LitElement {
                                 </div>
                                 <div class="signal-actions">
                                     <button
-                                        class="action-btn"
+                                        class="action-btn assign-btn ${isRecent ? "recent" : ""} ${isGlowing ? "glow" : ""}"
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
-                                            this._openAssign(device.id, sig);
+                                            this._openAssign(device.id, sig, device.label);
                                         }}
                                     >Assign</button>
                                     <button
-                                        class="action-btn"
+                                        class="action-btn test-btn"
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
                                             void this._testSignalInline(sig, device.id);
@@ -570,7 +639,7 @@ export class IrSignalMonitor extends LitElement {
                                               }}
                                           >Restore</button>`
                                         : html`<button
-                                              class="action-btn"
+                                              class="action-btn dismiss-btn"
                                               @click=${(e: Event) => {
                                                   e.stopPropagation();
                                                   void this._dismiss(device.id);
@@ -578,7 +647,7 @@ export class IrSignalMonitor extends LitElement {
                                           >Dismiss</button>`}
                                 </div>
                             </div>
-                        `,
+                        `},
                     )}
                 </div>
             </div>
@@ -618,9 +687,6 @@ export class IrSignalMonitor extends LitElement {
         .toolbar-actions {
             display: flex;
             gap: 8px;
-        }
-        .toolbar-actions mwc-button {
-            --mdc-typography-button-font-size: 0.8rem;
         }
 
         .loading,
@@ -682,6 +748,24 @@ export class IrSignalMonitor extends LitElement {
         .protocol {
             font-weight: 600;
             font-size: 0.95rem;
+            cursor: text;
+            border-bottom: 1px dashed transparent;
+            transition: border-color 150ms ease;
+        }
+        .protocol:hover {
+            border-bottom-color: var(--primary-color);
+        }
+        .rename-input {
+            font-weight: 600;
+            font-size: 0.95rem;
+            font-family: inherit;
+            border: 1px solid var(--primary-color);
+            border-radius: 4px;
+            padding: 2px 6px;
+            background: var(--card-background-color, #fff);
+            color: var(--primary-text-color);
+            outline: none;
+            width: 140px;
         }
         .address {
             font-size: 0.8rem;
@@ -789,7 +873,8 @@ export class IrSignalMonitor extends LitElement {
             cursor: pointer;
             text-transform: uppercase;
             letter-spacing: 0.03em;
-            transition: background 150ms ease;
+            transition: background 150ms ease, color 150ms ease,
+                        border-color 150ms ease, box-shadow 300ms ease;
         }
         .action-btn:hover {
             background: var(--secondary-background-color);
@@ -798,11 +883,55 @@ export class IrSignalMonitor extends LitElement {
             opacity: 0.5;
             cursor: default;
         }
+
+        /* Semantic button colors */
+        .action-btn.assign-btn {
+            color: #2e7d32;
+            border-color: rgba(46, 125, 50, 0.3);
+        }
+        .action-btn.assign-btn:hover {
+            background: rgba(46, 125, 50, 0.08);
+        }
+        .action-btn.test-btn {
+            color: var(--primary-color);
+        }
         .action-btn.delete-btn {
-            color: var(--error-color, #db4437);
+            color: #b71c1c;
+            border-color: rgba(183, 28, 28, 0.2);
+        }
+        .action-btn.delete-btn:hover {
+            background: rgba(183, 28, 28, 0.06);
+        }
+        .action-btn.dismiss-btn {
+            color: var(--secondary-text-color);
+            border-color: var(--divider-color);
         }
 
-        /* expanded-actions removed: dismiss/restore now inline with signal actions */
+        /* Last-active: Assign stays accent green for last 2 hits */
+        .action-btn.assign-btn.recent {
+            color: #fff;
+            background: #2e7d32;
+            border-color: #2e7d32;
+        }
+        .action-btn.assign-btn.recent:hover {
+            background: #1b5e20;
+        }
+
+        /* Glow pulse animation on hit */
+        .action-btn.assign-btn.glow {
+            animation: assign-glow 1.2s ease-out;
+        }
+        @keyframes assign-glow {
+            0% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.6); }
+            50% { box-shadow: 0 0 8px 3px rgba(46, 125, 50, 0.3); }
+            100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0); }
+        }
+
+        /* Collapsed stats flash on hit */
+        .device-stats.stats-flash strong {
+            color: var(--primary-color);
+            transition: color 300ms ease;
+        }
     `;
 }
 

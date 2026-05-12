@@ -355,6 +355,7 @@ class UnknownDevice:
     fingerprint: str = ""
     protocol: str | None = None
     device_address: str | None = None
+    label: str | None = None
     signals: list[UnknownSignal] = field(default_factory=list)
     hit_count: int = 0
     first_seen: str = field(default_factory=_now_iso)
@@ -382,6 +383,7 @@ class UnknownDevice:
             "fingerprint": self.fingerprint,
             "protocol": self.protocol,
             "device_address": self.device_address,
+            "label": self.label,
             "signals": [s.to_dict() for s in self.signals],
             "hit_count": self.hit_count,
             "first_seen": self.first_seen,
@@ -396,6 +398,7 @@ class UnknownDevice:
             fingerprint=data.get("fingerprint", ""),
             protocol=data.get("protocol"),
             device_address=data.get("device_address"),
+            label=data.get("label"),
             signals=[
                 UnknownSignal.from_dict(s)
                 for s in (data.get("signals") or [])
