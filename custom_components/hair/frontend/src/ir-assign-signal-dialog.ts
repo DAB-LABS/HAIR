@@ -233,9 +233,11 @@ export class IrAssignSignalDialog extends LitElement {
     }
 
     render() {
-        const signalLabel = this.signal.protocol
-            ? `${this.signal.protocol}: ${this.signal.code ?? "raw"}`
-            : `RAW (${this.signal.raw_timings.length} timings)`;
+        const signalLabel = this.signal.sl_pattern
+            ? `Pattern: ${this.signal.sl_pattern}`
+            : this.signal.protocol
+                ? `${this.signal.protocol}: ${this.signal.code ?? "raw"}`
+                : `RAW (${this.signal.raw_timings.length} timings)`;
 
         return html`
             <ha-dialog
@@ -289,21 +291,22 @@ export class IrAssignSignalDialog extends LitElement {
                 <!-- Command name (shared by both modes) -->
                 ${this._renderCommandPicker()}
 
-                <mwc-button
-                    slot="secondaryAction"
-                    @click=${this._close}
-                    ?disabled=${this._busy}
-                >
-                    Cancel
-                </mwc-button>
-                <mwc-button
-                    slot="primaryAction"
-                    raised
-                    @click=${this._assign}
-                    ?disabled=${this._busy}
-                >
-                    ${this._busy ? "Assigning..." : "Assign"}
-                </mwc-button>
+                <div class="dialog-actions">
+                    <button
+                        class="action-btn cancel-btn"
+                        @click=${this._close}
+                        ?disabled=${this._busy}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        class="action-btn assign-btn"
+                        @click=${this._assign}
+                        ?disabled=${this._busy}
+                    >
+                        ${this._busy ? "Assigning..." : this._mode === "new" ? "Create & Assign" : "Assign"}
+                    </button>
+                </div>
             </ha-dialog>
         `;
     }
@@ -566,6 +569,43 @@ export class IrAssignSignalDialog extends LitElement {
         .back-to-templates {
             --mdc-typography-button-font-size: 0.75rem;
             margin-top: 4px;
+        }
+
+        .dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--divider-color);
+        }
+        .action-btn {
+            padding: 8px 20px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            border: none;
+            transition: background 150ms ease, opacity 150ms ease;
+        }
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .cancel-btn {
+            background: transparent;
+            color: var(--secondary-text-color);
+        }
+        .cancel-btn:hover:not(:disabled) {
+            background: var(--secondary-background-color);
+        }
+        .assign-btn {
+            background: var(--primary-color);
+            color: var(--text-primary-color, #fff);
+        }
+        .assign-btn:hover:not(:disabled) {
+            opacity: 0.9;
         }
     `;
 }

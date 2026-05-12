@@ -785,7 +785,7 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
             display: block;
             margin: 8px 0;
         }
-    `,e([pe({attribute:!1})],Ce.prototype,"api",void 0),e([pe({attribute:!1})],Ce.prototype,"hass",void 0),e([me()],Ce.prototype,"_name",void 0),e([me()],Ce.prototype,"_manufacturer",void 0),e([me()],Ce.prototype,"_model",void 0),e([me()],Ce.prototype,"_deviceType",void 0),e([me()],Ce.prototype,"_emitterId",void 0),e([me()],Ce.prototype,"_captureProviderId",void 0),e([me()],Ce.prototype,"_captureProviders",void 0),e([me()],Ce.prototype,"_emitters",void 0),e([me()],Ce.prototype,"_busy",void 0),e([me()],Ce.prototype,"_error",void 0),Ce=e([ce("ir-add-device-dialog")],Ce);const Ae=[{value:"tv",label:"TV / Monitor"},{value:"ac",label:"Air Conditioner"},{value:"fan",label:"Fan"},{value:"soundbar",label:"Soundbar / Audio"},{value:"projector",label:"Projector"},{value:"other",label:"Other"}],De=[{value:"power",label:"Power"},{value:"volume",label:"Volume"},{value:"channel",label:"Channel"},{value:"navigation",label:"Navigation"},{value:"mode",label:"Mode"},{value:"temperature",label:"Temperature"},{value:"fan_speed",label:"Fan Speed"},{value:"custom",label:"Custom"}];let ke=class extends re{constructor(){super(...arguments),this._mode="existing",this._devices=[],this._templates=[],this._selectedDeviceId="",this._commandName="",this._commandCategory="custom",this._useCustomName=!1,this._newName="",this._newType="tv",this._newEmitterId="",this._busy=!1,this._testing=!1,this._testResult=null,this._error=null}connectedCallback(){super.connectedCallback(),this._loadDevices()}async _loadDevices(){try{this._devices=await this.api.listDevices()}catch{}}async _loadTemplates(e){try{this._templates=await this.api.listTemplates(e)}catch{this._templates=[]}}async _onDeviceSelected(e){this._selectedDeviceId=e.target.value,this._commandName="",this._useCustomName=!1;const t=this._devices.find(e=>e.id===this._selectedDeviceId);t&&await this._loadTemplates(t.device_type)}_onTemplateSelected(e){const t=e.target.value;if("__custom__"===t)return this._useCustomName=!0,void(this._commandName="");this._useCustomName=!1,this._commandName=t;const i=this._templates.find(e=>e.name===t);i&&(this._commandCategory=i.category)}async _onNewTypeChanged(e){this._newType=e.target.value,await this._loadTemplates(this._newType),this._commandName="",this._useCustomName=!1}_close(){this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}async _testSignal(){let e=null;if("existing"===this._mode&&this._selectedDeviceId){const t=this._devices.find(e=>e.id===this._selectedDeviceId);e=t?.emitter_entity_id??null}else"new"===this._mode&&this._newEmitterId&&(e=this._newEmitterId);if(e){this._testing=!0,this._testResult=null;try{const t=await this.api.testSignal(this.signal.fingerprint,e);this._testResult=t.sent?"Signal sent! Did the target device respond?":"Send failed. Check emitter connection."}catch(e){this._testResult=`Error: ${e.message}`}finally{this._testing=!1}}else this._testResult="Select a device or emitter first."}async _assign(){const e=this._commandName.trim();if(e){this._busy=!0,this._error=null;try{let t;if("existing"===this._mode){if(!this._selectedDeviceId)return this._error="Select a target device.",void(this._busy=!1);t=await this.api.assignSignal({device_id:this.unknownDeviceId,signal_fingerprint:this.signal.fingerprint,hair_device_id:this._selectedDeviceId,command_name:e,command_category:this._commandCategory})}else{if(!this._newName.trim())return this._error="Device name is required.",void(this._busy=!1);if(!this._newEmitterId)return this._error="Select an IR emitter.",void(this._busy=!1);t=await this.api.assignToNewDevice({device_id:this.unknownDeviceId,signal_fingerprint:this.signal.fingerprint,device_name:this._newName.trim(),device_type:this._newType,emitter_entity_id:this._newEmitterId,command_name:e,command_category:this._commandCategory})}t.assigned?this.dispatchEvent(new CustomEvent("signal-assigned",{detail:t,bubbles:!0,composed:!0})):this._error="Assignment failed. The signal may have a duplicate code on the target device."}catch(e){this._error=e.message}finally{this._busy=!1}}else this._error="Command name is required."}render(){const e=this.signal.protocol?`${this.signal.protocol}: ${this.signal.code??"raw"}`:`RAW (${this.signal.raw_timings.length} timings)`;return B`
+    `,e([pe({attribute:!1})],Ce.prototype,"api",void 0),e([pe({attribute:!1})],Ce.prototype,"hass",void 0),e([me()],Ce.prototype,"_name",void 0),e([me()],Ce.prototype,"_manufacturer",void 0),e([me()],Ce.prototype,"_model",void 0),e([me()],Ce.prototype,"_deviceType",void 0),e([me()],Ce.prototype,"_emitterId",void 0),e([me()],Ce.prototype,"_captureProviderId",void 0),e([me()],Ce.prototype,"_captureProviders",void 0),e([me()],Ce.prototype,"_emitters",void 0),e([me()],Ce.prototype,"_busy",void 0),e([me()],Ce.prototype,"_error",void 0),Ce=e([ce("ir-add-device-dialog")],Ce);const Ae=[{value:"tv",label:"TV / Monitor"},{value:"ac",label:"Air Conditioner"},{value:"fan",label:"Fan"},{value:"soundbar",label:"Soundbar / Audio"},{value:"projector",label:"Projector"},{value:"other",label:"Other"}],De=[{value:"power",label:"Power"},{value:"volume",label:"Volume"},{value:"channel",label:"Channel"},{value:"navigation",label:"Navigation"},{value:"mode",label:"Mode"},{value:"temperature",label:"Temperature"},{value:"fan_speed",label:"Fan Speed"},{value:"custom",label:"Custom"}];let ke=class extends re{constructor(){super(...arguments),this._mode="existing",this._devices=[],this._templates=[],this._selectedDeviceId="",this._commandName="",this._commandCategory="custom",this._useCustomName=!1,this._newName="",this._newType="tv",this._newEmitterId="",this._busy=!1,this._testing=!1,this._testResult=null,this._error=null}connectedCallback(){super.connectedCallback(),this._loadDevices()}async _loadDevices(){try{this._devices=await this.api.listDevices()}catch{}}async _loadTemplates(e){try{this._templates=await this.api.listTemplates(e)}catch{this._templates=[]}}async _onDeviceSelected(e){this._selectedDeviceId=e.target.value,this._commandName="",this._useCustomName=!1;const t=this._devices.find(e=>e.id===this._selectedDeviceId);t&&await this._loadTemplates(t.device_type)}_onTemplateSelected(e){const t=e.target.value;if("__custom__"===t)return this._useCustomName=!0,void(this._commandName="");this._useCustomName=!1,this._commandName=t;const i=this._templates.find(e=>e.name===t);i&&(this._commandCategory=i.category)}async _onNewTypeChanged(e){this._newType=e.target.value,await this._loadTemplates(this._newType),this._commandName="",this._useCustomName=!1}_close(){this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}async _testSignal(){let e=null;if("existing"===this._mode&&this._selectedDeviceId){const t=this._devices.find(e=>e.id===this._selectedDeviceId);e=t?.emitter_entity_id??null}else"new"===this._mode&&this._newEmitterId&&(e=this._newEmitterId);if(e){this._testing=!0,this._testResult=null;try{const t=await this.api.testSignal(this.signal.fingerprint,e);this._testResult=t.sent?"Signal sent! Did the target device respond?":"Send failed. Check emitter connection."}catch(e){this._testResult=`Error: ${e.message}`}finally{this._testing=!1}}else this._testResult="Select a device or emitter first."}async _assign(){const e=this._commandName.trim();if(e){this._busy=!0,this._error=null;try{let t;if("existing"===this._mode){if(!this._selectedDeviceId)return this._error="Select a target device.",void(this._busy=!1);t=await this.api.assignSignal({device_id:this.unknownDeviceId,signal_fingerprint:this.signal.fingerprint,hair_device_id:this._selectedDeviceId,command_name:e,command_category:this._commandCategory})}else{if(!this._newName.trim())return this._error="Device name is required.",void(this._busy=!1);if(!this._newEmitterId)return this._error="Select an IR emitter.",void(this._busy=!1);t=await this.api.assignToNewDevice({device_id:this.unknownDeviceId,signal_fingerprint:this.signal.fingerprint,device_name:this._newName.trim(),device_type:this._newType,emitter_entity_id:this._newEmitterId,command_name:e,command_category:this._commandCategory})}t.assigned?this.dispatchEvent(new CustomEvent("signal-assigned",{detail:t,bubbles:!0,composed:!0})):this._error="Assignment failed. The signal may have a duplicate code on the target device."}catch(e){this._error=e.message}finally{this._busy=!1}}else this._error="Command name is required."}render(){const e=this.signal.sl_pattern?`Pattern: ${this.signal.sl_pattern}`:this.signal.protocol?`${this.signal.protocol}: ${this.signal.code??"raw"}`:`RAW (${this.signal.raw_timings.length} timings)`;return B`
             <ha-dialog
                 open
                 heading="Assign Signal"
@@ -831,21 +831,22 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
                 <!-- Command name (shared by both modes) -->
                 ${this._renderCommandPicker()}
 
-                <mwc-button
-                    slot="secondaryAction"
-                    @click=${this._close}
-                    ?disabled=${this._busy}
-                >
-                    Cancel
-                </mwc-button>
-                <mwc-button
-                    slot="primaryAction"
-                    raised
-                    @click=${this._assign}
-                    ?disabled=${this._busy}
-                >
-                    ${this._busy?"Assigning...":"Assign"}
-                </mwc-button>
+                <div class="dialog-actions">
+                    <button
+                        class="action-btn cancel-btn"
+                        @click=${this._close}
+                        ?disabled=${this._busy}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        class="action-btn assign-btn"
+                        @click=${this._assign}
+                        ?disabled=${this._busy}
+                    >
+                        ${this._busy?"Assigning...":"new"===this._mode?"Create & Assign":"Assign"}
+                    </button>
+                </div>
             </ha-dialog>
         `}_renderExistingMode(){return B`
             <div class="field">
@@ -1044,6 +1045,43 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
         .back-to-templates {
             --mdc-typography-button-font-size: 0.75rem;
             margin-top: 4px;
+        }
+
+        .dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--divider-color);
+        }
+        .action-btn {
+            padding: 8px 20px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            border: none;
+            transition: background 150ms ease, opacity 150ms ease;
+        }
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .cancel-btn {
+            background: transparent;
+            color: var(--secondary-text-color);
+        }
+        .cancel-btn:hover:not(:disabled) {
+            background: var(--secondary-background-color);
+        }
+        .assign-btn {
+            background: var(--primary-color);
+            color: var(--text-primary-color, #fff);
+        }
+        .assign-btn:hover:not(:disabled) {
+            opacity: 0.9;
         }
     `,e([pe({attribute:!1})],ke.prototype,"api",void 0),e([pe({attribute:!1})],ke.prototype,"hass",void 0),e([pe()],ke.prototype,"unknownDeviceId",void 0),e([pe({attribute:!1})],ke.prototype,"signal",void 0),e([me()],ke.prototype,"_mode",void 0),e([me()],ke.prototype,"_devices",void 0),e([me()],ke.prototype,"_templates",void 0),e([me()],ke.prototype,"_selectedDeviceId",void 0),e([me()],ke.prototype,"_commandName",void 0),e([me()],ke.prototype,"_commandCategory",void 0),e([me()],ke.prototype,"_useCustomName",void 0),e([me()],ke.prototype,"_newName",void 0),e([me()],ke.prototype,"_newType",void 0),e([me()],ke.prototype,"_newEmitterId",void 0),e([me()],ke.prototype,"_busy",void 0),e([me()],ke.prototype,"_testing",void 0),e([me()],ke.prototype,"_testResult",void 0),e([me()],ke.prototype,"_error",void 0),ke=e([ce("ir-assign-signal-dialog")],ke);const Ne="M4.93,4.93C3.12,6.74 2,9.24 2,12C2,14.76 3.12,17.26 4.93,19.07L6.34,17.66C4.89,16.22 4,14.22 4,12C4,9.79 4.89,7.78 6.34,6.34L4.93,4.93M19.07,4.93L17.66,6.34C19.11,7.78 20,9.79 20,12C20,14.22 19.11,16.22 17.66,17.66L19.07,19.07C20.88,17.26 22,14.76 22,12C22,9.24 20.88,6.74 19.07,4.93M7.76,7.76C6.67,8.85 6,10.35 6,12C6,13.65 6.67,15.15 7.76,16.24L9.17,14.83C8.45,14.11 8,13.11 8,12C8,10.89 8.45,9.89 9.17,9.17L7.76,7.76M16.24,7.76L14.83,9.17C15.55,9.89 16,10.89 16,12C16,13.11 15.55,14.11 14.83,14.83L16.24,16.24C17.33,15.15 18,13.65 18,12C18,10.35 17.33,8.85 16.24,7.76M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10Z";let Pe=class extends re{constructor(){super(...arguments),this._devices=[],this._loading=!0,this._error=null,this._showDismissed=!1,this._expandedId=null,this._expandedDevice=null,this._flashIds=new Set,this._confirmClearAll=!1,this._assignSignal=null,this._deleteSignal=null,this._testingFingerprint=null,this._testResult=null,this._unsubLive=null,this._unsubRemoved=null}connectedCallback(){super.connectedCallback(),this._load(),this._subscribeLive(),this._subscribeRemoved()}disconnectedCallback(){super.disconnectedCallback(),this._unsubscribeLive(),this._unsubscribeRemoved()}async _load(){this._loading=!0;try{this._devices=await this.api.getUnknownDevices({include_dismissed:this._showDismissed}),this._error=null}catch(e){this._error=`Failed to load: ${e.message}`}finally{this._loading=!1}}async _subscribeLive(){try{this._unsubLive=await this.api.subscribeUnknownSignals(e=>{this._onLiveSignal(e)})}catch{}}async _unsubscribeLive(){this._unsubLive&&(await this._unsubLive(),this._unsubLive=null)}async _subscribeRemoved(){try{this._unsubRemoved=await this.api.subscribeSignalRemoved(e=>{this._load(),this._expandedId===e.device_id&&(e.device_removed?(this._expandedId=null,this._expandedDevice=null):(this._toggleExpand(e.device_id),this._toggleExpand(e.device_id)))})}catch{}}async _unsubscribeRemoved(){this._unsubRemoved&&(await this._unsubRemoved(),this._unsubRemoved=null)}_openAssign(e,t){this._assignSignal={deviceId:e,signal:t}}_closeAssign(){this._assignSignal=null}async _onSignalAssigned(e){if(this._assignSignal=null,await this._load(),this._expandedId)try{this._expandedDevice=await this.api.getUnknownDevice(this._expandedId)}catch{this._expandedId=null,this._expandedDevice=null}}_openDelete(e,t){this._deleteSignal={deviceId:e,signal:t}}_closeDelete(){this._deleteSignal=null}async _confirmDelete(){if(!this._deleteSignal)return;const{deviceId:e,signal:t}=this._deleteSignal;this._deleteSignal=null;try{await this.api.deleteSignal(e,t.fingerprint),await this._load()}catch(e){this._error=`Delete failed: ${e.message}`}}async _testSignalInline(e,t){const i=this.hass?.states??{},s=Object.keys(i).find(e=>e.startsWith("infrared."));if(!s)return this._testResult="No IR emitter found.",this._testingFingerprint=e.fingerprint,void setTimeout(()=>{this._testResult=null,this._testingFingerprint=null},3e3);this._testingFingerprint=e.fingerprint,this._testResult=null;try{const t=await this.api.testSignal(e.fingerprint,s);this._testResult=t.sent?"Sent!":"Failed"}catch{this._testResult="Error"}setTimeout(()=>{this._testResult=null,this._testingFingerprint=null},3e3)}_onLiveSignal(e){const t=(new Date).toISOString(),i=this._devices.findIndex(t=>t.id===e.device_id);if(i>=0){{const s={...this._devices[i]};s.hit_count=e.device_hit_count??e.hit_count,s.last_seen=t;const a=[...this._devices];a[i]=s,this._devices=a}if(this._expandedDevice&&this._expandedId===e.device_id){const i=this._expandedDevice.signals.findIndex(t=>t.fingerprint===e.signal_fingerprint);if(i>=0){const s={...this._expandedDevice.signals[i]};s.hit_count=e.hit_count,s.last_seen=t;const a=[...this._expandedDevice.signals];a[i]=s,this._expandedDevice={...this._expandedDevice,hit_count:e.device_hit_count??e.hit_count,last_seen:t,signals:a}}}this._flashIds=new Set([...this._flashIds,e.device_id]),setTimeout(()=>{const t=new Set(this._flashIds);t.delete(e.device_id),this._flashIds=t},800)}else this._load()}async _toggleExpand(e){if(this._expandedId===e)return this._expandedId=null,void(this._expandedDevice=null);this._expandedId=e;try{this._expandedDevice=await this.api.getUnknownDevice(e)}catch{this._expandedDevice=null}}async _dismiss(e){try{await this.api.dismissUnknown(e),await this._load(),this._expandedId===e&&(this._expandedId=null,this._expandedDevice=null)}catch(e){this._error=`Dismiss failed: ${e.message}`}}async _undismiss(e){try{await this.api.undismissUnknown(e),await this._load()}catch(e){this._error=`Restore failed: ${e.message}`}}async _doClearAll(){this._confirmClearAll=!1;try{await this.api.clearUnknowns(),this._devices=[],this._expandedId=null,this._expandedDevice=null}catch(e){this._error=`Clear failed: ${e.message}`}}_toggleDismissed(){this._showDismissed=!this._showDismissed,this._load()}render(){return B`
             <div class="toolbar">
