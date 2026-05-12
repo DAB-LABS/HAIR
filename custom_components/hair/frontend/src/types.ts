@@ -130,6 +130,7 @@ export interface UnknownSignal {
     hit_count: number;
     first_seen: string;
     last_seen: string;
+    sl_pattern?: string | null;
 }
 
 export interface UnknownDeviceSummary {
@@ -163,6 +164,7 @@ export interface UnknownSignalEvent {
     protocol: string | null;
     code: string | null;
     hit_count: number;
+    device_hit_count: number;
 }
 
 // ---------------------------------------------------------------------------

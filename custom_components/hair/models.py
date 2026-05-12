@@ -315,7 +315,7 @@ class UnknownSignal:
     last_seen: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "fingerprint": self.fingerprint,
             "protocol": self.protocol,
             "code": self.code,
@@ -325,6 +325,13 @@ class UnknownSignal:
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
         }
+        # Compute S/L pattern for Pronto signals (not stored, derived).
+        if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
+            from .event_parser import EventParser  # noqa: C0415
+
+            sl = EventParser._pronto_sl_pattern(self.code)
+            d["sl_pattern"] = sl
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UnknownSignal:

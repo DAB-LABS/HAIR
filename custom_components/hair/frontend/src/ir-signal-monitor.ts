@@ -253,12 +253,14 @@ export class IrSignalMonitor extends LitElement {
     }
 
     private _onLiveSignal(ev: UnknownSignalEvent): void {
+        const now = new Date().toISOString();
+
         // Update the matching device in our local list, or add a new one.
         const idx = this._devices.findIndex((d) => d.id === ev.device_id);
         if (idx >= 0) {
             const updated = { ...this._devices[idx] };
-            updated.hit_count = ev.hit_count;
-            updated.last_seen = new Date().toISOString();
+            updated.hit_count = ev.device_hit_count ?? ev.hit_count;
+            updated.last_seen = now;
             const copy = [...this._devices];
             copy[idx] = updated;
             this._devices = copy;
@@ -266,6 +268,26 @@ export class IrSignalMonitor extends LitElement {
             // New device appeared; reload the full list to get all fields.
             void this._load();
             return;
+        }
+
+        // Update per-signal hit count in expanded view.
+        if (this._expandedDevice && this._expandedId === ev.device_id) {
+            const sigIdx = this._expandedDevice.signals.findIndex(
+                (s) => s.fingerprint === ev.signal_fingerprint,
+            );
+            if (sigIdx >= 0) {
+                const updatedSig = { ...this._expandedDevice.signals[sigIdx] };
+                updatedSig.hit_count = ev.hit_count;
+                updatedSig.last_seen = now;
+                const sigs = [...this._expandedDevice.signals];
+                sigs[sigIdx] = updatedSig;
+                this._expandedDevice = {
+                    ...this._expandedDevice,
+                    hit_count: ev.device_hit_count ?? ev.hit_count,
+                    last_seen: now,
+                    signals: sigs,
+                };
+            }
         }
 
         // Flash the row briefly.
@@ -494,7 +516,9 @@ export class IrSignalMonitor extends LitElement {
                             <div class="signal-row">
                                 <div class="signal-info">
                                     <code class="signal-code"
-                                        >${sig.protocol ?? "RAW"}: ${sig.code ?? `${sig.raw_timings.length} timings`}</code
+                                        >${sig.sl_pattern
+                                            ? `Pattern: ${sig.sl_pattern}`
+                                            : `${sig.protocol ?? "RAW"}: ${sig.code ?? `${sig.raw_timings.length} timings`}`}</code
                                     >
                                 </div>
                                 <div class="signal-meta">

@@ -131,3 +131,45 @@ def test_entity_config_round_trip():
 def test_provider_enum_round_trip():
     assert CaptureProviderType("esphome") == CaptureProviderType.ESPHOME
     assert str(CaptureProviderType.BROADLINK) == "broadlink"
+
+
+# ---------------------------------------------------------------------------
+# UnknownSignal sl_pattern
+# ---------------------------------------------------------------------------
+
+def test_unknown_signal_to_dict_includes_sl_pattern_for_pronto():
+    from custom_components.hair.models import UnknownSignal
+
+    sig = UnknownSignal(
+        fingerprint="abc123",
+        protocol="PRONTO",
+        code="0000 006D 0003 0000 0020 0040 0020",
+        hit_count=5,
+    )
+    d = sig.to_dict()
+    assert d["sl_pattern"] == "SLS"
+
+
+def test_unknown_signal_to_dict_no_sl_pattern_for_nec():
+    from custom_components.hair.models import UnknownSignal
+
+    sig = UnknownSignal(
+        fingerprint="abc123",
+        protocol="NEC",
+        code="0x1234",
+        hit_count=3,
+    )
+    d = sig.to_dict()
+    assert "sl_pattern" not in d
+
+
+def test_unknown_signal_to_dict_no_sl_pattern_for_raw():
+    from custom_components.hair.models import UnknownSignal
+
+    sig = UnknownSignal(
+        fingerprint="abc123",
+        raw_timings=[9000, -4500, 560, -560],
+        hit_count=1,
+    )
+    d = sig.to_dict()
+    assert "sl_pattern" not in d
