@@ -7,13 +7,11 @@
  *
  * Fires `signal-assigned` on success (detail: AssignResult).
  */
-import { LitElement, html, css, nothing } from "lit";
+import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
 import type {
     AssignResult,
-    CommandCategoryId,
-    CommandTemplate,
     DeviceSummary,
     DeviceTypeId,
     UnknownSignal,
@@ -30,16 +28,6 @@ const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
     { value: "other", label: "Other" },
 ];
 
-const CATEGORIES: { value: CommandCategoryId; label: string }[] = [
-    { value: "power", label: "Power" },
-    { value: "volume", label: "Volume" },
-    { value: "channel", label: "Channel" },
-    { value: "navigation", label: "Navigation" },
-    { value: "mode", label: "Mode" },
-    { value: "temperature", label: "Temperature" },
-    { value: "fan_speed", label: "Fan Speed" },
-    { value: "custom", label: "Custom" },
-];
 
 @customElement("ir-assign-signal-dialog")
 export class IrAssignSignalDialog extends LitElement {
@@ -61,11 +49,8 @@ export class IrAssignSignalDialog extends LitElement {
     // --- state ---
     @state() private _mode: AssignMode = "existing";
     @state() private _devices: DeviceSummary[] = [];
-    @state() private _templates: CommandTemplate[] = [];
     @state() private _selectedDeviceId = "";
     @state() private _commandName = "";
-    @state() private _commandCategory: CommandCategoryId = "custom";
-    @state() private _useCustomName = false;
 
     // New-device fields
     @state() private _newName = "";
@@ -82,59 +67,32 @@ export class IrAssignSignalDialog extends LitElement {
             this._newName = this.suggestedDeviceName;
         }
         void this._loadDevices();
-        if (this._mode === "new") {
-            void this._loadTemplates(this._newType);
-        }
     }
 
     private async _loadDevices(): Promise<void> {
         try {
             this._devices = await this.api.listDevices();
+            // Auto-select target device if the suggested name matches.
+            if (this.suggestedDeviceName && !this._selectedDeviceId) {
+                const lower = this.suggestedDeviceName.toLowerCase();
+                const match = this._devices.find(
+                    (d) => d.name.toLowerCase() === lower,
+                );
+                if (match) {
+                    this._selectedDeviceId = match.id;
+                }
+            }
         } catch {
             // Non-fatal; user can still create new.
         }
     }
 
-    private async _loadTemplates(deviceType: DeviceTypeId): Promise<void> {
-        try {
-            this._templates = await this.api.listTemplates(deviceType);
-        } catch {
-            this._templates = [];
-        }
-    }
-
-    private async _onDeviceSelected(e: Event): Promise<void> {
+    private _onDeviceSelected(e: Event): void {
         this._selectedDeviceId = (e.target as HTMLSelectElement).value;
-        this._commandName = "";
-        this._useCustomName = false;
-        // Load templates for the selected device's type.
-        const dev = this._devices.find((d) => d.id === this._selectedDeviceId);
-        if (dev) {
-            await this._loadTemplates(dev.device_type);
-        }
     }
 
-    private _onTemplateSelected(e: Event): void {
-        const val = (e.target as HTMLSelectElement).value;
-        if (val === "__custom__") {
-            this._useCustomName = true;
-            this._commandName = "";
-            return;
-        }
-        this._useCustomName = false;
-        this._commandName = val;
-        // Set category from template.
-        const tmpl = this._templates.find((t) => t.name === val);
-        if (tmpl) {
-            this._commandCategory = tmpl.category;
-        }
-    }
-
-    private async _onNewTypeChanged(e: Event): Promise<void> {
+    private _onNewTypeChanged(e: Event): void {
         this._newType = (e.target as HTMLSelectElement).value as DeviceTypeId;
-        await this._loadTemplates(this._newType);
-        this._commandName = "";
-        this._useCustomName = false;
     }
 
     private _close(): void {
@@ -167,7 +125,6 @@ export class IrAssignSignalDialog extends LitElement {
                     signal_fingerprint: this.signal.fingerprint,
                     hair_device_id: this._selectedDeviceId,
                     command_name: name,
-                    command_category: this._commandCategory,
                 });
             } else {
                 if (!this._newName.trim()) {
@@ -187,7 +144,6 @@ export class IrAssignSignalDialog extends LitElement {
                     device_type: this._newType,
                     emitter_entity_id: this._newEmitterId,
                     command_name: name,
-                    command_category: this._commandCategory,
                 });
             }
 
@@ -270,7 +226,7 @@ export class IrAssignSignalDialog extends LitElement {
                     </button>
                     <button
                         class="mode-tab ${this._mode === "new" ? "active" : ""}"
-                        @click=${() => { this._mode = "new"; void this._loadTemplates(this._newType); }}
+                        @click=${() => { this._mode = "new"; }}
                     >
                         New Device
                     </button>
@@ -397,75 +353,13 @@ export class IrAssignSignalDialog extends LitElement {
 
     private _renderCommandPicker() {
         return html`
-            <div class="field">
-                <label>Command name</label>
-                ${this._templates.length > 0 && !this._useCustomName
-                    ? html`
-                          <select
-                              .value=${this._commandName}
-                              @change=${this._onTemplateSelected}
-                          >
-                              <option value="" disabled>
-                                  Select command...
-                              </option>
-                              ${this._templates.map(
-                                  (t) => html`
-                                      <option
-                                          value=${t.name}
-                                          ?selected=${this._commandName === t.name}
-                                      >
-                                          ${t.name}${t.essential ? " *" : ""}
-                                      </option>
-                                  `,
-                              )}
-                              <option value="__custom__">Custom name...</option>
-                          </select>
-                      `
-                    : html`
-                          <ha-textfield
-                              label="Command name"
-                              .value=${this._commandName}
-                              required
-                              @input=${(e: Event) =>
-                                  (this._commandName = (
-                                      e.target as HTMLInputElement
-                                  ).value)}
-                          ></ha-textfield>
-                          ${this._templates.length > 0
-                              ? html`<mwc-button
-                                    dense
-                                    class="back-to-templates"
-                                    @click=${() => {
-                                        this._useCustomName = false;
-                                        this._commandName = "";
-                                    }}
-                                >
-                                    Back to templates
-                                </mwc-button>`
-                              : ""}
-                      `}
-            </div>
-
-            <div class="field">
-                <label>Category</label>
-                <select
-                    .value=${this._commandCategory}
-                    @change=${(e: Event) =>
-                        (this._commandCategory = (e.target as HTMLSelectElement)
-                            .value as CommandCategoryId)}
-                >
-                    ${CATEGORIES.map(
-                        (c) => html`
-                            <option
-                                value=${c.value}
-                                ?selected=${this._commandCategory === c.value}
-                            >
-                                ${c.label}
-                            </option>
-                        `,
-                    )}
-                </select>
-            </div>
+            <ha-textfield
+                label="Command name"
+                .value=${this._commandName}
+                required
+                @input=${(e: Event) =>
+                    (this._commandName = (e.target as HTMLInputElement).value)}
+            ></ha-textfield>
         `;
     }
 
@@ -574,11 +468,6 @@ export class IrAssignSignalDialog extends LitElement {
         .mode-tab.active {
             color: var(--primary-color);
             border-bottom-color: var(--primary-color);
-        }
-
-        .back-to-templates {
-            --mdc-typography-button-font-size: 0.75rem;
-            margin-top: 4px;
         }
 
         .dialog-actions {
