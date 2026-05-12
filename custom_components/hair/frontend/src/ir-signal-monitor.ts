@@ -10,6 +10,7 @@ import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import type {
     AssignResult,
+    DeviceSummary,
     SignalRemovedEvent,
     UnknownDeviceSummary,
     UnknownDevice,
@@ -61,6 +62,10 @@ const ICON_CLEAR =
 const ICON_RESTORE =
     "M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9M12,4.5C17,4.5 21.27,7.61 23,12C21.27,16.39 17,19.5 12,19.5C7,19.5 2.73,16.39 1,12C2.73,7.61 7,4.5 12,4.5M3.18,12C4.83,15.36 8.24,17.5 12,17.5C15.76,17.5 19.17,15.36 20.82,12C19.17,8.64 15.76,6.5 12,6.5C8.24,6.5 4.83,8.64 3.18,12Z";
 
+// MDI path: mdi:pencil-outline
+const ICON_PENCIL =
+    "M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6.02 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z";
+
 // MDI path: mdi:chevron-down
 const ICON_EXPAND =
     "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
@@ -76,6 +81,7 @@ export class IrSignalMonitor extends LitElement {
     @property({ attribute: false }) public hass?: any;
 
     @state() private _devices: UnknownDeviceSummary[] = [];
+    @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
     @state() private _error: string | null = null;
     @state() private _showDismissed = false;
@@ -94,7 +100,12 @@ export class IrSignalMonitor extends LitElement {
     @state() private _editLabel = "";
 
     // Dialog state
-    @state() private _assignSignal: { deviceId: string; signal: UnknownSignal; label: string | null } | null = null;
+    @state() private _assignSignal: {
+        deviceId: string;
+        signal: UnknownSignal;
+        label: string | null;
+        initialMode: "existing" | "new";
+    } | null = null;
     @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
     @state() private _testingFingerprint: string | null = null;
     @state() private _testResult: string | null = null;
@@ -130,15 +141,27 @@ export class IrSignalMonitor extends LitElement {
     private async _load(): Promise<void> {
         this._loading = true;
         try {
-            this._devices = await this.api.getUnknownDevices({
-                include_dismissed: this._showDismissed,
-            });
+            const [unknowns, hairDevs] = await Promise.all([
+                this.api.getUnknownDevices({
+                    include_dismissed: this._showDismissed,
+                }),
+                this.api.listDevices(),
+            ]);
+            this._devices = unknowns;
+            this._hairDevices = hairDevs;
             this._error = null;
         } catch (err) {
             this._error = `Failed to load: ${(err as Error).message}`;
         } finally {
             this._loading = false;
         }
+    }
+
+    /** Check if a label matches an existing HAIR device name (case-insensitive). */
+    private _matchesHairDevice(label: string | null): boolean {
+        if (!label) return false;
+        const lower = label.toLowerCase();
+        return this._hairDevices.some((d) => d.name.toLowerCase() === lower);
     }
 
     private async _subscribeLive(): Promise<void> {
@@ -225,10 +248,47 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
+    /** Promote: open assign dialog in "new" mode with first signal and label as device name. */
+    private _promoteDevice(d: UnknownDeviceSummary, e: Event): void {
+        e.stopPropagation();
+        // We need a signal to assign. Use the expanded device if available,
+        // otherwise fetch it to get signals.
+        if (this._expandedDevice && this._expandedDevice.id === d.id && this._expandedDevice.signals.length > 0) {
+            const sig = this._expandedDevice.signals[0];
+            this._openAssign(d.id, sig, d.label, "new");
+        } else {
+            // Fetch device to get signals, then open dialog.
+            void this._fetchAndPromote(d);
+        }
+    }
+
+    private async _fetchAndPromote(d: UnknownDeviceSummary): Promise<void> {
+        try {
+            const full = await this.api.getUnknownDevice(d.id);
+            if (full.signals.length > 0) {
+                this._openAssign(d.id, full.signals[0], d.label, "new");
+            } else {
+                this._error = "No signals to assign.";
+            }
+        } catch (err) {
+            this._error = `Failed to load device: ${(err as Error).message}`;
+        }
+    }
+
     // --- Signal action handlers ---
 
-    private _openAssign(deviceId: string, signal: UnknownSignal, label?: string | null): void {
-        this._assignSignal = { deviceId, signal, label: label ?? null };
+    private _openAssign(
+        deviceId: string,
+        signal: UnknownSignal,
+        label?: string | null,
+        initialMode?: "existing" | "new",
+    ): void {
+        this._assignSignal = {
+            deviceId,
+            signal,
+            label: label ?? null,
+            initialMode: initialMode ?? "existing",
+        };
     }
 
     private _closeAssign(): void {
@@ -482,6 +542,7 @@ export class IrSignalMonitor extends LitElement {
                           .unknownDeviceId=${this._assignSignal.deviceId}
                           .signal=${this._assignSignal.signal}
                           .suggestedDeviceName=${this._assignSignal.label ?? ""}
+                          .initialMode=${this._assignSignal.initialMode}
                           @signal-assigned=${this._onSignalAssigned}
                           @closed=${this._closeAssign}
                       ></ir-assign-signal-dialog>
@@ -543,7 +604,13 @@ export class IrSignalMonitor extends LitElement {
                                       class="protocol"
                                       title="Click to rename"
                                       @click=${(e: Event) => this._startRename(d, e)}
-                                  >${d.label ?? d.protocol ?? "RAW"}</span>`}
+                                  >${d.label ?? d.protocol ?? "RAW"}</span>
+                                  <ha-svg-icon
+                                      class="edit-icon"
+                                      .path=${ICON_PENCIL}
+                                      title="Rename"
+                                      @click=${(e: Event) => this._startRename(d, e)}
+                                  ></ha-svg-icon>`}
                             ${d.device_address
                                 ? html`<span class="address">addr: ${d.device_address}</span>`
                                 : ""}
@@ -563,6 +630,17 @@ export class IrSignalMonitor extends LitElement {
                             </span>
                         </div>
                     </div>
+                    ${d.label && this._matchesHairDevice(d.label)
+                        ? html`<span
+                              class="device-status-badge hair-device"
+                              @click=${(e: Event) => e.stopPropagation()}
+                          >HAIR Device</span>`
+                        : d.label
+                            ? html`<button
+                                  class="device-status-badge promote-btn"
+                                  @click=${(e: Event) => this._promoteDevice(d, e)}
+                              >Promote to Device</button>`
+                            : ""}
                     <ha-svg-icon
                         class="expand-icon"
                         .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
@@ -754,6 +832,46 @@ export class IrSignalMonitor extends LitElement {
         }
         .protocol:hover {
             border-bottom-color: var(--primary-color);
+        }
+        .edit-icon {
+            --mdc-icon-size: 14px;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            opacity: 0.4;
+            transition: opacity 150ms ease;
+        }
+        .device-header:hover .edit-icon {
+            opacity: 0.8;
+        }
+        .edit-icon:hover {
+            opacity: 1 !important;
+            color: var(--primary-color);
+        }
+        .device-status-badge {
+            font-size: 0.75rem;
+            font-weight: 500;
+            font-family: inherit;
+            padding: 3px 10px;
+            border-radius: 12px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .device-status-badge.hair-device {
+            background: rgba(46, 125, 50, 0.15);
+            color: #2e7d32;
+            border: 1px solid rgba(46, 125, 50, 0.3);
+        }
+        .device-status-badge.promote-btn {
+            background: transparent;
+            color: var(--secondary-text-color);
+            border: 1px solid var(--divider-color);
+            cursor: pointer;
+            transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+        }
+        .device-status-badge.promote-btn:hover {
+            background: var(--secondary-background-color);
+            color: var(--primary-text-color);
+            border-color: var(--primary-color);
         }
         .rename-input {
             font-weight: 600;

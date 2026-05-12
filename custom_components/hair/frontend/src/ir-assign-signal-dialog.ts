@@ -55,6 +55,9 @@ export class IrAssignSignalDialog extends LitElement {
     /** Optional suggested device name from the unknown device label. */
     @property() public suggestedDeviceName = "";
 
+    /** Which tab to start on ("existing" or "new"). */
+    @property() public initialMode: AssignMode = "existing";
+
     // --- state ---
     @state() private _mode: AssignMode = "existing";
     @state() private _devices: DeviceSummary[] = [];
@@ -76,10 +79,14 @@ export class IrAssignSignalDialog extends LitElement {
 
     connectedCallback(): void {
         super.connectedCallback();
+        this._mode = this.initialMode;
         if (this.suggestedDeviceName && !this._newName) {
             this._newName = this.suggestedDeviceName;
         }
         void this._loadDevices();
+        if (this._mode === "new") {
+            void this._loadTemplates(this._newType);
+        }
     }
 
     private async _loadDevices(): Promise<void> {
@@ -239,11 +246,14 @@ export class IrAssignSignalDialog extends LitElement {
     }
 
     render() {
-        const signalLabel = this.signal.sl_pattern
-            ? `Pattern: ${this.signal.sl_pattern}`
-            : this.signal.protocol
-                ? `${this.signal.protocol}: ${this.signal.code ?? "raw"}`
-                : `RAW (${this.signal.raw_timings.length} timings)`;
+        const proto = this.signal.protocol ?? "RAW";
+        const timings = this.signal.raw_timings?.length ?? 0;
+        const freqKhz = this.signal.frequency
+            ? `${Math.round(this.signal.frequency / 1000)}kHz`
+            : "";
+        const signalLabel = [proto, timings ? `${timings} timings` : "", freqKhz]
+            .filter(Boolean)
+            .join(" · ");
 
         return html`
             <ha-dialog
@@ -257,15 +267,14 @@ export class IrAssignSignalDialog extends LitElement {
                     : ""}
 
                 <div class="signal-preview">
-                    <span class="label">Signal</span>
-                    <code>${signalLabel}</code>
-                    <mwc-button
-                        dense
+                    <span class="signal-info">${signalLabel}</span>
+                    <button
+                        class="action-btn test-btn"
                         @click=${this._testSignal}
                         ?disabled=${this._testing}
                     >
                         ${this._testing ? "Sending..." : "Test"}
-                    </mwc-button>
+                    </button>
                 </div>
 
                 ${this._testResult
@@ -535,15 +544,21 @@ export class IrAssignSignalDialog extends LitElement {
             border-radius: 4px;
             margin-bottom: 12px;
         }
-        .signal-preview .label {
-            font-size: 0.8rem;
-            color: var(--secondary-text-color);
+        .signal-info {
+            flex: 1;
+            font-size: 0.85rem;
+            color: var(--primary-text-color);
             font-weight: 500;
         }
-        .signal-preview code {
-            flex: 1;
-            font-size: 0.82rem;
-            word-break: break-all;
+        .test-btn {
+            background: transparent;
+            color: var(--primary-color);
+            border: 1px solid rgba(var(--rgb-primary-color, 33,150,243), 0.4) !important;
+            padding: 4px 12px !important;
+            font-size: 0.8rem !important;
+        }
+        .test-btn:hover:not(:disabled) {
+            background: rgba(var(--rgb-primary-color, 33,150,243), 0.1);
         }
 
         .mode-tabs {
