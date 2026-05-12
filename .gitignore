@@ -27,6 +27,10 @@ htmlcov/
 *.swo
 *~
 
+# Backups
+*.bak
+*.bak2
+
 # OS
 .DS_Store
 Thumbs.db
