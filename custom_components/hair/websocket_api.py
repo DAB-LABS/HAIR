@@ -756,7 +756,7 @@ async def ws_rename_unknown(
         return
     label = msg["label"].strip()
     device.label = label if label else None
-    signal_store.schedule_save()
+    await signal_store.async_save()
     connection.send_result(msg["id"], {"label": device.label})
 
 
