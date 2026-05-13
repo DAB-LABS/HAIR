@@ -3,8 +3,10 @@
         "step": {
             "user": {
                 "title": "Set up HAIR",
-                "description": "HAIR manages your IR devices from a single panel.\n\nDetected hardware:\n{hardware_summary}",
-                "data": {}
+                "description": "HAIR manages your IR devices from a single panel.\n\nDetected hardware:\n\n{hardware_summary}",
+                "data": {
+                    "confirm": "Set up HAIR"
+                }
             }
         },
         "abort": {

@@ -66,16 +66,23 @@ class HAIRConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 for s in emitters
             ]
             capture_names = [p["name"] for p in capture_providers]
-            hw_lines = []
+            hw_lines: list[str] = []
             if emitter_names:
-                hw_lines.append(f"Emitters: {', '.join(emitter_names)}")
+                hw_lines.append(f"**Emitters:** {', '.join(emitter_names)}")
             if capture_names:
-                hw_lines.append(f"Receivers: {', '.join(capture_names)}")
-            hw_summary = "\n".join(hw_lines) if hw_lines else "No hardware detected yet."
+                hw_lines.append(f"**Receivers:** {', '.join(capture_names)}")
+            hw_summary = "\n\n".join(hw_lines) if hw_lines else "_No hardware detected yet._"
 
             return self.async_show_form(
                 step_id="user",
-                data_schema=vol.Schema({}),
+                data_schema=vol.Schema(
+                    {
+                        vol.Optional(
+                            "confirm",
+                            description={"suggested_value": True},
+                        ): bool,
+                    }
+                ),
                 description_placeholders={
                     "emitter_count": str(len(emitters)),
                     "capture_count": str(len(capture_providers)),
