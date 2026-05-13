@@ -1026,14 +1026,14 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
 
         /* TX badge (blue) */
         .tx-badge {
-            background: rgba(66, 165, 245, 0.15);
+            background: rgba(30, 136, 229, 0.15);
             color: #1565c0;
         }
 
-        /* RX badge (purple) */
+        /* RX badge (amber) */
         .rx-badge {
-            background: rgba(149, 117, 205, 0.15);
-            color: #5e35b1;
+            background: rgba(255, 152, 0, 0.15);
+            color: #e65100;
         }
 
         /* No TX warning (muted) */
