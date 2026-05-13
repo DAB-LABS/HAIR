@@ -78,6 +78,7 @@ export class HairApi {
             manufacturer: string | null;
             model: string | null;
             emitter_entity_id: string;
+            device_type: string;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({

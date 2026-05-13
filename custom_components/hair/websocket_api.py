@@ -206,6 +206,7 @@ async def ws_create_device(
     vol.Optional("manufacturer"): vol.Any(str, None),
     vol.Optional("model"): vol.Any(str, None),
     vol.Optional("emitter_entity_id"): str,
+    vol.Optional("device_type"): str,
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -231,6 +232,8 @@ async def ws_update_device(
         device.model = msg["model"]
     if "emitter_entity_id" in msg:
         device.emitter_entity_id = msg["emitter_entity_id"]
+    if "device_type" in msg:
+        device.device_type = DeviceType(msg["device_type"])
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], _device_full(device))
