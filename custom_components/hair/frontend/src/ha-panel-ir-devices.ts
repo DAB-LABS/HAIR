@@ -178,6 +178,8 @@ export class HaPanelIrDevices extends LitElement {
                       ? html`
                             <ir-device-list
                                 .devices=${this._devices}
+                                .hass=${this.hass}
+                                .api=${this._api}
                                 .loading=${this._loading}
                                 @device-selected=${(e: CustomEvent<string>) =>
                                     this._openDevice(e.detail)}
