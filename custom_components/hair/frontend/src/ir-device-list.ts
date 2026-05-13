@@ -1,17 +1,22 @@
 /**
- * Devices overview page: HAIR device cards, IR emitter cards, and
- * ESPHome proxy cards -- three segregated sections with distinct colors.
+ * Devices overview page with four sections:
+ *   Devices  -- HAIR-managed IR devices (expandable inline detail)
+ *   Emitters -- infrared.* TX entities
+ *   Receivers -- RX-only capture providers
+ *   Proxies  -- TX+RX capable hardware (both emitter and receiver)
  *
  * Emits ``device-selected`` and ``add-device`` events for HAIR devices.
- * Emitter/proxy cards link to their HA integration page on click.
+ * Emitter/receiver/proxy cards link to their HA integration page.
  */
-import { LitElement, html, css, nothing } from "lit";
+import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import "./ir-device-detail.js";
 import type { HairApi } from "./api.js";
 import type {
     CaptureProviderInfo,
     DeviceSummary,
     DeviceTypeId,
+    IRDevice,
 } from "./types.js";
 
 const DEVICE_TYPE_ICONS: Record<DeviceTypeId, string> = {
@@ -36,6 +41,10 @@ const DEVICE_TYPE_LABELS: Record<DeviceTypeId, string> = {
 const ICON_EMITTER =
     "M12,10A2,2 0 0,1 14,12C14,12.5 13.82,12.95 13.53,13.29L16.7,16.46C17.5,15.26 18,13.71 18,12A6,6 0 0,0 12,6A6,6 0 0,0 6,12C6,13.71 6.5,15.26 7.3,16.46L10.47,13.29C10.18,12.95 10,12.5 10,12A2,2 0 0,1 12,10M12,2A10,10 0 0,0 2,12C2,15.07 3.18,17.85 5.09,19.91L7.5,17.5C6.19,15.89 5.5,14 5.5,12A6.5,6.5 0 0,1 12,5.5A6.5,6.5 0 0,1 18.5,12C18.5,14 17.81,15.89 16.5,17.5L18.91,19.91C20.82,17.85 22,15.07 22,12A10,10 0 0,0 12,2Z";
 
+// MDI: antenna for receivers
+const ICON_RECEIVER =
+    "M12,6C8.69,6 6,8.69 6,12L4,12C4,7.58 7.58,4 12,4C16.42,4 20,7.58 20,12H18C18,8.69 15.31,6 12,6M12,10C10.9,10 10,10.9 10,12H8A4,4 0 0,1 12,8A4,4 0 0,1 16,12H14C14,10.9 13.1,10 12,10M13,14.05V19.5C13,20.33 12.33,21 11.5,21C10.67,21 10,20.33 10,19.5V14.05C9.38,13.67 9,13 9,12.25C9,11 10,10 11.25,10C12.5,10 13.5,11 13.5,12.25C13.5,13 13.12,13.67 12.5,14.05H13Z";
+
 // MDI: router-wireless for proxies
 const ICON_PROXY =
     "M20,13A8,8 0 0,0 12,5A8,8 0 0,0 4,13H2A10,10 0 0,1 12,3A10,10 0 0,1 22,13H20M16,13A4,4 0 0,0 12,9A4,4 0 0,0 8,13H6A6,6 0 0,1 12,7A6,6 0 0,1 18,13H16M13,18H11V14H13V18M13,21H11V19H13V21Z";
@@ -46,19 +55,59 @@ export class IrDeviceList extends LitElement {
     @property({ attribute: false }) public hass?: any;
     @property({ attribute: false }) public api?: HairApi;
     @property({ type: Boolean }) public loading = false;
+    @property({ attribute: false }) public expandedDeviceId: string | null = null;
 
     @state() private _emitters: { entity_id: string; name: string }[] = [];
-    @state() private _proxies: CaptureProviderInfo[] = [];
+    @state() private _captureProviders: CaptureProviderInfo[] = [];
+    @state() private _expandedDevice: IRDevice | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
         this._discoverHardware();
     }
 
-    updated(changed: Map<string, unknown>): void {
+    updated(changed: PropertyValues): void {
         if (changed.has("hass") || changed.has("api")) {
             this._discoverHardware();
         }
+        if (changed.has("expandedDeviceId")) {
+            void this._loadExpandedDevice();
+        }
+    }
+
+    private async _loadExpandedDevice(): Promise<void> {
+        if (!this.expandedDeviceId || !this.api) {
+            this._expandedDevice = null;
+            return;
+        }
+        try {
+            this._expandedDevice = await this.api.getDevice(this.expandedDeviceId);
+        } catch {
+            this._expandedDevice = null;
+        }
+    }
+
+    private async _onExpandedDeviceChanged(): Promise<void> {
+        await this._loadExpandedDevice();
+        this.dispatchEvent(
+            new CustomEvent("device-changed", { bubbles: true, composed: true }),
+        );
+    }
+
+    private _onExpandedDeviceDeleted(): void {
+        this.dispatchEvent(
+            new CustomEvent("device-deleted", { bubbles: true, composed: true }),
+        );
+    }
+
+    private _onCollapse(): void {
+        this.dispatchEvent(
+            new CustomEvent("device-selected", {
+                detail: this.expandedDeviceId,
+                bubbles: true,
+                composed: true,
+            }),
+        );
     }
 
     private async _discoverHardware(): Promise<void> {
@@ -78,10 +127,10 @@ export class IrDeviceList extends LitElement {
         }
         this._emitters = emitters;
 
-        // Proxies from API
+        // Capture providers (RX hardware) from API
         if (this.api) {
             try {
-                this._proxies = await this.api.listCaptureProviders();
+                this._captureProviders = await this.api.listCaptureProviders();
             } catch {
                 // Non-fatal
             }
@@ -116,6 +165,34 @@ export class IrDeviceList extends LitElement {
         return entityId.split(".")[0];
     }
 
+    /** Device-registry IDs that have an emitter entity (TX capable). */
+    private _getEmitterDeviceIds(): Set<string> {
+        const ids = new Set<string>();
+        for (const em of this._emitters) {
+            const reg = this.hass?.entities?.[em.entity_id];
+            if (reg?.device_id) ids.add(reg.device_id);
+        }
+        return ids;
+    }
+
+    /** Split capture providers into receivers (RX-only) and proxies (TX+RX). */
+    private _classifyHardware(): {
+        receivers: CaptureProviderInfo[];
+        proxies: CaptureProviderInfo[];
+    } {
+        const txDeviceIds = this._getEmitterDeviceIds();
+        const receivers: CaptureProviderInfo[] = [];
+        const proxies: CaptureProviderInfo[] = [];
+        for (const cp of this._captureProviders) {
+            if (txDeviceIds.has(cp.device_id)) {
+                proxies.push(cp);
+            } else {
+                receivers.push(cp);
+            }
+        }
+        return { receivers, proxies };
+    }
+
     render() {
         if (this.loading) {
             return html`<div class="loading">Loading IR devices...</div>`;
@@ -123,8 +200,10 @@ export class IrDeviceList extends LitElement {
 
         const hasDevices = this.devices.length > 0;
         const hasEmitters = this._emitters.length > 0;
-        const hasProxies = this._proxies.length > 0;
-        const hasNothing = !hasDevices && !hasEmitters && !hasProxies;
+        const { receivers, proxies } = this._classifyHardware();
+        const hasReceivers = receivers.length > 0;
+        const hasProxies = proxies.length > 0;
+        const hasNothing = !hasDevices && !hasEmitters && !hasReceivers && !hasProxies;
 
         if (hasNothing) {
             return html`
@@ -137,18 +216,18 @@ export class IrDeviceList extends LitElement {
         }
 
         return html`
-            <!-- HAIR Devices -->
+            <!-- Devices -->
             ${hasDevices
                 ? html`
-                      <div class="section-header device-section-header">
+                      <div class="section-header">
                           <h2>Devices</h2>
                           <span class="section-count">${this.devices.length}</span>
                       </div>
                       <div class="grid">
                           ${this.devices.map(
                               (device) => html`
-                                  <ha-card
-                                      class="card device-card"
+                                  <div
+                                      class="card device-card ${device.id === this.expandedDeviceId ? "expanded" : ""}"
                                       tabindex="0"
                                       @click=${() => this._select(device.id)}
                                       @keydown=${(e: KeyboardEvent) => {
@@ -179,21 +258,35 @@ export class IrDeviceList extends LitElement {
                                               .join(" • ")}
                                       </div>
                                       <div class="card-footer">
-                                          <span class="badge device-badge">
+                                          <span class="badge cmd-badge">
                                               ${device.command_count} commands
                                           </span>
                                       </div>
-                                  </ha-card>
+                                  </div>
+                                  ${device.id === this.expandedDeviceId && this._expandedDevice
+                                      ? html`
+                                            <div class="expanded-detail">
+                                                <ir-device-detail
+                                                    .api=${this.api}
+                                                    .device=${this._expandedDevice}
+                                                    .hass=${this.hass}
+                                                    @device-changed=${this._onExpandedDeviceChanged}
+                                                    @device-deleted=${this._onExpandedDeviceDeleted}
+                                                    @collapse=${this._onCollapse}
+                                                ></ir-device-detail>
+                                            </div>
+                                        `
+                                      : nothing}
                               `,
                           )}
                       </div>
                   `
                 : nothing}
 
-            <!-- Emitters (TX) -->
+            <!-- Emitters -->
             ${hasEmitters
                 ? html`
-                      <div class="section-header emitter-section-header">
+                      <div class="section-header">
                           <h2>Emitters</h2>
                           <span class="section-count">${this._emitters.length}</span>
                       </div>
@@ -201,41 +294,28 @@ export class IrDeviceList extends LitElement {
                           ${this._emitters.map(
                               (em) => html`
                                   <div
-                                      class="card hw-card emitter-card"
+                                      class="card hw-card"
                                       tabindex="0"
                                       @click=${() =>
                                           this._navigateIntegration(
-                                              this._emitterIntegrationDomain(
-                                                  em.entity_id,
-                                              ),
+                                              this._emitterIntegrationDomain(em.entity_id),
                                           )}
                                       @keydown=${(e: KeyboardEvent) => {
-                                          if (
-                                              e.key === "Enter" ||
-                                              e.key === " "
-                                          ) {
+                                          if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
                                               this._navigateIntegration(
-                                                  this._emitterIntegrationDomain(
-                                                      em.entity_id,
-                                                  ),
+                                                  this._emitterIntegrationDomain(em.entity_id),
                                               );
                                           }
                                       }}
                                   >
                                       <div class="card-header">
-                                          <ha-svg-icon
-                                              .path=${ICON_EMITTER}
-                                          ></ha-svg-icon>
-                                          <div class="card-name">
-                                              ${em.name}
-                                          </div>
+                                          <ha-svg-icon .path=${ICON_EMITTER}></ha-svg-icon>
+                                          <div class="card-name">${em.name}</div>
                                       </div>
-                                      <div class="card-meta">
-                                          ${em.entity_id}
-                                      </div>
+                                      <div class="card-meta">${em.entity_id}</div>
                                       <div class="card-footer">
-                                          <span class="badge emitter-badge">TX</span>
+                                          <span class="badge cap-badge">TX</span>
                                       </div>
                                   </div>
                               `,
@@ -244,42 +324,71 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
-            <!-- Proxies (RX) -->
-            ${hasProxies
+            <!-- Receivers (RX-only hardware) -->
+            ${hasReceivers
                 ? html`
-                      <div class="section-header proxy-section-header">
-                          <h2>Proxies</h2>
-                          <span class="section-count">${this._proxies.length}</span>
+                      <div class="section-header">
+                          <h2>Receivers</h2>
+                          <span class="section-count">${receivers.length}</span>
                       </div>
                       <div class="grid">
-                          ${this._proxies.map(
+                          ${receivers.map(
                               (p) => html`
                                   <div
-                                      class="card hw-card proxy-card"
+                                      class="card hw-card"
                                       tabindex="0"
-                                      @click=${() =>
-                                          this._navigateIntegration(p.type)}
+                                      @click=${() => this._navigateIntegration(p.type)}
                                       @keydown=${(e: KeyboardEvent) => {
-                                          if (
-                                              e.key === "Enter" ||
-                                              e.key === " "
-                                          ) {
+                                          if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
-                                              this._navigateIntegration(
-                                                  p.type,
-                                              );
+                                              this._navigateIntegration(p.type);
                                           }
                                       }}
                                   >
                                       <div class="card-header">
-                                          <ha-svg-icon
-                                              .path=${ICON_PROXY}
-                                          ></ha-svg-icon>
+                                          <ha-svg-icon .path=${ICON_RECEIVER}></ha-svg-icon>
                                           <div class="card-name">${p.name}</div>
                                       </div>
                                       <div class="card-meta">${p.type}</div>
                                       <div class="card-footer">
-                                          <span class="badge proxy-badge">RX</span>
+                                          <span class="badge cap-badge">RX</span>
+                                      </div>
+                                  </div>
+                              `,
+                          )}
+                      </div>
+                  `
+                : nothing}
+
+            <!-- Proxies (TX + RX hardware) -->
+            ${hasProxies
+                ? html`
+                      <div class="section-header">
+                          <h2>Proxies</h2>
+                          <span class="section-count">${proxies.length}</span>
+                      </div>
+                      <div class="grid">
+                          ${proxies.map(
+                              (p) => html`
+                                  <div
+                                      class="card hw-card"
+                                      tabindex="0"
+                                      @click=${() => this._navigateIntegration(p.type)}
+                                      @keydown=${(e: KeyboardEvent) => {
+                                          if (e.key === "Enter" || e.key === " ") {
+                                              e.preventDefault();
+                                              this._navigateIntegration(p.type);
+                                          }
+                                      }}
+                                  >
+                                      <div class="card-header">
+                                          <ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>
+                                          <div class="card-name">${p.name}</div>
+                                      </div>
+                                      <div class="card-meta">${p.type}</div>
+                                      <div class="card-footer">
+                                          <span class="badge cap-badge">TX</span>
+                                          <span class="badge cap-badge">RX</span>
                                       </div>
                                   </div>
                               `,
@@ -305,14 +414,14 @@ export class IrDeviceList extends LitElement {
             color: var(--primary-text-color);
         }
 
-        /* --- Section headers --- */
+        /* --- Section headers (unified green accent) --- */
         .section-header {
             display: flex;
             align-items: center;
             gap: 8px;
             margin: 24px 0 10px;
             padding-bottom: 6px;
-            border-bottom: 2px solid var(--divider-color);
+            border-bottom: 2px solid #2e7d32;
         }
         .section-header:first-child {
             margin-top: 0;
@@ -323,6 +432,7 @@ export class IrDeviceList extends LitElement {
             text-transform: uppercase;
             letter-spacing: 0.05em;
             font-weight: 600;
+            color: #2e7d32;
         }
         .section-count {
             font-size: 0.75rem;
@@ -333,38 +443,20 @@ export class IrDeviceList extends LitElement {
             color: var(--secondary-text-color);
         }
 
-        /* Section header accent colors */
-        .device-section-header {
-            border-bottom-color: var(--primary-color);
-        }
-        .device-section-header h2 {
-            color: var(--primary-color);
-        }
-        .emitter-section-header {
-            border-bottom-color: #1e88e5;
-        }
-        .emitter-section-header h2 {
-            color: #1565c0;
-        }
-        .proxy-section-header {
-            border-bottom-color: #43a047;
-        }
-        .proxy-section-header h2 {
-            color: #2e7d32;
-        }
-
-        /* --- Card grid --- */
+        /* --- Card grid (compact) --- */
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 12px;
         }
 
-        /* --- Shared card styles --- */
+        /* --- Shared card styles (neutral, sniffer palette) --- */
         .card {
-            padding: 16px;
+            padding: 12px;
             cursor: pointer;
             border-radius: 8px;
+            border: 1px solid var(--divider-color);
+            background: var(--card-background-color);
             transition: transform 120ms ease, box-shadow 120ms ease;
         }
         .card:hover,
@@ -376,87 +468,75 @@ export class IrDeviceList extends LitElement {
         .card-header {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
         .card-header ha-svg-icon {
-            --mdc-icon-size: 28px;
+            --mdc-icon-size: 24px;
+            color: var(--secondary-text-color);
         }
         .card-name {
-            font-size: 1.05rem;
+            font-size: 0.95rem;
             font-weight: 500;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
         .card-meta {
-            margin-top: 8px;
-            font-size: 0.82rem;
+            margin-top: 6px;
+            font-size: 0.78rem;
             color: var(--secondary-text-color);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
         .card-footer {
-            margin-top: 10px;
+            margin-top: 8px;
             display: flex;
-            justify-content: space-between;
+            gap: 6px;
             align-items: center;
         }
         .badge {
             border-radius: 999px;
             padding: 2px 10px;
-            font-size: 0.78rem;
+            font-size: 0.72rem;
             font-weight: 500;
         }
 
-        /* --- Device cards (HA default / primary accent) --- */
-        .device-card {
-            /* ha-card provides its own background */
-        }
-        .device-card .card-header ha-svg-icon {
-            color: var(--primary-color);
-        }
-        .device-badge {
-            background: var(--secondary-background-color);
-            color: var(--primary-text-color);
-        }
-
-        /* --- Hardware cards (non-ha-card) --- */
-        .hw-card {
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-        }
-
-        /* Emitter cards (blue / TX) */
-        .emitter-card {
-            border-color: rgba(30, 136, 229, 0.25);
-            background: rgba(30, 136, 229, 0.04);
-        }
-        .emitter-card:hover {
-            background: rgba(30, 136, 229, 0.09);
-        }
-        .emitter-card .card-header ha-svg-icon {
-            color: #1e88e5;
-        }
-        .emitter-badge {
-            background: rgba(30, 136, 229, 0.15);
-            color: #1565c0;
-        }
-
-        /* Proxy cards (green / RX) */
-        .proxy-card {
-            border-color: rgba(56, 142, 60, 0.25);
-            background: rgba(56, 142, 60, 0.04);
-        }
-        .proxy-card:hover {
-            background: rgba(56, 142, 60, 0.09);
-        }
-        .proxy-card .card-header ha-svg-icon {
-            color: #43a047;
-        }
-        .proxy-badge {
-            background: rgba(56, 142, 60, 0.15);
+        /* Command count badge (green) */
+        .cmd-badge {
+            background: rgba(46, 125, 50, 0.15);
             color: #2e7d32;
+        }
+
+        /* Capability badge (amber for TX/RX) */
+        .cap-badge {
+            background: rgba(255, 152, 0, 0.15);
+            color: #e65100;
+        }
+
+        /* --- Expanded detail row --- */
+        .expanded-detail {
+            grid-column: 1 / -1;
+            background: var(--card-background-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            padding: 16px;
+            animation: expand-in 200ms ease;
+        }
+        @keyframes expand-in {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- Device card expanded highlight --- */
+        .device-card.expanded {
+            border-color: #2e7d32;
+            box-shadow: 0 0 0 1px #2e7d32;
+        }
+
+        /* --- Hardware cards inherit shared .card styles --- */
+        .hw-card {
+            /* Neutral -- no per-section color backgrounds */
         }
     `;
 }

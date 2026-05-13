@@ -333,6 +333,11 @@ export class IrDeviceDetail extends LitElement {
                 </div>
                 <div class="header-actions">
                     <button
+                        class="action-btn collapse-btn"
+                        @click=${() => this.dispatchEvent(new CustomEvent("collapse", { bubbles: true, composed: true }))}
+                        title="Close"
+                    >&#x2715;</button>
+                    <button
                         class="action-btn delete-btn"
                         @click=${() => (this._confirmDelete = true)}
                         ?disabled=${this._busy}
@@ -340,10 +345,10 @@ export class IrDeviceDetail extends LitElement {
                 </div>
             </section>
 
-            <!-- Editable fields: type + emitter -->
-            <div class="device-fields">
-                <div class="field">
-                    <label>Device Type</label>
+            <!-- Device metadata grid -->
+            <div class="device-meta">
+                <span class="meta-label">Type</span>
+                <div class="meta-value">
                     <select
                         .value=${this.device.device_type}
                         @change=${this._onTypeChanged}
@@ -361,71 +366,14 @@ export class IrDeviceDetail extends LitElement {
                         )}
                     </select>
                 </div>
-                <ir-emitter-picker
-                    .hass=${this.hass}
-                    .value=${this.device.emitter_entity_ids ?? []}
-                    ?disabled=${this._busy}
-                    @emitters-changed=${this._onEmittersChanged}
-                ></ir-emitter-picker>
-            </div>
-
-            <!-- Hardware cards: TX + RX -->
-            <div class="hardware-section">
-                <h2>Hardware</h2>
-                <div class="hardware-cards">
-                    <!-- TX cards (one per emitter) -->
-                    ${(this.device.emitter_entity_ids ?? []).map(
-                        (emId) => html`
-                            <div
-                                class="hw-card tx-card"
-                                @click=${() =>
-                                    this._navigateIntegration(
-                                        this._entityIntegrationUrl(emId),
-                                    )}
-                                title="View integration"
-                            >
-                                <div class="hw-badge tx-badge">TX</div>
-                                <div class="hw-info">
-                                    <div class="hw-name">
-                                        ${this._emitterName(emId)}
-                                    </div>
-                                    <div class="hw-entity">${emId}</div>
-                                </div>
-                                <div class="hw-arrow">&#8250;</div>
-                            </div>
-                        `,
-                    )}
-
-                    <!-- RX card (capture proxy) -- only if set -->
-                    ${this.device.capture_device_id
-                        ? html`
-                              <div
-                                  class="hw-card rx-card"
-                                  @click=${() => {
-                                      const ceId = this._deviceConfigEntryId(
-                                          this.device.capture_device_id!,
-                                      );
-                                      this._navigateIntegration(
-                                          this._integrationUrl(ceId),
-                                      );
-                                  }}
-                                  title="View integration"
-                              >
-                                  <div class="hw-badge rx-badge">RX</div>
-                                  <div class="hw-info">
-                                      <div class="hw-name">
-                                          ${this._deviceRegistryName(
-                                              this.device.capture_device_id!,
-                                          )}
-                                      </div>
-                                      <div class="hw-entity">
-                                          ${this.device.capture_provider_type}
-                                      </div>
-                                  </div>
-                                  <div class="hw-arrow">&#8250;</div>
-                              </div>
-                          `
-                        : nothing}
+                <span class="meta-label">Emitters</span>
+                <div class="meta-value">
+                    <ir-emitter-picker
+                        .hass=${this.hass}
+                        .value=${this.device.emitter_entity_ids ?? []}
+                        ?disabled=${this._busy}
+                        @emitters-changed=${this._onEmittersChanged}
+                    ></ir-emitter-picker>
                 </div>
             </div>
 
@@ -556,24 +504,22 @@ export class IrDeviceDetail extends LitElement {
             gap: 6px;
         }
 
-        /* --- Editable fields --- */
-        .device-fields {
-            display: flex;
-            gap: 16px;
-            margin: 12px 0 0;
+        /* --- Metadata grid --- */
+        .device-meta {
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            gap: 8px 12px;
+            align-items: start;
+            margin: 16px 0 0;
         }
-        .field {
-            flex: 1;
-        }
-        .field label {
-            display: block;
+        .meta-label {
             font-size: 0.78rem;
             text-transform: uppercase;
             letter-spacing: 0.04em;
             color: var(--secondary-text-color);
-            margin-bottom: 4px;
+            padding-top: 6px;
         }
-        .field select {
+        .meta-value select {
             width: 100%;
             padding: 6px 8px;
             border-radius: 4px;
@@ -583,87 +529,8 @@ export class IrDeviceDetail extends LitElement {
             font-family: inherit;
             font-size: 0.85rem;
         }
-        /* --- Hardware cards --- */
-        .hardware-section {
-            margin: 20px 0 0;
-        }
-        .hardware-section h2 {
-            margin: 0 0 8px;
-            font-size: 0.78rem;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: var(--secondary-text-color);
-        }
-        .hardware-cards {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .hw-card {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 14px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 150ms ease, box-shadow 150ms ease;
-        }
-        .hw-card:hover {
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-        }
-        .tx-card {
-            background: rgba(30, 136, 229, 0.08);
-            border: 1px solid rgba(30, 136, 229, 0.2);
-        }
-        .tx-card:hover {
-            background: rgba(30, 136, 229, 0.14);
-        }
-        .rx-card {
-            background: rgba(56, 142, 60, 0.08);
-            border: 1px solid rgba(56, 142, 60, 0.2);
-        }
-        .rx-card:hover {
-            background: rgba(56, 142, 60, 0.14);
-        }
-        .hw-badge {
-            font-size: 0.7rem;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            padding: 2px 8px;
-            border-radius: 4px;
-            flex-shrink: 0;
-        }
-        .tx-badge {
-            background: rgba(30, 136, 229, 0.18);
-            color: #1565c0;
-        }
-        .rx-badge {
-            background: rgba(56, 142, 60, 0.18);
-            color: #2e7d32;
-        }
-        .hw-info {
-            flex: 1;
-            min-width: 0;
-        }
-        .hw-name {
-            font-size: 0.9rem;
-            font-weight: 500;
-            color: var(--primary-text-color);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .hw-entity {
-            font-size: 0.75rem;
-            color: var(--secondary-text-color);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .hw-arrow {
-            font-size: 1.2rem;
-            color: var(--secondary-text-color);
-            flex-shrink: 0;
+        .meta-value ir-emitter-picker {
+            --picker-label-display: none;
         }
 
         /* --- Buttons --- */
@@ -694,6 +561,16 @@ export class IrDeviceDetail extends LitElement {
         }
         .action-btn.delete-btn:hover {
             background: rgba(183, 28, 28, 0.06);
+        }
+        .action-btn.collapse-btn {
+            font-size: 1rem;
+            padding: 2px 8px;
+            color: var(--secondary-text-color);
+            border-color: transparent;
+        }
+        .action-btn.collapse-btn:hover {
+            color: var(--primary-text-color);
+            background: var(--secondary-background-color);
         }
 
         /* --- Commands card --- */

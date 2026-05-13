@@ -90,7 +90,7 @@ export class IrCommandRow extends LitElement {
                     ${learned
                         ? html`
                               <button
-                                  class="action-btn"
+                                  class="action-btn test-btn"
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("test")}
                               >Test</button>
@@ -107,7 +107,7 @@ export class IrCommandRow extends LitElement {
                           `
                         : html`
                               <button
-                                  class="action-btn"
+                                  class="action-btn learn-btn"
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("learn")}
                               >Learn</button>
@@ -127,7 +127,10 @@ export class IrCommandRow extends LitElement {
             align-items: center;
             gap: 12px;
             padding: 10px 12px;
-            border-radius: 8px;
+            border-bottom: 1px solid var(--divider-color);
+        }
+        .row:last-child {
+            border-bottom: none;
         }
         .row[data-learned="false"] {
             background: var(--secondary-background-color);
@@ -144,7 +147,7 @@ export class IrCommandRow extends LitElement {
             border-radius: 50%;
         }
         .dot.learned {
-            background: var(--primary-color);
+            background: #2e7d32;
         }
         .dot.unlearned {
             border: 2px solid var(--disabled-text-color, #999);
@@ -203,6 +206,21 @@ export class IrCommandRow extends LitElement {
         .action-btn:disabled {
             opacity: 0.5;
             cursor: default;
+        }
+        .action-btn.test-btn {
+            color: #2e7d32;
+            border-color: rgba(46, 125, 50, 0.3);
+        }
+        .action-btn.test-btn:hover {
+            background: rgba(46, 125, 50, 0.08);
+        }
+        .action-btn.learn-btn {
+            color: #fff;
+            background: #2e7d32;
+            border-color: #2e7d32;
+        }
+        .action-btn.learn-btn:hover {
+            background: #1b5e20;
         }
         .action-btn.delete-btn {
             color: #b71c1c;

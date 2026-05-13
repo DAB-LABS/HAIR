@@ -1,0 +1,22 @@
+Reference,Value,Description,Footprint,Qty,Manufacturer,Manufacturer P/N,LCSC P/N,Notes
+U1,ME6211C33M5G,LDO 3.3V 500mA,SOT-23-5,1,Microne,ME6211C33M5G,C82942,JLCPCB basic part
+U2,TSMP58000,IR receiver wideband 30 to 56 kHz,SMD,1,Vishay,TSMP58000,TBD,Confirm LCSC stock; substitutes TSMP4138 or TSOP31338 acceptable
+U3,WS2812B,Addressable RGB LED single pixel,WS2812B 5050,1,Worldsemi,WS2812B,C114586,SK6812 5050 footprint compatible fallback
+Q1,AO3400,N-channel MOSFET 30V 5.7A,SOT-23,1,AOS,AO3400A,C20917,JLCPCB basic part
+D1,IR LED 940nm,Side firing SMD IR LED north edge,1206 side view,1,Everlight,IR15-21C/TR8,TBD,Confirm LCSC stock
+D2,IR LED 940nm,Side firing SMD IR LED east edge,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+D3,IR LED 940nm,Side firing SMD IR LED west edge,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+R1,18 ohm,D1 current limit,0805,1,Yageo,RC0805FR-0718RL,C17604,Sized for 200 mA pulsed
+R2,18 ohm,D2 current limit,0805,1,Yageo,RC0805FR-0718RL,C17604,
+R3,18 ohm,D3 current limit,0805,1,Yageo,RC0805FR-0718RL,C17604,
+R6,100 ohm,TSMP supply isolation series,0603,1,Yageo,RC0603FR-07100RL,C22775,
+R7,1k,MOSFET gate series,0603,1,Yageo,RC0603FR-071KL,C21190,
+R8,10k,MOSFET gate pulldown,0603,1,Yageo,RC0603FR-0710KL,C25804,
+R9,47k,TSMP output pullup,0603,1,Yageo,RC0603FR-0747KL,C25819,
+C1,100 uF 16V,5V bulk near LED ring aluminum polymer,SMD polymer D6.3 or D6.0,1,Panasonic or equivalent,EEH-ZA1C101P,C337297,Polymer preferred over standard electrolytic for ESR
+C2,1 uF 16V,LDO input,0603,1,Samsung,CL10A105KB8NNNC,C15849,
+C3,1 uF 16V,LDO output,0603,1,Samsung,CL10A105KB8NNNC,C15849,
+C5,4.7 uF 10V,TSMP supply post RC,0805,1,Samsung,CL21A475KAQNNNE,C19702,
+C6,100 nF 50V,TSMP HF bypass,0402,1,Samsung,CL05B104KO5NNNC,C1525,
+C8,100 nF 50V,WS2812B local decoupling,0402,1,Samsung,CL05B104KO5NNNC,C1525,
+J1,1x5 male pin header 0.1 inch,Host connection,2.54 mm pitch through hole SMT,1,Generic,Generic 1x5 SMT,TBD,Choose SMT variant to keep single SMT pass; right angle variant also acceptable

@@ -154,7 +154,7 @@ export class IrEmitterPicker extends LitElement {
             display: block;
         }
         label {
-            display: block;
+            display: var(--picker-label-display, block);
             font-size: 0.78rem;
             text-transform: uppercase;
             letter-spacing: 0.04em;
@@ -171,8 +171,8 @@ export class IrEmitterPicker extends LitElement {
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            background: rgba(30, 136, 229, 0.12);
-            color: #1565c0;
+            background: rgba(46, 125, 50, 0.12);
+            color: #2e7d32;
             font-size: 0.82rem;
             font-weight: 500;
             padding: 4px 8px;

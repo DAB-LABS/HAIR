@@ -9,7 +9,6 @@ import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { HairApi } from "./api.js";
 import "./ir-device-list.js";
-import "./ir-device-detail.js";
 import "./ir-add-device-dialog.js";
 import "./ir-signal-monitor.js";
 import type { DeviceSummary, IRDevice } from "./types.js";
@@ -25,7 +24,7 @@ export class HaPanelIrDevices extends LitElement {
 
     @state() private _activeTab: PanelTab = "devices";
     @state() private _devices: DeviceSummary[] = [];
-    @state() private _selectedDevice: IRDevice | null = null;
+    @state() private _expandedDeviceId: string | null = null;
     @state() private _loading = true;
     @state() private _error: string | null = null;
     @state() private _addDialogOpen = false;
@@ -63,20 +62,9 @@ export class HaPanelIrDevices extends LitElement {
         }
     }
 
-    private async _openDevice(deviceId: string): Promise<void> {
-        if (!this._api) return;
-        try {
-            this._selectedDevice = await this._api.getDevice(deviceId);
-            const url = `${this.route?.prefix ?? "/ir-devices"}/${deviceId}`;
-            history.pushState({ deviceId }, "", url);
-        } catch (err) {
-            this._error = `Failed to open device: ${(err as Error).message}`;
-        }
-    }
-
-    private _backToList(): void {
-        this._selectedDevice = null;
-        history.pushState({}, "", this.route?.prefix ?? "/ir-devices");
+    private _toggleDevice(deviceId: string): void {
+        this._expandedDeviceId =
+            this._expandedDeviceId === deviceId ? null : deviceId;
     }
 
     private _openAddDialog(): void {
@@ -90,27 +78,20 @@ export class HaPanelIrDevices extends LitElement {
     private async _onDeviceCreated(event: CustomEvent<IRDevice>): Promise<void> {
         this._addDialogOpen = false;
         await this._refreshDevices();
-        this._selectedDevice = event.detail;
+        this._expandedDeviceId = event.detail.id;
     }
 
     private async _onDeviceChanged(): Promise<void> {
         await this._refreshDevices();
-        if (this._selectedDevice && this._api) {
-            this._selectedDevice = await this._api.getDevice(
-                this._selectedDevice.id,
-            );
-        }
     }
 
     private async _onDeviceDeleted(): Promise<void> {
-        this._selectedDevice = null;
+        this._expandedDeviceId = null;
         await this._refreshDevices();
     }
 
     private _switchTab(tab: PanelTab): void {
-        if (this._selectedDevice) {
-            this._backToList();
-        }
+        this._expandedDeviceId = null;
         this._activeTab = tab;
         if (tab === "devices") {
             void this._refreshDevices();
@@ -122,92 +103,72 @@ export class HaPanelIrDevices extends LitElement {
             return html`<div class="loading">Loading…</div>`;
         }
 
-        const showTabs = !this._selectedDevice;
-
         return html`
             <ha-top-app-bar-fixed>
                 <ha-icon-button
                     slot="navigationIcon"
-                    .path=${this._selectedDevice
-                        ? "M19,11H7.83L12.83,6L11.41,4.59L4,12L11.41,19.41L12.83,18L7.83,13H19V11Z"
-                        : "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"}
-                    @click=${this._selectedDevice ? this._backToList : undefined}
+                    .path=${"M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"}
                 ></ha-icon-button>
-                <span slot="title">
-                    ${this._selectedDevice
-                        ? this._selectedDevice.name
-                        : "HAIR"}
-                </span>
+                <span slot="title">HAIR</span>
             </ha-top-app-bar-fixed>
 
-            ${showTabs
-                ? html`
-                      <div class="tab-bar">
-                          <button
-                              class="tab ${this._activeTab === "devices" ? "active" : ""}"
-                              @click=${() => this._switchTab("devices")}
-                          >
-                              Devices
-                          </button>
-                          <button
-                              class="tab ${this._activeTab === "sniffer" ? "active" : ""}"
-                              @click=${() => this._switchTab("sniffer")}
-                          >
-                              Sniffer
-                          </button>
-                      </div>
-                  `
-                : ""}
+            <div class="tab-bar">
+                <button
+                    class="tab ${this._activeTab === "devices" ? "active" : ""}"
+                    @click=${() => this._switchTab("devices")}
+                >
+                    Devices
+                </button>
+                <button
+                    class="tab ${this._activeTab === "sniffer" ? "active" : ""}"
+                    @click=${() => this._switchTab("sniffer")}
+                >
+                    Sniffer
+                </button>
+            </div>
 
             <div class="content">
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
-                ${this._selectedDevice
+                ${this._activeTab === "devices"
                     ? html`
-                          <ir-device-detail
-                              .api=${this._api}
-                              .device=${this._selectedDevice}
+                          <ir-device-list
+                              .devices=${this._devices}
                               .hass=${this.hass}
+                              .api=${this._api}
+                              .loading=${this._loading}
+                              .expandedDeviceId=${this._expandedDeviceId}
+                              @device-selected=${(e: CustomEvent<string>) =>
+                                  this._toggleDevice(e.detail)}
                               @device-changed=${this._onDeviceChanged}
                               @device-deleted=${this._onDeviceDeleted}
                               @navigate-sniffer=${() => this._switchTab("sniffer")}
-                          ></ir-device-detail>
-                      `
-                    : this._activeTab === "devices"
-                      ? html`
-                            <ir-device-list
-                                .devices=${this._devices}
-                                .hass=${this.hass}
-                                .api=${this._api}
-                                .loading=${this._loading}
-                                @device-selected=${(e: CustomEvent<string>) =>
-                                    this._openDevice(e.detail)}
-                                @add-device=${this._openAddDialog}
-                            ></ir-device-list>
+                              @add-device=${this._openAddDialog}
+                          ></ir-device-list>
 
-                            ${!this._loading && this._devices.length > 0
-                                ? html`
-                                      <ha-fab
-                                          class="fab"
-                                          label="Add Device"
-                                          extended
-                                          @click=${this._openAddDialog}
-                                      >
-                                          <ha-svg-icon
-                                              slot="icon"
-                                              .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                                          ></ha-svg-icon>
-                                      </ha-fab>
-                                  `
-                                : ""}
-                        `
-                      : html`
-                            <ir-signal-monitor
-                                .api=${this._api}
-                                .hass=${this.hass}
-                            ></ir-signal-monitor>
-                        `}
+                          ${!this._loading && this._devices.length > 0
+                              ? html`
+                                    <ha-fab
+                                        class="fab"
+                                        label="Add Device"
+                                        extended
+                                        @click=${this._openAddDialog}
+                                    >
+                                        <ha-svg-icon
+                                            slot="icon"
+                                            .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
+                                        ></ha-svg-icon>
+                                    </ha-fab>
+                                `
+                              : ""}
+                      `
+                    : html`
+                          <ir-signal-monitor
+                              .api=${this._api}
+                              .hass=${this.hass}
+                          ></ir-signal-monitor>
+                      `}
             </div>
 
             ${this._addDialogOpen

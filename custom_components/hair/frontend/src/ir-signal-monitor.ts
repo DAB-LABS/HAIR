@@ -94,6 +94,8 @@ export class IrSignalMonitor extends LitElement {
     @state() private _recentFingerprints: string[] = [];
     /** Signal fingerprints currently in glow animation. */
     @state() private _glowFingerprints = new Set<string>();
+    /** Signal fingerprints whose hit count is currently flashing. */
+    @state() private _hitFlashFingerprints = new Set<string>();
     @state() private _confirmClearAll = false;
 
     // Inline rename state
@@ -415,6 +417,14 @@ export class IrSignalMonitor extends LitElement {
                 next.delete(ev.signal_fingerprint);
                 this._glowFingerprints = next;
             }, 1200);
+
+            // Trigger hit count flash animation.
+            this._hitFlashFingerprints = new Set([...this._hitFlashFingerprints, ev.signal_fingerprint]);
+            setTimeout(() => {
+                const next = new Set(this._hitFlashFingerprints);
+                next.delete(ev.signal_fingerprint);
+                this._hitFlashFingerprints = next;
+            }, 1200);
         }
     }
 
@@ -666,8 +676,11 @@ export class IrSignalMonitor extends LitElement {
                 <div class="signal-list">
                     ${device.signals.map(
                         (sig) => {
-                            const isRecent = this._recentFingerprints.includes(sig.fingerprint);
+                            const recentIdx = this._recentFingerprints.indexOf(sig.fingerprint);
+                            const isLatest = recentIdx === 0;
+                            const isPrevious = recentIdx === 1;
                             const isGlowing = this._glowFingerprints.has(sig.fingerprint);
+                            const isHitFlash = this._hitFlashFingerprints.has(sig.fingerprint);
                             return html`
                             <div class="signal-row">
                                 <div class="signal-info">
@@ -680,14 +693,14 @@ export class IrSignalMonitor extends LitElement {
                                         : html`<code class="signal-code">${sig.protocol ?? "RAW"}: ${sig.code ?? `${sig.raw_timings.length} timings`}</code>`}
                                 </div>
                                 <div class="signal-meta">
-                                    <span>${sig.hit_count} hits</span>
+                                    <span class="${isHitFlash ? "hit-flash" : ""}">${sig.hit_count} hits</span>
                                     <span title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
                                 </div>
                                 <div class="signal-actions">
                                     <button
-                                        class="action-btn assign-btn ${isRecent ? "recent" : ""} ${isGlowing ? "glow" : ""}"
+                                        class="action-btn assign-btn ${isLatest ? "recent-latest" : ""} ${isPrevious ? "recent-previous" : ""} ${isGlowing ? "glow" : ""}"
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
                                             this._openAssign(device.id, sig, device.label);
@@ -1016,14 +1029,24 @@ export class IrSignalMonitor extends LitElement {
             border-color: var(--divider-color);
         }
 
-        /* Last-active: Assign stays accent green for last 2 hits */
-        .action-btn.assign-btn.recent {
+        /* Latest signal: bright green filled Assign button */
+        .action-btn.assign-btn.recent-latest {
             color: #fff;
             background: #2e7d32;
             border-color: #2e7d32;
         }
-        .action-btn.assign-btn.recent:hover {
+        .action-btn.assign-btn.recent-latest:hover {
             background: #1b5e20;
+        }
+
+        /* Previous signal: muted green outline Assign button */
+        .action-btn.assign-btn.recent-previous {
+            color: rgba(46, 125, 50, 0.6);
+            border-color: rgba(46, 125, 50, 0.25);
+            background: rgba(46, 125, 50, 0.06);
+        }
+        .action-btn.assign-btn.recent-previous:hover {
+            background: rgba(46, 125, 50, 0.12);
         }
 
         /* Glow pulse animation on hit */
@@ -1034,6 +1057,15 @@ export class IrSignalMonitor extends LitElement {
             0% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.6); }
             50% { box-shadow: 0 0 8px 3px rgba(46, 125, 50, 0.3); }
             100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0); }
+        }
+
+        /* Hit count flash animation */
+        .signal-meta .hit-flash {
+            animation: hit-count-glow 1.2s ease-out;
+        }
+        @keyframes hit-count-glow {
+            0% { color: #2e7d32; text-shadow: 0 0 6px rgba(46, 125, 50, 0.8); }
+            100% { color: inherit; text-shadow: none; }
         }
 
         /* Collapsed stats flash on hit */

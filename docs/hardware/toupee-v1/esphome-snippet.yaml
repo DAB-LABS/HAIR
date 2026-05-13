@@ -1,0 +1,97 @@
+# Toupee v1 - ESPHome reference config snippet
+#
+# Paste this into your existing ESPHome host config and adjust the GPIO numbers
+# to match the wiring between your host MCU and the Toupee's 5-pin header.
+#
+# Toupee header pinout:
+#   Pin 1: 5V         (from host, IR LED supply)
+#   Pin 2: GND
+#   Pin 3: TX_IN      (host GPIO drives MOSFET gate)
+#   Pin 4: RX_OUT     (TSMP output to host GPIO)
+#   Pin 5: LED_DIN    (host GPIO drives WS2812B data)
+#
+# Example GPIO assignments below are for an ESP32-C3 host. Adjust for other
+# ESP32 variants based on which non-strapping GPIOs are available and which
+# pins are RMT-capable for the WS2812B data line.
+
+
+# ---- IR Transmitter ----
+# Toupee header pin 3 (TX_IN). Pick any safe output GPIO on your host.
+# Avoid strapping pins (ESP32-C3: GPIO2, GPIO8, GPIO9).
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO4
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+
+# ---- IR Receiver ----
+# Toupee header pin 4 (RX_OUT). The Toupee's on-board 47k external pullup
+# means the host internal pullup is optional, but leaving it enabled costs
+# nothing and adds redundancy.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO5
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  dump: all
+  tolerance: 25%
+  idle: 10ms
+
+  on_pronto:
+    then:
+      - homeassistant.event:
+          event: esphome.remote_received
+          data:
+            protocol: "PRONTO"
+            code: !lambda 'return x.data;'
+
+
+# ---- HA Native Infrared Platform ----
+# Creates the infrared.* entities that HAIR discovers in your HA install.
+infrared:
+  - platform: ir_rf_proxy
+    name: "Toupee TX"
+    id: ir_proxy_tx
+    remote_transmitter_id: ir_tx
+  - platform: ir_rf_proxy
+    name: "Toupee RX"
+    id: ir_proxy_rx
+    receiver_frequency: 38kHz
+    remote_receiver_id: ir_rx
+
+
+# ---- Status LED ----
+# Toupee header pin 5 (LED_DIN). Drives the on-board WS2812B.
+# Requires an RMT-capable GPIO on the host (most ESP32 GPIOs qualify).
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    name: "Toupee Status LED"
+    pin: GPIO6
+    num_leds: 1
+    chipset: WS2812
+    rgb_order: GRB
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+
+# ---- Optional: status LED behavior ----
+# Example automations to drive the status LED in response to IR activity.
+# Uncomment and adjust to taste.
+#
+# script:
+#   - id: flash_white_briefly
+#     mode: restart
+#     then:
+#       - light.turn_on:
+#           id: status_led
+#           red: 100%
+#           green: 100%
+#           blue: 100%
+#           brightness: 30%
+#       - delay: 80ms
+#       - light.turn_off: status_led

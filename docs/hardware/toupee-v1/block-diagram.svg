@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1100 800" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c0392b"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2c5d9e"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="800" fill="#fafafa"/>
+
+  <text x="550" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#222">Toupee v1 - Block Diagram</text>
+  <text x="550" y="58" text-anchor="middle" font-size="12" fill="#666">IR transceiver breakout for ESP32 hosts. 25 mm square, single SMT pass.</text>
+
+  <!-- Host connection (left) -->
+  <rect x="40" y="100" width="220" height="240" fill="#f0f0f5" stroke="#7777a0" stroke-width="1.5" rx="6"/>
+  <text x="55" y="122" font-size="14" font-weight="bold" fill="#444477">Host Connection (J1)</text>
+
+  <text x="60" y="155" font-size="12" font-weight="bold">5-pin header:</text>
+  <text x="60" y="175" font-size="11">Pin 1: 5V</text>
+  <text x="60" y="193" font-size="11">Pin 2: GND</text>
+  <text x="60" y="211" font-size="11">Pin 3: TX_IN  (host GPIO)</text>
+  <text x="60" y="229" font-size="11">Pin 4: RX_OUT (to host GPIO)</text>
+  <text x="60" y="247" font-size="11">Pin 5: LED_DIN (host GPIO)</text>
+
+  <text x="60" y="280" font-size="11" fill="#555">0.1 inch (2.54 mm) pitch</text>
+  <text x="60" y="296" font-size="11" fill="#555">SMT, south edge of board</text>
+  <text x="60" y="312" font-size="11" fill="#555">Right angle option available</text>
+
+  <!-- LDO block -->
+  <rect x="320" y="100" width="220" height="160" fill="#e8f5e8" stroke="#7a9b7a" stroke-width="1.5" rx="6"/>
+  <text x="335" y="122" font-size="14" font-weight="bold" fill="#2c5d2c">Power</text>
+
+  <rect x="340" y="140" width="180" height="100" fill="white" stroke="#333" stroke-width="1.2" rx="3"/>
+  <text x="430" y="165" text-anchor="middle" font-size="13" font-weight="bold">ME6211 LDO (U1)</text>
+  <text x="430" y="183" text-anchor="middle" font-size="10" fill="#555">5V to 3.3V, 500 mA</text>
+  <text x="430" y="199" text-anchor="middle" font-size="10" fill="#555">1 uF in / 1 uF out</text>
+  <text x="430" y="215" text-anchor="middle" font-size="10" fill="#555">(C2, C3)</text>
+  <text x="430" y="231" text-anchor="middle" font-size="10" fill="#555">Powers receiver chain only</text>
+
+  <!-- 5V arrow from header to LDO -->
+  <line x1="260" y1="175" x2="320" y2="175" stroke="#c0392b" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <text x="290" y="170" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="bold">5V</text>
+
+  <!-- MOSFET driver -->
+  <rect x="600" y="100" width="240" height="160" fill="#fdf4e0" stroke="#b09060" stroke-width="1.5" rx="6"/>
+  <text x="615" y="122" font-size="14" font-weight="bold" fill="#7a5520">TX Driver</text>
+
+  <rect x="620" y="140" width="200" height="100" fill="white" stroke="#333" stroke-width="1.2" rx="3"/>
+  <text x="720" y="165" text-anchor="middle" font-size="13" font-weight="bold">AO3400 N-FET (Q1)</text>
+  <text x="720" y="183" text-anchor="middle" font-size="10" fill="#555">Gate from TX_IN through 1k</text>
+  <text x="720" y="199" text-anchor="middle" font-size="10" fill="#555">(R7) + 10k pulldown (R8)</text>
+  <text x="720" y="215" text-anchor="middle" font-size="10" fill="#555">Drain sinks LED cathode bus</text>
+
+  <!-- TX_IN arrow -->
+  <path d="M 260 230 L 290 230 L 290 165 L 600 165" fill="none" stroke="#2c5d9e" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="430" y="160" font-size="10" fill="#2c5d9e" font-weight="bold">TX_IN</text>
+
+  <!-- LED ring section -->
+  <rect x="880" y="100" width="200" height="280" fill="#fdf4e0" stroke="#b09060" stroke-width="1.5" rx="6"/>
+  <text x="895" y="122" font-size="14" font-weight="bold" fill="#7a5520">IR LED Trio</text>
+
+  <rect x="900" y="140" width="160" height="220" fill="white" stroke="#333" stroke-width="1.2" rx="3"/>
+  <text x="980" y="170" text-anchor="middle" font-size="13" font-weight="bold">D1, D2, D3</text>
+  <text x="980" y="192" text-anchor="middle" font-size="10" fill="#555">Side firing 940 nm</text>
+  <text x="980" y="208" text-anchor="middle" font-size="10" fill="#555">+/- 60 deg half angle</text>
+  <text x="980" y="232" text-anchor="middle" font-size="10" fill="#555">200 mA pulsed each</text>
+  <text x="980" y="248" text-anchor="middle" font-size="10" fill="#555">18 ohm series per LED</text>
+  <text x="980" y="264" text-anchor="middle" font-size="10" fill="#555">(R1, R2, R3)</text>
+  <text x="980" y="288" text-anchor="middle" font-size="10" fill="#555">North, East, West edges</text>
+  <text x="980" y="304" text-anchor="middle" font-size="10" fill="#555">600 mA peak burst total</text>
+  <text x="980" y="328" text-anchor="middle" font-size="10" fill="#555">100 uF polymer bulk (C1)</text>
+  <text x="980" y="344" text-anchor="middle" font-size="10" fill="#555">absorbs burst</text>
+
+  <!-- Drain arrow to LED ring -->
+  <line x1="840" y1="190" x2="880" y2="190" stroke="#333" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 5V arrow to LED ring -->
+  <path d="M 540 175 L 560 175 L 560 220 L 880 220" fill="none" stroke="#c0392b" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <text x="580" y="215" font-size="10" fill="#c0392b" font-weight="bold">5V</text>
+
+  <!-- RX section -->
+  <rect x="320" y="430" width="320" height="200" fill="#eaf4fb" stroke="#5588b8" stroke-width="1.5" rx="6"/>
+  <text x="335" y="452" font-size="14" font-weight="bold" fill="#1f4f7a">IR Receive (center of board)</text>
+
+  <rect x="340" y="470" width="280" height="140" fill="white" stroke="#333" stroke-width="1.2" rx="3"/>
+  <text x="480" y="495" text-anchor="middle" font-size="13" font-weight="bold">TSMP58000 (U2)</text>
+  <text x="480" y="513" text-anchor="middle" font-size="10" fill="#555">Wideband IR receiver</text>
+  <text x="480" y="529" text-anchor="middle" font-size="10" fill="#555">Lens points up out of top face</text>
+  <text x="480" y="553" text-anchor="middle" font-size="10" fill="#555">VS via 100 ohm RC (R6)</text>
+  <text x="480" y="569" text-anchor="middle" font-size="10" fill="#555">4.7 uF + 100 nF at pin (C5, C6)</text>
+  <text x="480" y="585" text-anchor="middle" font-size="10" fill="#555">47k output pullup to 3.3V (R9)</text>
+
+  <!-- 3.3V to RX -->
+  <path d="M 430 260 L 430 360 L 480 360 L 480 430" fill="none" stroke="#c0392b" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <text x="445" y="320" font-size="10" fill="#c0392b" font-weight="bold">3.3V</text>
+
+  <!-- RX_OUT to header -->
+  <path d="M 340 540 L 280 540 L 280 230 L 260 230" fill="none" stroke="#2c5d9e" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="290" y="535" font-size="10" fill="#2c5d9e" font-weight="bold">RX_OUT</text>
+
+  <!-- Status LED -->
+  <rect x="660" y="430" width="240" height="160" fill="#eaf4fb" stroke="#5588b8" stroke-width="1.5" rx="6"/>
+  <text x="675" y="452" font-size="14" font-weight="bold" fill="#1f4f7a">Status LED</text>
+
+  <rect x="680" y="470" width="200" height="100" fill="white" stroke="#333" stroke-width="1.2" rx="3"/>
+  <text x="780" y="495" text-anchor="middle" font-size="13" font-weight="bold">WS2812B (U3)</text>
+  <text x="780" y="513" text-anchor="middle" font-size="10" fill="#555">Adjacent to receiver</text>
+  <text x="780" y="529" text-anchor="middle" font-size="10" fill="#555">5V supply, 3.3V data</text>
+  <text x="780" y="545" text-anchor="middle" font-size="10" fill="#555">100 nF local decoupling (C8)</text>
+
+  <!-- LED_DIN from header -->
+  <path d="M 260 250 L 270 250 L 270 410 L 780 410 L 780 430" fill="none" stroke="#2c5d9e" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="500" y="405" font-size="10" fill="#2c5d9e" font-weight="bold">LED_DIN</text>
+
+  <!-- Form factor sketch -->
+  <rect x="40" y="430" width="240" height="220" fill="#ffffff" stroke="#999" stroke-width="1.5" rx="6"/>
+  <text x="55" y="452" font-size="13" font-weight="bold" fill="#555">Form factor (25 mm square)</text>
+
+  <g transform="translate(160, 555)">
+    <!-- Square outline -->
+    <rect x="-60" y="-60" width="120" height="120" fill="none" stroke="#333" stroke-width="1.5"/>
+    <!-- IR LEDs on 3 edges -->
+    <rect x="-8" y="-66" width="16" height="6" fill="#c0392b"/>
+    <text x="0" y="-72" text-anchor="middle" font-size="9" fill="#666">D1 (N)</text>
+    <rect x="60" y="-8" width="6" height="16" fill="#c0392b"/>
+    <text x="78" y="3" text-anchor="middle" font-size="9" fill="#666">D2 (E)</text>
+    <rect x="-66" y="-8" width="6" height="16" fill="#c0392b"/>
+    <text x="-78" y="3" text-anchor="middle" font-size="9" fill="#666">D3 (W)</text>
+    <!-- Receiver and LED in center -->
+    <circle cx="-8" cy="0" r="6" fill="#2c5d9e"/>
+    <text x="-8" y="14" text-anchor="middle" font-size="8" fill="#555">RX</text>
+    <rect x="4" y="-5" width="10" height="10" fill="#7a9b7a"/>
+    <text x="9" y="14" text-anchor="middle" font-size="8" fill="#555">LED</text>
+    <!-- Header on south edge -->
+    <rect x="-15" y="60" width="30" height="6" fill="#666"/>
+    <text x="0" y="76" text-anchor="middle" font-size="9" fill="#666">5-pin header</text>
+  </g>
+
+  <!-- Coverage analysis -->
+  <rect x="40" y="680" width="1040" height="100" fill="white" stroke="#ccc" stroke-width="1" rx="3"/>
+  <text x="55" y="702" font-size="13" font-weight="bold">IR Coverage</text>
+  <text x="55" y="722" font-size="11" fill="#444">North LED covers -60 to +60 deg | East LED covers 30 to 150 deg | West LED covers 210 to 330 deg</text>
+  <text x="55" y="738" font-size="11" fill="#444">Total: roughly 240 to 300 deg of useful coverage. Gap at 150 to 210 deg points south, where the host wires exit.</text>
+  <text x="55" y="754" font-size="11" fill="#444">Same hidden-gap principle as the full puck. The omitted direction is the direction nobody needs IR pointed.</text>
+
+  <!-- Legend -->
+  <text x="780" y="702" font-size="13" font-weight="bold">Legend</text>
+  <line x1="780" y1="715" x2="820" y2="715" stroke="#c0392b" stroke-width="2"/>
+  <text x="830" y="719" font-size="11">Power (5V, 3.3V)</text>
+  <line x1="780" y1="735" x2="820" y2="735" stroke="#2c5d9e" stroke-width="2"/>
+  <text x="830" y="739" font-size="11">Host signals</text>
+  <line x1="780" y1="755" x2="820" y2="755" stroke="#333" stroke-width="2"/>
+  <text x="830" y="759" font-size="11">High current TX path</text>
+</svg>
