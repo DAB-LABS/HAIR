@@ -62,7 +62,7 @@ export interface IRDevice {
     device_type: DeviceTypeId;
     manufacturer: string | null;
     model: string | null;
-    emitter_entity_id: string;
+    emitter_entity_ids: string[];
     capture_device_id: string | null;
     capture_provider_type: CaptureProviderTypeId;
     commands: IRCommand[];
@@ -79,7 +79,7 @@ export interface DeviceSummary {
     device_type: DeviceTypeId;
     manufacturer: string | null;
     model: string | null;
-    emitter_entity_id: string;
+    emitter_entity_ids: string[];
     command_count: number;
     created_at: string;
     updated_at: string;

@@ -142,7 +142,7 @@ export class IrAssignSignalDialog extends LitElement {
                     signal_fingerprint: this.signal.fingerprint,
                     device_name: this._newName.trim(),
                     device_type: this._newType,
-                    emitter_entity_id: this._newEmitterId,
+                    emitter_entity_ids: [this._newEmitterId],
                     command_name: name,
                 });
             }

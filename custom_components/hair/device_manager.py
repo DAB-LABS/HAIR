@@ -151,11 +151,14 @@ class DeviceManager:
     async def async_send_command(
         self, device_id: str, command_id: str
     ) -> None:
-        """Send a stored IR command via the configured emitter.
+        """Send a stored IR command via all configured emitters (broadcast).
 
         Uses ``homeassistant.components.infrared.async_send_command``
         (HA 2026.4+) which accepts an ``infrared_protocols.Command``
         instance wrapping the raw timings or Pronto hex.
+
+        The command is sent to every emitter in the device's
+        ``emitter_entity_ids`` list for maximum coverage.
         """
         device = self._store.get_device(device_id)
         if device is None:
@@ -163,6 +166,9 @@ class DeviceManager:
         command = device.get_command(command_id)
         if command is None:
             raise KeyError(f"Unknown command {command_id} on device {device_id}")
+
+        if not device.emitter_entity_ids:
+            raise RuntimeError(f"Device {device_id} has no emitters configured")
 
         # Lazy imports: infrared component only available at runtime on HA 2026.4+.
         from homeassistant.components.infrared import (  # noqa: E402
@@ -179,7 +185,8 @@ class DeviceManager:
             repeat_count=command.repeat_count or 0,
         )
 
-        await ir_send(self._hass, device.emitter_entity_id, ir_cmd)
+        for emitter_id in device.emitter_entity_ids:
+            await ir_send(self._hass, emitter_id, ir_cmd)
 
     def _register_ha_device(self, device: IRDevice) -> None:
         registry = dr.async_get(self._hass)

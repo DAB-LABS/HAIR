@@ -116,7 +116,7 @@ class HAIRStore:
     ) -> list[IRDevice]:
         return [
             d for d in self._data.values()
-            if d.emitter_entity_id == emitter_entity_id
+            if emitter_entity_id in d.emitter_entity_ids
         ]
 
     def get_devices_by_type(self, device_type: str) -> list[IRDevice]:

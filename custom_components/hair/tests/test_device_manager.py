@@ -70,7 +70,7 @@ async def test_create_and_remove_device(manager, mock_device: IRDevice):
 @pytest.mark.asyncio
 async def test_add_command_auto_maps_for_tv(manager):
     device = IRDevice(
-        name="TV", device_type=DeviceType.TV, emitter_entity_id="infrared.a"
+        name="TV", device_type=DeviceType.TV, emitter_entity_ids=["infrared.a"]
     )
     with patch(
         "custom_components.hair.device_manager.dr.async_get",
@@ -92,7 +92,7 @@ async def test_add_command_auto_maps_for_tv(manager):
 @pytest.mark.asyncio
 async def test_add_command_populates_ac_modes(manager):
     device = IRDevice(
-        name="AC", device_type=DeviceType.AC, emitter_entity_id="infrared.a"
+        name="AC", device_type=DeviceType.AC, emitter_entity_ids=["infrared.a"]
     )
     with patch(
         "custom_components.hair.device_manager.dr.async_get",
@@ -116,7 +116,7 @@ async def test_add_command_populates_ac_modes(manager):
 @pytest.mark.asyncio
 async def test_remove_command_clears_mapping(manager):
     device = IRDevice(
-        name="TV", device_type=DeviceType.TV, emitter_entity_id="infrared.a"
+        name="TV", device_type=DeviceType.TV, emitter_entity_ids=["infrared.a"]
     )
     with patch(
         "custom_components.hair.device_manager.dr.async_get",

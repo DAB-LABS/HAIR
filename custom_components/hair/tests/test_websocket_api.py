@@ -179,7 +179,7 @@ async def test_create_device_success(fake_hass):
             "type": "hair/device/create",
             "name": "Living Room TV",
             "device_type": "tv",
-            "emitter_entity_id": "infrared.test",
+            "emitter_entity_ids": ["infrared.test"],
         },
     )
     conn.send_result.assert_called_once()
@@ -202,7 +202,7 @@ async def test_create_device_invalid_type(fake_hass):
             "type": "hair/device/create",
             "name": "X",
             "device_type": "NOT_REAL",
-            "emitter_entity_id": "infrared.test",
+            "emitter_entity_ids": ["infrared.test"],
         },
     )
     conn.send_error.assert_called_once()
@@ -380,7 +380,7 @@ async def test_start_capture_no_capture_device(fake_hass):
     device = IRDevice(
         name="TV",
         device_type=DeviceType.TV,
-        emitter_entity_id="infrared.a",
+        emitter_entity_ids=["infrared.a"],
         capture_device_id=None,
     )
     manager = MagicMock()
@@ -402,7 +402,7 @@ async def test_start_capture_provider_unavailable(fake_hass):
     device = IRDevice(
         name="TV",
         device_type=DeviceType.TV,
-        emitter_entity_id="infrared.a",
+        emitter_entity_ids=["infrared.a"],
         capture_device_id="cap-1",
     )
     manager = MagicMock()
@@ -431,7 +431,7 @@ async def test_start_capture_success(fake_hass, mock_capture_provider, capture_r
     device = IRDevice(
         name="TV",
         device_type=DeviceType.TV,
-        emitter_entity_id="infrared.a",
+        emitter_entity_ids=["infrared.a"],
         capture_device_id="cap-1",
     )
     session = CaptureSession(device_id=device.id)
@@ -469,7 +469,7 @@ async def test_start_capture_already_in_progress(fake_hass, mock_capture_provide
     device = IRDevice(
         name="TV",
         device_type=DeviceType.TV,
-        emitter_entity_id="infrared.a",
+        emitter_entity_ids=["infrared.a"],
         capture_device_id="cap-1",
     )
     manager = MagicMock()
@@ -660,7 +660,7 @@ async def test_handlers_graceful_when_not_configured(fake_hass):
     await ws_create_device(
         fake_hass,
         conn,
-        {"id": 2, "name": "X", "device_type": "tv", "emitter_entity_id": "ir.a"},
+        {"id": 2, "name": "X", "device_type": "tv", "emitter_entity_ids": ["ir.a"]},
     )
     conn.send_error.assert_called()
 
@@ -1047,7 +1047,7 @@ async def test_assign_new_device_success(fake_hass):
             "signal_fingerprint": "sig_fp",
             "device_name": "Living Room TV",
             "device_type": "tv",
-            "emitter_entity_id": "remote.ir_blaster",
+            "emitter_entity_ids": ["remote.ir_blaster"],
             "command_name": "Power",
             "command_category": "power",
         },
@@ -1085,7 +1085,7 @@ async def test_assign_new_device_invalid_type(fake_hass):
             "signal_fingerprint": "sig_fp",
             "device_name": "Test",
             "device_type": "invalid_type",
-            "emitter_entity_id": "remote.ir",
+            "emitter_entity_ids": ["remote.ir"],
             "command_name": "Power",
         },
     )
@@ -1114,7 +1114,7 @@ async def test_assign_new_device_signal_not_found(fake_hass):
             "signal_fingerprint": "nonexistent",
             "device_name": "Test",
             "device_type": "tv",
-            "emitter_entity_id": "remote.ir",
+            "emitter_entity_ids": ["remote.ir"],
             "command_name": "Power",
         },
     )

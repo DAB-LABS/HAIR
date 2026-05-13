@@ -866,7 +866,7 @@ class TestAssignToNewDevice:
             signal_fingerprint="sig_fp",
             device_name="Living Room TV",
             device_type="tv",
-            emitter_entity_id="remote.ir_blaster",
+            emitter_entity_ids=["remote.ir_blaster"],
             command_name="Power",
             command_category="power",
         )

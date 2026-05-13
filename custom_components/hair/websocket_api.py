@@ -90,7 +90,7 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
         "device_type": str(device.device_type),
         "manufacturer": device.manufacturer,
         "model": device.model,
-        "emitter_entity_id": device.emitter_entity_id,
+        "emitter_entity_ids": list(device.emitter_entity_ids),
         "command_count": len(device.commands),
         "created_at": device.created_at,
         "updated_at": device.updated_at,
@@ -152,7 +152,7 @@ async def ws_get_device(
     vol.Required("type"): f"{WS_PREFIX}/device/create",
     vol.Required("name"): str,
     vol.Required("device_type"): str,
-    vol.Required("emitter_entity_id"): str,
+    vol.Required("emitter_entity_ids"): [str],
     vol.Optional("manufacturer"): vol.Any(str, None),
     vol.Optional("model"): vol.Any(str, None),
     vol.Optional("capture_device_id"): vol.Any(str, None),
@@ -190,7 +190,7 @@ async def ws_create_device(
         device_type=device_type,
         manufacturer=msg.get("manufacturer"),
         model=msg.get("model"),
-        emitter_entity_id=msg["emitter_entity_id"],
+        emitter_entity_ids=list(msg["emitter_entity_ids"]),
         capture_device_id=msg.get("capture_device_id"),
         capture_provider_type=provider_type,
     )
@@ -205,7 +205,7 @@ async def ws_create_device(
     vol.Optional("name"): str,
     vol.Optional("manufacturer"): vol.Any(str, None),
     vol.Optional("model"): vol.Any(str, None),
-    vol.Optional("emitter_entity_id"): str,
+    vol.Optional("emitter_entity_ids"): [str],
     vol.Optional("device_type"): str,
 })
 @websocket_api.async_response
@@ -230,8 +230,8 @@ async def ws_update_device(
         device.manufacturer = msg["manufacturer"]
     if "model" in msg:
         device.model = msg["model"]
-    if "emitter_entity_id" in msg:
-        device.emitter_entity_id = msg["emitter_entity_id"]
+    if "emitter_entity_ids" in msg:
+        device.emitter_entity_ids = list(msg["emitter_entity_ids"])
     if "device_type" in msg:
         device.device_type = DeviceType(msg["device_type"])
 
@@ -714,8 +714,8 @@ async def ws_test_signal(
         # Default to the first emitter configured on any HAIR device.
         store = data["store"]
         for dev in store.get_all_devices():
-            if dev.emitter_entity_id:
-                emitter_id = dev.emitter_entity_id
+            if dev.emitter_entity_ids:
+                emitter_id = dev.emitter_entity_ids[0]
                 break
     if not emitter_id:
         connection.send_error(msg["id"], "no_emitter", "No emitter entity configured")
@@ -770,7 +770,7 @@ async def ws_rename_unknown(
     vol.Required("signal_fingerprint"): str,
     vol.Required("device_name"): str,
     vol.Required("device_type"): str,
-    vol.Required("emitter_entity_id"): str,
+    vol.Required("emitter_entity_ids"): [str],
     vol.Required("command_name"): str,
     vol.Optional("command_category", default="custom"): str,
 })
@@ -791,7 +791,7 @@ async def ws_assign_new_device(
         msg["signal_fingerprint"],
         msg["device_name"],
         msg["device_type"],
-        msg["emitter_entity_id"],
+        list(msg["emitter_entity_ids"]),
         msg["command_name"],
         msg.get("command_category", "custom"),
     )

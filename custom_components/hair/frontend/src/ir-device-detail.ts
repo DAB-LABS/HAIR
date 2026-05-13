@@ -181,11 +181,12 @@ export class IrDeviceDetail extends LitElement {
 
     private async _onEmitterChanged(e: Event) {
         const newEmitter = (e.target as HTMLSelectElement).value;
-        if (newEmitter === this.device.emitter_entity_id) return;
+        const currentFirst = this.device.emitter_entity_ids?.[0] ?? ""s?.[0] ?? "";
+        if (newEmitter === currentFirst) return;
         this._busy = true;
         try {
             this.device = await this.api.updateDevice(this.device.id, {
-                emitter_entity_id: newEmitter,
+                emitter_entity_ids: [newEmitter],
             });
             this._flash("Emitter updated");
             this.dispatchEvent(
@@ -389,7 +390,7 @@ export class IrDeviceDetail extends LitElement {
                         ? html`<span class="no-emitters">No emitters found</span>`
                         : html`
                               <select
-                                  .value=${this.device.emitter_entity_id}
+                                  .value=${this.device.emitter_entity_ids?.[0] ?? ""}
                                   @change=${this._onEmitterChanged}
                                   ?disabled=${this._busy}
                               >
@@ -397,7 +398,7 @@ export class IrDeviceDetail extends LitElement {
                                       (em) => html`
                                           <option
                                               value=${em.entity_id}
-                                              ?selected=${this.device.emitter_entity_id === em.entity_id}
+                                              ?selected=${this.device.emitter_entity_ids?.[0] ?? "" === em.entity_id}
                                           >
                                               ${em.name}
                                           </option>
@@ -417,16 +418,16 @@ export class IrDeviceDetail extends LitElement {
                         class="hw-card tx-card"
                         @click=${() =>
                             this._navigateIntegration(
-                                this._entityIntegrationUrl(this.device.emitter_entity_id),
+                                this._entityIntegrationUrl(this.device.emitter_entity_ids?.[0] ?? ""),
                             )}
                         title="View integration"
                     >
                         <div class="hw-badge tx-badge">TX</div>
                         <div class="hw-info">
                             <div class="hw-name">
-                                ${this._emitterName(this.device.emitter_entity_id)}
+                                ${this._emitterName(this.device.emitter_entity_ids?.[0] ?? "")}
                             </div>
-                            <div class="hw-entity">${this.device.emitter_entity_id}</div>
+                            <div class="hw-entity">${this.device.emitter_entity_ids?.[0] ?? ""}</div>
                         </div>
                         <div class="hw-arrow">&#8250;</div>
                     </div>

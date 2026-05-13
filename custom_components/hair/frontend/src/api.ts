@@ -59,7 +59,7 @@ export class HairApi {
     createDevice(payload: {
         name: string;
         device_type: DeviceTypeId;
-        emitter_entity_id: string;
+        emitter_entity_ids: string[];
         manufacturer?: string | null;
         model?: string | null;
         capture_device_id?: string | null;
@@ -77,7 +77,7 @@ export class HairApi {
             name: string;
             manufacturer: string | null;
             model: string | null;
-            emitter_entity_id: string;
+            emitter_entity_ids: string[];
             device_type: string;
         }>,
     ): Promise<IRDevice> {
@@ -233,7 +233,7 @@ export class HairApi {
         signal_fingerprint: string;
         device_name: string;
         device_type: string;
-        emitter_entity_id: string;
+        emitter_entity_ids: string[];
         command_name: string;
         command_category?: string;
     }): Promise<AssignResult> {

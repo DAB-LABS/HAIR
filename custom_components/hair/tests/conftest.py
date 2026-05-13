@@ -73,7 +73,7 @@ def mock_device(mock_command: IRCommand) -> IRDevice:
         device_type=DeviceType.TV,
         manufacturer="Samsung",
         model="UN55TU7000",
-        emitter_entity_id="infrared.test_emitter",
+        emitter_entity_ids=["infrared.test_emitter"],
         capture_device_id="esphome-device-1",
         capture_provider_type=CaptureProviderType.ESPHOME,
         commands=[mock_command],

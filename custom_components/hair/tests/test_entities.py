@@ -63,7 +63,7 @@ def _device(
         device_type=device_type,
         manufacturer="TestCo",
         model="X100",
-        emitter_entity_id="infrared.test",
+        emitter_entity_ids=["infrared.test"],
         commands=commands or [],
         entity_config=entity_config or EntityConfig(),
     )

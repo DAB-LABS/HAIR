@@ -61,8 +61,8 @@ async def test_store_filters(fake_hass):
         store = HAIRStore(fake_hass)
         await store.async_load()
 
-        tv = IRDevice(name="TV", device_type=DeviceType.TV, emitter_entity_id="infrared.a")
-        ac = IRDevice(name="AC", device_type=DeviceType.AC, emitter_entity_id="infrared.b")
+        tv = IRDevice(name="TV", device_type=DeviceType.TV, emitter_entity_ids=["infrared.a"])
+        ac = IRDevice(name="AC", device_type=DeviceType.AC, emitter_entity_ids=["infrared.b"])
         store.add_device(tv)
         store.add_device(ac)
 

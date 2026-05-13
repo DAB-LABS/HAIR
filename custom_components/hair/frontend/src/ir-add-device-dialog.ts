@@ -103,7 +103,7 @@ export class IrAddDeviceDialog extends LitElement {
             const created: IRDevice = await this.api.createDevice({
                 name: this._name.trim(),
                 device_type: this._deviceType,
-                emitter_entity_id: this._emitterId,
+                emitter_entity_ids: [this._emitterId],
                 manufacturer: this._manufacturer.trim() || null,
                 model: this._model.trim() || null,
                 capture_device_id: this._captureProviderId,

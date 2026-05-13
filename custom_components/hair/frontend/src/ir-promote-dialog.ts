@@ -65,7 +65,7 @@ export class IrPromoteDialog extends LitElement {
             await this.api.createDevice({
                 name,
                 device_type: this._type,
-                emitter_entity_id: this._emitterId,
+                emitter_entity_ids: [this._emitterId],
             });
             this.dispatchEvent(
                 new CustomEvent("device-created", {

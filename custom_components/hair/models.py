@@ -130,7 +130,7 @@ class IRDevice:
     device_type: DeviceType = DeviceType.OTHER
     manufacturer: str | None = None
     model: str | None = None
-    emitter_entity_id: str = ""
+    emitter_entity_ids: list[str] = field(default_factory=list)
     capture_device_id: str | None = None
     capture_provider_type: CaptureProviderType = CaptureProviderType.ESPHOME
     commands: list[IRCommand] = field(default_factory=list)
@@ -184,7 +184,7 @@ class IRDevice:
             "device_type": str(self.device_type),
             "manufacturer": self.manufacturer,
             "model": self.model,
-            "emitter_entity_id": self.emitter_entity_id,
+            "emitter_entity_ids": list(self.emitter_entity_ids),
             "capture_device_id": self.capture_device_id,
             "capture_provider_type": str(self.capture_provider_type),
             "commands": [c.to_dict() for c in self.commands],
@@ -202,7 +202,7 @@ class IRDevice:
             device_type=DeviceType(data.get("device_type", DeviceType.OTHER)),
             manufacturer=data.get("manufacturer"),
             model=data.get("model"),
-            emitter_entity_id=data.get("emitter_entity_id", ""),
+            emitter_entity_ids=list(data.get("emitter_entity_ids") or []),
             capture_device_id=data.get("capture_device_id"),
             capture_provider_type=CaptureProviderType(
                 data.get("capture_provider_type", CaptureProviderType.ESPHOME)

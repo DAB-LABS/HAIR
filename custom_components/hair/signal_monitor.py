@@ -420,7 +420,7 @@ class SignalMonitor:
         signal_fingerprint: str,
         device_name: str,
         device_type: str,
-        emitter_entity_id: str,
+        emitter_entity_ids: list[str],
         command_name: str,
         command_category: str,
     ) -> dict[str, Any]:
@@ -474,7 +474,7 @@ class SignalMonitor:
             new_device = IRDevice(
                 name=device_name,
                 device_type=dtype,
-                emitter_entity_id=emitter_entity_id,
+                emitter_entity_ids=list(emitter_entity_ids),
             )
             new_device.add_command(ir_command)
             command_id = ir_command.id
