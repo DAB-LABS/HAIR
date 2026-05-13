@@ -1,0 +1,91 @@
+esphome:
+  name: hair1
+  friendly_name: HAIR1
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: "bbe19a9538ad3038afe207b73501dca9"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "HAIR1 Fallback"
+    password: !secret ap_password
+
+captive_portal:
+
+# --- IR Transmitter (TX) ---
+# GPIO4 on the custom PCB (was GPIO9 on the C3 dev kit). GPIO9 is a strapping
+# pin on the ESP32-C3 and was moved to free it for the BOOT button.
+# See docs/hardware/pcb-v1/design.md
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO4
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+# --- IR Receiver (RX) ---
+# GPIO5 on the custom PCB (was GPIO8 on the C3 dev kit).
+# Protocol triggers fire homeassistant.event on the HA bus so HAIR's
+# SignalMonitor can pick up received signals. This is an interim bridge
+# until HA ships InfraredReceiverEntity (est. 2026.6-2026.7).
+# See docs/internal/plans/esphome-event-bridge.md
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO5
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  dump: all
+  tolerance: 25%
+  idle: 10ms
+
+  on_pronto:
+    then:
+      - homeassistant.event:
+          event: esphome.remote_received
+          data:
+            protocol: "PRONTO"
+            code: !lambda 'return x.data;'
+
+# --- HA Native Infrared Platform (ir_rf_proxy) ---
+infrared:
+  - platform: ir_rf_proxy
+    name: HAIR1 TX
+    id: ir_proxy_tx
+    remote_transmitter_id: ir_tx
+  - platform: ir_rf_proxy
+    name: HAIR1 RX
+    id: ir_proxy_rx
+    receiver_frequency: 38kHz
+    remote_receiver_id: ir_rx
+
+# --- Status LED (WS2812B on PCB front face) ---
+# Single RGB pixel on GPIO6. Used for connection/activity/error status.
+# Drive level is 3.3V into a 5V-powered WS2812B; works in practice on all
+# WS2812B variants observed to date. If a future chip rejects 3.3V data,
+# the footprint is pin-compatible with SK6812 which is 3.3V tolerant.
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    name: "HAIR1 Status LED"
+    pin: GPIO6
+    num_leds: 1
+    chipset: WS2812
+    rgb_order: GRB
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF

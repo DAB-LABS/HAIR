@@ -7,6 +7,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import "./ir-command-row.js";
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 import type { IRCommand, IRDevice, DeviceTypeId } from "./types.js";
 
@@ -179,16 +180,14 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    private async _onEmitterChanged(e: Event) {
-        const newEmitter = (e.target as HTMLSelectElement).value;
-        const currentFirst = this.device.emitter_entity_ids?.[0] ?? ""s?.[0] ?? "";
-        if (newEmitter === currentFirst) return;
+    private async _onEmittersChanged(e: CustomEvent) {
+        const newIds: string[] = e.detail.value;
         this._busy = true;
         try {
             this.device = await this.api.updateDevice(this.device.id, {
-                emitter_entity_ids: [newEmitter],
+                emitter_entity_ids: newIds,
             });
-            this._flash("Emitter updated");
+            this._flash("Emitters updated");
             this.dispatchEvent(
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
@@ -297,34 +296,12 @@ export class IrDeviceDetail extends LitElement {
     }
 
     // ---------------------------------------------------------------
-    // Emitter list for dropdown
-    // ---------------------------------------------------------------
-
-    private _getEmitters(): { entity_id: string; name: string }[] {
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            { entity_id: string; attributes: { friendly_name?: string } }
-        >;
-        const emitters: { entity_id: string; name: string }[] = [];
-        for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.")) {
-                emitters.push({
-                    entity_id: entityId,
-                    name: st.attributes.friendly_name ?? entityId,
-                });
-            }
-        }
-        return emitters;
-    }
-
-    // ---------------------------------------------------------------
     // Render
     // ---------------------------------------------------------------
 
     render() {
         const commands = this.device.commands;
         const count = commands.length;
-        const emitters = this._getEmitters();
 
         return html`
             <!-- Header: editable name + delete -->
@@ -384,53 +361,40 @@ export class IrDeviceDetail extends LitElement {
                         )}
                     </select>
                 </div>
-                <div class="field">
-                    <label>IR Emitter</label>
-                    ${emitters.length === 0
-                        ? html`<span class="no-emitters">No emitters found</span>`
-                        : html`
-                              <select
-                                  .value=${this.device.emitter_entity_ids?.[0] ?? ""}
-                                  @change=${this._onEmitterChanged}
-                                  ?disabled=${this._busy}
-                              >
-                                  ${emitters.map(
-                                      (em) => html`
-                                          <option
-                                              value=${em.entity_id}
-                                              ?selected=${this.device.emitter_entity_ids?.[0] ?? "" === em.entity_id}
-                                          >
-                                              ${em.name}
-                                          </option>
-                                      `,
-                                  )}
-                              </select>
-                          `}
-                </div>
+                <ir-emitter-picker
+                    .hass=${this.hass}
+                    .value=${this.device.emitter_entity_ids ?? []}
+                    ?disabled=${this._busy}
+                    @emitters-changed=${this._onEmittersChanged}
+                ></ir-emitter-picker>
             </div>
 
             <!-- Hardware cards: TX + RX -->
             <div class="hardware-section">
                 <h2>Hardware</h2>
                 <div class="hardware-cards">
-                    <!-- TX card (emitter) -->
-                    <div
-                        class="hw-card tx-card"
-                        @click=${() =>
-                            this._navigateIntegration(
-                                this._entityIntegrationUrl(this.device.emitter_entity_ids?.[0] ?? ""),
-                            )}
-                        title="View integration"
-                    >
-                        <div class="hw-badge tx-badge">TX</div>
-                        <div class="hw-info">
-                            <div class="hw-name">
-                                ${this._emitterName(this.device.emitter_entity_ids?.[0] ?? "")}
+                    <!-- TX cards (one per emitter) -->
+                    ${(this.device.emitter_entity_ids ?? []).map(
+                        (emId) => html`
+                            <div
+                                class="hw-card tx-card"
+                                @click=${() =>
+                                    this._navigateIntegration(
+                                        this._entityIntegrationUrl(emId),
+                                    )}
+                                title="View integration"
+                            >
+                                <div class="hw-badge tx-badge">TX</div>
+                                <div class="hw-info">
+                                    <div class="hw-name">
+                                        ${this._emitterName(emId)}
+                                    </div>
+                                    <div class="hw-entity">${emId}</div>
+                                </div>
+                                <div class="hw-arrow">&#8250;</div>
                             </div>
-                            <div class="hw-entity">${this.device.emitter_entity_ids?.[0] ?? ""}</div>
-                        </div>
-                        <div class="hw-arrow">&#8250;</div>
-                    </div>
+                        `,
+                    )}
 
                     <!-- RX card (capture proxy) -- only if set -->
                     ${this.device.capture_device_id
@@ -619,12 +583,6 @@ export class IrDeviceDetail extends LitElement {
             font-family: inherit;
             font-size: 0.85rem;
         }
-        .no-emitters {
-            font-size: 0.85rem;
-            color: var(--secondary-text-color);
-            font-style: italic;
-        }
-
         /* --- Hardware cards --- */
         .hardware-section {
             margin: 20px 0 0;

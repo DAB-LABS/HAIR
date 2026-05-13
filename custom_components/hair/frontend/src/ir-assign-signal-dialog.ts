@@ -9,6 +9,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 import type {
     AssignResult,
@@ -55,7 +56,7 @@ export class IrAssignSignalDialog extends LitElement {
     // New-device fields
     @state() private _newName = "";
     @state() private _newType: DeviceTypeId = "tv";
-    @state() private _newEmitterId = "";
+    @state() private _newEmitterIds: string[] = [];
 
     @state() private _busy = false;
     @state() private _error: string | null = null;
@@ -132,8 +133,8 @@ export class IrAssignSignalDialog extends LitElement {
                     this._busy = false;
                     return;
                 }
-                if (!this._newEmitterId) {
-                    this._error = "Select an IR emitter.";
+                if (this._newEmitterIds.length === 0) {
+                    this._error = "Select at least one IR emitter.";
                     this._busy = false;
                     return;
                 }
@@ -142,7 +143,7 @@ export class IrAssignSignalDialog extends LitElement {
                     signal_fingerprint: this.signal.fingerprint,
                     device_name: this._newName.trim(),
                     device_type: this._newType,
-                    emitter_entity_ids: [this._newEmitterId],
+                    emitter_entity_ids: this._newEmitterIds,
                     command_name: name,
                 });
             }
@@ -290,8 +291,6 @@ export class IrAssignSignalDialog extends LitElement {
     }
 
     private _renderNewMode() {
-        const emitters = this._getEmitters();
-
         return html`
             <ha-textfield
                 label="Device name"
@@ -320,34 +319,13 @@ export class IrAssignSignalDialog extends LitElement {
                 </select>
             </div>
 
-            <div class="field">
-                <label>IR emitter</label>
-                ${emitters.length === 0
-                    ? html`<ha-alert alert-type="warning">
-                          No IR emitters found.
-                      </ha-alert>`
-                    : html`
-                          <select
-                              .value=${this._newEmitterId}
-                              @change=${(e: Event) =>
-                                  (this._newEmitterId = (
-                                      e.target as HTMLSelectElement
-                                  ).value)}
-                          >
-                              <option value="" disabled>Select emitter...</option>
-                              ${emitters.map(
-                                  (em) => html`
-                                      <option
-                                          value=${em.entity_id}
-                                          ?selected=${this._newEmitterId === em.entity_id}
-                                      >
-                                          ${em.name}
-                                      </option>
-                                  `,
-                              )}
-                          </select>
-                      `}
-            </div>
+            <ir-emitter-picker
+                .hass=${this.hass}
+                .value=${this._newEmitterIds}
+                ?disabled=${this._busy}
+                @emitters-changed=${(e: CustomEvent) =>
+                    (this._newEmitterIds = e.detail.value)}
+            ></ir-emitter-picker>
         `;
     }
 
@@ -361,23 +339,6 @@ export class IrAssignSignalDialog extends LitElement {
                     (this._commandName = (e.target as HTMLInputElement).value)}
             ></ha-textfield>
         `;
-    }
-
-    private _getEmitters(): { entity_id: string; name: string }[] {
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            { entity_id: string; attributes: { friendly_name?: string } }
-        >;
-        const emitters: { entity_id: string; name: string }[] = [];
-        for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.")) {
-                emitters.push({
-                    entity_id: entityId,
-                    name: st.attributes.friendly_name ?? entityId,
-                });
-            }
-        }
-        return emitters;
     }
 
     static styles = css`

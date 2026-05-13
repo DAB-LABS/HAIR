@@ -8,6 +8,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 import type { DeviceTypeId } from "./types.js";
 
@@ -30,7 +31,7 @@ export class IrPromoteDialog extends LitElement {
 
     @state() private _name = "";
     @state() private _type: DeviceTypeId = "other";
-    @state() private _emitterId = "";
+    @state() private _emitterIds: string[] = [];
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
@@ -53,8 +54,8 @@ export class IrPromoteDialog extends LitElement {
             this._error = "Device name is required.";
             return;
         }
-        if (!this._emitterId) {
-            this._error = "Select an IR emitter.";
+        if (this._emitterIds.length === 0) {
+            this._error = "Select at least one IR emitter.";
             return;
         }
 
@@ -65,7 +66,7 @@ export class IrPromoteDialog extends LitElement {
             await this.api.createDevice({
                 name,
                 device_type: this._type,
-                emitter_entity_ids: [this._emitterId],
+                emitter_entity_ids: this._emitterIds,
             });
             this.dispatchEvent(
                 new CustomEvent("device-created", {
@@ -80,26 +81,7 @@ export class IrPromoteDialog extends LitElement {
         }
     }
 
-    private _getEmitters(): { entity_id: string; name: string }[] {
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            { entity_id: string; attributes: { friendly_name?: string } }
-        >;
-        const emitters: { entity_id: string; name: string }[] = [];
-        for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.")) {
-                emitters.push({
-                    entity_id: entityId,
-                    name: st.attributes.friendly_name ?? entityId,
-                });
-            }
-        }
-        return emitters;
-    }
-
     render() {
-        const emitters = this._getEmitters();
-
         return html`
             <ha-dialog
                 open
@@ -145,37 +127,13 @@ export class IrPromoteDialog extends LitElement {
                     </select>
                 </div>
 
-                <div class="field">
-                    <label>IR emitter</label>
-                    ${emitters.length === 0
-                        ? html`<ha-alert alert-type="warning">
-                              No IR emitters found.
-                          </ha-alert>`
-                        : html`
-                              <select
-                                  .value=${this._emitterId}
-                                  @change=${(e: Event) =>
-                                      (this._emitterId = (
-                                          e.target as HTMLSelectElement
-                                      ).value)}
-                              >
-                                  <option value="" disabled>
-                                      Select emitter...
-                                  </option>
-                                  ${emitters.map(
-                                      (em) => html`
-                                          <option
-                                              value=${em.entity_id}
-                                              ?selected=${this._emitterId ===
-                                              em.entity_id}
-                                          >
-                                              ${em.name}
-                                          </option>
-                                      `,
-                                  )}
-                              </select>
-                          `}
-                </div>
+                <ir-emitter-picker
+                    .hass=${this.hass}
+                    .value=${this._emitterIds}
+                    ?disabled=${this._busy}
+                    @emitters-changed=${(e: CustomEvent) =>
+                        (this._emitterIds = e.detail.value)}
+                ></ir-emitter-picker>
 
                 <div class="dialog-actions">
                     <button

@@ -7,6 +7,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 import type {
     CaptureProviderInfo,
@@ -32,37 +33,15 @@ export class IrAddDeviceDialog extends LitElement {
     @state() private _manufacturer = "";
     @state() private _model = "";
     @state() private _deviceType: DeviceTypeId = "tv";
-    @state() private _emitterId = "";
+    @state() private _emitterIds: string[] = [];
     @state() private _captureProviderId: string | null = null;
     @state() private _captureProviders: CaptureProviderInfo[] = [];
-    @state() private _emitters: { entity_id: string; name: string }[] = [];
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
-        this._loadEmitters();
         void this._loadCaptureProviders();
-    }
-
-    private _loadEmitters() {
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            { entity_id: string; attributes: { friendly_name?: string } }
-        >;
-        const emitters: { entity_id: string; name: string }[] = [];
-        for (const [entityId, state] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.")) {
-                emitters.push({
-                    entity_id: entityId,
-                    name: state.attributes.friendly_name ?? entityId,
-                });
-            }
-        }
-        this._emitters = emitters;
-        if (emitters.length === 1) {
-            this._emitterId = emitters[0].entity_id;
-        }
     }
 
     private async _loadCaptureProviders() {
@@ -89,8 +68,8 @@ export class IrAddDeviceDialog extends LitElement {
             this._error = "Name is required.";
             return;
         }
-        if (!this._emitterId) {
-            this._error = "Pick an IR emitter.";
+        if (this._emitterIds.length === 0) {
+            this._error = "Pick at least one IR emitter.";
             return;
         }
 
@@ -103,7 +82,7 @@ export class IrAddDeviceDialog extends LitElement {
             const created: IRDevice = await this.api.createDevice({
                 name: this._name.trim(),
                 device_type: this._deviceType,
-                emitter_entity_ids: [this._emitterId],
+                emitter_entity_ids: this._emitterIds,
                 manufacturer: this._manufacturer.trim() || null,
                 model: this._model.trim() || null,
                 capture_device_id: this._captureProviderId,
@@ -178,39 +157,13 @@ export class IrAddDeviceDialog extends LitElement {
                         (this._model = (e.target as HTMLInputElement).value)}
                 ></ha-textfield>
 
-                <div class="field">
-                    <label>IR emitter (sends commands)</label>
-                    ${this._emitters.length === 0
-                        ? html`<ha-alert alert-type="warning">
-                              No IR emitters found. Set up an ESPHome
-                              <code>remote_transmitter</code> or a Broadlink
-                              device first.
-                          </ha-alert>`
-                        : html`
-                              <select
-                                  .value=${this._emitterId}
-                                  @change=${(e: Event) =>
-                                      (this._emitterId = (
-                                          e.target as HTMLSelectElement
-                                      ).value)}
-                              >
-                                  <option value="" disabled>
-                                      Select emitter…
-                                  </option>
-                                  ${this._emitters.map(
-                                      (em) => html`
-                                          <option
-                                              value=${em.entity_id}
-                                              ?selected=${this._emitterId ===
-                                              em.entity_id}
-                                          >
-                                              ${em.name}
-                                          </option>
-                                      `,
-                                  )}
-                              </select>
-                          `}
-                </div>
+                <ir-emitter-picker
+                    .hass=${this.hass}
+                    .value=${this._emitterIds}
+                    ?disabled=${this._busy}
+                    @emitters-changed=${(e: CustomEvent) =>
+                        (this._emitterIds = e.detail.value)}
+                ></ir-emitter-picker>
 
                 <div class="field">
                     <label>IR receiver (learns commands)</label>

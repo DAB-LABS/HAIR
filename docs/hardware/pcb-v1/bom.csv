@@ -1,0 +1,49 @@
+Reference,Value,Description,Footprint,Qty,Manufacturer,Manufacturer P/N,LCSC P/N,Notes
+U1,ESP32-C3-MINI-1,MCU module with WiFi and BLE,ESP32-C3-MINI-1,1,Espressif,ESP32-C3-MINI-1,C2934560,Verify exact variant (N4 vs H4 vs U) at order; -N4 is the common pick
+U2,ME6211C33M5G,LDO 3.3V 500mA,SOT-23-5,1,Microne,ME6211C33M5G,C82942,JLCPCB basic part
+U3,USBLC6-2SC6,USB ESD protection 4 channel,SOT-23-6,1,STMicroelectronics,USBLC6-2SC6,C7464,JLCPCB basic part
+U4,TSMP58000,IR receiver wideband 30 to 56 kHz,SMD,1,Vishay,TSMP58000,TBD,Confirm LCSC stock; substitutes TSMP4138 or TSOP31338 acceptable
+U5,WS2812B,Addressable RGB LED single pixel,WS2812B 5050,1,Worldsemi,WS2812B,C114586,SK6812 5050 footprint compatible if 3.3V data tolerance becomes an issue
+Q1,AO3400,N-channel MOSFET 30V 5.7A,SOT-23,1,AOS,AO3400A,C20917,JLCPCB basic part
+D1,IR LED 940nm,Side firing SMD IR LED,1206 side view,1,Everlight,IR15-21C/TR8,TBD,Confirm LCSC stock; backups Honglitronic HRP-1208WC-940 or Vishay TOPLED side emit
+D2,IR LED 940nm,Side firing SMD IR LED,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+D3,IR LED 940nm,Side firing SMD IR LED,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+D4,IR LED 940nm,Side firing SMD IR LED,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+D5,IR LED 940nm,Side firing SMD IR LED,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+D6,IR LED 940nm,Side firing SMD IR LED,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+D7,IR LED 940nm,Side firing SMD IR LED,1206 side view,1,Everlight,IR15-21C/TR8,TBD,
+R1,22 ohm,IR LED current limit,0805,1,Yageo or equivalent,RC0805FR-0722RL,C17605,
+R2,22 ohm,IR LED current limit,0805,1,Yageo or equivalent,RC0805FR-0722RL,C17605,
+R3,22 ohm,IR LED current limit,0805,1,Yageo or equivalent,RC0805FR-0722RL,C17605,
+R4,22 ohm,IR LED current limit,0805,1,Yageo or equivalent,RC0805FR-0722RL,C17605,
+R5,22 ohm,IR LED current limit,0805,1,Yageo or equivalent,RC0805FR-0722RL,C17605,
+R6,22 ohm,IR LED current limit,0805,1,Yageo or equivalent,RC0805FR-0722RL,C17605,
+R7,22 ohm,IR LED current limit,0805,1,Yageo or equivalent,RC0805FR-0722RL,C17605,
+R8,1k,MOSFET gate series,0603,1,Yageo,RC0603FR-071KL,C21190,
+R9,10k,MOSFET gate pulldown,0603,1,Yageo,RC0603FR-0710KL,C25804,
+R10,100 ohm,TSMP supply isolation,0603,1,Yageo,RC0603FR-07100RL,C22775,
+R11,47k,TSMP output pullup,0603,1,Yageo,RC0603FR-0747KL,C25819,
+R12,10k,EN pullup,0603,1,Yageo,RC0603FR-0710KL,C25804,
+R13,10k,BOOT (GPIO9) pullup,0603,1,Yageo,RC0603FR-0710KL,C25804,
+R14,5.1k,USB-C CC1 pulldown,0603,1,Yageo,RC0603FR-075K1L,C23186,USB-C sink advertisement mandatory
+R15,5.1k,USB-C CC2 pulldown,0603,1,Yageo,RC0603FR-075K1L,C23186,USB-C sink advertisement mandatory
+C1,10 uF 10V,5V input bulk,0805,1,Samsung,CL21A106KAYNNNE,C15850,
+C2,220 uF 16V,5V LED ring bulk aluminum polymer,SMD electrolytic D6.3 or polymer,1,Panasonic or equivalent,EEH-ZA1C221V,C337290,Aluminum polymer preferred over standard electrolytic for ESR
+C3,1 uF 16V,LDO input,0603,1,Samsung,CL10A105KB8NNNC,C15849,
+C4,1 uF 16V,LDO output,0603,1,Samsung,CL10A105KB8NNNC,C15849,
+C5,10 uF 10V,Module 3.3V bulk,0805,1,Samsung,CL21A106KAYNNNE,C15850,
+C6,1 uF 16V,Module 3.3V mid bypass,0603,1,Samsung,CL10A105KB8NNNC,C15849,
+C7,100 nF 50V,Module 3.3V HF bypass,0402,1,Samsung,CL05B104KO5NNNC,C1525,
+C8,1 uF 16V,EN debounce,0603,1,Samsung,CL10A105KB8NNNC,C15849,
+C9,4.7 uF 10V,TSMP supply bulk post RC,0805,1,Samsung,CL21A475KAQNNNE,C19702,
+C10,100 nF 50V,TSMP HF bypass,0402,1,Samsung,CL05B104KO5NNNC,C1525,
+C11,100 nF 50V,WS2812B local decoupling,0402,1,Samsung,CL05B104KO5NNNC,C1525,
+J1,USB Type-C,USB 2.0 connector 12 or 16 pin,USB-C SMT,1,Korean Hroparts or equivalent,TYPE-C-31-M-12,C165948,16 pin variant C319164 is an acceptable substitute
+SW1,Tactile switch,RESET button SMD,3x4 mm SMD tactile,1,XKB or equivalent,TS-1187A-B-A-B,C318884,On board only no enclosure access
+SW2,Tactile switch,BOOT button SMD,3x4 mm SMD tactile,1,XKB or equivalent,TS-1187A-B-A-B,C318884,On board only no enclosure access
+TP1,Test pad,3.3V test point,SMT pad 1.5 mm round,1,,,,
+TP2,Test pad,GND test point,SMT pad 1.5 mm round,1,,,,
+TP3,Test pad,GPIO7 spare,SMT pad 1.5 mm round,1,,,,
+TP4,Test pad,GPIO10 spare,SMT pad 1.5 mm round,1,,,,
+H1,Mounting hole 3 mm,Non plated,3 mm NPTH,1,,,,
+H2,Mounting hole 3 mm,Non plated,3 mm NPTH,1,,,,
