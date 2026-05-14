@@ -381,6 +381,7 @@ try:
     import voluptuous  # noqa: F401
 except ImportError:
     _vol = _stub("voluptuous", {
+        "Any": lambda *a: a,
         "Required": lambda key, **kw: key,
         "Optional": lambda key, **kw: key,
         "Schema": lambda schema: schema,
