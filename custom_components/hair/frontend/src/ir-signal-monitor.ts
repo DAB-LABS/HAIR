@@ -351,6 +351,10 @@ export class IrSignalMonitor extends LitElement {
             const updated = { ...this._devices[idx] };
             updated.hit_count = ev.device_hit_count ?? ev.hit_count;
             updated.last_seen = now;
+            // hit_count === 1 means a brand-new signal was created.
+            if (ev.hit_count === 1) {
+                updated.signal_count = (updated.signal_count ?? 0) + 1;
+            }
             const copy = [...this._devices];
             copy[idx] = updated;
             this._devices = copy;
@@ -382,6 +386,14 @@ export class IrSignalMonitor extends LitElement {
                 void this.api.getUnknownDevice(ev.device_id).then((detail) => {
                     if (this._expandedId === ev.device_id) {
                         this._expandedDevice = detail;
+                        // Sync collapsed row signal_count from fetched detail.
+                        const dIdx = this._devices.findIndex((d) => d.id === ev.device_id);
+                        if (dIdx >= 0) {
+                            const synced = { ...this._devices[dIdx], signal_count: detail.signals.length };
+                            const dCopy = [...this._devices];
+                            dCopy[dIdx] = synced;
+                            this._devices = dCopy;
+                        }
                     }
                 }).catch(() => {});
             }
