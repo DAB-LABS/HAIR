@@ -122,6 +122,7 @@ async def _async_register_panel(
 
     versioned_path = f"{PANEL_STATIC_PATH}?v={content_hash}" if content_hash else PANEL_STATIC_PATH
 
+    frontend_dir = Path(__file__).parent / "frontend"
     if bundle_path.exists():
         try:
             await hass.http.async_register_static_paths(
@@ -130,7 +131,12 @@ async def _async_register_panel(
                         PANEL_STATIC_PATH,
                         str(bundle_path),
                         cache_headers=False,
-                    )
+                    ),
+                    StaticPathConfig(
+                        "/hair_panel/assets",
+                        str(frontend_dir),
+                        cache_headers=True,
+                    ),
                 ]
             )
         except RuntimeError:

@@ -2298,6 +2298,14 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
                 <span slot="title">HAIR</span>
             </ha-top-app-bar-fixed>
 
+            <div class="header-banner">
+                <img
+                    src="/hair_panel/assets/hair-header.png"
+                    alt="HAIR"
+                    class="header-img"
+                />
+            </div>
+
             <div class="tab-bar">
                 <button
                     class="tab ${"devices"===this._activeTab?"active":""}"
@@ -2364,6 +2372,19 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
             background: var(--primary-background-color);
             color: var(--primary-text-color);
             min-height: 100vh;
+        }
+        .header-banner {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 12px 16px 0;
+            text-align: center;
+        }
+        .header-img {
+            max-width: 100%;
+            height: auto;
+            max-height: 120px;
+            object-fit: contain;
+            border-radius: 6px;
         }
         .tab-bar {
             display: flex;

@@ -112,6 +112,14 @@ export class HaPanelIrDevices extends LitElement {
                 <span slot="title">HAIR</span>
             </ha-top-app-bar-fixed>
 
+            <div class="header-banner">
+                <img
+                    src="/hair_panel/assets/hair-header.png"
+                    alt="HAIR"
+                    class="header-img"
+                />
+            </div>
+
             <div class="tab-bar">
                 <button
                     class="tab ${this._activeTab === "devices" ? "active" : ""}"
@@ -190,6 +198,19 @@ export class HaPanelIrDevices extends LitElement {
             background: var(--primary-background-color);
             color: var(--primary-text-color);
             min-height: 100vh;
+        }
+        .header-banner {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 12px 16px 0;
+            text-align: center;
+        }
+        .header-img {
+            max-width: 100%;
+            height: auto;
+            max-height: 120px;
+            object-fit: contain;
+            border-radius: 6px;
         }
         .tab-bar {
             display: flex;
