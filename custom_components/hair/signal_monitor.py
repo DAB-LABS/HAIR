@@ -147,10 +147,12 @@ class SignalMonitor:
         async with self._lock:
             device = self._signal_store.get_device_by_fingerprint(dev_fp)
             if device is None:
+                next_num = len(self._signal_store.get_all_devices()) + 1
                 device = UnknownDevice(
                     fingerprint=dev_fp,
                     protocol=parsed.protocol,
                     device_address=device_address,
+                    label=f"Remote {next_num}",
                     first_seen=now_iso,
                     last_seen=now_iso,
                     hit_count=0,
