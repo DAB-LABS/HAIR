@@ -22,6 +22,7 @@ pip install -e ".[test,lint]"
 custom_components/hair/
   __init__.py              # Integration setup, panel registration
   config_flow.py           # Config and options flows
+  const.py                 # Constants, enums, event names
   models.py                # Data models (IRDevice, IRCommand)
   device_manager.py        # Device CRUD and TX orchestration
   signal_monitor.py        # Real-time IR signal listener
@@ -29,16 +30,22 @@ custom_components/hair/
   capture_orchestrator.py  # IR capture session management
   capture.py               # Capture provider abstraction
   entity_factory.py        # HA entity creation from devices
+  command_templates.py     # Per-device-type command templates
   websocket_api.py         # WebSocket command handlers
   storage.py               # Persistent storage layer
   event_parser.py          # IR event parsing and fingerprinting
+  ir_command.py            # ProntoCommand adapter for infrared platform
+  diagnostics.py           # Config entry diagnostics
   button.py                # Button entity platform
   remote.py                # Remote entity platform
   media_player.py          # Media player entity platform
   climate.py               # Climate entity platform
   fan.py                   # Fan entity platform
+  light.py                 # Light entity platform
+  switch.py                # Switch entity platform
+  cover.py                 # Cover entity platform (screens, shades)
   frontend/src/            # LitElement/TypeScript admin panel
-  tests/                   # pytest test suite
+  tests/                   # pytest test suite (383 tests)
 ```
 
 ### Running Tests

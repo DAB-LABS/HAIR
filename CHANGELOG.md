@@ -20,14 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IR command capture orchestrator with asyncio-based resource locking
 - Capture provider abstraction with ESPHome, Broadlink, and Mock implementations
 - Multi-emitter TX support (broadcast to multiple IR emitters per device)
-- Auto-mapping of captured commands to entity features
-- Command template system for guided device setup
-- Entity platforms: `remote`, `media_player`, `climate` (preset-based), `fan`, `button`
+- Command template system with device-type-aware dropdown picker
+- Action mapping system with popover UI for binding commands to entity features
+- Entity platforms: `remote`, `media_player`, `climate`, `fan`, `light`, `switch`, `cover`, `button`
 - Device manager with storage-backed persistence
-- Admin panel (LitElement/TypeScript frontend, bundled JS)
+- Admin panel (LitElement/TypeScript frontend) at `/hair` sidebar URL
+- Branded header banner on admin panel
 - Add Device dialog with name, type, and emitter picker
-- Device detail view with editable metadata, hardware cards, and command list
-- Assign Signal dialog for mapping captured signals to device commands
+- Device detail view with inline expand, editable metadata, hardware cards, and command list
+- Assign Signal dialog with template command picker and existing/new device modes
 - Promote dialog for converting sniffer devices to managed HAIR devices
 - HACS compatibility and CI workflow with HACS validation
-- Unit test suite covering all backend modules
+- Unit test suite (383 tests) covering all backend modules

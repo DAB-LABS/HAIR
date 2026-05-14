@@ -1,6 +1,10 @@
+<p align="center">
+  <img src="custom_components/hair/frontend/hair-header.png" alt="HAIR - Home Assistant IR" width="600" />
+</p>
+
 # HAIR - Home Assistant IR
 
-A custom Home Assistant integration that provides a full admin interface for infrared device management. Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, organizing, and controlling IR commands through a single panel.
+A custom Home Assistant integration that provides a full admin interface for infrared device management. Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, organizing, and controlling IR commands through a single sidebar panel at `/hair`.
 
 No YAML. No code. Works with any IR proxy hardware (ESPHome, Broadlink, etc.).
 
@@ -18,14 +22,15 @@ No YAML. No code. Works with any IR proxy hardware (ESPHome, Broadlink, etc.).
 
 | Type | HA Entity | Controls |
 |------|-----------|----------|
-| TV | `media_player` | Power, volume, mute, source select |
+| Media Player | `media_player` | Power, volume, mute, source, channels, navigation, transport |
 | AC | `climate` | HVAC modes, temperature presets, fan modes |
-| Soundbar | `media_player` | Power, volume, mute |
-| Projector | `media_player` | Power, volume, source select |
 | Fan | `fan` | Power, speed stepping, oscillate |
+| Light | `light` | On/off, brightness stepping |
+| Switch | `switch` | On/off |
+| Screen | `cover` | Open, close, stop |
 | Other | `remote` | Generic IR command sender |
 
-All devices also get `button` entities (one per learned command) and a `remote` entity as a fallback for sending arbitrary Pronto hex codes.
+All devices also get `button` entities (one per learned command) and a `remote` entity as a fallback for sending arbitrary Pronto hex codes. Entity features are driven by explicit action mappings, so a media_player only exposes volume control if you map commands to the volume actions.
 
 ## Requirements
 
