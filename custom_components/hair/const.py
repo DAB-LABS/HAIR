@@ -15,14 +15,9 @@ CONF_DEVICE_TYPE = "device_type"
 CONF_DEVICE_NAME = "device_name"
 CONF_MANUFACTURER = "manufacturer"
 CONF_MODEL = "model"
-CONF_CAPTURE_TIMEOUT = "capture_timeout"
-CONF_DEFAULT_REPEAT_COUNT = "default_repeat_count"
-
 DEFAULT_CAPTURE_TIMEOUT = 15
 DEFAULT_CARRIER_FREQUENCY = 38000
 DEFAULT_REPEAT_COUNT = 1
-MIN_CAPTURE_TIMEOUT = 5
-MAX_CAPTURE_TIMEOUT = 60
 
 PLATFORMS = ["remote", "media_player", "climate", "fan", "light", "switch", "cover"]
 

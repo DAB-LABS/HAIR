@@ -10,7 +10,6 @@ from custom_components.hair import (
     async_setup_entry,
     async_unload_entry,
     async_remove_entry,
-    _async_options_updated,
     _async_register_panel,
     PLATFORMS_LIST,
     PANEL_FILENAME,
@@ -135,22 +134,6 @@ class TestAsyncSetupEntry:
         hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
             entry, PLATFORMS_LIST
         )
-
-    @pytest.mark.asyncio
-    async def test_update_listener_registered(self):
-        hass = _fake_hass()
-        entry = _fake_entry()
-
-        with patch("custom_components.hair.HAIRStore") as mock_store_cls, \
-             patch("custom_components.hair.async_register_websocket_commands"), \
-             patch("custom_components.hair._async_register_panel", new_callable=AsyncMock):
-            mock_store = MagicMock()
-            mock_store.async_load = AsyncMock()
-            mock_store_cls.return_value = mock_store
-
-            await async_setup_entry(hass, entry)
-
-        entry.async_on_unload.assert_called_once()
 
 
 # ===========================================================================
@@ -319,14 +302,7 @@ class TestPanelRegistration:
 # ===========================================================================
 
 
-class TestOptionsAndRemove:
-
-    @pytest.mark.asyncio
-    async def test_options_updated_triggers_reload(self):
-        hass = _fake_hass()
-        entry = _fake_entry()
-        await _async_options_updated(hass, entry)
-        hass.config_entries.async_reload.assert_awaited_once_with(entry.entry_id)
+class TestRemoveEntry:
 
     @pytest.mark.asyncio
     async def test_remove_entry_is_noop(self):

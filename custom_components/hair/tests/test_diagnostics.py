@@ -46,7 +46,7 @@ class TestDiagnostics:
         hass = MagicMock()
         entry = MagicMock()
         entry.entry_id = "test-entry"
-        entry.options = {"capture_timeout": 15}
+        entry.options = {}
         entry.data = {}
 
         manager = MagicMock()
@@ -60,7 +60,7 @@ class TestDiagnostics:
         }}}
 
         result = await async_get_config_entry_diagnostics(hass, entry)
-        assert result["entry"]["options"] == {"capture_timeout": 15}
+        assert result["entry"]["options"] == {}
         assert result["entry"]["data"] == {}
         assert result["devices"] == []
         assert result["is_capturing"] is False

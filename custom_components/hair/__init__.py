@@ -89,7 +89,6 @@ async def async_setup_entry(
 
     await signal_monitor.async_start()
 
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
 
 
@@ -201,8 +200,3 @@ async def async_remove_entry(
     # can clear it manually via the panel.
 
 
-async def _async_options_updated(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> None:
-    """Reload entry on options change so updated values take effect."""
-    await hass.config_entries.async_reload(entry.entry_id)

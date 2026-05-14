@@ -5,16 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.hair.config_flow import HAIRConfigFlow, HAIROptionsFlow
-from custom_components.hair.const import (
-    CONF_CAPTURE_TIMEOUT,
-    CONF_DEFAULT_REPEAT_COUNT,
-    DEFAULT_CAPTURE_TIMEOUT,
-    DEFAULT_REPEAT_COUNT,
-    DOMAIN,
-    MAX_CAPTURE_TIMEOUT,
-    MIN_CAPTURE_TIMEOUT,
-)
+from custom_components.hair.config_flow import HAIRConfigFlow
+from custom_components.hair.const import DOMAIN
 
 
 # ---------------------------------------------------------------------------
@@ -145,47 +137,3 @@ async def test_creates_entry_on_submit(fake_hass):
     assert result["type"] == "create_entry"
     assert result["title"] == "HAIR"
     assert result["data"] == {}
-    assert result["options"][CONF_CAPTURE_TIMEOUT] == DEFAULT_CAPTURE_TIMEOUT
-    assert result["options"][CONF_DEFAULT_REPEAT_COUNT] == DEFAULT_REPEAT_COUNT
-
-
-# ---------------------------------------------------------------------------
-# Options flow tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_options_flow_shows_form():
-    """Options flow should show a form with current values as defaults."""
-    entry = MagicMock()
-    entry.options = {
-        CONF_CAPTURE_TIMEOUT: 20,
-        CONF_DEFAULT_REPEAT_COUNT: 3,
-    }
-    flow = HAIROptionsFlow(entry)
-    flow.async_show_form = MagicMock(
-        side_effect=lambda **kw: {"type": "form", **kw}
-    )
-    flow.async_create_entry = MagicMock(
-        side_effect=lambda **kw: {"type": "create_entry", **kw}
-    )
-    result = await flow.async_step_init(user_input=None)
-    assert result["type"] == "form"
-    assert result["step_id"] == "init"
-
-
-@pytest.mark.asyncio
-async def test_options_flow_saves_input():
-    """Submitting options should create an entry with the user values."""
-    entry = MagicMock()
-    entry.options = {}
-    flow = HAIROptionsFlow(entry)
-    flow.async_create_entry = MagicMock(
-        side_effect=lambda **kw: {"type": "create_entry", **kw}
-    )
-    result = await flow.async_step_init(
-        user_input={CONF_CAPTURE_TIMEOUT: 30, CONF_DEFAULT_REPEAT_COUNT: 2}
-    )
-    assert result["type"] == "create_entry"
-    assert result["data"][CONF_CAPTURE_TIMEOUT] == 30
-    assert result["data"][CONF_DEFAULT_REPEAT_COUNT] == 2
