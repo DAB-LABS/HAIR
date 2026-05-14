@@ -24,7 +24,7 @@ DEFAULT_REPEAT_COUNT = 1
 MIN_CAPTURE_TIMEOUT = 5
 MAX_CAPTURE_TIMEOUT = 60
 
-PLATFORMS = ["remote", "media_player", "climate", "fan"]
+PLATFORMS = ["remote", "media_player", "climate", "fan", "light", "switch", "cover"]
 
 PANEL_URL = "ir-devices"
 PANEL_TITLE = "HAIR"
@@ -70,11 +70,12 @@ ASSIGN_SERVICE_TIMEOUT_S = 10
 class DeviceType(StrEnum):
     """IR device types."""
 
-    TV = "tv"
+    MEDIA_PLAYER = "media_player"
     AC = "ac"
     FAN = "fan"
-    SOUNDBAR = "soundbar"
-    PROJECTOR = "projector"
+    LIGHT = "light"
+    SWITCH = "switch"
+    SCREEN = "screen"
     OTHER = "other"
 
 
@@ -88,6 +89,9 @@ class CommandCategory(StrEnum):
     MODE = "mode"
     TEMPERATURE = "temperature"
     FAN_SPEED = "fan_speed"
+    BRIGHTNESS = "brightness"
+    COVER = "cover"
+    MEDIA_CONTROL = "media_control"
     CUSTOM = "custom"
 
 

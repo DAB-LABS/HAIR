@@ -865,7 +865,7 @@ class TestAssignToNewDevice:
             device_id="ud1",
             signal_fingerprint="sig_fp",
             device_name="Living Room TV",
-            device_type="tv",
+            device_type="media_player",
             emitter_entity_ids=["remote.ir_blaster"],
             command_name="Power",
             command_category="power",
@@ -913,7 +913,7 @@ class TestAssignToNewDevice:
         store.add_device(device)
 
         result = await monitor.assign_to_new_device(
-            "ud1", "sig_fp", "Test", "tv",
+            "ud1", "sig_fp", "Test", "media_player",
             "remote.ir", "Power", "power",
         )
         assert result["success"] is False

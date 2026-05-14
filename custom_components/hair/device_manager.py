@@ -48,6 +48,21 @@ AUTO_MAP_RULES: dict[str, str] = {
     "oscillate": "oscillate",
     "swing toggle": "swing_toggle",
     "timer": "timer",
+    # Light
+    "on": "turn_on",
+    "off": "turn_off",
+    "brightness up": "brightness_up",
+    "brightness down": "brightness_down",
+    # Cover / screen
+    "open": "open_cover",
+    "close": "close_cover",
+    # Media transport
+    "guide": "guide",
+    "menu": "menu",
+    "play": "play",
+    "pause": "pause",
+    "rewind": "rewind",
+    "fast forward": "fast_forward",
 }
 
 
@@ -242,11 +257,12 @@ class DeviceManager:
 
 def _human_device_type(device_type: DeviceType) -> str:
     return {
-        DeviceType.TV: "TV",
+        DeviceType.MEDIA_PLAYER: "Media Player",
         DeviceType.AC: "Air Conditioner",
         DeviceType.FAN: "Fan",
-        DeviceType.SOUNDBAR: "Soundbar",
-        DeviceType.PROJECTOR: "Projector",
+        DeviceType.LIGHT: "Light",
+        DeviceType.SWITCH: "Switch",
+        DeviceType.SCREEN: "Screen / Shade",
         DeviceType.OTHER: "IR Device",
     }.get(device_type, "IR Device")
 

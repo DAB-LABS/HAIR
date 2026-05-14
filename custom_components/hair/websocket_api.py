@@ -19,7 +19,7 @@ from .capture_orchestrator import (
     CaptureInProgressError,
     CaptureOrchestrator,
 )
-from .command_templates import get_templates_for_device_type
+from .command_templates import get_action_options, get_templates_for_device_type
 from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
     DOMAIN,
@@ -69,6 +69,10 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_signal)
     websocket_api.async_register_command(hass, ws_rename_unknown)
     websocket_api.async_register_command(hass, ws_clear_unknowns)
+
+    # Action mapping
+    websocket_api.async_register_command(hass, ws_get_action_options)
+    websocket_api.async_register_command(hass, ws_update_mapping)
 
 
 def _get_first_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
@@ -868,3 +872,72 @@ async def ws_clear_unknowns(
     monitor: SignalMonitor = data["signal_monitor"]
     monitor.clear_all()
     connection.send_result(msg["id"], {"cleared": True})
+
+
+# --- Action Mapping ---
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/action-options",
+    vol.Required("device_type"): str,
+})
+@websocket_api.async_response
+async def ws_get_action_options(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the canonical action options for a device type."""
+    options = get_action_options(msg["device_type"])
+    connection.send_result(msg["id"], options)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/update-mapping",
+    vol.Required("device_id"): str,
+    vol.Required("command_name"): str,
+    vol.Optional("action_key"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_update_mapping(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set or clear the action mapping for a command on a device.
+
+    If ``action_key`` is provided, maps the command to that action.
+    If ``action_key`` is None or absent, clears any existing mapping
+    for that command.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    command_name = msg["command_name"]
+    action_key = msg.get("action_key")
+    mapping = device.entity_config.command_mapping
+
+    # Clear any existing mapping that points to this command.
+    for key, value in list(mapping.items()):
+        if value.casefold() == command_name.casefold():
+            del mapping[key]
+
+    # If a new action_key is provided, also clear whatever was
+    # previously mapped to that key (reassignment).
+    if action_key:
+        mapping.pop(action_key, None)
+        mapping[action_key] = command_name
+
+    await manager.async_update_device(device)
+    connection.send_result(msg["id"], {
+        "mapping": dict(mapping),
+    })

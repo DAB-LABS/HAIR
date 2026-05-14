@@ -178,14 +178,14 @@ async def test_create_device_success(fake_hass):
             "id": 3,
             "type": "hair/device/create",
             "name": "Living Room TV",
-            "device_type": "tv",
+            "device_type": "media_player",
             "emitter_entity_ids": ["infrared.test"],
         },
     )
     conn.send_result.assert_called_once()
     result = conn.send_result.call_args[0][1]
     assert result["name"] == "Living Room TV"
-    assert result["device_type"] == "tv"
+    assert result["device_type"] == "media_player"
 
 
 @pytest.mark.asyncio
@@ -379,7 +379,7 @@ async def test_start_capture_no_device(fake_hass):
 async def test_start_capture_no_capture_device(fake_hass):
     device = IRDevice(
         name="TV",
-        device_type=DeviceType.TV,
+        device_type=DeviceType.MEDIA_PLAYER,
         emitter_entity_ids=["infrared.a"],
         capture_device_id=None,
     )
@@ -401,7 +401,7 @@ async def test_start_capture_no_capture_device(fake_hass):
 async def test_start_capture_provider_unavailable(fake_hass):
     device = IRDevice(
         name="TV",
-        device_type=DeviceType.TV,
+        device_type=DeviceType.MEDIA_PLAYER,
         emitter_entity_ids=["infrared.a"],
         capture_device_id="cap-1",
     )
@@ -430,7 +430,7 @@ async def test_start_capture_success(fake_hass, mock_capture_provider, capture_r
 
     device = IRDevice(
         name="TV",
-        device_type=DeviceType.TV,
+        device_type=DeviceType.MEDIA_PLAYER,
         emitter_entity_ids=["infrared.a"],
         capture_device_id="cap-1",
     )
@@ -468,7 +468,7 @@ async def test_start_capture_already_in_progress(fake_hass, mock_capture_provide
 
     device = IRDevice(
         name="TV",
-        device_type=DeviceType.TV,
+        device_type=DeviceType.MEDIA_PLAYER,
         emitter_entity_ids=["infrared.a"],
         capture_device_id="cap-1",
     )
@@ -612,14 +612,14 @@ async def test_get_command_templates(fake_hass):
     await ws_get_command_templates(
         fake_hass,
         conn,
-        {"id": 11, "type": "hair/templates", "device_type": "tv"},
+        {"id": 11, "type": "hair/templates", "device_type": "media_player"},
     )
     conn.send_result.assert_called_once()
     templates = conn.send_result.call_args[0][1]
     assert isinstance(templates, list)
     assert len(templates) > 0
     names = {t["name"] for t in templates}
-    assert "Power" in names
+    assert "Power On" in names
     assert "Volume Up" in names
 
 
@@ -660,7 +660,7 @@ async def test_handlers_graceful_when_not_configured(fake_hass):
     await ws_create_device(
         fake_hass,
         conn,
-        {"id": 2, "name": "X", "device_type": "tv", "emitter_entity_ids": ["ir.a"]},
+        {"id": 2, "name": "X", "device_type": "media_player", "emitter_entity_ids": ["ir.a"]},
     )
     conn.send_error.assert_called()
 
@@ -1046,7 +1046,7 @@ async def test_assign_new_device_success(fake_hass):
             "device_id": "ud1",
             "signal_fingerprint": "sig_fp",
             "device_name": "Living Room TV",
-            "device_type": "tv",
+            "device_type": "media_player",
             "emitter_entity_ids": ["remote.ir_blaster"],
             "command_name": "Power",
             "command_category": "power",
@@ -1113,7 +1113,7 @@ async def test_assign_new_device_signal_not_found(fake_hass):
             "device_id": "ud1",
             "signal_fingerprint": "nonexistent",
             "device_name": "Test",
-            "device_type": "tv",
+            "device_type": "media_player",
             "emitter_entity_ids": ["remote.ir"],
             "command_name": "Power",
         },

@@ -19,13 +19,6 @@ from .models import IRDevice
 _LOGGER = logging.getLogger(__name__)
 
 
-MEDIA_PLAYER_DEVICE_TYPES: set[DeviceType] = {
-    DeviceType.TV,
-    DeviceType.SOUNDBAR,
-    DeviceType.PROJECTOR,
-}
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -39,7 +32,7 @@ async def async_setup_entry(
 
     @callback
     def _on_add(device: IRDevice) -> None:
-        if device.device_type not in MEDIA_PLAYER_DEVICE_TYPES:
+        if device.device_type != DeviceType.MEDIA_PLAYER:
             return
         if device.id in entities:
             return
@@ -111,6 +104,12 @@ class HAIRMediaPlayerEntity(MediaPlayerEntity):
             features |= MediaPlayerEntityFeature.VOLUME_MUTE
         if "select_source" in mapping:
             features |= MediaPlayerEntityFeature.SELECT_SOURCE
+        if "play" in mapping:
+            features |= MediaPlayerEntityFeature.PLAY
+        if "pause" in mapping:
+            features |= MediaPlayerEntityFeature.PAUSE
+        if "stop" in mapping:
+            features |= MediaPlayerEntityFeature.STOP
 
         return features
 
@@ -151,6 +150,21 @@ class HAIRMediaPlayerEntity(MediaPlayerEntity):
     async def async_mute_volume(self, mute: bool) -> None:
         await self._send("mute")
         self._is_muted = mute
+        self.async_write_ha_state()
+
+    async def async_media_play(self) -> None:
+        await self._send("play")
+        self._state = MediaPlayerState.PLAYING
+        self.async_write_ha_state()
+
+    async def async_media_pause(self) -> None:
+        await self._send("pause")
+        self._state = MediaPlayerState.PAUSED
+        self.async_write_ha_state()
+
+    async def async_media_stop(self) -> None:
+        await self._send("stop")
+        self._state = MediaPlayerState.IDLE
         self.async_write_ha_state()
 
     @callback

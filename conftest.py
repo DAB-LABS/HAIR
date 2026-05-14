@@ -67,6 +67,10 @@ class _Platform(StrEnum):
     MEDIA_PLAYER = "media_player"
     CLIMATE = "climate"
     FAN = "fan"
+    LIGHT = "light"
+    SWITCH = "switch"
+    COVER = "cover"
+    BUTTON = "button"
 
 class _UnitOfTemperature:
     FAHRENHEIT = "°F"
@@ -156,6 +160,9 @@ class _MediaPlayerEntityFeature:
     VOLUME_STEP = 4
     VOLUME_MUTE = 8
     SELECT_SOURCE = 16
+    PLAY = 16384
+    PAUSE = 32768
+    STOP = 65536
     def __init__(self, val=0): self._val = val
     def __or__(self, other):
         if isinstance(other, int):
@@ -169,6 +176,7 @@ class _MediaPlayerState(StrEnum):
     OFF = "off"
     IDLE = "idle"
     PLAYING = "playing"
+    PAUSED = "paused"
 
 class _MediaPlayerEntity:
     _attr_has_entity_name = True
@@ -241,6 +249,79 @@ class _FanEntity:
 _stub("homeassistant.components.fan", {
     "FanEntity": _FanEntity,
     "FanEntityFeature": _FanEntityFeature,
+})
+
+# --- Light ---
+
+class _ColorMode(StrEnum):
+    ONOFF = "onoff"
+    BRIGHTNESS = "brightness"
+
+class _LightEntity:
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_assumed_state = True
+    def __init_subclass__(cls, **kw): pass
+
+class _LightEntityFeature:
+    pass  # HAIR doesn't use feature flags for light
+
+_stub("homeassistant.components.light", {
+    "LightEntity": _LightEntity,
+    "LightEntityFeature": _LightEntityFeature,
+    "ColorMode": _ColorMode,
+})
+
+# --- Switch ---
+
+class _SwitchEntity:
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_assumed_state = True
+    def __init_subclass__(cls, **kw): pass
+
+_stub("homeassistant.components.switch", {
+    "SwitchEntity": _SwitchEntity,
+})
+
+# --- Cover ---
+
+class _CoverEntityFeature:
+    OPEN = 1
+    CLOSE = 2
+    STOP = 8
+    def __init__(self, val=0): self._val = val
+    def __or__(self, other):
+        if isinstance(other, int):
+            return _CoverEntityFeature(self._val | other)
+        return _CoverEntityFeature(self._val | other._val)
+    def __ior__(self, other): return self.__or__(other)
+    def __int__(self): return self._val
+
+class _CoverDeviceClass(StrEnum):
+    SHADE = "shade"
+
+class _CoverEntity:
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_assumed_state = True
+    def __init_subclass__(cls, **kw): pass
+
+_stub("homeassistant.components.cover", {
+    "CoverEntity": _CoverEntity,
+    "CoverDeviceClass": _CoverDeviceClass,
+    "CoverEntityFeature": _CoverEntityFeature,
+})
+
+# --- Button (used by remote platform, no entity in HAIR yet) ---
+
+class _ButtonEntity:
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    def __init_subclass__(cls, **kw): pass
+
+_stub("homeassistant.components.button", {
+    "ButtonEntity": _ButtonEntity,
 })
 
 # ---------------------------------------------------------------------------

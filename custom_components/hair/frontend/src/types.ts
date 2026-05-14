@@ -7,11 +7,12 @@
  */
 
 export type DeviceTypeId =
-    | "tv"
+    | "media_player"
     | "ac"
     | "fan"
-    | "soundbar"
-    | "projector"
+    | "light"
+    | "switch"
+    | "screen"
     | "other";
 
 export type CommandCategoryId =
@@ -22,7 +23,15 @@ export type CommandCategoryId =
     | "mode"
     | "temperature"
     | "fan_speed"
+    | "brightness"
+    | "cover"
+    | "media_control"
     | "custom";
+
+export interface ActionOption {
+    key: string;
+    label: string;
+}
 
 export type CommandSourceId = "captured" | "database" | "imported";
 

@@ -8,17 +8,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 # ---------------------------------------------------------------------------
-# Stub the homeassistant.components.infrared module for test environments
-# that run an older HA version without the 2026.4 infrared platform.
-# The lazy imports in device_manager / signal_monitor will pick this up.
+# Ensure the infrared stub has async_send_command (root conftest may only
+# set async_get_emitters).  All other HA stubs live in root conftest.py.
 # ---------------------------------------------------------------------------
 _INFRARED_MOD_NAME = "homeassistant.components.infrared"
-if _INFRARED_MOD_NAME not in sys.modules or not hasattr(
-    sys.modules[_INFRARED_MOD_NAME], "async_send_command"
-):
-    _fake_ir = types.ModuleType(_INFRARED_MOD_NAME)
-    _fake_ir.async_send_command = AsyncMock()  # type: ignore[attr-defined]
-    sys.modules[_INFRARED_MOD_NAME] = _fake_ir
+_ir_mod = sys.modules.get(_INFRARED_MOD_NAME)
+if _ir_mod is None:
+    _ir_mod = types.ModuleType(_INFRARED_MOD_NAME)
+    sys.modules[_INFRARED_MOD_NAME] = _ir_mod
+if not hasattr(_ir_mod, "async_send_command"):
+    _ir_mod.async_send_command = AsyncMock()  # type: ignore[attr-defined]
 
 from custom_components.hair.capture import MockCaptureProvider
 from custom_components.hair.const import (
@@ -70,7 +69,7 @@ def mock_device(mock_command: IRCommand) -> IRDevice:
     return IRDevice(
         id="test-device-1",
         name="Test TV",
-        device_type=DeviceType.TV,
+        device_type=DeviceType.MEDIA_PLAYER,
         manufacturer="Samsung",
         model="UN55TU7000",
         emitter_entity_ids=["infrared.test_emitter"],

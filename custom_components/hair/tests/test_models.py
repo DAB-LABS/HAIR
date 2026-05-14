@@ -58,7 +58,7 @@ def test_device_command_helpers(mock_device: IRDevice):
 
 
 def test_device_add_replace_remove():
-    device = IRDevice(name="x", device_type=DeviceType.TV)
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
     cmd1 = IRCommand(name="Power", protocol="NEC", code="0x1")
     device.add_command(cmd1)
     assert len(device.commands) == 1
@@ -173,3 +173,15 @@ def test_unknown_signal_to_dict_no_sl_pattern_for_raw():
     )
     d = sig.to_dict()
     assert "sl_pattern" not in d
+
+
+# ---------------------------------------------------------------------------
+# Legacy device type migration
+# ---------------------------------------------------------------------------
+
+def test_legacy_device_type_migration():
+    """Loading 'tv', 'soundbar', 'projector' from dict produces MEDIA_PLAYER."""
+    for legacy_type in ("tv", "soundbar", "projector"):
+        data = {"name": "Test", "device_type": legacy_type}
+        device = IRDevice.from_dict(data)
+        assert device.device_type == DeviceType.MEDIA_PLAYER

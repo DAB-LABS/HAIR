@@ -350,4 +350,8 @@ class TestPlatformsList:
         assert Platform.MEDIA_PLAYER in PLATFORMS_LIST
         assert Platform.CLIMATE in PLATFORMS_LIST
         assert Platform.FAN in PLATFORMS_LIST
-        assert len(PLATFORMS_LIST) == 4
+        assert Platform.LIGHT in PLATFORMS_LIST
+        assert Platform.SWITCH in PLATFORMS_LIST
+        assert Platform.COVER in PLATFORMS_LIST
+        assert Platform.BUTTON in PLATFORMS_LIST
+        assert len(PLATFORMS_LIST) == 8

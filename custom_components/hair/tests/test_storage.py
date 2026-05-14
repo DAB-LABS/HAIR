@@ -61,13 +61,13 @@ async def test_store_filters(fake_hass):
         store = HAIRStore(fake_hass)
         await store.async_load()
 
-        tv = IRDevice(name="TV", device_type=DeviceType.TV, emitter_entity_ids=["infrared.a"])
+        tv = IRDevice(name="TV", device_type=DeviceType.MEDIA_PLAYER, emitter_entity_ids=["infrared.a"])
         ac = IRDevice(name="AC", device_type=DeviceType.AC, emitter_entity_ids=["infrared.b"])
         store.add_device(tv)
         store.add_device(ac)
 
         assert len(store.get_devices_by_emitter("infrared.a")) == 1
-        assert len(store.get_devices_by_type("tv")) == 1
+        assert len(store.get_devices_by_type("media_player")) == 1
         assert len(store.get_all_devices()) == 2
 
 

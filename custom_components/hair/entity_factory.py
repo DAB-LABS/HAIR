@@ -15,11 +15,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 DEVICE_TYPE_TO_PLATFORM: dict[str, str] = {
-    DeviceType.TV: "media_player",
-    DeviceType.SOUNDBAR: "media_player",
+    DeviceType.MEDIA_PLAYER: "media_player",
     DeviceType.AC: "climate",
     DeviceType.FAN: "fan",
-    DeviceType.PROJECTOR: "media_player",
+    DeviceType.LIGHT: "light",
+    DeviceType.SWITCH: "switch",
+    DeviceType.SCREEN: "cover",
     DeviceType.OTHER: "remote",
 }
 

@@ -196,10 +196,16 @@ class IRDevice:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IRDevice:
+        # Migrate legacy device types to media_player.
+        _LEGACY_MEDIA_TYPES = {"tv", "soundbar", "projector"}
+        raw_type = data.get("device_type", DeviceType.OTHER)
+        if raw_type in _LEGACY_MEDIA_TYPES:
+            raw_type = "media_player"
+
         return cls(
             id=data.get("id") or _new_id(),
             name=data.get("name", ""),
-            device_type=DeviceType(data.get("device_type", DeviceType.OTHER)),
+            device_type=DeviceType(raw_type),
             manufacturer=data.get("manufacturer"),
             model=data.get("model"),
             emitter_entity_ids=list(data.get("emitter_entity_ids") or []),

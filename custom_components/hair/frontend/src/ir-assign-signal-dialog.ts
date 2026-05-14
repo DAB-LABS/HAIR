@@ -21,11 +21,12 @@ import type {
 type AssignMode = "existing" | "new";
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
-    { value: "tv", label: "TV / Monitor" },
+    { value: "media_player", label: "Media Player" },
     { value: "ac", label: "Air Conditioner" },
     { value: "fan", label: "Fan" },
-    { value: "soundbar", label: "Soundbar / Audio" },
-    { value: "projector", label: "Projector" },
+    { value: "light", label: "Light" },
+    { value: "switch", label: "Switch" },
+    { value: "screen", label: "Screen / Shade" },
     { value: "other", label: "Other" },
 ];
 
@@ -55,7 +56,7 @@ export class IrAssignSignalDialog extends LitElement {
 
     // New-device fields
     @state() private _newName = "";
-    @state() private _newType: DeviceTypeId = "tv";
+    @state() private _newType: DeviceTypeId = "media_player";
     @state() private _newEmitterIds: string[] = [];
 
     @state() private _busy = false;

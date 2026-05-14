@@ -14,16 +14,16 @@ from custom_components.hair.const import (
 )
 from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
 from custom_components.hair.remote import HAIRRemoteEntity, _humanise_device_type
-from custom_components.hair.media_player import (
-    HAIRMediaPlayerEntity,
-    MEDIA_PLAYER_DEVICE_TYPES,
-)
+from custom_components.hair.media_player import HAIRMediaPlayerEntity
 from custom_components.hair.climate import (
     HAIRClimateEntity,
     HVAC_MODE_TO_FEATURE,
     FAN_MODE_TO_FEATURE,
 )
 from custom_components.hair.fan import HAIRFanEntity
+from custom_components.hair.light import HAIRLightEntity
+from custom_components.hair.switch import HAIRSwitchEntity
+from custom_components.hair.cover import HAIRCoverEntity
 
 from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
@@ -31,6 +31,8 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.components.fan import FanEntityFeature
+from homeassistant.components.light import ColorMode
+from homeassistant.components.cover import CoverEntityFeature
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ def _cmd(cmd_id: str, name: str, category=CommandCategory.CUSTOM) -> IRCommand:
 def _device(
     device_id: str = "dev-1",
     name: str = "Test Device",
-    device_type: DeviceType = DeviceType.TV,
+    device_type: DeviceType = DeviceType.MEDIA_PLAYER,
     commands: list[IRCommand] | None = None,
     entity_config: EntityConfig | None = None,
 ) -> IRDevice:
@@ -181,7 +183,7 @@ class TestHAIRRemoteEntity:
         attrs = entity.extra_state_attributes
         assert attrs["device_id"] == "dev-1"
         assert set(attrs["available_commands"]) == {"Power", "Mute"}
-        assert attrs["device_type"] == "tv"
+        assert attrs["device_type"] == "media_player"
 
     def test_update_device(self):
         device = _device()
@@ -194,11 +196,12 @@ class TestHAIRRemoteEntity:
         entity.async_write_ha_state.assert_called_once()
 
     def test_humanise_device_type(self):
-        assert _humanise_device_type(DeviceType.TV) == "TV"
+        assert _humanise_device_type(DeviceType.MEDIA_PLAYER) == "Media Player"
         assert _humanise_device_type(DeviceType.AC) == "Air Conditioner"
         assert _humanise_device_type(DeviceType.FAN) == "Fan"
-        assert _humanise_device_type(DeviceType.SOUNDBAR) == "Soundbar"
-        assert _humanise_device_type(DeviceType.PROJECTOR) == "Projector"
+        assert _humanise_device_type(DeviceType.LIGHT) == "Light"
+        assert _humanise_device_type(DeviceType.SWITCH) == "Switch"
+        assert _humanise_device_type(DeviceType.SCREEN) == "Screen / Shade"
         assert _humanise_device_type(DeviceType.OTHER) == "IR Device"
 
 
@@ -209,7 +212,7 @@ class TestHAIRRemoteEntity:
 
 class TestHAIRMediaPlayerEntity:
 
-    def _make(self, command_mapping=None, commands=None, device_type=DeviceType.TV):
+    def _make(self, command_mapping=None, commands=None, device_type=DeviceType.MEDIA_PLAYER):
         """Build a media player entity with the given mapping and commands."""
         mapping = command_mapping or {}
         cmds = commands or []
@@ -234,13 +237,6 @@ class TestHAIRMediaPlayerEntity:
         info = entity.device_info
         assert (DOMAIN, "dev-1") in info["identifiers"]
         assert info["model"] == "X100"
-
-    def test_media_player_device_types(self):
-        assert DeviceType.TV in MEDIA_PLAYER_DEVICE_TYPES
-        assert DeviceType.SOUNDBAR in MEDIA_PLAYER_DEVICE_TYPES
-        assert DeviceType.PROJECTOR in MEDIA_PLAYER_DEVICE_TYPES
-        assert DeviceType.AC not in MEDIA_PLAYER_DEVICE_TYPES
-        assert DeviceType.FAN not in MEDIA_PLAYER_DEVICE_TYPES
 
     def test_supported_features_empty_mapping(self):
         entity, _ = self._make(command_mapping={})
@@ -348,11 +344,55 @@ class TestHAIRMediaPlayerEntity:
         mgr.async_send_command.assert_awaited_once()
         assert entity._is_muted is True
 
+    def test_supported_features_play_pause_stop(self):
+        entity, _ = self._make(command_mapping={
+            "play": "Play",
+            "pause": "Pause",
+            "stop": "Stop",
+        })
+        f = entity.supported_features
+        assert int(f) & MediaPlayerEntityFeature.PLAY
+        assert int(f) & MediaPlayerEntityFeature.PAUSE
+        assert int(f) & MediaPlayerEntityFeature.STOP
+
+    @pytest.mark.asyncio
+    async def test_media_play(self):
+        play_cmd = _cmd("c1", "Play")
+        entity, mgr = self._make(
+            command_mapping={"play": "Play"},
+            commands=[play_cmd],
+        )
+        await entity.async_media_play()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._state == MediaPlayerState.PLAYING
+
+    @pytest.mark.asyncio
+    async def test_media_pause(self):
+        pause_cmd = _cmd("c1", "Pause")
+        entity, mgr = self._make(
+            command_mapping={"pause": "Pause"},
+            commands=[pause_cmd],
+        )
+        await entity.async_media_pause()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._state == MediaPlayerState.PAUSED
+
+    @pytest.mark.asyncio
+    async def test_media_stop(self):
+        stop_cmd = _cmd("c1", "Stop")
+        entity, mgr = self._make(
+            command_mapping={"stop": "Stop"},
+            commands=[stop_cmd],
+        )
+        await entity.async_media_stop()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._state == MediaPlayerState.IDLE
+
     def test_update_device(self):
         entity, _ = self._make()
-        new_device = _device(name="Updated TV")
+        new_device = _device(name="Updated Media Player")
         entity.update_device(new_device)
-        assert entity._device.name == "Updated TV"
+        assert entity._device.name == "Updated Media Player"
         entity.async_write_ha_state.assert_called()
 
 
@@ -697,4 +737,231 @@ class TestHAIRFanEntity:
         new_device = _device(name="Updated Fan", device_type=DeviceType.FAN)
         entity.update_device(new_device)
         assert entity._device.name == "Updated Fan"
+        entity.async_write_ha_state.assert_called()
+
+
+# ===========================================================================
+# Light entity tests
+# ===========================================================================
+
+
+class TestHAIRLightEntity:
+
+    def _make(self, command_mapping=None, commands=None):
+        mapping = command_mapping or {}
+        cmds = commands or []
+        config = EntityConfig(platform="light", command_mapping=mapping)
+        device = _device(
+            device_type=DeviceType.LIGHT,
+            commands=cmds,
+            entity_config=config,
+        )
+        mgr = _manager()
+        entity = HAIRLightEntity(device, mgr)
+        _patch_write_state(entity)
+        return entity, mgr
+
+    def test_unique_id(self):
+        entity, _ = self._make()
+        assert entity._attr_unique_id == "hair_dev-1_light"
+
+    def test_device_info(self):
+        entity, _ = self._make()
+        info = entity.device_info
+        assert (DOMAIN, "dev-1") in info["identifiers"]
+
+    def test_color_mode_onoff(self):
+        entity, _ = self._make()
+        assert entity.color_mode == ColorMode.ONOFF
+        assert entity.supported_color_modes == {ColorMode.ONOFF}
+
+    def test_color_mode_brightness(self):
+        entity, _ = self._make(command_mapping={"brightness_up": "Bright+"})
+        assert entity.color_mode == ColorMode.BRIGHTNESS
+        assert entity.supported_color_modes == {ColorMode.BRIGHTNESS}
+
+    def test_initial_state(self):
+        entity, _ = self._make()
+        assert entity.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on(self):
+        on_cmd = _cmd("c1", "On")
+        entity, mgr = self._make(
+            command_mapping={"turn_on": "On"},
+            commands=[on_cmd],
+        )
+        await entity.async_turn_on()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._is_on is True
+
+    @pytest.mark.asyncio
+    async def test_turn_off(self):
+        off_cmd = _cmd("c1", "Off")
+        entity, mgr = self._make(
+            command_mapping={"turn_off": "Off"},
+            commands=[off_cmd],
+        )
+        await entity.async_turn_off()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._is_on is False
+
+    def test_update_device(self):
+        entity, _ = self._make()
+        new_device = _device(name="Updated Light", device_type=DeviceType.LIGHT)
+        entity.update_device(new_device)
+        assert entity._device.name == "Updated Light"
+        entity.async_write_ha_state.assert_called()
+
+
+# ===========================================================================
+# Switch entity tests
+# ===========================================================================
+
+
+class TestHAIRSwitchEntity:
+
+    def _make(self, command_mapping=None, commands=None):
+        mapping = command_mapping or {}
+        cmds = commands or []
+        config = EntityConfig(platform="switch", command_mapping=mapping)
+        device = _device(
+            device_type=DeviceType.SWITCH,
+            commands=cmds,
+            entity_config=config,
+        )
+        mgr = _manager()
+        entity = HAIRSwitchEntity(device, mgr)
+        _patch_write_state(entity)
+        return entity, mgr
+
+    def test_unique_id(self):
+        entity, _ = self._make()
+        assert entity._attr_unique_id == "hair_dev-1_switch"
+
+    def test_device_info(self):
+        entity, _ = self._make()
+        info = entity.device_info
+        assert (DOMAIN, "dev-1") in info["identifiers"]
+
+    def test_initial_state(self):
+        entity, _ = self._make()
+        assert entity.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on(self):
+        on_cmd = _cmd("c1", "On")
+        entity, mgr = self._make(
+            command_mapping={"turn_on": "On"},
+            commands=[on_cmd],
+        )
+        await entity.async_turn_on()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._is_on is True
+
+    @pytest.mark.asyncio
+    async def test_turn_off(self):
+        off_cmd = _cmd("c1", "Off")
+        entity, mgr = self._make(
+            command_mapping={"turn_off": "Off"},
+            commands=[off_cmd],
+        )
+        await entity.async_turn_off()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._is_on is False
+
+    def test_update_device(self):
+        entity, _ = self._make()
+        new_device = _device(name="Updated Switch", device_type=DeviceType.SWITCH)
+        entity.update_device(new_device)
+        assert entity._device.name == "Updated Switch"
+        entity.async_write_ha_state.assert_called()
+
+
+# ===========================================================================
+# Cover entity tests
+# ===========================================================================
+
+
+class TestHAIRCoverEntity:
+
+    def _make(self, command_mapping=None, commands=None):
+        mapping = command_mapping or {}
+        cmds = commands or []
+        config = EntityConfig(platform="cover", command_mapping=mapping)
+        device = _device(
+            device_type=DeviceType.SCREEN,
+            commands=cmds,
+            entity_config=config,
+        )
+        mgr = _manager()
+        entity = HAIRCoverEntity(device, mgr)
+        _patch_write_state(entity)
+        return entity, mgr
+
+    def test_unique_id(self):
+        entity, _ = self._make()
+        assert entity._attr_unique_id == "hair_dev-1_cover"
+
+    def test_device_info(self):
+        entity, _ = self._make()
+        info = entity.device_info
+        assert (DOMAIN, "dev-1") in info["identifiers"]
+
+    def test_supported_features(self):
+        entity, _ = self._make(command_mapping={
+            "open_cover": "Open",
+            "close_cover": "Close",
+            "stop_cover": "Stop",
+        })
+        f = entity.supported_features
+        assert int(f) & CoverEntityFeature.OPEN
+        assert int(f) & CoverEntityFeature.CLOSE
+        assert int(f) & CoverEntityFeature.STOP
+
+    def test_supported_features_empty(self):
+        entity, _ = self._make()
+        assert int(entity.supported_features) == 0
+
+    def test_initial_state(self):
+        entity, _ = self._make()
+        assert entity.is_closed is None
+
+    @pytest.mark.asyncio
+    async def test_open_cover(self):
+        open_cmd = _cmd("c1", "Open")
+        entity, mgr = self._make(
+            command_mapping={"open_cover": "Open"},
+            commands=[open_cmd],
+        )
+        await entity.async_open_cover()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._is_closed is False
+
+    @pytest.mark.asyncio
+    async def test_close_cover(self):
+        close_cmd = _cmd("c1", "Close")
+        entity, mgr = self._make(
+            command_mapping={"close_cover": "Close"},
+            commands=[close_cmd],
+        )
+        await entity.async_close_cover()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        assert entity._is_closed is True
+
+    @pytest.mark.asyncio
+    async def test_stop_cover(self):
+        stop_cmd = _cmd("c1", "Stop")
+        entity, mgr = self._make(
+            command_mapping={"stop_cover": "Stop"},
+            commands=[stop_cmd],
+        )
+        await entity.async_stop_cover()
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+
+    def test_update_device(self):
+        entity, _ = self._make()
+        new_device = _device(name="Updated Screen", device_type=DeviceType.SCREEN)
+        entity.update_device(new_device)
+        assert entity._device.name == "Updated Screen"
         entity.async_write_ha_state.assert_called()

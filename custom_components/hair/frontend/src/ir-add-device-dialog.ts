@@ -17,11 +17,12 @@ import type {
 } from "./types.js";
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
-    { value: "tv", label: "TV / Monitor" },
+    { value: "media_player", label: "Media Player" },
     { value: "ac", label: "Air Conditioner" },
     { value: "fan", label: "Fan" },
-    { value: "soundbar", label: "Soundbar / Audio" },
-    { value: "projector", label: "Projector" },
+    { value: "light", label: "Light" },
+    { value: "switch", label: "Switch" },
+    { value: "screen", label: "Screen / Shade" },
     { value: "other", label: "Other" },
 ];
 
@@ -31,7 +32,7 @@ export class IrAddDeviceDialog extends LitElement {
     @property({ attribute: false }) public hass: any;
 
     @state() private _name = "";
-    @state() private _deviceType: DeviceTypeId = "tv";
+    @state() private _deviceType: DeviceTypeId = "media_player";
     @state() private _emitterIds: string[] = [];
     @state() private _captureProviders: CaptureProviderInfo[] = [];
     @state() private _busy = false;

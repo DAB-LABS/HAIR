@@ -13,11 +13,12 @@ import type { HairApi } from "./api.js";
 import type { DeviceTypeId } from "./types.js";
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
-    { value: "tv", label: "TV / Monitor" },
+    { value: "media_player", label: "Media Player" },
     { value: "ac", label: "Air Conditioner" },
     { value: "fan", label: "Fan" },
-    { value: "soundbar", label: "Soundbar / Audio" },
-    { value: "projector", label: "Projector" },
+    { value: "light", label: "Light" },
+    { value: "switch", label: "Switch" },
+    { value: "screen", label: "Screen / Shade" },
     { value: "other", label: "Other" },
 ];
 

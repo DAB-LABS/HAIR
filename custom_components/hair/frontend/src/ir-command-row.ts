@@ -1,6 +1,6 @@
 /**
  * One row in the device-detail command checklist.
- * - Captured commands show protocol info plus Test / Re-learn / Delete actions.
+ * - Captured commands show protocol info plus Test / Delete actions and an action badge.
  * - Unlearned templates show a single Learn button.
  */
 import { LitElement, html, css } from "lit";
@@ -12,6 +12,9 @@ export class IrCommandRow extends LitElement {
     @property({ attribute: false }) public templateName: string = "";
     @property({ attribute: false }) public command: IRCommand | null = null;
     @property({ type: Boolean }) public busy = false;
+
+    /** Label of the mapped action (e.g. "Power On"), or empty/null if unmapped. */
+    @property({ attribute: false }) public actionLabel: string | null = null;
 
     /** Human-friendly label for a captured command (plain text fallback). */
     private _commandLabel(): string {
@@ -90,15 +93,17 @@ export class IrCommandRow extends LitElement {
                     ${learned
                         ? html`
                               <button
+                                  class="action-btn badge-btn"
+                                  ?data-mapped=${!!this.actionLabel}
+                                  ?disabled=${this.busy}
+                                  @click=${() => this._emit("map-action")}
+                                  title="Assign action mapping"
+                              >${this.actionLabel || "NONE"}</button>
+                              <button
                                   class="action-btn test-btn"
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("test")}
                               >Test</button>
-                              <button
-                                  class="action-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${() => this._emit("relearn")}
-                              >Re-learn</button>
                               <button
                                   class="action-btn delete-btn"
                                   ?disabled=${this.busy}
@@ -223,6 +228,21 @@ export class IrCommandRow extends LitElement {
         }
         .action-btn.learn-btn:hover {
             background: #1b5e20;
+        }
+        .action-btn.badge-btn {
+            color: var(--secondary-text-color, #999);
+            border-color: var(--divider-color);
+            font-size: 0.65rem;
+            min-width: 50px;
+            text-align: center;
+        }
+        .action-btn.badge-btn[data-mapped] {
+            color: var(--primary-color);
+            border-color: var(--primary-color);
+            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.08);
+        }
+        .action-btn.badge-btn:hover {
+            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.12);
         }
         .action-btn.delete-btn {
             color: #b71c1c;

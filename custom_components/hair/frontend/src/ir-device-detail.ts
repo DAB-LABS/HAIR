@@ -9,14 +9,15 @@ import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
-import type { IRCommand, IRDevice, DeviceTypeId } from "./types.js";
+import type { ActionOption, IRCommand, IRDevice, DeviceTypeId } from "./types.js";
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
-    { value: "tv", label: "TV / Monitor" },
+    { value: "media_player", label: "Media Player" },
     { value: "ac", label: "Air Conditioner" },
     { value: "fan", label: "Fan" },
-    { value: "soundbar", label: "Soundbar / Audio" },
-    { value: "projector", label: "Projector" },
+    { value: "light", label: "Light" },
+    { value: "switch", label: "Switch" },
+    { value: "screen", label: "Screen / Shade" },
     { value: "other", label: "Other" },
 ];
 
@@ -31,6 +32,10 @@ export class IrDeviceDetail extends LitElement {
     @state() private _toast: string | null = null;
     @state() private _confirmDelete = false;
     @state() private _commandToDelete: IRCommand | null = null;
+
+    // Action mapping
+    @state() private _actionOptions: ActionOption[] = [];
+    @state() private _mappingCommandName: string | null = null;
 
     // Inline name editing
     @state() private _editingName = false;
@@ -199,13 +204,90 @@ export class IrDeviceDetail extends LitElement {
     }
 
     // ---------------------------------------------------------------
-    // Command actions
+    // Action mapping
     // ---------------------------------------------------------------
 
-    private async _onRelearn(e: CustomEvent) {
-        const { templateName } = e.detail;
-        this._captureName = templateName;
+    connectedCallback(): void {
+        super.connectedCallback();
+        void this._loadActionOptions();
     }
+
+    updated(changed: Map<string, unknown>): void {
+        if (changed.has("device")) {
+            void this._loadActionOptions();
+        }
+    }
+
+    private async _loadActionOptions() {
+        try {
+            this._actionOptions = await this.api.getActionOptions(this.device.device_type);
+        } catch {
+            this._actionOptions = [];
+        }
+    }
+
+    /** Look up the human label for the action mapped to a command. */
+    private _getActionLabel(commandName: string): string | null {
+        const mapping = this.device.entity_config?.command_mapping ?? {};
+        for (const [key, val] of Object.entries(mapping)) {
+            if (val.toLowerCase() === commandName.toLowerCase()) {
+                const opt = this._actionOptions.find((o) => o.key === key);
+                return opt?.label ?? key;
+            }
+        }
+        return null;
+    }
+
+    private _onMapAction(e: CustomEvent) {
+        const { command } = e.detail as { command: IRCommand };
+        if (!command) return;
+        this._mappingCommandName = command.name;
+    }
+
+    private async _onMappingChanged(e: Event, commandName: string) {
+        const value = (e.target as HTMLSelectElement).value;
+        const actionKey = value === "" ? null : value;
+        this._busy = true;
+        try {
+            const result = await this.api.updateMapping(
+                this.device.id,
+                commandName,
+                actionKey,
+            );
+            // Update local entity_config so UI reflects immediately.
+            this.device = {
+                ...this.device,
+                entity_config: {
+                    ...this.device.entity_config,
+                    command_mapping: result.mapping,
+                },
+            };
+            this._flash(actionKey ? `Mapped to ${actionKey}` : "Mapping cleared");
+            this.dispatchEvent(
+                new CustomEvent("device-changed", { bubbles: true, composed: true }),
+            );
+        } catch (err) {
+            this._flash(`Mapping failed: ${(err as Error).message}`);
+        } finally {
+            this._busy = false;
+            this._mappingCommandName = null;
+        }
+    }
+
+    /** Find the action key currently mapped to a command name. */
+    private _getCurrentActionKey(commandName: string): string {
+        const mapping = this.device.entity_config?.command_mapping ?? {};
+        for (const [key, val] of Object.entries(mapping)) {
+            if (val.toLowerCase() === commandName.toLowerCase()) {
+                return key;
+            }
+        }
+        return "";
+    }
+
+    // ---------------------------------------------------------------
+    // Command actions
+    // ---------------------------------------------------------------
 
     private async _onTest(e: CustomEvent) {
         const { command } = e.detail as { command: IRCommand };
@@ -383,10 +465,38 @@ export class IrDeviceDetail extends LitElement {
                                       .templateName=${cmd.name}
                                       .command=${cmd}
                                       .busy=${this._busy}
-                                      @relearn=${this._onRelearn}
+                                      .actionLabel=${this._getActionLabel(cmd.name)}
+                                      @map-action=${this._onMapAction}
                                       @test=${this._onTest}
                                       @delete=${this._onDelete}
                                   ></ir-command-row>
+                                  ${this._mappingCommandName === cmd.name
+                                      ? html`
+                                            <div class="mapping-row">
+                                                <select
+                                                    @change=${(e: Event) =>
+                                                        this._onMappingChanged(e, cmd.name)}
+                                                    .value=${this._getCurrentActionKey(cmd.name)}
+                                                >
+                                                    <option value="">None</option>
+                                                    ${this._actionOptions.map(
+                                                        (opt) => html`
+                                                            <option
+                                                                value=${opt.key}
+                                                                ?selected=${this._getCurrentActionKey(cmd.name) === opt.key}
+                                                            >
+                                                                ${opt.label}
+                                                            </option>
+                                                        `,
+                                                    )}
+                                                </select>
+                                                <button
+                                                    class="action-btn"
+                                                    @click=${() => (this._mappingCommandName = null)}
+                                                >Cancel</button>
+                                            </div>
+                                        `
+                                      : ""}
                               `,
                           )
                         : html`<div class="empty">No commands yet. Add one below.</div>`}
@@ -593,6 +703,26 @@ export class IrDeviceDetail extends LitElement {
         .commands-list {
             display: flex;
             flex-direction: column;
+        }
+        .mapping-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding: 4px 10px 8px 44px;
+            background: var(--secondary-background-color);
+            border-radius: 0 0 4px 4px;
+            margin-top: -4px;
+            margin-bottom: 4px;
+        }
+        .mapping-row select {
+            flex: 1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
+            background: var(--card-background-color);
+            color: var(--primary-text-color);
+            font-family: inherit;
+            font-size: 0.8rem;
         }
         .empty {
             color: var(--secondary-text-color);

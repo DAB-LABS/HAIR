@@ -32,6 +32,9 @@ PLATFORMS_LIST: list[Platform] = [
         Platform.MEDIA_PLAYER,
         Platform.CLIMATE,
         Platform.FAN,
+        Platform.LIGHT,
+        Platform.SWITCH,
+        Platform.COVER,
     ]
     if p is not None
 ]

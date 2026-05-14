@@ -7,6 +7,7 @@
  * streaming capture events.
  */
 import type {
+    ActionOption,
     AssignResult,
     CaptureEvent,
     CaptureProviderInfo,
@@ -179,6 +180,28 @@ export class HairApi {
         return this.hass.connection.sendMessagePromise<IRCommand>({
             type: "hair/capture/save",
             ...payload,
+        });
+    }
+
+    // --- Action Mapping ---
+
+    getActionOptions(deviceType: DeviceTypeId): Promise<ActionOption[]> {
+        return this.hass.connection.sendMessagePromise<ActionOption[]>({
+            type: "hair/device/action-options",
+            device_type: deviceType,
+        });
+    }
+
+    updateMapping(
+        deviceId: string,
+        commandName: string,
+        actionKey: string | null,
+    ): Promise<{ mapping: Record<string, string> }> {
+        return this.hass.connection.sendMessagePromise<{ mapping: Record<string, string> }>({
+            type: "hair/device/update-mapping",
+            device_id: deviceId,
+            command_name: commandName,
+            action_key: actionKey,
         });
     }
 

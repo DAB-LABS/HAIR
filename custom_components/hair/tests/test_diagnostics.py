@@ -33,7 +33,7 @@ def _device_with_command():
     return IRDevice(
         id="dev-1",
         name="Test TV",
-        device_type=DeviceType.TV,
+        device_type=DeviceType.MEDIA_PLAYER,
         commands=[cmd],
         entity_config=EntityConfig(platform="media_player"),
     )
