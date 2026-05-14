@@ -74,7 +74,11 @@ export class IrAssignSignalDialog extends LitElement {
             this._newName = this.suggestedDeviceName;
         }
         void this._loadDevices();
-        void this._loadTemplates(this._newType);
+        // Templates loaded after _loadDevices resolves (for existing mode)
+        // or immediately for new mode.
+        if (this._mode === "new") {
+            void this._loadTemplates(this._newType);
+        }
     }
 
     private async _loadDevices(): Promise<void> {
@@ -88,10 +92,24 @@ export class IrAssignSignalDialog extends LitElement {
                 );
                 if (match) {
                     this._selectedDeviceId = match.id;
+                    // Load templates for the matched device's type.
+                    void this._loadTemplates(match.device_type as DeviceTypeId);
+                    return;
                 }
+            }
+            // If in existing mode and we have devices but no auto-match,
+            // load templates for the first device or fallback to "other".
+            if (this._mode === "existing" && this._devices.length > 0) {
+                const first = this._devices[0];
+                void this._loadTemplates(first.device_type as DeviceTypeId);
+            } else if (this._mode === "existing") {
+                void this._loadTemplates("other");
             }
         } catch {
             // Non-fatal; user can still create new.
+            if (this._mode === "existing") {
+                void this._loadTemplates("other");
+            }
         }
     }
 
@@ -126,6 +144,15 @@ export class IrAssignSignalDialog extends LitElement {
     private _onNewTypeChanged(e: Event): void {
         this._newType = (e.target as HTMLSelectElement).value as DeviceTypeId;
         void this._loadTemplates(this._newType);
+    }
+
+    private _switchMode(mode: AssignMode): void {
+        if (mode === this._mode) return;
+        this._mode = mode;
+        this._customCommand = false;
+        this._commandName = "";
+        // Reload templates for the active device type in the new mode.
+        void this._loadTemplates(this._activeDeviceType());
     }
 
     private _close(): void {
@@ -253,13 +280,13 @@ export class IrAssignSignalDialog extends LitElement {
                 <div class="mode-tabs">
                     <button
                         class="mode-tab ${this._mode === "existing" ? "active" : ""}"
-                        @click=${() => { this._mode = "existing"; }}
+                        @click=${() => { this._switchMode("existing"); }}
                     >
                         Existing Device
                     </button>
                     <button
                         class="mode-tab ${this._mode === "new" ? "active" : ""}"
-                        @click=${() => { this._mode = "new"; }}
+                        @click=${() => { this._switchMode("new"); }}
                     >
                         New Device
                     </button>
