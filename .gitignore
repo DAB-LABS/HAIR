@@ -41,3 +41,4 @@ custom_components/hair/frontend/node_modules/
 
 # Claude local settings
 .claude/
+images/internal/
