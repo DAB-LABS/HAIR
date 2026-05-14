@@ -705,7 +705,7 @@ export class IrSignalMonitor extends LitElement {
                                                 ? html`<span class="diamond long">◆</span>`
                                                 : html`<span class="diamond short">◇</span>`
                                           )}</span>`
-                                        : html`<code class="signal-code">${sig.protocol ?? "RAW"}: ${sig.code ?? `${sig.raw_timings.length} timings`}</code>`}
+                                        : html`<span class="signal-short-label">IR Signal</span>`}
                                 </div>
                                 <div class="signal-meta">
                                     <span class="${isHitFlash ? "hit-flash" : ""}">${sig.hit_count} hits</span>
@@ -960,6 +960,11 @@ export class IrSignalMonitor extends LitElement {
         .signal-code {
             font-size: 0.82rem;
             word-break: break-all;
+        }
+        .signal-short-label {
+            font-size: 0.82rem;
+            color: var(--secondary-text-color);
+            font-style: italic;
         }
         .diamonds {
             display: inline-flex;
