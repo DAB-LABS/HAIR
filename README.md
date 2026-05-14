@@ -50,6 +50,25 @@ Every device also gets a `remote` entity for sending arbitrary Pronto hex codes 
 
 Entity features are driven by explicit action mappings. A media_player only exposes volume control if you map commands to the volume actions. This keeps your entities clean and avoids exposing features your remote doesn't support.
 
+## Screenshots
+
+<p align="center">
+  <img src="images/screenshots/devices-overview.png" alt="Devices overview showing HAIR Devices, Emitters, Receivers, and Proxies" width="700" />
+</p>
+
+<p align="center">
+  <img src="images/screenshots/device-detail.png" alt="Device detail with learned commands and S/L fingerprint patterns" width="400" />
+  <img src="images/screenshots/action-mapping.png" alt="Action mapping popover for binding commands to HA entity features" width="400" />
+</p>
+
+<p align="center">
+  <img src="images/screenshots/sniffer-signals.png" alt="Sniffer showing captured signals with S/L diamond fingerprints and hit counts" width="700" />
+</p>
+
+<p align="center">
+  <img src="images/screenshots/assign-dialog.png" alt="Assign dialog for mapping a captured signal to a device command" width="500" />
+</p>
+
 ## Using HAIR
 
 ### The Devices Tab
