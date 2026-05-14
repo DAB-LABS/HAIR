@@ -186,7 +186,7 @@ class DeviceManager:
             raise RuntimeError(f"Device {device_id} has no emitters configured")
 
         # Lazy imports: infrared component only available at runtime on HA 2026.4+.
-        from homeassistant.components.infrared import (  # noqa: E402
+        from homeassistant.components.infrared import (
             async_send_command as ir_send,
         )
 

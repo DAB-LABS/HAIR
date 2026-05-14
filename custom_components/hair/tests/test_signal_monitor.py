@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,8 +14,6 @@ from custom_components.hair.const import (
     SIGNAL_REPEAT_SUPPRESS_MS,
 )
 from custom_components.hair.models import (
-    CaptureResult,
-    CommandCategory,
     IRCommand,
     IRDevice,
     UnknownDevice,
@@ -24,7 +21,6 @@ from custom_components.hair.models import (
 )
 from custom_components.hair.signal_monitor import SignalMonitor
 from custom_components.hair.signal_store import SignalStore
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -335,7 +331,7 @@ class TestRateLimiting:
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
         # Blast more than SIGNAL_RATE_LIMIT_PER_SEC events.
-        for i in range(SIGNAL_RATE_LIMIT_PER_SEC + 5):
+        for _ in range(SIGNAL_RATE_LIMIT_PER_SEC + 5):
             monitor._last_seen_times.clear()
             await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
 

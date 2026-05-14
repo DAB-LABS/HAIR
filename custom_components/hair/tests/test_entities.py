@@ -4,36 +4,31 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from custom_components.hair.const import (
-    CommandCategory,
-    CommandSource,
-    CaptureProviderType,
-    DeviceType,
-    DOMAIN,
-)
-from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
-from custom_components.hair.remote import HAIRRemoteEntity, _humanise_device_type
-from custom_components.hair.media_player import HAIRMediaPlayerEntity
-from custom_components.hair.climate import (
-    HAIRClimateEntity,
-    HVAC_MODE_TO_FEATURE,
-    FAN_MODE_TO_FEATURE,
-)
-from custom_components.hair.fan import HAIRFanEntity
-from custom_components.hair.light import HAIRLightEntity
-from custom_components.hair.switch import HAIRSwitchEntity
-from custom_components.hair.cover import HAIRCoverEntity
-
+from homeassistant.components.climate import ClimateEntityFeature, HVACMode
+from homeassistant.components.cover import CoverEntityFeature
+from homeassistant.components.fan import FanEntityFeature
+from homeassistant.components.light import ColorMode
 from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
-from homeassistant.components.climate import ClimateEntityFeature, HVACMode
-from homeassistant.components.fan import FanEntityFeature
-from homeassistant.components.light import ColorMode
-from homeassistant.components.cover import CoverEntityFeature
 
+from custom_components.hair.climate import (
+    HAIRClimateEntity,
+)
+from custom_components.hair.const import (
+    DOMAIN,
+    CommandCategory,
+    CommandSource,
+    DeviceType,
+)
+from custom_components.hair.cover import HAIRCoverEntity
+from custom_components.hair.fan import HAIRFanEntity
+from custom_components.hair.light import HAIRLightEntity
+from custom_components.hair.media_player import HAIRMediaPlayerEntity
+from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
+from custom_components.hair.remote import HAIRRemoteEntity, _humanise_device_type
+from custom_components.hair.switch import HAIRSwitchEntity
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -309,7 +304,7 @@ class TestHAIRMediaPlayerEntity:
     @pytest.mark.asyncio
     async def test_volume_down(self):
         vol_cmd = _cmd("c1", "Vol-")
-        entity, mgr = self._make(
+        entity, _mgr = self._make(
             command_mapping={"volume_down": "Vol-"},
             commands=[vol_cmd],
         )
@@ -574,7 +569,7 @@ class TestHAIRClimateEntity:
     @pytest.mark.asyncio
     async def test_turn_on_preserves_existing_mode(self):
         power_cmd = _cmd("c1", "Power On")
-        entity, mgr = self._make(
+        entity, _mgr = self._make(
             command_mapping={"turn_on": "Power On"},
             commands=[power_cmd],
         )
@@ -585,7 +580,7 @@ class TestHAIRClimateEntity:
     @pytest.mark.asyncio
     async def test_turn_off(self):
         off_cmd = _cmd("c1", "Power Off")
-        entity, mgr = self._make(
+        entity, _mgr = self._make(
             command_mapping={"turn_off": "Power Off"},
             commands=[off_cmd],
         )

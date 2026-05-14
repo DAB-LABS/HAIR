@@ -16,7 +16,6 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 
 from .capture import get_available_capture_providers

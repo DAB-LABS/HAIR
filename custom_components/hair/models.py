@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -22,7 +22,7 @@ def _new_id() -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass
@@ -250,7 +250,7 @@ class CaptureResult:
         if length == 0:
             return False
         diffs = 0
-        for a, b in zip(self.raw_timings[:length], other.raw_timings[:length]):
+        for a, b in zip(self.raw_timings[:length], other.raw_timings[:length], strict=False):
             if abs(a) == 0:
                 continue
             if abs(a - b) / max(abs(a), 1) > tolerance:
@@ -333,7 +333,7 @@ class UnknownSignal:
         }
         # Compute S/L pattern for Pronto signals (not stored, derived).
         if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
-            from .event_parser import EventParser  # noqa: C0415
+            from .event_parser import EventParser
 
             sl = EventParser._pronto_sl_pattern(self.code)
             d["sl_pattern"] = sl

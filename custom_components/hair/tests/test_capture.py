@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,11 +17,9 @@ from custom_components.hair.capture_orchestrator import (
 from custom_components.hair.const import (
     CaptureProviderType,
     CaptureState,
-    DeviceType,
 )
 from custom_components.hair.models import (
     CaptureResult,
-    IRCommand,
     IRDevice,
 )
 

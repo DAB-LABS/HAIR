@@ -53,7 +53,7 @@ class HAIRStore:
         for entry in devices_raw:
             try:
                 device = IRDevice.from_dict(entry)
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.warning(
                     "Skipping malformed device entry %s: %s",
                     entry.get("id"),

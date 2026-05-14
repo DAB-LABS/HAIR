@@ -19,14 +19,14 @@ if _ir_mod is None:
 if not hasattr(_ir_mod, "async_send_command"):
     _ir_mod.async_send_command = AsyncMock()  # type: ignore[attr-defined]
 
-from custom_components.hair.capture import MockCaptureProvider
-from custom_components.hair.const import (
+from custom_components.hair.capture import MockCaptureProvider  # noqa: E402
+from custom_components.hair.const import (  # noqa: E402
     CaptureProviderType,
     CommandCategory,
     CommandSource,
     DeviceType,
 )
-from custom_components.hair.models import (
+from custom_components.hair.models import (  # noqa: E402
     CaptureResult,
     EntityConfig,
     IRCommand,

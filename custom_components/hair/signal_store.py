@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -24,7 +24,7 @@ from .const import (
     SIGNAL_STORAGE_KEY,
     SIGNAL_STORAGE_VERSION,
 )
-from .models import UnknownDevice, UnknownSignal
+from .models import UnknownDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class SignalStore:
             try:
                 device = UnknownDevice.from_dict(entry)
                 self._devices[device.id] = device
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.warning("Skipping malformed unknown device: %s", err)
 
         self._dismissed = set(raw.get("dismissed") or [])
@@ -198,7 +198,7 @@ class SignalStore:
            last_seen first until under the limit.
         """
         removed = 0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cutoff = now - timedelta(days=SIGNAL_EVICT_AGE_DAYS)
 
         # Pass 1: age + low activity.

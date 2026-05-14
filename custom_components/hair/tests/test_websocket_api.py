@@ -1,21 +1,15 @@
 """Tests for the HAIR WebSocket API handlers."""
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.hair.const import (
     DOMAIN,
-    CaptureProviderType,
-    CaptureState,
-    CommandCategory,
     DeviceType,
 )
 from custom_components.hair.models import (
-    CaptureResult,
-    IRCommand,
     IRDevice,
     UnknownDevice,
     UnknownSignal,
@@ -46,7 +40,6 @@ from custom_components.hair.websocket_api import (
     ws_undismiss_unknown,
     ws_update_device,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

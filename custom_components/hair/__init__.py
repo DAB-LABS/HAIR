@@ -184,7 +184,7 @@ async def async_unload_entry(
     ):
         try:
             frontend.async_remove_panel(hass, PANEL_URL)
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Panel %s already removed", PANEL_URL)
         hass.data[DOMAIN].pop("_panel_registered", None)
 

@@ -7,17 +7,18 @@ activity for user assignment.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
-    DOMAIN,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
     SIGNAL_CLUSTER_THRESHOLD,
@@ -145,7 +146,7 @@ class SignalMonitor:
             return
 
         # Steps 7-9: Find/create device and signal (locked).
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         async with self._lock:
             device = self._signal_store.get_device_by_fingerprint(dev_fp)
             if device is None:
@@ -203,7 +204,7 @@ class SignalMonitor:
         for callback in self._subscribers:
             try:
                 callback(summary)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.exception("Error notifying signal subscriber")
 
     # -----------------------------------------------------------------
@@ -601,7 +602,7 @@ class SignalMonitor:
                     "error": "Signal not found"}
 
         # Lazy imports: infrared component only available at runtime on HA 2026.4+.
-        from homeassistant.components.infrared import (  # noqa: E402
+        from homeassistant.components.infrared import (
             async_send_command as ir_send,
         )
 
@@ -624,7 +625,7 @@ class SignalMonitor:
                 ir_send(self._hass, emitter_entity_id, ir_cmd),
                 timeout=ASSIGN_SERVICE_TIMEOUT_S,
             )
-        except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):  # noqa: UP041
             return {"success": False, "code": "send_timeout",
                     "error": "Emitter timed out"}
         except Exception as exc:
@@ -649,7 +650,5 @@ class SignalMonitor:
 
     def unsubscribe(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Remove a previously registered callback."""
-        try:
+        with contextlib.suppress(ValueError):
             self._subscribers.remove(callback)
-        except ValueError:
-            pass

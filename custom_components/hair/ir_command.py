@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 try:
     from infrared_protocols import Command, Timing
@@ -139,9 +138,7 @@ def build_command(
     Raises ValueError if neither Pronto hex nor raw timings are usable.
     """
     is_pronto = False
-    if protocol and protocol.upper() == "PRONTO":
-        is_pronto = True
-    elif code and code.startswith("0000 "):
+    if (protocol and protocol.upper() == "PRONTO") or (code and code.startswith("0000 ")):
         is_pronto = True
 
     if is_pronto and code:

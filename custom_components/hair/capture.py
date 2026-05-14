@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -11,8 +12,8 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
-    DEFAULT_CARRIER_FREQUENCY,
     DEFAULT_CAPTURE_TIMEOUT,
+    DEFAULT_CARRIER_FREQUENCY,
     CaptureProviderType,
 )
 from .models import CaptureResult
@@ -91,10 +92,10 @@ class ESPHomeCaptureProvider(CaptureProvider):
         self._running = True
 
         try:
-            from homeassistant.components import esphome  # type: ignore
+            from homeassistant.components import esphome  # noqa: F401  # type: ignore
         except ImportError:
             self._running = False
-            raise RuntimeError("ESPHome integration not available")
+            raise RuntimeError("ESPHome integration not available") from None
 
         # ESPHome publishes raw IR receiver events on the bus when the device
         # is configured with a remote_receiver yielding `dump:`. We subscribe
@@ -113,7 +114,7 @@ class ESPHomeCaptureProvider(CaptureProvider):
                 self._signal_queue.get(), timeout=self._timeout
             )
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     async def async_stop_capture(self) -> None:
@@ -207,17 +208,15 @@ class BroadlinkCaptureProvider(CaptureProvider):
     def _safe_check_data(self):
         try:
             return self._device.check_data()
-        except Exception:  # noqa: BLE001 - broadlink raises ad-hoc errors
+        except Exception:
             return None
 
     async def async_stop_capture(self) -> None:
         self._cancelled = True
-        try:
+        with contextlib.suppress(Exception):
             await self._hass.async_add_executor_job(
                 self._device.cancel_learning
             )
-        except Exception:  # noqa: BLE001 - older broadlink lacks cancel
-            pass
 
     def is_available(self) -> bool:
         return getattr(self._device, "is_alive", lambda: True)()
@@ -308,7 +307,7 @@ async def get_available_capture_providers(
     """
     providers: list[dict[str, Any]] = []
 
-    # ESPHome devices – only include devices that have IR-related
+    # ESPHome devices -- only include devices that have IR-related
     # entities (infrared.* from ir_rf_proxy, or remote.* as fallback).
     # This filters out non-IR ESPHome devices (sensors, lights, etc.).
     if "esphome" in hass.config.components:

@@ -1,8 +1,6 @@
 """Tests for the EventParser adapter layer."""
 from __future__ import annotations
 
-import pytest
-
 from custom_components.hair.event_parser import EventParser
 
 
@@ -211,7 +209,7 @@ class TestSignalFingerprint:
 
     def test_pronto_fingerprint_stable(self):
         """Same Pronto code produces the same fingerprint."""
-        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         fp1 = EventParser.signal_fingerprint("PRONTO", code, None)
         fp2 = EventParser.signal_fingerprint("PRONTO", code, None)
         assert fp1 == fp2
@@ -224,9 +222,9 @@ class TestSignalFingerprint:
         Pronto units between presses. S/L classification absorbs this.
         """
         # Original capture: short=0x20, long=0x40.
-        code1 = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code1 = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         # Same button, jittered: short=0x21, long=0x3F.
-        code2 = "0000 006D 000B 0000 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0BBA"
+        code2 = "0000 006D 000B 0000 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0021 0021 003F 0021 0BBA"  # noqa: E501
         fp1 = EventParser.signal_fingerprint("PRONTO", code1, None)
         fp2 = EventParser.signal_fingerprint("PRONTO", code2, None)
         assert fp1 == fp2
@@ -240,9 +238,9 @@ class TestSignalFingerprint:
         that's acceptable because the signal genuinely differs.
         """
         # 11 timing words after header.
-        code_short = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code_short = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         # 13 timing words -- two extra S values appended before gap.
-        code_long = "0000 006D 000D 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0BBA"
+        code_long = "0000 006D 000D 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0BBA"  # noqa: E501
         fp1 = EventParser.signal_fingerprint("PRONTO", code_short, None)
         fp2 = EventParser.signal_fingerprint("PRONTO", code_long, None)
         # These differ because the S/L pattern string is longer for code_long.
@@ -251,9 +249,9 @@ class TestSignalFingerprint:
     def test_pronto_different_buttons_different_fingerprints(self):
         """Two distinct buttons (different S/L patterns) produce different fps."""
         # Pattern: SSSLSSSLSSSLSSSLSSSLSSL (all short-long pairs).
-        code_a = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code_a = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         # Pattern: SSLSSSLSSLSSSLSSL (different arrangement).
-        code_b = "0000 006D 000B 0000 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0BBA"
+        code_b = "0000 006D 000B 0000 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0BBA"  # noqa: E501
         fp1 = EventParser.signal_fingerprint("PRONTO", code_a, None)
         fp2 = EventParser.signal_fingerprint("PRONTO", code_b, None)
         assert fp1 != fp2
@@ -264,7 +262,7 @@ class TestSignalFingerprint:
         assert len(fp) == 16
 
     def test_pronto_case_insensitive(self):
-        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         fp1 = EventParser.signal_fingerprint("PRONTO", code, None)
         fp2 = EventParser.signal_fingerprint("pronto", code, None)
         assert fp1 == fp2
@@ -309,16 +307,16 @@ class TestDeviceFingerprint:
         which is shared across all buttons on a given remote.
         """
         # Button A: SSSLSSSL...
-        code_a = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code_a = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         # Button B: SSLSSSLSSLSSL... (different command, same preamble SS).
-        code_b = "0000 006D 000B 0000 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0BBA"
+        code_b = "0000 006D 000B 0000 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0020 0020 0040 0020 0020 0020 0040 0BBA"  # noqa: E501
         fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code_a)
         fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code_b)
         # Same frequency (006D) and same first S/L pair (SS).
         assert fp1 == fp2
 
     def test_pronto_device_fingerprint_stable(self):
-        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code)
         fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code)
         assert fp1 == fp2
@@ -326,8 +324,8 @@ class TestDeviceFingerprint:
 
     def test_pronto_device_fingerprint_jitter_tolerant(self):
         """Jittered captures from the same remote produce the same device fp."""
-        code1 = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
-        code2 = "0000 006D 000B 0000 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 0BBA"
+        code1 = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
+        code2 = "0000 006D 000B 0000 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 001F 0021 003F 0021 0BBA"  # noqa: E501
         fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code1)
         fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code2)
         assert fp1 == fp2
@@ -335,9 +333,9 @@ class TestDeviceFingerprint:
     def test_pronto_different_frequency_different_device(self):
         """Remotes using different carrier frequencies produce different device fps."""
         # 006D = 38kHz
-        code_38k = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code_38k = "0000 006D 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         # 0073 = 36kHz
-        code_36k = "0000 0073 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"
+        code_36k = "0000 0073 000B 0000 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0020 0020 0040 0020 0BBA"  # noqa: E501
         fp1 = EventParser.device_fingerprint("PRONTO", None, None, code=code_38k)
         fp2 = EventParser.device_fingerprint("PRONTO", None, None, code=code_36k)
         assert fp1 != fp2

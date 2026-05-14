@@ -8,17 +8,23 @@ Integration tests against a real HA instance run on the HA Dev VM (VM999).
 """
 from __future__ import annotations
 
+import datetime
+import enum
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock
-import enum
+
+# Python 3.10 fallback -- datetime.UTC was added in 3.11.
+if not hasattr(datetime, "UTC"):
+    datetime.UTC = datetime.timezone.utc  # type: ignore[attr-defined]  # noqa: UP017
+
 try:
     from enum import StrEnum
 except ImportError:
     # Python 3.10 fallback -- inject into enum module so HAIR's const.py works.
     # Real StrEnum (3.11+) has str(member) == member.value. The default 3.10
     # (str, Enum) gives "ClassName.MEMBER". Override __str__ to match 3.11+.
-    class StrEnum(str, enum.Enum):  # type: ignore[no-redef]
+    class StrEnum(str, enum.Enum):  # noqa: UP042  # type: ignore[no-redef]
         def __str__(self) -> str:
             return self.value
 

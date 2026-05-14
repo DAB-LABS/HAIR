@@ -1,12 +1,12 @@
 """Tests for the HAIR storage layer."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from custom_components.hair.const import DeviceType
-from custom_components.hair.models import IRCommand, IRDevice
+from custom_components.hair.models import IRDevice
 from custom_components.hair.storage import HAIRStore
 
 
@@ -61,7 +61,10 @@ async def test_store_filters(fake_hass):
         store = HAIRStore(fake_hass)
         await store.async_load()
 
-        tv = IRDevice(name="TV", device_type=DeviceType.MEDIA_PLAYER, emitter_entity_ids=["infrared.a"])
+        tv = IRDevice(
+            name="TV", device_type=DeviceType.MEDIA_PLAYER,
+            emitter_entity_ids=["infrared.a"],
+        )
         ac = IRDevice(name="AC", device_type=DeviceType.AC, emitter_entity_ids=["infrared.b"])
         store.add_device(tv)
         store.add_device(ac)

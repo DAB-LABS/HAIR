@@ -7,7 +7,6 @@ from typing import Any
 from homeassistant.components.light import (
     ColorMode,
     LightEntity,
-    LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback

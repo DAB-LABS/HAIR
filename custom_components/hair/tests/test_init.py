@@ -1,23 +1,20 @@
 """Tests for the HAIR integration __init__.py setup/teardown."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.hair import (
+    DOMAIN,
+    PLATFORMS_LIST,
+    _async_register_panel,
+    async_remove_entry,
     async_setup,
     async_setup_entry,
     async_unload_entry,
-    async_remove_entry,
-    _async_register_panel,
-    PLATFORMS_LIST,
-    PANEL_FILENAME,
-    PANEL_STATIC_PATH,
-    DOMAIN,
 )
 from custom_components.hair.const import PANEL_URL
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -85,7 +82,7 @@ class TestAsyncSetupEntry:
         entry = _fake_entry()
 
         with patch("custom_components.hair.HAIRStore") as mock_store_cls, \
-             patch("custom_components.hair.async_register_websocket_commands") as mock_ws, \
+             patch("custom_components.hair.async_register_websocket_commands"), \
              patch("custom_components.hair._async_register_panel", new_callable=AsyncMock):
             mock_store = MagicMock()
             mock_store.async_load = AsyncMock()

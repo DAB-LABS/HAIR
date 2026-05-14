@@ -2,32 +2,29 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.hair.capture import MockCaptureProvider, CaptureProvider
+from custom_components.hair.capture import CaptureProvider, MockCaptureProvider
 from custom_components.hair.capture_orchestrator import (
     CaptureInProgressError,
     CaptureOrchestrator,
 )
 from custom_components.hair.const import (
+    EVENT_CAPTURE_ERROR,
+    EVENT_CAPTURE_TIMEOUT,
+    EVENT_COMMAND_CAPTURED,
     CaptureProviderType,
     CaptureState,
     CommandCategory,
     CommandSource,
-    DeviceType,
-    EVENT_CAPTURE_ERROR,
-    EVENT_CAPTURE_TIMEOUT,
-    EVENT_COMMAND_CAPTURED,
 )
 from custom_components.hair.models import (
     CaptureResult,
-    EntityConfig,
     IRCommand,
     IRDevice,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,7 +40,10 @@ def _hass():
 
 
 def _result(**overrides):
-    defaults = dict(protocol="NEC", code="0x1234", raw_timings=[9000, -4500], frequency=38000, confidence=0.95)
+    defaults = dict(
+        protocol="NEC", code="0x1234", raw_timings=[9000, -4500],
+        frequency=38000, confidence=0.95,
+    )
     defaults.update(overrides)
     return CaptureResult(**defaults)
 
@@ -114,8 +114,6 @@ class TestOrchestratorLifecycle:
         hass = _hass()
         orch = CaptureOrchestrator(hass)
         provider = MockCaptureProvider(result=_result(), delay=1.0)
-
-        events = []
 
         # Subscribe before start_capture won't work because we don't have
         # the session_id yet. Instead, check state after start returns.
@@ -435,7 +433,7 @@ class TestLockRecovery:
         orch = CaptureOrchestrator(hass)
         provider = _FailingProvider()
 
-        session = await orch.start_capture(provider, "dev-1", timeout=1)
+        await orch.start_capture(provider, "dev-1", timeout=1)
         await asyncio.sleep(0.15)
 
         assert not orch.is_capturing

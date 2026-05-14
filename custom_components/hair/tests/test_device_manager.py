@@ -7,7 +7,6 @@ import pytest
 
 from custom_components.hair.const import (
     CommandCategory,
-    CommandSource,
     DeviceType,
 )
 from custom_components.hair.device_manager import (

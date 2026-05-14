@@ -1,7 +1,7 @@
 """Tests for the SignalStore persistence layer."""
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,9 +9,6 @@ import pytest
 from custom_components.hair.const import (
     SIGNAL_BUFFER_MAX_DEVICES,
     SIGNAL_EVICT_AGE_DAYS,
-    SIGNAL_EVICT_MIN_HITS,
-    SIGNAL_SAVE_DEBOUNCE_S,
-    SIGNAL_SAVE_MAX_DELAY_S,
 )
 from custom_components.hair.models import UnknownDevice, UnknownSignal
 from custom_components.hair.signal_store import SignalStore
@@ -33,7 +30,7 @@ def _make_device(
     dismissed: bool = False,
 ) -> UnknownDevice:
     if last_seen is None:
-        last_seen = datetime.now(timezone.utc).isoformat()
+        last_seen = datetime.now(UTC).isoformat()
     return UnknownDevice(
         id=device_id,
         fingerprint=fingerprint,
@@ -205,7 +202,7 @@ class TestEviction:
         hass = _make_hass()
         store = SignalStore(hass)
         old_time = (
-            datetime.now(timezone.utc) - timedelta(days=SIGNAL_EVICT_AGE_DAYS + 1)
+            datetime.now(UTC) - timedelta(days=SIGNAL_EVICT_AGE_DAYS + 1)
         ).isoformat()
         store.add_device(_make_device("old_low", hit_count=2, last_seen=old_time))
         store.add_device(_make_device("old_high", hit_count=20, last_seen=old_time))
@@ -221,7 +218,7 @@ class TestEviction:
         hass = _make_hass()
         store = SignalStore(hass)
         old_time = (
-            datetime.now(timezone.utc) - timedelta(days=SIGNAL_EVICT_AGE_DAYS + 1)
+            datetime.now(UTC) - timedelta(days=SIGNAL_EVICT_AGE_DAYS + 1)
         ).isoformat()
         store.add_device(
             _make_device("dismissed_old", hit_count=1, last_seen=old_time, dismissed=True)
@@ -271,7 +268,7 @@ class TestScheduleSave:
         hass.loop.call_later.return_value = timer_mock
         store = SignalStore(hass)
         store.schedule_save()
-        first_count = hass.loop.call_later.call_count
+        _first_count = hass.loop.call_later.call_count
         store.schedule_save()
         # Debounce timer should have been cancelled and re-created.
         timer_mock.cancel.assert_called()

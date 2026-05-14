@@ -1,19 +1,17 @@
 """WebSocket API for HAIR frontend communication."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from .capture import (
     CaptureProviderType,
-    get_capture_provider_for_device,
     get_available_capture_providers,
+    get_capture_provider_for_device,
 )
 from .capture_orchestrator import (
     CaptureInProgressError,
@@ -29,8 +27,9 @@ from .const import (
     DeviceType,
 )
 from .device_manager import DeviceManager, category_for_command_name
-from .models import IRCommand, IRDevice
+from .models import IRDevice
 from .signal_monitor import SignalMonitor
+from .signal_store import SignalStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -290,7 +289,7 @@ async def ws_send_command(
     except KeyError as err:
         connection.send_error(msg["id"], "not_found", str(err))
         return
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "send_failed", str(err))
         return
     connection.send_result(msg["id"], {"sent": True})
@@ -388,13 +387,13 @@ async def ws_start_capture(
     except CaptureInProgressError as err:
         connection.send_error(msg_id, "in_progress", str(err))
         return
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg_id, "capture_failed", str(err))
         return
 
     # Subscribe to capture events and forward them as pushed events.
     @callback
-    def _on_event(state: CaptureState, result) -> None:  # noqa: ANN001
+    def _on_event(state: CaptureState, result) -> None:
         payload: dict[str, Any]
         if state == CaptureState.LISTENING:
             payload = {"type": "capture_listening"}

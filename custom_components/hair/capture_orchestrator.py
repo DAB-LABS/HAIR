@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -100,10 +101,8 @@ class CaptureOrchestrator:
             return
         if self._task is not None and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
 
     def subscribe(
         self,
@@ -131,7 +130,7 @@ class CaptureOrchestrator:
         for callback in list(self._listeners.get(session_id, [])):
             try:
                 callback(state, result)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.exception("Capture listener raised")
 
     async def _capture_loop(
@@ -149,7 +148,7 @@ class CaptureOrchestrator:
             await self._safe_stop(provider)
             self._finalize()
             raise
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.exception("Capture provider raised")
             session.state = CaptureState.ERROR
             self._notify(session.session_id, CaptureState.ERROR, None)
@@ -190,7 +189,7 @@ class CaptureOrchestrator:
     async def _safe_stop(self, provider: CaptureProvider) -> None:
         try:
             await provider.async_stop_capture()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.exception("Stopping capture provider raised")
 
     def _finalize(self) -> None:

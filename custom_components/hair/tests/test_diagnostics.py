@@ -5,16 +5,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.hair.diagnostics import (
-    async_get_config_entry_diagnostics,
-    REDACT_KEYS,
-)
 from custom_components.hair.const import (
+    DOMAIN,
     CommandCategory,
     CommandSource,
-    CaptureProviderType,
     DeviceType,
-    DOMAIN,
+)
+from custom_components.hair.diagnostics import (
+    REDACT_KEYS,
+    async_get_config_entry_diagnostics,
 )
 from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
 

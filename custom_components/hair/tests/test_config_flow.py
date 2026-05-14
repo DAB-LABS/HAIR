@@ -1,13 +1,11 @@
 """Tests for the HAIR config flow."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from custom_components.hair.config_flow import HAIRConfigFlow
-from custom_components.hair.const import DOMAIN
-
 
 # ---------------------------------------------------------------------------
 # Helpers
