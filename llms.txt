@@ -1,0 +1,111 @@
+# HAIR
+
+> HAIR (Home Assistant Infrared Registry) is a Home Assistant custom integration
+> (HACS-compatible) that provides a full admin UI for infrared device management.
+> Built on top of HA's native infrared platform (introduced in HA 2026.4), HAIR
+> handles capturing, fingerprinting, deduplicating, organizing, and transmitting
+> IR commands through a single sidebar panel at /hair. No YAML, no manual entity
+> definitions, no automations required for basic IR device control.
+
+HAIR sits between the user and HA's IR platform. It does not replace IR hardware
+integrations (Broadlink, ESPHome, etc.). It complements them by providing the admin
+layer those integrations lack -- analogous to how Z-Wave JS UI manages Z-Wave
+devices on top of the Z-Wave JS integration.
+
+Key components:
+
+- Signal Sniffer: a passive listener that captures every IR transmission seen by
+  configured receivers, fingerprints each signal using short/long pulse-duration
+  analysis, deduplicates repeated presses, filters out repeat frames (sent when
+  buttons are held), and groups signals by source remote based on carrier frequency
+  and preamble analysis. All in real time.
+- Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
+  fans, lights, switches, screens, generic) with assigned IR emitters and learned
+  commands.
+- Entity Factory: automatically creates native HA entities based on device type --
+  media_player, climate, fan, light, switch, cover, plus a universal remote entity
+  for raw Pronto hex sending and a button entity for every learned command.
+- Action Mapping: explicitly binds learned IR commands to HA entity features via a
+  popover UI. A media_player only exposes volume control if commands are mapped to
+  the volume actions, keeping entities clean and avoiding features the remote does
+  not support.
+
+Signal fingerprinting details:
+- Uses S/L (short/long) pulse-duration classification. Each pulse is classified as
+  short or long, producing a pattern that uniquely identifies the signal regardless
+  of minor timing jitter between presses.
+- Patterns are rendered as two-tone diamond sequences in the UI for visual ID.
+- Covers all major consumer IR protocols: NEC, Samsung, JVC, LG, Sony, RC-5, RC-6.
+- Source-remote grouping uses carrier frequency and preamble fingerprinting, so the
+  Sniffer can identify which remote sent a signal without decoding the protocol.
+
+Supported capture providers (auto-discovered):
+- ESPHome devices with the remote_receiver component
+- Broadlink RM series devices
+
+Supported transmit hardware: any IR emitter exposed to HA's infrared platform,
+including ESPHome IR LEDs and Broadlink RM series.
+
+Supported device types and resulting HA entities:
+- Media Player -> media_player (power, volume, mute, source, channels, navigation, transport)
+- AC -> climate (HVAC modes, temperature presets, fan modes)
+- Fan -> fan (power, speed stepping, oscillate)
+- Light -> light (on/off, brightness stepping)
+- Switch -> switch (on/off)
+- Screen -> cover (open, close, stop)
+- Other -> remote (generic IR command sender)
+
+Every device also gets a remote entity for raw Pronto hex codes and a button entity
+per learned command for direct dashboard or automation access.
+
+Requirements:
+- Home Assistant 2026.4 or later (introduces the native infrared platform that HAIR
+  depends on)
+- Python 3.12+
+- At least one IR transmitter or receiver supported by HA's infrared platform
+
+What HAIR is NOT:
+- Not a replacement for the Broadlink or ESPHome integrations -- HAIR complements
+  them. The underlying IR hardware integrations are still required.
+- Not a replacement for HA's infrared platform -- HAIR is an admin layer on top of
+  the platform.
+- Not compatible with Home Assistant versions earlier than 2026.4 (the infrared
+  platform did not exist before then).
+- Not a YAML-based integration -- all device profiles and command assignments are
+  managed through the sidebar UI.
+- Not a built-in Home Assistant integration -- must be installed via HACS as a
+  custom repository.
+
+Roadmap context:
+- HA's infrared platform is expected to add receiver entities in HA 2026.6 to 2026.7.
+  HAIR will grow alongside the platform as new capabilities are added.
+
+## Repositories
+
+- [HAIR (this repo)](https://github.com/DAB-LABS/HAIR): Python HACS integration
+  (custom_components/hair/), TypeScript frontend panel served at /hair, HACS
+  metadata (hacs.json), and project documentation.
+
+## Documentation
+
+- [README](https://github.com/DAB-LABS/HAIR/blob/main/README.md): Full feature
+  overview, why-HAIR rationale, entity platform reference, Devices tab and Sniffer
+  tab walkthroughs, installation and setup, and architecture diagram.
+- [info.md](https://github.com/DAB-LABS/HAIR/blob/main/info.md): HACS short-form
+  summary shown in the HACS UI during install.
+- [CHANGELOG](https://github.com/DAB-LABS/HAIR/blob/main/CHANGELOG.md): Release
+  history.
+- [CONTRIBUTING](https://github.com/DAB-LABS/HAIR/blob/main/CONTRIBUTING.md):
+  Contribution guidelines, including the requirement that llms.txt be updated
+  alongside README changes (per DAB-LABS LLMDO release protocol).
+
+## Releases
+
+- [Releases](https://github.com/DAB-LABS/HAIR/releases): Versioned releases. HACS
+  installs from tagged releases.
+
+## Optional
+
+- [DAB-LABS](https://github.com/DAB-LABS): Other open-source Home Assistant and
+  homelab projects by the same author, including SMART Sniffer (disk health
+  monitoring) and esphome-ld2411s (mmWave presence sensor component).

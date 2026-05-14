@@ -27,6 +27,7 @@ Summary of the approach taken.
 - [ ] New code has tests where applicable
 - [ ] Tested manually on a Home Assistant instance (if applicable)
 - [ ] Documentation updated (README, docstrings, etc.)
+- [ ] If this PR changes user-facing features, README, or documentation, I have updated `llms.txt` accordingly.
 
 ## Screenshots
 

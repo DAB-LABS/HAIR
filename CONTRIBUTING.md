@@ -95,6 +95,34 @@ Use the [GitHub issue tracker](https://github.com/DAB-LABS/HAIR/issues). Include
 - TypeScript: LitElement conventions, Lit decorators for properties
 - Keep public-facing text (README, comments, UI copy) free of em-dashes
 
+## Updating llms.txt
+
+HAIR ships an `llms.txt` file in the repo root that gives AI assistants and
+crawlers a curated summary of the project. It must remain consistent with the
+README and CHANGELOG.
+
+When to update `llms.txt`:
+
+- Any PR that modifies `README.md` and changes user-facing features, capabilities,
+  supported hardware, configuration, or documentation structure
+- Any PR that adds a new feature, ships a roadmap item, or changes platform support
+- Any PR that adds new device types, supported IR protocols, or capture providers
+- Any PR that changes the Home Assistant version requirement
+
+Rules:
+
+- `llms.txt` must follow the [llmstxt.org spec](https://llmstxt.org/): H1, blockquote
+  summary, body sections, H2 link sections, optional Optional section
+- No em-dashes in `llms.txt`. Use double-hyphens (`--`), parentheses, or separate
+  sentences instead
+- Keep the file under 200 lines
+- Every claim must be verifiable against the README or CHANGELOG
+
+Releases:
+
+- The pre-release checklist requires verifying `llms.txt` reflects all changes in
+  this release's CHANGELOG entries before tagging.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
