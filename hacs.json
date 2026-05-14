@@ -1,6 +1,5 @@
 {
     "name": "HAIR",
-    "description": "IR device admin panel. Learn signals, manage remotes, all from the GUI.",
     "homeassistant": "2026.4.0",
     "render_readme": true,
     "zip_release": false
