@@ -658,10 +658,10 @@ export class IrSignalMonitor extends LitElement {
                                       @click=${(e: Event) => e.stopPropagation()}
                                   >HAIR Device</span>`
                                 : d.label
-                                    ? html`<button
-                                          class="action-btn promote-btn"
+                                    ? html`<span
+                                          class="status-badge promote-badge"
                                           @click=${(e: Event) => this._promoteDevice(d, e)}
-                                      >Promote</button>`
+                                      >Promote</span>`
                                     : ""}
                         </div>
                     </div>
@@ -887,9 +887,23 @@ export class IrSignalMonitor extends LitElement {
             border: 1px solid rgba(46, 125, 50, 0.3);
             margin-left: 4px;
         }
-        .promote-btn {
-            flex-shrink: 0;
+        .status-badge.promote-badge {
+            font-size: 0.7rem;
+            font-weight: 500;
+            font-family: inherit;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            background: rgba(0, 150, 136, 0.15);
+            color: #00897b;
+            border: 1px solid rgba(0, 150, 136, 0.3);
             margin-left: 4px;
+            cursor: pointer;
+            transition: background 150ms ease;
+        }
+        .status-badge.promote-badge:hover {
+            background: rgba(0, 150, 136, 0.25);
         }
         .device-dismiss-btn {
             flex-shrink: 0;

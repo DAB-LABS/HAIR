@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="custom_components/hair/frontend/hair-header.png" alt="HAIR - Home Assistant IR" width="600" />
+  <img src="custom_components/hair/frontend/hair-header.png" alt="HAIR - Home Assistant Infrared Registry" width="600" />
 </p>
 
-# HAIR - Home Assistant IR
+# HAIR - Home Assistant Infrared Registry
 
 A custom Home Assistant integration that provides a full admin interface for infrared device management. Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, organizing, and controlling IR commands through a single sidebar panel at `/hair`.
 
@@ -16,13 +16,13 @@ Before the infrared platform, IR in HA was fragmented. Broadlink had its own int
 
 The infrared platform solves the transport layer. HAIR solves everything above it: the admin experience for capturing signals, fingerprinting and deduplicating them, organizing them into device profiles, and automatically creating the right HA entities with proper feature mappings. Think of it like how the Z-Wave JS UI manages Z-Wave devices, but for IR.
 
-HAIR also introduces signal fingerprinting using Pronto hex pulse-duration analysis. Every captured IR signal is reduced to a short/long (S/L) pattern that identifies it regardless of the minor timing jitter between presses. This means the Sniffer can group signals by source remote, deduplicate repeated button presses, and track how often each signal appears, all without knowing the specific IR protocol.
+HAIR also introduces signal fingerprinting using Pronto hex pulse-duration analysis. Every captured IR signal is reduced to a short/long (S/L) pattern that identifies it regardless of the minor timing jitter between presses. This works across all major consumer IR protocols including NEC, Samsung, JVC, LG, Sony, and RC-5/RC-6. The Sniffer groups signals by source remote, deduplicates repeated button presses, filters out repeat frames, and tracks how often each signal appears, all without needing to decode the specific IR protocol.
 
 As HA's IR ecosystem matures (receiver entities are expected in 2026.6-2026.7), HAIR will grow alongside it. The goal is to be the go-to admin tool for anyone with IR-controlled devices in their home.
 
 ## Features
 
-**Signal Sniffer** - Passive IR listener that runs in the background. Every IR transmission your receivers detect is captured, fingerprinted, and grouped by source device. Signals are deduplicated automatically: press the same button ten times and you see one signal with a hit count of ten. The Sniffer shows you what remotes are active in your home and which buttons are being pressed, all in real time.
+**Signal Sniffer** - Passive IR listener that runs in the background. Every IR transmission your receivers detect is captured, fingerprinted, and grouped by source device. Signals are deduplicated automatically: press the same button ten times and you see one signal with a hit count of ten. Repeat frames (sent when you hold a button down) are filtered out so only actual command signals appear. The Sniffer shows you what remotes are active in your home and which buttons are being pressed, all in real time.
 
 **Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Each device gets native HA entities automatically based on its type.
 
@@ -128,7 +128,9 @@ HAIR discovers capture-capable hardware automatically:
 
 Captured IR signals are converted to Pronto hex and fingerprinted using pulse-duration analysis. Each timing word in the Pronto data is classified as short (S) or long (L) relative to a threshold. The resulting S/L pattern identifies the signal regardless of minor timing variations between presses. In the UI, these patterns are shown as two-tone diamond sequences for quick visual identification.
 
-Signals are also grouped by source device using the carrier frequency and preamble S/L pattern. This is how the Sniffer knows which remote a signal came from without needing to decode the specific IR protocol.
+This works across the full range of consumer IR protocols, including NEC-family protocols (NEC, Samsung, JVC, LG) whose lead-in marks are much longer than normal data pulses. HAIR recognizes these lead-in signatures and classifies them correctly rather than treating them as end-of-signal gaps. NEC-style repeat frames (short transmissions sent while a button is held) are filtered automatically so the Sniffer only shows actual command signals.
+
+Signals are grouped by source device using the carrier frequency and protocol-aware preamble analysis. For NEC-family signals, HAIR extracts the device address portion of the S/L pattern to distinguish between remotes. For other protocols, the first burst pair serves as the preamble fingerprint. This is how the Sniffer knows which remote a signal came from without needing to decode the specific IR protocol.
 
 ### Architecture
 

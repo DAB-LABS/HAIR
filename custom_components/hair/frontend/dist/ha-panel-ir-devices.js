@@ -1900,10 +1900,10 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
                             ${e.label&&this._matchesHairDevice(e.label)?j`<span
                                       class="status-badge hair-device"
                                       @click=${e=>e.stopPropagation()}
-                                  >HAIR Device</span>`:e.label?j`<button
-                                          class="action-btn promote-btn"
+                                  >HAIR Device</span>`:e.label?j`<span
+                                          class="status-badge promote-badge"
                                           @click=${t=>this._promoteDevice(e,t)}
-                                      >Promote</button>`:""}
+                                      >Promote</span>`:""}
                         </div>
                     </div>
                     ${e.dismissed?j`<button
@@ -2086,9 +2086,23 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
             border: 1px solid rgba(46, 125, 50, 0.3);
             margin-left: 4px;
         }
-        .promote-btn {
-            flex-shrink: 0;
+        .status-badge.promote-badge {
+            font-size: 0.7rem;
+            font-weight: 500;
+            font-family: inherit;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            background: rgba(0, 150, 136, 0.15);
+            color: #00897b;
+            border: 1px solid rgba(0, 150, 136, 0.3);
             margin-left: 4px;
+            cursor: pointer;
+            transition: background 150ms ease;
+        }
+        .status-badge.promote-badge:hover {
+            background: rgba(0, 150, 136, 0.25);
         }
         .device-dismiss-btn {
             flex-shrink: 0;
@@ -2296,11 +2310,11 @@ function e(e,t,i,s){var a,o=arguments.length,n=o<3?t:null===s?s=Object.getOwnPro
         }
     `,e([pe({attribute:!1})],Me.prototype,"api",void 0),e([pe({attribute:!1})],Me.prototype,"hass",void 0),e([me()],Me.prototype,"_devices",void 0),e([me()],Me.prototype,"_hairDevices",void 0),e([me()],Me.prototype,"_loading",void 0),e([me()],Me.prototype,"_error",void 0),e([me()],Me.prototype,"_showDismissed",void 0),e([me()],Me.prototype,"_expandedId",void 0),e([me()],Me.prototype,"_expandedDevice",void 0),e([me()],Me.prototype,"_flashIds",void 0),e([me()],Me.prototype,"_flashStats",void 0),e([me()],Me.prototype,"_recentFingerprints",void 0),e([me()],Me.prototype,"_glowFingerprints",void 0),e([me()],Me.prototype,"_hitFlashFingerprints",void 0),e([me()],Me.prototype,"_confirmClearAll",void 0),e([me()],Me.prototype,"_editingDeviceId",void 0),e([me()],Me.prototype,"_editLabel",void 0),e([me()],Me.prototype,"_promoteTarget",void 0),e([me()],Me.prototype,"_assignSignal",void 0),e([me()],Me.prototype,"_deleteSignal",void 0),e([me()],Me.prototype,"_testingFingerprint",void 0),e([me()],Me.prototype,"_testResult",void 0),Me=e([ce("ir-signal-monitor")],Me);let Pe=class extends re{constructor(){super(...arguments),this.narrow=!1,this._activeTab="devices",this._devices=[],this._expandedDeviceId=null,this._loading=!0,this._error=null,this._addDialogOpen=!1,this._api=null}connectedCallback(){super.connectedCallback(),this.hass&&this._init()}updated(e){e.has("hass")&&this.hass&&!this._api&&this._init()}_init(){this._api=new ue(this.hass),this._refreshDevices()}async _refreshDevices(){if(this._api){this._loading=!0;try{this._devices=await this._api.listDevices(),this._error=null}catch(e){this._error=`Failed to load devices: ${e.message}`}finally{this._loading=!1}}}_toggleDevice(e){this._expandedDeviceId=this._expandedDeviceId===e?null:e}_openAddDialog(){this._addDialogOpen=!0}_closeAddDialog(){this._addDialogOpen=!1}async _onDeviceCreated(e){this._addDialogOpen=!1,await this._refreshDevices(),this._expandedDeviceId=e.detail.id}async _onDeviceChanged(){await this._refreshDevices()}async _onDeviceDeleted(){this._expandedDeviceId=null,await this._refreshDevices()}_switchTab(e){this._expandedDeviceId=null,this._activeTab=e,"devices"===e&&this._refreshDevices()}render(){return this._api?j`
             <ha-top-app-bar-fixed>
-                <ha-icon-button
+                <ha-menu-button
                     slot="navigationIcon"
-                    .path=${"M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"}
-                ></ha-icon-button>
-                <span slot="title">HAIR</span>
+                    .hass=${this.hass}
+                ></ha-menu-button>
+                <span slot="title">Home Assistant Infrared Registry</span>
             </ha-top-app-bar-fixed>
 
             <div class="header-banner">
