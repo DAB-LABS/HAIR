@@ -95,6 +95,17 @@ export class IrTriggerDialog extends LitElement {
         }
     }
 
+    private _emitDelete(): void {
+        if (!this.trigger) return;
+        this.dispatchEvent(
+            new CustomEvent("trigger-delete", {
+                detail: { triggerId: this.trigger.id },
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     /** Render S/L diamond pattern from a pattern string like "SLLSLLS". */
     private _renderDiamonds(pattern: string) {
         return html`<span class="diamonds">${[...pattern].map((ch) =>
@@ -170,6 +181,14 @@ export class IrTriggerDialog extends LitElement {
                         : ""}
 
                     <div class="actions">
+                        ${isEdit
+                            ? html`<button
+                                  class="btn delete-btn"
+                                  @click=${this._emitDelete}
+                                  ?disabled=${this._busy}
+                              >Delete</button>`
+                            : ""}
+                        <span class="actions-spacer"></span>
                         <button
                             class="btn cancel"
                             @click=${this._close}
@@ -286,9 +305,12 @@ export class IrTriggerDialog extends LitElement {
         }
         .actions {
             display: flex;
-            justify-content: flex-end;
+            align-items: center;
             gap: 8px;
             margin-top: 4px;
+        }
+        .actions-spacer {
+            flex: 1;
         }
         .btn {
             background: none;
@@ -318,6 +340,13 @@ export class IrTriggerDialog extends LitElement {
         }
         .save:hover {
             background: #a08328;
+        }
+        .delete-btn {
+            color: #e65100;
+            border-color: rgba(230, 81, 0, 0.3);
+        }
+        .delete-btn:hover {
+            background: rgba(230, 81, 0, 0.08);
         }
     `;
 }

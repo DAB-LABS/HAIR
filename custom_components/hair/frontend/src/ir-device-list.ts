@@ -12,6 +12,7 @@ import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
+import "./ir-confirm-dialog.js";
 import type { HairApi } from "./api.js";
 import type {
     CaptureProviderInfo,
@@ -62,6 +63,10 @@ const ICON_PROXY =
 const ICON_TRIGGER =
     "M7,2V13H10V22L17,10H13L17,2H7Z";
 
+// MDI: delete-outline (trash icon)
+const ICON_TRASH =
+    "M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z";
+
 @customElement("ir-device-list")
 export class IrDeviceList extends LitElement {
     @property({ attribute: false }) public devices: DeviceSummary[] = [];
@@ -76,6 +81,7 @@ export class IrDeviceList extends LitElement {
     @state() private _triggers: IRTrigger[] = [];
     @state() private _glowTriggerIds = new Set<string>();
     @state() private _editTrigger: IRTrigger | null = null;
+    @state() private _confirmDeleteTrigger: IRTrigger | null = null;
 
     private _unsubTriggerFired: (() => Promise<void>) | null = null;
 
@@ -250,8 +256,15 @@ export class IrDeviceList extends LitElement {
         }
     }
 
-    private async _deleteTrigger(trigger: IRTrigger, e: Event): Promise<void> {
+    private _requestDeleteTrigger(trigger: IRTrigger, e: Event): void {
         e.stopPropagation();
+        this._confirmDeleteTrigger = trigger;
+    }
+
+    private async _doDeleteTrigger(): Promise<void> {
+        if (!this._confirmDeleteTrigger) return;
+        const trigger = this._confirmDeleteTrigger;
+        this._confirmDeleteTrigger = null;
         try {
             await this.api!.deleteTrigger(trigger.id);
             await this._loadTriggers();
@@ -386,6 +399,56 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
+            <!-- Triggers -->
+            ${hasTriggers
+                ? html`
+                      <div class="section-header">
+                          <h2>Triggers</h2>
+                          <span class="section-count">${this._triggers.length}</span>
+                      </div>
+                      <div class="grid">
+                          ${this._triggers.map(
+                              (t) => html`
+                                  <div
+                                      class="card trigger-card ${this._glowTriggerIds.has(t.id) ? "trigger-glow" : ""} ${!t.enabled ? "trigger-disabled" : ""}"
+                                      tabindex="0"
+                                      @click=${(e: Event) => this._openEditTrigger(t, e)}
+                                      @keydown=${(e: KeyboardEvent) => {
+                                          if (e.key === "Enter" || e.key === " ") {
+                                              e.preventDefault();
+                                              this._openEditTrigger(t, e);
+                                          }
+                                      }}
+                                  >
+                                      <div class="card-header">
+                                          <ha-svg-icon .path=${ICON_TRIGGER}></ha-svg-icon>
+                                          <div class="card-name">${t.name}</div>
+                                      </div>
+                                      <div class="card-meta">IR Signal</div>
+                                      <div class="card-footer">
+                                          ${t.min_hits > 1
+                                              ? html`<span class="badge trigger-hits-badge">
+                                                    ${t.min_hits}x hits
+                                                </span>`
+                                              : nothing}
+                                          <span
+                                              class="badge trigger-toggle ${t.enabled ? "trigger-enabled" : "trigger-off"}"
+                                              @click=${(e: Event) => this._toggleTriggerEnabled(t, e)}
+                                          >${t.enabled ? "ON" : "OFF"}</span>
+                                          <ha-svg-icon
+                                              class="trigger-trash"
+                                              .path=${ICON_TRASH}
+                                              title="Delete trigger"
+                                              @click=${(e: Event) => this._requestDeleteTrigger(t, e)}
+                                          ></ha-svg-icon>
+                                      </div>
+                                  </div>
+                              `,
+                          )}
+                      </div>
+                  `
+                : nothing}
+
             <!-- Emitters -->
             ${hasEmitters
                 ? html`
@@ -500,61 +563,6 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
-            <!-- Triggers -->
-            ${hasTriggers
-                ? html`
-                      <div class="section-header trigger-header">
-                          <h2>Triggers</h2>
-                          <span class="section-count trigger-count">${this._triggers.length}</span>
-                      </div>
-                      <div class="grid">
-                          ${this._triggers.map(
-                              (t) => html`
-                                  <div
-                                      class="card trigger-card ${this._glowTriggerIds.has(t.id) ? "trigger-glow" : ""} ${!t.enabled ? "trigger-disabled" : ""}"
-                                      tabindex="0"
-                                      @click=${(e: Event) => this._openEditTrigger(t, e)}
-                                      @keydown=${(e: KeyboardEvent) => {
-                                          if (e.key === "Enter" || e.key === " ") {
-                                              e.preventDefault();
-                                              this._openEditTrigger(t, e);
-                                          }
-                                      }}
-                                  >
-                                      <div class="card-header">
-                                          <ha-svg-icon
-                                              class="trigger-icon"
-                                              .path=${ICON_TRIGGER}
-                                          ></ha-svg-icon>
-                                          <div class="card-name">${t.name}</div>
-                                      </div>
-                                      <div class="card-meta">
-                                          ${t.protocol
-                                              ? t.protocol.toUpperCase()
-                                              : "IR Signal"}
-                                      </div>
-                                      <div class="card-footer">
-                                          ${t.min_hits > 1
-                                              ? html`<span class="badge trigger-hits-badge">
-                                                    ${t.min_hits}x hits
-                                                </span>`
-                                              : nothing}
-                                          <span
-                                              class="badge trigger-toggle ${t.enabled ? "trigger-enabled" : "trigger-off"}"
-                                              @click=${(e: Event) => this._toggleTriggerEnabled(t, e)}
-                                          >${t.enabled ? "ON" : "OFF"}</span>
-                                          <span
-                                              class="badge trigger-delete-badge"
-                                              @click=${(e: Event) => this._deleteTrigger(t, e)}
-                                          >Delete</span>
-                                      </div>
-                                  </div>
-                              `,
-                          )}
-                      </div>
-                  `
-                : nothing}
-
             ${this._editTrigger
                 ? html`
                       <ir-trigger-dialog
@@ -563,6 +571,19 @@ export class IrDeviceList extends LitElement {
                           @trigger-saved=${this._onTriggerUpdated}
                           @closed=${this._closeEditTrigger}
                       ></ir-trigger-dialog>
+                  `
+                : nothing}
+
+            ${this._confirmDeleteTrigger
+                ? html`
+                      <ir-confirm-dialog
+                          title="Delete Trigger"
+                          message="Remove &quot;${this._confirmDeleteTrigger.name}&quot;? The associated HA event entity will also be removed."
+                          confirmLabel="Delete"
+                          .destructive=${true}
+                          @confirmed=${this._doDeleteTrigger}
+                          @closed=${() => (this._confirmDeleteTrigger = null)}
+                      ></ir-confirm-dialog>
                   `
                 : nothing}
         `;
@@ -748,19 +769,8 @@ export class IrDeviceList extends LitElement {
         }
 
         /* --- Trigger section --- */
-        .trigger-header h2 {
-            color: #b89930;
-        }
-        .trigger-count {
-            background: rgba(184, 153, 48, 0.15);
-            color: #b89930;
-        }
         .trigger-card {
-            border-color: rgba(184, 153, 48, 0.25);
             transition: transform 120ms ease, box-shadow 300ms ease, border-color 300ms ease;
-        }
-        .trigger-card .trigger-icon {
-            color: #b89930;
         }
         .trigger-card.trigger-disabled {
             opacity: 0.5;
@@ -797,15 +807,17 @@ export class IrDeviceList extends LitElement {
         .trigger-toggle.trigger-off:hover {
             background: rgba(0, 0, 0, 0.1);
         }
-        .trigger-delete-badge {
+        .trigger-trash {
+            --mdc-icon-size: 16px;
+            color: var(--secondary-text-color);
             cursor: pointer;
-            background: none;
-            color: #e65100;
-            font-size: 0.7rem;
-            transition: background 150ms ease;
+            margin-left: auto;
+            opacity: 0.6;
+            transition: color 150ms ease, opacity 150ms ease;
         }
-        .trigger-delete-badge:hover {
-            background: rgba(230, 81, 0, 0.1);
+        .trigger-trash:hover {
+            color: #e65100;
+            opacity: 1;
         }
     `;
 }

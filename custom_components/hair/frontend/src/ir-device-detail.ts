@@ -48,6 +48,8 @@ export class IrDeviceDetail extends LitElement {
     // Triggers
     @state() private _triggers: IRTrigger[] = [];
     @state() private _triggerCommand: IRCommand | null = null;
+    @state() private _triggerEdit: IRTrigger | null = null;
+    @state() private _confirmDeleteTriggerId: string | null = null;
 
     // ---------------------------------------------------------------
     // Helpers
@@ -253,16 +255,44 @@ export class IrDeviceDetail extends LitElement {
     private _onToggleTrigger(ev: CustomEvent): void {
         const cmd = ev.detail?.command as IRCommand | null;
         if (!cmd) return;
-        this._triggerCommand = cmd;
+
+        // If a trigger already exists for this command, open edit mode.
+        const existing = this._triggers.find(
+            (t) => t.source_command_id === cmd.id,
+        );
+        if (existing) {
+            this._triggerEdit = existing;
+        } else {
+            this._triggerCommand = cmd;
+        }
     }
 
     private _closeTriggerDialog(): void {
         this._triggerCommand = null;
+        this._triggerEdit = null;
     }
 
     private async _onTriggerSaved(): Promise<void> {
         this._triggerCommand = null;
+        this._triggerEdit = null;
         await this._loadTriggers();
+    }
+
+    private _requestDeleteTrigger(triggerId: string): void {
+        this._confirmDeleteTriggerId = triggerId;
+    }
+
+    private async _doDeleteTrigger(): Promise<void> {
+        if (!this._confirmDeleteTriggerId) return;
+        const id = this._confirmDeleteTriggerId;
+        this._confirmDeleteTriggerId = null;
+        this._triggerEdit = null;
+        try {
+            await this.api.deleteTrigger(id);
+            await this._loadTriggers();
+        } catch {
+            // Non-fatal.
+        }
     }
 
     /** Look up the human label for the action mapped to a command. */
@@ -658,6 +688,30 @@ export class IrDeviceDetail extends LitElement {
                           @trigger-saved=${this._onTriggerSaved}
                           @closed=${this._closeTriggerDialog}
                       ></ir-trigger-dialog>
+                  `
+                : ""}
+            ${this._triggerEdit
+                ? html`
+                      <ir-trigger-dialog
+                          .api=${this.api}
+                          .trigger=${this._triggerEdit}
+                          @trigger-saved=${this._onTriggerSaved}
+                          @closed=${this._closeTriggerDialog}
+                          @trigger-delete=${(e: CustomEvent) =>
+                              this._requestDeleteTrigger(e.detail.triggerId)}
+                      ></ir-trigger-dialog>
+                  `
+                : ""}
+            ${this._confirmDeleteTriggerId
+                ? html`
+                      <ir-confirm-dialog
+                          title="Delete Trigger"
+                          message="Remove this trigger? The associated HA event entity will also be removed."
+                          confirmLabel="Delete"
+                          .destructive=${true}
+                          @confirmed=${this._doDeleteTrigger}
+                          @closed=${() => (this._confirmDeleteTriggerId = null)}
+                      ></ir-confirm-dialog>
                   `
                 : ""}
             ${this._toast
