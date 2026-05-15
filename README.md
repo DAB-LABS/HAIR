@@ -57,25 +57,22 @@ Entity features are driven by explicit action mappings. A media_player only expo
 ## Screenshots
 
 <p align="center">
-  <img src="images/screenshots/devices-overview.png" alt="Devices overview showing HAIR Devices, Triggers, Emitters, Receivers, and Proxies" width="700" />
+  <img src="images/screenshots/devices-overview.png" alt="Devices overview showing HAIR Devices, Triggers, Emitters, Receivers, and Proxies" width="880" />
 </p>
 
 <p align="center">
-  <img src="images/screenshots/device-detail.png" alt="Device detail with learned commands, S/L fingerprints, and trigger buttons" width="400" />
-  <img src="images/screenshots/action-mapping.png" alt="Action mapping popover for binding commands to HA entity features" width="400" />
+  <img src="images/screenshots/device-detail.png" alt="Device detail with learned commands, S/L fingerprints, and trigger buttons" width="430" />
+  <img src="images/screenshots/action-mapping.png" alt="Action mapping popover for binding commands to HA entity features" width="430" />
 </p>
 
 <p align="center">
-  <img src="images/screenshots/sniffer-signals.png" alt="Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts" width="700" />
+  <img src="images/screenshots/sniffer-signals.png" alt="Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts" width="880" />
 </p>
 
 <p align="center">
-  <img src="images/screenshots/assign-dialog.png" alt="Assign dialog for mapping a captured signal to a device command" width="400" />
-  <img src="images/screenshots/trigger-dialog.png" alt="Create Trigger dialog with S/L diamond pattern and min hits setting" width="400" />
-</p>
-
-<p align="center">
-  <img src="images/screenshots/promote-dialog.png" alt="Promote dialog for creating a new HAIR device from an unknown remote" width="500" />
+  <img src="images/screenshots/assign-dialog.png" alt="Assign dialog for mapping a captured signal to a device command" width="280" />
+  <img src="images/screenshots/trigger-dialog.png" alt="Create Trigger dialog with S/L diamond pattern and min hits setting" width="280" />
+  <img src="images/screenshots/promote-dialog.png" alt="Promote dialog for creating a new HAIR device from an unknown remote" width="280" />
 </p>
 
 ## Using HAIR
