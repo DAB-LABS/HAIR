@@ -7,7 +7,7 @@ the corresponding event entity emits an ``ir_command_received`` event.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from homeassistant.components.event import EventEntity
 from homeassistant.config_entries import ConfigEntry
@@ -96,7 +96,7 @@ class HAIRTriggerEventEntity(EventEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_event_types = [EVENT_TYPE]
+    _attr_event_types: ClassVar[list[str]] = [EVENT_TYPE]
 
     def __init__(self, trigger: IRTrigger) -> None:
         self._trigger = trigger

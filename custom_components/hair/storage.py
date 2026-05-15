@@ -195,8 +195,6 @@ class HAIRStore:
                 and code
                 and t.protocol == protocol
                 and t.code == code
-            ):
-                matches.append(t)
-            elif t.signal_fingerprint == fingerprint:
+            ) or t.signal_fingerprint == fingerprint:
                 matches.append(t)
         return matches

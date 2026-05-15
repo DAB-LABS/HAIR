@@ -5,6 +5,7 @@ configured ``min_hits`` threshold is reached within the reset window.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -14,7 +15,6 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    DOMAIN,
     EVENT_TRIGGER_FIRED,
     TRIGGER_HIT_RESET_WINDOW_S,
 )
@@ -158,7 +158,5 @@ class TriggerManager:
 
     def unsubscribe(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Remove a previously registered callback."""
-        try:
+        with contextlib.suppress(ValueError):
             self._subscribers.remove(callback)
-        except ValueError:
-            pass

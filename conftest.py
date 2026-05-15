@@ -336,7 +336,7 @@ _stub("homeassistant.components.button", {
 class _EventEntity:
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_event_types = []
+    _attr_event_types: list[str] = []  # noqa: RUF012
     def __init_subclass__(cls, **kw): pass
     def _trigger_event(self, event_type, event_attributes=None): pass
     def async_write_ha_state(self): pass
