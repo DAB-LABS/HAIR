@@ -1151,14 +1151,14 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
         }
     `,e([pe({attribute:!1})],xe.prototype,"api",void 0),e([pe({attribute:!1})],xe.prototype,"hass",void 0),e([pe({attribute:!1})],xe.prototype,"device",void 0),e([ge()],xe.prototype,"_busy",void 0),e([ge()],xe.prototype,"_captureName",void 0),e([ge()],xe.prototype,"_toast",void 0),e([ge()],xe.prototype,"_confirmDelete",void 0),e([ge()],xe.prototype,"_commandToDelete",void 0),e([ge()],xe.prototype,"_actionOptions",void 0),e([ge()],xe.prototype,"_mappingCommandName",void 0),e([ge()],xe.prototype,"_popoverTop",void 0),e([ge()],xe.prototype,"_popoverLeft",void 0),e([ge()],xe.prototype,"_editingName",void 0),e([ge()],xe.prototype,"_draftName",void 0),e([ge()],xe.prototype,"_triggers",void 0),e([ge()],xe.prototype,"_triggerCommand",void 0),e([ge()],xe.prototype,"_triggerEdit",void 0),e([ge()],xe.prototype,"_confirmDeleteTriggerId",void 0),xe=e([ce("ir-device-detail")],xe);const $e={media_player:"M21,17H3V5H21M21,3H3A2,2 0 0,0 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5A2,2 0 0,0 21,3Z",ac:"M11,21H13V11.85L14.6,13.5L16,12.05L12,8L8,12.05L9.4,13.5L11,11.85V21M2,3V11C2,12.66 5.69,14 12,14C18.31,14 22,12.66 22,11V3H2M4,5H20V8.5C18.5,9.27 15.6,10 12,10C8.4,10 5.5,9.27 4,8.5V5Z",fan:"M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.73C16.78,13.74 15.72,13.3 14.79,13.11C14.59,13.59 14.28,14 13.88,14.34C15.87,18.03 15.08,22 11.5,22C7,22 6.91,18.42 9.27,17.24C10.25,16.75 10.69,15.71 10.89,14.79C10.4,14.59 9.97,14.27 9.65,13.87C5.96,15.85 2,15.07 2,11.5C2,7 5.56,6.89 6.74,9.26C7.24,10.25 8.29,10.68 9.22,10.87C9.41,10.39 9.73,9.97 10.14,9.65C8.15,5.95 8.94,2 12.5,2Z",light:"M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z",switch:"M13,3H11V13H13V3M17.83,5.17L16.41,6.59C18,7.35 19,9.05 19,11A7,7 0 0,1 12,18A7,7 0 0,1 5,11C5,9.05 6,7.35 7.58,6.59L6.17,5.17C4.23,6.82 3,9.26 3,12A9,9 0 0,0 12,21A9,9 0 0,0 21,12C21,9.26 19.77,6.82 17.83,5.17Z",screen:"M20,19H4A2,2 0 0,1 2,17V7A2,2 0 0,1 4,5H20A2,2 0 0,1 22,7V17A2,2 0 0,1 20,19M4,7V17H20V7H4M12,10L16,14H13V17H11V14H8L12,10Z",other:"M11,2A2,2 0 0,0 9,4V8H4A2,2 0 0,0 2,10V13A2,2 0 0,0 4,15H5V21A2,2 0 0,0 7,23H17A2,2 0 0,0 19,21V15H20A2,2 0 0,0 22,13V10A2,2 0 0,0 20,8H15V4A2,2 0 0,0 13,2H11Z"},we={media_player:"Media Player",ac:"Air Conditioner",fan:"Fan",light:"Light",switch:"Switch",screen:"Screen / Shade",other:"IR Device"};let ke=class extends ne{constructor(){super(...arguments),this.devices=[],this.loading=!1,this.expandedDeviceId=null,this._emitters=[],this._captureProviders=[],this._expandedDevice=null,this._triggers=[],this._glowTriggerIds=new Set,this._editTrigger=null,this._confirmDeleteTrigger=null,this._unsubTriggerFired=null}connectedCallback(){super.connectedCallback(),this._discoverHardware(),this._loadTriggers(),this._subscribeTriggerFired()}disconnectedCallback(){super.disconnectedCallback(),this._unsubscribeTriggerFired()}updated(e){(e.has("hass")||e.has("api"))&&this._discoverHardware(),e.has("api")&&this.api&&!this._unsubTriggerFired&&(this._loadTriggers(),this._subscribeTriggerFired()),e.has("expandedDeviceId")&&this._loadExpandedDevice()}async _loadExpandedDevice(){if(this.expandedDeviceId&&this.api)try{this._expandedDevice=await this.api.getDevice(this.expandedDeviceId)}catch{this._expandedDevice=null}else this._expandedDevice=null}async _onExpandedDeviceChanged(){await this._loadExpandedDevice(),this.dispatchEvent(new CustomEvent("device-changed",{bubbles:!0,composed:!0}))}_onExpandedDeviceDeleted(){this.dispatchEvent(new CustomEvent("device-deleted",{bubbles:!0,composed:!0}))}_onCollapse(){this.dispatchEvent(new CustomEvent("device-selected",{detail:this.expandedDeviceId,bubbles:!0,composed:!0}))}async _discoverHardware(){const e=this.hass?.states??{},t=[];for(const[i,s]of Object.entries(e))i.startsWith("infrared.")&&t.push({entity_id:i,name:s.attributes.friendly_name??i});if(this._emitters=t,this.api)try{this._captureProviders=await this.api.listCaptureProviders()}catch{}}_select(e){this.dispatchEvent(new CustomEvent("device-selected",{detail:e,bubbles:!0,composed:!0}))}_add(){this.dispatchEvent(new CustomEvent("add-device",{bubbles:!0,composed:!0}))}_navigateIntegration(e){const t=`/config/integrations/integration/${e}`;window.history.pushState(null,"",t),window.dispatchEvent(new PopStateEvent("popstate"))}async _loadTriggers(){if(this.api)try{this._triggers=await this.api.listTriggers()}catch{}}async _subscribeTriggerFired(){if(this.api)try{this._unsubTriggerFired=await this.api.subscribeTriggerFired(e=>{this._glowTriggerIds=new Set([...this._glowTriggerIds,e.trigger_id]),setTimeout(()=>{const t=new Set(this._glowTriggerIds);t.delete(e.trigger_id),this._glowTriggerIds=t},2500)})}catch{}}async _unsubscribeTriggerFired(){this._unsubTriggerFired&&(await this._unsubTriggerFired(),this._unsubTriggerFired=null)}_openEditTrigger(e,t){t.stopPropagation(),this._editTrigger=e}_closeEditTrigger(){this._editTrigger=null}async _onTriggerUpdated(){this._editTrigger=null,await this._loadTriggers()}async _toggleTriggerEnabled(e,t){t.stopPropagation();try{await this.api.updateTrigger(e.id,{enabled:!e.enabled}),await this._loadTriggers()}catch{}}_requestDeleteTrigger(e,t){t.stopPropagation(),this._confirmDeleteTrigger=e}async _doDeleteTrigger(){if(!this._confirmDeleteTrigger)return;const e=this._confirmDeleteTrigger;this._confirmDeleteTrigger=null;try{await this.api.deleteTrigger(e.id),await this._loadTriggers()}catch{}}_emitterIntegrationDomain(e){const t=this.hass?.entities?.[e];return t?.platform?t.platform:e.split(".")[0]}_getEmitterDeviceIds(){const e=new Set;for(const t of this._emitters){const i=this.hass?.entities?.[t.entity_id];i?.device_id&&e.add(i.device_id)}return e}_classifyHardware(){const e=this._getEmitterDeviceIds();return{receivers:this._captureProviders,proxies:this._captureProviders.filter(t=>e.has(t.device_id))}}render(){if(this.loading)return j`<div class="loading">Loading IR devices...</div>`;const e=this.devices.length>0,t=this._emitters.length>0,{receivers:i,proxies:s}=this._classifyHardware(),r=i.length>0,a=s.length>0,o=this._triggers.length>0;return e||t||r||a?j`
             <!-- Devices -->
+            <div class="toolbar">
+                <span class="toolbar-title">
+                    <ha-svg-icon .path=${"M12,0C8.96,0 6.21,1.23 4.22,3.22L5.63,4.63C7.26,3 9.5,2 12,2C14.5,2 16.74,3 18.36,4.64L19.78,3.22C17.79,1.23 15.04,0 12,0M7.05,6.05L8.46,7.46C9.37,6.56 10.62,6 12,6C13.38,6 14.63,6.56 15.54,7.46L16.95,6.05C15.68,4.78 13.93,4 12,4C10.07,4 8.32,4.78 7.05,6.05M12,15A2,2 0 0,1 10,13A2,2 0 0,1 12,11A2,2 0 0,1 14,13A2,2 0 0,1 12,15M15,9H9A1,1 0 0,0 8,10V22A1,1 0 0,0 9,23H15A1,1 0 0,0 16,22V10A1,1 0 0,0 15,9Z"}></ha-svg-icon>
+                    HAIR Devices
+                    <span class="toolbar-count">(${this.devices.length})</span>
+                </span>
+            </div>
             ${e?j`
-                      <div class="toolbar">
-                          <span class="toolbar-title">
-                              <ha-svg-icon .path=${"M12,0C8.96,0 6.21,1.23 4.22,3.22L5.63,4.63C7.26,3 9.5,2 12,2C14.5,2 16.74,3 18.36,4.64L19.78,3.22C17.79,1.23 15.04,0 12,0M7.05,6.05L8.46,7.46C9.37,6.56 10.62,6 12,6C13.38,6 14.63,6.56 15.54,7.46L16.95,6.05C15.68,4.78 13.93,4 12,4C10.07,4 8.32,4.78 7.05,6.05M12,15A2,2 0 0,1 10,13A2,2 0 0,1 12,11A2,2 0 0,1 14,13A2,2 0 0,1 12,15M15,9H9A1,1 0 0,0 8,10V22A1,1 0 0,0 9,23H15A1,1 0 0,0 16,22V10A1,1 0 0,0 15,9Z"}></ha-svg-icon>
-                              HAIR Devices
-                              <span class="toolbar-count">(${this.devices.length})</span>
-                          </span>
-                      </div>
                       <div class="grid">
                           ${this.devices.map(e=>j`
                                   <div
@@ -1199,7 +1199,11 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
                                         `:B}
                               `)}
                       </div>
-                  `:B}
+                  `:j`
+                      <div class="empty-devices">
+                          No devices yet. Sniff some signals, then add your first device.
+                      </div>
+                  `}
 
             <!-- Triggers -->
             ${o?j`
@@ -1360,6 +1364,14 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
         .empty h2 {
             margin-top: 8px;
             color: var(--primary-text-color);
+        }
+
+        .empty-devices {
+            text-align: center;
+            padding: 24px 16px;
+            color: var(--secondary-text-color);
+            font-size: 0.9rem;
+            margin-bottom: 16px;
         }
 
         /* --- Devices toolbar (matches sniffer) --- */
@@ -1619,13 +1631,17 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
             >
                 ${this._error?j`<ha-alert alert-type="error">${this._error}</ha-alert>`:""}
 
-                <ha-textfield
-                    label="Name"
-                    .value=${this._name}
-                    required
-                    dialogInitialFocus
-                    @input=${e=>this._name=e.target.value}
-                ></ha-textfield>
+                <div class="field">
+                    <label>Name</label>
+                    <input
+                        type="text"
+                        .value=${this._name}
+                        placeholder="e.g. Living Room TV"
+                        required
+                        autofocus
+                        @input=${e=>this._name=e.target.value}
+                    />
+                </div>
 
                 <div class="field">
                     <label>Device type</label>
@@ -1669,7 +1685,6 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
                 </div>
             </ha-dialog>
         `}};De.styles=o`
-        ha-textfield,
         .field {
             display: block;
             margin: 12px 0;
@@ -1681,6 +1696,7 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
             color: var(--secondary-text-color);
             margin-bottom: 6px;
         }
+        input[type="text"],
         select {
             width: 100%;
             padding: 8px;
@@ -1688,6 +1704,14 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--primary-text-color);
+            font-size: 0.95rem;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary-color);
         }
         ha-alert {
             display: block;
@@ -2786,6 +2810,18 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
                 >
                     Sniffer
                 </button>
+                <div class="tab-spacer"></div>
+                ${"devices"===this._activeTab?j`
+                          <button
+                              class="add-device-btn"
+                              @click=${this._openAddDialog}
+                          >
+                              <ha-svg-icon
+                                  .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
+                              ></ha-svg-icon>
+                              Add Device
+                          </button>
+                      `:""}
             </div>
 
             <div class="content">
@@ -2804,19 +2840,6 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
                               @add-device=${this._openAddDialog}
                           ></ir-device-list>
 
-                          ${!this._loading&&this._devices.length>0?j`
-                                    <ha-fab
-                                        class="fab"
-                                        label="Add Device"
-                                        extended
-                                        @click=${this._openAddDialog}
-                                    >
-                                        <ha-svg-icon
-                                            slot="icon"
-                                            .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                                        ></ha-svg-icon>
-                                    </ha-fab>
-                                `:""}
                       `:j`
                           <ir-signal-monitor
                               .api=${this._api}
@@ -2855,10 +2878,37 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
         }
         .tab-bar {
             display: flex;
+            align-items: center;
             border-bottom: 1px solid var(--divider-color);
             padding: 0 16px;
             max-width: 1100px;
             margin: 0 auto;
+        }
+        .tab-spacer {
+            flex: 1;
+        }
+        .add-device-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: none;
+            color: var(--primary-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            transition: background 150ms ease;
+        }
+        .add-device-btn:hover {
+            background: var(--secondary-background-color);
+        }
+        .add-device-btn ha-svg-icon {
+            --mdc-icon-size: 14px;
         }
         .tab {
             background: none;
@@ -2888,10 +2938,5 @@ function e(e,t,i,s){var r,a=arguments.length,o=a<3?t:null===s?s=Object.getOwnPro
             padding: 48px;
             text-align: center;
             color: var(--secondary-text-color);
-        }
-        .fab {
-            position: fixed;
-            right: 24px;
-            bottom: 24px;
         }
     `,e([pe({attribute:!1})],Le.prototype,"hass",void 0),e([pe({attribute:!1})],Le.prototype,"narrow",void 0),e([pe({attribute:!1})],Le.prototype,"route",void 0),e([pe({attribute:!1})],Le.prototype,"panel",void 0),e([ge()],Le.prototype,"_activeTab",void 0),e([ge()],Le.prototype,"_devices",void 0),e([ge()],Le.prototype,"_expandedDeviceId",void 0),e([ge()],Le.prototype,"_loading",void 0),e([ge()],Le.prototype,"_error",void 0),e([ge()],Le.prototype,"_addDialogOpen",void 0),Le=e([ce("ha-panel-ir-devices")],Le);export{Le as HaPanelIrDevices};

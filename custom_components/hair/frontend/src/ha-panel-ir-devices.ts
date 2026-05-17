@@ -133,6 +133,20 @@ export class HaPanelIrDevices extends LitElement {
                 >
                     Sniffer
                 </button>
+                <div class="tab-spacer"></div>
+                ${this._activeTab === "devices"
+                    ? html`
+                          <button
+                              class="add-device-btn"
+                              @click=${this._openAddDialog}
+                          >
+                              <ha-svg-icon
+                                  .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
+                              ></ha-svg-icon>
+                              Add Device
+                          </button>
+                      `
+                    : ""}
             </div>
 
             <div class="content">
@@ -155,21 +169,6 @@ export class HaPanelIrDevices extends LitElement {
                               @add-device=${this._openAddDialog}
                           ></ir-device-list>
 
-                          ${!this._loading && this._devices.length > 0
-                              ? html`
-                                    <ha-fab
-                                        class="fab"
-                                        label="Add Device"
-                                        extended
-                                        @click=${this._openAddDialog}
-                                    >
-                                        <ha-svg-icon
-                                            slot="icon"
-                                            .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                                        ></ha-svg-icon>
-                                    </ha-fab>
-                                `
-                              : ""}
                       `
                     : html`
                           <ir-signal-monitor
@@ -214,10 +213,37 @@ export class HaPanelIrDevices extends LitElement {
         }
         .tab-bar {
             display: flex;
+            align-items: center;
             border-bottom: 1px solid var(--divider-color);
             padding: 0 16px;
             max-width: 1100px;
             margin: 0 auto;
+        }
+        .tab-spacer {
+            flex: 1;
+        }
+        .add-device-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: none;
+            color: var(--primary-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            transition: background 150ms ease;
+        }
+        .add-device-btn:hover {
+            background: var(--secondary-background-color);
+        }
+        .add-device-btn ha-svg-icon {
+            --mdc-icon-size: 14px;
         }
         .tab {
             background: none;
@@ -247,11 +273,6 @@ export class HaPanelIrDevices extends LitElement {
             padding: 48px;
             text-align: center;
             color: var(--secondary-text-color);
-        }
-        .fab {
-            position: fixed;
-            right: 24px;
-            bottom: 24px;
         }
     `;
 }

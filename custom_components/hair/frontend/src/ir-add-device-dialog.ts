@@ -105,14 +105,18 @@ export class IrAddDeviceDialog extends LitElement {
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
 
-                <ha-textfield
-                    label="Name"
-                    .value=${this._name}
-                    required
-                    dialogInitialFocus
-                    @input=${(e: Event) =>
-                        (this._name = (e.target as HTMLInputElement).value)}
-                ></ha-textfield>
+                <div class="field">
+                    <label>Name</label>
+                    <input
+                        type="text"
+                        .value=${this._name}
+                        placeholder="e.g. Living Room TV"
+                        required
+                        autofocus
+                        @input=${(e: Event) =>
+                            (this._name = (e.target as HTMLInputElement).value)}
+                    />
+                </div>
 
                 <div class="field">
                     <label>Device type</label>
@@ -164,7 +168,6 @@ export class IrAddDeviceDialog extends LitElement {
     }
 
     static styles = css`
-        ha-textfield,
         .field {
             display: block;
             margin: 12px 0;
@@ -176,6 +179,7 @@ export class IrAddDeviceDialog extends LitElement {
             color: var(--secondary-text-color);
             margin-bottom: 6px;
         }
+        input[type="text"],
         select {
             width: 100%;
             padding: 8px;
@@ -183,6 +187,14 @@ export class IrAddDeviceDialog extends LitElement {
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--primary-text-color);
+            font-size: 0.95rem;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary-color);
         }
         ha-alert {
             display: block;

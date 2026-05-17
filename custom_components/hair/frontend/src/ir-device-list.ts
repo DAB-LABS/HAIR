@@ -331,15 +331,15 @@ export class IrDeviceList extends LitElement {
 
         return html`
             <!-- Devices -->
+            <div class="toolbar">
+                <span class="toolbar-title">
+                    <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
+                    HAIR Devices
+                    <span class="toolbar-count">(${this.devices.length})</span>
+                </span>
+            </div>
             ${hasDevices
                 ? html`
-                      <div class="toolbar">
-                          <span class="toolbar-title">
-                              <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
-                              HAIR Devices
-                              <span class="toolbar-count">(${this.devices.length})</span>
-                          </span>
-                      </div>
                       <div class="grid">
                           ${this.devices.map(
                               (device) => html`
@@ -401,7 +401,11 @@ export class IrDeviceList extends LitElement {
                           )}
                       </div>
                   `
-                : nothing}
+                : html`
+                      <div class="empty-devices">
+                          No devices yet. Sniff some signals, then add your first device.
+                      </div>
+                  `}
 
             <!-- Triggers -->
             ${hasTriggers
@@ -606,6 +610,14 @@ export class IrDeviceList extends LitElement {
         .empty h2 {
             margin-top: 8px;
             color: var(--primary-text-color);
+        }
+
+        .empty-devices {
+            text-align: center;
+            padding: 24px 16px;
+            color: var(--secondary-text-color);
+            font-size: 0.9rem;
+            margin-bottom: 16px;
         }
 
         /* --- Devices toolbar (matches sniffer) --- */
