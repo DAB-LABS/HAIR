@@ -4,9 +4,9 @@
 
 # HAIR
 
-IR control in Home Assistant used to mean picking your manufacturer's integration, hoping its code database had your device model, and either trusting a JSON file from a forum or hand-rolling template entities. The captured signals lived on the blaster. The user lived in YAML. The codes were **<u>trapped where they were learned</u>**: a Broadlink app's cloud, a vendor hub, a config file on disk.
+IR control in Home Assistant used to mean picking your manufacturer's integration, hoping its code database had your device model, and either trusting a JSON file from a forum or hand-rolling template entities. The captured signals lived on the blaster. The user lived in YAML. The codes were ***trapped where they were learned***: a Broadlink app's cloud, a vendor hub, a config file on disk.
 
-**<u>HAIR moves IR into Home Assistant itself.</u>** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that **<u>triggers automations</u>**. A command broadcast through any blaster on HA's native `infrared` platform, whether that is a Broadlink RM, an ESPHome IR LED, an SMLIGHT SLZB, or anything else that adopts the platform.
+***HAIR moves IR into Home Assistant itself.*** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that ***triggers automations***. A command broadcast through any blaster on HA's native `infrared` platform, whether that is a Broadlink RM, an ESPHome IR LED, an SMLIGHT SLZB, or anything else that adopts the platform.
 
 No manufacturer picker. No model lookup. No code file downloads. No YAML. Just point, press, use.
 
