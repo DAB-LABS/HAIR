@@ -9,7 +9,7 @@
         },
         "abort": {
             "single_instance_allowed": "HAIR is already configured.",
-            "no_ir_hardware": "No IR hardware detected. You need at least one IR emitter or capture device (ESPHome, Broadlink, etc.). See the [setup guide]({setup_url}) for details."
+            "no_ir_hardware": "No IR hardware detected. For capture you need an ESPHome device with the remote_receiver component. For sending you need an integration on HA's native infrared platform (Broadlink, ESPHome, etc.). See the [setup guide]({setup_url}) for details."
         }
     },
     "options": {

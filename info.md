@@ -16,4 +16,5 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 ## Requirements
 
 - Home Assistant 2026.4+
-- At least one IR transmitter or receiver (ESPHome, Broadlink, or compatible)
+- **For capture:** an ESPHome device with the `remote_receiver` component (legacy event-bus bridge until HA's native IR receive entities ship in 2026.6 or 2026.7)
+- **For send:** any integration on HA's native infrared platform (Broadlink RM series, ESPHome infrared entities, etc.)

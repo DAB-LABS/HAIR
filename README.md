@@ -4,23 +4,19 @@
 
 # HAIR
 
-A custom Home Assistant integration that provides a full admin interface for infrared device management. Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, organizing, and controlling IR commands through a single sidebar panel at `/hair`.
+IR control in Home Assistant used to mean picking your manufacturer's integration, hoping its code database had your device model, and either trusting a JSON file from a forum or hand-rolling template entities. The captured signals lived on the blaster. The user lived in YAML. The codes were **trapped where they were learned**: a Broadlink app's cloud, a vendor hub, a config file on disk.
 
-No YAML. No code. Works with any IR proxy hardware (ESPHome, Broadlink, etc.).\*
+**HAIR moves IR into Home Assistant itself.** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that triggers automations. A command broadcast through any blaster on HA's native `infrared` platform, whether that is a Broadlink RM, an ESPHome IR LED, an SMLIGHT SLZB, or anything else that adopts the platform.
 
-<sub>\* ESPHome receivers require a small YAML bridge until HA ships native IR receive support. See [ESPHome Receiver Setup](#esphome-receiver-setup).</sub>
+No manufacturer picker. No model lookup. No code file downloads. No YAML. Just point, press, use.
 
-## Why HAIR?
+## Platform state
 
-Home Assistant 2026.4 introduced the `infrared` platform, giving HA its first native foundation for IR transmit and receive. This was a big step forward, but out of the box, there is no admin UI for managing IR devices. You get entities for your hardware (emitters and receivers), but no way to capture signals, organize them into devices, or map them to HA controls without writing YAML or automations by hand.
+Home Assistant is mid-rollout of its native `infrared` platform. The transmit side shipped in HA 2026.4 and Broadlink, ESPHome, and SMLIGHT all adopted it in 2026.5. The receive side is approved and on the HA roadmap for 2026.6 or 2026.7.
 
-Before the infrared platform, IR in HA was fragmented. Broadlink had its own integration with a basic learn-and-send flow. ESPHome users had to manually define raw timing arrays in YAML. There was no shared signal format, no device abstraction, and no way to assign an IR command to a media_player volume button without custom template entities.
+Until the native receive entities land, HAIR uses a thin ESPHome [`remote_receiver`](https://esphome.io/components/remote_receiver.html) YAML bridge to forward signals to HA's event bus (see [ESPHome Receiver Setup](#esphome-receiver-setup) below for the short stub). When the native receive entities ship, HAIR migrates users to the official API automatically. The TX side does not change.
 
-The infrared platform solves the transport layer. HAIR solves everything above it: the admin experience for capturing signals, fingerprinting and deduplicating them, organizing them into device profiles, and automatically creating the right HA entities with proper feature mappings. Think of it like how the Z-Wave JS UI manages Z-Wave devices, but for IR.
-
-HAIR also introduces signal fingerprinting using short/long (S/L) pulse-duration analysis. Every captured IR signal is reduced to an S/L pattern that identifies it regardless of timing jitter between presses. This works across all major consumer IR protocols including NEC, Samsung, JVC, LG, Sony, and RC-5/RC-6. The Sniffer groups signals by source remote, deduplicates repeated button presses, and tracks how often each signal appears, all in real time.
-
-As HA's IR ecosystem matures (receiver entities are expected in 2026.6-2026.7), HAIR will grow alongside it. The goal is to be the go-to admin tool for anyone with IR-controlled devices in their home.
+HAIR fingerprints every captured signal using short/long (S/L) pulse-duration analysis. Each pulse is classified short or long, producing a pattern that identifies the signal regardless of minor timing jitter between presses. S/L works across NEC, Samsung, JVC, LG, Sony, and RC-5/RC-6 without needing to decode the protocol. The Sniffer groups signals by source remote, deduplicates repeated presses, filters held-button repeat frames, and tracks hit counts, all in real time.
 
 ## Screenshots
 
@@ -40,7 +36,8 @@ As HA's IR ecosystem matures (receiver entities are expected in 2026.6-2026.7), 
 
 - Home Assistant **2026.4** or later
 - Python 3.12+
-- At least one IR transmitter or receiver (ESPHome, Broadlink, or compatible hardware)
+- **For capture (RX):** an ESPHome device with the [`remote_receiver`](https://esphome.io/components/remote_receiver.html) component (see [ESPHome Receiver Setup](#esphome-receiver-setup) for the temporary YAML bridge)
+- **For send (TX):** at least one integration on HA's native infrared platform (Broadlink RM series, ESPHome infrared entities, etc.)
 
 ## Installation
 
@@ -181,12 +178,13 @@ Entity features are driven by explicit action mappings. A media_player only expo
 
 HAIR sits between you and HA's IR platform. It does not replace your IR hardware integrations (Broadlink, ESPHome, etc.). It complements them by providing the admin layer those integrations lack.
 
-### Capture Providers
+### Capture (RX)
 
-HAIR discovers capture-capable hardware automatically:
+HAIR captures IR signals via ESPHome devices with the [`remote_receiver`](https://esphome.io/components/remote_receiver.html) component. This is a legacy event-bus bridge today (see [ESPHome Receiver Setup](#esphome-receiver-setup) above for the YAML stub). When HA's native IR receive entities ship (expected 2026.6 or 2026.7), HAIR will migrate users automatically and the YAML bridge will no longer be needed.
 
-- **ESPHome** - Devices with `remote_receiver` component (requires the `on_pronto` event bridge above until HA adds native receiver support)
-- **Broadlink** - RM series devices
+### Transmit (TX)
+
+HAIR transmits IR signals via any integration that exposes HA's native `infrared` platform. Currently Broadlink, ESPHome, and other integrations that adopted the platform in HA 2026.5.
 
 ### Signal Fingerprinting
 
@@ -199,7 +197,7 @@ S/L fingerprinting covers all major consumer IR protocols including NEC, Samsung
 ```
 Remote Control
       |
-  IR Receiver (ESPHome / Broadlink)
+  IR Receiver (ESPHome remote_receiver)        <-- RX path: ESPHome only
       |
   HA Event Bus (esphome.remote_received)
       |
@@ -213,7 +211,9 @@ Remote Control
       |
   HA Entities (media_player, climate, fan, light, switch, cover, remote, button)
       |
-  IR Emitter (infrared.send_command) --> Hardware TX
+  HA infrared Platform (infrared.send_command) <-- TX path: any platform integration
+      |
+  IR Emitter Hardware (Broadlink, ESPHome, etc.)
 ```
 
 ## Contributing
