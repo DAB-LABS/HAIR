@@ -6,13 +6,28 @@
 
 IR control in Home Assistant used to mean picking your manufacturer's integration, hoping its code database had your device model, and either trusting a JSON file from a forum or hand-rolling template entities. The captured signals lived on the blaster. The user lived in YAML. The codes were ***trapped where they were learned***: a Broadlink app's cloud, a vendor hub, a config file on disk.
 
-***HAIR moves IR into Home Assistant itself.*** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that ***triggers automations***. A command broadcast through any blaster on HA's native `infrared` platform, whether that is a Broadlink RM, an ESPHome IR LED, an SMLIGHT SLZB, or anything else that adopts the platform.
+***HAIR moves IR into Home Assistant itself.*** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that ***triggers automations***. A command broadcast through any blaster on HA's native `infrared` platform, whether that is an ESPHome IR LED, a [Tuya Local](https://github.com/make-all/tuya-local) IR blaster, a Broadlink RM, an SMLIGHT SLZB, or anything else that adopts the platform.
 
 No manufacturer picker. No model lookup. No code file downloads. No YAML. Just point, press, use.
 
 ## Platform state
 
-Home Assistant is mid-rollout of its native `infrared` platform. The transmit side shipped in HA 2026.4 and Broadlink, ESPHome, and SMLIGHT all adopted it in 2026.5. The receive side is approved and on the HA roadmap for 2026.6 or 2026.7.
+Home Assistant is mid-rollout of its native `infrared` platform. The transmit side shipped in HA 2026.4. The receive side is approved and on the HA roadmap for 2026.6 or 2026.7.
+
+### Infrared platform compatibility
+
+HAIR works with any integration that exposes HA's native `infrared` entity platform. These integrations have adopted it:
+
+| Integration | Source | TX | RX | Status |
+|---|---|---|---|---|
+| [ESPHome](https://esphome.io/) | Core | Yes | Yes (bridge) | Since 2026.4 |
+| [Tuya Local](https://github.com/make-all/tuya-local) | HACS | Yes | No | Since 2026.4 |
+| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Core | Yes | No | Since 2026.5 |
+| [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Core | Yes | No | Since 2026.5 |
+
+ESPHome is the only integration with receive (RX) support today, using a temporary YAML bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) below). When HA ships native `InfraredReceiverEntity` (expected 2026.6 or 2026.7), any integration that adopts it will work as a HAIR receiver automatically.
+
+As more integrations adopt the `infrared` platform, HAIR picks them up with no changes needed on HAIR's side.
 
 Until the native receive entities land, HAIR uses a thin ESPHome [`remote_receiver`](https://esphome.io/components/remote_receiver.html) YAML bridge to forward signals to HA's event bus (see [ESPHome Receiver Setup](#esphome-receiver-setup) below for the short stub). When the native receive entities ship, HAIR migrates users to the official API automatically. The TX side does not change.
 
@@ -37,7 +52,7 @@ HAIR fingerprints every captured signal using short/long (S/L) pulse-duration an
 - Home Assistant **2026.4** or later
 - Python 3.12+
 - **For capture (RX):** an ESPHome device with the [`remote_receiver`](https://esphome.io/components/remote_receiver.html) component (see [ESPHome Receiver Setup](#esphome-receiver-setup) for the temporary YAML bridge)
-- **For send (TX):** at least one integration on HA's native infrared platform (Broadlink RM series, ESPHome infrared entities, etc.)
+- **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, etc.)
 
 ## Installation
 
@@ -112,7 +127,7 @@ The main view shows five sections:
 
 **Triggers** - Active IR triggers that fire HA event entities when their signal is detected. Each trigger card shows the trigger name with a lightning bolt icon. When a trigger fires, the card flashes with an amber glow animation in real time.
 
-**Emitters** - Your IR transmitter hardware (e.g., ESPHome infrared entities). These are the physical IR LEDs that send commands. Each emitter card shows its entity ID and a TX badge.
+**Emitters** - Your IR transmitter hardware (e.g., ESPHome infrared entities, Tuya Local IR blasters). These are the physical IR LEDs that send commands. Each emitter card shows its entity ID and a TX badge.
 
 **Receivers** - Your IR receiver hardware. These feed captured signals into the Sniffer. Each receiver card shows its source integration and an RX badge.
 
@@ -176,7 +191,7 @@ Entity features are driven by explicit action mappings. A media_player only expo
 
 ## How It Works
 
-HAIR sits between you and HA's IR platform. It does not replace your IR hardware integrations (Broadlink, ESPHome, etc.). It complements them by providing the admin layer those integrations lack.
+HAIR sits between you and HA's IR platform. It does not replace your IR hardware integrations (ESPHome, Tuya Local, Broadlink, etc.). It complements them by providing the admin layer those integrations lack.
 
 ### Capture (RX)
 
@@ -184,7 +199,7 @@ HAIR captures IR signals via ESPHome devices with the [`remote_receiver`](https:
 
 ### Transmit (TX)
 
-HAIR transmits IR signals via any integration that exposes HA's native `infrared` platform. Currently Broadlink, ESPHome, and other integrations that adopted the platform in HA 2026.5.
+HAIR transmits IR signals via any integration that exposes HA's native `infrared` platform. Currently ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, and other integrations that adopted the platform.
 
 ### Signal Fingerprinting
 
@@ -213,7 +228,7 @@ Remote Control
       |
   HA infrared Platform (infrared.send_command) <-- TX path: any platform integration
       |
-  IR Emitter Hardware (Broadlink, ESPHome, etc.)
+  IR Emitter Hardware (ESPHome, Tuya Local, Broadlink, etc.)
 ```
 
 ## Contributing
