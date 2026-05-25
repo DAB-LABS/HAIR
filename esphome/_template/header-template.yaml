@@ -1,0 +1,22 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            <hardware name and revision>
+# Hardware revision: <board rev / batch year if relevant>
+# Variant:           <minimal | full>
+# Contributor:       <@gh-handle or @forum-handle, or DAB-LABS for in-house>
+# Source:            <URL of original config if contributed, else "in-house">
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            <version, e.g. 0.1.2>
+#   HA Core:         <version, e.g. 2026.5.2>
+#   ESPHome:         <version, e.g. 2026.4.5>
+# Last verified:     <YYYY-MM-DD>
+# Purpose:           <RX | TX | RX+TX>
+# Hardware purchase: <URL if commercial, else "DIY">
+# GPIO map:
+#   GPIO<n>          <function>
+#   ...
+# Notes:
+#   - <anything quirky a user needs to know>
+# ============================================================================

@@ -44,7 +44,8 @@ Supported capture providers (auto-discovered):
 - Broadlink RM series devices
 
 Supported transmit hardware: any IR emitter exposed to HA's infrared platform,
-including ESPHome IR LEDs and Broadlink RM series.
+including ESPHome IR LEDs, Tuya Local IR blasters, Broadlink RM series, and
+SMLIGHT SLZB devices.
 
 Supported device types and resulting HA entities:
 - Media Player -> media_player (power, volume, mute, source, channels, navigation, transport)
@@ -98,6 +99,15 @@ Roadmap context:
 - [CONTRIBUTING](https://github.com/DAB-LABS/HAIR/blob/main/CONTRIBUTING.md):
   Contribution guidelines, including the requirement that llms.txt be updated
   alongside README changes (per DAB-LABS LLMDO release protocol).
+
+## Hardware configurations
+
+- [esphome/](https://github.com/DAB-LABS/HAIR/tree/main/esphome):
+  Curated, HAIR-tested ESPHome configurations for common IR hardware. Each
+  config carries a machine-readable header (device, GPIO map, tested versions,
+  contributor) for easy discovery. Two-tier convention per device: minimal
+  (just the IR pieces) and full (preserves device-specific features like touch
+  pads and status LEDs).
 
 ## Releases
 

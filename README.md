@@ -103,6 +103,8 @@ The `on_pronto` trigger catches every IR signal regardless of protocol (NEC, Sam
 
 This bridge is temporary. When HA ships `InfraredReceiverEntity`, HAIR will migrate to the official `infrared.async_subscribe_receiver()` API and no ESPHome YAML customization will be needed. The existing `ir_rf_proxy` TX configuration is unaffected by this change.
 
+For ready-made, HAIR-tested configurations for common ESP32 boards and IR devices, see [`esphome/`](esphome/) in this repo.
+
 ## Features
 
 **Signal Sniffer** - Passive IR listener that runs in the background. Every IR transmission your receivers detect is captured, fingerprinted, and grouped by source device. Signals are deduplicated automatically: press the same button ten times and you see one signal with a hit count of ten. Repeat frames (sent when you hold a button down) are filtered out so only actual command signals appear. The Sniffer shows you what remotes are active in your home and which buttons are being pressed, all in real time.

@@ -95,6 +95,10 @@ Use the [GitHub issue tracker](https://github.com/DAB-LABS/HAIR/issues). Include
 - TypeScript: LitElement conventions, Lit decorators for properties
 - Keep public-facing text (README, comments, UI copy) free of em-dashes
 
+## Contributing ESPHome configs
+
+HAIR ships curated ESPHome IR configurations in [`esphome/`](esphome/). If you have a working IR setup on hardware not yet listed, we would love to include it. Copy the header template from `esphome/_template/header-template.yaml`, fill in every field, test against the listed HAIR/HA/ESPHome versions, and open a PR or post in the [HA Community forum thread](https://community.home-assistant.io/t/1010610). Full details in the [esphome/README.md](esphome/README.md).
+
 ## Updating llms.txt
 
 HAIR ships an `llms.txt` file in the repo root that gives AI assistants and

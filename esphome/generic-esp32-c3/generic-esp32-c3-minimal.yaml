@@ -1,0 +1,105 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            Generic ESP32-C3 dev kit (Espressif ESP32-C3-DevKitM-1
+#                    or compatible)
+# Hardware revision: Any
+# Variant:           minimal
+# Contributor:       DAB-LABS
+# Source:            in-house
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            0.1.2
+#   HA Core:         2026.5.2
+#   ESPHome:         2026.4.5
+# Last verified:     2026-05-25
+# Purpose:           RX+TX
+# Hardware purchase: DIY
+# GPIO map:
+#   GPIO9            IR TX (remote_transmitter)
+#   GPIO8            IR RX (remote_receiver, inverted, pull-up)
+# Notes:
+#   - Smallest config that gets IR TX + RX working with HAIR on an ESP32-C3.
+#   - Uses esp-idf framework. If you need Arduino framework, change the
+#     framework type and adjust pin configuration accordingly.
+# ============================================================================
+
+substitutions:
+  name: hair-c3
+  friendly_name: HAIR C3
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: !secret ap_password
+
+captive_portal:
+
+# --- IR Transmitter (TX) ---
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO9
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+# --- IR Receiver (RX) ---
+# The on_pronto trigger catches every IR signal regardless of protocol
+# (NEC, Samsung, Sony, RC-5, etc.) and fires it as a homeassistant.event
+# on the HA bus. HAIR's Signal Monitor subscribes to these events
+# automatically. This bridge is temporary -- when HA ships native
+# InfraredReceiverEntity (expected 2026.6-2026.7), HAIR will migrate
+# to the official API and this YAML block will no longer be needed.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO8
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  dump: all
+  tolerance: 25%
+  idle: 10ms
+
+  on_pronto:
+    then:
+      - homeassistant.event:
+          event: esphome.remote_received
+          data:
+            protocol: "PRONTO"
+            code: !lambda 'return x.data;'
+
+# --- HA Native Infrared Platform ---
+# These entries register the device as an infrared entity in HA, so HAIR
+# can discover it as an emitter and receiver automatically.
+infrared:
+  - platform: ir_rf_proxy
+    name: ${friendly_name} TX
+    id: ir_proxy_tx
+    remote_transmitter_id: ir_tx
+  - platform: ir_rf_proxy
+    name: ${friendly_name} RX
+    id: ir_proxy_rx
+    receiver_frequency: 38kHz
+    remote_receiver_id: ir_rx

@@ -1,0 +1,227 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            Seeed Studio XIAO Smart IR Mate (ESP32-C3 based)
+# Hardware revision: v1.0
+# Variant:           full
+# Contributor:       @Didgeridrew (HA Community Forum)
+# Source:            https://community.home-assistant.io/t/1010610/12
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            0.1.2
+#   HA Core:         2026.5.2
+#   ESPHome:         2026.4.5
+# Last verified:     2026-05-25
+# Purpose:           RX+TX
+# Hardware purchase: https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html
+# GPIO map:
+#   GPIO3            IR TX (remote_transmitter)
+#   GPIO4            IR RX (remote_receiver, inverted)
+#   GPIO5            Touch sensor (D3, input pull-down)
+#   GPIO6            Vibration motor (D4, output)
+#   GPIO7            RGB LED WS2812 (D5)
+# Notes:
+#   - Full config preserving all XIAO IR Mate hardware features: touch
+#     sensor with 300ms debounce, RGB LED for WiFi status, vibration motor.
+#   - Blended from esphome/infrared-proxies official config and Seeed
+#     Studio's stock XIAO features. Integration work by @Didgeridrew.
+#   - Replace #ENCRYPTION_KEY# and #PASSWORD# placeholders with your own
+#     values, or switch to !secret references (recommended).
+#   - For a stripped-down version with just IR, see xiao-ir-mate-minimal.yaml.
+# ============================================================================
+
+substitutions:
+  name: ir-mate
+  friendly_name: IR Mate
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: false
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: seeed_xiao_esp32c3
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: "#ENCRYPTION_KEY#"
+
+ota:
+  - platform: esphome
+    password: "#PASSWORD#"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    - globals.set:
+        id: is_wifi_connected
+        value: 'true'
+    - light.turn_on: rgb_light
+  on_disconnect:
+    - globals.set:
+        id: is_wifi_connected
+        value: 'false'
+    - light.turn_off: rgb_light
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "#PASSWORD#"
+
+captive_portal:
+
+network:
+  enable_ipv6: true
+
+# --- Globals ---
+globals:
+  - id: is_wifi_connected
+    type: bool
+    initial_value: 'false'
+  - id: reset_press_time
+    type: uint32_t
+    initial_value: '0'
+  - id: touch_timer
+    type: unsigned long
+    restore_value: no
+    initial_value: '0'
+
+# --- System Buttons ---
+button:
+  - platform: factory_reset
+    id: factory_reset_button
+    name: "Factory Reset"
+    entity_category: diagnostic
+    internal: true
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: config
+    disabled_by_default: true
+    icon: "mdi:restart"
+
+# --- Touch Sensor Event ---
+# The XIAO IR Mate has a capacitive touch pad on GPIO5 (D3). This exposes
+# it as an HA event entity so you can use touch events in automations.
+event:
+  - platform: template
+    name: Momentary Touch
+    id: touch_sensor
+    event_types:
+      - single
+    device_class: "button"
+    on_event:
+      then:
+        - lambda: |-
+            ESP_LOGD("main", "Event %s triggered.", event_type.c_str());
+
+# --- IR Transmitter (TX) ---
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO3
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+# --- IR Receiver (RX) ---
+# The on_pronto trigger catches every IR signal regardless of protocol
+# (NEC, Samsung, Sony, RC-5, etc.) and fires it as a homeassistant.event
+# on the HA bus. HAIR's Signal Monitor subscribes to these events
+# automatically. This bridge is temporary -- when HA ships native
+# InfraredReceiverEntity (expected 2026.6-2026.7), HAIR will migrate
+# to the official API and this YAML block will no longer be needed.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO4
+    inverted: true
+  dump: all
+  tolerance: 25%
+  idle: 10ms
+
+  on_pronto:
+    then:
+      - homeassistant.event:
+          event: esphome.remote_received
+          data:
+            protocol: "PRONTO"
+            code: !lambda 'return x.data;'
+
+# --- HA Native Infrared Platform ---
+# These entries register the device as an infrared entity in HA, so HAIR
+# can discover it as an emitter and receiver automatically.
+infrared:
+  - platform: ir_rf_proxy
+    name: ${friendly_name} Proxy Tx
+    id: ir_proxy_tx
+    remote_transmitter_id: ir_tx
+  - platform: ir_rf_proxy
+    name: ${friendly_name} Proxy Rx
+    id: ir_proxy_rx
+    remote_receiver_id: ir_rx
+
+# --- Touch Pad (GPIO5 / D3) ---
+# Capacitive touch sensor. Fires a vibration pulse on touch and triggers
+# the touch_sensor event entity above. The 300ms debounce in the
+# check_touch_delay script prevents double-fires from noisy touches.
+binary_sensor:
+  - platform: gpio
+    id: touch_pad
+    pin:
+      number: GPIO5
+      mode: INPUT_PULLDOWN
+    on_state:
+      then:
+        - lambda: |-
+            id(vibe).execute(100);
+            id(touch_timer) = millis();
+            if (id(check_touch_delay).is_running()) {
+              id(check_touch_delay).stop();
+              delay(10);
+            }
+            id(check_touch_delay).execute();
+        - event.trigger:
+            id: touch_sensor
+            event_type: "single"
+
+# --- Vibration Motor (GPIO6 / D4) ---
+# Haptic feedback motor. The vibe script pulses it for a configurable
+# duration in milliseconds.
+output:
+  - platform: gpio
+    id: vibration_output
+    pin: GPIO6
+
+script:
+  - id: vibe
+    parameters:
+      delay_ms: int
+    then:
+      - switch.turn_on: vibration_switch
+      - delay: !lambda return delay_ms;
+      - switch.turn_off: vibration_switch
+
+  - id: check_touch_delay
+    then:
+      - delay: 300ms
+
+switch:
+  - platform: output
+    id: vibration_switch
+    name: "Vibration device"
+    output: vibration_output
+    internal: true
+
+# --- RGB LED (GPIO7 / D5) ---
+# WS2812 status LED. Turns on when WiFi connects, off when disconnected.
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: GPIO7
+    num_leds: 1
+    chipset: WS2812
+    name: "RGB Light"
+    id: rgb_light
+    rmt_symbols: 48

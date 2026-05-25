@@ -1,0 +1,117 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            Generic ESP32 doit dev kit (esp32doit-devkit-v1)
+# Hardware revision: Any
+# Variant:           minimal
+# Contributor:       DAB-LABS
+# Source:            in-house
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            0.1.2
+#   HA Core:         2026.5.2
+#   ESPHome:         2026.4.5
+# Last verified:     2026-05-25
+# Purpose:           RX+TX
+# Hardware purchase: DIY
+# GPIO map:
+#   GPIO4            IR TX (remote_transmitter)
+#   GPIO14           IR RX (remote_receiver, inverted, pull-up)
+#   GPIO21           IR power enable (must be HIGH for IR to work)
+# Notes:
+#   - GPIO21 gates power to the IR LED and receiver on this board. Without
+#     the switch below set to ALWAYS_ON, no IR activity will work. This is
+#     a board-specific quirk, not an ESPHome or HAIR issue.
+#   - Uses esp-idf framework.
+# ============================================================================
+
+substitutions:
+  name: hair-doit
+  friendly_name: HAIR doit
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32doit-devkit-v1
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: !secret ap_password
+
+captive_portal:
+
+# --- Power Enable (REQUIRED for this board) ---
+# GPIO21 gates power to the IR LED and receiver. Without this switch set
+# to ALWAYS_ON, no IR activity will work on this board.
+switch:
+  - platform: gpio
+    pin: GPIO21
+    id: ir_power
+    name: "${friendly_name} IR Power"
+    restore_mode: ALWAYS_ON
+    entity_category: config
+
+# --- IR Transmitter (TX) ---
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO4
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+# --- IR Receiver (RX) ---
+# The on_pronto trigger catches every IR signal regardless of protocol
+# (NEC, Samsung, Sony, RC-5, etc.) and fires it as a homeassistant.event
+# on the HA bus. HAIR's Signal Monitor subscribes to these events
+# automatically. This bridge is temporary -- when HA ships native
+# InfraredReceiverEntity (expected 2026.6-2026.7), HAIR will migrate
+# to the official API and this YAML block will no longer be needed.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO14
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  dump: all
+  tolerance: 25%
+  idle: 10ms
+
+  on_pronto:
+    then:
+      - homeassistant.event:
+          event: esphome.remote_received
+          data:
+            protocol: "PRONTO"
+            code: !lambda 'return x.data;'
+
+# --- HA Native Infrared Platform ---
+# These entries register the device as an infrared entity in HA, so HAIR
+# can discover it as an emitter and receiver automatically.
+infrared:
+  - platform: ir_rf_proxy
+    name: ${friendly_name} TX
+    id: ir_proxy_tx
+    remote_transmitter_id: ir_tx
+  - platform: ir_rf_proxy
+    name: ${friendly_name} RX
+    id: ir_proxy_rx
+    receiver_frequency: 38kHz
+    remote_receiver_id: ir_rx
