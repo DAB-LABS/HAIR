@@ -36,7 +36,7 @@ substitutions:
 
 esphome:
   name: ${name}
-  name_add_mac_suffix: false
+  name_add_mac_suffix: true
   friendly_name: ${friendly_name}
 
 esp32:
@@ -154,11 +154,11 @@ remote_receiver:
 # can discover it as an emitter and receiver automatically.
 infrared:
   - platform: ir_rf_proxy
-    name: ${friendly_name} Proxy Tx
+    name: Proxy Tx
     id: ir_proxy_tx
     remote_transmitter_id: ir_tx
   - platform: ir_rf_proxy
-    name: ${friendly_name} Proxy Rx
+    name: Proxy Rx
     id: ir_proxy_rx
     remote_receiver_id: ir_rx
 
