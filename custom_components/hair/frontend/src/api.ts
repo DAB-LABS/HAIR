@@ -19,6 +19,7 @@ import type {
     IRCommand,
     IRDevice,
     IRTrigger,
+    ReceiverInfo,
     SignalRemovedEvent,
     TestSignalResult,
     TriggerFiredEvent,
@@ -124,6 +125,12 @@ export class HairApi {
     listCaptureProviders(): Promise<CaptureProviderInfo[]> {
         return this.hass.connection.sendMessagePromise<CaptureProviderInfo[]>({
             type: "hair/capture/providers",
+        });
+    }
+
+    listReceivers(): Promise<ReceiverInfo[]> {
+        return this.hass.connection.sendMessagePromise<ReceiverInfo[]>({
+            type: "hair/receivers",
         });
     }
 

@@ -7,6 +7,7 @@ from custom_components.hair.ir_command import (
     ProntoCommand,
     RawTimingsCommand,
     build_command,
+    raw_to_pronto,
 )
 
 # ---------------------------------------------------------------------------
@@ -189,3 +190,73 @@ class TestBuildCommand:
         cmd = build_command(raw_timings=[9000, -4500, 560])
         timings = cmd.get_raw_timings()
         assert all(isinstance(t, int) for t in timings)
+
+
+# ---------------------------------------------------------------------------
+# raw_to_pronto encoder
+# ---------------------------------------------------------------------------
+
+class TestRawToPronto:
+    """Tests for raw_to_pronto() encoder."""
+
+    def test_basic_encoding(self):
+        """Encode simple timings and verify the Pronto format."""
+        pronto = raw_to_pronto([9000, -4500, 560, -560])
+        words = pronto.split()
+        assert words[0] == "0000"  # learned format
+        assert len(words) >= 8     # header(4) + 2 pairs * 2 words
+
+    def test_frequency_word(self):
+        """Verify the frequency word for 38 kHz."""
+        pronto = raw_to_pronto([1000, -1000], frequency=38000)
+        words = pronto.split()
+        freq_word = int(words[1], 16)
+        # 1_000_000 / (38000 * 0.241246) ~ 109 = 0x006D
+        assert 100 < freq_word < 120
+
+    def test_round_trip(self):
+        """Encode raw -> Pronto -> ProntoCommand -> get_raw_timings.
+
+        The round-trip should produce values close to the originals
+        (within rounding tolerance of the Pronto period quantization).
+        """
+        original = [9000, -4500, 560, -560, 560, -1690]
+        pronto = raw_to_pronto(original, frequency=38000)
+
+        cmd = ProntoCommand(pronto)
+        recovered = cmd.get_raw_timings()
+
+        assert len(recovered) == len(original)
+        for orig, rec in zip(original, recovered):
+            # Rounding tolerance: Pronto period is ~26us, so values
+            # can differ by up to ~26us per quantization step.
+            assert abs(abs(orig) - abs(rec)) < 50, (
+                f"Round-trip mismatch: {orig} vs {rec}"
+            )
+
+    def test_burst1_count(self):
+        """Verify burst1_count matches the number of pairs."""
+        pronto = raw_to_pronto([100, -200, 300, -400, 500, -600])
+        words = [int(w, 16) for w in pronto.split()]
+        assert words[2] == 3  # 3 pairs in burst1
+        assert words[3] == 0  # 0 pairs in burst2
+
+    def test_odd_timings_trailing_mark(self):
+        """Odd number of timings: trailing mark gets space=0."""
+        pronto = raw_to_pronto([1000, -2000, 500])
+        words = [int(w, 16) for w in pronto.split()]
+        # 2 pairs: (1000, -2000) and (500, 0)
+        assert words[2] == 2
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="empty"):
+            raw_to_pronto([])
+
+    def test_zero_frequency_raises(self):
+        with pytest.raises(ValueError, match="frequency"):
+            raw_to_pronto([100, -200], frequency=0)
+
+    def test_unsigned_timings_work(self):
+        """Unsigned (all positive) alternating timings should work."""
+        pronto = raw_to_pronto([9000, 4500, 560, 560])
+        assert pronto.startswith("0000")

@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.hair.capture import (
     MockCaptureProvider,
+    NativeCaptureProvider,
     get_available_capture_providers,
 )
 from custom_components.hair.capture_orchestrator import (
@@ -204,3 +205,110 @@ async def test_esphome_device_without_ir_entities_excluded(fake_hass):
     ):
         providers = await get_available_capture_providers(fake_hass)
     assert len(providers) == 0
+
+
+# ---------------------------------------------------------------------------
+# NativeCaptureProvider tests (HA 2026.6+)
+# ---------------------------------------------------------------------------
+
+
+class TestNativeCaptureProvider:
+    """Tests for the NativeCaptureProvider."""
+
+    def test_provider_type(self):
+        hass = MagicMock()
+        provider = NativeCaptureProvider(hass, "infrared.living_room_rx")
+        assert provider.provider_type == CaptureProviderType.NATIVE
+
+    def test_device_name_from_state(self):
+        hass = MagicMock()
+        state = MagicMock()
+        state.attributes = {"friendly_name": "Living Room Receiver"}
+        hass.states.get.return_value = state
+
+        provider = NativeCaptureProvider(hass, "infrared.living_room_rx")
+        assert provider.device_name == "Living Room Receiver"
+
+    def test_device_name_fallback_to_entity_id(self):
+        hass = MagicMock()
+        hass.states.get.return_value = None
+
+        provider = NativeCaptureProvider(hass, "infrared.living_room_rx")
+        assert provider.device_name == "infrared.living_room_rx"
+
+    def test_is_available_true(self):
+        hass = MagicMock()
+        hass.states.get.return_value = MagicMock()
+        provider = NativeCaptureProvider(hass, "infrared.living_room_rx")
+        assert provider.is_available()
+
+    def test_is_available_false(self):
+        hass = MagicMock()
+        hass.states.get.return_value = None
+        provider = NativeCaptureProvider(hass, "infrared.living_room_rx")
+        assert not provider.is_available()
+
+    @pytest.mark.asyncio
+    async def test_start_already_running_raises(self):
+        hass = MagicMock()
+        provider = NativeCaptureProvider(hass, "infrared.rx")
+        provider._running = True
+
+        with pytest.raises(RuntimeError, match="already running"):
+            await provider.async_start_capture()
+
+    @pytest.mark.asyncio
+    async def test_stop_cleans_up(self):
+        hass = MagicMock()
+        provider = NativeCaptureProvider(hass, "infrared.rx")
+        unsub = MagicMock()
+        provider._unsubscribe = unsub
+        provider._running = True
+
+        await provider.async_stop_capture()
+
+        unsub.assert_called_once()
+        assert not provider._running
+        assert provider._unsubscribe is None
+
+    @pytest.mark.asyncio
+    async def test_wait_for_signal_timeout(self):
+        hass = MagicMock()
+        provider = NativeCaptureProvider(hass, "infrared.rx")
+        provider._running = True
+        provider._signal_queue = asyncio.Queue()
+        provider._timeout = 0.05
+
+        result = await provider.async_wait_for_signal()
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Native receiver discovery
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_native_receivers_discovered(fake_hass):
+    """Native receivers should appear in provider discovery."""
+    fake_hass.config.components = set()
+    state = MagicMock()
+    state.attributes = {"friendly_name": "HAIR1 RX"}
+    fake_hass.states.get.return_value = state
+
+    async def fake_get_receivers(_hass):
+        return ["infrared.hair1_rx"]
+
+    mock_ir_module = MagicMock()
+    mock_ir_module.async_get_receivers = fake_get_receivers
+
+    with patch.dict("sys.modules", {
+        "homeassistant.components.infrared": mock_ir_module,
+    }):
+        providers = await get_available_capture_providers(fake_hass)
+
+    native = [p for p in providers if p["type"] == str(CaptureProviderType.NATIVE)]
+    assert len(native) == 1
+    assert native[0]["device_id"] == "infrared.hair1_rx"
+    assert native[0]["receiver_entity_id"] == "infrared.hair1_rx"
+    assert native[0]["name"] == "HAIR1 RX"

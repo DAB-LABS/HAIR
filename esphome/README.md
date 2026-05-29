@@ -6,6 +6,8 @@ Curated, HAIR-tested ESPHome configurations for common IR hardware. Each config 
 
 | Device | Board | Variant | HAIR | HA Core | ESPHome | Contributor | Path |
 |---|---|---|---|---|---|---|---|
+| Athom RF IR Remote | esp32dev | minimal | 0.2.0 | 2026.5.2 | 2026.5.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
+| Athom RF IR Remote | esp32dev | full | 0.2.0 | 2026.5.2 | 2026.5.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
 | Generic ESP32-C3 dev kit | esp32-c3-devkitm-1 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [generic-esp32-c3/](generic-esp32-c3/) |
 | Generic ESP32 doit dev kit | esp32doit-devkit-v1 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [generic-esp32-doit/](generic-esp32-doit/) |
 | XIAO Smart IR Mate | seeed_xiao_esp32c3 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [xiao-ir-mate/](xiao-ir-mate/) |
@@ -15,7 +17,7 @@ Curated, HAIR-tested ESPHome configurations for common IR hardware. Each config 
 
 **I have a dev board and want to wire up IR LEDs:** Pick one of the generic configs. The ESP32-C3 and ESP32 doit configs are both DIY paths -- you supply the IR LED (with transistor driver) and IR receiver module.
 
-**I want commercial off-the-shelf with no soldering:** The [XIAO Smart IR Mate](https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html) is the easiest path. IR LED, receiver, touch sensor, and status LED are all built in. Start with the minimal variant.
+**I want commercial off-the-shelf with no soldering:** The [Athom RF IR Remote](https://www.athom.tech/) and [XIAO Smart IR Mate](https://www.seeedstudio.com/Seeed-XIAO-Smart-IR-Mate.html) are the easiest paths. Both have IR LED, receiver, and status LED built in. The Athom also has 433 MHz RF hardware. Start with the minimal variant.
 
 ## Two-tier convention
 

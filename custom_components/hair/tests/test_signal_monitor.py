@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.hair.const import (
     EVENT_SIGNAL_DETECTED,
+    LEGACY_ESPHOME_IR_EVENT,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
@@ -81,13 +82,23 @@ class TestLifecycle:
 
     @pytest.mark.asyncio
     async def test_start_subscribes_to_bus(self):
+        """Legacy fallback: subscribes to esphome.remote_received."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
         await monitor.async_start()
         hass.bus.async_listen.assert_called_once()
         args = hass.bus.async_listen.call_args
-        assert args[0][0] == "esphome.remote_received"
+        assert args[0][0] == LEGACY_ESPHOME_IR_EVENT
+
+    @pytest.mark.asyncio
+    async def test_start_legacy_fallback_sets_native_mode_false(self):
+        """In test env, native import fails so legacy path activates."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        await monitor.async_start()
+        assert not monitor.native_mode
 
     @pytest.mark.asyncio
     async def test_start_loads_store_if_not_loaded(self):
@@ -993,3 +1004,204 @@ class TestTestSignalErrors:
             ir_mod.async_send_command = orig
         assert result["success"] is False
         assert result["code"] == "send_failed"
+
+
+# ---------------------------------------------------------------------------
+# Native receiver path (HA 2026.6+)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTiming:
+    """Minimal stand-in for ``infrared_protocols.Timing``."""
+
+    def __init__(self, high_us: int, low_us: int) -> None:
+        self.high_us = high_us
+        self.low_us = low_us
+
+
+class _FakeReceivedSignal:
+    """Minimal stand-in for ``InfraredReceivedSignal``."""
+
+    def __init__(
+        self,
+        timings: list[_FakeTiming],
+        modulation: int = 38000,
+    ) -> None:
+        self.timings = timings
+        self.modulation = modulation
+
+
+class TestNativeReceiverLifecycle:
+    """Tests for the native ``InfraredReceiverEntity`` subscription path."""
+
+    @pytest.mark.asyncio
+    async def test_native_mode_activates_when_api_available(self):
+        """When async_subscribe_receiver is importable, native mode activates."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        mock_unsub = MagicMock()
+
+        async def fake_get_receivers(_hass):
+            return ["infrared.living_room_rx"]
+
+        async def fake_subscribe(_hass, entity_id, callback):
+            return mock_unsub
+
+        with patch(
+            "custom_components.hair.signal_monitor.SignalMonitor"
+            "._start_native_receivers",
+            wraps=monitor._start_native_receivers,
+        ), patch.dict(
+            "sys.modules",
+            {
+                "homeassistant.components.infrared": MagicMock(
+                    async_get_receivers=fake_get_receivers,
+                    async_subscribe_receiver=fake_subscribe,
+                ),
+            },
+        ):
+            await monitor._start_native_receivers()
+
+        assert monitor.native_mode
+        assert len(monitor._unsubs) == 1
+
+    @pytest.mark.asyncio
+    async def test_native_no_receivers_falls_back(self):
+        """If native API exists but no receivers found, falls back to legacy."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        async def fake_get_receivers(_hass):
+            return []
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "homeassistant.components.infrared": MagicMock(
+                    async_get_receivers=fake_get_receivers,
+                ),
+            },
+        ):
+            await monitor._start_native_receivers()
+
+        # Should have fallen back to legacy.
+        assert not monitor.native_mode
+        hass.bus.async_listen.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_native_stop_cleans_up_all_unsubs(self):
+        """async_stop() should call all native unsubs."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        unsub1 = MagicMock()
+        unsub2 = MagicMock()
+        monitor._unsubs = [unsub1, unsub2]
+        monitor._native_mode = True
+
+        await monitor.async_stop()
+
+        unsub1.assert_called_once()
+        unsub2.assert_called_once()
+        assert len(monitor._unsubs) == 0
+
+
+class TestNativeSignalProcessing:
+    """Tests for _on_received_signal processing path."""
+
+    @pytest.mark.asyncio
+    async def test_native_signal_creates_device_and_signal(self):
+        """A native signal should create an unknown device and signal."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        signal = _FakeReceivedSignal(
+            timings=[
+                _FakeTiming(9000, 4500),
+                _FakeTiming(560, 560),
+                _FakeTiming(560, 1690),
+                _FakeTiming(560, 560),
+            ],
+            modulation=38000,
+        )
+
+        await monitor._on_received_signal(signal)
+
+        assert store.device_count == 1
+        devices = store.get_all_devices()
+        assert len(devices) == 1
+        assert devices[0].hit_count == 1
+        assert len(devices[0].signals) == 1
+        # Signal should be stored as PRONTO protocol.
+        assert devices[0].signals[0].protocol == "PRONTO"
+
+    @pytest.mark.asyncio
+    async def test_native_repeat_frame_filtered(self):
+        """Short signals (<=3 timing pairs) should be filtered as repeats."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Only 2 timing pairs -- repeat frame.
+        signal = _FakeReceivedSignal(
+            timings=[
+                _FakeTiming(9000, 2250),
+                _FakeTiming(560, 560),
+            ],
+            modulation=38000,
+        )
+
+        await monitor._on_received_signal(signal)
+        assert store.device_count == 0
+
+    @pytest.mark.asyncio
+    async def test_native_signal_fires_ha_event(self):
+        """Native path should fire hair_signal_detected event."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        signal = _FakeReceivedSignal(
+            timings=[
+                _FakeTiming(9000, 4500),
+                _FakeTiming(560, 560),
+                _FakeTiming(560, 1690),
+                _FakeTiming(560, 560),
+            ],
+            modulation=38000,
+        )
+
+        await monitor._on_received_signal(signal)
+
+        hass.bus.async_fire.assert_called_once()
+        args = hass.bus.async_fire.call_args
+        assert args[0][0] == EVENT_SIGNAL_DETECTED
+
+    @pytest.mark.asyncio
+    async def test_native_signal_notifies_subscribers(self):
+        """Native path should notify WebSocket subscribers."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        received = []
+        monitor.subscribe(lambda data: received.append(data))
+
+        signal = _FakeReceivedSignal(
+            timings=[
+                _FakeTiming(9000, 4500),
+                _FakeTiming(560, 560),
+                _FakeTiming(560, 1690),
+                _FakeTiming(560, 560),
+            ],
+            modulation=38000,
+        )
+
+        await monitor._on_received_signal(signal)
+        assert len(received) == 1
+        assert "signal_fingerprint" in received[0]

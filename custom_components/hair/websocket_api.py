@@ -57,6 +57,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_save_captured_command)
     websocket_api.async_register_command(hass, ws_get_command_templates)
     websocket_api.async_register_command(hass, ws_get_capture_providers)
+    websocket_api.async_register_command(hass, ws_get_receivers)
 
     # Signal Monitor (unknown devices)
     websocket_api.async_register_command(hass, ws_get_unknown_devices)
@@ -544,6 +545,42 @@ async def ws_get_capture_providers(
 ) -> None:
     providers = await get_available_capture_providers(hass)
     connection.send_result(msg["id"], providers)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/receivers",
+})
+@websocket_api.async_response
+async def ws_get_receivers(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return native IR receiver entities (HA 2026.6+).
+
+    Returns an empty list on older HA versions.
+    """
+    receivers: list[dict[str, Any]] = []
+    try:
+        from homeassistant.components.infrared import (  # type: ignore[attr-defined]
+            async_get_receivers,
+        )
+
+        entity_ids = await async_get_receivers(hass)
+        for entity_id in entity_ids:
+            state = hass.states.get(entity_id)
+            name = entity_id
+            if state is not None:
+                name = state.attributes.get("friendly_name", entity_id)
+            receivers.append({
+                "entity_id": entity_id,
+                "name": str(name),
+            })
+    except (ImportError, AttributeError):
+        pass  # Pre-2026.6: no native receiver API.
+
+    connection.send_result(msg["id"], receivers)
 
 
 # --- Signal Monitor (Unknown Devices) ---

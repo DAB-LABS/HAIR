@@ -146,14 +146,27 @@ export class IrDeviceList extends LitElement {
     }
 
     private async _discoverHardware(): Promise<void> {
-        // Emitters from hass.states
+        // Fetch native receiver entity IDs so we can exclude them from emitters.
+        const receiverEntityIds = new Set<string>();
+        if (this.api) {
+            try {
+                const receivers = await this.api.listReceivers();
+                for (const r of receivers) {
+                    receiverEntityIds.add(r.entity_id);
+                }
+            } catch {
+                // Pre-2026.6 or non-fatal error.
+            }
+        }
+
+        // Emitters from hass.states (exclude receiver entities)
         const states = (this.hass?.states ?? {}) as Record<
             string,
             { entity_id: string; attributes: { friendly_name?: string } }
         >;
         const emitters: { entity_id: string; name: string }[] = [];
         for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.")) {
+            if (entityId.startsWith("infrared.") && !receiverEntityIds.has(entityId)) {
                 emitters.push({
                     entity_id: entityId,
                     name: st.attributes.friendly_name ?? entityId,

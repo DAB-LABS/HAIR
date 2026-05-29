@@ -35,7 +35,7 @@ export interface ActionOption {
 
 export type CommandSourceId = "captured" | "database" | "imported";
 
-export type CaptureProviderTypeId = "esphome" | "broadlink" | "mock";
+export type CaptureProviderTypeId = "esphome" | "broadlink" | "native" | "mock";
 
 export interface IRCommand {
     id: string;
@@ -98,7 +98,13 @@ export interface CaptureProviderInfo {
     type: CaptureProviderTypeId;
     device_id: string;
     name: string;
-    config_entry_id: string;
+    config_entry_id: string | null;
+    receiver_entity_id?: string;
+}
+
+export interface ReceiverInfo {
+    entity_id: string;
+    name: string;
 }
 
 export interface CaptureResult {

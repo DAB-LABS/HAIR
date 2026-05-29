@@ -34,6 +34,14 @@ EVENT_SIGNAL_DETECTED = f"{DOMAIN}_signal_detected"
 EVENT_SIGNAL_REMOVED = f"{DOMAIN}_signal_removed"
 
 # ---------------------------------------------------------------------------
+# Receiver mode detection
+# ---------------------------------------------------------------------------
+# Legacy ESPHome event bus bridge (pre-2026.6).
+LEGACY_ESPHOME_IR_EVENT = "esphome.remote_received"
+# Native infrared receiver API (HA 2026.6+).
+NATIVE_RECEIVER_AVAILABLE = "native_receiver_available"
+
+# ---------------------------------------------------------------------------
 # Signal Monitor
 # ---------------------------------------------------------------------------
 SIGNAL_STORAGE_KEY = "hair_unknown_signals"
@@ -115,6 +123,7 @@ class CaptureProviderType(StrEnum):
 
     ESPHOME = "esphome"
     BROADLINK = "broadlink"
+    NATIVE = "native"
     MOCK = "mock"
 
 

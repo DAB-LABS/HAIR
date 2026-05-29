@@ -32,6 +32,9 @@ export class IrEmitterPicker extends LitElement {
     /** Disable all interactions. */
     @property({ type: Boolean }) public disabled = false;
 
+    /** Entity IDs to exclude from the dropdown (e.g. receiver entities). */
+    @property({ attribute: false }) public excludeEntityIds: string[] = [];
+
     @state() private _didAutoSelect = false;
 
     updated(changed: Map<string, unknown>): void {
@@ -54,9 +57,10 @@ export class IrEmitterPicker extends LitElement {
             string,
             { entity_id: string; attributes: { friendly_name?: string } }
         >;
+        const excludeSet = new Set(this.excludeEntityIds);
         const emitters: EmitterInfo[] = [];
         for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.")) {
+            if (entityId.startsWith("infrared.") && !excludeSet.has(entityId)) {
                 emitters.push({
                     entity_id: entityId,
                     name: st.attributes.friendly_name ?? entityId,

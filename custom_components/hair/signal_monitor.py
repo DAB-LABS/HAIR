@@ -1,7 +1,15 @@
 """Always-on IR signal monitor for HAIR.
 
-Subscribes to ``esphome.remote_received`` events on the HA event bus,
-groups observed signals by source device, and surfaces unknown IR
+Supports two receive paths:
+
+1. **Native (HA 2026.6+):** subscribes to each ``InfraredReceiverEntity``
+   via ``infrared.async_subscribe_receiver()``.  Hardware-agnostic --
+   any integration implementing the receiver entity works automatically.
+2. **Legacy (HA 2026.4-2026.5):** falls back to listening for
+   ``esphome.remote_received`` events on the HA event bus.  Requires
+   the ESPHome YAML bridge (``on_pronto`` + ``homeassistant.event``).
+
+Groups observed signals by source device and surfaces unknown IR
 activity for user assignment.
 """
 from __future__ import annotations
@@ -21,6 +29,7 @@ from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
+    LEGACY_ESPHOME_IR_EVENT,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
@@ -31,9 +40,6 @@ from .signal_store import SignalStore
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
-
-# HA event name fired by ESPHome ir_rf_proxy.
-_ESPHOME_IR_EVENT = "esphome.remote_received"
 
 
 class SignalMonitor:
@@ -56,7 +62,9 @@ class SignalMonitor:
         self._hair_store = hair_store
         self._trigger_manager = trigger_manager
         self._unsub: CALLBACK_TYPE | None = None
+        self._unsubs: list[CALLBACK_TYPE] = []
         self._lock = asyncio.Lock()
+        self._native_mode: bool = False
 
         # Rate limiting: fingerprint -> list of event timestamps (monotonic).
         self._rate_buckets: dict[str, list[float]] = defaultdict(list)
@@ -72,20 +80,75 @@ class SignalMonitor:
     # -----------------------------------------------------------------
 
     async def async_start(self) -> None:
-        """Start listening for IR events."""
+        """Start listening for IR events.
+
+        Tries the native receiver API (HA 2026.6+) first.  Falls back
+        to the legacy ESPHome event bus bridge if ``async_subscribe_receiver``
+        is not available.
+        """
         if not self._signal_store.loaded:
             await self._signal_store.async_load()
 
-        self._unsub = self._hass.bus.async_listen(
-            _ESPHOME_IR_EVENT, self._on_ir_event
+        try:
+            await self._start_native_receivers()
+        except (ImportError, AttributeError):
+            self._start_legacy_event_bus()
+
+    async def _start_native_receivers(self) -> None:
+        """Subscribe to all native ``InfraredReceiverEntity`` instances.
+
+        Uses ``infrared.async_subscribe_receiver()`` from HA 2026.6+.
+        Raises ``ImportError`` if the API is not available (pre-2026.6).
+        """
+        from homeassistant.components.infrared import (  # type: ignore[attr-defined]
+            async_get_receivers,
+            async_subscribe_receiver,
         )
-        _LOGGER.info("Signal monitor started")
+
+        receivers = await async_get_receivers(self._hass)
+        if not receivers:
+            _LOGGER.info(
+                "Native receiver API available but no receivers found; "
+                "falling back to legacy event bus"
+            )
+            self._start_legacy_event_bus()
+            return
+
+        for receiver_entity_id in receivers:
+            unsub = await async_subscribe_receiver(
+                self._hass,
+                receiver_entity_id,
+                self._on_received_signal,
+            )
+            self._unsubs.append(unsub)
+
+        self._native_mode = True
+        _LOGGER.info(
+            "Signal monitor started (native mode, %d receiver(s))",
+            len(receivers),
+        )
+
+    def _start_legacy_event_bus(self) -> None:
+        """Subscribe to ``esphome.remote_received`` events (legacy path)."""
+        self._unsub = self._hass.bus.async_listen(
+            LEGACY_ESPHOME_IR_EVENT, self._on_ir_event
+        )
+        self._native_mode = False
+        _LOGGER.info("Signal monitor started (legacy event bus mode)")
+
+    @property
+    def native_mode(self) -> bool:
+        """Return True if using native receiver API."""
+        return self._native_mode
 
     async def async_stop(self) -> None:
         """Stop listening, flush pending writes."""
         if self._unsub is not None:
             self._unsub()
             self._unsub = None
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
         await self._signal_store.async_shutdown()
         _LOGGER.info("Signal monitor stopped")
 
@@ -94,11 +157,30 @@ class SignalMonitor:
     # -----------------------------------------------------------------
 
     async def _on_ir_event(self, event: Event) -> None:
-        """Handle an incoming IR event from the HA bus.
+        """Handle an incoming IR event from the HA bus (legacy path).
 
-        Steps (plan v3 corrected ordering):
-        1. Parse via EventParser (bail if unparseable or NEC repeat)
-        2. Compute fingerprints
+        Parses the ESPHome event dict and delegates to the shared
+        processing pipeline.
+        """
+        event_data = event.data or {}
+
+        # Filter out repeat frames (no command data).
+        if EventParser.is_nec_repeat(event_data):
+            return
+        if EventParser.is_pronto_repeat(event_data):
+            return
+        parsed = EventParser.parse(event_data)
+        if parsed is None:
+            return
+
+        await self._process_parsed_signal(parsed)
+
+    async def _process_parsed_signal(self, parsed: Any) -> None:
+        """Shared signal processing pipeline for both native and legacy paths.
+
+        Steps:
+        1. Compute fingerprints
+        2. Check triggers (before known-command skip)
         3. Check known commands -- skip if already assigned
         4. Check dismiss list
         5. Rate limit check
@@ -108,18 +190,7 @@ class SignalMonitor:
         11. Fire HA event
         12. Notify subscribers
         """
-        event_data = event.data or {}
-
-        # Step 1: Parse.  Filter out repeat frames (no command data).
-        if EventParser.is_nec_repeat(event_data):
-            return
-        if EventParser.is_pronto_repeat(event_data):
-            return
-        parsed = EventParser.parse(event_data)
-        if parsed is None:
-            return
-
-        # Step 2: Compute fingerprints.
+        # Step 1: Compute fingerprints.
         sig_fp = EventParser.signal_fingerprint(
             parsed.protocol, parsed.code, parsed.raw_timings
         )
@@ -131,7 +202,7 @@ class SignalMonitor:
             code=parsed.code,
         )
 
-        # Step 3a: Check triggers (before known-command skip so triggers
+        # Step 2: Check triggers (before known-command skip so triggers
         # work for both assigned commands and unknown signals).
         if self._trigger_manager is not None:
             self._trigger_manager.on_signal(
@@ -215,6 +286,27 @@ class SignalMonitor:
                 callback(summary)
             except Exception:
                 _LOGGER.exception("Error notifying signal subscriber")
+
+    # -----------------------------------------------------------------
+    # Native receiver callback (HA 2026.6+)
+    # -----------------------------------------------------------------
+
+    async def _on_received_signal(self, signal: Any) -> None:
+        """Handle a signal from the native ``InfraredReceiverEntity`` API.
+
+        Converts the ``InfraredReceivedSignal`` to Pronto hex at the
+        entry point, then delegates to the same processing pipeline
+        used by the legacy path.
+        """
+        # Filter repeat frames.
+        if EventParser.is_native_repeat(signal):
+            return
+
+        parsed = EventParser.parse_received_signal(signal)
+        if parsed is None:
+            return
+
+        await self._process_parsed_signal(parsed)
 
     # -----------------------------------------------------------------
     # Known-command check
