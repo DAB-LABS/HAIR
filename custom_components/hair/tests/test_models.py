@@ -81,6 +81,74 @@ def test_device_add_replace_remove():
     assert device.remove_command("missing") is False
 
 
+def test_reorder_commands_happy_path():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd_a = IRCommand(name="A", protocol="NEC", code="0x1")
+    cmd_b = IRCommand(name="B", protocol="NEC", code="0x2")
+    cmd_c = IRCommand(name="C", protocol="NEC", code="0x3")
+    device.add_command(cmd_a)
+    device.add_command(cmd_b)
+    device.add_command(cmd_c)
+    original_updated_at = device.updated_at
+
+    device.reorder_commands([cmd_c.id, cmd_a.id, cmd_b.id])
+
+    assert [c.id for c in device.commands] == [cmd_c.id, cmd_a.id, cmd_b.id]
+    assert device.updated_at != original_updated_at
+
+
+def test_reorder_commands_empty_device_with_empty_list():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    # No-op on a device with no commands.
+    device.reorder_commands([])
+    assert device.commands == []
+
+
+def test_reorder_commands_duplicate_id_raises():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd = IRCommand(name="A", protocol="NEC", code="0x1")
+    device.add_command(cmd)
+    original_order = list(device.commands)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="Duplicate"):
+        device.reorder_commands([cmd.id, cmd.id])
+
+    # Validation failure must not mutate state.
+    assert device.commands == original_order
+
+
+def test_reorder_commands_unknown_id_raises():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd = IRCommand(name="A", protocol="NEC", code="0x1")
+    device.add_command(cmd)
+    original_order = list(device.commands)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="unknown"):
+        device.reorder_commands([cmd.id, "ghost"])
+
+    assert device.commands == original_order
+
+
+def test_reorder_commands_missing_id_raises():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd_a = IRCommand(name="A", protocol="NEC", code="0x1")
+    cmd_b = IRCommand(name="B", protocol="NEC", code="0x2")
+    device.add_command(cmd_a)
+    device.add_command(cmd_b)
+    original_order = list(device.commands)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="missing"):
+        device.reorder_commands([cmd_a.id])  # cmd_b is missing
+
+    assert device.commands == original_order
+
+
 def test_capture_result_matches_by_protocol_code():
     a = CaptureResult(protocol="NEC", code="0xABCD", raw_timings=[1])
     b = CaptureResult(protocol="NEC", code="0xABCD", raw_timings=[2])

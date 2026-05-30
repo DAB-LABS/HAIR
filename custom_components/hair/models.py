@@ -177,6 +177,40 @@ class IRDevice:
                 return True
         return False
 
+    def reorder_commands(self, command_ids: list[str]) -> None:
+        """Reorder ``self.commands`` to match the given ID list.
+
+        The provided list must contain exactly the set of IDs currently
+        held by this device -- no duplicates, no unknown IDs, no missing
+        IDs. This is intentional: callers (the drag-to-reorder UI) always
+        send the complete list, so any divergence indicates a bug or a
+        stale client that should be rejected loudly rather than silently
+        accepted.
+
+        Raises :class:`ValueError` on any of those mismatches and leaves
+        ``self.commands`` untouched.
+        """
+        if len(command_ids) != len(set(command_ids)):
+            raise ValueError("Duplicate command IDs in reorder list")
+        current_ids = {c.id for c in self.commands}
+        requested_ids = set(command_ids)
+        if requested_ids != current_ids:
+            missing = current_ids - requested_ids
+            unknown = requested_ids - current_ids
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current commands: "
+                + ", ".join(details)
+            )
+
+        by_id = {c.id: c for c in self.commands}
+        self.commands = [by_id[cid] for cid in command_ids]
+        self.updated_at = _now_iso()
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,

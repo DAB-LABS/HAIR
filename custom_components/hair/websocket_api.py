@@ -51,6 +51,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_device)
     websocket_api.async_register_command(hass, ws_delete_device)
     websocket_api.async_register_command(hass, ws_delete_command)
+    websocket_api.async_register_command(hass, ws_reorder_commands)
     websocket_api.async_register_command(hass, ws_send_command)
     websocket_api.async_register_command(hass, ws_start_capture)
     websocket_api.async_register_command(hass, ws_cancel_capture)
@@ -329,6 +330,44 @@ async def ws_delete_command(
         connection.send_error(msg["id"], "not_found", "Command not found")
         return
     connection.send_result(msg["id"], {"removed": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/reorder-commands",
+    vol.Required("device_id"): str,
+    vol.Required("command_ids"): [str],
+})
+@websocket_api.async_response
+async def ws_reorder_commands(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Reorder a device's commands to match the given ID list.
+
+    The full canonical device is returned so the frontend can reconcile
+    its view if it drifted from server state (e.g. another tab added a
+    command mid-drag).
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    try:
+        device.reorder_commands(list(msg["command_ids"]))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+
+    await manager.async_update_device(device)
+    connection.send_result(msg["id"], _device_full(device))
 
 
 # --- Capture Operations (with event streaming) ---
