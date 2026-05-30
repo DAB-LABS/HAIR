@@ -29,11 +29,18 @@ from custom_components.hair.signal_store import SignalStore
 
 
 def _make_hass():
-    """Create a minimal mock HomeAssistant."""
+    """Create a minimal mock HomeAssistant.
+
+    ``async_create_task`` is configured to return the coroutine it
+    receives unmodified. That way, tests exercising sync ``@callback``
+    handlers that schedule async work can drain the pending coroutine
+    via ``await hass.async_create_task.call_args[0][0]`` rather than
+    leaving it as an un-awaited RuntimeWarning.
+    """
     hass = MagicMock()
     hass.loop = MagicMock()
     hass.loop.call_later = MagicMock(return_value=MagicMock())
-    hass.async_create_task = MagicMock()
+    hass.async_create_task = MagicMock(side_effect=lambda coro: coro)
     hass.bus = MagicMock()
     hass.bus.async_listen = MagicMock(return_value=MagicMock())
     hass.bus.async_fire = MagicMock()
@@ -1043,10 +1050,10 @@ class TestNativeReceiverLifecycle:
 
         mock_unsub = MagicMock()
 
-        async def fake_get_receivers(_hass):
+        def fake_get_receivers(_hass):
             return ["infrared.living_room_rx"]
 
-        async def fake_subscribe(_hass, entity_id, callback):
+        def fake_subscribe(_hass, entity_id, callback):
             return mock_unsub
 
         with patch(
@@ -1074,7 +1081,7 @@ class TestNativeReceiverLifecycle:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
-        async def fake_get_receivers(_hass):
+        def fake_get_receivers(_hass):
             return []
 
         with patch.dict(
@@ -1110,6 +1117,22 @@ class TestNativeReceiverLifecycle:
         assert len(monitor._unsubs) == 0
 
 
+async def _run_native_signal(monitor, hass, signal):
+    """Invoke the sync native callback and drain the scheduled async pipeline.
+
+    ``_on_received_signal`` is a sync ``@callback`` (per the 2026.6 API).
+    It schedules ``_process_parsed_signal`` via ``hass.async_create_task``.
+    The test ``_make_hass`` passes that coroutine through unchanged, so
+    we can await it here to actually run the processing pipeline.
+    """
+    monitor._on_received_signal(signal)
+    if hass.async_create_task.called:
+        coro = hass.async_create_task.call_args[0][0]
+        if hasattr(coro, "__await__"):
+            await coro
+        hass.async_create_task.reset_mock()
+
+
 class TestNativeSignalProcessing:
     """Tests for _on_received_signal processing path."""
 
@@ -1120,17 +1143,14 @@ class TestNativeSignalProcessing:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
+        # Native API delivers timings as list[int] (signed microseconds).
+        # 8 ints exceeds the repeat threshold (<= 6).
         signal = _FakeReceivedSignal(
-            timings=[
-                _FakeTiming(9000, 4500),
-                _FakeTiming(560, 560),
-                _FakeTiming(560, 1690),
-                _FakeTiming(560, 560),
-            ],
+            timings=[9000, -4500, 560, -560, 560, -1690, 560, -560],
             modulation=38000,
         )
 
-        await monitor._on_received_signal(signal)
+        await _run_native_signal(monitor, hass, signal)
 
         assert store.device_count == 1
         devices = store.get_all_devices()
@@ -1147,16 +1167,13 @@ class TestNativeSignalProcessing:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
-        # Only 2 timing pairs -- repeat frame.
+        # Only 4 raw values (<= 6 threshold) -- repeat frame.
         signal = _FakeReceivedSignal(
-            timings=[
-                _FakeTiming(9000, 2250),
-                _FakeTiming(560, 560),
-            ],
+            timings=[9000, -2250, 560, -560],
             modulation=38000,
         )
 
-        await monitor._on_received_signal(signal)
+        await _run_native_signal(monitor, hass, signal)
         assert store.device_count == 0
 
     @pytest.mark.asyncio
@@ -1166,17 +1183,14 @@ class TestNativeSignalProcessing:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
+        # Native API delivers timings as list[int] (signed microseconds).
+        # 8 ints exceeds the repeat threshold (<= 6).
         signal = _FakeReceivedSignal(
-            timings=[
-                _FakeTiming(9000, 4500),
-                _FakeTiming(560, 560),
-                _FakeTiming(560, 1690),
-                _FakeTiming(560, 560),
-            ],
+            timings=[9000, -4500, 560, -560, 560, -1690, 560, -560],
             modulation=38000,
         )
 
-        await monitor._on_received_signal(signal)
+        await _run_native_signal(monitor, hass, signal)
 
         hass.bus.async_fire.assert_called_once()
         args = hass.bus.async_fire.call_args
@@ -1192,16 +1206,13 @@ class TestNativeSignalProcessing:
         received = []
         monitor.subscribe(lambda data: received.append(data))
 
+        # Native API delivers timings as list[int] (signed microseconds).
+        # 8 ints exceeds the repeat threshold (<= 6).
         signal = _FakeReceivedSignal(
-            timings=[
-                _FakeTiming(9000, 4500),
-                _FakeTiming(560, 560),
-                _FakeTiming(560, 1690),
-                _FakeTiming(560, 560),
-            ],
+            timings=[9000, -4500, 560, -560, 560, -1690, 560, -560],
             modulation=38000,
         )
 
-        await monitor._on_received_signal(signal)
+        await _run_native_signal(monitor, hass, signal)
         assert len(received) == 1
         assert "signal_fingerprint" in received[0]

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -296,7 +296,7 @@ async def test_native_receivers_discovered(fake_hass):
     state.attributes = {"friendly_name": "HAIR1 RX"}
     fake_hass.states.get.return_value = state
 
-    async def fake_get_receivers(_hass):
+    def fake_get_receivers(_hass):
         return ["infrared.hair1_rx"]
 
     mock_ir_module = MagicMock()
