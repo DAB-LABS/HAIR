@@ -422,19 +422,20 @@ export class IrDeviceDetail extends LitElement {
         this._pendingReorderTimeout = window.setTimeout(async () => {
             this._pendingReorderTimeout = null;
             try {
-                const updated = await this.api.reorderCommands(
-                    this.device.id,
-                    commandIds,
-                );
-                this.device = updated;
-                this.dispatchEvent(
-                    new CustomEvent("device-changed", {
-                        bubbles: true,
-                        composed: true,
-                    }),
-                );
+                await this.api.reorderCommands(this.device.id, commandIds);
+                // Silent on success. Local ``this.device.commands`` already
+                // holds the canonical order (the server accepted exactly
+                // what we sent), so re-assigning would trigger an
+                // unnecessary re-render chain: child re-render, parent
+                // ``device-changed`` listener, ``_loadExpandedDevice``
+                // round-trip, ``updated()`` lifecycle, ``_loadActionOptions``
+                // + ``_loadTriggers`` re-fires. That cascade is what made
+                // the card visibly flash 500 ms after each drop.
             } catch (err) {
+                // Backend rejected (eg. stale command set after a parallel
+                // add/delete). Surface the error and resync from server.
                 this._flash(`Reorder failed: ${(err as Error).message}`);
+                await this._refresh();
             }
         }, REORDER_DEBOUNCE_MS);
     }
