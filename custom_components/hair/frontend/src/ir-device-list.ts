@@ -67,6 +67,23 @@ const ICON_TRIGGER =
 const ICON_TRASH =
     "M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z";
 
+/**
+ * Result of merging capture providers by HA device ID.
+ *
+ * A physical device with both a native ``InfraredReceiverEntity`` and a
+ * legacy ESPHome event-bridge entry collapses into one of these.  Broadlink
+ * (proprietary learn mode) is bucketed as bridge for display purposes.
+ */
+interface MergedHardwareEntry {
+    device_id: string;            // HA device-registry ID (merge key)
+    name: string;                 // display name
+    nav_type: string;             // integration domain for navigation
+    has_native: boolean;          // InfraredReceiverEntity present
+    has_bridge: boolean;          // ESPHome bridge or Broadlink learn mode
+    has_tx: boolean;              // also TX-capable (= shows as proxy)
+    native_entity_id?: string;    // entity_id of the native receiver, if any
+}
+
 @customElement("ir-device-list")
 export class IrDeviceList extends LitElement {
     @property({ attribute: false }) public devices: DeviceSummary[] = [];
@@ -306,17 +323,117 @@ export class IrDeviceList extends LitElement {
         return ids;
     }
 
-    /** Classify capture providers: all go to receivers, those also TX-capable go to proxies too. */
+    /** Detect HA versions older than 2026.6 (no native InfraredReceiverEntity). */
+    private _isPre2026_6(): boolean {
+        const v: string | undefined = this.hass?.config?.version;
+        if (!v) return false;
+        const m = v.match(/^(\d+)\.(\d+)/);
+        if (!m) return false;
+        const major = parseInt(m[1], 10);
+        const minor = parseInt(m[2], 10);
+        return major < 2026 || (major === 2026 && minor < 6);
+    }
+
+    /** Resolve integration domain for navigation. */
+    private _resolveNavType(
+        cp: CaptureProviderInfo,
+        nativeEntityId: string | undefined,
+    ): string {
+        if (cp.type === "native" && nativeEntityId) {
+            const platform = this.hass?.entities?.[nativeEntityId]?.platform;
+            if (platform) return platform;
+            // Fall back to esphome -- by far the most common source of
+            // InfraredReceiverEntity in the wild.
+            return "esphome";
+        }
+        return cp.type;
+    }
+
+    /**
+     * Classify capture providers, merging native + bridge entries for the
+     * same physical HA device into one entry with both flags set.
+     *
+     * Receivers = every capture-capable device.
+     * Proxies   = subset that also has an emitter on the same HA device.
+     * A TX+RX device shows in both sections by design (each section answers
+     * a different question; same hardware legitimately answers both).
+     */
     private _classifyHardware(): {
-        receivers: CaptureProviderInfo[];
-        proxies: CaptureProviderInfo[];
+        receivers: MergedHardwareEntry[];
+        proxies: MergedHardwareEntry[];
     } {
         const txDeviceIds = this._getEmitterDeviceIds();
-        const receivers = this._captureProviders;
-        const proxies = this._captureProviders.filter(
-            (cp) => txDeviceIds.has(cp.device_id),
-        );
-        return { receivers, proxies };
+        const byDeviceId = new Map<string, MergedHardwareEntry>();
+
+        for (const cp of this._captureProviders) {
+            // For native providers the backend stashes the entity_id in
+            // ``cp.device_id``; the real HA device-registry ID has to be
+            // looked up via ``hass.entities``.
+            let haDeviceId: string | undefined;
+            let nativeEntityId: string | undefined;
+            if (cp.type === "native") {
+                nativeEntityId = cp.receiver_entity_id ?? cp.device_id;
+                haDeviceId = this.hass?.entities?.[nativeEntityId]?.device_id;
+                // Fallback: use the entity_id as a synthetic merge key so
+                // the card still shows even if the entity isn't registered.
+                if (!haDeviceId) haDeviceId = nativeEntityId;
+            } else {
+                haDeviceId = cp.device_id;
+            }
+            if (!haDeviceId) continue;
+
+            const existing = byDeviceId.get(haDeviceId);
+            const entry: MergedHardwareEntry = existing ?? {
+                device_id: haDeviceId,
+                name: cp.name,
+                nav_type: this._resolveNavType(cp, nativeEntityId),
+                has_native: false,
+                has_bridge: false,
+                has_tx: txDeviceIds.has(haDeviceId),
+            };
+            if (cp.type === "native") {
+                entry.has_native = true;
+                entry.native_entity_id = nativeEntityId;
+            } else {
+                // ESPHome event-bus bridge or Broadlink learn mode.
+                entry.has_bridge = true;
+                // Prefer the bridge's device-registry name (cleaner) and
+                // its concrete integration domain over any native default.
+                entry.name = cp.name;
+                entry.nav_type = cp.type;
+            }
+            byDeviceId.set(haDeviceId, entry);
+        }
+
+        const merged = Array.from(byDeviceId.values());
+        const proxies = merged.filter((e) => e.has_tx);
+        return { receivers: merged, proxies };
+    }
+
+    /** Render TX/RX-NATIVE / RX-BRIDGE badges with a pre-2026.6 upgrade hint. */
+    private _renderRxBadges(entry: MergedHardwareEntry) {
+        const showGrayedNative =
+            !entry.has_native && entry.has_bridge && this._isPre2026_6();
+        return html`
+            ${entry.has_native
+                ? html`<span
+                      class="badge rx-native"
+                      title="Receives via HA's native infrared platform"
+                  >RX-NATIVE</span>`
+                : nothing}
+            ${entry.has_bridge
+                ? html`<span
+                      class="badge rx-bridge"
+                      title="Receives via legacy capture bridge"
+                  >RX-BRIDGE</span>`
+                : nothing}
+            ${showGrayedNative
+                ? html`<span
+                      class="badge rx-native-disabled"
+                      title="Upgrade to HA 2026.6+ for native receiver support"
+                  >RX-NATIVE</span>`
+                : nothing}
+        `;
     }
 
     render() {
@@ -502,7 +619,10 @@ export class IrDeviceList extends LitElement {
                                       </div>
                                       <div class="card-meta">${em.entity_id}</div>
                                       <div class="card-footer">
-                                          <span class="badge tx-badge">TX</span>
+                                          <span
+                                              class="badge tx-native"
+                                              title="Sends via HA's native infrared platform"
+                                          >TX-NATIVE</span>
                                       </div>
                                   </div>
                               `,
@@ -511,7 +631,7 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
-            <!-- Receivers (RX-only hardware) -->
+            <!-- Receivers (capture-capable hardware; proxies appear here too by design) -->
             ${hasReceivers
                 ? html`
                       <div class="section-header">
@@ -520,25 +640,25 @@ export class IrDeviceList extends LitElement {
                       </div>
                       <div class="grid">
                           ${receivers.map(
-                              (p) => html`
+                              (entry) => html`
                                   <div
                                       class="card hw-card"
                                       tabindex="0"
-                                      @click=${() => this._navigateIntegration(p.type)}
+                                      @click=${() => this._navigateIntegration(entry.nav_type)}
                                       @keydown=${(e: KeyboardEvent) => {
                                           if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
-                                              this._navigateIntegration(p.type);
+                                              this._navigateIntegration(entry.nav_type);
                                           }
                                       }}
                                   >
                                       <div class="card-header">
                                           <ha-svg-icon .path=${ICON_RECEIVER}></ha-svg-icon>
-                                          <div class="card-name">${p.name}</div>
+                                          <div class="card-name">${entry.name}</div>
                                       </div>
-                                      <div class="card-meta">${p.type}</div>
+                                      <div class="card-meta">${entry.nav_type}</div>
                                       <div class="card-footer">
-                                          <span class="badge rx-badge">RX</span>
+                                          ${this._renderRxBadges(entry)}
                                       </div>
                                   </div>
                               `,
@@ -556,26 +676,29 @@ export class IrDeviceList extends LitElement {
                       </div>
                       <div class="grid">
                           ${proxies.map(
-                              (p) => html`
+                              (entry) => html`
                                   <div
                                       class="card hw-card"
                                       tabindex="0"
-                                      @click=${() => this._navigateIntegration(p.type)}
+                                      @click=${() => this._navigateIntegration(entry.nav_type)}
                                       @keydown=${(e: KeyboardEvent) => {
                                           if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
-                                              this._navigateIntegration(p.type);
+                                              this._navigateIntegration(entry.nav_type);
                                           }
                                       }}
                                   >
                                       <div class="card-header">
                                           <ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>
-                                          <div class="card-name">${p.name}</div>
+                                          <div class="card-name">${entry.name}</div>
                                       </div>
-                                      <div class="card-meta">${p.type}</div>
+                                      <div class="card-meta">${entry.nav_type}</div>
                                       <div class="card-footer">
-                                          <span class="badge tx-badge">TX</span>
-                                          <span class="badge rx-badge">RX</span>
+                                          <span
+                                              class="badge tx-native"
+                                              title="Sends via HA's native infrared platform"
+                                          >TX-NATIVE</span>
+                                          ${this._renderRxBadges(entry)}
                                       </div>
                                   </div>
                               `,
@@ -770,6 +893,26 @@ export class IrDeviceList extends LitElement {
             background: var(--secondary-background-color);
             color: var(--disabled-text-color, #999);
             font-style: italic;
+        }
+
+        /* Hardware section badges -- consistent <direction>-<source> pattern. */
+        /* TX-NATIVE and RX-NATIVE share the green palette of .cmd-badge. */
+        .tx-native,
+        .rx-native {
+            background: rgba(46, 125, 50, 0.15);
+            color: #2e7d32;
+        }
+        /* RX-BRIDGE uses HAIR's existing orange. */
+        .rx-bridge {
+            background: rgba(255, 152, 0, 0.15);
+            color: #ff9800;
+        }
+        /* Pre-2026.6 upgrade hint: grayed RX-NATIVE alongside RX-BRIDGE. */
+        .rx-native-disabled {
+            background: var(--secondary-background-color);
+            color: var(--disabled-text-color, #999);
+            opacity: 0.6;
+            cursor: help;
         }
 
         /* --- Expanded detail row --- */
