@@ -278,13 +278,13 @@ class NativeCaptureProvider(CaptureProvider):
         )
         from .event_parser import EventParser
 
-        async def _on_signal(signal) -> None:
-            """Convert native signal to CaptureResult and enqueue."""
+        def _on_signal(signal) -> None:
+            """Convert native signal to CaptureResult and enqueue (sync callback)."""
             parsed = EventParser.parse_received_signal(signal)
             if parsed is not None:
-                await self._signal_queue.put(parsed)
+                self._signal_queue.put_nowait(parsed)
 
-        self._unsubscribe = await async_subscribe_receiver(
+        self._unsubscribe = async_subscribe_receiver(
             self._hass,
             self._receiver_entity_id,
             _on_signal,
@@ -406,7 +406,7 @@ async def get_available_capture_providers(
             async_get_receivers,
         )
 
-        receivers = await async_get_receivers(hass)
+        receivers = async_get_receivers(hass)
         for entity_id in receivers:
             native_receiver_ids.add(entity_id)
             state = hass.states.get(entity_id)

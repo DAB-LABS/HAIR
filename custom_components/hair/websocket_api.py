@@ -567,7 +567,7 @@ async def ws_get_receivers(
             async_get_receivers,
         )
 
-        entity_ids = await async_get_receivers(hass)
+        entity_ids = async_get_receivers(hass)
         for entity_id in entity_ids:
             state = hass.states.get(entity_id)
             name = entity_id

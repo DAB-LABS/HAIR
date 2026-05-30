@@ -43,14 +43,26 @@ class EventParser:
 
     @staticmethod
     def timings_to_raw(timings: list[Any]) -> list[int]:
-        """Convert native ``Timing`` objects to signed microsecond ints.
+        """Convert native timing data to signed microsecond ints.
 
-        Each ``Timing`` has ``.high_us`` (mark duration) and ``.low_us``
-        (space duration).  Output follows HAIR's signed convention:
+        Accepts three formats:
+        1. ``list[int]`` -- signed microsecond ints as delivered by
+           ``InfraredReceivedSignal.timings`` in HA 2026.6+. Already in
+           the correct format; returned as-is.
+        2. Timing objects with ``.high_us`` / ``.low_us`` attributes.
+        3. ``(high, low)`` tuples for testing.
+
+        Output follows HAIR's signed convention:
         positive = mark, negative = space.
-
-        Also accepts plain ``(high, low)`` tuples for testing.
         """
+        if not timings:
+            return []
+
+        # Check if the list is already plain ints (HA 2026.6 format).
+        if isinstance(timings[0], int):
+            return list(timings)
+
+        # Timing objects or tuples.
         raw: list[int] = []
         for t in timings:
             high = getattr(t, "high_us", None)
@@ -69,8 +81,9 @@ class EventParser:
     def parse_received_signal(signal: Any) -> CaptureResult | None:
         """Convert a native ``InfraredReceivedSignal`` to ``CaptureResult``.
 
-        The native signal has:
-        - ``timings: list[Timing]`` -- each with ``.high_us`` / ``.low_us``
+        The native signal (HA 2026.6) has:
+        - ``timings: list[int]`` -- signed microsecond ints (positive=mark,
+          negative=space)
         - ``modulation: int | None`` -- carrier frequency
 
         HAIR converts native signals to Pronto hex at the entry point
@@ -116,14 +129,18 @@ class EventParser:
         """Return True if a native signal is a repeat frame.
 
         NEC repeat frames are very short: just the 9ms burst + 2.25ms
-        space + stop bit (~4 timing values).  Without protocol metadata,
+        space + stop bit (~4-6 raw int values).  Without protocol metadata,
         we detect repeats purely by timing count.
+
+        ``InfraredReceivedSignal.timings`` is ``list[int]`` (signed
+        microsecond values), so length is the raw value count, not
+        the number of timing pairs.
         """
         timings = getattr(signal, "timings", None)
         if not timings:
             return False
-        # A repeat frame has <= 3 timing pairs (6 raw values).
-        return len(timings) <= 3
+        # A repeat frame has <= 6 raw values (3 mark/space pairs).
+        return len(timings) <= 6
 
     @staticmethod
     def parse(event_data: dict[str, Any]) -> CaptureResult | None:

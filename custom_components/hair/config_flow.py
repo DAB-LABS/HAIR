@@ -51,7 +51,7 @@ async def _async_get_native_receivers(hass) -> set[str]:
         from homeassistant.components.infrared import (  # type: ignore[attr-defined]
             async_get_receivers,
         )
-        receivers = await async_get_receivers(hass)
+        receivers = async_get_receivers(hass)
         return set(receivers) if receivers else set()
     except (ImportError, AttributeError):
         return set()

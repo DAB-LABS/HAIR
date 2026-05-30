@@ -91,13 +91,20 @@ class SignalMonitor:
 
         try:
             await self._start_native_receivers()
-        except (ImportError, AttributeError):
+        except ImportError:
+            self._start_legacy_event_bus()
+        except Exception:
+            _LOGGER.warning(
+                "Native receiver API failed; falling back to legacy event bus",
+                exc_info=True,
+            )
             self._start_legacy_event_bus()
 
     async def _start_native_receivers(self) -> None:
         """Subscribe to all native ``InfraredReceiverEntity`` instances.
 
         Uses ``infrared.async_subscribe_receiver()`` from HA 2026.6+.
+        Both helpers are synchronous ``@callback`` functions (not coroutines).
         Raises ``ImportError`` if the API is not available (pre-2026.6).
         """
         from homeassistant.components.infrared import (  # type: ignore[attr-defined]
@@ -105,7 +112,7 @@ class SignalMonitor:
             async_subscribe_receiver,
         )
 
-        receivers = await async_get_receivers(self._hass)
+        receivers = async_get_receivers(self._hass)
         if not receivers:
             _LOGGER.info(
                 "Native receiver API available but no receivers found; "
@@ -115,7 +122,7 @@ class SignalMonitor:
             return
 
         for receiver_entity_id in receivers:
-            unsub = await async_subscribe_receiver(
+            unsub = async_subscribe_receiver(
                 self._hass,
                 receiver_entity_id,
                 self._on_received_signal,
@@ -291,12 +298,12 @@ class SignalMonitor:
     # Native receiver callback (HA 2026.6+)
     # -----------------------------------------------------------------
 
-    async def _on_received_signal(self, signal: Any) -> None:
+    def _on_received_signal(self, signal: Any) -> None:
         """Handle a signal from the native ``InfraredReceiverEntity`` API.
 
+        Called synchronously by HA's ``@callback`` subscription system.
         Converts the ``InfraredReceivedSignal`` to Pronto hex at the
-        entry point, then delegates to the same processing pipeline
-        used by the legacy path.
+        entry point, then schedules the async processing pipeline.
         """
         # Filter repeat frames.
         if EventParser.is_native_repeat(signal):
@@ -306,7 +313,7 @@ class SignalMonitor:
         if parsed is None:
             return
 
-        await self._process_parsed_signal(parsed)
+        self._hass.async_create_task(self._process_parsed_signal(parsed))
 
     # -----------------------------------------------------------------
     # Known-command check
