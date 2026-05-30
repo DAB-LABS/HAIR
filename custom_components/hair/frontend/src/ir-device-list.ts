@@ -444,7 +444,9 @@ export class IrDeviceList extends LitElement {
             ${entry.has_bridge
                 ? html`<span
                       class="badge rx-bridge"
-                      title="Receives via legacy capture bridge"
+                      title=${entry.has_native
+                          ? "Legacy bridge still active. Native receiver supersedes it -- you can remove the on_pronto: block from your ESPHome config."
+                          : "Receives via legacy ESPHome event-bus bridge"}
                   >RX-BRIDGE</span>`
                 : nothing}
             ${showGrayedNative
@@ -677,7 +679,7 @@ export class IrDeviceList extends LitElement {
                                           <ha-svg-icon .path=${ICON_RECEIVER}></ha-svg-icon>
                                           <div class="card-name">${entry.name}</div>
                                       </div>
-                                      <div class="card-meta">${entry.nav_type}</div>
+                                      <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
                                       <div class="card-footer">
                                           ${this._renderRxBadges(entry)}
                                       </div>
@@ -713,7 +715,7 @@ export class IrDeviceList extends LitElement {
                                           <ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>
                                           <div class="card-name">${entry.name}</div>
                                       </div>
-                                      <div class="card-meta">${entry.nav_type}</div>
+                                      <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
                                       <div class="card-footer">
                                           <span
                                               class="badge tx-native"
@@ -862,6 +864,9 @@ export class IrDeviceList extends LitElement {
         .card-header ha-svg-icon {
             --mdc-icon-size: 24px;
             color: var(--secondary-text-color);
+            /* Long card names (eg the Athom proxy transmitter title) can
+               otherwise squeeze the flex item below its intrinsic size. */
+            flex-shrink: 0;
         }
         .card-name {
             font-size: 0.95rem;

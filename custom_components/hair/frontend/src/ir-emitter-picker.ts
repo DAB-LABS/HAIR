@@ -16,6 +16,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import type { HairApi } from "./api.js";
 
 interface EmitterInfo {
     entity_id: string;
@@ -26,19 +27,35 @@ interface EmitterInfo {
 export class IrEmitterPicker extends LitElement {
     @property({ attribute: false }) public hass?: any;
 
+    /**
+     * HAIR API client. When provided, the picker fetches the list of
+     * native ``InfraredReceiverEntity`` instances and excludes them from
+     * the dropdown -- so RX-only entities can't be picked as an emitter
+     * by mistake. Optional for backward compatibility.
+     */
+    @property({ attribute: false }) public api?: HairApi;
+
     /** Currently selected emitter entity IDs. */
     @property({ attribute: false }) public value: string[] = [];
 
     /** Disable all interactions. */
     @property({ type: Boolean }) public disabled = false;
 
-    /** Entity IDs to exclude from the dropdown (e.g. receiver entities). */
+    /** Entity IDs to exclude from the dropdown (e.g. extra hand-picked exclusions). */
     @property({ attribute: false }) public excludeEntityIds: string[] = [];
 
     @state() private _didAutoSelect = false;
+    @state() private _receiverIds = new Set<string>();
+    private _receiversLoaded = false;
 
     updated(changed: Map<string, unknown>): void {
         super.updated(changed);
+
+        if (changed.has("api") && this.api && !this._receiversLoaded) {
+            this._receiversLoaded = true;
+            void this._loadReceivers();
+        }
+
         // Auto-select if exactly one emitter exists and nothing is selected yet.
         if (
             !this._didAutoSelect &&
@@ -52,6 +69,17 @@ export class IrEmitterPicker extends LitElement {
         }
     }
 
+    private async _loadReceivers(): Promise<void> {
+        if (!this.api) return;
+        try {
+            const receivers = await this.api.listReceivers();
+            this._receiverIds = new Set(receivers.map((r) => r.entity_id));
+        } catch {
+            // Pre-2026.6 HA versions don't expose receivers; treat as empty.
+            this._receiverIds = new Set();
+        }
+    }
+
     private _getEmitters(): EmitterInfo[] {
         const states = (this.hass?.states ?? {}) as Record<
             string,
@@ -60,7 +88,11 @@ export class IrEmitterPicker extends LitElement {
         const excludeSet = new Set(this.excludeEntityIds);
         const emitters: EmitterInfo[] = [];
         for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.") && !excludeSet.has(entityId)) {
+            if (
+                entityId.startsWith("infrared.") &&
+                !excludeSet.has(entityId) &&
+                !this._receiverIds.has(entityId)
+            ) {
                 emitters.push({
                     entity_id: entityId,
                     name: st.attributes.friendly_name ?? entityId,

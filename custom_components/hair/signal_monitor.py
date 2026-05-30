@@ -75,6 +75,20 @@ class SignalMonitor:
         # Real-time subscribers (WebSocket push).
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
 
+        # HA device_ids that have fired ``esphome.remote_received`` events
+        # since HA started. Populated lazily as bridge events arrive.
+        # Used by ``capture.get_available_capture_providers`` to decide
+        # whether to surface an ESPHome (legacy bridge) provider entry
+        # for a given device. Resets on HA restart -- we have no way to
+        # introspect the ESPHome YAML statically, so the only signal that
+        # ``on_pronto:`` is configured is observing events.
+        self._bridge_active_device_ids: set[str] = set()
+
+    @property
+    def bridge_active_device_ids(self) -> set[str]:
+        """Device IDs that have fired esphome.remote_received this session."""
+        return self._bridge_active_device_ids
+
     # -----------------------------------------------------------------
     # Lifecycle
     # -----------------------------------------------------------------
@@ -167,9 +181,18 @@ class SignalMonitor:
         """Handle an incoming IR event from the HA bus (legacy path).
 
         Parses the ESPHome event dict and delegates to the shared
-        processing pipeline.
+        processing pipeline. Also records the source device_id so the
+        Receivers UI can surface ``RX-BRIDGE`` only for devices that
+        actually still have ``on_pronto:`` configured -- the only way to
+        detect bridge presence is to observe events from it.
         """
         event_data = event.data or {}
+
+        # Track this device as having an active bridge (regardless of
+        # whether the signal passes downstream filters).
+        device_id = event_data.get("device_id")
+        if isinstance(device_id, str) and device_id:
+            self._bridge_active_device_ids.add(device_id)
 
         # Filter out repeat frames (no command data).
         if EventParser.is_nec_repeat(event_data):

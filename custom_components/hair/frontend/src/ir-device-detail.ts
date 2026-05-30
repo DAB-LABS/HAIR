@@ -4,6 +4,7 @@
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import "./ir-command-row.js";
@@ -62,8 +63,13 @@ export class IrDeviceDetail extends LitElement {
 
     // Command reorder (SortableJS lifecycle)
     private _sortable: Sortable | null = null;
-    private _sortableBefore: Element | null = null;
     private _pendingReorderTimeout: number | null = null;
+    // Incremented after each drop to force a fresh repeat() instance via
+    // the keyed() directive. SortableJS's mid-drag DOM mutations corrupt
+    // repeat()'s internal positional cache; reverting the DOM and
+    // reassigning the array isn't enough to recover. A keyed rebuild
+    // gives Lit a clean cache so the new commands order renders correctly.
+    @state() private _commandsListVersion = 0;
 
     // ---------------------------------------------------------------
     // Helpers
@@ -242,6 +248,11 @@ export class IrDeviceDetail extends LitElement {
             void this._loadActionOptions();
             void this._loadTriggers();
         }
+        // After a keyed rebuild of the commands-list, Sortable needs to
+        // be re-attached to the freshly-created container.
+        if (changed.has("_commandsListVersion") && !this._sortable) {
+            this._attachSortable();
+        }
     }
 
     private async _loadActionOptions() {
@@ -382,20 +393,7 @@ export class IrDeviceDetail extends LitElement {
             handle: ".grip-handle",
             animation: 150,
             ghostClass: "sortable-ghost",
-            onStart: (e) => {
-                this._sortableBefore = (e.item as Element).previousElementSibling;
-            },
             onEnd: (e) => {
-                // Revert SortableJS's DOM mutation so Lit can re-render
-                // cleanly from the updated array.
-                const item = e.item as HTMLElement;
-                if (this._sortableBefore) {
-                    this._sortableBefore.after(item);
-                } else {
-                    item.parentElement?.prepend(item);
-                }
-                this._sortableBefore = null;
-
                 const oldIndex = e.oldIndex;
                 const newIndex = e.newIndex;
                 if (
@@ -406,6 +404,10 @@ export class IrDeviceDetail extends LitElement {
                     return;
                 }
 
+                // Compute the new commands order from the drag indices.
+                // We trust SortableJS for the DOM (no manual revert) and
+                // force a keyed rebuild below so Lit gets a fresh repeat()
+                // cache instead of trying to reconcile a stale one.
                 const commands = [...this.device.commands];
                 const [moved] = commands.splice(oldIndex, 1);
                 commands.splice(newIndex, 0, moved);
@@ -413,11 +415,9 @@ export class IrDeviceDetail extends LitElement {
 
                 // Bubble the new order to the parent so its cached
                 // ``_expandedDevice`` stays in sync. Without this, the
-                // parent's next re-render (which happens for many HA
-                // reasons) would pass its still-original device back
-                // down, Lit would overwrite our local ``this.device``,
-                // and ``repeat()`` would reconcile the DOM back to the
-                // pre-drag order. The custom event is intentionally
+                // parent's next re-render would pass its still-original
+                // device back down and Lit would overwrite our local
+                // ``this.device``. The custom event is intentionally
                 // lightweight -- the parent updates its cache without
                 // refetching, so the heavy ``device-changed`` cascade
                 // (round-trip, action-options reload, triggers reload)
@@ -429,6 +429,34 @@ export class IrDeviceDetail extends LitElement {
                         composed: true,
                     }),
                 );
+
+                // Tear down the SortableJS instance bound to the old
+                // container and increment the version so ``keyed()``
+                // gives us a fresh ``.commands-list`` DOM tree. The
+                // ``updated()`` lifecycle re-attaches Sortable to the
+                // new container once Lit has rendered it.
+                this._sortable?.destroy();
+                this._sortable = null;
+
+                // SortableJS sometimes leaves the dragged element
+                // positioned after Lit's end-of-content marker, which
+                // puts it outside keyed()'s managed range. Lit can't
+                // clean it up there and it shows as a visual duplicate
+                // after the rebuild. Explicit pre-rebuild cleanup
+                // guarantees no orphans -- keyed() then rebuilds from
+                // a known-empty state.
+                const container = this.renderRoot.querySelector(
+                    ".commands-list",
+                );
+                if (container) {
+                    for (const row of Array.from(
+                        container.querySelectorAll("ir-command-row"),
+                    )) {
+                        row.remove();
+                    }
+                }
+
+                this._commandsListVersion++;
 
                 this._scheduleReorderSave(commands.map((c) => c.id));
             },
@@ -673,6 +701,7 @@ export class IrDeviceDetail extends LitElement {
                 <div class="meta-value">
                     <ir-emitter-picker
                         .hass=${this.hass}
+                        .api=${this.api}
                         .value=${this.device.emitter_entity_ids ?? []}
                         ?disabled=${this._busy}
                         @emitters-changed=${this._onEmittersChanged}
@@ -686,33 +715,36 @@ export class IrDeviceDetail extends LitElement {
                     <span>Commands (${count})</span>
                 </div>
                 <div class="commands-list">
-                    ${commands.length > 0
-                        ? repeat(
-                              commands,
-                              (cmd) => cmd.id,
-                              (cmd) => html`
-                                  <ir-command-row
-                                      data-id=${cmd.id}
-                                      .templateName=${cmd.name}
-                                      .command=${cmd}
-                                      .busy=${this._busy}
-                                      .actionLabel=${this._getActionLabel(cmd.name)}
-                                      .hasTrigger=${this._commandHasTrigger(cmd)}
-                                      @map-action=${this._onMapAction}
-                                      @test=${this._onTest}
-                                      @toggle-trigger=${this._onToggleTrigger}
-                                      @delete=${this._onDelete}
-                                  >
-                                      <ha-svg-icon
-                                          slot="status"
-                                          class="grip-handle"
-                                          .path=${ICON_GRIP}
-                                          title="Drag to reorder"
-                                      ></ha-svg-icon>
-                                  </ir-command-row>
-                              `,
-                          )
-                        : html`<div class="empty">No commands yet. Add one below.</div>`}
+                    ${keyed(
+                        this._commandsListVersion,
+                        commands.length > 0
+                            ? repeat(
+                                  commands,
+                                  (cmd) => cmd.id,
+                                  (cmd) => html`
+                                      <ir-command-row
+                                          data-id=${cmd.id}
+                                          .templateName=${cmd.name}
+                                          .command=${cmd}
+                                          .busy=${this._busy}
+                                          .actionLabel=${this._getActionLabel(cmd.name)}
+                                          .hasTrigger=${this._commandHasTrigger(cmd)}
+                                          @map-action=${this._onMapAction}
+                                          @test=${this._onTest}
+                                          @toggle-trigger=${this._onToggleTrigger}
+                                          @delete=${this._onDelete}
+                                      >
+                                          <ha-svg-icon
+                                              slot="status"
+                                              class="grip-handle"
+                                              .path=${ICON_GRIP}
+                                              title="Drag to reorder"
+                                          ></ha-svg-icon>
+                                      </ir-command-row>
+                                  `,
+                              )
+                            : html`<div class="empty">No commands yet. Add one below.</div>`,
+                    )}
 
                     ${this._mappingCommandName
                         ? html`

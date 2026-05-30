@@ -151,15 +151,31 @@ def _make_fake_entity(entity_id="remote.ir_blaster"):
     return ent
 
 
+def _wire_bridge_active(fake_hass, *device_ids: str) -> None:
+    """Populate hass.data with a signal monitor whose bridge-active set
+    includes the given device IDs. ``capture.get_available_capture_providers``
+    consults this to decide whether to surface ESPHome bridge entries.
+    """
+    from custom_components.hair.const import DOMAIN
+    monitor = MagicMock()
+    monitor.bridge_active_device_ids = set(device_ids)
+    fake_hass.data.setdefault(DOMAIN, {})["entry-1"] = {
+        "signal_monitor": monitor,
+    }
+
+
 @pytest.mark.asyncio
 async def test_esphome_device_with_ir_entities_included(fake_hass):
-    """ESPHome device with IR entities should be listed as a capture provider."""
+    """ESPHome device with IR entities should be listed when bridge is active."""
     fake_hass.config.components = {"esphome"}
     fake_hass.config_entries.async_entries = MagicMock(
         return_value=[MagicMock(entry_id="esp-entry-1")]
     )
     fake_device = _make_fake_device()
     fake_ir_entity = _make_fake_entity("infrared.hair1_tx")
+    # Bridge is only surfaced once we've actually observed a bus event
+    # from the device. Simulate that by populating the bridge-active set.
+    _wire_bridge_active(fake_hass, "dev-1")
 
     with patch(
         "custom_components.hair.capture.dr.async_get",
@@ -189,6 +205,7 @@ async def test_esphome_device_without_ir_entities_excluded(fake_hass):
     )
     fake_device = _make_fake_device()
     fake_sensor = _make_fake_entity("sensor.temperature")
+    _wire_bridge_active(fake_hass, "dev-1")
 
     with patch(
         "custom_components.hair.capture.dr.async_get",
@@ -205,6 +222,34 @@ async def test_esphome_device_without_ir_entities_excluded(fake_hass):
     ):
         providers = await get_available_capture_providers(fake_hass)
     assert len(providers) == 0
+
+
+@pytest.mark.asyncio
+async def test_esphome_device_without_bridge_events_excluded(fake_hass):
+    """ESPHome device with IR entities but no observed bridge events stays hidden."""
+    fake_hass.config.components = {"esphome"}
+    fake_hass.config_entries.async_entries = MagicMock(
+        return_value=[MagicMock(entry_id="esp-entry-1")]
+    )
+    fake_device = _make_fake_device()
+    fake_ir_entity = _make_fake_entity("infrared.hair1_tx")
+    # Deliberately do NOT call _wire_bridge_active -- no events seen yet.
+
+    with patch(
+        "custom_components.hair.capture.dr.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.dr.async_entries_for_config_entry",
+        return_value=[fake_device],
+    ), patch(
+        "custom_components.hair.capture.er.async_get",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.hair.capture.er.async_entries_for_device",
+        return_value=[fake_ir_entity],
+    ):
+        providers = await get_available_capture_providers(fake_hass)
+    assert providers == []
 
 
 # ---------------------------------------------------------------------------

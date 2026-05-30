@@ -23,6 +23,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
     DEFAULT_CARRIER_FREQUENCY,
+    DOMAIN,
     CaptureProviderType,
 )
 from .models import CaptureResult
@@ -369,6 +370,24 @@ class MockCaptureProvider(CaptureProvider):
         self._available = value
 
 
+def _get_bridge_active_device_ids(hass: HomeAssistant) -> set[str]:
+    """Return HA device IDs whose ESPHome bridge has fired events this session.
+
+    Looks up the active ``SignalMonitor`` instance via ``hass.data`` and
+    returns its bridge-tracking set. Returns an empty set if HAIR isn't
+    fully set up yet (e.g. during config flow), so callers can iterate
+    without needing a None check.
+    """
+    entries = hass.data.get(DOMAIN, {})
+    for value in entries.values():
+        if not isinstance(value, dict):
+            continue
+        monitor = value.get("signal_monitor")
+        if monitor is not None and hasattr(monitor, "bridge_active_device_ids"):
+            return set(monitor.bridge_active_device_ids)
+    return set()
+
+
 def _has_ir_entities(ent_registry: Any, device_id: str) -> bool:
     """Return True if the device has IR-related entities.
 
@@ -425,16 +444,27 @@ async def get_available_capture_providers(
     except (ImportError, AttributeError):
         pass  # Pre-2026.6: no native receiver API.
 
-    # ESPHome devices -- only include devices that have IR-related
-    # entities (infrared.* from ir_rf_proxy, or remote.* as fallback).
-    # This filters out non-IR ESPHome devices (sensors, lights, etc.).
-    if "esphome" in hass.config.components:
+    # ESPHome devices via the legacy event-bus bridge.
+    #
+    # We can't introspect a device's YAML to know whether ``on_pronto:``
+    # is configured, so the only reliable signal is "have we seen an
+    # ``esphome.remote_received`` event from this device this session?"
+    # The signal monitor records that set; we surface bridge providers
+    # only for those devices. This means: after HA restart, the bridge
+    # badge stays hidden until the user presses a button on a remote
+    # whose ESPHome host actually forwards events. That trade-off is
+    # acceptable -- the badge is informational, and once a bridge is
+    # detected it stays surfaced for the rest of the HA session.
+    bridge_active_device_ids = _get_bridge_active_device_ids(hass)
+    if "esphome" in hass.config.components and bridge_active_device_ids:
         dev_registry = dr.async_get(hass)
         ent_registry = er.async_get(hass)
         for entry in hass.config_entries.async_entries("esphome"):
             for device in dr.async_entries_for_config_entry(
                 dev_registry, entry.entry_id
             ):
+                if device.id not in bridge_active_device_ids:
+                    continue
                 if not _has_ir_entities(ent_registry, device.id):
                     continue
                 providers.append(
