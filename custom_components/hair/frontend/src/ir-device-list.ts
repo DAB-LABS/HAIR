@@ -152,6 +152,26 @@ export class IrDeviceList extends LitElement {
         );
     }
 
+    /**
+     * Apply a command-order change reported by the child detail view.
+     *
+     * Updates the cached ``_expandedDevice`` synchronously so the next
+     * render passes the new order back down. Skips the full re-fetch
+     * round-trip we do on ``device-changed`` because the child already
+     * has authoritative local state for this mutation -- and because
+     * the server save is debounced and asynchronous, a fetch here would
+     * race with the user's in-flight reorder.
+     */
+    private _onCommandsReordered(ev: CustomEvent): void {
+        if (!this._expandedDevice) return;
+        const commands = ev.detail?.commands;
+        if (!Array.isArray(commands)) return;
+        this._expandedDevice = {
+            ...this._expandedDevice,
+            commands,
+        };
+    }
+
     private _onCollapse(): void {
         this.dispatchEvent(
             new CustomEvent("device-selected", {
@@ -522,6 +542,7 @@ export class IrDeviceList extends LitElement {
                                                     .hass=${this.hass}
                                                     @device-changed=${this._onExpandedDeviceChanged}
                                                     @device-deleted=${this._onExpandedDeviceDeleted}
+                                                    @commands-reordered=${this._onCommandsReordered}
                                                     @collapse=${this._onCollapse}
                                                 ></ir-device-detail>
                                             </div>

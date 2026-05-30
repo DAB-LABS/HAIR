@@ -411,6 +411,25 @@ export class IrDeviceDetail extends LitElement {
                 commands.splice(newIndex, 0, moved);
                 this.device = { ...this.device, commands };
 
+                // Bubble the new order to the parent so its cached
+                // ``_expandedDevice`` stays in sync. Without this, the
+                // parent's next re-render (which happens for many HA
+                // reasons) would pass its still-original device back
+                // down, Lit would overwrite our local ``this.device``,
+                // and ``repeat()`` would reconcile the DOM back to the
+                // pre-drag order. The custom event is intentionally
+                // lightweight -- the parent updates its cache without
+                // refetching, so the heavy ``device-changed`` cascade
+                // (round-trip, action-options reload, triggers reload)
+                // is avoided.
+                this.dispatchEvent(
+                    new CustomEvent("commands-reordered", {
+                        detail: { commands },
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+
                 this._scheduleReorderSave(commands.map((c) => c.id));
             },
         });
