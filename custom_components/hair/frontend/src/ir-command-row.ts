@@ -78,9 +78,7 @@ export class IrCommandRow extends LitElement {
         return html`
             <div class="row" data-learned=${learned ? "true" : "false"}>
                 <div class="status" aria-hidden="true">
-                    ${learned
-                        ? html`<span class="dot learned"></span>`
-                        : html`<span class="dot unlearned"></span>`}
+                    <slot name="status"></slot>
                 </div>
                 <div class="info">
                     <div class="name">${this.templateName}</div>
@@ -147,29 +145,10 @@ export class IrCommandRow extends LitElement {
             background: var(--secondary-background-color);
             border-radius: 4px;
         }
-        .row[data-learned="false"] {
-            background: var(--secondary-background-color);
-            opacity: 0.7;
-        }
         .status {
             display: flex;
             align-items: center;
             justify-content: center;
-        }
-        .dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-        }
-        .dot.learned {
-            background: #2e7d32;
-        }
-        .dot.unlearned {
-            border: 2px solid var(--disabled-text-color, #999);
-            width: 8px;
-            height: 8px;
-            background: transparent;
         }
         .name {
             font-weight: 500;

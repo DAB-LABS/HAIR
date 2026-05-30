@@ -12,11 +12,13 @@
         "@rollup/plugin-node-resolve": "^15.2.0",
         "@rollup/plugin-terser": "^1.0.0",
         "@rollup/plugin-typescript": "^11.1.0",
+        "@types/sortablejs": "^1.15.9",
         "rollup": "^4.0.0",
         "tslib": "^2.6.0",
         "typescript": "^5.3.0"
     },
     "dependencies": {
-        "lit": "^3.1.0"
+        "lit": "^3.1.0",
+        "sortablejs": "^1.15.7"
     }
 }

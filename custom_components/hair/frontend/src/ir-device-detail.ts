@@ -4,6 +4,8 @@
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { repeat } from "lit/directives/repeat.js";
+import Sortable from "sortablejs";
 import "./ir-command-row.js";
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
@@ -11,6 +13,13 @@ import "./ir-emitter-picker.js";
 import "./ir-trigger-dialog.js";
 import type { HairApi } from "./api.js";
 import type { ActionOption, IRCommand, IRDevice, IRTrigger, DeviceTypeId } from "./types.js";
+
+// MDI: drag (six-dot grip)
+const ICON_GRIP =
+    "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
+
+/** Debounce delay (ms) between drag end and WS save. */
+const REORDER_DEBOUNCE_MS = 500;
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
     { value: "media_player", label: "Media Player" },
@@ -50,6 +59,11 @@ export class IrDeviceDetail extends LitElement {
     @state() private _triggerCommand: IRCommand | null = null;
     @state() private _triggerEdit: IRTrigger | null = null;
     @state() private _confirmDeleteTriggerId: string | null = null;
+
+    // Command reorder (SortableJS lifecycle)
+    private _sortable: Sortable | null = null;
+    private _sortableBefore: Element | null = null;
+    private _pendingReorderTimeout: number | null = null;
 
     // ---------------------------------------------------------------
     // Helpers
@@ -348,6 +362,89 @@ export class IrDeviceDetail extends LitElement {
             document.removeEventListener("click", this._dismissHandler, true);
             this._dismissHandler = null;
         }
+        this._sortable?.destroy();
+        this._sortable = null;
+        this._cancelPendingReorderSave();
+    }
+
+    firstUpdated(): void {
+        this._attachSortable();
+    }
+
+    /** Wire SortableJS to the commands list container. Idempotent. */
+    private _attachSortable(): void {
+        if (this._sortable) return;
+        const container = this.renderRoot.querySelector(
+            ".commands-list",
+        ) as HTMLElement | null;
+        if (!container) return;
+        this._sortable = Sortable.create(container, {
+            handle: ".grip-handle",
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            onStart: (e) => {
+                this._sortableBefore = (e.item as Element).previousElementSibling;
+            },
+            onEnd: (e) => {
+                // Revert SortableJS's DOM mutation so Lit can re-render
+                // cleanly from the updated array.
+                const item = e.item as HTMLElement;
+                if (this._sortableBefore) {
+                    this._sortableBefore.after(item);
+                } else {
+                    item.parentElement?.prepend(item);
+                }
+                this._sortableBefore = null;
+
+                const oldIndex = e.oldIndex;
+                const newIndex = e.newIndex;
+                if (
+                    oldIndex === undefined ||
+                    newIndex === undefined ||
+                    oldIndex === newIndex
+                ) {
+                    return;
+                }
+
+                const commands = [...this.device.commands];
+                const [moved] = commands.splice(oldIndex, 1);
+                commands.splice(newIndex, 0, moved);
+                this.device = { ...this.device, commands };
+
+                this._scheduleReorderSave(commands.map((c) => c.id));
+            },
+        });
+    }
+
+    /** Debounce a reorder save to ride out rapid sequential drags. */
+    private _scheduleReorderSave(commandIds: string[]): void {
+        this._cancelPendingReorderSave();
+        this._pendingReorderTimeout = window.setTimeout(async () => {
+            this._pendingReorderTimeout = null;
+            try {
+                const updated = await this.api.reorderCommands(
+                    this.device.id,
+                    commandIds,
+                );
+                this.device = updated;
+                this.dispatchEvent(
+                    new CustomEvent("device-changed", {
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+            } catch (err) {
+                this._flash(`Reorder failed: ${(err as Error).message}`);
+            }
+        }, REORDER_DEBOUNCE_MS);
+    }
+
+    /** Drop any pending debounced reorder save (called before add/delete). */
+    private _cancelPendingReorderSave(): void {
+        if (this._pendingReorderTimeout !== null) {
+            clearTimeout(this._pendingReorderTimeout);
+            this._pendingReorderTimeout = null;
+        }
     }
 
     /** Get the command name currently mapped to a given action key. */
@@ -422,6 +519,7 @@ export class IrDeviceDetail extends LitElement {
         const command = this._commandToDelete;
         if (!command) return;
         this._commandToDelete = null;
+        this._cancelPendingReorderSave();
         this._busy = true;
         try {
             await this.api.deleteCommand(this.device.id, command.id);
@@ -444,6 +542,7 @@ export class IrDeviceDetail extends LitElement {
 
     private async _onCommandSaved(e: CustomEvent) {
         const { commandName } = e.detail as { commandName: string };
+        this._cancelPendingReorderSave();
         await this._refresh();
         this._flash(`Saved "${commandName}"`);
         this._captureName = null;
@@ -568,9 +667,12 @@ export class IrDeviceDetail extends LitElement {
                 </div>
                 <div class="commands-list">
                     ${commands.length > 0
-                        ? commands.map(
+                        ? repeat(
+                              commands,
+                              (cmd) => cmd.id,
                               (cmd) => html`
                                   <ir-command-row
+                                      data-id=${cmd.id}
                                       .templateName=${cmd.name}
                                       .command=${cmd}
                                       .busy=${this._busy}
@@ -580,7 +682,14 @@ export class IrDeviceDetail extends LitElement {
                                       @test=${this._onTest}
                                       @toggle-trigger=${this._onToggleTrigger}
                                       @delete=${this._onDelete}
-                                  ></ir-command-row>
+                                  >
+                                      <ha-svg-icon
+                                          slot="status"
+                                          class="grip-handle"
+                                          .path=${ICON_GRIP}
+                                          title="Drag to reorder"
+                                      ></ha-svg-icon>
+                                  </ir-command-row>
                               `,
                           )
                         : html`<div class="empty">No commands yet. Add one below.</div>`}
@@ -864,6 +973,24 @@ export class IrDeviceDetail extends LitElement {
         .commands-list {
             display: flex;
             flex-direction: column;
+        }
+        /* --- Drag handle (slotted into ir-command-row's status column) --- */
+        .grip-handle {
+            --mdc-icon-size: 18px;
+            color: var(--secondary-text-color);
+            opacity: 0.6;
+            cursor: grab;
+            transition: opacity 120ms ease;
+        }
+        .grip-handle:hover {
+            opacity: 1;
+        }
+        .grip-handle:active {
+            cursor: grabbing;
+        }
+        /* SortableJS applies this class to the element being dragged. */
+        ir-command-row.sortable-ghost {
+            opacity: 0.4;
         }
         /* --- Action popover --- */
         .action-popover {

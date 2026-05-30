@@ -107,6 +107,22 @@ export class HairApi {
         });
     }
 
+    /**
+     * Persist a new command order for a device.
+     *
+     * ``commandIds`` must list every command currently on the device
+     * exactly once -- the backend rejects mismatched sets with an
+     * ``invalid_format`` error. Returns the canonical updated device so
+     * the caller can reconcile any drift since the drag started.
+     */
+    reorderCommands(deviceId: string, commandIds: string[]): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/device/reorder-commands",
+            device_id: deviceId,
+            command_ids: commandIds,
+        });
+    }
+
     sendCommand(deviceId: string, commandId: string): Promise<{ sent: boolean }> {
         return this.hass.connection.sendMessagePromise<{ sent: boolean }>({
             type: "hair/command/send",
