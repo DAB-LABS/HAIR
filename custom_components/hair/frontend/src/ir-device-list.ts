@@ -82,6 +82,7 @@ interface MergedHardwareEntry {
     has_bridge: boolean;          // ESPHome bridge or Broadlink learn mode
     has_tx: boolean;              // also TX-capable (= shows as proxy)
     native_entity_id?: string;    // entity_id of the native receiver, if any
+    tx_entity_ids: string[];      // infrared.* TX entity_ids on this device
 }
 
 @customElement("ir-device-list")
@@ -343,6 +344,20 @@ export class IrDeviceList extends LitElement {
         return ids;
     }
 
+    /** Group emitter entity_ids by their HA device_id. */
+    private _getEmitterEntityIdsByDevice(): Map<string, string[]> {
+        const byDevice = new Map<string, string[]>();
+        for (const em of this._emitters) {
+            const reg = this.hass?.entities?.[em.entity_id];
+            const deviceId = reg?.device_id;
+            if (!deviceId) continue;
+            const list = byDevice.get(deviceId) ?? [];
+            list.push(em.entity_id);
+            byDevice.set(deviceId, list);
+        }
+        return byDevice;
+    }
+
     /** Detect HA versions older than 2026.6 (no native InfraredReceiverEntity). */
     private _isPre2026_6(): boolean {
         const v: string | undefined = this.hass?.config?.version;
@@ -382,7 +397,8 @@ export class IrDeviceList extends LitElement {
         receivers: MergedHardwareEntry[];
         proxies: MergedHardwareEntry[];
     } {
-        const txDeviceIds = this._getEmitterDeviceIds();
+        const txByDevice = this._getEmitterEntityIdsByDevice();
+        const txDeviceIds = new Set(txByDevice.keys());
         const byDeviceId = new Map<string, MergedHardwareEntry>();
 
         for (const cp of this._captureProviders) {
@@ -410,6 +426,7 @@ export class IrDeviceList extends LitElement {
                 has_native: false,
                 has_bridge: false,
                 has_tx: txDeviceIds.has(haDeviceId),
+                tx_entity_ids: txByDevice.get(haDeviceId) ?? [],
             };
             if (cp.type === "native") {
                 entry.has_native = true;
@@ -715,6 +732,9 @@ export class IrDeviceList extends LitElement {
                                           <ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>
                                           <div class="card-name">${entry.name}</div>
                                       </div>
+                                      ${entry.tx_entity_ids[0]
+                                          ? html`<div class="card-meta">${entry.tx_entity_ids[0]}</div>`
+                                          : nothing}
                                       <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
                                       <div class="card-footer">
                                           <span
