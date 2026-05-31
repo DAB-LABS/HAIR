@@ -217,6 +217,14 @@ export class IrDeviceDetail extends LitElement {
 
     private async _onEmittersChanged(e: CustomEvent) {
         const newIds: string[] = e.detail.value;
+        const previousIds = [...this.device.emitter_entity_ids];
+
+        // Optimistic local update -- otherwise the ``_busy = true`` line
+        // below triggers a parent re-render that passes the still-saved
+        // ``emitter_entity_ids`` back into the picker, briefly snapping
+        // the just-removed chip back. The picker re-renders with the
+        // new (empty) value as soon as Lit processes this assignment.
+        this.device = { ...this.device, emitter_entity_ids: newIds };
         this._busy = true;
         try {
             this.device = await this.api.updateDevice(this.device.id, {
@@ -227,6 +235,9 @@ export class IrDeviceDetail extends LitElement {
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
         } catch (err) {
+            // Revert the optimistic update so the picker reflects what
+            // actually persisted server-side.
+            this.device = { ...this.device, emitter_entity_ids: previousIds };
             this._flash(`Update failed: ${(err as Error).message}`);
         } finally {
             this._busy = false;
