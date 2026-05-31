@@ -56,15 +56,25 @@ export class IrEmitterPicker extends LitElement {
             void this._loadReceivers();
         }
 
-        // Auto-select if exactly one emitter exists and nothing is selected yet.
-        if (
-            !this._didAutoSelect &&
-            this.value.length === 0
-        ) {
-            const emitters = this._getEmitters();
-            if (emitters.length === 1) {
+        // First-render decision. Two cases:
+        //   1. ``value`` is already non-empty (a pre-saved device was passed
+        //      in) -- treat that as "the user has already made a choice"
+        //      and never auto-fill again.
+        //   2. ``value`` is empty and exactly one emitter is available --
+        //      auto-pick it as a convenience for first-time setup.
+        // Either way, once ``_didAutoSelect`` flips true, we leave the
+        // picker alone. Clicking X to clear the last chip then leaves the
+        // field empty, instead of the auto-fill snapping it back to the
+        // only option (the bug this guard fixes).
+        if (!this._didAutoSelect) {
+            if (this.value.length > 0) {
                 this._didAutoSelect = true;
-                this._fireChange([emitters[0].entity_id]);
+            } else {
+                const emitters = this._getEmitters();
+                if (emitters.length === 1) {
+                    this._didAutoSelect = true;
+                    this._fireChange([emitters[0].entity_id]);
+                }
             }
         }
     }
