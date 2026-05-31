@@ -99,6 +99,13 @@ class SignalMonitor:
         Tries the native receiver API (HA 2026.6+) first.  Falls back
         to the legacy ESPHome event bus bridge if ``async_subscribe_receiver``
         is not available.
+
+        Even when the native path succeeds, we also wire a tracking-only
+        listener on ``esphome.remote_received`` so the Receivers UI can
+        surface ``RX-BRIDGE`` for devices that still have ``on_pronto:``
+        YAML configured alongside their native receiver. In legacy mode
+        the main ``_on_ir_event`` handler already records device_ids as
+        part of its processing, so we don't double-subscribe.
         """
         if not self._signal_store.loaded:
             await self._signal_store.async_load()
@@ -113,6 +120,24 @@ class SignalMonitor:
                 exc_info=True,
             )
             self._start_legacy_event_bus()
+
+        if self._native_mode:
+            unsub = self._hass.bus.async_listen(
+                LEGACY_ESPHOME_IR_EVENT, self._on_bridge_tracking_event
+            )
+            self._unsubs.append(unsub)
+
+    def _on_bridge_tracking_event(self, event: Event) -> None:
+        """Record bridge-active device_ids alongside native mode.
+
+        Native mode handles signal processing via the receiver subscription;
+        this listener exists purely so the UI can show ``RX-BRIDGE`` for
+        ESPHome devices that still emit legacy bus events from a residual
+        ``on_pronto:`` YAML block. Cheap, runs on the bus thread.
+        """
+        device_id = (event.data or {}).get("device_id")
+        if isinstance(device_id, str) and device_id:
+            self._bridge_active_device_ids.add(device_id)
 
     async def _start_native_receivers(self) -> None:
         """Subscribe to all native ``InfraredReceiverEntity`` instances.
