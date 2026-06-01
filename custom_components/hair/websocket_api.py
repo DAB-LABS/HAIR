@@ -50,6 +50,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_create_device)
     websocket_api.async_register_command(hass, ws_update_device)
     websocket_api.async_register_command(hass, ws_delete_device)
+    websocket_api.async_register_command(hass, ws_duplicate_device)
     websocket_api.async_register_command(hass, ws_delete_command)
     websocket_api.async_register_command(hass, ws_reorder_commands)
     websocket_api.async_register_command(hass, ws_send_command)
@@ -330,6 +331,45 @@ async def ws_delete_command(
         connection.send_error(msg["id"], "not_found", "Command not found")
         return
     connection.send_result(msg["id"], {"removed": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/duplicate",
+    vol.Required("device_id"): str,
+    vol.Required("new_name"): str,
+})
+@websocket_api.async_response
+async def ws_duplicate_device(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Clone an existing HAIR device under a new name.
+
+    Every command and the entity_config come along; triggers and ids do
+    not. See ``IRDevice.clone`` for the field-by-field copy semantics.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    source = manager.get_device(msg["device_id"])
+    if source is None:
+        connection.send_error(msg["id"], "not_found", "Source device not found")
+        return
+
+    new_name = msg["new_name"].strip()
+    if not new_name:
+        connection.send_error(
+            msg["id"], "invalid_format", "Name cannot be empty"
+        )
+        return
+
+    clone = source.clone(new_name)
+    await manager.async_create_device(clone)
+    connection.send_result(msg["id"], _device_full(clone))
 
 
 @websocket_api.require_admin

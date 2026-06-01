@@ -177,6 +177,73 @@ class IRDevice:
                 return True
         return False
 
+    def clone(self, new_name: str) -> IRDevice:
+        """Return a deep copy of this device with a new id and name.
+
+        Every ``IRCommand`` on the clone gets a fresh id but otherwise
+        mirrors the source command (protocol, code, raw_timings, category,
+        etc). The ``entity_config`` mapping is deep-copied so action
+        bindings come along. Emitter assignments and the capture device
+        are copied as-is -- the user almost always re-points the clone
+        to a different emitter, but copying lets them verify the clone
+        works first before reassigning.
+
+        Triggers are NOT cloned. They live in the trigger store, reference
+        specific command ids, and auto-duplicating them would create
+        duplicate event entities firing on the same physical button.
+        """
+        cloned_commands = [
+            IRCommand(
+                name=cmd.name,
+                category=cmd.category,
+                source=cmd.source,
+                protocol=cmd.protocol,
+                code=cmd.code,
+                raw_timings=(
+                    list(cmd.raw_timings) if cmd.raw_timings else None
+                ),
+                frequency=cmd.frequency,
+                repeat_count=cmd.repeat_count,
+            )
+            for cmd in self.commands
+        ]
+        cloned_entity_config = EntityConfig(
+            platform=self.entity_config.platform,
+            command_mapping=dict(self.entity_config.command_mapping),
+            temperature_presets=(
+                list(self.entity_config.temperature_presets)
+                if self.entity_config.temperature_presets
+                else None
+            ),
+            hvac_modes=(
+                list(self.entity_config.hvac_modes)
+                if self.entity_config.hvac_modes
+                else None
+            ),
+            fan_modes=(
+                list(self.entity_config.fan_modes)
+                if self.entity_config.fan_modes
+                else None
+            ),
+            swing_modes=(
+                list(self.entity_config.swing_modes)
+                if self.entity_config.swing_modes
+                else None
+            ),
+        )
+        return IRDevice(
+            name=new_name,
+            device_type=self.device_type,
+            manufacturer=self.manufacturer,
+            model=self.model,
+            emitter_entity_ids=list(self.emitter_entity_ids),
+            capture_device_id=self.capture_device_id,
+            capture_provider_type=self.capture_provider_type,
+            commands=cloned_commands,
+            entity_config=cloned_entity_config,
+            database_id=self.database_id,
+        )
+
     def reorder_commands(self, command_ids: list[str]) -> None:
         """Reorder ``self.commands`` to match the given ID list.
 
