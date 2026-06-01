@@ -9,6 +9,7 @@ import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-promote-dialog.js";
+import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import type {
     AssignResult,
@@ -124,6 +125,11 @@ export class IrSignalMonitor extends LitElement {
     @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
     @state() private _testingFingerprint: string | null = null;
     @state() private _testResult: string | null = null;
+    // Dialog state for the Test emitter picker. ``_testEmitters`` persists
+    // across opens (session-level memory) so users testing five signals
+    // in a row don't have to re-pick the same emitter each time.
+    @state() private _testDialog: { signal: UnknownSignal } | null = null;
+    @state() private _testEmitters: string[] = [];
 
     private _unsubLive: (() => Promise<void>) | null = null;
     private _unsubRemoved: (() => Promise<void>) | null = null;
@@ -336,16 +342,43 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    private async _testSignalInline(
-        signal: UnknownSignal,
-        _deviceId: string,
-    ): Promise<void> {
+    private _openTestDialog(signal: UnknownSignal): void {
+        this._testDialog = { signal };
+    }
+
+    private _closeTestDialog(): void {
+        this._testDialog = null;
+    }
+
+    private async _sendTest(e: CustomEvent): Promise<void> {
+        if (!this._testDialog) return;
+        const { signal } = this._testDialog;
+        const emitters = e.detail.emitters as string[];
+        if (emitters.length === 0) return;
+
         this._testingFingerprint = signal.fingerprint;
         this._testResult = null;
+        // Close the dialog immediately so the row's "Sending..." toast is
+        // visible against the live feed background, not the dialog scrim.
+        this._testDialog = null;
+
         try {
-            // Let the backend pick the emitter from configured devices.
-            const result = await this.api.testSignal(signal.fingerprint);
-            this._testResult = result.sent ? "Sent!" : "Failed";
+            const results = await Promise.allSettled(
+                emitters.map((eid) =>
+                    this.api.testSignal(signal.fingerprint, eid),
+                ),
+            );
+            const sent = results.filter(
+                (r) => r.status === "fulfilled" && r.value.sent,
+            ).length;
+            const total = emitters.length;
+            if (sent === total) {
+                this._testResult = total === 1 ? "Sent!" : `Sent! (${sent}/${total})`;
+            } else if (sent === 0) {
+                this._testResult = "Failed";
+            } else {
+                this._testResult = `Sent (${sent}/${total})`;
+            }
         } catch {
             this._testResult = "Error";
         }
@@ -677,6 +710,19 @@ export class IrSignalMonitor extends LitElement {
                       ></ir-trigger-dialog>
                   `
                 : ""}
+            ${this._testDialog
+                ? html`
+                      <ir-test-emitter-dialog
+                          .api=${this.api}
+                          .hass=${this.hass}
+                          .value=${this._testEmitters}
+                          @emitters-changed=${(e: CustomEvent) =>
+                              (this._testEmitters = e.detail.value)}
+                          @send=${this._sendTest}
+                          @closed=${this._closeTestDialog}
+                      ></ir-test-emitter-dialog>
+                  `
+                : ""}
             ${this._triggerEditDialog
                 ? html`
                       <ir-trigger-dialog
@@ -840,7 +886,7 @@ export class IrSignalMonitor extends LitElement {
                                         class="action-btn test-btn"
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
-                                            void this._testSignalInline(sig, device.id);
+                                            this._openTestDialog(sig);
                                         }}
                                         ?disabled=${this._testingFingerprint === sig.fingerprint}
                                     >${this._testingFingerprint === sig.fingerprint
