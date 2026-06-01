@@ -29,6 +29,11 @@ Key components:
   popover UI. A media_player only exposes volume control if commands are mapped to
   the volume actions, keeping entities clean and avoiding features the remote does
   not support.
+- Trigger Manager: turns received IR signals into native HA event entities that
+  fire hair_ir_command_received events. Any HA automation can consume them. A
+  configurable min-hits threshold prevents accidental triggers from a single
+  misfire. To the best of the project's knowledge, HAIR is the only HA integration
+  turning received IR into automation triggers as of HA 2026.6.
 
 Signal fingerprinting details:
 - Uses S/L (short/long) pulse-duration classification. Each pulse is classified as
@@ -40,7 +45,8 @@ Signal fingerprinting details:
   Sniffer can identify which remote sent a signal without decoding the protocol.
 
 Supported capture providers (auto-discovered):
-- ESPHome devices with the remote_receiver component
+- Native InfraredReceiverEntity instances (HA 2026.6+, hardware-agnostic)
+- ESPHome devices with the remote_receiver component (legacy bridge)
 - Broadlink RM series devices
 
 Supported transmit hardware: any IR emitter exposed to HA's infrared platform,
@@ -77,9 +83,13 @@ What HAIR is NOT:
 - Not a built-in Home Assistant integration -- must be installed via HACS as a
   custom repository.
 
-Roadmap context:
-- HA's infrared platform is expected to add receiver entities in HA 2026.6 to 2026.7.
-  HAIR will grow alongside the platform as new capabilities are added.
+Receiver architecture:
+- On HA 2026.6+, HAIR uses the native InfraredReceiverEntity API
+  (infrared.async_subscribe_receiver) for hardware-agnostic signal capture.
+- On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event bus bridge
+  (esphome.remote_received events) automatically.
+- Both paths convert signals to Pronto hex at the entry point for consistent
+  fingerprinting.
 
 ## Repositories
 

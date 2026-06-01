@@ -13,6 +13,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-duplicate-device-dialog.js";
 import type { HairApi } from "./api.js";
 import type {
     CaptureProviderInfo,
@@ -47,17 +48,17 @@ const DEVICE_TYPE_LABELS: Record<DeviceTypeId, string> = {
 const ICON_DEVICES =
     "M12,0C8.96,0 6.21,1.23 4.22,3.22L5.63,4.63C7.26,3 9.5,2 12,2C14.5,2 16.74,3 18.36,4.64L19.78,3.22C17.79,1.23 15.04,0 12,0M7.05,6.05L8.46,7.46C9.37,6.56 10.62,6 12,6C13.38,6 14.63,6.56 15.54,7.46L16.95,6.05C15.68,4.78 13.93,4 12,4C10.07,4 8.32,4.78 7.05,6.05M12,15A2,2 0 0,1 10,13A2,2 0 0,1 12,11A2,2 0 0,1 14,13A2,2 0 0,1 12,15M15,9H9A1,1 0 0,0 8,10V22A1,1 0 0,0 9,23H15A1,1 0 0,0 16,22V10A1,1 0 0,0 15,9Z";
 
-// MDI: access-point (antenna icon) for emitters
+// MDI: upload-outline for emitters (mirrors download-outline for receivers)
 const ICON_EMITTER =
-    "M12,10A2,2 0 0,1 14,12C14,12.5 13.82,12.95 13.53,13.29L16.7,16.46C17.5,15.26 18,13.71 18,12A6,6 0 0,0 12,6A6,6 0 0,0 6,12C6,13.71 6.5,15.26 7.3,16.46L10.47,13.29C10.18,12.95 10,12.5 10,12A2,2 0 0,1 12,10M12,2A10,10 0 0,0 2,12C2,15.07 3.18,17.85 5.09,19.91L7.5,17.5C6.19,15.89 5.5,14 5.5,12A6.5,6.5 0 0,1 12,5.5A6.5,6.5 0 0,1 18.5,12C18.5,14 17.81,15.89 16.5,17.5L18.91,19.91C20.82,17.85 22,15.07 22,12A10,10 0 0,0 12,2Z";
+    "M9,10V16H15V10H19L12,3L5,10H9M12,5.8L14.2,8H13V14H11V8H9.8L12,5.8M19,18H5V20H19V18Z";
 
-// MDI: antenna for receivers
+// MDI: download-outline for receivers
 const ICON_RECEIVER =
-    "M12,6C8.69,6 6,8.69 6,12L4,12C4,7.58 7.58,4 12,4C16.42,4 20,7.58 20,12H18C18,8.69 15.31,6 12,6M12,10C10.9,10 10,10.9 10,12H8A4,4 0 0,1 12,8A4,4 0 0,1 16,12H14C14,10.9 13.1,10 12,10M13,14.05V19.5C13,20.33 12.33,21 11.5,21C10.67,21 10,20.33 10,19.5V14.05C9.38,13.67 9,13 9,12.25C9,11 10,10 11.25,10C12.5,10 13.5,11 13.5,12.25C13.5,13 13.12,13.67 12.5,14.05H13Z";
+    "M13,5V11H14.17L12,13.17L9.83,11H11V5H13M15,3H9V9H5L12,16L19,9H15V3M19,18H5V20H19V18Z";
 
-// MDI: router-wireless for proxies
+// MDI: radio-tower for proxies
 const ICON_PROXY =
-    "M20,13A8,8 0 0,0 12,5A8,8 0 0,0 4,13H2A10,10 0 0,1 12,3A10,10 0 0,1 22,13H20M16,13A4,4 0 0,0 12,9A4,4 0 0,0 8,13H6A6,6 0 0,1 12,7A6,6 0 0,1 18,13H16M13,18H11V14H13V18M13,21H11V19H13V21Z";
+    "M12,10A2,2 0 0,1 14,12C14,12.5 13.82,12.94 13.53,13.29L16.7,22H14.57L12,14.93L9.43,22H7.3L10.47,13.29C10.18,12.94 10,12.5 10,12A2,2 0 0,1 12,10M12,8A4,4 0 0,0 8,12C8,12.5 8.1,13 8.28,13.46L7.4,15.86C6.53,14.81 6,13.47 6,12A6,6 0 0,1 12,6A6,6 0 0,1 18,12C18,13.47 17.47,14.81 16.6,15.86L15.72,13.46C15.9,13 16,12.5 16,12A4,4 0 0,0 12,8M12,4A8,8 0 0,0 4,12C4,14.36 5,16.5 6.64,17.94L5.92,19.94C3.54,18.11 2,15.23 2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12C22,15.23 20.46,18.11 18.08,19.94L17.36,17.94C19,16.5 20,14.36 20,12A8,8 0 0,0 12,4Z";
 
 // MDI: flash (lightning bolt) for triggers
 const ICON_TRIGGER =
@@ -66,6 +67,28 @@ const ICON_TRIGGER =
 // MDI: delete-outline (trash icon)
 const ICON_TRASH =
     "M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z";
+
+// MDI: content-copy (duplicate icon)
+const ICON_COPY =
+    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
+
+/**
+ * Result of merging capture providers by HA device ID.
+ *
+ * A physical device with both a native ``InfraredReceiverEntity`` and a
+ * legacy ESPHome event-bridge entry collapses into one of these.  Broadlink
+ * (proprietary learn mode) is bucketed as bridge for display purposes.
+ */
+interface MergedHardwareEntry {
+    device_id: string;            // HA device-registry ID (merge key)
+    name: string;                 // display name
+    nav_type: string;             // integration domain for navigation
+    has_native: boolean;          // InfraredReceiverEntity present
+    has_bridge: boolean;          // ESPHome bridge or Broadlink learn mode
+    has_tx: boolean;              // also TX-capable (= shows as proxy)
+    native_entity_id?: string;    // entity_id of the native receiver, if any
+    tx_entity_ids: string[];      // infrared.* TX entity_ids on this device
+}
 
 @customElement("ir-device-list")
 export class IrDeviceList extends LitElement {
@@ -82,6 +105,8 @@ export class IrDeviceList extends LitElement {
     @state() private _glowTriggerIds = new Set<string>();
     @state() private _editTrigger: IRTrigger | null = null;
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
+    @state() private _duplicateTarget: DeviceSummary | null = null;
+    @state() private _confirmDeleteDevice: DeviceSummary | null = null;
 
     private _unsubTriggerFired: (() => Promise<void>) | null = null;
 
@@ -135,6 +160,26 @@ export class IrDeviceList extends LitElement {
         );
     }
 
+    /**
+     * Apply a command-order change reported by the child detail view.
+     *
+     * Updates the cached ``_expandedDevice`` synchronously so the next
+     * render passes the new order back down. Skips the full re-fetch
+     * round-trip we do on ``device-changed`` because the child already
+     * has authoritative local state for this mutation -- and because
+     * the server save is debounced and asynchronous, a fetch here would
+     * race with the user's in-flight reorder.
+     */
+    private _onCommandsReordered(ev: CustomEvent): void {
+        if (!this._expandedDevice) return;
+        const commands = ev.detail?.commands;
+        if (!Array.isArray(commands)) return;
+        this._expandedDevice = {
+            ...this._expandedDevice,
+            commands,
+        };
+    }
+
     private _onCollapse(): void {
         this.dispatchEvent(
             new CustomEvent("device-selected", {
@@ -146,14 +191,27 @@ export class IrDeviceList extends LitElement {
     }
 
     private async _discoverHardware(): Promise<void> {
-        // Emitters from hass.states
+        // Fetch native receiver entity IDs so we can exclude them from emitters.
+        const receiverEntityIds = new Set<string>();
+        if (this.api) {
+            try {
+                const receivers = await this.api.listReceivers();
+                for (const r of receivers) {
+                    receiverEntityIds.add(r.entity_id);
+                }
+            } catch {
+                // Pre-2026.6 or non-fatal error.
+            }
+        }
+
+        // Emitters from hass.states (exclude receiver entities)
         const states = (this.hass?.states ?? {}) as Record<
             string,
             { entity_id: string; attributes: { friendly_name?: string } }
         >;
         const emitters: { entity_id: string; name: string }[] = [];
         for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.")) {
+            if (entityId.startsWith("infrared.") && !receiverEntityIds.has(entityId)) {
                 emitters.push({
                     entity_id: entityId,
                     name: st.attributes.friendly_name ?? entityId,
@@ -186,6 +244,45 @@ export class IrDeviceList extends LitElement {
         this.dispatchEvent(
             new CustomEvent("add-device", { bubbles: true, composed: true }),
         );
+    }
+
+    // --- Device corner actions (duplicate + delete) ---
+
+    private _openDuplicateDialog(device: DeviceSummary, e: Event): void {
+        e.stopPropagation();
+        this._duplicateTarget = device;
+    }
+
+    private _closeDuplicateDialog(): void {
+        this._duplicateTarget = null;
+    }
+
+    private _onDeviceDuplicated(): void {
+        // Tell the parent panel to refresh its device list. The duplicate
+        // already lives in storage server-side; the parent owns the list.
+        this._duplicateTarget = null;
+        this.dispatchEvent(
+            new CustomEvent("device-changed", { bubbles: true, composed: true }),
+        );
+    }
+
+    private _requestDeleteDevice(device: DeviceSummary, e: Event): void {
+        e.stopPropagation();
+        this._confirmDeleteDevice = device;
+    }
+
+    private async _doDeleteDevice(): Promise<void> {
+        if (!this._confirmDeleteDevice || !this.api) return;
+        const device = this._confirmDeleteDevice;
+        this._confirmDeleteDevice = null;
+        try {
+            await this.api.deleteDevice(device.id);
+            this.dispatchEvent(
+                new CustomEvent("device-deleted", { bubbles: true, composed: true }),
+            );
+        } catch {
+            // Non-fatal; parent refresh will reconcile.
+        }
     }
 
     private _navigateIntegration(domain: string) {
@@ -293,17 +390,135 @@ export class IrDeviceList extends LitElement {
         return ids;
     }
 
-    /** Classify capture providers: all go to receivers, those also TX-capable go to proxies too. */
+    /** Group emitter entity_ids by their HA device_id. */
+    private _getEmitterEntityIdsByDevice(): Map<string, string[]> {
+        const byDevice = new Map<string, string[]>();
+        for (const em of this._emitters) {
+            const reg = this.hass?.entities?.[em.entity_id];
+            const deviceId = reg?.device_id;
+            if (!deviceId) continue;
+            const list = byDevice.get(deviceId) ?? [];
+            list.push(em.entity_id);
+            byDevice.set(deviceId, list);
+        }
+        return byDevice;
+    }
+
+    /** Detect HA versions older than 2026.6 (no native InfraredReceiverEntity). */
+    private _isPre2026_6(): boolean {
+        const v: string | undefined = this.hass?.config?.version;
+        if (!v) return false;
+        const m = v.match(/^(\d+)\.(\d+)/);
+        if (!m) return false;
+        const major = parseInt(m[1], 10);
+        const minor = parseInt(m[2], 10);
+        return major < 2026 || (major === 2026 && minor < 6);
+    }
+
+    /** Resolve integration domain for navigation. */
+    private _resolveNavType(
+        cp: CaptureProviderInfo,
+        nativeEntityId: string | undefined,
+    ): string {
+        if (cp.type === "native" && nativeEntityId) {
+            const platform = this.hass?.entities?.[nativeEntityId]?.platform;
+            if (platform) return platform;
+            // Fall back to esphome -- by far the most common source of
+            // InfraredReceiverEntity in the wild.
+            return "esphome";
+        }
+        return cp.type;
+    }
+
+    /**
+     * Classify capture providers, merging native + bridge entries for the
+     * same physical HA device into one entry with both flags set.
+     *
+     * Receivers = every capture-capable device.
+     * Proxies   = subset that also has an emitter on the same HA device.
+     * A TX+RX device shows in both sections by design (each section answers
+     * a different question; same hardware legitimately answers both).
+     */
     private _classifyHardware(): {
-        receivers: CaptureProviderInfo[];
-        proxies: CaptureProviderInfo[];
+        receivers: MergedHardwareEntry[];
+        proxies: MergedHardwareEntry[];
     } {
-        const txDeviceIds = this._getEmitterDeviceIds();
-        const receivers = this._captureProviders;
-        const proxies = this._captureProviders.filter(
-            (cp) => txDeviceIds.has(cp.device_id),
-        );
-        return { receivers, proxies };
+        const txByDevice = this._getEmitterEntityIdsByDevice();
+        const txDeviceIds = new Set(txByDevice.keys());
+        const byDeviceId = new Map<string, MergedHardwareEntry>();
+
+        for (const cp of this._captureProviders) {
+            // For native providers the backend stashes the entity_id in
+            // ``cp.device_id``; the real HA device-registry ID has to be
+            // looked up via ``hass.entities``.
+            let haDeviceId: string | undefined;
+            let nativeEntityId: string | undefined;
+            if (cp.type === "native") {
+                nativeEntityId = cp.receiver_entity_id ?? cp.device_id;
+                haDeviceId = this.hass?.entities?.[nativeEntityId]?.device_id;
+                // Fallback: use the entity_id as a synthetic merge key so
+                // the card still shows even if the entity isn't registered.
+                if (!haDeviceId) haDeviceId = nativeEntityId;
+            } else {
+                haDeviceId = cp.device_id;
+            }
+            if (!haDeviceId) continue;
+
+            const existing = byDeviceId.get(haDeviceId);
+            const entry: MergedHardwareEntry = existing ?? {
+                device_id: haDeviceId,
+                name: cp.name,
+                nav_type: this._resolveNavType(cp, nativeEntityId),
+                has_native: false,
+                has_bridge: false,
+                has_tx: txDeviceIds.has(haDeviceId),
+                tx_entity_ids: txByDevice.get(haDeviceId) ?? [],
+            };
+            if (cp.type === "native") {
+                entry.has_native = true;
+                entry.native_entity_id = nativeEntityId;
+            } else {
+                // ESPHome event-bus bridge or Broadlink learn mode.
+                entry.has_bridge = true;
+                // Prefer the bridge's device-registry name (cleaner) and
+                // its concrete integration domain over any native default.
+                entry.name = cp.name;
+                entry.nav_type = cp.type;
+            }
+            byDeviceId.set(haDeviceId, entry);
+        }
+
+        const merged = Array.from(byDeviceId.values());
+        const proxies = merged.filter((e) => e.has_tx);
+        return { receivers: merged, proxies };
+    }
+
+    /** Render TX/RX-NATIVE / RX-BRIDGE badges with a pre-2026.6 upgrade hint. */
+    private _renderRxBadges(entry: MergedHardwareEntry) {
+        const showGrayedNative =
+            !entry.has_native && entry.has_bridge && this._isPre2026_6();
+        return html`
+            ${entry.has_native
+                ? html`<span
+                      class="badge rx-native"
+                      title="Receives via HA's native infrared platform"
+                  >RX-NATIVE</span>`
+                : nothing}
+            ${entry.has_bridge
+                ? html`<span
+                      class="badge rx-bridge"
+                      title=${entry.has_native
+                          ? "Legacy bridge still active. Native receiver supersedes it -- you can remove the on_pronto: block from your ESPHome config."
+                          : "Receives via legacy ESPHome event-bus bridge"}
+                  >RX-BRIDGE</span>`
+                : nothing}
+            ${showGrayedNative
+                ? html`<span
+                      class="badge rx-native-disabled"
+                      title="Upgrade to HA 2026.6+ for native receiver support"
+                  >RX-NATIVE</span>`
+                : nothing}
+        `;
     }
 
     render() {
@@ -354,6 +569,22 @@ export class IrDeviceList extends LitElement {
                                           }
                                       }}
                                   >
+                                      <button
+                                          class="card-action duplicate-action"
+                                          title="Duplicate device"
+                                          @click=${(e: Event) =>
+                                              this._openDuplicateDialog(device, e)}
+                                      >
+                                          <ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>
+                                      </button>
+                                      <button
+                                          class="card-action delete-action"
+                                          title="Delete device"
+                                          @click=${(e: Event) =>
+                                              this._requestDeleteDevice(device, e)}
+                                      >
+                                          <ha-svg-icon .path=${ICON_TRASH}></ha-svg-icon>
+                                      </button>
                                       <div class="card-header">
                                           <ha-svg-icon
                                               .path=${DEVICE_TYPE_ICONS[
@@ -392,6 +623,8 @@ export class IrDeviceList extends LitElement {
                                                     .hass=${this.hass}
                                                     @device-changed=${this._onExpandedDeviceChanged}
                                                     @device-deleted=${this._onExpandedDeviceDeleted}
+                                                    @commands-reordered=${this._onCommandsReordered}
+                                                    @trigger-changed=${this._loadTriggers}
                                                     @collapse=${this._onCollapse}
                                                 ></ir-device-detail>
                                             </div>
@@ -489,7 +722,10 @@ export class IrDeviceList extends LitElement {
                                       </div>
                                       <div class="card-meta">${em.entity_id}</div>
                                       <div class="card-footer">
-                                          <span class="badge tx-badge">TX</span>
+                                          <span
+                                              class="badge tx-native"
+                                              title="Sends via HA's native infrared platform"
+                                          >TX-NATIVE</span>
                                       </div>
                                   </div>
                               `,
@@ -498,7 +734,7 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
-            <!-- Receivers (RX-only hardware) -->
+            <!-- Receivers (capture-capable hardware; proxies appear here too by design) -->
             ${hasReceivers
                 ? html`
                       <div class="section-header">
@@ -507,25 +743,25 @@ export class IrDeviceList extends LitElement {
                       </div>
                       <div class="grid">
                           ${receivers.map(
-                              (p) => html`
+                              (entry) => html`
                                   <div
                                       class="card hw-card"
                                       tabindex="0"
-                                      @click=${() => this._navigateIntegration(p.type)}
+                                      @click=${() => this._navigateIntegration(entry.nav_type)}
                                       @keydown=${(e: KeyboardEvent) => {
                                           if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
-                                              this._navigateIntegration(p.type);
+                                              this._navigateIntegration(entry.nav_type);
                                           }
                                       }}
                                   >
                                       <div class="card-header">
                                           <ha-svg-icon .path=${ICON_RECEIVER}></ha-svg-icon>
-                                          <div class="card-name">${p.name}</div>
+                                          <div class="card-name">${entry.name}</div>
                                       </div>
-                                      <div class="card-meta">${p.type}</div>
+                                      <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
                                       <div class="card-footer">
-                                          <span class="badge rx-badge">RX</span>
+                                          ${this._renderRxBadges(entry)}
                                       </div>
                                   </div>
                               `,
@@ -543,26 +779,32 @@ export class IrDeviceList extends LitElement {
                       </div>
                       <div class="grid">
                           ${proxies.map(
-                              (p) => html`
+                              (entry) => html`
                                   <div
                                       class="card hw-card"
                                       tabindex="0"
-                                      @click=${() => this._navigateIntegration(p.type)}
+                                      @click=${() => this._navigateIntegration(entry.nav_type)}
                                       @keydown=${(e: KeyboardEvent) => {
                                           if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
-                                              this._navigateIntegration(p.type);
+                                              this._navigateIntegration(entry.nav_type);
                                           }
                                       }}
                                   >
                                       <div class="card-header">
                                           <ha-svg-icon .path=${ICON_PROXY}></ha-svg-icon>
-                                          <div class="card-name">${p.name}</div>
+                                          <div class="card-name">${entry.name}</div>
                                       </div>
-                                      <div class="card-meta">${p.type}</div>
+                                      ${entry.tx_entity_ids[0]
+                                          ? html`<div class="card-meta">${entry.tx_entity_ids[0]}</div>`
+                                          : nothing}
+                                      <div class="card-meta">${entry.native_entity_id ?? entry.nav_type}</div>
                                       <div class="card-footer">
-                                          <span class="badge tx-badge">TX</span>
-                                          <span class="badge rx-badge">RX</span>
+                                          <span
+                                              class="badge tx-native"
+                                              title="Sends via HA's native infrared platform"
+                                          >TX-NATIVE</span>
+                                          ${this._renderRxBadges(entry)}
                                       </div>
                                   </div>
                               `,
@@ -591,6 +833,31 @@ export class IrDeviceList extends LitElement {
                           .destructive=${true}
                           @confirmed=${this._doDeleteTrigger}
                           @closed=${() => (this._confirmDeleteTrigger = null)}
+                      ></ir-confirm-dialog>
+                  `
+                : nothing}
+
+            ${this._duplicateTarget && this.api
+                ? html`
+                      <ir-duplicate-device-dialog
+                          .api=${this.api}
+                          .sourceId=${this._duplicateTarget.id}
+                          .sourceName=${this._duplicateTarget.name}
+                          @device-duplicated=${this._onDeviceDuplicated}
+                          @closed=${this._closeDuplicateDialog}
+                      ></ir-duplicate-device-dialog>
+                  `
+                : nothing}
+
+            ${this._confirmDeleteDevice
+                ? html`
+                      <ir-confirm-dialog
+                          title="Delete Device"
+                          message="Remove &quot;${this._confirmDeleteDevice.name}&quot;? Commands, action mappings, and emitter assignments will be deleted. Triggers are unaffected."
+                          confirmLabel="Delete"
+                          .destructive=${true}
+                          @confirmed=${this._doDeleteDevice}
+                          @closed=${() => (this._confirmDeleteDevice = null)}
                       ></ir-confirm-dialog>
                   `
                 : nothing}
@@ -705,6 +972,9 @@ export class IrDeviceList extends LitElement {
         .card-header ha-svg-icon {
             --mdc-icon-size: 24px;
             color: var(--secondary-text-color);
+            /* Long card names (eg the Athom proxy transmitter title) can
+               otherwise squeeze the flex item below its intrinsic size. */
+            flex-shrink: 0;
         }
         .card-name {
             font-size: 0.95rem;
@@ -759,6 +1029,26 @@ export class IrDeviceList extends LitElement {
             font-style: italic;
         }
 
+        /* Hardware section badges -- consistent <direction>-<source> pattern. */
+        /* TX-NATIVE and RX-NATIVE share the green palette of .cmd-badge. */
+        .tx-native,
+        .rx-native {
+            background: rgba(46, 125, 50, 0.15);
+            color: #2e7d32;
+        }
+        /* RX-BRIDGE uses HAIR's existing orange. */
+        .rx-bridge {
+            background: rgba(255, 152, 0, 0.15);
+            color: #ff9800;
+        }
+        /* Pre-2026.6 upgrade hint: grayed RX-NATIVE alongside RX-BRIDGE. */
+        .rx-native-disabled {
+            background: var(--secondary-background-color);
+            color: var(--disabled-text-color, #999);
+            opacity: 0.6;
+            cursor: help;
+        }
+
         /* --- Expanded detail row --- */
         .expanded-detail {
             grid-column: 1 / -1;
@@ -774,9 +1064,59 @@ export class IrDeviceList extends LitElement {
         }
 
         /* --- Device card expanded highlight --- */
+        .device-card {
+            position: relative;
+        }
         .device-card.expanded {
             border-color: #2e7d32;
             box-shadow: 0 0 0 1px #2e7d32;
+        }
+
+        /* --- Card corner actions (duplicate top-right, delete bottom-right) --- */
+        .card-action {
+            position: absolute;
+            background: transparent;
+            border: none;
+            padding: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+        }
+        .card-action ha-svg-icon {
+            /* Default card-action glyph size. The duplicate-action overrides
+               this with a smaller value because the copy MDI glyph fills more
+               of its viewbox than the trash glyph. */
+            --mdc-icon-size: 16px;
+        }
+        .duplicate-action {
+            top: 6px;
+            right: 6px;
+            color: var(--disabled-text-color, #999);
+            opacity: 0.55;
+        }
+        .duplicate-action ha-svg-icon {
+            /* Copy MDI glyph fills more of its viewbox than the trash glyph,
+               so render it smaller to land at the same visual size as the
+               trash icon in the opposite corner. */
+            --mdc-icon-size: 13px;
+        }
+        .duplicate-action:hover {
+            color: var(--primary-text-color);
+            opacity: 1;
+        }
+        .delete-action {
+            bottom: 6px;
+            right: 6px;
+            color: var(--disabled-text-color, #999);
+            opacity: 0.55;
+        }
+        .delete-action:hover {
+            background: rgba(244, 67, 54, 0.12);
+            color: #f44336;
+            opacity: 1;
         }
 
         /* --- Hardware cards inherit shared .card styles --- */
@@ -856,16 +1196,21 @@ export class IrDeviceList extends LitElement {
         .trigger-toggle.trigger-off:hover {
             background: rgba(0, 0, 0, 0.1);
         }
+        /* Matches the device-card .delete-action palette so the trigger
+           trash and the device-card trash read as the same control. */
         .trigger-trash {
             --mdc-icon-size: 16px;
-            color: var(--secondary-text-color);
+            color: var(--disabled-text-color, #999);
             cursor: pointer;
             margin-left: auto;
-            opacity: 0.6;
-            transition: color 150ms ease, opacity 150ms ease;
+            opacity: 0.55;
+            border-radius: 4px;
+            padding: 2px;
+            transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
         }
         .trigger-trash:hover {
-            color: #e65100;
+            background: rgba(244, 67, 54, 0.12);
+            color: #f44336;
             opacity: 1;
         }
     `;

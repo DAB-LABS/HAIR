@@ -78,9 +78,7 @@ export class IrCommandRow extends LitElement {
         return html`
             <div class="row" data-learned=${learned ? "true" : "false"}>
                 <div class="status" aria-hidden="true">
-                    ${learned
-                        ? html`<span class="dot learned"></span>`
-                        : html`<span class="dot unlearned"></span>`}
+                    <slot name="status"></slot>
                 </div>
                 <div class="info">
                     <div class="name">${this.templateName}</div>
@@ -144,32 +142,22 @@ export class IrCommandRow extends LitElement {
             align-items: center;
             gap: 12px;
             padding: 8px 10px;
-            background: var(--secondary-background-color);
+            /* Match the page background so the long horizontal command
+               strips visually merge with the device-detail backdrop
+               instead of reading as highlighted bands. Themes that
+               distinguish primary vs secondary background colors will
+               carry both through naturally; themes that keep them
+               equal end up with the same visual effect. The hover
+               state on action buttons inside the row still uses
+               --secondary-background-color so the button hover remains
+               distinguishable. */
+            background: var(--primary-background-color);
             border-radius: 4px;
-        }
-        .row[data-learned="false"] {
-            background: var(--secondary-background-color);
-            opacity: 0.7;
         }
         .status {
             display: flex;
             align-items: center;
             justify-content: center;
-        }
-        .dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-        }
-        .dot.learned {
-            background: #2e7d32;
-        }
-        .dot.unlearned {
-            border: 2px solid var(--disabled-text-color, #999);
-            width: 8px;
-            height: 8px;
-            background: transparent;
         }
         .name {
             font-weight: 500;

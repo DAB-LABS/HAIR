@@ -8,10 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.hair.const import (
+    EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
+    LEGACY_ESPHOME_IR_EVENT,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
+    SIGNAL_WS_PUSH_RATE_LIMIT,
 )
 from custom_components.hair.models import (
     IRCommand,
@@ -28,11 +31,18 @@ from custom_components.hair.signal_store import SignalStore
 
 
 def _make_hass():
-    """Create a minimal mock HomeAssistant."""
+    """Create a minimal mock HomeAssistant.
+
+    ``async_create_task`` is configured to return the coroutine it
+    receives unmodified. That way, tests exercising sync ``@callback``
+    handlers that schedule async work can drain the pending coroutine
+    via ``await hass.async_create_task.call_args[0][0]`` rather than
+    leaving it as an un-awaited RuntimeWarning.
+    """
     hass = MagicMock()
     hass.loop = MagicMock()
     hass.loop.call_later = MagicMock(return_value=MagicMock())
-    hass.async_create_task = MagicMock()
+    hass.async_create_task = MagicMock(side_effect=lambda coro: coro)
     hass.bus = MagicMock()
     hass.bus.async_listen = MagicMock(return_value=MagicMock())
     hass.bus.async_fire = MagicMock()
@@ -81,13 +91,23 @@ class TestLifecycle:
 
     @pytest.mark.asyncio
     async def test_start_subscribes_to_bus(self):
+        """Legacy fallback: subscribes to esphome.remote_received."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
         await monitor.async_start()
         hass.bus.async_listen.assert_called_once()
         args = hass.bus.async_listen.call_args
-        assert args[0][0] == "esphome.remote_received"
+        assert args[0][0] == LEGACY_ESPHOME_IR_EVENT
+
+    @pytest.mark.asyncio
+    async def test_start_legacy_fallback_sets_native_mode_false(self):
+        """In test env, native import fails so legacy path activates."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        await monitor.async_start()
+        assert not monitor.native_mode
 
     @pytest.mark.asyncio
     async def test_start_loads_store_if_not_loaded(self):
@@ -315,6 +335,143 @@ class TestDismissCheck:
 
         device = store.get_device(device.id)
         assert device.hit_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Dismiss-activity bus event push
+#
+# Step 4 of ``_process_parsed_signal`` early-returns when a signal arrives
+# from a dismissed device, but it also fires an ``EVENT_DISMISS_ACTIVITY``
+# bus event (rate-limited) so the Sniffer's "Show Dismissed" button can
+# glow and surface a dot indicator. The signal itself stays out of the
+# live feed -- only the bus event fires.
+# ---------------------------------------------------------------------------
+
+
+def _dismiss_event_fires(hass) -> list[tuple[str, dict]]:
+    """Return all ``EVENT_DISMISS_ACTIVITY`` fire calls recorded on the bus."""
+    return [
+        call.args
+        for call in hass.bus.async_fire.call_args_list
+        if call.args and call.args[0] == EVENT_DISMISS_ACTIVITY
+    ]
+
+
+class TestDismissActivityPush:
+
+    @pytest.mark.asyncio
+    async def test_dismissed_signal_fires_activity_event(self):
+        """A signal from a dismissed device fires the activity bus event."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Create and dismiss a device.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        device = store.get_all_devices()[0]
+        dev_fp = device.fingerprint
+        monitor.dismiss_device(device.id)
+        monitor._last_seen_times.clear()
+        hass.bus.async_fire.reset_mock()
+
+        # New signal from the same (now dismissed) device.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        fires = _dismiss_event_fires(hass)
+        assert len(fires) == 1
+        event_name, payload = fires[0]
+        assert event_name == EVENT_DISMISS_ACTIVITY
+        assert payload == {"device_fingerprint": dev_fp}
+
+    @pytest.mark.asyncio
+    async def test_non_dismissed_signal_does_not_fire_activity_event(self):
+        """A signal from a NON-dismissed device must not fire the event."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        # No dismiss. Send another signal.
+        monitor._last_seen_times.clear()
+        hass.bus.async_fire.reset_mock()
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        assert _dismiss_event_fires(hass) == []
+
+    @pytest.mark.asyncio
+    async def test_dismissed_signal_does_not_reach_storage(self):
+        """Activity event is informational only; signal is still dropped."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        device = store.get_all_devices()[0]
+        monitor.dismiss_device(device.id)
+        monitor._last_seen_times.clear()
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        # Device still has only its original signal -- the dismissed
+        # second arrival did not add a new one or bump the hit_count.
+        device = store.get_device(device.id)
+        assert device.hit_count == 1
+
+    @pytest.mark.asyncio
+    async def test_dismissed_activity_rate_limited(self):
+        """Held-down dismissed button does not flood the bus."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        device = store.get_all_devices()[0]
+        monitor.dismiss_device(device.id)
+        monitor._last_seen_times.clear()
+        hass.bus.async_fire.reset_mock()
+
+        # Blast well past the push budget.
+        for _ in range(SIGNAL_WS_PUSH_RATE_LIMIT + 10):
+            monitor._last_seen_times.clear()
+            await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        # Capped at the WS push budget.
+        assert len(_dismiss_event_fires(hass)) <= SIGNAL_WS_PUSH_RATE_LIMIT
+
+    def test_dismiss_push_rate_window_expires(self):
+        """Dismiss-push bucket empties after the sliding window."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Fill the dismiss-push bucket.
+        for _ in range(SIGNAL_WS_PUSH_RATE_LIMIT):
+            assert monitor._check_dismiss_push_rate("dev_fp_1")
+
+        # Should be blocked now.
+        assert not monitor._check_dismiss_push_rate("dev_fp_1")
+
+        # Push the bucket's timestamps past the 1-second window.
+        monitor._dismiss_push_buckets["dev_fp_1"] = [
+            time.monotonic() - 2.0
+        ] * SIGNAL_WS_PUSH_RATE_LIMIT
+
+        # Window expired -- should accept again.
+        assert monitor._check_dismiss_push_rate("dev_fp_1")
+
+    def test_dismiss_push_per_fingerprint_isolation(self):
+        """Each device fingerprint has its own dismiss-push budget."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        for _ in range(SIGNAL_WS_PUSH_RATE_LIMIT):
+            assert monitor._check_dismiss_push_rate("dev_fp_A")
+        # A is exhausted.
+        assert not monitor._check_dismiss_push_rate("dev_fp_A")
+
+        # B starts fresh.
+        assert monitor._check_dismiss_push_rate("dev_fp_B")
 
 
 # ---------------------------------------------------------------------------
@@ -993,3 +1150,208 @@ class TestTestSignalErrors:
             ir_mod.async_send_command = orig
         assert result["success"] is False
         assert result["code"] == "send_failed"
+
+
+# ---------------------------------------------------------------------------
+# Native receiver path (HA 2026.6+)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTiming:
+    """Minimal stand-in for ``infrared_protocols.Timing``."""
+
+    def __init__(self, high_us: int, low_us: int) -> None:
+        self.high_us = high_us
+        self.low_us = low_us
+
+
+class _FakeReceivedSignal:
+    """Minimal stand-in for ``InfraredReceivedSignal``."""
+
+    def __init__(
+        self,
+        timings: list[_FakeTiming],
+        modulation: int = 38000,
+    ) -> None:
+        self.timings = timings
+        self.modulation = modulation
+
+
+class TestNativeReceiverLifecycle:
+    """Tests for the native ``InfraredReceiverEntity`` subscription path."""
+
+    @pytest.mark.asyncio
+    async def test_native_mode_activates_when_api_available(self):
+        """When async_subscribe_receiver is importable, native mode activates."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        mock_unsub = MagicMock()
+
+        def fake_get_receivers(_hass):
+            return ["infrared.living_room_rx"]
+
+        def fake_subscribe(_hass, entity_id, callback):
+            return mock_unsub
+
+        with patch(
+            "custom_components.hair.signal_monitor.SignalMonitor"
+            "._start_native_receivers",
+            wraps=monitor._start_native_receivers,
+        ), patch.dict(
+            "sys.modules",
+            {
+                "homeassistant.components.infrared": MagicMock(
+                    async_get_receivers=fake_get_receivers,
+                    async_subscribe_receiver=fake_subscribe,
+                ),
+            },
+        ):
+            await monitor._start_native_receivers()
+
+        assert monitor.native_mode
+        assert len(monitor._unsubs) == 1
+
+    @pytest.mark.asyncio
+    async def test_native_no_receivers_falls_back(self):
+        """If native API exists but no receivers found, falls back to legacy."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        def fake_get_receivers(_hass):
+            return []
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "homeassistant.components.infrared": MagicMock(
+                    async_get_receivers=fake_get_receivers,
+                ),
+            },
+        ):
+            await monitor._start_native_receivers()
+
+        # Should have fallen back to legacy.
+        assert not monitor.native_mode
+        hass.bus.async_listen.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_native_stop_cleans_up_all_unsubs(self):
+        """async_stop() should call all native unsubs."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        unsub1 = MagicMock()
+        unsub2 = MagicMock()
+        monitor._unsubs = [unsub1, unsub2]
+        monitor._native_mode = True
+
+        await monitor.async_stop()
+
+        unsub1.assert_called_once()
+        unsub2.assert_called_once()
+        assert len(monitor._unsubs) == 0
+
+
+async def _run_native_signal(monitor, hass, signal):
+    """Invoke the sync native callback and drain the scheduled async pipeline.
+
+    ``_on_received_signal`` is a sync ``@callback`` (per the 2026.6 API).
+    It schedules ``_process_parsed_signal`` via ``hass.async_create_task``.
+    The test ``_make_hass`` passes that coroutine through unchanged, so
+    we can await it here to actually run the processing pipeline.
+    """
+    monitor._on_received_signal(signal)
+    if hass.async_create_task.called:
+        coro = hass.async_create_task.call_args[0][0]
+        if hasattr(coro, "__await__"):
+            await coro
+        hass.async_create_task.reset_mock()
+
+
+class TestNativeSignalProcessing:
+    """Tests for _on_received_signal processing path."""
+
+    @pytest.mark.asyncio
+    async def test_native_signal_creates_device_and_signal(self):
+        """A native signal should create an unknown device and signal."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Native API delivers timings as list[int] (signed microseconds).
+        # 8 ints exceeds the repeat threshold (<= 6).
+        signal = _FakeReceivedSignal(
+            timings=[9000, -4500, 560, -560, 560, -1690, 560, -560],
+            modulation=38000,
+        )
+
+        await _run_native_signal(monitor, hass, signal)
+
+        assert store.device_count == 1
+        devices = store.get_all_devices()
+        assert len(devices) == 1
+        assert devices[0].hit_count == 1
+        assert len(devices[0].signals) == 1
+        # Signal should be stored as PRONTO protocol.
+        assert devices[0].signals[0].protocol == "PRONTO"
+
+    @pytest.mark.asyncio
+    async def test_native_repeat_frame_filtered(self):
+        """Short signals (<=3 timing pairs) should be filtered as repeats."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Only 4 raw values (<= 6 threshold) -- repeat frame.
+        signal = _FakeReceivedSignal(
+            timings=[9000, -2250, 560, -560],
+            modulation=38000,
+        )
+
+        await _run_native_signal(monitor, hass, signal)
+        assert store.device_count == 0
+
+    @pytest.mark.asyncio
+    async def test_native_signal_fires_ha_event(self):
+        """Native path should fire hair_signal_detected event."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Native API delivers timings as list[int] (signed microseconds).
+        # 8 ints exceeds the repeat threshold (<= 6).
+        signal = _FakeReceivedSignal(
+            timings=[9000, -4500, 560, -560, 560, -1690, 560, -560],
+            modulation=38000,
+        )
+
+        await _run_native_signal(monitor, hass, signal)
+
+        hass.bus.async_fire.assert_called_once()
+        args = hass.bus.async_fire.call_args
+        assert args[0][0] == EVENT_SIGNAL_DETECTED
+
+    @pytest.mark.asyncio
+    async def test_native_signal_notifies_subscribers(self):
+        """Native path should notify WebSocket subscribers."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        received = []
+        monitor.subscribe(lambda data: received.append(data))
+
+        # Native API delivers timings as list[int] (signed microseconds).
+        # 8 ints exceeds the repeat threshold (<= 6).
+        signal = _FakeReceivedSignal(
+            timings=[9000, -4500, 560, -560, 560, -1690, 560, -560],
+            modulation=38000,
+        )
+
+        await _run_native_signal(monitor, hass, signal)
+        assert len(received) == 1
+        assert "signal_fingerprint" in received[0]

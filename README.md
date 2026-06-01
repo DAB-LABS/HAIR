@@ -12,7 +12,7 @@ No manufacturer picker. No model lookup. No code file downloads. No YAML. Just p
 
 ## Platform state
 
-Home Assistant is mid-rollout of its native `infrared` platform. The transmit side shipped in HA 2026.4. The receive side is approved and on the HA roadmap for 2026.6 or 2026.7.
+Home Assistant's native `infrared` platform shipped transmit (TX) support in HA 2026.4 and receive (RX) support via `InfraredReceiverEntity` in HA 2026.6.
 
 ### Infrared platform compatibility
 
@@ -20,16 +20,14 @@ HAIR works with any integration that exposes HA's native `infrared` entity platf
 
 | Integration | Source | TX | RX | Status |
 |---|---|---|---|---|
-| [ESPHome](https://esphome.io/) | Core | Yes | Yes (bridge) | Since 2026.4 |
+| [ESPHome](https://esphome.io/) | Core | Yes | Yes | Since 2026.4 (TX), 2026.6 (native RX) |
 | [Tuya Local](https://github.com/make-all/tuya-local) | HACS | Yes | No | Since 2026.4 |
 | [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Core | Yes | No | Since 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Core | Yes | No | Since 2026.5 |
 
-ESPHome is the only integration with receive (RX) support today, using a temporary YAML bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) below). When HA ships native `InfraredReceiverEntity` (expected 2026.6 or 2026.7), any integration that adopts it will work as a HAIR receiver automatically.
+On HA 2026.6+, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. Any integration that implements the receiver entity works as a HAIR receiver automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) below).
 
 As more integrations adopt the `infrared` platform, HAIR picks them up with no changes needed on HAIR's side.
-
-Until the native receive entities land, HAIR uses a thin ESPHome [`remote_receiver`](https://esphome.io/components/remote_receiver.html) YAML bridge to forward signals to HA's event bus (see [ESPHome Receiver Setup](#esphome-receiver-setup) below for the short stub). When the native receive entities ship, HAIR migrates users to the official API automatically. The TX side does not change.
 
 HAIR fingerprints every captured signal using short/long (S/L) pulse-duration analysis. Each pulse is classified short or long, producing a pattern that identifies the signal regardless of minor timing jitter between presses. S/L works across NEC, Samsung, JVC, LG, Sony, and RC-5/RC-6 without needing to decode the protocol. The Sniffer groups signals by source remote, deduplicates repeated presses, filters held-button repeat frames, and tracks hit counts, all in real time.
 

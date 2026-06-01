@@ -121,6 +121,53 @@ class RawTimingsCommand(Command):
         return list(self._timings)
 
 
+def raw_to_pronto(
+    timings: list[int],
+    frequency: int = 38000,
+) -> str:
+    """Convert signed microsecond timings to a Pronto hex string.
+
+    This is the inverse of ``ProntoCommand``: given raw mark/space
+    microsecond values and a carrier frequency, produce a Pronto hex
+    string suitable for storage and fingerprinting.
+
+    Args:
+        timings: Signed microsecond values (positive=mark, negative=space).
+            May also be unsigned alternating mark/space.
+        frequency: Carrier frequency in Hz (default 38 kHz).
+
+    Returns:
+        Pronto hex string (e.g. "0000 006D 0016 0000 ...").
+    """
+    if not timings:
+        raise ValueError("Cannot encode empty timings to Pronto hex")
+    if frequency <= 0:
+        raise ValueError(f"Invalid carrier frequency: {frequency}")
+
+    # Pronto frequency word: freq_word = 1_000_000 / (frequency * 0.241246)
+    freq_word = round(1_000_000 / (frequency * _PRONTO_FREQ_FACTOR))
+    period_us = freq_word * _PRONTO_FREQ_FACTOR  # microseconds per period
+
+    # Build mark/space pairs from raw timings.
+    pairs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(timings):
+        mark_us = abs(timings[i])
+        space_us = abs(timings[i + 1]) if i + 1 < len(timings) else 0
+        mark_periods = round(mark_us / period_us)
+        space_periods = round(space_us / period_us)
+        pairs.append((mark_periods, space_periods))
+        i += 2
+
+    # Pronto format: type(0000) freq burst1_count burst2_count timing_words...
+    # All pairs go into burst sequence 1; burst sequence 2 is empty.
+    words: list[int] = [_PRONTO_LEARNED, freq_word, len(pairs), 0]
+    for mark, space in pairs:
+        words.extend([mark, space])
+
+    return " ".join(f"{w:04X}" for w in words)
+
+
 def build_command(
     *,
     protocol: str | None = None,

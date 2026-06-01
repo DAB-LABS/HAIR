@@ -81,6 +81,137 @@ def test_device_add_replace_remove():
     assert device.remove_command("missing") is False
 
 
+def test_reorder_commands_happy_path():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd_a = IRCommand(name="A", protocol="NEC", code="0x1")
+    cmd_b = IRCommand(name="B", protocol="NEC", code="0x2")
+    cmd_c = IRCommand(name="C", protocol="NEC", code="0x3")
+    device.add_command(cmd_a)
+    device.add_command(cmd_b)
+    device.add_command(cmd_c)
+    original_updated_at = device.updated_at
+
+    device.reorder_commands([cmd_c.id, cmd_a.id, cmd_b.id])
+
+    assert [c.id for c in device.commands] == [cmd_c.id, cmd_a.id, cmd_b.id]
+    assert device.updated_at != original_updated_at
+
+
+def test_reorder_commands_empty_device_with_empty_list():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    # No-op on a device with no commands.
+    device.reorder_commands([])
+    assert device.commands == []
+
+
+def test_reorder_commands_duplicate_id_raises():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd = IRCommand(name="A", protocol="NEC", code="0x1")
+    device.add_command(cmd)
+    original_order = list(device.commands)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="Duplicate"):
+        device.reorder_commands([cmd.id, cmd.id])
+
+    # Validation failure must not mutate state.
+    assert device.commands == original_order
+
+
+def test_reorder_commands_unknown_id_raises():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd = IRCommand(name="A", protocol="NEC", code="0x1")
+    device.add_command(cmd)
+    original_order = list(device.commands)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="unknown"):
+        device.reorder_commands([cmd.id, "ghost"])
+
+    assert device.commands == original_order
+
+
+def test_reorder_commands_missing_id_raises():
+    device = IRDevice(name="x", device_type=DeviceType.MEDIA_PLAYER)
+    cmd_a = IRCommand(name="A", protocol="NEC", code="0x1")
+    cmd_b = IRCommand(name="B", protocol="NEC", code="0x2")
+    device.add_command(cmd_a)
+    device.add_command(cmd_b)
+    original_order = list(device.commands)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="missing"):
+        device.reorder_commands([cmd_a.id])  # cmd_b is missing
+
+    assert device.commands == original_order
+
+
+def test_device_clone_preserves_non_id_fields(mock_device: IRDevice):
+    clone = mock_device.clone("Test TV (Copy)")
+    assert clone.name == "Test TV (Copy)"
+    assert clone.device_type == mock_device.device_type
+    assert clone.manufacturer == mock_device.manufacturer
+    assert clone.model == mock_device.model
+    assert clone.emitter_entity_ids == mock_device.emitter_entity_ids
+    assert clone.capture_device_id == mock_device.capture_device_id
+    assert clone.capture_provider_type == mock_device.capture_provider_type
+    assert clone.database_id == mock_device.database_id
+    assert len(clone.commands) == len(mock_device.commands)
+    assert clone.entity_config.platform == mock_device.entity_config.platform
+    assert (
+        clone.entity_config.command_mapping
+        == mock_device.entity_config.command_mapping
+    )
+
+
+def test_device_clone_generates_fresh_ids(mock_device: IRDevice):
+    clone = mock_device.clone("Test TV (Copy)")
+    assert clone.id != mock_device.id
+    for src_cmd, clone_cmd in zip(
+        mock_device.commands, clone.commands, strict=True
+    ):
+        assert clone_cmd.id != src_cmd.id
+        # Same content though.
+        assert clone_cmd.name == src_cmd.name
+        assert clone_cmd.category == src_cmd.category
+        assert clone_cmd.protocol == src_cmd.protocol
+        assert clone_cmd.code == src_cmd.code
+
+
+def test_device_clone_with_empty_commands():
+    device = IRDevice(
+        name="Bare device",
+        device_type=DeviceType.LIGHT,
+        emitter_entity_ids=["infrared.foo"],
+    )
+    clone = device.clone("Bare device (Copy)")
+    assert clone.name == "Bare device (Copy)"
+    assert clone.commands == []
+    assert clone.emitter_entity_ids == ["infrared.foo"]
+
+
+def test_device_clone_deep_copies_mutable_fields(mock_device: IRDevice):
+    clone = mock_device.clone("Test TV (Copy)")
+    # Mutating the clone's lists/dicts must not bleed back into the source.
+    clone.emitter_entity_ids.append("infrared.bogus")
+    clone.commands.clear()
+    clone.entity_config.command_mapping["mode"] = "Bogus"
+    assert "infrared.bogus" not in mock_device.emitter_entity_ids
+    assert len(mock_device.commands) > 0
+    assert "mode" not in mock_device.entity_config.command_mapping
+
+
+def test_device_clone_round_trips_through_dict(mock_device: IRDevice):
+    clone = mock_device.clone("Test TV (Copy)")
+    restored = IRDevice.from_dict(clone.to_dict())
+    assert restored.name == clone.name
+    assert restored.id == clone.id
+    assert len(restored.commands) == len(clone.commands)
+
+
 def test_capture_result_matches_by_protocol_code():
     a = CaptureResult(protocol="NEC", code="0xABCD", raw_timings=[1])
     b = CaptureResult(protocol="NEC", code="0xABCD", raw_timings=[2])

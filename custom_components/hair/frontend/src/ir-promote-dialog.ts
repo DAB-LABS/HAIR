@@ -130,6 +130,7 @@ export class IrPromoteDialog extends LitElement {
 
                 <ir-emitter-picker
                     .hass=${this.hass}
+                    .api=${this.api}
                     .value=${this._emitterIds}
                     ?disabled=${this._busy}
                     @emitters-changed=${(e: CustomEvent) =>

@@ -1,8 +1,14 @@
-"""Adapter layer for parsing ESPHome IR events.
+"""Adapter layer for parsing IR events.
 
-Isolates the rest of HAIR from the ESPHome ``ir_rf_proxy`` event format,
-which is marked experimental and may change.  If the event payload
-shape evolves, only this module needs updating.
+Supports two input paths:
+1. **Legacy (HA 2026.4-2026.5):** ESPHome ``esphome.remote_received``
+   event dicts with ``protocol``, ``code``, ``raw`` keys.
+2. **Native (HA 2026.6+):** ``InfraredReceivedSignal`` objects from
+   ``infrared.async_subscribe_receiver()`` with ``timings`` (list of
+   ``Timing`` objects) and ``modulation`` (carrier frequency).
+
+Isolates the rest of HAIR from upstream format changes.  If either
+payload shape evolves, only this module needs updating.
 """
 from __future__ import annotations
 
@@ -25,11 +31,116 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class EventParser:
-    """Parse ``esphome.remote_received`` events into ``CaptureResult``."""
+    """Parse IR events into ``CaptureResult``.
+
+    Handles both legacy ESPHome event dicts (2026.4-2026.5) and native
+    ``InfraredReceivedSignal`` objects (2026.6+).
+    """
 
     # -----------------------------------------------------------------
     # Public API
     # -----------------------------------------------------------------
+
+    @staticmethod
+    def timings_to_raw(timings: list[Any]) -> list[int]:
+        """Convert native timing data to signed microsecond ints.
+
+        Accepts three formats:
+        1. ``list[int]`` -- signed microsecond ints as delivered by
+           ``InfraredReceivedSignal.timings`` in HA 2026.6+. Already in
+           the correct format; returned as-is.
+        2. Timing objects with ``.high_us`` / ``.low_us`` attributes.
+        3. ``(high, low)`` tuples for testing.
+
+        Output follows HAIR's signed convention:
+        positive = mark, negative = space.
+        """
+        if not timings:
+            return []
+
+        # Check if the list is already plain ints (HA 2026.6 format).
+        if isinstance(timings[0], int):
+            return list(timings)
+
+        # Timing objects or tuples.
+        raw: list[int] = []
+        for t in timings:
+            high = getattr(t, "high_us", None)
+            low = getattr(t, "low_us", None)
+            if high is None or low is None:
+                # Support (high, low) tuples for testing.
+                if isinstance(t, (list, tuple)) and len(t) >= 2:
+                    high, low = t[0], t[1]
+                else:
+                    continue
+            raw.append(abs(int(high)))       # mark (positive)
+            raw.append(-abs(int(low)))       # space (negative)
+        return raw
+
+    @staticmethod
+    def parse_received_signal(signal: Any) -> CaptureResult | None:
+        """Convert a native ``InfraredReceivedSignal`` to ``CaptureResult``.
+
+        The native signal (HA 2026.6) has:
+        - ``timings: list[int]`` -- signed microsecond ints (positive=mark,
+          negative=space)
+        - ``modulation: int | None`` -- carrier frequency
+
+        HAIR converts native signals to Pronto hex at the entry point
+        so that all downstream fingerprinting uses the same S/L pipeline
+        regardless of how the signal was received.
+        """
+        timings = getattr(signal, "timings", None)
+        if not timings:
+            return None
+
+        modulation = getattr(signal, "modulation", None)
+        frequency = int(modulation) if modulation else DEFAULT_CARRIER_FREQUENCY
+
+        raw = EventParser.timings_to_raw(timings)
+        if not raw:
+            return None
+
+        # Convert to Pronto hex for storage and fingerprint consistency.
+        from .ir_command import raw_to_pronto
+
+        try:
+            pronto_code = raw_to_pronto(raw, frequency=frequency)
+        except ValueError:
+            # Fall back to raw-only if Pronto encoding fails.
+            return CaptureResult(
+                protocol=None,
+                code=None,
+                raw_timings=raw,
+                frequency=frequency,
+                confidence=1.0,
+            )
+
+        return CaptureResult(
+            protocol="PRONTO",
+            code=pronto_code,
+            raw_timings=raw,
+            frequency=frequency,
+            confidence=1.0,
+        )
+
+    @staticmethod
+    def is_native_repeat(signal: Any) -> bool:
+        """Return True if a native signal is a repeat frame.
+
+        NEC repeat frames are very short: just the 9ms burst + 2.25ms
+        space + stop bit (~4-6 raw int values).  Without protocol metadata,
+        we detect repeats purely by timing count.
+
+        ``InfraredReceivedSignal.timings`` is ``list[int]`` (signed
+        microsecond values), so length is the raw value count, not
+        the number of timing pairs.
+        """
+        timings = getattr(signal, "timings", None)
+        if not timings:
+            return False
+        # A repeat frame has <= 6 raw values (3 mark/space pairs).
+        return len(timings) <= 6
 
     @staticmethod
     def parse(event_data: dict[str, Any]) -> CaptureResult | None:

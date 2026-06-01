@@ -1,0 +1,82 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            Athom RF IR Remote (ESP32, RF433 + IR)
+# Hardware revision: v3.0.1
+# Variant:           minimal
+# Contributor:       DAB-LABS
+# Source:            https://github.com/athom-tech/esp32-configs
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            0.2.0
+#   HA Core:         2026.5.2
+#   ESPHome:         2026.5.1
+# Last verified:     2026-05-29
+# Purpose:           RX+TX
+# Hardware purchase: https://www.athom.tech/
+# GPIO map:
+#   GPIO25           IR TX (remote_transmitter)
+#   GPIO33           IR RX (remote_receiver, inverted)
+#   GPIO18           RF TX (remote_transmitter, 433 MHz)
+#   GPIO19           RF RX (remote_receiver, 433 MHz, inverted)
+#   GPIO27           Status LED
+#   GPIO0            Button
+# Notes:
+#   - Uses the official Athom package for hardware config. The package
+#     provides remote_transmitter, remote_receiver, ir_rf_proxy (infrared
+#     platform), BLE proxy, climate IR, and diagnostics out of the box.
+#   - The on_pronto bridge at the bottom is only needed on HA 2026.4-2026.5.
+#     On HA 2026.6+, HAIR subscribes to the ir_rf_proxy receiver entity
+#     natively and this block has no effect. It can be removed once you
+#     have confirmed 2026.6+ is working.
+#   - RF hardware is present but only IR is used by HAIR. The Athom
+#     package exposes the RF side via radio_frequency platform entries.
+# ============================================================================
+
+# --- Substitutions ---
+# Change these to match your device. The name must match what is set in
+# your ESPHome dashboard for OTA to work.
+substitutions:
+  name: athom-rf-ir-remote-350628
+  friendly_name: Athom RF IR Remote 1
+
+# --- Athom Package ---
+# Pulls the full hardware config from Athom's GitHub. Provides:
+#   - remote_transmitter (IR on GPIO25, RF on GPIO18)
+#   - remote_receiver (IR on GPIO33, RF on GPIO19)
+#   - infrared platform via ir_rf_proxy (TX + RX entities)
+#   - radio_frequency platform via ir_rf_proxy (TX + RX entities)
+#   - BLE proxy, climate IR, status LED, diagnostics
+packages:
+  China Athom Technology.Athom RF IR Remote: github://athom-tech/esp32-configs/athom-rf-ir-remote.yaml
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: false
+  friendly_name: ${friendly_name}
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# --- HAIR legacy bridge (pre-2026.6) ---
+# Extends the package's ir_receiver to add an on_pronto trigger that
+# forwards every captured IR signal to the HA event bus. HAIR's signal
+# monitor subscribes to these events on HA 2026.4-2026.5.
+#
+# On HA 2026.6+, HAIR uses the native InfraredReceiverEntity from the
+# ir_rf_proxy block in the Athom package and this bridge is unused.
+# You can remove this block once you are on 2026.6+.
+remote_receiver:
+  - id: !extend ir_receiver
+    on_pronto:
+      then:
+        - homeassistant.event:
+            event: esphome.remote_received
+            data:
+              protocol: PRONTO
+              code: !lambda 'return x.data;'

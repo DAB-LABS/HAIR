@@ -177,6 +177,107 @@ class IRDevice:
                 return True
         return False
 
+    def clone(self, new_name: str) -> IRDevice:
+        """Return a deep copy of this device with a new id and name.
+
+        Every ``IRCommand`` on the clone gets a fresh id but otherwise
+        mirrors the source command (protocol, code, raw_timings, category,
+        etc). The ``entity_config`` mapping is deep-copied so action
+        bindings come along. Emitter assignments and the capture device
+        are copied as-is -- the user almost always re-points the clone
+        to a different emitter, but copying lets them verify the clone
+        works first before reassigning.
+
+        Triggers are NOT cloned. They live in the trigger store, reference
+        specific command ids, and auto-duplicating them would create
+        duplicate event entities firing on the same physical button.
+        """
+        cloned_commands = [
+            IRCommand(
+                name=cmd.name,
+                category=cmd.category,
+                source=cmd.source,
+                protocol=cmd.protocol,
+                code=cmd.code,
+                raw_timings=(
+                    list(cmd.raw_timings) if cmd.raw_timings else None
+                ),
+                frequency=cmd.frequency,
+                repeat_count=cmd.repeat_count,
+            )
+            for cmd in self.commands
+        ]
+        cloned_entity_config = EntityConfig(
+            platform=self.entity_config.platform,
+            command_mapping=dict(self.entity_config.command_mapping),
+            temperature_presets=(
+                list(self.entity_config.temperature_presets)
+                if self.entity_config.temperature_presets
+                else None
+            ),
+            hvac_modes=(
+                list(self.entity_config.hvac_modes)
+                if self.entity_config.hvac_modes
+                else None
+            ),
+            fan_modes=(
+                list(self.entity_config.fan_modes)
+                if self.entity_config.fan_modes
+                else None
+            ),
+            swing_modes=(
+                list(self.entity_config.swing_modes)
+                if self.entity_config.swing_modes
+                else None
+            ),
+        )
+        return IRDevice(
+            name=new_name,
+            device_type=self.device_type,
+            manufacturer=self.manufacturer,
+            model=self.model,
+            emitter_entity_ids=list(self.emitter_entity_ids),
+            capture_device_id=self.capture_device_id,
+            capture_provider_type=self.capture_provider_type,
+            commands=cloned_commands,
+            entity_config=cloned_entity_config,
+            database_id=self.database_id,
+        )
+
+    def reorder_commands(self, command_ids: list[str]) -> None:
+        """Reorder ``self.commands`` to match the given ID list.
+
+        The provided list must contain exactly the set of IDs currently
+        held by this device -- no duplicates, no unknown IDs, no missing
+        IDs. This is intentional: callers (the drag-to-reorder UI) always
+        send the complete list, so any divergence indicates a bug or a
+        stale client that should be rejected loudly rather than silently
+        accepted.
+
+        Raises :class:`ValueError` on any of those mismatches and leaves
+        ``self.commands`` untouched.
+        """
+        if len(command_ids) != len(set(command_ids)):
+            raise ValueError("Duplicate command IDs in reorder list")
+        current_ids = {c.id for c in self.commands}
+        requested_ids = set(command_ids)
+        if requested_ids != current_ids:
+            missing = current_ids - requested_ids
+            unknown = requested_ids - current_ids
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current commands: "
+                + ", ".join(details)
+            )
+
+        by_id = {c.id: c for c in self.commands}
+        self.commands = [by_id[cid] for cid in command_ids]
+        self.updated_at = _now_iso()
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,

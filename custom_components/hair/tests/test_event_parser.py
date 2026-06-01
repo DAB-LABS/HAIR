@@ -595,3 +595,126 @@ class TestNecProntoFingerprinting:
         sl = EventParser._pronto_sl_pattern(self.NEC_R1_POWER)
         assert sl is not None
         assert len(sl) > 4
+
+
+# ---------------------------------------------------------------------------
+# Native receiver support (HA 2026.6+)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTiming:
+    """Minimal stand-in for infrared_protocols.Timing."""
+
+    def __init__(self, high_us: int, low_us: int) -> None:
+        self.high_us = high_us
+        self.low_us = low_us
+
+
+class _FakeSignal:
+    """Minimal stand-in for InfraredReceivedSignal."""
+
+    def __init__(
+        self,
+        timings: list[_FakeTiming],
+        modulation: int | None = 38000,
+    ) -> None:
+        self.timings = timings
+        self.modulation = modulation
+
+
+class TestTimingsToRaw:
+    """Tests for EventParser.timings_to_raw()."""
+
+    def test_basic_conversion(self):
+        timings = [_FakeTiming(9000, 4500), _FakeTiming(560, 560)]
+        raw = EventParser.timings_to_raw(timings)
+        assert raw == [9000, -4500, 560, -560]
+
+    def test_signed_convention(self):
+        timings = [_FakeTiming(100, 200)]
+        raw = EventParser.timings_to_raw(timings)
+        assert raw[0] > 0   # mark positive
+        assert raw[1] < 0   # space negative
+
+    def test_empty_timings(self):
+        assert EventParser.timings_to_raw([]) == []
+
+    def test_tuple_fallback(self):
+        """Supports (high, low) tuples for test convenience."""
+        raw = EventParser.timings_to_raw([(9000, 4500), (560, 560)])
+        assert raw == [9000, -4500, 560, -560]
+
+
+class TestParseReceivedSignal:
+    """Tests for EventParser.parse_received_signal()."""
+
+    def test_basic_conversion(self):
+        signal = _FakeSignal(
+            timings=[_FakeTiming(9000, 4500), _FakeTiming(560, 560)],
+            modulation=38000,
+        )
+        result = EventParser.parse_received_signal(signal)
+        assert result is not None
+        assert result.protocol == "PRONTO"
+        assert result.code is not None
+        assert result.code.startswith("0000")
+        assert result.frequency == 38000
+        assert len(result.raw_timings) == 4
+
+    def test_none_modulation_defaults_to_38k(self):
+        signal = _FakeSignal(
+            timings=[_FakeTiming(1000, 2000)],
+            modulation=None,
+        )
+        result = EventParser.parse_received_signal(signal)
+        assert result is not None
+        assert result.frequency == 38000
+
+    def test_empty_timings_returns_none(self):
+        signal = _FakeSignal(timings=[], modulation=38000)
+        assert EventParser.parse_received_signal(signal) is None
+
+    def test_no_timings_attr_returns_none(self):
+        assert EventParser.parse_received_signal(object()) is None
+
+    def test_pronto_code_round_trips(self):
+        """Native signal -> Pronto -> ProntoCommand produces consistent timings."""
+        from custom_components.hair.ir_command import ProntoCommand
+
+        signal = _FakeSignal(
+            timings=[
+                _FakeTiming(9000, 4500),
+                _FakeTiming(560, 560),
+                _FakeTiming(560, 1690),
+            ],
+            modulation=38000,
+        )
+        result = EventParser.parse_received_signal(signal)
+        assert result is not None
+
+        # The Pronto code should be parseable.
+        cmd = ProntoCommand(result.code)
+        recovered = cmd.get_raw_timings()
+        assert len(recovered) == 6
+        # Round-trip tolerance.
+        for orig, rec in zip(result.raw_timings, recovered):
+            assert abs(abs(orig) - abs(rec)) < 50
+
+
+class TestIsNativeRepeat:
+    """Tests for EventParser.is_native_repeat()."""
+
+    def test_short_signal_is_repeat(self):
+        signal = _FakeSignal(
+            timings=[_FakeTiming(9000, 2250), _FakeTiming(560, 560)],
+        )
+        assert EventParser.is_native_repeat(signal)
+
+    def test_full_signal_is_not_repeat(self):
+        signal = _FakeSignal(
+            timings=[_FakeTiming(9000, 4500)] + [_FakeTiming(560, 560)] * 30,
+        )
+        assert not EventParser.is_native_repeat(signal)
+
+    def test_no_timings_is_not_repeat(self):
+        assert not EventParser.is_native_repeat(object())

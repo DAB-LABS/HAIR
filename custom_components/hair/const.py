@@ -32,6 +32,19 @@ EVENT_CAPTURE_TIMEOUT = f"{DOMAIN}_capture_timeout"
 EVENT_CAPTURE_ERROR = f"{DOMAIN}_capture_error"
 EVENT_SIGNAL_DETECTED = f"{DOMAIN}_signal_detected"
 EVENT_SIGNAL_REMOVED = f"{DOMAIN}_signal_removed"
+# Fired (rate-limited) when a signal arrives whose device fingerprint is in
+# the persisted dismiss set. Drives the Sniffer's "Show Dismissed" button
+# glow + dot indicator so users can tell that dismissed remotes are still
+# active without bringing those signals back into the live feed.
+EVENT_DISMISS_ACTIVITY = f"{DOMAIN}_dismiss_activity"
+
+# ---------------------------------------------------------------------------
+# Receiver mode detection
+# ---------------------------------------------------------------------------
+# Legacy ESPHome event bus bridge (pre-2026.6).
+LEGACY_ESPHOME_IR_EVENT = "esphome.remote_received"
+# Native infrared receiver API (HA 2026.6+).
+NATIVE_RECEIVER_AVAILABLE = "native_receiver_available"
 
 # ---------------------------------------------------------------------------
 # Signal Monitor
@@ -115,6 +128,7 @@ class CaptureProviderType(StrEnum):
 
     ESPHOME = "esphome"
     BROADLINK = "broadlink"
+    NATIVE = "native"
     MOCK = "mock"
 
 

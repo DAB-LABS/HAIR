@@ -27,12 +27,14 @@ from custom_components.hair.websocket_api import (
     ws_delete_device,
     ws_delete_signal,
     ws_dismiss_unknown,
+    ws_duplicate_device,
     ws_get_capture_providers,
     ws_get_command_templates,
     ws_get_device,
     ws_get_devices,
     ws_get_unknown_device,
     ws_get_unknown_devices,
+    ws_reorder_commands,
     ws_save_captured_command,
     ws_send_command,
     ws_start_capture,
@@ -276,6 +278,118 @@ async def test_delete_device_not_found(fake_hass):
 
 
 # ---------------------------------------------------------------------------
+# ws_duplicate_device
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_duplicate_device_success(fake_hass):
+    source = IRDevice(
+        id="src-1",
+        name="Living Room TV",
+        device_type=DeviceType.MEDIA_PLAYER,
+        emitter_entity_ids=["infrared.tx"],
+    )
+    manager = MagicMock()
+    manager.get_device.return_value = source
+    manager.async_create_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_duplicate_device(
+        fake_hass,
+        conn,
+        {
+            "id": 11,
+            "type": "hair/device/duplicate",
+            "device_id": "src-1",
+            "new_name": "Bedroom TV",
+        },
+    )
+
+    # Source untouched; create called once with the clone.
+    manager.async_create_device.assert_awaited_once()
+    clone_arg = manager.async_create_device.await_args.args[0]
+    assert clone_arg.name == "Bedroom TV"
+    assert clone_arg.id != source.id
+    assert clone_arg.emitter_entity_ids == ["infrared.tx"]
+
+    # Result payload describes the new device, not the source.
+    conn.send_result.assert_called_once()
+    payload = conn.send_result.call_args[0][1]
+    assert payload["id"] == clone_arg.id
+    assert payload["name"] == "Bedroom TV"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_device_source_not_found(fake_hass):
+    manager = MagicMock()
+    manager.get_device.return_value = None
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_duplicate_device(
+        fake_hass,
+        conn,
+        {
+            "id": 11,
+            "type": "hair/device/duplicate",
+            "device_id": "missing",
+            "new_name": "Bedroom TV",
+        },
+    )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_device_empty_name(fake_hass):
+    source = IRDevice(
+        id="src-1",
+        name="Living Room TV",
+        device_type=DeviceType.MEDIA_PLAYER,
+    )
+    manager = MagicMock()
+    manager.get_device.return_value = source
+    manager.async_create_device = AsyncMock()
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_duplicate_device(
+        fake_hass,
+        conn,
+        {
+            "id": 11,
+            "type": "hair/device/duplicate",
+            "device_id": "src-1",
+            "new_name": "   ",
+        },
+    )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    manager.async_create_device.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_device_not_configured(fake_hass):
+    conn = _make_connection()
+    await ws_duplicate_device(
+        fake_hass,
+        conn,
+        {
+            "id": 11,
+            "type": "hair/device/duplicate",
+            "device_id": "src-1",
+            "new_name": "Bedroom TV",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_configured"
+
+
+# ---------------------------------------------------------------------------
 # ws_send_command
 # ---------------------------------------------------------------------------
 
@@ -344,6 +458,118 @@ async def test_delete_command_not_found(fake_hass):
         {"id": 7, "type": "hair/command/delete", "device_id": "d1", "command_id": "bad"},
     )
     conn.send_error.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# ws_reorder_commands
+# ---------------------------------------------------------------------------
+
+
+def _make_device_with_commands(*command_specs: tuple[str, str]) -> IRDevice:
+    """Build an IRDevice with the given (id, name) command tuples."""
+    from custom_components.hair.models import IRCommand
+
+    device = IRDevice(id="d1", name="x", device_type=DeviceType.MEDIA_PLAYER)
+    for cmd_id, cmd_name in command_specs:
+        device.commands.append(
+            IRCommand(id=cmd_id, name=cmd_name, protocol="NEC", code="0x1")
+        )
+    return device
+
+
+@pytest.mark.asyncio
+async def test_reorder_commands_success(fake_hass):
+    device = _make_device_with_commands(("c1", "A"), ("c2", "B"), ("c3", "C"))
+    manager = MagicMock()
+    manager.get_device.return_value = device
+    manager.async_update_device = AsyncMock()
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_reorder_commands(
+        fake_hass,
+        conn,
+        {
+            "id": 9,
+            "type": "hair/device/reorder-commands",
+            "device_id": "d1",
+            "command_ids": ["c3", "c1", "c2"],
+        },
+    )
+
+    assert [c.id for c in device.commands] == ["c3", "c1", "c2"]
+    manager.async_update_device.assert_awaited_once_with(device)
+    conn.send_result.assert_called_once()
+    # Returned payload is the full canonical device.
+    result_payload = conn.send_result.call_args[0][1]
+    assert result_payload["id"] == "d1"
+    assert [c["id"] for c in result_payload["commands"]] == ["c3", "c1", "c2"]
+
+
+@pytest.mark.asyncio
+async def test_reorder_commands_device_not_found(fake_hass):
+    manager = MagicMock()
+    manager.get_device.return_value = None
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_reorder_commands(
+        fake_hass,
+        conn,
+        {
+            "id": 9,
+            "type": "hair/device/reorder-commands",
+            "device_id": "missing",
+            "command_ids": [],
+        },
+    )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_reorder_commands_invalid_format(fake_hass):
+    device = _make_device_with_commands(("c1", "A"), ("c2", "B"))
+    manager = MagicMock()
+    manager.get_device.return_value = device
+    manager.async_update_device = AsyncMock()
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_reorder_commands(
+        fake_hass,
+        conn,
+        {
+            "id": 9,
+            "type": "hair/device/reorder-commands",
+            "device_id": "d1",
+            "command_ids": ["c1", "ghost"],  # unknown ID
+        },
+    )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    # Failed validation must not persist.
+    manager.async_update_device.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reorder_commands_not_configured(fake_hass):
+    # No HAIR entry data wired into hass.data.
+    conn = _make_connection()
+    await ws_reorder_commands(
+        fake_hass,
+        conn,
+        {
+            "id": 9,
+            "type": "hair/device/reorder-commands",
+            "device_id": "d1",
+            "command_ids": [],
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_configured"
 
 
 # ---------------------------------------------------------------------------

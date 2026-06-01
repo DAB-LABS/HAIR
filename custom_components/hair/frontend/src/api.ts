@@ -16,9 +16,11 @@ import type {
     DeleteSignalResult,
     DeviceSummary,
     DeviceTypeId,
+    DismissActivityEvent,
     IRCommand,
     IRDevice,
     IRTrigger,
+    ReceiverInfo,
     SignalRemovedEvent,
     TestSignalResult,
     TriggerFiredEvent,
@@ -98,11 +100,35 @@ export class HairApi {
         });
     }
 
+    duplicateDevice(deviceId: string, newName: string): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/device/duplicate",
+            device_id: deviceId,
+            new_name: newName,
+        });
+    }
+
     deleteCommand(deviceId: string, commandId: string): Promise<{ removed: boolean }> {
         return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
             type: "hair/command/delete",
             device_id: deviceId,
             command_id: commandId,
+        });
+    }
+
+    /**
+     * Persist a new command order for a device.
+     *
+     * ``commandIds`` must list every command currently on the device
+     * exactly once -- the backend rejects mismatched sets with an
+     * ``invalid_format`` error. Returns the canonical updated device so
+     * the caller can reconcile any drift since the drag started.
+     */
+    reorderCommands(deviceId: string, commandIds: string[]): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/device/reorder-commands",
+            device_id: deviceId,
+            command_ids: commandIds,
         });
     }
 
@@ -124,6 +150,12 @@ export class HairApi {
     listCaptureProviders(): Promise<CaptureProviderInfo[]> {
         return this.hass.connection.sendMessagePromise<CaptureProviderInfo[]>({
             type: "hair/capture/providers",
+        });
+    }
+
+    listReceivers(): Promise<ReceiverInfo[]> {
+        return this.hass.connection.sendMessagePromise<ReceiverInfo[]>({
+            type: "hair/receivers",
         });
     }
 
@@ -333,6 +365,27 @@ export class HairApi {
         return this.hass.connection.subscribeEvents<SignalRemovedEvent>(
             (ev) => onEvent(ev.data),
             "hair_signal_removed",
+        );
+    }
+
+    /**
+     * Subscribe to dismiss-activity events. Fires (rate-limited) when a
+     * signal arrives from a remote whose device fingerprint is in the
+     * dismiss set. Backed by the ``hair_dismiss_activity`` HA bus event
+     * which signal_monitor emits at Step 4 before dropping the signal.
+     *
+     * The Sniffer wires this to its "Show Dismissed" button glow + dot
+     * indicator. The signal itself is NOT delivered through this channel
+     * (and intentionally never reaches storage either) -- only the
+     * device_fingerprint comes through, so consumers can tell which
+     * dismissed remote is still firing without re-exposing the signal.
+     */
+    async subscribeDismissActivity(
+        onEvent: (event: DismissActivityEvent) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeEvents<DismissActivityEvent>(
+            (ev) => onEvent(ev.data),
+            "hair_dismiss_activity",
         );
     }
 

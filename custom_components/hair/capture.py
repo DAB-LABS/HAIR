@@ -1,4 +1,13 @@
-"""IR capture provider abstraction and implementations."""
+"""IR capture provider abstraction and implementations.
+
+Supports three capture paths:
+1. **Native (HA 2026.6+):** ``NativeCaptureProvider`` uses
+   ``infrared.async_subscribe_receiver()`` for hardware-agnostic capture.
+2. **ESPHome (legacy):** ``ESPHomeCaptureProvider`` listens to
+   ``esphome.remote_received`` events on the HA bus.
+3. **Broadlink:** ``BroadlinkCaptureProvider`` uses the Broadlink
+   learning mode API.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +23,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
     DEFAULT_CARRIER_FREQUENCY,
+    DOMAIN,
     CaptureProviderType,
 )
 from .models import CaptureResult
@@ -114,7 +124,7 @@ class ESPHomeCaptureProvider(CaptureProvider):
                 self._signal_queue.get(), timeout=self._timeout
             )
             return result
-        except TimeoutError:
+        except (TimeoutError, asyncio.TimeoutError):  # noqa: UP041
             return None
 
     async def async_stop_capture(self) -> None:
@@ -222,6 +232,85 @@ class BroadlinkCaptureProvider(CaptureProvider):
         return getattr(self._device, "is_alive", lambda: True)()
 
 
+class NativeCaptureProvider(CaptureProvider):
+    """Capture IR signals via native ``InfraredReceiverEntity`` (HA 2026.6+).
+
+    Uses ``infrared.async_subscribe_receiver()`` to listen on a specific
+    receiver entity during capture sessions.  Hardware-agnostic -- works
+    with any integration implementing the receiver entity.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        receiver_entity_id: str,
+    ) -> None:
+        self._hass = hass
+        self._receiver_entity_id = receiver_entity_id
+        self._timeout = DEFAULT_CAPTURE_TIMEOUT
+        self._unsubscribe = None
+        self._signal_queue: asyncio.Queue[CaptureResult] = asyncio.Queue()
+        self._running = False
+
+    @property
+    def provider_type(self) -> CaptureProviderType:
+        return CaptureProviderType.NATIVE
+
+    @property
+    def device_name(self) -> str:
+        state = self._hass.states.get(self._receiver_entity_id)
+        if state is not None:
+            name = state.attributes.get("friendly_name")
+            if name:
+                return str(name)
+        return self._receiver_entity_id
+
+    async def async_start_capture(
+        self, timeout: int = DEFAULT_CAPTURE_TIMEOUT
+    ) -> None:
+        if self._running:
+            raise RuntimeError("Native capture already running")
+        self._timeout = timeout
+        self._signal_queue = asyncio.Queue()
+        self._running = True
+
+        from homeassistant.components.infrared import (  # type: ignore[attr-defined]
+            async_subscribe_receiver,
+        )
+        from .event_parser import EventParser
+
+        def _on_signal(signal) -> None:
+            """Convert native signal to CaptureResult and enqueue (sync callback)."""
+            parsed = EventParser.parse_received_signal(signal)
+            if parsed is not None:
+                self._signal_queue.put_nowait(parsed)
+
+        self._unsubscribe = async_subscribe_receiver(
+            self._hass,
+            self._receiver_entity_id,
+            _on_signal,
+        )
+
+    async def async_wait_for_signal(self) -> CaptureResult | None:
+        try:
+            result = await asyncio.wait_for(
+                self._signal_queue.get(), timeout=self._timeout
+            )
+            return result
+        except (TimeoutError, asyncio.TimeoutError):  # noqa: UP041
+            return None
+
+    async def async_stop_capture(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        self._running = False
+
+    def is_available(self) -> bool:
+        state = self._hass.states.get(self._receiver_entity_id)
+        return state is not None
+
+
 class MockCaptureProvider(CaptureProvider):
     """Mock provider for tests."""
 
@@ -281,6 +370,24 @@ class MockCaptureProvider(CaptureProvider):
         self._available = value
 
 
+def _get_bridge_active_device_ids(hass: HomeAssistant) -> set[str]:
+    """Return HA device IDs whose ESPHome bridge has fired events this session.
+
+    Looks up the active ``SignalMonitor`` instance via ``hass.data`` and
+    returns its bridge-tracking set. Returns an empty set if HAIR isn't
+    fully set up yet (e.g. during config flow), so callers can iterate
+    without needing a None check.
+    """
+    entries = hass.data.get(DOMAIN, {})
+    for value in entries.values():
+        if not isinstance(value, dict):
+            continue
+        monitor = value.get("signal_monitor")
+        if monitor is not None and hasattr(monitor, "bridge_active_device_ids"):
+            return set(monitor.bridge_active_device_ids)
+    return set()
+
+
 def _has_ir_entities(ent_registry: Any, device_id: str) -> bool:
     """Return True if the device has IR-related entities.
 
@@ -304,19 +411,60 @@ async def get_available_capture_providers(
     Returns lightweight dicts (not provider instances) suitable for
     sending over WebSocket. Provider instances are constructed on
     demand by ``get_capture_provider_for_device``.
+
+    On HA 2026.6+, native ``InfraredReceiverEntity`` instances are
+    discovered first.  Falls back to ESPHome device scanning and
+    Broadlink for older HA versions or additional hardware.
     """
     providers: list[dict[str, Any]] = []
 
-    # ESPHome devices -- only include devices that have IR-related
-    # entities (infrared.* from ir_rf_proxy, or remote.* as fallback).
-    # This filters out non-IR ESPHome devices (sensors, lights, etc.).
-    if "esphome" in hass.config.components:
+    # Native receivers (HA 2026.6+).
+    native_receiver_ids: set[str] = set()
+    try:
+        from homeassistant.components.infrared import (  # type: ignore[attr-defined]
+            async_get_receivers,
+        )
+
+        receivers = async_get_receivers(hass)
+        for entity_id in receivers:
+            native_receiver_ids.add(entity_id)
+            state = hass.states.get(entity_id)
+            name = entity_id
+            if state is not None:
+                name = state.attributes.get("friendly_name", entity_id)
+            providers.append(
+                {
+                    "type": str(CaptureProviderType.NATIVE),
+                    "device_id": entity_id,
+                    "name": str(name),
+                    "config_entry_id": None,
+                    "receiver_entity_id": entity_id,
+                }
+            )
+    except (ImportError, AttributeError):
+        pass  # Pre-2026.6: no native receiver API.
+
+    # ESPHome devices via the legacy event-bus bridge.
+    #
+    # We can't introspect a device's YAML to know whether ``on_pronto:``
+    # is configured, so the only reliable signal is "have we seen an
+    # ``esphome.remote_received`` event from this device this session?"
+    # The signal monitor records that set; we surface bridge providers
+    # only for those devices. This means: after HA restart, the bridge
+    # badge stays hidden until the user presses a button on a remote
+    # whose ESPHome host actually forwards events. That trade-off is
+    # acceptable -- the badge is informational, and once a bridge is
+    # detected it stays surfaced for the rest of the HA session.
+    bridge_active_device_ids = _get_bridge_active_device_ids(hass)
+    if "esphome" in hass.config.components and bridge_active_device_ids:
         dev_registry = dr.async_get(hass)
         ent_registry = er.async_get(hass)
         for entry in hass.config_entries.async_entries("esphome"):
             for device in dr.async_entries_for_config_entry(
                 dev_registry, entry.entry_id
             ):
+                if device.id not in bridge_active_device_ids:
+                    continue
                 if not _has_ir_entities(ent_registry, device.id):
                     continue
                 providers.append(
@@ -357,6 +505,10 @@ async def get_capture_provider_for_device(
     config_entry_id: str | None = None,
 ) -> CaptureProvider | None:
     """Construct a capture provider instance for a given device."""
+    if provider_type == CaptureProviderType.NATIVE:
+        # device_id is the receiver entity_id for native providers.
+        return NativeCaptureProvider(hass, device_id)
+
     if provider_type == CaptureProviderType.ESPHOME:
         if config_entry_id is None:
             registry = dr.async_get(hass)
