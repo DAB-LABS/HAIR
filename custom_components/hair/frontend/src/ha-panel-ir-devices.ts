@@ -98,6 +98,29 @@ export class HaPanelIrDevices extends LitElement {
         }
     }
 
+    /**
+     * Dispatch HA's ``hass-toggle-menu`` event so the sidebar overlay
+     * opens. Custom panels in the HA Companion app frequently hide the
+     * system header on mobile, leaving phone users no obvious way back
+     * to the rest of HA. This is an HA-blessed escape-hatch pattern;
+     * the event must bubble and cross the shadow-DOM boundary to reach
+     * the host shell that listens for it.
+     *
+     * Known caveat: certain late-2025 Android Companion builds report
+     * that ``hass-toggle-menu`` does not consistently open the sidebar.
+     * Users on those builds can still use the left-edge swipe gesture
+     * (which is HA's primary navigation pattern on mobile). The button
+     * being present and inert is no worse than the button being absent.
+     */
+    private _openHaSidebar(): void {
+        this.dispatchEvent(
+            new Event("hass-toggle-menu", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     render() {
         if (!this._api) {
             return html`<div class="loading">Loading…</div>`;
@@ -111,6 +134,19 @@ export class HaPanelIrDevices extends LitElement {
                 ></ha-menu-button>
                 <span slot="title">Home Assistant Infrared Registry</span>
             </ha-top-app-bar-fixed>
+
+            <div class="mobile-nav-row">
+                <button
+                    class="mobile-nav-button"
+                    title="Open menu"
+                    aria-label="Open menu"
+                    @click=${this._openHaSidebar}
+                >
+                    <ha-svg-icon
+                        .path=${"M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"}
+                    ></ha-svg-icon>
+                </button>
+            </div>
 
             <div class="header-banner">
                 <img
@@ -273,6 +309,46 @@ export class HaPanelIrDevices extends LitElement {
             padding: 48px;
             text-align: center;
             color: var(--secondary-text-color);
+        }
+
+        /* Mobile-only navigation row.
+           Custom HA panels can have their system header hidden by the
+           parent shell on the HA Companion app, especially on iOS where
+           swipe-to-go-back does not exist as a platform gesture. Adding
+           a hamburger inside the panel content guarantees mobile users
+           always have a visible nav target. Hidden on desktop because
+           the ha-top-app-bar-fixed above already exposes the same menu
+           button there, and a second control would be redundant. */
+        .mobile-nav-row {
+            display: none;
+        }
+        @media (max-width: 768px) {
+            .mobile-nav-row {
+                display: flex;
+                align-items: center;
+                padding: 8px 12px 0;
+                max-width: 1100px;
+                margin: 0 auto;
+            }
+        }
+        .mobile-nav-button {
+            background: none;
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            color: var(--secondary-text-color);
+            padding: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 150ms ease, color 150ms ease;
+        }
+        .mobile-nav-button:hover {
+            background: var(--secondary-background-color);
+            color: var(--primary-text-color);
+        }
+        .mobile-nav-button ha-svg-icon {
+            --mdc-icon-size: 22px;
         }
     `;
 }
