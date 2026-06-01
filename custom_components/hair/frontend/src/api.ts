@@ -16,6 +16,7 @@ import type {
     DeleteSignalResult,
     DeviceSummary,
     DeviceTypeId,
+    DismissActivityEvent,
     IRCommand,
     IRDevice,
     IRTrigger,
@@ -364,6 +365,27 @@ export class HairApi {
         return this.hass.connection.subscribeEvents<SignalRemovedEvent>(
             (ev) => onEvent(ev.data),
             "hair_signal_removed",
+        );
+    }
+
+    /**
+     * Subscribe to dismiss-activity events. Fires (rate-limited) when a
+     * signal arrives from a remote whose device fingerprint is in the
+     * dismiss set. Backed by the ``hair_dismiss_activity`` HA bus event
+     * which signal_monitor emits at Step 4 before dropping the signal.
+     *
+     * The Sniffer wires this to its "Show Dismissed" button glow + dot
+     * indicator. The signal itself is NOT delivered through this channel
+     * (and intentionally never reaches storage either) -- only the
+     * device_fingerprint comes through, so consumers can tell which
+     * dismissed remote is still firing without re-exposing the signal.
+     */
+    async subscribeDismissActivity(
+        onEvent: (event: DismissActivityEvent) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeEvents<DismissActivityEvent>(
+            (ev) => onEvent(ev.data),
+            "hair_dismiss_activity",
         );
     }
 

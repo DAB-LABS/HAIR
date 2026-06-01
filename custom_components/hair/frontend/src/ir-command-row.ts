@@ -142,7 +142,16 @@ export class IrCommandRow extends LitElement {
             align-items: center;
             gap: 12px;
             padding: 8px 10px;
-            background: var(--secondary-background-color);
+            /* Match the page background so the long horizontal command
+               strips visually merge with the device-detail backdrop
+               instead of reading as highlighted bands. Themes that
+               distinguish primary vs secondary background colors will
+               carry both through naturally; themes that keep them
+               equal end up with the same visual effect. The hover
+               state on action buttons inside the row still uses
+               --secondary-background-color so the button hover remains
+               distinguishable. */
+            background: var(--primary-background-color);
             border-radius: 4px;
         }
         .status {

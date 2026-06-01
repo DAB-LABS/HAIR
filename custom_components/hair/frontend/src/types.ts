@@ -209,6 +209,16 @@ export interface SignalRemovedEvent {
     device_removed: boolean;
 }
 
+/**
+ * Fired (rate-limited) when a signal arrives from a remote whose device
+ * fingerprint is in the persisted dismiss set. Drives the Sniffer's
+ * Show Dismissed button glow + dot indicator. The signal itself is NOT
+ * stored or shown in the live feed -- this event is informational only.
+ */
+export interface DismissActivityEvent {
+    device_fingerprint: string;
+}
+
 // ---------------------------------------------------------------------------
 // Triggers
 // ---------------------------------------------------------------------------

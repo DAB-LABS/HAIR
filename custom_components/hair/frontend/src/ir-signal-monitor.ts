@@ -131,14 +131,35 @@ export class IrSignalMonitor extends LitElement {
     @state() private _testDialog: { signal: UnknownSignal } | null = null;
     @state() private _testEmitters: string[] = [];
 
+    // Dismiss-activity surface (Show Dismissed button).
+    // ``_dismissGlowActive`` drives the transient blue glow class on the
+    // button -- it flips true on every dismiss-activity bus event and
+    // clears after a hold timer (slightly longer than the hit-flash so
+    // it stays discoverable).
+    // ``_dismissDotVisible`` is the persistent dot indicator -- it sticks
+    // from the first dismiss-activity event after panel mount until the
+    // user clicks Show Dismissed (which is the click-through that owns
+    // restoring those remotes).
+    @state() private _dismissGlowActive = false;
+    @state() private _dismissDotVisible = false;
+
     private _unsubLive: (() => Promise<void>) | null = null;
     private _unsubRemoved: (() => Promise<void>) | null = null;
+    private _unsubDismiss: (() => Promise<void>) | null = null;
+    private _dismissGlowTimer: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * Glow hold duration in ms. Hit-flash is ~2500ms; the dismiss-activity
+     * glow holds ~3800ms so it sits 1-1.5 seconds longer than a hit-flash,
+     * per the v0.2.0 plan decision: discoverable, not loud.
+     */
+    private static readonly DISMISS_GLOW_HOLD_MS = 3800;
 
     connectedCallback(): void {
         super.connectedCallback();
         void this._load();
         void this._subscribeLive();
         void this._subscribeRemoved();
+        void this._subscribeDismissActivity();
     }
 
     protected updated(changed: PropertyValues): void {
@@ -157,6 +178,11 @@ export class IrSignalMonitor extends LitElement {
         super.disconnectedCallback();
         void this._unsubscribeLive();
         void this._unsubscribeRemoved();
+        void this._unsubscribeDismissActivity();
+        if (this._dismissGlowTimer !== null) {
+            clearTimeout(this._dismissGlowTimer);
+            this._dismissGlowTimer = null;
+        }
     }
 
     private async _load(): Promise<void> {
@@ -232,6 +258,53 @@ export class IrSignalMonitor extends LitElement {
             await this._unsubRemoved();
             this._unsubRemoved = null;
         }
+    }
+
+    // --- Dismiss-activity surface (Show Dismissed glow + dot) ---
+
+    /**
+     * Subscribe to the dismiss-activity bus event. Each event represents
+     * a signal that arrived from a remote in the persisted dismiss set
+     * and got dropped from the live feed -- but the user should still
+     * know it is firing so they can decide whether to restore it.
+     *
+     * The signal itself is not delivered through this channel; only the
+     * device_fingerprint is needed to (a) trigger the button glow and
+     * (b) flip the persistent dot. Multiple events from the same
+     * fingerprint just re-trigger the glow timer.
+     */
+    private async _subscribeDismissActivity(): Promise<void> {
+        try {
+            this._unsubDismiss = await this.api.subscribeDismissActivity(
+                () => this._onDismissActivity(),
+            );
+        } catch {
+            // Non-fatal -- the glow + dot just won't surface.
+        }
+    }
+
+    private async _unsubscribeDismissActivity(): Promise<void> {
+        if (this._unsubDismiss) {
+            await this._unsubDismiss();
+            this._unsubDismiss = null;
+        }
+    }
+
+    /**
+     * Handle one dismiss-activity event. Restarts the glow hold timer
+     * (so a held-down button keeps the button lit instead of flickering)
+     * and sets the persistent dot until the user clicks through.
+     */
+    private _onDismissActivity(): void {
+        this._dismissDotVisible = true;
+        this._dismissGlowActive = true;
+        if (this._dismissGlowTimer !== null) {
+            clearTimeout(this._dismissGlowTimer);
+        }
+        this._dismissGlowTimer = setTimeout(() => {
+            this._dismissGlowActive = false;
+            this._dismissGlowTimer = null;
+        }, IrSignalMonitor.DISMISS_GLOW_HOLD_MS);
     }
 
     // --- Inline rename ---
@@ -588,6 +661,10 @@ export class IrSignalMonitor extends LitElement {
 
     private _toggleDismissed(): void {
         this._showDismissed = !this._showDismissed;
+        // Click-through clears the persistent dot. The user has now
+        // acknowledged the dismissed-activity surface; further events
+        // can re-light it. Glow runs out on its own timer.
+        this._dismissDotVisible = false;
         void this._load();
     }
 
@@ -603,9 +680,15 @@ export class IrSignalMonitor extends LitElement {
                 </span>
                 <div class="toolbar-actions">
                     <button
-                        class="action-btn dismiss-btn"
+                        class="action-btn dismiss-btn ${this._dismissGlowActive ? "dismiss-glow" : ""}"
+                        title="Restore previously hidden remotes"
                         @click=${this._toggleDismissed}
-                    >${this._showDismissed ? "Hide Dismissed" : "Show Dismissed"}</button>
+                    >
+                        ${this._showDismissed ? "Hide Dismissed" : "Show Dismissed"}
+                        ${this._dismissDotVisible
+                            ? html`<span class="dismiss-dot" aria-hidden="true"></span>`
+                            : ""}
+                    </button>
                     ${this._devices.length > 0
                         ? html`
                               <button
@@ -1130,7 +1213,13 @@ export class IrSignalMonitor extends LitElement {
             display: flex;
             align-items: center;
             padding: 6px 8px;
-            background: var(--secondary-background-color);
+            /* Match the page background so the Sniffer signal rows blend
+               with the panel backdrop instead of reading as highlighted
+               peach strips, mirroring the device-detail command row
+               treatment. Device-row hover (above) and action-btn hover
+               (below) still use --secondary-background-color so hover
+               feedback stays distinguishable. */
+            background: var(--primary-background-color);
             border-radius: 4px;
             gap: 8px;
             flex-wrap: wrap;
@@ -1234,6 +1323,40 @@ export class IrSignalMonitor extends LitElement {
         .action-btn.dismiss-btn {
             color: var(--secondary-text-color);
             border-color: var(--divider-color);
+            position: relative; /* anchor for the dot indicator */
+        }
+
+        /* Transient blue pulse on the Show Dismissed button when a
+           signal arrives from a remote in the dismiss set. Reuses the
+           same --primary-color blue users associate with "a signal just
+           arrived", held ~3.8s so it sits about 1.3s longer than the
+           hit-flash and stays discoverable. */
+        .action-btn.dismiss-btn.dismiss-glow {
+            animation: dismiss-pulse 3.8s ease-out;
+            border-color: var(--primary-color);
+        }
+        @keyframes dismiss-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
+            12% { box-shadow: 0 0 10px 3px rgba(33, 150, 243, 0.55); }
+            70% { box-shadow: 0 0 6px 2px rgba(33, 150, 243, 0.3); }
+            100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.0); }
+        }
+
+        /* Persistent dot indicator anchored to the top-right of the
+           Show Dismissed button. Stays visible from the first
+           dismiss-activity event after panel mount until the user
+           clicks the button (the natural click-through that owns
+           restoring dismissed remotes). */
+        .dismiss-dot {
+            position: absolute;
+            top: -3px;
+            right: -3px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            box-shadow: 0 0 4px rgba(33, 150, 243, 0.55);
+            pointer-events: none;
         }
 
         /* Latest signal: bright green filled Assign button */
