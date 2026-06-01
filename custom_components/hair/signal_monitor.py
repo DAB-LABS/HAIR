@@ -27,12 +27,14 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
+    EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
     LEGACY_ESPHOME_IR_EVENT,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
+    SIGNAL_WS_PUSH_RATE_LIMIT,
 )
 from .event_parser import EventParser
 from .models import UnknownDevice, UnknownSignal
@@ -71,6 +73,14 @@ class SignalMonitor:
 
         # Repeat suppression: fingerprint -> last event time (monotonic).
         self._last_seen_times: dict[str, float] = {}
+
+        # Per-device-fingerprint rate limit for the dismiss-activity bus
+        # event push. Separate from ``_rate_buckets`` so the dismiss-activity
+        # gate cannot consume budget from the in-feed signal path. Budget is
+        # ``SIGNAL_WS_PUSH_RATE_LIMIT`` events / second / fingerprint, sliding
+        # 1-second window. Keeps a held-down button on a dismissed remote
+        # from flooding the WS channel with glow pulses.
+        self._dismiss_push_buckets: dict[str, list[float]] = defaultdict(list)
 
         # Real-time subscribers (WebSocket push).
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
@@ -270,6 +280,20 @@ class SignalMonitor:
 
         # Step 4: Check dismiss list.
         if self._signal_store.is_dismissed(dev_fp):
+            # Signal is from a dismissed remote and gets dropped from the
+            # live feed. Before the early-return, push a lightweight bus
+            # event so the Sniffer's "Show Dismissed" button can glow and
+            # surface a dot indicator. Payload is fingerprint-only -- we
+            # deliberately do NOT include the signal code, raw timings, or
+            # any storage-bound metadata because the signal itself is not
+            # being stored. Rate-limited per-fingerprint via the dedicated
+            # ``_dismiss_push_buckets`` so a held-down button does not flood
+            # the WS channel.
+            if self._check_dismiss_push_rate(dev_fp):
+                self._hass.bus.async_fire(
+                    EVENT_DISMISS_ACTIVITY,
+                    {"device_fingerprint": dev_fp},
+                )
             return
 
         # Step 5: Rate limit.
@@ -396,6 +420,30 @@ class SignalMonitor:
             bucket.pop(0)
 
         if len(bucket) >= SIGNAL_RATE_LIMIT_PER_SEC:
+            return False
+
+        bucket.append(now)
+        return True
+
+    def _check_dismiss_push_rate(self, device_fingerprint: str) -> bool:
+        """Return True if the dismiss-activity push is within rate limits.
+
+        Mirrors :meth:`_check_rate_limit` shape but uses a separate bucket
+        and the ``SIGNAL_WS_PUSH_RATE_LIMIT`` budget. The dismiss-activity
+        bus event drives the Sniffer's Show Dismissed glow + dot indicator
+        and only needs to fire a few times a second to be visible -- a
+        held-down button on a dismissed remote does not need to broadcast
+        every individual frame.
+        """
+        now = time.monotonic()
+        bucket = self._dismiss_push_buckets[device_fingerprint]
+
+        # Purge timestamps older than 1 second.
+        cutoff = now - 1.0
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+
+        if len(bucket) >= SIGNAL_WS_PUSH_RATE_LIMIT:
             return False
 
         bucket.append(now)

@@ -8,11 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.hair.const import (
+    EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
     LEGACY_ESPHOME_IR_EVENT,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
+    SIGNAL_WS_PUSH_RATE_LIMIT,
 )
 from custom_components.hair.models import (
     IRCommand,
@@ -333,6 +335,143 @@ class TestDismissCheck:
 
         device = store.get_device(device.id)
         assert device.hit_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Dismiss-activity bus event push
+#
+# Step 4 of ``_process_parsed_signal`` early-returns when a signal arrives
+# from a dismissed device, but it also fires an ``EVENT_DISMISS_ACTIVITY``
+# bus event (rate-limited) so the Sniffer's "Show Dismissed" button can
+# glow and surface a dot indicator. The signal itself stays out of the
+# live feed -- only the bus event fires.
+# ---------------------------------------------------------------------------
+
+
+def _dismiss_event_fires(hass) -> list[tuple[str, dict]]:
+    """Return all ``EVENT_DISMISS_ACTIVITY`` fire calls recorded on the bus."""
+    return [
+        call.args
+        for call in hass.bus.async_fire.call_args_list
+        if call.args and call.args[0] == EVENT_DISMISS_ACTIVITY
+    ]
+
+
+class TestDismissActivityPush:
+
+    @pytest.mark.asyncio
+    async def test_dismissed_signal_fires_activity_event(self):
+        """A signal from a dismissed device fires the activity bus event."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Create and dismiss a device.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        device = store.get_all_devices()[0]
+        dev_fp = device.fingerprint
+        monitor.dismiss_device(device.id)
+        monitor._last_seen_times.clear()
+        hass.bus.async_fire.reset_mock()
+
+        # New signal from the same (now dismissed) device.
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        fires = _dismiss_event_fires(hass)
+        assert len(fires) == 1
+        event_name, payload = fires[0]
+        assert event_name == EVENT_DISMISS_ACTIVITY
+        assert payload == {"device_fingerprint": dev_fp}
+
+    @pytest.mark.asyncio
+    async def test_non_dismissed_signal_does_not_fire_activity_event(self):
+        """A signal from a NON-dismissed device must not fire the event."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        # No dismiss. Send another signal.
+        monitor._last_seen_times.clear()
+        hass.bus.async_fire.reset_mock()
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        assert _dismiss_event_fires(hass) == []
+
+    @pytest.mark.asyncio
+    async def test_dismissed_signal_does_not_reach_storage(self):
+        """Activity event is informational only; signal is still dropped."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        device = store.get_all_devices()[0]
+        monitor.dismiss_device(device.id)
+        monitor._last_seen_times.clear()
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        # Device still has only its original signal -- the dismissed
+        # second arrival did not add a new one or bump the hit_count.
+        device = store.get_device(device.id)
+        assert device.hit_count == 1
+
+    @pytest.mark.asyncio
+    async def test_dismissed_activity_rate_limited(self):
+        """Held-down dismissed button does not flood the bus."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        device = store.get_all_devices()[0]
+        monitor.dismiss_device(device.id)
+        monitor._last_seen_times.clear()
+        hass.bus.async_fire.reset_mock()
+
+        # Blast well past the push budget.
+        for _ in range(SIGNAL_WS_PUSH_RATE_LIMIT + 10):
+            monitor._last_seen_times.clear()
+            await monitor._on_ir_event(_make_event(_nec_event("0x1256")))
+
+        # Capped at the WS push budget.
+        assert len(_dismiss_event_fires(hass)) <= SIGNAL_WS_PUSH_RATE_LIMIT
+
+    def test_dismiss_push_rate_window_expires(self):
+        """Dismiss-push bucket empties after the sliding window."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        # Fill the dismiss-push bucket.
+        for _ in range(SIGNAL_WS_PUSH_RATE_LIMIT):
+            assert monitor._check_dismiss_push_rate("dev_fp_1")
+
+        # Should be blocked now.
+        assert not monitor._check_dismiss_push_rate("dev_fp_1")
+
+        # Push the bucket's timestamps past the 1-second window.
+        monitor._dismiss_push_buckets["dev_fp_1"] = [
+            time.monotonic() - 2.0
+        ] * SIGNAL_WS_PUSH_RATE_LIMIT
+
+        # Window expired -- should accept again.
+        assert monitor._check_dismiss_push_rate("dev_fp_1")
+
+    def test_dismiss_push_per_fingerprint_isolation(self):
+        """Each device fingerprint has its own dismiss-push budget."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        for _ in range(SIGNAL_WS_PUSH_RATE_LIMIT):
+            assert monitor._check_dismiss_push_rate("dev_fp_A")
+        # A is exhausted.
+        assert not monitor._check_dismiss_push_rate("dev_fp_A")
+
+        # B starts fresh.
+        assert monitor._check_dismiss_push_rate("dev_fp_B")
 
 
 # ---------------------------------------------------------------------------

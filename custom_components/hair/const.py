@@ -32,6 +32,11 @@ EVENT_CAPTURE_TIMEOUT = f"{DOMAIN}_capture_timeout"
 EVENT_CAPTURE_ERROR = f"{DOMAIN}_capture_error"
 EVENT_SIGNAL_DETECTED = f"{DOMAIN}_signal_detected"
 EVENT_SIGNAL_REMOVED = f"{DOMAIN}_signal_removed"
+# Fired (rate-limited) when a signal arrives whose device fingerprint is in
+# the persisted dismiss set. Drives the Sniffer's "Show Dismissed" button
+# glow + dot indicator so users can tell that dismissed remotes are still
+# active without bringing those signals back into the live feed.
+EVENT_DISMISS_ACTIVITY = f"{DOMAIN}_dismiss_activity"
 
 # ---------------------------------------------------------------------------
 # Receiver mode detection
