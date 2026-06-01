@@ -624,6 +624,7 @@ export class IrDeviceList extends LitElement {
                                                     @device-changed=${this._onExpandedDeviceChanged}
                                                     @device-deleted=${this._onExpandedDeviceDeleted}
                                                     @commands-reordered=${this._onCommandsReordered}
+                                                    @trigger-changed=${this._loadTriggers}
                                                     @collapse=${this._onCollapse}
                                                 ></ir-device-detail>
                                             </div>
@@ -1195,16 +1196,21 @@ export class IrDeviceList extends LitElement {
         .trigger-toggle.trigger-off:hover {
             background: rgba(0, 0, 0, 0.1);
         }
+        /* Matches the device-card .delete-action palette so the trigger
+           trash and the device-card trash read as the same control. */
         .trigger-trash {
             --mdc-icon-size: 16px;
-            color: var(--secondary-text-color);
+            color: var(--disabled-text-color, #999);
             cursor: pointer;
             margin-left: auto;
-            opacity: 0.6;
-            transition: color 150ms ease, opacity 150ms ease;
+            opacity: 0.55;
+            border-radius: 4px;
+            padding: 2px;
+            transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
         }
         .trigger-trash:hover {
-            color: #e65100;
+            background: rgba(244, 67, 54, 0.12);
+            color: #f44336;
             opacity: 1;
         }
     `;

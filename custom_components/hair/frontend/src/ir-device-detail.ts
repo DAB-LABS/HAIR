@@ -312,6 +312,18 @@ export class IrDeviceDetail extends LitElement {
         this._triggerCommand = null;
         this._triggerEdit = null;
         await this._loadTriggers();
+        // Tell the parent (ir-device-list) to refresh its own _triggers
+        // state so the new trigger card appears in the panel's Triggers
+        // section immediately. Without this, the trigger is created on
+        // the backend and the device-detail's local list reflects it,
+        // but the panel's separate trigger list stays stale until the
+        // user reloads the page.
+        this.dispatchEvent(
+            new CustomEvent("trigger-changed", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
     }
 
     private _requestDeleteTrigger(triggerId: string): void {
@@ -326,6 +338,16 @@ export class IrDeviceDetail extends LitElement {
         try {
             await this.api.deleteTrigger(id);
             await this._loadTriggers();
+            // Notify the parent so its Triggers section drops the deleted
+            // card without requiring a reload. Same rationale as
+            // _onTriggerSaved -- the device-detail and the device-list
+            // each maintain their own trigger state.
+            this.dispatchEvent(
+                new CustomEvent("trigger-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
         } catch {
             // Non-fatal.
         }
