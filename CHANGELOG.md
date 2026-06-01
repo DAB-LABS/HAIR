@@ -5,7 +5,7 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2026-05-28
+## [0.2.0] - 2026-06-03
 
 ### Added
 
@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hair/receivers` WebSocket endpoint for frontend receiver entity listing.
 - Receiver section in the Devices tab showing discovered native receiver entities.
 - `excludeEntityIds` property on `ir-emitter-picker` to prevent receiver entities from appearing in emitter dropdowns.
+- Drag-to-reorder for commands inside a device, backed by `hair/device/reorder-commands` and persisted across reloads.
+- NATIVE / BRIDGE badges on receiver and proxy cards so the receive-path migration state is visible at a glance.
+- Runtime bridge detection: HAIR listens for legacy `esphome.remote_received` events even in native mode and tags the corresponding hardware so users see which devices still rely on the YAML bridge.
+- Device duplicate via `hair/device/duplicate`. Clones a device with all its commands, action mappings, and emitter assignments preserved in one click. Triggers stay attached to the original.
+- Sniffer Test emitter picker. Replaces the silent "first emitter on first HAIR device" fallback with an explicit Send from dialog that broadcasts to every picked emitter at once and remembers the choice for the session.
+- Card-level duplicate and delete corner actions on every device card so users can clone or remove a device without opening the detail view.
+- Quiet blue glow on the Sniffer "Show Dismissed" button when previously hidden remotes are still firing, plus a persistent dot indicator until you click through. Surfaces dismissed-remote activity without re-exposing the signals in the live feed.
+- "Show Dismissed" button tooltip reworded to "Restore previously hidden remotes" for clarity.
+- Navigation button at the top of the HAIR panel on mobile viewports. Lets phone and tablet users return to the HA sidebar without relying on the edge-swipe gesture. Hidden on desktop.
+- `EVENT_DISMISS_ACTIVITY` bus event fired (rate-limited) when a signal arrives from a remote in the dismiss set. Drives the Show Dismissed glow and dot.
 
 ### Changed
 
@@ -23,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Event parser extended with `timings_to_raw()`, `parse_received_signal()`, and `is_native_repeat()` static methods for native `InfraredReceivedSignal` handling.
 - Native Timing signals are converted to Pronto hex at the entry point, maintaining fingerprint consistency with the legacy path.
 - Capture provider timeout handling improved for Python 3.10 compatibility.
+- Panel JS bundle is now read off the event loop during integration startup, silencing HA's blocking-call warning.
+- Trigger card trash icon visual style aligned with the device card trash icon for consistency.
 
 ## [0.1.2] - 2026-05-17
 
