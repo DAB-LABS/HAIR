@@ -227,7 +227,7 @@ class TestRawToPronto:
         recovered = cmd.get_raw_timings()
 
         assert len(recovered) == len(original)
-        for orig, rec in zip(original, recovered):
+        for orig, rec in zip(original, recovered, strict=True):
             # Rounding tolerance: Pronto period is ~26us, so values
             # can differ by up to ~26us per quantization step.
             assert abs(abs(orig) - abs(rec)) < 50, (

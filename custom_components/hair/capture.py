@@ -277,6 +277,7 @@ class NativeCaptureProvider(CaptureProvider):
         from homeassistant.components.infrared import (  # type: ignore[attr-defined]
             async_subscribe_receiver,
         )
+
         from .event_parser import EventParser
 
         def _on_signal(signal) -> None:

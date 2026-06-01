@@ -697,7 +697,7 @@ class TestParseReceivedSignal:
         recovered = cmd.get_raw_timings()
         assert len(recovered) == 6
         # Round-trip tolerance.
-        for orig, rec in zip(result.raw_timings, recovered):
+        for orig, rec in zip(result.raw_timings, recovered, strict=True):
             assert abs(abs(orig) - abs(rec)) < 50
 
 
