@@ -13,6 +13,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-duplicate-device-dialog.js";
 import type { HairApi } from "./api.js";
 import type {
     CaptureProviderInfo,
@@ -67,6 +68,10 @@ const ICON_TRIGGER =
 const ICON_TRASH =
     "M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z";
 
+// MDI: content-copy (duplicate icon)
+const ICON_COPY =
+    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
+
 /**
  * Result of merging capture providers by HA device ID.
  *
@@ -100,6 +105,8 @@ export class IrDeviceList extends LitElement {
     @state() private _glowTriggerIds = new Set<string>();
     @state() private _editTrigger: IRTrigger | null = null;
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
+    @state() private _duplicateTarget: DeviceSummary | null = null;
+    @state() private _confirmDeleteDevice: DeviceSummary | null = null;
 
     private _unsubTriggerFired: (() => Promise<void>) | null = null;
 
@@ -237,6 +244,45 @@ export class IrDeviceList extends LitElement {
         this.dispatchEvent(
             new CustomEvent("add-device", { bubbles: true, composed: true }),
         );
+    }
+
+    // --- Device corner actions (duplicate + delete) ---
+
+    private _openDuplicateDialog(device: DeviceSummary, e: Event): void {
+        e.stopPropagation();
+        this._duplicateTarget = device;
+    }
+
+    private _closeDuplicateDialog(): void {
+        this._duplicateTarget = null;
+    }
+
+    private _onDeviceDuplicated(): void {
+        // Tell the parent panel to refresh its device list. The duplicate
+        // already lives in storage server-side; the parent owns the list.
+        this._duplicateTarget = null;
+        this.dispatchEvent(
+            new CustomEvent("device-changed", { bubbles: true, composed: true }),
+        );
+    }
+
+    private _requestDeleteDevice(device: DeviceSummary, e: Event): void {
+        e.stopPropagation();
+        this._confirmDeleteDevice = device;
+    }
+
+    private async _doDeleteDevice(): Promise<void> {
+        if (!this._confirmDeleteDevice || !this.api) return;
+        const device = this._confirmDeleteDevice;
+        this._confirmDeleteDevice = null;
+        try {
+            await this.api.deleteDevice(device.id);
+            this.dispatchEvent(
+                new CustomEvent("device-deleted", { bubbles: true, composed: true }),
+            );
+        } catch {
+            // Non-fatal; parent refresh will reconcile.
+        }
     }
 
     private _navigateIntegration(domain: string) {
@@ -523,6 +569,22 @@ export class IrDeviceList extends LitElement {
                                           }
                                       }}
                                   >
+                                      <button
+                                          class="card-action duplicate-action"
+                                          title="Duplicate device"
+                                          @click=${(e: Event) =>
+                                              this._openDuplicateDialog(device, e)}
+                                      >
+                                          <ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>
+                                      </button>
+                                      <button
+                                          class="card-action delete-action"
+                                          title="Delete device"
+                                          @click=${(e: Event) =>
+                                              this._requestDeleteDevice(device, e)}
+                                      >
+                                          <ha-svg-icon .path=${ICON_TRASH}></ha-svg-icon>
+                                      </button>
                                       <div class="card-header">
                                           <ha-svg-icon
                                               .path=${DEVICE_TYPE_ICONS[
@@ -773,6 +835,31 @@ export class IrDeviceList extends LitElement {
                       ></ir-confirm-dialog>
                   `
                 : nothing}
+
+            ${this._duplicateTarget && this.api
+                ? html`
+                      <ir-duplicate-device-dialog
+                          .api=${this.api}
+                          .sourceId=${this._duplicateTarget.id}
+                          .sourceName=${this._duplicateTarget.name}
+                          @device-duplicated=${this._onDeviceDuplicated}
+                          @closed=${this._closeDuplicateDialog}
+                      ></ir-duplicate-device-dialog>
+                  `
+                : nothing}
+
+            ${this._confirmDeleteDevice
+                ? html`
+                      <ir-confirm-dialog
+                          title="Delete Device"
+                          message="Remove &quot;${this._confirmDeleteDevice.name}&quot;? Commands, action mappings, and emitter assignments will be deleted. Triggers are unaffected."
+                          confirmLabel="Delete"
+                          .destructive=${true}
+                          @confirmed=${this._doDeleteDevice}
+                          @closed=${() => (this._confirmDeleteDevice = null)}
+                      ></ir-confirm-dialog>
+                  `
+                : nothing}
         `;
     }
 
@@ -976,9 +1063,59 @@ export class IrDeviceList extends LitElement {
         }
 
         /* --- Device card expanded highlight --- */
+        .device-card {
+            position: relative;
+        }
         .device-card.expanded {
             border-color: #2e7d32;
             box-shadow: 0 0 0 1px #2e7d32;
+        }
+
+        /* --- Card corner actions (duplicate top-right, delete bottom-right) --- */
+        .card-action {
+            position: absolute;
+            background: transparent;
+            border: none;
+            padding: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+        }
+        .card-action ha-svg-icon {
+            /* Default card-action glyph size. The duplicate-action overrides
+               this with a smaller value because the copy MDI glyph fills more
+               of its viewbox than the trash glyph. */
+            --mdc-icon-size: 16px;
+        }
+        .duplicate-action {
+            top: 6px;
+            right: 6px;
+            color: var(--disabled-text-color, #999);
+            opacity: 0.55;
+        }
+        .duplicate-action ha-svg-icon {
+            /* Copy MDI glyph fills more of its viewbox than the trash glyph,
+               so render it smaller to land at the same visual size as the
+               trash icon in the opposite corner. */
+            --mdc-icon-size: 13px;
+        }
+        .duplicate-action:hover {
+            color: var(--primary-text-color);
+            opacity: 1;
+        }
+        .delete-action {
+            bottom: 6px;
+            right: 6px;
+            color: var(--disabled-text-color, #999);
+            opacity: 0.55;
+        }
+        .delete-action:hover {
+            background: rgba(244, 67, 54, 0.12);
+            color: #f44336;
+            opacity: 1;
         }
 
         /* --- Hardware cards inherit shared .card styles --- */

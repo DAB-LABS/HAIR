@@ -99,6 +99,14 @@ export class HairApi {
         });
     }
 
+    duplicateDevice(deviceId: string, newName: string): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/device/duplicate",
+            device_id: deviceId,
+            new_name: newName,
+        });
+    }
+
     deleteCommand(deviceId: string, commandId: string): Promise<{ removed: boolean }> {
         return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
             type: "hair/command/delete",
