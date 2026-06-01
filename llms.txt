@@ -29,6 +29,11 @@ Key components:
   popover UI. A media_player only exposes volume control if commands are mapped to
   the volume actions, keeping entities clean and avoiding features the remote does
   not support.
+- Trigger Manager: turns received IR signals into native HA event entities that
+  fire hair_ir_command_received events. Any HA automation can consume them. A
+  configurable min-hits threshold prevents accidental triggers from a single
+  misfire. To the best of the project's knowledge, HAIR is the only HA integration
+  turning received IR into automation triggers as of HA 2026.6.
 
 Signal fingerprinting details:
 - Uses S/L (short/long) pulse-duration classification. Each pulse is classified as
