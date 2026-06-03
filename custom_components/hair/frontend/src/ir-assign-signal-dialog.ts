@@ -351,13 +351,18 @@ export class IrAssignSignalDialog extends LitElement {
 
     private _renderNewMode() {
         return html`
-            <ha-textfield
-                label="Device name"
-                .value=${this._newName}
-                required
-                @input=${(e: Event) =>
-                    (this._newName = (e.target as HTMLInputElement).value)}
-            ></ha-textfield>
+            <div class="field">
+                <label>Device name</label>
+                <input
+                    type="text"
+                    .value=${this._newName}
+                    placeholder="e.g. Living Room TV"
+                    required
+                    autofocus
+                    @input=${(e: Event) =>
+                        (this._newName = (e.target as HTMLInputElement).value)}
+                />
+            </div>
 
             <div class="field">
                 <label>Device type</label>
@@ -453,7 +458,6 @@ export class IrAssignSignalDialog extends LitElement {
     }
 
     static styles = css`
-        ha-textfield,
         .field {
             display: block;
             margin: 12px 0;
@@ -465,6 +469,7 @@ export class IrAssignSignalDialog extends LitElement {
             color: var(--secondary-text-color);
             margin-bottom: 6px;
         }
+        input[type="text"],
         select {
             width: 100%;
             padding: 8px;
@@ -472,6 +477,14 @@ export class IrAssignSignalDialog extends LitElement {
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--primary-text-color);
+            font-size: 0.95rem;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary-color);
         }
         ha-alert {
             display: block;

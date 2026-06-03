@@ -2102,12 +2102,17 @@ function e(e,t,i,s){var o,r=arguments.length,a=r<3?t:null===s?s=Object.getOwnPro
                       `}
             </div>
         `}_renderNewMode(){return j`
-            <ha-textfield
-                label="Device name"
-                .value=${this._newName}
-                required
-                @input=${e=>this._newName=e.target.value}
-            ></ha-textfield>
+            <div class="field">
+                <label>Device name</label>
+                <input
+                    type="text"
+                    .value=${this._newName}
+                    placeholder="e.g. Living Room TV"
+                    required
+                    autofocus
+                    @input=${e=>this._newName=e.target.value}
+                />
+            </div>
 
             <div class="field">
                 <label>Device type</label>
@@ -2172,7 +2177,6 @@ function e(e,t,i,s){var o,r=arguments.length,a=r<3?t:null===s?s=Object.getOwnPro
                 </select>
             </div>
         `}};Bi.styles=a`
-        ha-textfield,
         .field {
             display: block;
             margin: 12px 0;
@@ -2184,6 +2188,7 @@ function e(e,t,i,s){var o,r=arguments.length,a=r<3?t:null===s?s=Object.getOwnPro
             color: var(--secondary-text-color);
             margin-bottom: 6px;
         }
+        input[type="text"],
         select {
             width: 100%;
             padding: 8px;
@@ -2191,6 +2196,14 @@ function e(e,t,i,s){var o,r=arguments.length,a=r<3?t:null===s?s=Object.getOwnPro
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--primary-text-color);
+            font-size: 0.95rem;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary-color);
         }
         ha-alert {
             display: block;
@@ -2880,6 +2893,16 @@ function e(e,t,i,s){var o,r=arguments.length,a=r<3?t:null===s?s=Object.getOwnPro
             color: var(--primary-color);
         }
         .status-badge.hair-device {
+            /* Inline-flex + explicit line-height bounds the badge's height
+               so that mixed-case text content ("HAIR Device") does not
+               render a taller line-box than the all-uppercase PROMOTE
+               sibling rendered by .status-badge.promote-badge. Both
+               badges share the same padding and font-size; the height
+               drift came from implicit line-height differences between
+               uppercase and mixed-case strings. */
+            display: inline-flex;
+            align-items: center;
+            line-height: 1.4;
             font-size: 0.7rem;
             font-weight: 500;
             font-family: inherit;
@@ -2989,6 +3012,29 @@ function e(e,t,i,s){var o,r=arguments.length,a=r<3?t:null===s?s=Object.getOwnPro
             border-radius: 4px;
             gap: 8px;
             flex-wrap: wrap;
+        }
+        /* Mobile layout fix.
+           On narrow viewports the diamond pattern inside .signal-info
+           wraps internally into a tall column, and flex/align-center
+           floats the action buttons (Assign / Test / Trigger / Delete)
+           into the vertical middle of the row with huge whitespace
+           above and below. Switching to a 2-row grid keeps the
+           diamonds + meta on the first row and stacks the action
+           buttons below in their own band. Mirrors the bounded row
+           height that the device-detail command rows already get via
+           their fixed-column grid on every viewport. */
+        @media (max-width: 768px) {
+            .signal-row {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                align-items: start;
+                gap: 6px 8px;
+            }
+            .signal-actions {
+                grid-column: 1 / -1;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+            }
         }
         .signal-info {
             flex: 1;

@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Capture provider timeout handling improved for Python 3.10 compatibility.
 - Panel JS bundle is now read off the event loop during integration startup, silencing HA's blocking-call warning.
 - Trigger card trash icon visual style aligned with the device card trash icon for consistency.
+- Sniffer signal row mobile layout: on viewports under 768 px, action buttons now sit on a dedicated row below the diamonds and meta instead of floating in the vertical middle of the row. Desktop layout unchanged.
+
+### Fixed
+
+- Missing Device name field in the Assign-to-New-Device dialog on HA 2026.5+. The dialog still used `ha-textfield`, which the same regression silenced for Add Device in v0.1.2 but was missed here. Replaced with a native input element so the field renders on all supported HA versions.
+- HAIR Device badge in the Sniffer rendered taller than the Promote badge because the mixed-case text content produced a taller line-box than the uppercase Promote. Added explicit `display: inline-flex; line-height: 1.4` to bound the badge height so both badges read as the same visual weight.
 
 ## [0.1.2] - 2026-05-17
 
