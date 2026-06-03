@@ -49,8 +49,8 @@ HAIR fingerprints every captured signal using short/long (S/L) pulse-duration an
 
 - Home Assistant **2026.4** or later
 - Python 3.12+
-- **For capture (RX):** an ESPHome device with the [`remote_receiver`](https://esphome.io/components/remote_receiver.html) component (see [ESPHome Receiver Setup](#esphome-receiver-setup) for the temporary YAML bridge)
-- **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, etc.)
+- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) for the YAML stub).
+- **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, SMLIGHT SLZB devices, etc.)
 
 ## Installation
 
@@ -77,9 +77,11 @@ HAIR fingerprints every captured signal using short/long (S/L) pulse-duration an
 
 ### ESPHome Receiver Setup
 
-HAIR's Sniffer needs IR signals to arrive on the HA event bus. HA 2026.4 shipped the `infrared` platform for TX (emitters), but the RX side (`InfraredReceiverEntity`) is not yet available. It is approved and on the HA roadmap for 2026.6-2026.7 (architecture discussion #1372). Until then, ESPHome devices need a small YAML bridge to forward received signals to HA.
+This setup is only needed if you are on HA 2026.4 or 2026.5 (before native `InfraredReceiverEntity` shipped), or if you are on 2026.6+ but have not yet migrated your ESPHome YAML to register the receiver entity on the `infrared` platform. In both cases, HAIR uses the legacy event-bus bridge below to receive signals from your ESPHome IR receiver.
 
-Add this to your ESPHome device's `remote_receiver` block:
+If you are on HA 2026.6+ and your ESPHome YAML registers the receiver via the `infrared` platform, HAIR subscribes to it directly through `infrared.async_subscribe_receiver()` and this bridge is not needed. The Devices tab will show a `RX-NATIVE` badge on the receiver card when that path is active, or `RX-BRIDGE` when this legacy bridge is in use.
+
+Add this to your ESPHome device's `remote_receiver` block to wire up the bridge:
 
 ```yaml
 remote_receiver:
@@ -99,15 +101,19 @@ remote_receiver:
 
 The `on_pronto` trigger catches every IR signal regardless of protocol (NEC, Samsung, Sony, RC-5, etc.) and fires it as a `homeassistant.event` on the HA bus. HAIR's Signal Monitor subscribes to these events automatically.
 
-This bridge is temporary. When HA ships `InfraredReceiverEntity`, HAIR will migrate to the official `infrared.async_subscribe_receiver()` API and no ESPHome YAML customization will be needed. The existing `ir_rf_proxy` TX configuration is unaffected by this change.
+When you are ready to migrate to the native receiver path on HA 2026.6+, add the `infrared` platform receiver entry to your ESPHome YAML (canonical examples in [`esphome/`](esphome/)) and reflash. HAIR will detect the native receiver and switch over automatically. You can keep the legacy `on_pronto` bridge in place during the transition: HAIR will not double-process signals, and the panel will show both `RX-NATIVE` and `RX-BRIDGE` badges until you remove the bridge from your YAML.
 
-For ready-made, HAIR-tested configurations for common ESP32 boards and IR devices, see [`esphome/`](esphome/) in this repo.
+For ready-made, HAIR-tested configurations for common ESP32 boards and IR devices (XIAO Smart IR Mate, Athom RF IR Remote, generic ESP32s), see [`esphome/`](esphome/) in this repo. Each device has two tiers: minimal (just the IR pieces) and full (preserves device-specific features like touch pads and status LEDs).
 
 ## Features
 
-**Signal Sniffer** - Passive IR listener that runs in the background. Every IR transmission your receivers detect is captured, fingerprinted, and grouped by source device. Signals are deduplicated automatically: press the same button ten times and you see one signal with a hit count of ten. Repeat frames (sent when you hold a button down) are filtered out so only actual command signals appear. The Sniffer shows you what remotes are active in your home and which buttons are being pressed, all in real time.
+**Native Receiver Support (HA 2026.6+)** - HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. Hardware-agnostic. Any integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge with no change required from you.
 
-**Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Each device gets native HA entities automatically based on its type.
+**Signal Sniffer** - Passive IR listener that runs in the background. Every IR transmission your receivers detect is captured, fingerprinted, and grouped by source device. Signals are deduplicated automatically: press the same button ten times and you see one signal with a hit count of ten. Repeat frames (sent when you hold a button down) are filtered out so only actual command signals appear. The Sniffer shows you what remotes are active in your home and which buttons are being pressed, all in real time. Use the Test button on any captured signal to fire it through an emitter picker before assigning it to a device, useful for spot-checking that the signal you captured actually controls the device you think it does.
+
+**Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Each device gets native HA entities automatically based on its type. One-click duplicate clones an existing device with all its commands, action mappings, and emitter assignments preserved, useful when you have several remotes of the same model or a stack of similar AC units.
+
+**Drag-to-Reorder** - Reorder the commands inside a device by dragging them. The new order persists across reloads and is reflected in the dashboard button entities. Helpful for putting power and mode commands at the top of the list where you actually use them.
 
 **Action Mapping** - Explicitly bind IR commands to HA entity features through a popover UI. When you map a command to "Volume Up," the media_player entity knows to call that command when the HA volume service is used. Features are only exposed when commands are mapped, so your entities stay clean.
 
@@ -117,21 +123,25 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 **Command Templates** - Guided setup suggests which commands to capture based on device type. Select from predefined names (Power On, Volume Up, Mode: Cool, etc.) or enter custom names for anything not in the list.
 
+**Migration Visibility** - `RX-NATIVE` and `RX-BRIDGE` badges on receiver and proxy cards show at a glance which receive path each piece of hardware is using. If you have multiple ESPHome devices and you have migrated some YAML but not others, the badges make the partial-migration state obvious so you know which devices still need attention.
+
+**Mobile Navigation** - The HAIR panel includes a navigation button on phone and tablet viewports so you can return to the HA sidebar without relying on the edge-swipe gesture. Hidden on desktop.
+
 ## Using HAIR
 
 ### The Devices Tab
 
 The main view shows five sections:
 
-**HAIR Devices** - Your managed IR device profiles. Each card shows the device name, type, command count, and how many emitters are assigned. Click a device to expand its detail view inline, where you can change the device type, manage emitters, and see all learned commands with their S/L diamond fingerprint patterns. From here you can test commands, delete them, or assign action mappings.
+**HAIR Devices** - Your managed IR device profiles. Each card shows the device name, type, command count, and how many emitters are assigned. Each card also carries two small corner actions: a duplicate icon in the top-right to clone the device with all its commands and emitter assignments preserved, and a delete icon in the bottom-right for removing the device without opening its detail view. Click anywhere else on the card to expand its detail view inline, where you can change the device type, manage emitters, drag-to-reorder commands, and see every learned command with its S/L diamond fingerprint pattern. From the detail view you can test commands, delete them, or assign action mappings.
 
 **Triggers** - Active IR triggers that fire HA event entities when their signal is detected. Each trigger card shows the trigger name with a lightning bolt icon. When a trigger fires, the card flashes with an amber glow animation in real time.
 
-**Emitters** - Your IR transmitter hardware (e.g., ESPHome infrared entities, Tuya Local IR blasters). These are the physical IR LEDs that send commands. Each emitter card shows its entity ID and a TX badge.
+**Emitters** - Your IR transmitter hardware (e.g., ESPHome infrared entities, Tuya Local IR blasters, Broadlink RM series, SMLIGHT SLZB devices). These are the physical IR LEDs that send commands. Each emitter card shows its entity ID and a TX badge, plus a `TX-NATIVE` badge once the device exposes the transmitter on HA's native infrared platform.
 
-**Receivers** - Your IR receiver hardware. These feed captured signals into the Sniffer. Each receiver card shows its source integration and an RX badge.
+**Receivers** - Your IR receiver hardware. These feed captured signals into the Sniffer. Each receiver card shows its source integration, its entity ID, and one of two RX badges. `RX-NATIVE` means the device is exposing the receiver via HA's native `InfraredReceiverEntity` (HA 2026.6+) and HAIR is subscribing through the official API. `RX-BRIDGE` means HAIR is consuming `esphome.remote_received` events from the legacy event-bus bridge. Both work; the badge tells you which path is active. Devices on the bridge path that also have a native receiver registered will show both badges side by side during the migration window.
 
-**Proxies** - Hardware devices that have both TX and RX capabilities. A single ESPHome board with an IR LED and an IR receiver shows up here with both TX and RX badges.
+**Proxies** - Hardware devices that have both TX and RX capabilities. A single ESPHome board with an IR LED and an IR receiver shows up here with TX and RX badges plus their NATIVE / BRIDGE state, so you can see the full migration picture for that device in one card.
 
 ### The Sniffer Tab
 
@@ -139,15 +149,19 @@ The Sniffer is a passive listener that shows every IR signal your receivers pick
 
 Each source device row can be expanded to show individual signals with their S/L diamond fingerprint. From here you can assign a signal directly to a HAIR device as a named command, or promote an unknown source device into a full HAIR device profile. Before promoting, click the pencil button on the source device row to give it a custom name -- otherwise the new device inherits the auto-generated source name (e.g., "Unknown Remote 1"). Setting the name first means the promoted device lands in your Devices tab already labeled correctly.
 
-Devices already managed by HAIR are tagged with a "HAIR Device" badge. You can dismiss noisy sources (like a neighbor's remote leaking through a window) and bring them back later with the "Show Dismissed" toggle.
+The Test button on any captured signal opens an emitter picker so you can choose which IR emitter to fire the test signal through, and broadcast through multiple emitters at once if you want. The picker remembers your selection for the session so subsequent Tests skip straight to Send.
+
+Devices already managed by HAIR are tagged with a "HAIR Device" badge. You can dismiss noisy sources (like a neighbor's remote leaking through a window) and bring them back later with the "Show Dismissed" toggle (hover tooltip: "Restore previously hidden remotes"). When dismissed remotes are still firing in the background, the button quietly glows blue and shows a small dot indicator, so you can tell at a glance that there is still activity arriving from remotes you have hidden, without re-exposing those signals in the live feed. Clicking the button clears the dot and reveals the dismissed remotes so you can restore the ones you actually want back.
 
 ### Adding a Device
 
-There are two ways to add a device.
+There are three ways to add a device.
 
 **From scratch:** Click the "Add Device" button in the tab bar on the Devices tab. Enter a name, pick a device type, and select which IR emitters should broadcast commands for this device. HAIR creates the device profile and the corresponding HA entities immediately.
 
 **From the Sniffer (promote an unknown source):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Click the pencil button on the source row to give it a custom name first, then promote it to a full HAIR device. Setting the name before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. This path is ideal when you have the physical remote in hand and want to capture its signals first.
+
+**From an existing device (duplicate):** Click the duplicate icon in the top-right corner of any device card. HAIR opens a dialog pre-filled with `<original name> (Copy)` so you can rename the clone before it lands. All of the original device's commands, action mappings, and emitter assignments are copied across; triggers stay attached to the original. This path is ideal when you have several remotes of the same model (a stack of similar AC units, two identical TVs in different rooms) or when you want a sandbox copy to experiment with action mappings without breaking the working device.
 
 ### Learning Commands
 
@@ -195,7 +209,7 @@ HAIR sits between you and HA's IR platform. It does not replace your IR hardware
 
 ### Capture (RX)
 
-HAIR captures IR signals via ESPHome devices with the [`remote_receiver`](https://esphome.io/components/remote_receiver.html) component. This is a legacy event-bus bridge today (see [ESPHome Receiver Setup](#esphome-receiver-setup) above for the YAML stub). When HA's native IR receive entities ship (expected 2026.6 or 2026.7), HAIR will migrate users automatically and the YAML bridge will no longer be needed.
+HAIR uses a dual-path receive architecture. On HA 2026.6 and later, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. This is hardware-agnostic: any integration that exposes a receiver entity on the `infrared` platform works automatically, no per-vendor code in HAIR. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) above for the YAML stub). Both paths feed the same signal-processing pipeline so fingerprinting, deduplication, and trigger matching behave identically regardless of which path is active. The Devices tab surfaces which path each receiver is using via `RX-NATIVE` and `RX-BRIDGE` badges.
 
 ### Transmit (TX)
 
@@ -212,9 +226,13 @@ S/L fingerprinting covers all major consumer IR protocols including NEC, Samsung
 ```
 Remote Control
       |
-  IR Receiver (ESPHome remote_receiver)        <-- RX path: ESPHome only
+  IR Receiver Hardware
       |
-  HA Event Bus (esphome.remote_received)
+  +--------------------------+---------------------------+
+  | Native (HA 2026.6+)      | Legacy (HA 2026.4-2026.5) |
+  | InfraredReceiverEntity   | ESPHome remote_receiver   |
+  | async_subscribe_receiver | esphome.remote_received   |
+  +--------------------------+---------------------------+
       |
   HAIR Signal Monitor --> Signal Store (fingerprint + dedup)
       |                         |
@@ -228,7 +246,7 @@ Remote Control
       |
   HA infrared Platform (infrared.send_command) <-- TX path: any platform integration
       |
-  IR Emitter Hardware (ESPHome, Tuya Local, Broadlink, etc.)
+  IR Emitter Hardware (ESPHome, Tuya Local, Broadlink, SMLIGHT, etc.)
 ```
 
 ## Contributing
