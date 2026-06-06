@@ -522,18 +522,7 @@ export class IrClips extends LitElement {
                                           class="protocol"
                                           title="Click to rename"
                                           @click=${(e: Event) => this._startRename(d, e)}
-                                      >${d.label ?? "Remote"}</span>
-                                      <ha-svg-icon
-                                          class="edit-icon"
-                                          .path=${ICON_PENCIL}
-                                          title="Rename"
-                                          @click=${(e: Event) => this._startRename(d, e)}
-                                      ></ha-svg-icon>`}
-                            ${d.dismissed
-                                ? html`<span class="dismissed-badge">dismissed</span>`
-                                : ""}
-                        </div>
-                        <div class="device-stats">
+                                      >${d.label ?? "Remote"}</span>`}
                             <span class="stat"><strong>${d.signal_count}</strong> signals</span>
                             ${d.label && this._matchesHairDevice(d.label)
                                 ? html`<span
@@ -546,6 +535,9 @@ export class IrClips extends LitElement {
                                           @click=${(e: Event) => this._promoteDevice(d, e)}
                                       >Promote</span>`
                                     : ""}
+                            ${d.dismissed
+                                ? html`<span class="dismissed-badge">dismissed</span>`
+                                : ""}
                         </div>
                     </div>
                     ${d.dismissed
@@ -969,20 +961,6 @@ export class IrClips extends LitElement {
         .protocol:hover {
             border-bottom-color: #b87333;
         }
-        .edit-icon {
-            --mdc-icon-size: 14px;
-            color: var(--secondary-text-color);
-            cursor: pointer;
-            opacity: 0.4;
-            transition: opacity 150ms ease;
-        }
-        .device-header:hover .edit-icon {
-            opacity: 0.8;
-        }
-        .edit-icon:hover {
-            opacity: 1 !important;
-            color: #b87333;
-        }
         .rename-input {
             font-weight: 600;
             font-size: 0.95rem;
@@ -1003,13 +981,9 @@ export class IrClips extends LitElement {
             border-radius: 4px;
             text-transform: uppercase;
         }
-        .device-stats {
-            display: flex;
-            gap: 16px;
-            margin-top: 4px;
+        .stat {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
-            align-items: center;
         }
         .stat strong {
             color: var(--primary-text-color);
@@ -1059,16 +1033,15 @@ export class IrClips extends LitElement {
             border-top: 1px solid var(--divider-color);
             padding: 12px 16px 16px;
         }
+        /* "+ Create" sits immediately right of the "Signals (N)" label,
+           left-aligned, rather than pushed to the far right. */
         .signal-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 10px;
             font-size: 0.85rem;
             font-weight: 500;
             margin-bottom: 8px;
-            /* Inset the right edge by the signal-row's 8px padding so the
-               "+ Create" pill hard-rights with the Delete buttons below. */
-            padding-right: 8px;
         }
         .no-signals {
             font-size: 0.85rem;
