@@ -24,6 +24,7 @@ export class IrSignalAlias extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property() public deviceId = "";
     @property({ attribute: false }) public signal!: UnknownSignal;
+    @property({ type: Boolean }) public disabled = false;
 
     @state() private _editing = false;
     @state() private _draft = "";
@@ -37,6 +38,7 @@ export class IrSignalAlias extends LitElement {
     }
 
     private _startEdit(e?: Event): void {
+        if (this.disabled) return;
         e?.stopPropagation();
         this._draft = this.signal.alias ?? "";
         this._editing = true;
@@ -111,8 +113,8 @@ export class IrSignalAlias extends LitElement {
         if (sig.alias) {
             return html`
                 <span
-                    class="alias-display"
-                    title="Click to edit alias"
+                    class="alias-display ${this.disabled ? "locked" : ""}"
+                    title=${this.disabled ? "" : "Click to edit alias"}
                     @click=${(e: Event) => this._startEdit(e)}
                 >
                     <span class="alias-label">alias</span>
@@ -122,8 +124,8 @@ export class IrSignalAlias extends LitElement {
         }
         return html`
             <span
-                class="diamonds-wrap"
-                title="Click to name this signal"
+                class="diamonds-wrap ${this.disabled ? "locked" : ""}"
+                title=${this.disabled ? "" : "Click to name this signal"}
                 @click=${(e: Event) => this._startEdit(e)}
             >
                 ${sig.sl_pattern
@@ -151,6 +153,13 @@ export class IrSignalAlias extends LitElement {
             align-items: center;
             gap: 6px;
             cursor: pointer;
+        }
+        .diamonds-wrap.locked,
+        .alias-display.locked {
+            cursor: default;
+        }
+        .diamonds-wrap.locked .alias-pencil {
+            display: none;
         }
         .diamonds {
             display: inline-flex;

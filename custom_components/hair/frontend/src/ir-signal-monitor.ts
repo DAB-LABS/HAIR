@@ -878,45 +878,37 @@ export class IrSignalMonitor extends LitElement {
                                       @blur=${() => void this._commitRename(d.id)}
                                       @click=${(e: Event) => e.stopPropagation()}
                                   />`
-                                : html`<span
-                                      class="protocol"
-                                      title="Click to rename"
-                                      @click=${(e: Event) => this._startRename(d, e)}
-                                  >${d.label ?? d.protocol ?? "RAW"}</span>
-                                  <ha-svg-icon
-                                      class="edit-icon"
-                                      .path=${ICON_PENCIL}
-                                      title="Rename"
-                                      @click=${(e: Event) => this._startRename(d, e)}
-                                  ></ha-svg-icon>`}
-                            ${d.device_address
-                                ? html`<span class="address">addr: ${d.device_address}</span>`
-                                : ""}
-                            ${d.dismissed
-                                ? html`<span class="dismissed-badge">dismissed</span>`
-                                : ""}
-                        </div>
-                        <div class="device-stats ${statsFlash ? "stats-flash" : ""}">
-                            <span class="stat">
-                                <strong>${d.hit_count}</strong> hits
-                            </span>
-                            <span class="stat">
-                                <strong>${d.signal_count}</strong> signals
-                            </span>
-                            <span class="stat last-seen" title=${fmtTime(d.last_seen)}>
-                                ${relTime(d.last_seen)}
+                                : d.dismissed
+                                    ? html`<span class="protocol locked"
+                                          >${d.label ?? d.protocol ?? "RAW"}</span
+                                      >`
+                                    : html`<span
+                                          class="protocol"
+                                          title="Click to rename"
+                                          @click=${(e: Event) => this._startRename(d, e)}
+                                      >${d.label ?? d.protocol ?? "RAW"}</span>`}
+                            <span class="device-stats ${statsFlash ? "stats-flash" : ""}">
+                                <span class="stat"><strong>${d.hit_count}</strong> hits</span>
+                                <span class="stat"><strong>${d.signal_count}</strong> signals</span>
+                                <span class="stat last-seen" title=${fmtTime(d.last_seen)}>${relTime(d.last_seen)}</span>
                             </span>
                             ${d.label && this._matchesHairDevice(d.label)
                                 ? html`<span
                                       class="status-badge hair-device"
                                       @click=${(e: Event) => e.stopPropagation()}
                                   >HAIR Device</span>`
-                                : d.label
+                                : d.label && !d.dismissed
                                     ? html`<span
                                           class="status-badge promote-badge"
                                           @click=${(e: Event) => this._promoteDevice(d, e)}
                                       >Promote</span>`
                                     : ""}
+                            ${d.device_address
+                                ? html`<span class="address">addr: ${d.device_address}</span>`
+                                : ""}
+                            ${d.dismissed
+                                ? html`<span class="dismissed-badge">dismissed</span>`
+                                : ""}
                         </div>
                     </div>
                     ${d.dismissed
@@ -969,6 +961,7 @@ export class IrSignalMonitor extends LitElement {
                                         .api=${this.api}
                                         .deviceId=${device.id}
                                         .signal=${sig}
+                                        ?disabled=${device.dismissed}
                                         @alias-changed=${this._onAliasChanged}
                                     ></ir-signal-alias>
                                 </div>
@@ -1139,8 +1132,11 @@ export class IrSignalMonitor extends LitElement {
             border-bottom: 1px dashed transparent;
             transition: border-color 150ms ease;
         }
-        .protocol:hover {
+        .protocol:not(.locked):hover {
             border-bottom-color: var(--primary-color);
+        }
+        .protocol.locked {
+            cursor: default;
         }
         .edit-icon {
             --mdc-icon-size: 14px;
@@ -1226,9 +1222,9 @@ export class IrSignalMonitor extends LitElement {
             text-transform: uppercase;
         }
         .device-stats {
-            display: flex;
-            gap: 16px;
-            margin-top: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
             font-size: 0.85rem;
             color: var(--secondary-text-color);
         }

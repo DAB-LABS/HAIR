@@ -470,18 +470,22 @@ export class IrClips extends LitElement {
                                       @click=${(e: Event) => e.stopPropagation()}
                                   />`
                                 : html`<ha-svg-icon class="clip-icon" .path=${ICON_PAPERCLIP}></ha-svg-icon>
-                                      <span
-                                          class="protocol"
-                                          title="Click to rename"
-                                          @click=${(e: Event) => this._startRename(d, e)}
-                                      >${d.label ?? "Remote"}</span>`}
+                                      ${d.dismissed
+                                          ? html`<span class="protocol locked"
+                                                >${d.label ?? "Remote"}</span
+                                            >`
+                                          : html`<span
+                                                class="protocol"
+                                                title="Click to rename"
+                                                @click=${(e: Event) => this._startRename(d, e)}
+                                            >${d.label ?? "Remote"}</span>`}`}
                             <span class="stat"><strong>${d.signal_count}</strong> signals</span>
                             ${d.label && this._matchesHairDevice(d.label)
                                 ? html`<span
                                       class="status-badge hair-device"
                                       @click=${(e: Event) => e.stopPropagation()}
                                   >HAIR Device</span>`
-                                : d.label
+                                : d.label && !d.dismissed
                                     ? html`<span
                                           class="status-badge promote-badge"
                                           @click=${(e: Event) => this._promoteDevice(d, e)}
@@ -560,6 +564,7 @@ export class IrClips extends LitElement {
                         .api=${this.api}
                         .deviceId=${deviceId}
                         .signal=${sig}
+                        ?disabled=${dismissed}
                         @alias-changed=${this._onAliasChanged}
                         @alias-error=${(e: CustomEvent) => (this._error = e.detail)}
                     ></ir-signal-alias>
@@ -864,8 +869,11 @@ export class IrClips extends LitElement {
             border-bottom: 1px dashed transparent;
             transition: border-color 150ms ease;
         }
-        .protocol:hover {
+        .protocol:not(.locked):hover {
             border-bottom-color: #b87333;
+        }
+        .protocol.locked {
+            cursor: default;
         }
         .rename-input {
             font-weight: 600;
