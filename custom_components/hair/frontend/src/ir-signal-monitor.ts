@@ -1104,6 +1104,11 @@ export class IrSignalMonitor extends LitElement {
             /* Clip the row's rectangular hover highlight to the card's
                rounded corners so it does not poke past the border stroke. */
             overflow: hidden;
+            /* Subtle stroke in the Sniffer's accent blue (the radio-icon
+               colour) at the same 0.3 as the Clips copper stroke. The
+               rgba line is a fallback for webviews without color-mix. */
+            border: 1px solid rgba(33, 150, 243, 0.3);
+            border-color: color-mix(in srgb, var(--primary-color) 30%, transparent);
         }
         .device.flash {
             box-shadow: 0 0 0 2px var(--primary-color), var(--ha-card-box-shadow, none);
