@@ -479,7 +479,10 @@ export class IrClips extends LitElement {
                                                 title="Click to rename"
                                                 @click=${(e: Event) => this._startRename(d, e)}
                                             >${d.label ?? "Remote"}</span>`}`}
-                            <span class="stat"><strong>${d.signal_count}</strong> signals</span>
+                            <span class="stat"
+                                ><strong>${d.signal_count}</strong>
+                                ${d.signal_count === 1 ? "signal" : "signals"}</span
+                            >
                             ${d.label && this._matchesHairDevice(d.label)
                                 ? html`<span
                                       class="status-badge hair-device"

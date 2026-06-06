@@ -892,8 +892,14 @@ export class IrSignalMonitor extends LitElement {
                                                 @click=${(e: Event) => this._startRename(d, e)}
                                             >${d.label ?? d.protocol ?? "RAW"}</span>`}`}
                             <span class="device-stats ${statsFlash ? "stats-flash" : ""}">
-                                <span class="stat"><strong>${d.hit_count}</strong> hits</span>
-                                <span class="stat"><strong>${d.signal_count}</strong> signals</span>
+                                <span class="stat"
+                                    ><strong>${d.hit_count}</strong>
+                                    ${d.hit_count === 1 ? "hit" : "hits"}</span
+                                >
+                                <span class="stat"
+                                    ><strong>${d.signal_count}</strong>
+                                    ${d.signal_count === 1 ? "signal" : "signals"}</span
+                                >
                                 <span class="stat last-seen" title=${fmtTime(d.last_seen)}>${relTime(d.last_seen)}</span>
                             </span>
                             ${d.label && this._matchesHairDevice(d.label)
@@ -970,7 +976,10 @@ export class IrSignalMonitor extends LitElement {
                                     ></ir-signal-alias>
                                 </div>
                                 <div class="signal-meta">
-                                    <span class="${isHitFlash ? "hit-flash" : ""}">${sig.hit_count} hits</span>
+                                    <span class="${isHitFlash ? "hit-flash" : ""}"
+                                        >${sig.hit_count}
+                                        ${sig.hit_count === 1 ? "hit" : "hits"}</span
+                                    >
                                     <span title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
