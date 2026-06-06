@@ -1101,6 +1101,9 @@ export class IrSignalMonitor extends LitElement {
 
         .device {
             transition: box-shadow 200ms ease;
+            /* Clip the row's rectangular hover highlight to the card's
+               rounded corners so it does not poke past the border stroke. */
+            overflow: hidden;
         }
         .device.flash {
             box-shadow: 0 0 0 2px var(--primary-color), var(--ha-card-box-shadow, none);
