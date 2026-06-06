@@ -276,8 +276,14 @@ class SignalStore:
     # Cleanup
     # -----------------------------------------------------------------
 
-    def clear_all(self) -> None:
-        """Wipe the entire unknown catalog AND the dismiss list.
+    def clear_all(self, source: str | None = None) -> None:
+        """Wipe the unknown catalog AND the dismiss list.
+
+        ``source=None`` clears everything (the historical behavior).
+        Passing ``"sniffed"`` or ``"manual"`` clears only devices of that
+        source and discards just their fingerprints from the dismiss set,
+        leaving the other source untouched. This lets each tab (Sniffer /
+        Clips) clear its own world without touching the other's.
 
         Behavior changed in v0.2.1: prior versions kept the dismiss
         list across Clear All. That design choice contributed to silent
@@ -287,8 +293,16 @@ class SignalStore:
         model of "clear everything," and serves as a manual recovery
         route for users who hit the orphan bug before upgrading.
         """
-        self._devices.clear()
-        self._dismissed.clear()
+        if source is None:
+            self._devices.clear()
+            self._dismissed.clear()
+            return
+
+        for device_id in [
+            d.id for d in self._devices.values() if d.source == source
+        ]:
+            device = self._devices.pop(device_id)
+            self._dismissed.discard(device.fingerprint)
 
     async def async_shutdown(self) -> None:
         """Flush pending writes and cancel timers."""

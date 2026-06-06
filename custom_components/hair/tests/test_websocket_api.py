@@ -22,6 +22,9 @@ from custom_components.hair.websocket_api import (
     ws_assign_signal,
     ws_cancel_capture,
     ws_clear_unknowns,
+    ws_clip_create_remote,
+    ws_clip_create_signal,
+    ws_clip_validate_pronto,
     ws_create_device,
     ws_delete_command,
     ws_delete_device,
@@ -37,6 +40,7 @@ from custom_components.hair.websocket_api import (
     ws_reorder_commands,
     ws_save_captured_command,
     ws_send_command,
+    ws_set_signal_note,
     ws_start_capture,
     ws_test_signal,
     ws_undismiss_unknown,
@@ -1339,3 +1343,223 @@ async def test_assign_new_device_signal_not_found(fake_hass):
     )
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "signal_not_found"
+
+
+# ---------------------------------------------------------------------------
+# Clips: create-remote / create-signal / validate-pronto / set-note / source
+# ---------------------------------------------------------------------------
+
+# A minimal, structurally valid learned Pronto code.
+_VALID_PRONTO = "0000 006D 0002 0000 0010 0010 0010 0010"
+
+
+@pytest.mark.asyncio
+async def test_clip_create_remote_success(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    conn = _make_connection()
+    await ws_clip_create_remote(
+        fake_hass, conn,
+        {"id": 200, "type": "hair/clip/create-remote", "name": "Living Room"},
+    )
+    conn.send_result.assert_called_once()
+    payload = conn.send_result.call_args[0][1]
+    assert payload["label"] == "Living Room"
+    assert payload["source"] == "manual"
+    # The created device is in the store and tagged manual.
+    devices = monitor._signal_store.get_all_devices()
+    assert len(devices) == 1
+    assert devices[0].source == "manual"
+
+
+@pytest.mark.asyncio
+async def test_clip_create_remote_empty_name_errors(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    conn = _make_connection()
+    await ws_clip_create_remote(
+        fake_hass, conn,
+        {"id": 201, "type": "hair/clip/create-remote", "name": "   "},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_name"
+
+
+@pytest.mark.asyncio
+async def test_clip_create_signal_happy_path(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    remote = await monitor.create_manual_remote("Clip A")
+
+    conn = _make_connection()
+    await ws_clip_create_signal(
+        fake_hass, conn,
+        {
+            "id": 202,
+            "type": "hair/clip/create-signal",
+            "device_id": remote.id,
+            "pronto": _VALID_PRONTO,
+            "note": "Power",
+        },
+    )
+    conn.send_result.assert_called_once()
+    sig = conn.send_result.call_args[0][1]["signal"]
+    assert sig["protocol"] == "PRONTO"
+    assert sig["source"] == "manual"
+    assert sig["note"] == "Power"
+    assert len(monitor._signal_store.get_device(remote.id).signals) == 1
+
+
+@pytest.mark.asyncio
+async def test_clip_create_signal_invalid_pronto_errors(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    remote = await monitor.create_manual_remote("Clip A")
+
+    conn = _make_connection()
+    await ws_clip_create_signal(
+        fake_hass, conn,
+        {
+            "id": 203,
+            "type": "hair/clip/create-signal",
+            "device_id": remote.id,
+            "pronto": "not hex",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_pronto"
+
+
+@pytest.mark.asyncio
+async def test_clip_create_signal_unknown_device_errors(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    conn = _make_connection()
+    await ws_clip_create_signal(
+        fake_hass, conn,
+        {
+            "id": 204,
+            "type": "hair/clip/create-signal",
+            "device_id": "nope",
+            "pronto": _VALID_PRONTO,
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "device_not_found"
+
+
+@pytest.mark.asyncio
+async def test_clip_validate_pronto_valid(fake_hass):
+    conn = _make_connection()
+    await ws_clip_validate_pronto(
+        fake_hass, conn,
+        {"id": 205, "type": "hair/clip/validate-pronto", "pronto": _VALID_PRONTO},
+    )
+    conn.send_result.assert_called_once()
+    payload = conn.send_result.call_args[0][1]
+    assert payload["valid"] is True
+    assert payload["burst_pair_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_clip_validate_pronto_invalid(fake_hass):
+    conn = _make_connection()
+    await ws_clip_validate_pronto(
+        fake_hass, conn,
+        {"id": 206, "type": "hair/clip/validate-pronto", "pronto": "0100 zz"},
+    )
+    conn.send_result.assert_called_once()
+    payload = conn.send_result.call_args[0][1]
+    assert payload["valid"] is False
+    assert payload["errors"]
+
+
+@pytest.mark.asyncio
+async def test_set_signal_note_success(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    remote = await monitor.create_manual_remote("Clip A")
+    await monitor.create_manual_signal(remote.id, _VALID_PRONTO)
+    fp = monitor._signal_store.get_device(remote.id).signals[0].fingerprint
+
+    conn = _make_connection()
+    await ws_set_signal_note(
+        fake_hass, conn,
+        {
+            "id": 207,
+            "type": "hair/unknown/signal/set-note",
+            "device_id": remote.id,
+            "signal_fingerprint": fp,
+            "note": "  Mute  ",
+        },
+    )
+    conn.send_result.assert_called_once_with(207, {"note": "Mute"})
+    assert monitor._signal_store.get_device(remote.id).signals[0].note == "Mute"
+
+
+@pytest.mark.asyncio
+async def test_set_signal_note_signal_not_found(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    remote = await monitor.create_manual_remote("Clip A")
+
+    conn = _make_connection()
+    await ws_set_signal_note(
+        fake_hass, conn,
+        {
+            "id": 208,
+            "type": "hair/unknown/signal/set-note",
+            "device_id": remote.id,
+            "signal_fingerprint": "missing",
+            "note": "x",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "signal_not_found"
+
+
+@pytest.mark.asyncio
+async def test_get_unknown_devices_source_filter(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    sniffed = UnknownDevice(id="s1", fingerprint="fp1", hit_count=5)
+    monitor._signal_store.add_device(sniffed)
+    await monitor.create_manual_remote("Clip A")
+
+    conn = _make_connection()
+    await ws_get_unknown_devices(
+        fake_hass, conn,
+        {
+            "id": 209,
+            "type": "hair/unknown/devices",
+            "min_hits": 0,
+            "source": "manual",
+        },
+    )
+    result = conn.send_result.call_args[0][1]
+    assert len(result) == 1
+    assert result[0]["source"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_clear_unknowns_source_scoped(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    sniffed = UnknownDevice(id="s1", fingerprint="fp1", hit_count=5)
+    monitor._signal_store.add_device(sniffed)
+    await monitor.create_manual_remote("Clip A")
+
+    conn = _make_connection()
+    await ws_clear_unknowns(
+        fake_hass, conn,
+        {"id": 210, "type": "hair/unknown/clear", "source": "manual"},
+    )
+    conn.send_result.assert_called_once_with(210, {"cleared": True})
+    remaining = monitor._signal_store.get_all_devices()
+    assert len(remaining) == 1
+    assert remaining[0].source == "sniffed"

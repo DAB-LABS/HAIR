@@ -366,3 +366,30 @@ def test_unknown_device_legacy_load_defaults_to_sniffed():
 
     legacy = {"id": "dev1", "label": "Old Remote", "signals": []}
     assert UnknownDevice.from_dict(legacy).source == "sniffed"
+
+
+# ---------------------------------------------------------------------------
+# note field (Clips freeform annotation) on UnknownSignal
+# ---------------------------------------------------------------------------
+
+def test_unknown_signal_note_defaults_to_empty():
+    from custom_components.hair.models import UnknownSignal
+
+    assert UnknownSignal().note == ""
+
+
+def test_unknown_signal_note_round_trip():
+    from custom_components.hair.models import UnknownSignal
+
+    sig = UnknownSignal(fingerprint="abc123", note="Power, top right")
+    d = sig.to_dict()
+    assert d["note"] == "Power, top right"
+    assert UnknownSignal.from_dict(d).note == "Power, top right"
+
+
+def test_unknown_signal_legacy_load_defaults_note_to_empty():
+    """Old .storage records lack a note field and must default to empty."""
+    from custom_components.hair.models import UnknownSignal
+
+    legacy = {"fingerprint": "abc123", "protocol": "PRONTO", "code": "0000 006D"}
+    assert UnknownSignal.from_dict(legacy).note == ""

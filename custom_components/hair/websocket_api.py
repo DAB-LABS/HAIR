@@ -28,6 +28,7 @@ from .const import (
 )
 from .device_manager import DeviceManager, category_for_command_name
 from .models import IRDevice, IRTrigger
+from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .trigger_manager import TriggerManager
@@ -72,6 +73,12 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_signal)
     websocket_api.async_register_command(hass, ws_rename_unknown)
     websocket_api.async_register_command(hass, ws_clear_unknowns)
+    websocket_api.async_register_command(hass, ws_set_signal_note)
+
+    # Clips (manual remotes / signals)
+    websocket_api.async_register_command(hass, ws_clip_create_remote)
+    websocket_api.async_register_command(hass, ws_clip_create_signal)
+    websocket_api.async_register_command(hass, ws_clip_validate_pronto)
 
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
@@ -678,6 +685,7 @@ def _unknown_device_summary(device) -> dict[str, Any]:
         "first_seen": device.first_seen,
         "last_seen": device.last_seen,
         "dismissed": device.dismissed,
+        "source": device.source,
     }
 
 
@@ -686,6 +694,7 @@ def _unknown_device_summary(device) -> dict[str, Any]:
     vol.Required("type"): f"{WS_PREFIX}/unknown/devices",
     vol.Optional("include_dismissed", default=False): bool,
     vol.Optional("min_hits"): vol.Any(int, None),
+    vol.Optional("source"): vol.Any("sniffed", "manual", None),
 })
 @websocket_api.async_response
 async def ws_get_unknown_devices(
@@ -702,6 +711,7 @@ async def ws_get_unknown_devices(
     devices = monitor.get_unknown_devices(
         include_dismissed=msg.get("include_dismissed", False),
         min_hits=msg.get("min_hits"),
+        source=msg.get("source"),
     )
     connection.send_result(
         msg["id"], [_unknown_device_summary(d) for d in devices]
@@ -981,6 +991,7 @@ async def ws_delete_signal(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/clear",
+    vol.Optional("source"): vol.Any("sniffed", "manual", None),
 })
 @websocket_api.async_response
 async def ws_clear_unknowns(
@@ -988,14 +999,129 @@ async def ws_clear_unknowns(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Wipe all unknown signals."""
+    """Wipe unknown signals. Optional ``source`` scopes it to one tab."""
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
-    monitor.clear_all()
+    monitor.clear_all(msg.get("source"))
     connection.send_result(msg["id"], {"cleared": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/set-note",
+    vol.Required("device_id"): str,
+    vol.Required("signal_fingerprint"): str,
+    vol.Required("note"): str,
+})
+@websocket_api.async_response
+async def ws_set_signal_note(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set or clear the freeform note on a signal (Clips). Empty clears."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.set_signal_note(
+        msg["device_id"], msg["signal_fingerprint"], msg["note"]
+    )
+    if not result["success"]:
+        connection.send_error(
+            msg["id"],
+            result.get("code", "set_note_failed"),
+            result.get("error", "Failed to set note"),
+        )
+        return
+    connection.send_result(msg["id"], {"note": result["note"]})
+
+
+# --- Clips (manual remotes / signals) ---
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/clip/create-remote",
+    vol.Required("name"): str,
+})
+@websocket_api.async_response
+async def ws_clip_create_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Create a new clipped (manual) remote."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    name = msg["name"].strip()
+    if not name:
+        connection.send_error(msg["id"], "invalid_name", "Remote name is required")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    device = await monitor.create_manual_remote(name)
+    connection.send_result(msg["id"], device.to_dict())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/clip/create-signal",
+    vol.Required("device_id"): str,
+    vol.Required("pronto"): str,
+    vol.Optional("note", default=""): str,
+})
+@websocket_api.async_response
+async def ws_clip_create_signal(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Validate and add a pasted Pronto signal to a clipped remote."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.create_manual_signal(
+        msg["device_id"], msg["pronto"], msg.get("note", "")
+    )
+    if not result["success"]:
+        connection.send_error(
+            msg["id"],
+            result.get("code", "create_failed"),
+            result.get("error", "Failed to create signal"),
+        )
+        return
+    connection.send_result(msg["id"], {"signal": result["signal"]})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/clip/validate-pronto",
+    vol.Required("pronto"): str,
+})
+@websocket_api.async_response
+async def ws_clip_validate_pronto(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Validate a Pronto string and return live feedback (no save)."""
+    result = validate_pronto(msg["pronto"])
+    connection.send_result(msg["id"], {
+        "valid": result.valid,
+        "errors": result.errors,
+        "warnings": result.warnings,
+        "frequency_khz": result.frequency_khz,
+        "burst_pair_count": result.burst_pair_count,
+        "normalized": result.normalized,
+    })
 
 
 # --- Action Mapping ---

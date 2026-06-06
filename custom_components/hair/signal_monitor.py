@@ -27,6 +27,7 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
+    DEFAULT_CARRIER_FREQUENCY,
     EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
@@ -38,6 +39,7 @@ from .const import (
 )
 from .event_parser import EventParser
 from .models import UnknownDevice, UnknownSignal
+from .pronto_validator import validate_pronto
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
@@ -476,6 +478,7 @@ class SignalMonitor:
         self,
         include_dismissed: bool = False,
         min_hits: int | None = None,
+        source: str | None = None,
     ) -> list[UnknownDevice]:
         """Return unknown devices sorted by hit_count descending.
 
@@ -483,6 +486,9 @@ class SignalMonitor:
             include_dismissed: Include dismissed devices in results.
             min_hits: Minimum hit_count to include. Defaults to
                 ``SIGNAL_CLUSTER_THRESHOLD``. Pass ``0`` to include all.
+            source: If given (``"sniffed"`` or ``"manual"``), return only
+                devices of that source. Lets the Sniffer and Clips tabs
+                each request their own slice. ``None`` returns both.
         """
         if min_hits is None:
             min_hits = SIGNAL_CLUSTER_THRESHOLD
@@ -492,6 +498,8 @@ class SignalMonitor:
             devices = [d for d in devices if not d.dismissed]
         if min_hits > 0:
             devices = [d for d in devices if d.hit_count >= min_hits]
+        if source is not None:
+            devices = [d for d in devices if d.source == source]
 
         return sorted(devices, key=lambda d: d.hit_count, reverse=True)
 
@@ -838,10 +846,111 @@ class SignalMonitor:
 
         return {"success": True}
 
-    def clear_all(self) -> None:
-        """Wipe the entire unknown signal catalog."""
-        self._signal_store.clear_all()
+    def clear_all(self, source: str | None = None) -> None:
+        """Wipe the unknown signal catalog.
+
+        ``source=None`` clears everything. Passing ``"sniffed"`` or
+        ``"manual"`` clears only that source, so the Sniffer and Clips
+        tabs each clear their own world.
+        """
+        self._signal_store.clear_all(source)
         self._signal_store.schedule_save()
+
+    # -----------------------------------------------------------------
+    # Clips (manual remotes / signals)
+    # -----------------------------------------------------------------
+
+    async def create_manual_remote(self, name: str) -> UnknownDevice:
+        """Create a new clipped (manual) remote.
+
+        Manual remotes get a synthetic device fingerprint (``manual:<id>``)
+        so live sniffed signals can never group into them -- the captured
+        and pasted pipelines stay isolated.
+        """
+        label = (name or "").strip() or "Clipped Remote"
+        now_iso = datetime.now(UTC).isoformat()
+        async with self._lock:
+            device = UnknownDevice(
+                label=label,
+                source="manual",
+                first_seen=now_iso,
+                last_seen=now_iso,
+                hit_count=0,
+            )
+            device.fingerprint = f"manual:{device.id}"
+            self._signal_store.add_device(device)
+            await self._signal_store.async_save()
+        return device
+
+    async def create_manual_signal(
+        self, device_id: str, pronto: str, note: str = ""
+    ) -> dict[str, Any]:
+        """Add a manually-pasted Pronto signal to a clipped remote.
+
+        Validates the Pronto server-side (defense in depth -- the frontend
+        validates too). Returns a structured dict with ``success`` and the
+        new signal record, or ``error``/``code``.
+        """
+        result = validate_pronto(pronto)
+        if not result.valid:
+            return {
+                "success": False,
+                "code": "invalid_pronto",
+                "error": (
+                    result.errors[0] if result.errors else "Invalid Pronto code"
+                ),
+            }
+
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Clipped remote not found"}
+            if device.source != "manual":
+                return {"success": False, "code": "not_manual",
+                        "error": "Can only add signals to a clipped remote"}
+
+            now_iso = datetime.now(UTC).isoformat()
+            code = result.normalized
+            sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
+            frequency = (
+                round(result.frequency_khz * 1000)
+                if result.frequency_khz
+                else DEFAULT_CARRIER_FREQUENCY
+            )
+            signal = UnknownSignal(
+                fingerprint=sig_fp,
+                protocol="PRONTO",
+                code=code,
+                raw_timings=[],
+                frequency=frequency,
+                hit_count=1,
+                first_seen=now_iso,
+                last_seen=now_iso,
+                source="manual",
+                note=(note or "").strip(),
+            )
+            device.signals.append(signal)
+            device.last_seen = now_iso
+            await self._signal_store.async_save()
+        return {"success": True, "signal": signal.to_dict()}
+
+    async def set_signal_note(
+        self, device_id: str, signal_fingerprint: str, note: str
+    ) -> dict[str, Any]:
+        """Set or clear the freeform note on a signal. Empty clears it."""
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Remote not found"}
+            signal = device.get_signal(signal_fingerprint)
+            if signal is None:
+                return {"success": False, "code": "signal_not_found",
+                        "error": "Signal not found"}
+            signal.note = (note or "").strip()
+            await self._signal_store.async_save()
+        return {"success": True, "note": signal.note}
 
     # -----------------------------------------------------------------
     # Subscriber management (WebSocket push)
