@@ -861,7 +861,7 @@ export class IrClips extends LitElement {
             flex-wrap: wrap;
         }
         .clip-icon {
-            --mdc-icon-size: 16px;
+            --mdc-icon-size: 14px;
             color: #b87333;
         }
         .protocol {
