@@ -2923,6 +2923,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                                     <span title=${Gi(t.last_seen)}
                                         >${Ki(t.last_seen)}</span
                                     >
+                                    <span>${Math.round(t.frequency/1e3)} kHz</span>
                                 </div>
                                 <div class="signal-actions">
                                     <button

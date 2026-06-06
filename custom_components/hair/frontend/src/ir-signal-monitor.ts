@@ -983,6 +983,7 @@ export class IrSignalMonitor extends LitElement {
                                     <span title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
+                                    <span>${Math.round(sig.frequency / 1000)} kHz</span>
                                 </div>
                                 <div class="signal-actions">
                                     <button

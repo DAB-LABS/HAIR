@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HAIR Clips tab. A third panel tab for building virtual remotes by pasting Pronto hex codes, for when you have a code from a converter, a datasheet, or an ESPHome log but no live capture. Create a named remote, then add a signal per button by pasting its Pronto code. The Create Signal dialog validates the code live (a green/red check, the detected carrier frequency, the burst pair count, an S/L diamond preview, and specific error messages that tell you what to fix) and Enter creates the signal once it validates. Pasted signals are first-class peers of sniffed ones: Test, Trigger, Assign, and Promote all work identically.
 - Signal aliases. Give any signal a nickname by clicking its S/L diamonds and typing. The alias ("alias" in copper, the name in the diamond blue) replaces the diamonds until you clear it, and an alias never claims to be a command, so the same signal can still become differently-named commands across devices. Available in both the Sniffer and Clips.
 - Two add-command paths on every HAIR device card. The device detail footer now offers "+ Sniffed Signal" and "+ Clipped Signal", jumping to the Sniffer or Clips so you can add a command by capturing or by pasting.
+- The Sniffer signal rows now show each signal's captured carrier frequency (e.g. 38 kHz), matching the Clips signal rows.
 
 ### Changed
 
