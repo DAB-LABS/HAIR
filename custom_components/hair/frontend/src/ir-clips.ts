@@ -923,6 +923,10 @@ export class IrClips extends LitElement {
         }
         .device.clip-device {
             border: 1px solid #9b8b7e;
+            /* Clip the row's rectangular hover highlight to the card's
+               rounded corners so its square corners do not poke out over
+               the border stroke. */
+            overflow: hidden;
         }
         .device.dismissed {
             opacity: 0.6;
