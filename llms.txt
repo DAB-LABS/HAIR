@@ -18,10 +18,22 @@ Key components:
   configured receivers, fingerprints each signal using short/long pulse-duration
   analysis, deduplicates repeated presses, filters out repeat frames (sent when
   buttons are held), and groups signals by source remote based on carrier frequency
-  and preamble analysis. All in real time.
+  and preamble analysis. All in real time. Any signal can be given an alias (a
+  user nickname that replaces the diamond pattern in the UI); an alias is a label
+  on the signal, not a command name.
+- Clips: a manual-entry surface (a third panel tab) for building virtual remotes by
+  pasting Pronto hex codes, for cases where a live signal cannot be sniffed. Each
+  pasted code is validated (hex shape, four-digit words, a learned-code 0000 header,
+  burst-pair length math, and a carrier-frequency sanity warning) and then behaves
+  identically to a sniffed signal: test, trigger, assign, or promote. Pasted signals
+  share the same catalog as sniffed signals, distinguished by a source field
+  (sniffed vs manual). Manual remotes are never auto-evicted.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
-  commands.
+  commands. Assigning a sniffed or pasted signal copies it into the device as a
+  command and leaves the source signal in the catalog, so one signal can be assigned
+  to multiple devices or as multiple commands. Only delete, dismiss, and clear-all
+  remove a signal.
 - Entity Factory: automatically creates native HA entities based on device type --
   media_player, climate, fan, light, switch, cover, plus a universal remote entity
   for raw Pronto hex sending and a button entity for every learned command.

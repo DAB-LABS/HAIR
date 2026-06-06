@@ -8,6 +8,8 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 
 - **Native receiver support (HA 2026.6+)** - Captures IR via the new `InfraredReceiverEntity` API, hardware-agnostic. Falls back to the legacy ESPHome event-bus bridge automatically on 2026.4-2026.5.
 - **Signal Sniffer** - Real-time IR signal monitor with fingerprinting, deduplication, and hit tracking. Find a mystery remote in seconds.
+- **HAIR Clips** - Build virtual remotes by pasting Pronto hex codes, with live validation. For commands you have a code for but cannot sniff.
+- **Signal aliases** - Name any signal by clicking its diamond pattern, in both the Sniffer and Clips.
 - **IR triggers** - Captured signals become native HA event entities. Any automation can listen for them.
 - **Device Management** - Create profiles for TVs, ACs, fans, lights, switches, screens, and more. One-click duplicate to clone a device's commands, mappings, and emitters.
 - **Multi-Emitter TX** - Broadcast commands to multiple IR emitters simultaneously. Zone the IR across rooms.
