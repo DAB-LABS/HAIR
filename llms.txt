@@ -21,7 +21,7 @@ Key components:
   and preamble analysis. All in real time. Any signal can be given an alias (a
   user nickname that replaces the diamond pattern in the UI); an alias is a label
   on the signal, not a command name.
-- Clips: a manual-entry surface (a third panel tab) for building virtual remotes by
+- Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
   pasting Pronto hex codes, for cases where a live signal cannot be sniffed. Each
   pasted code is validated (hex shape, four-digit words, a learned-code 0000 header,
   burst-pair length math, and a carrier-frequency sanity warning) and then behaves

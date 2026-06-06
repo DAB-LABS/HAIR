@@ -3733,7 +3733,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             <div class="toolbar">
                 <span class="title">
                     <ha-svg-icon .path=${is}></ha-svg-icon>
-                    HAIR Clips
+                    HAIR Clipper
                     ${this._loading?"":j`<span class="count"
                               >(${e} ${1===e?"remote":"remotes"})</span
                           >`}
@@ -3755,7 +3755,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                             <ha-svg-icon class="empty-icon" .path=${is}></ha-svg-icon>
                             <h3>No virtual remotes yet</h3>
                             <p>
-                                Clips lets you build remotes by pasting Pronto codes.
+                                Clipper lets you build remotes by pasting Pronto codes.
                                 Create a remote, then add a signal for each button.
                             </p>
                             <p class="hint">
@@ -3846,11 +3846,11 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                           No signals yet. Click "+ Create" to paste a Pronto code.
                       </div>`:j`
                           <div class="signal-list">
-                              ${e.signals.map(t=>this._renderSignal(e.id,t,e.dismissed))}
+                              ${e.signals.map(t=>this._renderSignal(e.id,t,e.dismissed,e.label))}
                           </div>
                       `}
             </div>
-        `}_renderSignal(e,t,i){const s=this._testingFingerprint===t.fingerprint;return j`
+        `}_renderSignal(e,t,i,s){const o=this._testingFingerprint===t.fingerprint;return j`
             <div class="signal-row">
                 <div class="signal-info">
                     <ir-signal-alias
@@ -3863,21 +3863,21 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                     ></ir-signal-alias>
                 </div>
                 <div class="signal-meta">
-                    ${s&&this._testResult?j`<span class="test-result">${this._testResult}</span>`:j`<span>${Math.round(t.frequency/1e3)} kHz</span>`}
+                    ${o&&this._testResult?j`<span class="test-result">${this._testResult}</span>`:j`<span>${Math.round(t.frequency/1e3)} kHz</span>`}
                 </div>
                 <div class="signal-actions">
                     <button
                         class="action-btn assign-btn"
                         ?disabled=${i}
                         title=${i?"Restore this remote first":"Assign this signal to a HAIR device"}
-                        @click=${i=>{i.stopPropagation(),this._openAssign(e,t)}}
+                        @click=${i=>{i.stopPropagation(),this._openAssign(e,t,s)}}
                     >Assign</button>
                     <button
                         class="action-btn test-btn"
-                        ?disabled=${i||s}
+                        ?disabled=${i||o}
                         title=${i?"Restore this remote first":"Send this signal through an emitter"}
                         @click=${e=>{e.stopPropagation(),this._openTestDialog(t)}}
-                    >${s?"Sending...":"Test"}</button>
+                    >${o?"Sending...":"Test"}</button>
                     <button
                         class="action-btn trigger-btn ${this._hasTrigger(t.fingerprint)?"trigger-on":""}"
                         ?disabled=${i}
@@ -4356,7 +4356,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                     class="tab ${"clips"===this._activeTab?"active":""}"
                     @click=${()=>this._switchTab("clips")}
                 >
-                    Clips
+                    Clipper
                 </button>
                 <div class="tab-spacer"></div>
                 ${"devices"===this._activeTab?j`

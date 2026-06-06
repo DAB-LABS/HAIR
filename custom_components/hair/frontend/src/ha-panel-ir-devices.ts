@@ -174,7 +174,7 @@ export class HaPanelIrDevices extends LitElement {
                     class="tab ${this._activeTab === "clips" ? "active" : ""}"
                     @click=${() => this._switchTab("clips")}
                 >
-                    Clips
+                    Clipper
                 </button>
                 <div class="tab-spacer"></div>
                 ${this._activeTab === "devices"

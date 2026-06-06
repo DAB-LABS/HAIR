@@ -391,7 +391,7 @@ export class IrClips extends LitElement {
             <div class="toolbar">
                 <span class="title">
                     <ha-svg-icon .path=${ICON_PAPERCLIP}></ha-svg-icon>
-                    HAIR Clips
+                    HAIR Clipper
                     ${!this._loading
                         ? html`<span class="count"
                               >(${count} ${count === 1 ? "remote" : "remotes"})</span
@@ -420,7 +420,7 @@ export class IrClips extends LitElement {
                             <ha-svg-icon class="empty-icon" .path=${ICON_PAPERCLIP}></ha-svg-icon>
                             <h3>No virtual remotes yet</h3>
                             <p>
-                                Clips lets you build remotes by pasting Pronto codes.
+                                Clipper lets you build remotes by pasting Pronto codes.
                                 Create a remote, then add a signal for each button.
                             </p>
                             <p class="hint">
@@ -550,7 +550,12 @@ export class IrClips extends LitElement {
                     : html`
                           <div class="signal-list">
                               ${device.signals.map((sig) =>
-                                  this._renderSignal(device.id, sig, device.dismissed),
+                                  this._renderSignal(
+                                      device.id,
+                                      sig,
+                                      device.dismissed,
+                                      device.label,
+                                  ),
                               )}
                           </div>
                       `}
@@ -558,7 +563,12 @@ export class IrClips extends LitElement {
         `;
     }
 
-    private _renderSignal(deviceId: string, sig: UnknownSignal, dismissed: boolean) {
+    private _renderSignal(
+        deviceId: string,
+        sig: UnknownSignal,
+        dismissed: boolean,
+        label: string | null,
+    ) {
         const isTesting = this._testingFingerprint === sig.fingerprint;
         return html`
             <div class="signal-row">
@@ -586,7 +596,7 @@ export class IrClips extends LitElement {
                             : "Assign this signal to a HAIR device"}
                         @click=${(e: Event) => {
                             e.stopPropagation();
-                            this._openAssign(deviceId, sig);
+                            this._openAssign(deviceId, sig, label);
                         }}
                     >Assign</button>
                     <button
