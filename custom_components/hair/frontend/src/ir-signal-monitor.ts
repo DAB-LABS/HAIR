@@ -878,15 +878,19 @@ export class IrSignalMonitor extends LitElement {
                                       @blur=${() => void this._commitRename(d.id)}
                                       @click=${(e: Event) => e.stopPropagation()}
                                   />`
-                                : d.dismissed
-                                    ? html`<span class="protocol locked"
-                                          >${d.label ?? d.protocol ?? "RAW"}</span
-                                      >`
-                                    : html`<span
-                                          class="protocol"
-                                          title="Click to rename"
-                                          @click=${(e: Event) => this._startRename(d, e)}
-                                      >${d.label ?? d.protocol ?? "RAW"}</span>`}
+                                : html`<ha-svg-icon
+                                          class="device-icon"
+                                          .path=${ICON_SIGNAL}
+                                      ></ha-svg-icon>
+                                      ${d.dismissed
+                                          ? html`<span class="protocol locked"
+                                                >${d.label ?? d.protocol ?? "RAW"}</span
+                                            >`
+                                          : html`<span
+                                                class="protocol"
+                                                title="Click to rename"
+                                                @click=${(e: Event) => this._startRename(d, e)}
+                                            >${d.label ?? d.protocol ?? "RAW"}</span>`}`}
                             <span class="device-stats ${statsFlash ? "stats-flash" : ""}">
                                 <span class="stat"><strong>${d.hit_count}</strong> hits</span>
                                 <span class="stat"><strong>${d.signal_count}</strong> signals</span>
@@ -1132,6 +1136,11 @@ export class IrSignalMonitor extends LitElement {
             border-bottom: 1px dashed transparent;
             transition: border-color 150ms ease;
         }
+        .device-icon {
+            --mdc-icon-size: 16px;
+            color: var(--primary-color);
+            flex-shrink: 0;
+        }
         .protocol:not(.locked):hover {
             border-bottom-color: var(--primary-color);
         }
@@ -1177,15 +1186,15 @@ export class IrSignalMonitor extends LitElement {
             border-radius: 4px;
             text-transform: uppercase;
             letter-spacing: 0.03em;
-            background: rgba(0, 150, 136, 0.15);
-            color: #00897b;
-            border: 1px solid rgba(0, 150, 136, 0.3);
+            background: rgba(0, 151, 167, 0.15);
+            color: #0097a7;
+            border: 1px solid rgba(0, 151, 167, 0.35);
             margin-left: 4px;
             cursor: pointer;
             transition: background 150ms ease;
         }
         .status-badge.promote-badge:hover {
-            background: rgba(0, 150, 136, 0.25);
+            background: rgba(0, 151, 167, 0.25);
         }
         .device-dismiss-btn {
             flex-shrink: 0;

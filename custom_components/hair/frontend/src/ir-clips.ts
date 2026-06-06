@@ -926,14 +926,14 @@ export class IrClips extends LitElement {
             border-radius: 4px;
             text-transform: uppercase;
             letter-spacing: 0.03em;
-            background: rgba(0, 150, 136, 0.15);
-            color: #00897b;
-            border: 1px solid rgba(0, 150, 136, 0.3);
+            background: rgba(0, 151, 167, 0.15);
+            color: #0097a7;
+            border: 1px solid rgba(0, 151, 167, 0.35);
             cursor: pointer;
             transition: background 150ms ease;
         }
         .status-badge.promote-badge:hover {
-            background: rgba(0, 150, 136, 0.25);
+            background: rgba(0, 151, 167, 0.25);
         }
         .device-dismiss-btn {
             flex-shrink: 0;
