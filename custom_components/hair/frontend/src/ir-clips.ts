@@ -16,6 +16,7 @@ import "./ir-confirm-dialog.js";
 import "./ir-create-remote-dialog.js";
 import "./ir-create-signal-dialog.js";
 import "./ir-promote-dialog.js";
+import "./ir-signal-alias.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import type {
@@ -43,9 +44,6 @@ function fmtTime(iso: string): string {
 // mdi:paperclip
 const ICON_PAPERCLIP =
     "M16.5,6V17.5A4,4 0 0,1 12.5,21.5A4,4 0 0,1 8.5,17.5V5A2.5,2.5 0 0,1 11,2.5A2.5,2.5 0 0,1 13.5,5V15.5A1,1 0 0,1 12.5,16.5A1,1 0 0,1 11.5,15.5V6H10V15.5A2.5,2.5 0 0,0 12.5,18A2.5,2.5 0 0,0 15,15.5V5A4,4 0 0,0 11,1A4,4 0 0,0 7,5V17.5A5.5,5.5 0 0,0 12.5,23A5.5,5.5 0 0,0 18,17.5V6H16.5Z";
-// mdi:pencil-outline
-const ICON_PENCIL =
-    "M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6.02 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z";
 // mdi:chevron-down / up
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
@@ -68,10 +66,6 @@ export class IrClips extends LitElement {
     // Inline device rename
     @state() private _editingDeviceId: string | null = null;
     @state() private _editLabel = "";
-
-    // Inline alias edit (keyed by signal fingerprint)
-    @state() private _editingAliasFp: string | null = null;
-    @state() private _aliasDraft = "";
 
     // Dialog state
     @state() private _createRemoteOpen = false;
@@ -100,11 +94,6 @@ export class IrClips extends LitElement {
         super.updated(changed);
         if (changed.has("_editingDeviceId") && this._editingDeviceId) {
             const input = this.shadowRoot?.querySelector<HTMLInputElement>(".rename-input");
-            input?.focus();
-            input?.select();
-        }
-        if (changed.has("_editingAliasFp") && this._editingAliasFp) {
-            const input = this.shadowRoot?.querySelector<HTMLInputElement>(".alias-input");
             input?.focus();
             input?.select();
         }
@@ -174,54 +163,17 @@ export class IrClips extends LitElement {
         await this._load();
     }
 
-    // --- Inline alias edit ---
+    // --- Signal alias (delegated to ir-signal-alias) ---
 
-    private _startAliasEdit(fp: string, current: string | undefined, e?: Event): void {
-        e?.stopPropagation();
-        this._editingAliasFp = fp;
-        this._aliasDraft = current ?? "";
-    }
-
-    private async _commitAlias(deviceId: string, fp: string): Promise<void> {
-        if (this._editingAliasFp !== fp) return;
-        const alias = this._aliasDraft.trim();
-        this._editingAliasFp = null;
-        try {
-            await this.api.setSignalAlias(deviceId, fp, alias);
-            this._patchSignalAlias(fp, alias);
-        } catch (err) {
-            this._error = `Alias failed: ${(err as Error).message}`;
-        }
-    }
-
-    private async _clearAlias(deviceId: string, fp: string): Promise<void> {
-        this._editingAliasFp = null;
-        try {
-            await this.api.setSignalAlias(deviceId, fp, "");
-            this._patchSignalAlias(fp, "");
-        } catch (err) {
-            this._error = `Alias failed: ${(err as Error).message}`;
-        }
-    }
-
-    private _cancelAlias(): void {
-        this._editingAliasFp = null;
-    }
-
-    private _onAliasKeydown(deviceId: string, fp: string, e: KeyboardEvent): void {
-        if (e.key === "Enter") {
-            void this._commitAlias(deviceId, fp);
-        } else if (e.key === "Escape") {
-            this._cancelAlias();
-        }
-    }
-
-    private _patchSignalAlias(fp: string, alias: string): void {
+    private _onAliasChanged(
+        e: CustomEvent<{ fingerprint: string; alias: string }>,
+    ): void {
+        const { fingerprint, alias } = e.detail;
         if (!this._expandedDevice) return;
         this._expandedDevice = {
             ...this._expandedDevice,
             signals: this._expandedDevice.signals.map((s) =>
-                s.fingerprint === fp ? { ...s, alias } : s,
+                s.fingerprint === fingerprint ? { ...s, alias } : s,
             ),
         };
     }
@@ -603,7 +555,15 @@ export class IrClips extends LitElement {
         const isTesting = this._testingFingerprint === sig.fingerprint;
         return html`
             <div class="signal-row">
-                <div class="signal-info">${this._renderSignalLabel(deviceId, sig)}</div>
+                <div class="signal-info">
+                    <ir-signal-alias
+                        .api=${this.api}
+                        .deviceId=${deviceId}
+                        .signal=${sig}
+                        @alias-changed=${this._onAliasChanged}
+                        @alias-error=${(e: CustomEvent) => (this._error = e.detail)}
+                    ></ir-signal-alias>
+                </div>
                 <div class="signal-meta">
                     ${isTesting && this._testResult
                         ? html`<span class="test-result">${this._testResult}</span>`
@@ -652,64 +612,6 @@ export class IrClips extends LitElement {
                     >Delete</button>
                 </div>
             </div>
-        `;
-    }
-
-    /** The alias-or-diamonds slot: alias replaces the diamonds once set. */
-    private _renderSignalLabel(deviceId: string, sig: UnknownSignal) {
-        const fp = sig.fingerprint;
-        if (this._editingAliasFp === fp) {
-            return html`
-                <span class="alias-edit" @click=${(e: Event) => e.stopPropagation()}>
-                    <input
-                        class="alias-input"
-                        type="text"
-                        .value=${this._aliasDraft}
-                        placeholder="Alias for this signal"
-                        @input=${(e: Event) => {
-                            this._aliasDraft = (e.target as HTMLInputElement).value;
-                        }}
-                        @keydown=${(e: KeyboardEvent) => this._onAliasKeydown(deviceId, fp, e)}
-                        @blur=${() => void this._commitAlias(deviceId, fp)}
-                    />
-                    <button
-                        class="alias-clear"
-                        title="Clear alias"
-                        @mousedown=${(e: Event) => e.preventDefault()}
-                        @click=${() => void this._clearAlias(deviceId, fp)}
-                    >✕</button>
-                </span>
-            `;
-        }
-        if (sig.alias) {
-            return html`
-                <span
-                    class="alias-display"
-                    title="Click to edit alias"
-                    @click=${(e: Event) => this._startAliasEdit(fp, sig.alias, e)}
-                >
-                    <span class="alias-label">alias</span>
-                    <span class="alias-name">${sig.alias}</span>
-                </span>
-            `;
-        }
-        return html`
-            <span
-                class="diamonds-wrap"
-                title="Click to name this signal"
-                @click=${(e: Event) => this._startAliasEdit(fp, "", e)}
-            >
-                ${sig.sl_pattern
-                    ? html`<span class="diamonds"
-                          >${[...sig.sl_pattern].map((ch) =>
-                              ch === "L"
-                                  ? html`<span class="diamond long">◆</span>`
-                                  : html`<span class="diamond short">◇</span>`,
-                          )}</span
-                      >`
-                    : html`<span class="signal-short-label">IR Signal</span>`}
-                <ha-svg-icon class="alias-pencil" .path=${ICON_PENCIL}></ha-svg-icon>
-            </span>
         `;
     }
 
@@ -1083,88 +985,6 @@ export class IrClips extends LitElement {
         .signal-info {
             flex: 1;
             min-width: 0;
-        }
-        .signal-short-label {
-            font-size: 0.82rem;
-            color: var(--secondary-text-color);
-            font-style: italic;
-        }
-        .diamonds-wrap {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            cursor: pointer;
-        }
-        .diamonds {
-            display: inline-flex;
-            gap: 1px;
-            flex-wrap: wrap;
-            line-height: 1;
-        }
-        .diamond {
-            font-size: 0.7rem;
-        }
-        .diamond.long {
-            color: var(--primary-color);
-        }
-        .diamond.short {
-            color: var(--warning-color, #ff9800);
-        }
-        .alias-pencil {
-            --mdc-icon-size: 13px;
-            color: var(--secondary-text-color);
-            opacity: 0;
-            transition: opacity 150ms ease;
-        }
-        .diamonds-wrap:hover .alias-pencil {
-            opacity: 0.7;
-        }
-        .alias-display {
-            display: inline-flex;
-            align-items: baseline;
-            gap: 7px;
-            cursor: pointer;
-        }
-        .alias-label {
-            font-size: 0.6rem;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: #ba7517;
-        }
-        .alias-name {
-            font-size: 0.9rem;
-            color: var(--primary-color);
-        }
-        .alias-edit {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .alias-input {
-            font-size: 0.85rem;
-            font-family: inherit;
-            border: 1px solid #b87333;
-            border-radius: 4px;
-            padding: 2px 6px;
-            background: var(--card-background-color, #fff);
-            color: var(--primary-text-color);
-            outline: none;
-            width: 150px;
-        }
-        .alias-clear {
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            background: none;
-            color: var(--secondary-text-color);
-            cursor: pointer;
-            font-size: 0.8rem;
-            line-height: 1;
-            padding: 3px 6px;
-            transition: color 150ms ease, border-color 150ms ease;
-        }
-        .alias-clear:hover {
-            color: #e65100;
-            border-color: rgba(230, 81, 0, 0.4);
         }
         .signal-meta {
             display: flex;

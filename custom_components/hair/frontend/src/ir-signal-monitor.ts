@@ -9,6 +9,7 @@ import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-promote-dialog.js";
+import "./ir-signal-alias.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import type {
@@ -612,6 +613,19 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
+    private _onAliasChanged(
+        e: CustomEvent<{ fingerprint: string; alias: string }>,
+    ): void {
+        const { fingerprint, alias } = e.detail;
+        if (!this._expandedDevice) return;
+        this._expandedDevice = {
+            ...this._expandedDevice,
+            signals: this._expandedDevice.signals.map((s) =>
+                s.fingerprint === fingerprint ? { ...s, alias } : s,
+            ),
+        };
+    }
+
     private async _toggleExpand(deviceId: string): Promise<void> {
         if (this._expandedId === deviceId) {
             this._expandedId = null;
@@ -951,13 +965,12 @@ export class IrSignalMonitor extends LitElement {
                             return html`
                             <div class="signal-row">
                                 <div class="signal-info">
-                                    ${sig.sl_pattern
-                                        ? html`<span class="diamonds">${[...sig.sl_pattern].map((ch) =>
-                                            ch === "L"
-                                                ? html`<span class="diamond long">◆</span>`
-                                                : html`<span class="diamond short">◇</span>`
-                                          )}</span>`
-                                        : html`<span class="signal-short-label">IR Signal</span>`}
+                                    <ir-signal-alias
+                                        .api=${this.api}
+                                        .deviceId=${device.id}
+                                        .signal=${sig}
+                                        @alias-changed=${this._onAliasChanged}
+                                    ></ir-signal-alias>
                                 </div>
                                 <div class="signal-meta">
                                     <span class="${isHitFlash ? "hit-flash" : ""}">${sig.hit_count} hits</span>
