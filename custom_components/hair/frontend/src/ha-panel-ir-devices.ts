@@ -209,6 +209,7 @@ export class HaPanelIrDevices extends LitElement {
                               @device-changed=${this._onDeviceChanged}
                               @device-deleted=${this._onDeviceDeleted}
                               @navigate-sniffer=${() => this._switchTab("sniffer")}
+                              @navigate-clips=${() => this._switchTab("clips")}
                               @add-device=${this._openAddDialog}
                           ></ir-device-list>
 

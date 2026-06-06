@@ -1152,22 +1152,16 @@ export class IrSignalMonitor extends LitElement {
             opacity: 1 !important;
             color: var(--primary-color);
         }
+        /* Identical box to .promote-badge (now also uppercase, so no
+           line-height hack needed) -- only the colour differs. */
         .status-badge.hair-device {
-            /* Inline-flex + explicit line-height bounds the badge's height
-               so that mixed-case text content ("HAIR Device") does not
-               render a taller line-box than the all-uppercase PROMOTE
-               sibling rendered by .status-badge.promote-badge. Both
-               badges share the same padding and font-size; the height
-               drift came from implicit line-height differences between
-               uppercase and mixed-case strings. */
-            display: inline-flex;
-            align-items: center;
-            line-height: 1.4;
             font-size: 0.7rem;
             font-weight: 500;
             font-family: inherit;
             padding: 2px 8px;
             border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             white-space: nowrap;
             flex-shrink: 0;
             background: rgba(46, 125, 50, 0.15);

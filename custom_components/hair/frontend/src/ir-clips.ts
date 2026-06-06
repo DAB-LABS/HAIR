@@ -792,9 +792,11 @@ export class IrClips extends LitElement {
         /* Card-internal "+ Create" -- smaller and pill-shaped, so it reads
            as distinct from the rectangular Assign/Test/Trigger/Delete row. */
         .create-signal-btn {
-            padding: 2px 9px;
-            font-size: 0.68rem;
+            padding: 1px 8px;
+            font-size: 0.61rem;
             border-radius: 999px;
+            position: relative;
+            top: 1px;
         }
 
         .clear-all-row {
@@ -903,14 +905,13 @@ export class IrClips extends LitElement {
             color: var(--primary-text-color);
         }
         .status-badge.hair-device {
-            display: inline-flex;
-            align-items: center;
-            line-height: 1.4;
             font-size: 0.7rem;
             font-weight: 500;
             font-family: inherit;
             padding: 2px 8px;
             border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             white-space: nowrap;
             flex-shrink: 0;
             background: rgba(46, 125, 50, 0.15);
@@ -952,7 +953,7 @@ export class IrClips extends LitElement {
         .signal-header {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
             font-size: 0.85rem;
             font-weight: 500;
             margin-bottom: 8px;

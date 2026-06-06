@@ -642,6 +642,15 @@ export class IrDeviceDetail extends LitElement {
         );
     }
 
+    private _goToClips() {
+        this.dispatchEvent(
+            new CustomEvent("navigate-clips", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     private async _deleteDevice() {
         this._busy = true;
         try {
@@ -822,11 +831,20 @@ export class IrDeviceDetail extends LitElement {
             </div>
 
             <div class="footer-actions">
-                <button
-                    class="action-btn"
-                    @click=${this._goToSniffer}
-                    ?disabled=${this._busy}
-                >+ Add Command</button>
+                <div class="add-group">
+                    <button
+                        class="action-btn"
+                        title="Capture a new signal in the Sniffer"
+                        @click=${this._goToSniffer}
+                        ?disabled=${this._busy}
+                    >+ Sniffed Signal</button>
+                    <button
+                        class="action-btn"
+                        title="Paste a new signal in Clips"
+                        @click=${this._goToClips}
+                        ?disabled=${this._busy}
+                    >+ Clipped Signal</button>
+                </div>
                 <button
                     class="action-btn delete-btn"
                     @click=${() => (this._confirmDelete = true)}
@@ -1147,6 +1165,18 @@ export class IrDeviceDetail extends LitElement {
             justify-content: space-between;
             align-items: center;
             margin: 16px 0;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .add-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .add-label {
+            font-size: 0.8rem;
+            color: var(--secondary-text-color);
         }
 
         /* --- Toast --- */
