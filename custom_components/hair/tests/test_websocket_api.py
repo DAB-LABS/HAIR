@@ -24,6 +24,7 @@ from custom_components.hair.websocket_api import (
     ws_clear_unknowns,
     ws_clip_create_remote,
     ws_clip_create_signal,
+    ws_clip_delete_remote,
     ws_clip_validate_pronto,
     ws_create_device,
     ws_delete_command,
@@ -1565,3 +1566,36 @@ async def test_clear_unknowns_source_scoped(fake_hass):
     remaining = monitor._signal_store.get_all_devices()
     assert len(remaining) == 1
     assert remaining[0].source == "sniffed"
+
+
+@pytest.mark.asyncio
+async def test_clip_delete_remote_success(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    remote = await monitor.create_manual_remote("Empty clip")
+
+    conn = _make_connection()
+    await ws_clip_delete_remote(
+        fake_hass, conn,
+        {"id": 211, "type": "hair/clip/delete-remote", "device_id": remote.id},
+    )
+    conn.send_result.assert_called_once_with(211, {"deleted": True})
+    assert monitor._signal_store.get_device(remote.id) is None
+
+
+@pytest.mark.asyncio
+async def test_clip_delete_remote_rejects_sniffed(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    sniffed = UnknownDevice(id="s1", fingerprint="fp1", hit_count=5)
+    monitor._signal_store.add_device(sniffed)
+
+    conn = _make_connection()
+    await ws_clip_delete_remote(
+        fake_hass, conn,
+        {"id": 212, "type": "hair/clip/delete-remote", "device_id": "s1"},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_manual"
+    # Sniffed device is untouched.
+    assert monitor._signal_store.get_device("s1") is not None

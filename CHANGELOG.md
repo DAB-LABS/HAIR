@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Signal aliases. Give any signal a nickname by clicking its S/L diamonds and typing. The alias ("alias" in copper, the name in the diamond blue) replaces the diamonds until you clear it, and an alias never claims to be a command, so the same signal can still become differently-named commands across devices. Available in both the Sniffer and Clipper.
 - Two add-command paths on every HAIR device card. The device detail footer now offers "+ Sniffed Signal" and "+ Clipped Signal", jumping to the Sniffer or Clipper so you can add a command by capturing or by pasting.
 - The Sniffer signal rows now show each signal's captured carrier frequency (e.g. 38 kHz), matching the Clipper signal rows.
+- A clipped remote with no signals can be deleted directly from the Clipper tab (a remote that has signals is removed when its last signal is deleted).
 
 ### Changed
 

@@ -387,6 +387,13 @@ export class HairApi {
         });
     }
 
+    deleteRemote(deviceId: string): Promise<{ deleted: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
+            type: "hair/clip/delete-remote",
+            device_id: deviceId,
+        });
+    }
+
     /**
      * Subscribe to live unknown-signal events via HA bus.
      * Returns an unsubscribe function.

@@ -79,6 +79,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_clip_create_remote)
     websocket_api.async_register_command(hass, ws_clip_create_signal)
     websocket_api.async_register_command(hass, ws_clip_validate_pronto)
+    websocket_api.async_register_command(hass, ws_clip_delete_remote)
 
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
@@ -1122,6 +1123,34 @@ async def ws_clip_validate_pronto(
         "burst_pair_count": result.burst_pair_count,
         "normalized": result.normalized,
     })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/clip/delete-remote",
+    vol.Required("device_id"): str,
+})
+@websocket_api.async_response
+async def ws_clip_delete_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete a clipped (manual) remote."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.delete_manual_remote(msg["device_id"])
+    if not result["success"]:
+        connection.send_error(
+            msg["id"],
+            result.get("code", "delete_failed"),
+            result.get("error", "Failed to delete remote"),
+        )
+        return
+    connection.send_result(msg["id"], {"deleted": True})
 
 
 # --- Action Mapping ---

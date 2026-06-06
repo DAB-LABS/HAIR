@@ -62,6 +62,7 @@ export class IrClips extends LitElement {
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
     @state() private _confirmClearAll = false;
+    @state() private _deleteRemoteId: string | null = null;
 
     // Inline device rename
     @state() private _editingDeviceId: string | null = null;
@@ -161,6 +162,26 @@ export class IrClips extends LitElement {
         this._createSignalDeviceId = null;
         await this._refreshExpanded();
         await this._load();
+    }
+
+    private _openDeleteRemote(deviceId: string): void {
+        this._deleteRemoteId = deviceId;
+    }
+
+    private async _confirmDeleteRemote(): Promise<void> {
+        const id = this._deleteRemoteId;
+        this._deleteRemoteId = null;
+        if (!id) return;
+        try {
+            await this.api.deleteRemote(id);
+            if (this._expandedId === id) {
+                this._expandedId = null;
+                this._expandedDevice = null;
+            }
+            await this._load();
+        } catch (err) {
+            this._error = `Delete failed: ${(err as Error).message}`;
+        }
     }
 
     // --- Signal alias (delegated to ir-signal-alias) ---
@@ -544,8 +565,19 @@ export class IrClips extends LitElement {
                     </button>
                 </div>
                 ${device.signals.length === 0
-                    ? html`<div class="no-signals">
-                          No signals yet. Click "+ Create" to paste a Pronto code.
+                    ? html`<div class="no-signals-row">
+                          <span class="no-signals"
+                              >No signals yet. Click "+ Create" to paste a
+                              Pronto code.</span
+                          >
+                          <button
+                              class="action-btn delete-btn"
+                              title="Delete this remote"
+                              @click=${(e: Event) => {
+                                  e.stopPropagation();
+                                  this._openDeleteRemote(device.id);
+                              }}
+                          >Delete</button>
                       </div>`
                     : html`
                           <div class="signal-list">
@@ -694,6 +726,17 @@ export class IrClips extends LitElement {
                       .destructive=${true}
                       @confirmed=${this._doClearAll}
                       @closed=${() => (this._confirmClearAll = false)}
+                  ></ir-confirm-dialog>`
+                : ""}
+
+            ${this._deleteRemoteId
+                ? html`<ir-confirm-dialog
+                      title="Delete Remote"
+                      message="Remove this remote? This cannot be undone."
+                      confirmLabel="Delete"
+                      .destructive=${true}
+                      @confirmed=${this._confirmDeleteRemote}
+                      @closed=${() => (this._deleteRemoteId = null)}
                   ></ir-confirm-dialog>`
                 : ""}
 
@@ -971,11 +1014,17 @@ export class IrClips extends LitElement {
             font-weight: 500;
             margin-bottom: 8px;
         }
+        .no-signals-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 6px 8px;
+        }
         .no-signals {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
-            padding: 4px 0;
         }
         .signal-list {
             display: flex;

@@ -890,6 +890,26 @@ class SignalMonitor:
             await self._signal_store.async_save()
         return {"success": True, "alias": signal.alias}
 
+    async def delete_manual_remote(self, device_id: str) -> dict[str, Any]:
+        """Delete a clipped (manual) remote and any signals it holds.
+
+        Used by the Clipper tab to remove a remote directly. A remote with
+        signals is normally removed when its last signal is deleted; this
+        covers the case of a remote created with no signals yet. Restricted
+        to manual remotes so it cannot touch sniffed devices.
+        """
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Remote not found"}
+            if device.source != "manual":
+                return {"success": False, "code": "not_manual",
+                        "error": "Only clipped remotes can be deleted this way"}
+            self._signal_store.remove_device(device_id)
+            await self._signal_store.async_save()
+        return {"success": True}
+
     # -----------------------------------------------------------------
     # Subscriber management (WebSocket push)
     # -----------------------------------------------------------------
