@@ -55,6 +55,17 @@ export class IrCreateSignalDialog extends LitElement {
         this._debounce = setTimeout(() => void this._validate(), 250);
     }
 
+    private _onKeydown(e: KeyboardEvent): void {
+        // Enter creates the signal when it is valid; Shift+Enter still
+        // inserts a newline in the Pronto field if ever needed.
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (this._validation?.valid && !this._busy) {
+                void this._create();
+            }
+        }
+    }
+
     private async _validate(): Promise<void> {
         try {
             this._validation = await this.api.validatePronto(this._pronto);
@@ -166,6 +177,7 @@ export class IrCreateSignalDialog extends LitElement {
                         autofocus
                         spellcheck="false"
                         @input=${this._onProntoInput}
+                        @keydown=${this._onKeydown}
                     ></textarea>
                 </div>
 
@@ -179,6 +191,7 @@ export class IrCreateSignalDialog extends LitElement {
                         placeholder="e.g. Power"
                         @input=${(e: Event) =>
                             (this._alias = (e.target as HTMLInputElement).value)}
+                        @keydown=${this._onKeydown}
                     />
                 </div>
 
