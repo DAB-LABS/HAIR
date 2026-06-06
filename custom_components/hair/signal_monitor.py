@@ -27,6 +27,7 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
+    DEFAULT_CARRIER_FREQUENCY,
     EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
@@ -38,6 +39,7 @@ from .const import (
 )
 from .event_parser import EventParser
 from .models import UnknownDevice, UnknownSignal
+from .pronto_validator import validate_pronto
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
@@ -476,6 +478,7 @@ class SignalMonitor:
         self,
         include_dismissed: bool = False,
         min_hits: int | None = None,
+        source: str | None = None,
     ) -> list[UnknownDevice]:
         """Return unknown devices sorted by hit_count descending.
 
@@ -483,6 +486,9 @@ class SignalMonitor:
             include_dismissed: Include dismissed devices in results.
             min_hits: Minimum hit_count to include. Defaults to
                 ``SIGNAL_CLUSTER_THRESHOLD``. Pass ``0`` to include all.
+            source: If given (``"sniffed"`` or ``"manual"``), return only
+                devices of that source. Lets the Sniffer and Clips tabs
+                each request their own slice. ``None`` returns both.
         """
         if min_hits is None:
             min_hits = SIGNAL_CLUSTER_THRESHOLD
@@ -492,6 +498,8 @@ class SignalMonitor:
             devices = [d for d in devices if not d.dismissed]
         if min_hits > 0:
             devices = [d for d in devices if d.hit_count >= min_hits]
+        if source is not None:
+            devices = [d for d in devices if d.source == source]
 
         return sorted(devices, key=lambda d: d.hit_count, reverse=True)
 
@@ -558,16 +566,12 @@ class SignalMonitor:
                 return {"success": False, "code": "target_not_found",
                         "error": "Target HAIR device not found"}
 
-            # Idempotency: reject if this fingerprint is already assigned.
-            for cmd in hair_device.commands:
-                if (cmd.protocol == signal.protocol
-                        and cmd.code == signal.code
-                        and cmd.protocol is not None
-                        and cmd.code is not None):
-                    return {"success": False, "code": "duplicate_signal",
-                            "error": "Signal already assigned to this device"}
-
-            # Build IRCommand from signal.
+            # Build IRCommand from the signal. The signal is COPIED into
+            # the device and intentionally LEFT in the unknown catalog so
+            # it can be assigned again -- to other devices or as other
+            # commands. Only an explicit Delete / Dismiss / Clear All
+            # removes it. No duplicate guard: assigning the same signal
+            # more than once is the user's prerogative.
             capture = CaptureResult(
                 protocol=signal.protocol,
                 code=signal.code,
@@ -580,46 +584,15 @@ class SignalMonitor:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
 
-            # Mutate both stores in memory.
             hair_device.add_command(ir_command)
             command_id = ir_command.id
-            unknown_device.remove_signal(signal_fingerprint)
-            device_emptied = not unknown_device.signals
-            if device_emptied:
-                self._signal_store.remove_device(device_id)
-
             try:
-                # Persist HAIRStore first (source of truth for commands).
                 await self._hair_store.async_save()
             except Exception:
-                # Rollback in-memory changes.
                 hair_device.remove_command(command_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
                 _LOGGER.exception("Failed to save HAIR store during assign")
                 return {"success": False, "code": "save_failed",
                         "error": "Failed to save command"}
-
-            try:
-                # Persist SignalStore second.
-                await self._signal_store.async_save()
-            except Exception:
-                # HAIRStore already saved with the command -- revert it.
-                hair_device.remove_command(command_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                try:
-                    await self._hair_store.async_save()
-                except Exception:
-                    _LOGGER.exception(
-                        "CRITICAL: Failed to rollback HAIR store after "
-                        "signal store save failure"
-                    )
-                _LOGGER.exception("Failed to save signal store during assign")
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to update signal store"}
 
         return {"success": True, "command_id": command_id}
 
@@ -689,51 +662,24 @@ class SignalMonitor:
             command_id = ir_command.id
             new_device_id = new_device.id
 
-            # Add to HAIRStore in memory.
+            # Add to HAIRStore in memory. The source signal is COPIED into
+            # the new device and intentionally LEFT in the unknown catalog
+            # so it stays assignable. Only an explicit Delete / Dismiss /
+            # Clear All removes it.
             self._hair_store.add_device(new_device)
-
-            # Remove signal from unknowns in memory.
-            unknown_device.remove_signal(signal_fingerprint)
-            device_emptied = not unknown_device.signals
-            if device_emptied:
-                self._signal_store.remove_device(device_id)
 
             try:
                 await self._hair_store.async_save()
             except Exception:
-                # Rollback: remove device from store, restore signal.
+                # Rollback: drop the unsaved device.
                 self._hair_store.remove_device(new_device_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
                 _LOGGER.exception(
                     "Failed to save HAIR store during assign-new-device"
                 )
                 return {"success": False, "code": "save_failed",
                         "error": "Failed to save new device"}
 
-            try:
-                await self._signal_store.async_save()
-            except Exception:
-                # Rollback HAIRStore.
-                self._hair_store.remove_device(new_device_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                try:
-                    await self._hair_store.async_save()
-                except Exception:
-                    _LOGGER.exception(
-                        "CRITICAL: Failed to rollback HAIR store after "
-                        "signal store save failure in assign-new-device"
-                    )
-                _LOGGER.exception(
-                    "Failed to save signal store during assign-new-device"
-                )
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to update signal store"}
-
-        # Both stores persisted -- safe to register in HA now.
+        # HAIR store persisted -- safe to register in HA now.
         # (Outside the lock since HA registry ops don't touch our stores.)
         return {
             "success": True,
@@ -838,10 +784,131 @@ class SignalMonitor:
 
         return {"success": True}
 
-    def clear_all(self) -> None:
-        """Wipe the entire unknown signal catalog."""
-        self._signal_store.clear_all()
+    def clear_all(self, source: str | None = None) -> None:
+        """Wipe the unknown signal catalog.
+
+        ``source=None`` clears everything. Passing ``"sniffed"`` or
+        ``"manual"`` clears only that source, so the Sniffer and Clips
+        tabs each clear their own world.
+        """
+        self._signal_store.clear_all(source)
         self._signal_store.schedule_save()
+
+    # -----------------------------------------------------------------
+    # Clips (manual remotes / signals)
+    # -----------------------------------------------------------------
+
+    async def create_manual_remote(self, name: str) -> UnknownDevice:
+        """Create a new clipped (manual) remote.
+
+        Manual remotes get a synthetic device fingerprint (``manual:<id>``)
+        so live sniffed signals can never group into them -- the captured
+        and pasted pipelines stay isolated.
+        """
+        label = (name or "").strip() or "Clipped Remote"
+        now_iso = datetime.now(UTC).isoformat()
+        async with self._lock:
+            device = UnknownDevice(
+                label=label,
+                source="manual",
+                first_seen=now_iso,
+                last_seen=now_iso,
+                hit_count=0,
+            )
+            device.fingerprint = f"manual:{device.id}"
+            self._signal_store.add_device(device)
+            await self._signal_store.async_save()
+        return device
+
+    async def create_manual_signal(
+        self, device_id: str, pronto: str, alias: str = ""
+    ) -> dict[str, Any]:
+        """Add a manually-pasted Pronto signal to a clipped remote.
+
+        Validates the Pronto server-side (defense in depth -- the frontend
+        validates too). Returns a structured dict with ``success`` and the
+        new signal record, or ``error``/``code``.
+        """
+        result = validate_pronto(pronto)
+        if not result.valid:
+            return {
+                "success": False,
+                "code": "invalid_pronto",
+                "error": (
+                    result.errors[0] if result.errors else "Invalid Pronto code"
+                ),
+            }
+
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Clipped remote not found"}
+            if device.source != "manual":
+                return {"success": False, "code": "not_manual",
+                        "error": "Can only add signals to a clipped remote"}
+
+            now_iso = datetime.now(UTC).isoformat()
+            code = result.normalized
+            sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
+            frequency = (
+                round(result.frequency_khz * 1000)
+                if result.frequency_khz
+                else DEFAULT_CARRIER_FREQUENCY
+            )
+            signal = UnknownSignal(
+                fingerprint=sig_fp,
+                protocol="PRONTO",
+                code=code,
+                raw_timings=[],
+                frequency=frequency,
+                hit_count=1,
+                first_seen=now_iso,
+                last_seen=now_iso,
+                source="manual",
+                alias=(alias or "").strip(),
+            )
+            device.signals.append(signal)
+            device.last_seen = now_iso
+            await self._signal_store.async_save()
+        return {"success": True, "signal": signal.to_dict()}
+
+    async def set_signal_alias(
+        self, device_id: str, signal_fingerprint: str, alias: str
+    ) -> dict[str, Any]:
+        """Set or clear the alias on a signal. Empty clears it."""
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Remote not found"}
+            signal = device.get_signal(signal_fingerprint)
+            if signal is None:
+                return {"success": False, "code": "signal_not_found",
+                        "error": "Signal not found"}
+            signal.alias = (alias or "").strip()
+            await self._signal_store.async_save()
+        return {"success": True, "alias": signal.alias}
+
+    async def delete_manual_remote(self, device_id: str) -> dict[str, Any]:
+        """Delete a clipped (manual) remote and any signals it holds.
+
+        Used by the Clipper tab to remove a remote directly. A remote with
+        signals is normally removed when its last signal is deleted; this
+        covers the case of a remote created with no signals yet. Restricted
+        to manual remotes so it cannot touch sniffed devices.
+        """
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Remote not found"}
+            if device.source != "manual":
+                return {"success": False, "code": "not_manual",
+                        "error": "Only clipped remotes can be deleted this way"}
+            self._signal_store.remove_device(device_id)
+            await self._signal_store.async_save()
+        return {"success": True}
 
     # -----------------------------------------------------------------
     # Subscriber management (WebSocket push)

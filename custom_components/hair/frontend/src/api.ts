@@ -20,12 +20,15 @@ import type {
     IRCommand,
     IRDevice,
     IRTrigger,
+    ProntoValidation,
     ReceiverInfo,
     SignalRemovedEvent,
+    SignalSourceId,
     TestSignalResult,
     TriggerFiredEvent,
     UnknownDevice,
     UnknownDeviceSummary,
+    UnknownSignal,
     UnknownSignalEvent,
 } from "./types.js";
 
@@ -244,6 +247,7 @@ export class HairApi {
     getUnknownDevices(options?: {
         include_dismissed?: boolean;
         min_hits?: number;
+        source?: SignalSourceId;
     }): Promise<UnknownDeviceSummary[]> {
         return this.hass.connection.sendMessagePromise<UnknownDeviceSummary[]>({
             type: "hair/unknown/devices",
@@ -336,9 +340,57 @@ export class HairApi {
         });
     }
 
-    clearUnknowns(): Promise<{ cleared: boolean }> {
+    clearUnknowns(source?: SignalSourceId): Promise<{ cleared: boolean }> {
         return this.hass.connection.sendMessagePromise<{ cleared: boolean }>({
             type: "hair/unknown/clear",
+            ...(source ? { source } : {}),
+        });
+    }
+
+    setSignalAlias(
+        deviceId: string,
+        signalFingerprint: string,
+        alias: string,
+    ): Promise<{ alias: string }> {
+        return this.hass.connection.sendMessagePromise<{ alias: string }>({
+            type: "hair/unknown/signal/set-alias",
+            device_id: deviceId,
+            signal_fingerprint: signalFingerprint,
+            alias,
+        });
+    }
+
+    // --- Clips (manual remotes / signals) ---
+
+    createRemote(name: string): Promise<UnknownDevice> {
+        return this.hass.connection.sendMessagePromise<UnknownDevice>({
+            type: "hair/clip/create-remote",
+            name,
+        });
+    }
+
+    createSignal(payload: {
+        device_id: string;
+        pronto: string;
+        alias?: string;
+    }): Promise<{ signal: UnknownSignal }> {
+        return this.hass.connection.sendMessagePromise<{ signal: UnknownSignal }>({
+            type: "hair/clip/create-signal",
+            ...payload,
+        });
+    }
+
+    validatePronto(pronto: string): Promise<ProntoValidation> {
+        return this.hass.connection.sendMessagePromise<ProntoValidation>({
+            type: "hair/clip/validate-pronto",
+            pronto,
+        });
+    }
+
+    deleteRemote(deviceId: string): Promise<{ deleted: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
+            type: "hair/clip/delete-remote",
+            device_id: deviceId,
         });
     }
 

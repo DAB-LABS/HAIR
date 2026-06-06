@@ -136,6 +136,8 @@ export interface CaptureStartResponse {
 // Signal Monitor (unknown devices)
 // ---------------------------------------------------------------------------
 
+export type SignalSourceId = "sniffed" | "manual";
+
 export interface UnknownSignal {
     fingerprint: string;
     protocol: string | null;
@@ -146,6 +148,8 @@ export interface UnknownSignal {
     first_seen: string;
     last_seen: string;
     sl_pattern?: string | null;
+    source?: SignalSourceId;
+    alias?: string;
 }
 
 export interface UnknownDeviceSummary {
@@ -159,6 +163,7 @@ export interface UnknownDeviceSummary {
     first_seen: string;
     last_seen: string;
     dismissed: boolean;
+    source?: SignalSourceId;
 }
 
 export interface UnknownDevice {
@@ -172,6 +177,20 @@ export interface UnknownDevice {
     first_seen: string;
     last_seen: string;
     dismissed: boolean;
+    source?: SignalSourceId;
+}
+
+/**
+ * Result of validating a pasted Pronto code (hair/clip/validate-pronto).
+ * Mirrors ProntoValidationResult in pronto_validator.py.
+ */
+export interface ProntoValidation {
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+    frequency_khz: number | null;
+    burst_pair_count: number | null;
+    normalized: string;
 }
 
 export interface UnknownSignalEvent {

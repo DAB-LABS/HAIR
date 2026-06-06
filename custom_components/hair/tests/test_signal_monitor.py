@@ -675,7 +675,7 @@ class TestPublicAPI:
 class TestAssignSignal:
 
     @pytest.mark.asyncio
-    async def test_assign_creates_command_and_removes_signal(self):
+    async def test_assign_creates_command_and_keeps_signal(self):
         hass = _make_hass()
         store = _make_signal_store(hass)
         hair_store = _make_hair_store()
@@ -704,20 +704,19 @@ class TestAssignSignal:
         assert hair_device.commands[0].name == "Power"
         assert hair_device.commands[0].protocol == "NEC"
         assert hair_device.commands[0].code == "0x1234"
-        # Unknown device should be removed (no signals left).
-        assert store.get_device("ud1") is None
+        # The signal is COPIED, not consumed -- it stays assignable.
+        remaining = store.get_device("ud1")
+        assert remaining is not None
+        assert remaining.get_signal("sig_fp") is not None
 
     @pytest.mark.asyncio
-    async def test_assign_from_dismissed_device_clears_dismiss_set(self):
-        """Assigning the last signal of a dismissed device must clear the
-        device's fingerprint from _dismissed.
+    async def test_assign_from_dismissed_device_keeps_device(self):
+        """Assigning a signal no longer consumes it, so a dismissed device
+        stays put and its (legitimate) dismiss entry is retained.
 
-        Regression for GitHub issue #9: prior to v0.2.1, the orphan
-        fingerprint persisted in _dismissed and silently dropped every
-        future signal from that physical remote at step 4 of the signal
-        pipeline. The fix is in signal_store.remove_device(), which is
-        invoked from assign_signal when the device's last signal is
-        consumed.
+        The GitHub #9 orphan-dismiss regression is now covered on the
+        delete path (see TestDeleteSignal), the only path that still
+        removes a device.
         """
         hass = _make_hass()
         store = _make_signal_store(hass)
@@ -743,23 +742,24 @@ class TestAssignSignal:
             "ud1", "sig_fp", "hd1", "Power", "custom",
         )
         assert result["success"] is True
-        # Unknown device removed (no signals left).
-        assert store.get_device("ud1") is None
-        # And the fingerprint MUST also be discarded from _dismissed,
-        # otherwise step 4 of _process_parsed_signal will silently drop
-        # every future signal from this remote.
-        assert not store.is_dismissed("dev_fp")
+        # Assign copies the signal -- the dismissed device stays put.
+        assert store.get_device("ud1") is not None
+        # Its dismiss entry is legitimate (the device still exists), so it
+        # is correctly retained rather than treated as an orphan.
+        assert store.is_dismissed("dev_fp")
 
     @pytest.mark.asyncio
-    async def test_signal_arrival_after_assign_from_dismissed_device_reaches_storage(
+    async def test_signal_arrival_after_delete_last_from_dismissed_device_reaches_storage(
         self,
     ):
-        """End-to-end regression: after assigning the last signal of a
+        """End-to-end regression: after deleting the last signal of a
         dismissed device, the next IR arrival from the same physical
         remote must actually land in the Sniffer instead of being
         silently dropped by an orphan dismiss entry.
 
-        This is the user-visible repro of GitHub issue #9.
+        This is the user-visible repro of GitHub issue #9. Assigning no
+        longer removes the device, so delete is now the path that can form
+        the orphan.
         """
         hass = _make_hass()
         store = _make_signal_store(hass)
@@ -778,13 +778,8 @@ class TestAssignSignal:
         store.add_device(device)
         store.add_dismissed("dev_fp")
 
-        hair_device = IRDevice(id="hd1", name="TV")
-        hair_store.get_device.return_value = hair_device
-
-        # 1. Assign the last signal (this triggered the original bug).
-        await monitor.assign_signal(
-            "ud1", "sig_fp_first", "hd1", "Power", "custom",
-        )
+        # 1. Delete the last signal (this triggered the original bug).
+        await monitor.delete_signal("ud1", "sig_fp_first")
 
         # 2. Press a DIFFERENT button on the same physical remote.
         # _process_parsed_signal computes the same device_fingerprint
@@ -827,11 +822,12 @@ class TestAssignSignal:
             "ud1", "sig1", "hd1", "Power", "custom",
         )
         assert result["success"] is True
-        # Device should still exist with 1 signal.
+        # Assign copies the signal -- both signals remain in the device.
         remaining = store.get_device("ud1")
         assert remaining is not None
-        assert len(remaining.signals) == 1
-        assert remaining.signals[0].fingerprint == "sig2"
+        assert len(remaining.signals) == 2
+        assert remaining.get_signal("sig1") is not None
+        assert remaining.get_signal("sig2") is not None
 
     @pytest.mark.asyncio
     async def test_assign_unknown_device_not_found(self):
@@ -983,8 +979,9 @@ class TestSubscribers:
 class TestAssignIdempotency:
 
     @pytest.mark.asyncio
-    async def test_duplicate_signal_rejected(self):
-        """Assigning the same protocol+code to a device twice is rejected."""
+    async def test_duplicate_signal_allowed(self):
+        """Assigning the same signal to a device more than once is allowed
+        (no duplicate guard) -- it just creates another command."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         hair_store = _make_hair_store()
@@ -1009,9 +1006,10 @@ class TestAssignIdempotency:
         result = await monitor.assign_signal(
             "ud1", "sig_fp", "hd1", "Power", "custom",
         )
-        assert result["success"] is False
-        assert result["code"] == "duplicate_signal"
-        # Signal should NOT have been removed.
+        assert result["success"] is True
+        # Now two commands with the same code -- the user's prerogative.
+        assert len(hair_device.commands) == 2
+        # And the signal is still present (copied, not consumed).
         assert store.get_device("ud1") is not None
         assert len(store.get_device("ud1").signals) == 1
 
@@ -1159,19 +1157,17 @@ class TestAssignToNewDevice:
         assert len(result["device"].commands) == 1
         assert result["device"].commands[0].name == "Power"
 
-        # Signal should be removed.
-        assert store.get_device("ud1") is None
+        # Signal is copied into the new device, not consumed.
+        remaining = store.get_device("ud1")
+        assert remaining is not None
+        assert remaining.get_signal("sig_fp") is not None
 
     @pytest.mark.asyncio
-    async def test_assign_to_new_device_from_dismissed_clears_dismiss_set(
+    async def test_assign_to_new_device_from_dismissed_keeps_device(
         self,
     ):
-        """Assigning the last signal of a dismissed device to a NEW HAIR
-        device also discards the fingerprint from _dismissed.
-
-        Regression for GitHub issue #9 (parallel to the assign-to-existing
-        path). Same orphan formation, same fix in
-        signal_store.remove_device().
+        """Assigning a signal to a NEW HAIR device no longer consumes it,
+        so the dismissed source device stays put with its dismiss entry.
         """
         hass = _make_hass()
         store = _make_signal_store(hass)
@@ -1200,9 +1196,10 @@ class TestAssignToNewDevice:
             command_category="power",
         )
         assert result["success"] is True
-        assert store.get_device("ud1") is None
-        # The invariant: remove_device discarded the fingerprint.
-        assert not store.is_dismissed("dev_fp")
+        # Copied, not consumed -- the dismissed source device stays put
+        # with its (legitimate) dismiss entry.
+        assert store.get_device("ud1") is not None
+        assert store.is_dismissed("dev_fp")
 
         # HAIRStore should have been saved.
         hair_store.async_save.assert_called()

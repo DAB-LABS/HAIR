@@ -9,6 +9,7 @@ import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-promote-dialog.js";
+import "./ir-signal-alias.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import type {
@@ -191,6 +192,7 @@ export class IrSignalMonitor extends LitElement {
             const [unknowns, hairDevs, triggers] = await Promise.all([
                 this.api.getUnknownDevices({
                     include_dismissed: this._showDismissed,
+                    source: "sniffed",
                 }),
                 this.api.listDevices(),
                 this.api.listTriggers(),
@@ -611,6 +613,19 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
+    private _onAliasChanged(
+        e: CustomEvent<{ fingerprint: string; alias: string }>,
+    ): void {
+        const { fingerprint, alias } = e.detail;
+        if (!this._expandedDevice) return;
+        this._expandedDevice = {
+            ...this._expandedDevice,
+            signals: this._expandedDevice.signals.map((s) =>
+                s.fingerprint === fingerprint ? { ...s, alias } : s,
+            ),
+        };
+    }
+
     private async _toggleExpand(deviceId: string): Promise<void> {
         if (this._expandedId === deviceId) {
             this._expandedId = null;
@@ -675,7 +690,10 @@ export class IrSignalMonitor extends LitElement {
                     <ha-svg-icon .path=${ICON_SIGNAL}></ha-svg-icon>
                     HAIR Sniffer
                     ${!this._loading
-                        ? html`<span class="count">(${this._devices.length})</span>`
+                        ? html`<span class="count"
+                              >(${this._devices.length}
+                              ${this._devices.length === 1 ? "remote" : "remotes"})</span
+                          >`
                         : ""}
                 </span>
                 <div class="toolbar-actions">
@@ -860,45 +878,47 @@ export class IrSignalMonitor extends LitElement {
                                       @blur=${() => void this._commitRename(d.id)}
                                       @click=${(e: Event) => e.stopPropagation()}
                                   />`
-                                : html`<span
-                                      class="protocol"
-                                      title="Click to rename"
-                                      @click=${(e: Event) => this._startRename(d, e)}
-                                  >${d.label ?? d.protocol ?? "RAW"}</span>
-                                  <ha-svg-icon
-                                      class="edit-icon"
-                                      .path=${ICON_PENCIL}
-                                      title="Rename"
-                                      @click=${(e: Event) => this._startRename(d, e)}
-                                  ></ha-svg-icon>`}
-                            ${d.device_address
-                                ? html`<span class="address">addr: ${d.device_address}</span>`
-                                : ""}
-                            ${d.dismissed
-                                ? html`<span class="dismissed-badge">dismissed</span>`
-                                : ""}
-                        </div>
-                        <div class="device-stats ${statsFlash ? "stats-flash" : ""}">
-                            <span class="stat">
-                                <strong>${d.hit_count}</strong> hits
-                            </span>
-                            <span class="stat">
-                                <strong>${d.signal_count}</strong> signals
-                            </span>
-                            <span class="stat last-seen" title=${fmtTime(d.last_seen)}>
-                                ${relTime(d.last_seen)}
+                                : html`<ha-svg-icon
+                                          class="device-icon"
+                                          .path=${ICON_SIGNAL}
+                                      ></ha-svg-icon>
+                                      ${d.dismissed
+                                          ? html`<span class="protocol locked"
+                                                >${d.label ?? d.protocol ?? "RAW"}</span
+                                            >`
+                                          : html`<span
+                                                class="protocol"
+                                                title="Click to rename"
+                                                @click=${(e: Event) => this._startRename(d, e)}
+                                            >${d.label ?? d.protocol ?? "RAW"}</span>`}`}
+                            <span class="device-stats ${statsFlash ? "stats-flash" : ""}">
+                                <span class="stat"
+                                    ><strong>${d.hit_count}</strong>
+                                    ${d.hit_count === 1 ? "hit" : "hits"}</span
+                                >
+                                <span class="stat"
+                                    ><strong>${d.signal_count}</strong>
+                                    ${d.signal_count === 1 ? "signal" : "signals"}</span
+                                >
+                                <span class="stat last-seen" title=${fmtTime(d.last_seen)}>${relTime(d.last_seen)}</span>
                             </span>
                             ${d.label && this._matchesHairDevice(d.label)
                                 ? html`<span
                                       class="status-badge hair-device"
                                       @click=${(e: Event) => e.stopPropagation()}
                                   >HAIR Device</span>`
-                                : d.label
+                                : d.label && !d.dismissed
                                     ? html`<span
                                           class="status-badge promote-badge"
                                           @click=${(e: Event) => this._promoteDevice(d, e)}
                                       >Promote</span>`
                                     : ""}
+                            ${d.device_address
+                                ? html`<span class="address">addr: ${d.device_address}</span>`
+                                : ""}
+                            ${d.dismissed
+                                ? html`<span class="dismissed-badge">dismissed</span>`
+                                : ""}
                         </div>
                     </div>
                     ${d.dismissed
@@ -947,19 +967,23 @@ export class IrSignalMonitor extends LitElement {
                             return html`
                             <div class="signal-row">
                                 <div class="signal-info">
-                                    ${sig.sl_pattern
-                                        ? html`<span class="diamonds">${[...sig.sl_pattern].map((ch) =>
-                                            ch === "L"
-                                                ? html`<span class="diamond long">◆</span>`
-                                                : html`<span class="diamond short">◇</span>`
-                                          )}</span>`
-                                        : html`<span class="signal-short-label">IR Signal</span>`}
+                                    <ir-signal-alias
+                                        .api=${this.api}
+                                        .deviceId=${device.id}
+                                        .signal=${sig}
+                                        ?disabled=${device.dismissed}
+                                        @alias-changed=${this._onAliasChanged}
+                                    ></ir-signal-alias>
                                 </div>
                                 <div class="signal-meta">
-                                    <span class="${isHitFlash ? "hit-flash" : ""}">${sig.hit_count} hits</span>
+                                    <span class="${isHitFlash ? "hit-flash" : ""}"
+                                        >${sig.hit_count}
+                                        ${sig.hit_count === 1 ? "hit" : "hits"}</span
+                                    >
                                     <span title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
+                                    <span>${Math.round(sig.frequency / 1000)} kHz</span>
                                 </div>
                                 <div class="signal-actions">
                                     <button
@@ -1087,6 +1111,14 @@ export class IrSignalMonitor extends LitElement {
 
         .device {
             transition: box-shadow 200ms ease;
+            /* Clip the row's rectangular hover highlight to the card's
+               rounded corners so it does not poke past the border stroke. */
+            overflow: hidden;
+            /* Subtle stroke in the Sniffer's accent blue (the radio-icon
+               colour) at the same 0.3 as the Clips copper stroke. The
+               rgba line is a fallback for webviews without color-mix. */
+            border: 1px solid rgba(33, 150, 243, 0.3);
+            border-color: color-mix(in srgb, var(--primary-color) 30%, transparent);
         }
         .device.flash {
             box-shadow: 0 0 0 2px var(--primary-color), var(--ha-card-box-shadow, none);
@@ -1122,8 +1154,16 @@ export class IrSignalMonitor extends LitElement {
             border-bottom: 1px dashed transparent;
             transition: border-color 150ms ease;
         }
-        .protocol:hover {
+        .device-icon {
+            --mdc-icon-size: 16px;
+            color: var(--primary-color);
+            flex-shrink: 0;
+        }
+        .protocol:not(.locked):hover {
             border-bottom-color: var(--primary-color);
+        }
+        .protocol.locked {
+            cursor: default;
         }
         .edit-icon {
             --mdc-icon-size: 14px;
@@ -1139,22 +1179,16 @@ export class IrSignalMonitor extends LitElement {
             opacity: 1 !important;
             color: var(--primary-color);
         }
+        /* Identical box to .promote-badge (now also uppercase, so no
+           line-height hack needed) -- only the colour differs. */
         .status-badge.hair-device {
-            /* Inline-flex + explicit line-height bounds the badge's height
-               so that mixed-case text content ("HAIR Device") does not
-               render a taller line-box than the all-uppercase PROMOTE
-               sibling rendered by .status-badge.promote-badge. Both
-               badges share the same padding and font-size; the height
-               drift came from implicit line-height differences between
-               uppercase and mixed-case strings. */
-            display: inline-flex;
-            align-items: center;
-            line-height: 1.4;
             font-size: 0.7rem;
             font-weight: 500;
             font-family: inherit;
             padding: 2px 8px;
             border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             white-space: nowrap;
             flex-shrink: 0;
             background: rgba(46, 125, 50, 0.15);
@@ -1170,15 +1204,15 @@ export class IrSignalMonitor extends LitElement {
             border-radius: 4px;
             text-transform: uppercase;
             letter-spacing: 0.03em;
-            background: rgba(0, 150, 136, 0.15);
-            color: #00897b;
-            border: 1px solid rgba(0, 150, 136, 0.3);
+            background: rgba(0, 151, 167, 0.15);
+            color: #0097a7;
+            border: 1px solid rgba(0, 151, 167, 0.35);
             margin-left: 4px;
             cursor: pointer;
             transition: background 150ms ease;
         }
         .status-badge.promote-badge:hover {
-            background: rgba(0, 150, 136, 0.25);
+            background: rgba(0, 151, 167, 0.25);
         }
         .device-dismiss-btn {
             flex-shrink: 0;
@@ -1209,9 +1243,9 @@ export class IrSignalMonitor extends LitElement {
             text-transform: uppercase;
         }
         .device-stats {
-            display: flex;
-            gap: 16px;
-            margin-top: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
             font-size: 0.85rem;
             color: var(--secondary-text-color);
         }

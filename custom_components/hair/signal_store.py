@@ -234,10 +234,11 @@ class SignalStore:
         now = datetime.now(UTC)
         cutoff = now - timedelta(days=SIGNAL_EVICT_AGE_DAYS)
 
-        # Pass 1: age + low activity.
+        # Pass 1: age + low activity. Manual (clipped) remotes are user
+        # creations, not captured noise -- never evict them.
         to_remove = []
         for device in self._devices.values():
-            if device.dismissed:
+            if device.dismissed or device.source == "manual":
                 continue
             try:
                 last = datetime.fromisoformat(device.last_seen)
@@ -259,7 +260,11 @@ class SignalStore:
         # Matches the Pass 1 skip behavior.
         if len(self._devices) > SIGNAL_BUFFER_MAX_DEVICES:
             sorted_devices = sorted(
-                (d for d in self._devices.values() if not d.dismissed),
+                (
+                    d
+                    for d in self._devices.values()
+                    if not d.dismissed and d.source != "manual"
+                ),
                 key=lambda d: (d.hit_count, d.last_seen),
             )
             while (
@@ -276,8 +281,14 @@ class SignalStore:
     # Cleanup
     # -----------------------------------------------------------------
 
-    def clear_all(self) -> None:
-        """Wipe the entire unknown catalog AND the dismiss list.
+    def clear_all(self, source: str | None = None) -> None:
+        """Wipe the unknown catalog AND the dismiss list.
+
+        ``source=None`` clears everything (the historical behavior).
+        Passing ``"sniffed"`` or ``"manual"`` clears only devices of that
+        source and discards just their fingerprints from the dismiss set,
+        leaving the other source untouched. This lets each tab (Sniffer /
+        Clips) clear its own world without touching the other's.
 
         Behavior changed in v0.2.1: prior versions kept the dismiss
         list across Clear All. That design choice contributed to silent
@@ -287,8 +298,16 @@ class SignalStore:
         model of "clear everything," and serves as a manual recovery
         route for users who hit the orphan bug before upgrading.
         """
-        self._devices.clear()
-        self._dismissed.clear()
+        if source is None:
+            self._devices.clear()
+            self._dismissed.clear()
+            return
+
+        for device_id in [
+            d.id for d in self._devices.values() if d.source == source
+        ]:
+            device = self._devices.pop(device_id)
+            self._dismissed.discard(device.fingerprint)
 
     async def async_shutdown(self) -> None:
         """Flush pending writes and cancel timers."""
