@@ -191,6 +191,7 @@ export class IrSignalMonitor extends LitElement {
             const [unknowns, hairDevs, triggers] = await Promise.all([
                 this.api.getUnknownDevices({
                     include_dismissed: this._showDismissed,
+                    source: "sniffed",
                 }),
                 this.api.listDevices(),
                 this.api.listTriggers(),
@@ -675,7 +676,10 @@ export class IrSignalMonitor extends LitElement {
                     <ha-svg-icon .path=${ICON_SIGNAL}></ha-svg-icon>
                     HAIR Sniffer
                     ${!this._loading
-                        ? html`<span class="count">(${this._devices.length})</span>`
+                        ? html`<span class="count"
+                              >(${this._devices.length}
+                              ${this._devices.length === 1 ? "remote" : "remotes"})</span
+                          >`
                         : ""}
                 </span>
                 <div class="toolbar-actions">

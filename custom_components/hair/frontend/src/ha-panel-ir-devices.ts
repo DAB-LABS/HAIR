@@ -11,9 +11,10 @@ import { HairApi } from "./api.js";
 import "./ir-device-list.js";
 import "./ir-add-device-dialog.js";
 import "./ir-signal-monitor.js";
+import "./ir-clips.js";
 import type { DeviceSummary, IRDevice } from "./types.js";
 
-type PanelTab = "devices" | "sniffer";
+type PanelTab = "devices" | "sniffer" | "clips";
 
 @customElement("ha-panel-ir-devices")
 export class HaPanelIrDevices extends LitElement {
@@ -169,6 +170,12 @@ export class HaPanelIrDevices extends LitElement {
                 >
                     Sniffer
                 </button>
+                <button
+                    class="tab ${this._activeTab === "clips" ? "active" : ""}"
+                    @click=${() => this._switchTab("clips")}
+                >
+                    Clips
+                </button>
                 <div class="tab-spacer"></div>
                 ${this._activeTab === "devices"
                     ? html`
@@ -206,12 +213,19 @@ export class HaPanelIrDevices extends LitElement {
                           ></ir-device-list>
 
                       `
-                    : html`
-                          <ir-signal-monitor
-                              .api=${this._api}
-                              .hass=${this.hass}
-                          ></ir-signal-monitor>
-                      `}
+                    : this._activeTab === "sniffer"
+                      ? html`
+                            <ir-signal-monitor
+                                .api=${this._api}
+                                .hass=${this.hass}
+                            ></ir-signal-monitor>
+                        `
+                      : html`
+                            <ir-clips
+                                .api=${this._api}
+                                .hass=${this.hass}
+                            ></ir-clips>
+                        `}
             </div>
 
             ${this._addDialogOpen
