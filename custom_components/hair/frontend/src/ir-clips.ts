@@ -583,6 +583,10 @@ export class IrClips extends LitElement {
                     <span>Signals (${device.signals.length})</span>
                     <button
                         class="create-btn create-signal-btn"
+                        ?disabled=${device.dismissed}
+                        title=${device.dismissed
+                            ? "Restore this remote first"
+                            : "Add a signal to this remote"}
                         @click=${(e: Event) => this._openCreateSignal(device.id, e)}
                     >
                         + Create
@@ -879,13 +883,17 @@ export class IrClips extends LitElement {
             letter-spacing: 0.03em;
             transition: background 150ms ease;
         }
-        .create-btn:hover {
+        .create-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
+        }
+        .create-btn:disabled {
+            opacity: 0.5;
+            cursor: default;
         }
         /* Card-internal "+ Create" -- smaller and pill-shaped, so it reads
            as distinct from the rectangular Assign/Test/Trigger/Delete row. */
         .create-signal-btn {
-            padding: 2px 12px;
+            padding: 2px 9px;
             font-size: 0.68rem;
             border-radius: 999px;
         }
@@ -1058,6 +1066,9 @@ export class IrClips extends LitElement {
             font-size: 0.85rem;
             font-weight: 500;
             margin-bottom: 8px;
+            /* Inset the right edge by the signal-row's 8px padding so the
+               "+ Create" pill hard-rights with the Delete buttons below. */
+            padding-right: 8px;
         }
         .no-signals {
             font-size: 0.85rem;
