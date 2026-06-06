@@ -40,7 +40,7 @@ from custom_components.hair.websocket_api import (
     ws_reorder_commands,
     ws_save_captured_command,
     ws_send_command,
-    ws_set_signal_note,
+    ws_set_signal_alias,
     ws_start_capture,
     ws_test_signal,
     ws_undismiss_unknown,
@@ -1346,7 +1346,7 @@ async def test_assign_new_device_signal_not_found(fake_hass):
 
 
 # ---------------------------------------------------------------------------
-# Clips: create-remote / create-signal / validate-pronto / set-note / source
+# Clips: create-remote / create-signal / validate-pronto / set-alias / source
 # ---------------------------------------------------------------------------
 
 # A minimal, structurally valid learned Pronto code.
@@ -1401,14 +1401,14 @@ async def test_clip_create_signal_happy_path(fake_hass):
             "type": "hair/clip/create-signal",
             "device_id": remote.id,
             "pronto": _VALID_PRONTO,
-            "note": "Power",
+            "alias": "Power",
         },
     )
     conn.send_result.assert_called_once()
     sig = conn.send_result.call_args[0][1]["signal"]
     assert sig["protocol"] == "PRONTO"
     assert sig["source"] == "manual"
-    assert sig["note"] == "Power"
+    assert sig["alias"] == "Power"
     assert len(monitor._signal_store.get_device(remote.id).signals) == 1
 
 
@@ -1478,7 +1478,7 @@ async def test_clip_validate_pronto_invalid(fake_hass):
 
 
 @pytest.mark.asyncio
-async def test_set_signal_note_success(fake_hass):
+async def test_set_signal_alias_success(fake_hass):
     monitor = _make_signal_monitor(fake_hass)
     _wire_hass(fake_hass, signal_monitor=monitor)
     remote = await monitor.create_manual_remote("Clip A")
@@ -1486,35 +1486,35 @@ async def test_set_signal_note_success(fake_hass):
     fp = monitor._signal_store.get_device(remote.id).signals[0].fingerprint
 
     conn = _make_connection()
-    await ws_set_signal_note(
+    await ws_set_signal_alias(
         fake_hass, conn,
         {
             "id": 207,
-            "type": "hair/unknown/signal/set-note",
+            "type": "hair/unknown/signal/set-alias",
             "device_id": remote.id,
             "signal_fingerprint": fp,
-            "note": "  Mute  ",
+            "alias": "  Mute  ",
         },
     )
-    conn.send_result.assert_called_once_with(207, {"note": "Mute"})
-    assert monitor._signal_store.get_device(remote.id).signals[0].note == "Mute"
+    conn.send_result.assert_called_once_with(207, {"alias": "Mute"})
+    assert monitor._signal_store.get_device(remote.id).signals[0].alias == "Mute"
 
 
 @pytest.mark.asyncio
-async def test_set_signal_note_signal_not_found(fake_hass):
+async def test_set_signal_alias_signal_not_found(fake_hass):
     monitor = _make_signal_monitor(fake_hass)
     _wire_hass(fake_hass, signal_monitor=monitor)
     remote = await monitor.create_manual_remote("Clip A")
 
     conn = _make_connection()
-    await ws_set_signal_note(
+    await ws_set_signal_alias(
         fake_hass, conn,
         {
             "id": 208,
-            "type": "hair/unknown/signal/set-note",
+            "type": "hair/unknown/signal/set-alias",
             "device_id": remote.id,
             "signal_fingerprint": "missing",
-            "note": "x",
+            "alias": "x",
         },
     )
     conn.send_error.assert_called_once()

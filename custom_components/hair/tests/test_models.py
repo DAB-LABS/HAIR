@@ -369,27 +369,27 @@ def test_unknown_device_legacy_load_defaults_to_sniffed():
 
 
 # ---------------------------------------------------------------------------
-# note field (Clips freeform annotation) on UnknownSignal
+# alias field (Clips signal nickname) on UnknownSignal
 # ---------------------------------------------------------------------------
 
-def test_unknown_signal_note_defaults_to_empty():
+def test_unknown_signal_alias_defaults_to_empty():
     from custom_components.hair.models import UnknownSignal
 
-    assert UnknownSignal().note == ""
+    assert UnknownSignal().alias == ""
 
 
-def test_unknown_signal_note_round_trip():
+def test_unknown_signal_alias_round_trip():
     from custom_components.hair.models import UnknownSignal
 
-    sig = UnknownSignal(fingerprint="abc123", note="Power, top right")
+    sig = UnknownSignal(fingerprint="abc123", alias="Power")
     d = sig.to_dict()
-    assert d["note"] == "Power, top right"
-    assert UnknownSignal.from_dict(d).note == "Power, top right"
+    assert d["alias"] == "Power"
+    assert UnknownSignal.from_dict(d).alias == "Power"
 
 
-def test_unknown_signal_legacy_load_defaults_note_to_empty():
-    """Old .storage records lack a note field and must default to empty."""
+def test_unknown_signal_legacy_load_defaults_alias_to_empty():
+    """Old .storage records lack an alias field and must default to empty."""
     from custom_components.hair.models import UnknownSignal
 
     legacy = {"fingerprint": "abc123", "protocol": "PRONTO", "code": "0000 006D"}
-    assert UnknownSignal.from_dict(legacy).note == ""
+    assert UnknownSignal.from_dict(legacy).alias == ""

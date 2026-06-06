@@ -469,7 +469,7 @@ class UnknownSignal:
     first_seen: str = field(default_factory=_now_iso)
     last_seen: str = field(default_factory=_now_iso)
     source: Literal["sniffed", "manual"] = "sniffed"
-    note: str = ""
+    alias: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -482,7 +482,7 @@ class UnknownSignal:
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
             "source": self.source,
-            "note": self.note,
+            "alias": self.alias,
         }
         # Compute S/L pattern for Pronto signals (not stored, derived).
         if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
@@ -504,7 +504,7 @@ class UnknownSignal:
             first_seen=data.get("first_seen") or _now_iso(),
             last_seen=data.get("last_seen") or _now_iso(),
             source=data.get("source", "sniffed"),
-            note=data.get("note", ""),
+            alias=data.get("alias", ""),
         )
 
 

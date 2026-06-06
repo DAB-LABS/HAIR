@@ -883,7 +883,7 @@ class SignalMonitor:
         return device
 
     async def create_manual_signal(
-        self, device_id: str, pronto: str, note: str = ""
+        self, device_id: str, pronto: str, alias: str = ""
     ) -> dict[str, Any]:
         """Add a manually-pasted Pronto signal to a clipped remote.
 
@@ -928,17 +928,17 @@ class SignalMonitor:
                 first_seen=now_iso,
                 last_seen=now_iso,
                 source="manual",
-                note=(note or "").strip(),
+                alias=(alias or "").strip(),
             )
             device.signals.append(signal)
             device.last_seen = now_iso
             await self._signal_store.async_save()
         return {"success": True, "signal": signal.to_dict()}
 
-    async def set_signal_note(
-        self, device_id: str, signal_fingerprint: str, note: str
+    async def set_signal_alias(
+        self, device_id: str, signal_fingerprint: str, alias: str
     ) -> dict[str, Any]:
-        """Set or clear the freeform note on a signal. Empty clears it."""
+        """Set or clear the alias on a signal. Empty clears it."""
         async with self._lock:
             device = self._signal_store.get_device(device_id)
             if device is None:
@@ -948,9 +948,9 @@ class SignalMonitor:
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found"}
-            signal.note = (note or "").strip()
+            signal.alias = (alias or "").strip()
             await self._signal_store.async_save()
-        return {"success": True, "note": signal.note}
+        return {"success": True, "alias": signal.alias}
 
     # -----------------------------------------------------------------
     # Subscriber management (WebSocket push)

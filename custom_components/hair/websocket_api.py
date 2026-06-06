@@ -73,7 +73,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_signal)
     websocket_api.async_register_command(hass, ws_rename_unknown)
     websocket_api.async_register_command(hass, ws_clear_unknowns)
-    websocket_api.async_register_command(hass, ws_set_signal_note)
+    websocket_api.async_register_command(hass, ws_set_signal_alias)
 
     # Clips (manual remotes / signals)
     websocket_api.async_register_command(hass, ws_clip_create_remote)
@@ -1011,34 +1011,34 @@ async def ws_clear_unknowns(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/set-note",
+    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/set-alias",
     vol.Required("device_id"): str,
     vol.Required("signal_fingerprint"): str,
-    vol.Required("note"): str,
+    vol.Required("alias"): str,
 })
 @websocket_api.async_response
-async def ws_set_signal_note(
+async def ws_set_signal_alias(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Set or clear the freeform note on a signal (Clips). Empty clears."""
+    """Set or clear the alias on a signal (Clips). Empty clears it."""
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
-    result = await monitor.set_signal_note(
-        msg["device_id"], msg["signal_fingerprint"], msg["note"]
+    result = await monitor.set_signal_alias(
+        msg["device_id"], msg["signal_fingerprint"], msg["alias"]
     )
     if not result["success"]:
         connection.send_error(
             msg["id"],
-            result.get("code", "set_note_failed"),
-            result.get("error", "Failed to set note"),
+            result.get("code", "set_alias_failed"),
+            result.get("error", "Failed to set alias"),
         )
         return
-    connection.send_result(msg["id"], {"note": result["note"]})
+    connection.send_result(msg["id"], {"alias": result["alias"]})
 
 
 # --- Clips (manual remotes / signals) ---
@@ -1074,7 +1074,7 @@ async def ws_clip_create_remote(
     vol.Required("type"): f"{WS_PREFIX}/clip/create-signal",
     vol.Required("device_id"): str,
     vol.Required("pronto"): str,
-    vol.Optional("note", default=""): str,
+    vol.Optional("alias", default=""): str,
 })
 @websocket_api.async_response
 async def ws_clip_create_signal(
@@ -1089,7 +1089,7 @@ async def ws_clip_create_signal(
         return
     monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.create_manual_signal(
-        msg["device_id"], msg["pronto"], msg.get("note", "")
+        msg["device_id"], msg["pronto"], msg.get("alias", "")
     )
     if not result["success"]:
         connection.send_error(
