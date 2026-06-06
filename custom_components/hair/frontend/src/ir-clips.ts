@@ -831,7 +831,7 @@ export class IrClips extends LitElement {
             gap: 8px;
         }
         .device.clip-device {
-            border: 1px solid rgba(184, 115, 51, 0.4);
+            border: 1px solid rgba(184, 115, 51, 0.3);
             /* Clip the row's rectangular hover highlight to the card's
                rounded corners so its square corners do not poke out over
                the border stroke. */
