@@ -46,8 +46,6 @@ const ICON_PAPERCLIP =
 // mdi:pencil-outline
 const ICON_PENCIL =
     "M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6.02 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z";
-// mdi:plus
-const ICON_PLUS = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
 // mdi:chevron-down / up
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
@@ -450,7 +448,7 @@ export class IrClips extends LitElement {
                 </span>
                 <div class="toolbar-actions">
                     <button class="create-btn" @click=${this._openCreateRemote}>
-                        <ha-svg-icon .path=${ICON_PLUS}></ha-svg-icon> Create
+                        + Create
                     </button>
                     <button class="action-btn dismiss-btn" @click=${this._toggleDismissed}>
                         ${this._showDismissed ? "Hide Dismissed" : "Show Dismissed"}
@@ -587,7 +585,7 @@ export class IrClips extends LitElement {
                         class="create-btn create-signal-btn"
                         @click=${(e: Event) => this._openCreateSignal(device.id, e)}
                     >
-                        <ha-svg-icon .path=${ICON_PLUS}></ha-svg-icon> Create
+                        + Create
                     </button>
                 </div>
                 ${device.signals.length === 0
@@ -596,14 +594,16 @@ export class IrClips extends LitElement {
                       </div>`
                     : html`
                           <div class="signal-list">
-                              ${device.signals.map((sig) => this._renderSignal(device.id, sig))}
+                              ${device.signals.map((sig) =>
+                                  this._renderSignal(device.id, sig, device.dismissed),
+                              )}
                           </div>
                       `}
             </div>
         `;
     }
 
-    private _renderSignal(deviceId: string, sig: UnknownSignal) {
+    private _renderSignal(deviceId: string, sig: UnknownSignal, dismissed: boolean) {
         const isTesting = this._testingFingerprint === sig.fingerprint;
         return html`
             <div class="signal-row">
@@ -616,7 +616,10 @@ export class IrClips extends LitElement {
                 <div class="signal-actions">
                     <button
                         class="action-btn assign-btn"
-                        title="Assign this signal to a HAIR device"
+                        ?disabled=${dismissed}
+                        title=${dismissed
+                            ? "Restore this remote first"
+                            : "Assign this signal to a HAIR device"}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openAssign(deviceId, sig);
@@ -624,8 +627,10 @@ export class IrClips extends LitElement {
                     >Assign</button>
                     <button
                         class="action-btn test-btn"
-                        ?disabled=${isTesting}
-                        title="Send this signal through an emitter"
+                        ?disabled=${dismissed || isTesting}
+                        title=${dismissed
+                            ? "Restore this remote first"
+                            : "Send this signal through an emitter"}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openTestDialog(sig);
@@ -633,7 +638,10 @@ export class IrClips extends LitElement {
                     >${isTesting ? "Sending..." : "Test"}</button>
                     <button
                         class="action-btn trigger-btn ${this._hasTrigger(sig.fingerprint) ? "trigger-on" : ""}"
-                        title="Create an HA event entity that fires on this signal"
+                        ?disabled=${dismissed}
+                        title=${dismissed
+                            ? "Restore this remote first"
+                            : "Create an HA event entity that fires on this signal"}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openTriggerDialog(deviceId, sig);
@@ -855,10 +863,9 @@ export class IrClips extends LitElement {
             gap: 8px;
             align-items: center;
         }
+        /* Header "+ Create" -- sized to match the Hide Dismissed (action-btn)
+           button beside it: same padding/font, copper colors. */
         .create-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
             background: none;
             color: #b87333;
             border: 1px solid #b87333;
@@ -875,12 +882,12 @@ export class IrClips extends LitElement {
         .create-btn:hover {
             background: rgba(184, 115, 51, 0.08);
         }
-        .create-btn ha-svg-icon {
-            --mdc-icon-size: 14px;
-        }
+        /* Card-internal "+ Create" -- smaller and pill-shaped, so it reads
+           as distinct from the rectangular Assign/Test/Trigger/Delete row. */
         .create-signal-btn {
-            padding: 2px 8px;
-            font-size: 0.7rem;
+            padding: 2px 12px;
+            font-size: 0.68rem;
+            border-radius: 999px;
         }
 
         .clear-all-row {
