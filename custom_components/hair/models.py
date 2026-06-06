@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from .const import (
@@ -468,6 +468,7 @@ class UnknownSignal:
     hit_count: int = 0
     first_seen: str = field(default_factory=_now_iso)
     last_seen: str = field(default_factory=_now_iso)
+    source: Literal["sniffed", "manual"] = "sniffed"
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -479,6 +480,7 @@ class UnknownSignal:
             "hit_count": self.hit_count,
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
+            "source": self.source,
         }
         # Compute S/L pattern for Pronto signals (not stored, derived).
         if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
@@ -499,6 +501,7 @@ class UnknownSignal:
             hit_count=int(data.get("hit_count", 0)),
             first_seen=data.get("first_seen") or _now_iso(),
             last_seen=data.get("last_seen") or _now_iso(),
+            source=data.get("source", "sniffed"),
         )
 
 
@@ -516,6 +519,7 @@ class UnknownDevice:
     first_seen: str = field(default_factory=_now_iso)
     last_seen: str = field(default_factory=_now_iso)
     dismissed: bool = False
+    source: Literal["sniffed", "manual"] = "sniffed"
 
     def get_signal(self, fingerprint: str) -> UnknownSignal | None:
         """Find a signal by fingerprint."""
@@ -544,6 +548,7 @@ class UnknownDevice:
             "first_seen": self.first_seen,
             "last_seen": self.last_seen,
             "dismissed": self.dismissed,
+            "source": self.source,
         }
 
     @classmethod
@@ -562,4 +567,5 @@ class UnknownDevice:
             first_seen=data.get("first_seen") or _now_iso(),
             last_seen=data.get("last_seen") or _now_iso(),
             dismissed=bool(data.get("dismissed", False)),
+            source=data.get("source", "sniffed"),
         )

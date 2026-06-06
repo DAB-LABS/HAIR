@@ -316,3 +316,53 @@ def test_legacy_device_type_migration():
         data = {"name": "Test", "device_type": legacy_type}
         device = IRDevice.from_dict(data)
         assert device.device_type == DeviceType.MEDIA_PLAYER
+
+
+# ---------------------------------------------------------------------------
+# source field (sniffed / manual) on unknown records
+# ---------------------------------------------------------------------------
+
+def test_unknown_signal_source_defaults_to_sniffed():
+    from custom_components.hair.models import UnknownSignal
+
+    assert UnknownSignal().source == "sniffed"
+
+
+def test_unknown_device_source_defaults_to_sniffed():
+    from custom_components.hair.models import UnknownDevice
+
+    assert UnknownDevice().source == "sniffed"
+
+
+def test_unknown_signal_source_round_trip():
+    from custom_components.hair.models import UnknownSignal
+
+    sig = UnknownSignal(fingerprint="abc123", source="manual")
+    d = sig.to_dict()
+    assert d["source"] == "manual"
+    assert UnknownSignal.from_dict(d).source == "manual"
+
+
+def test_unknown_device_source_round_trip():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Living Room TV", source="manual")
+    d = dev.to_dict()
+    assert d["source"] == "manual"
+    assert UnknownDevice.from_dict(d).source == "manual"
+
+
+def test_unknown_signal_legacy_load_defaults_to_sniffed():
+    """Old .storage records lack a source field and must default to sniffed."""
+    from custom_components.hair.models import UnknownSignal
+
+    legacy = {"fingerprint": "abc123", "protocol": "PRONTO", "code": "0000 006D"}
+    assert UnknownSignal.from_dict(legacy).source == "sniffed"
+
+
+def test_unknown_device_legacy_load_defaults_to_sniffed():
+    """Old .storage records lack a source field and must default to sniffed."""
+    from custom_components.hair.models import UnknownDevice
+
+    legacy = {"id": "dev1", "label": "Old Remote", "signals": []}
+    assert UnknownDevice.from_dict(legacy).source == "sniffed"
