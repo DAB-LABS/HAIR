@@ -566,16 +566,12 @@ class SignalMonitor:
                 return {"success": False, "code": "target_not_found",
                         "error": "Target HAIR device not found"}
 
-            # Idempotency: reject if this fingerprint is already assigned.
-            for cmd in hair_device.commands:
-                if (cmd.protocol == signal.protocol
-                        and cmd.code == signal.code
-                        and cmd.protocol is not None
-                        and cmd.code is not None):
-                    return {"success": False, "code": "duplicate_signal",
-                            "error": "Signal already assigned to this device"}
-
-            # Build IRCommand from signal.
+            # Build IRCommand from the signal. The signal is COPIED into
+            # the device and intentionally LEFT in the unknown catalog so
+            # it can be assigned again -- to other devices or as other
+            # commands. Only an explicit Delete / Dismiss / Clear All
+            # removes it. No duplicate guard: assigning the same signal
+            # more than once is the user's prerogative.
             capture = CaptureResult(
                 protocol=signal.protocol,
                 code=signal.code,
@@ -588,46 +584,15 @@ class SignalMonitor:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
 
-            # Mutate both stores in memory.
             hair_device.add_command(ir_command)
             command_id = ir_command.id
-            unknown_device.remove_signal(signal_fingerprint)
-            device_emptied = not unknown_device.signals
-            if device_emptied:
-                self._signal_store.remove_device(device_id)
-
             try:
-                # Persist HAIRStore first (source of truth for commands).
                 await self._hair_store.async_save()
             except Exception:
-                # Rollback in-memory changes.
                 hair_device.remove_command(command_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
                 _LOGGER.exception("Failed to save HAIR store during assign")
                 return {"success": False, "code": "save_failed",
                         "error": "Failed to save command"}
-
-            try:
-                # Persist SignalStore second.
-                await self._signal_store.async_save()
-            except Exception:
-                # HAIRStore already saved with the command -- revert it.
-                hair_device.remove_command(command_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                try:
-                    await self._hair_store.async_save()
-                except Exception:
-                    _LOGGER.exception(
-                        "CRITICAL: Failed to rollback HAIR store after "
-                        "signal store save failure"
-                    )
-                _LOGGER.exception("Failed to save signal store during assign")
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to update signal store"}
 
         return {"success": True, "command_id": command_id}
 
@@ -697,51 +662,24 @@ class SignalMonitor:
             command_id = ir_command.id
             new_device_id = new_device.id
 
-            # Add to HAIRStore in memory.
+            # Add to HAIRStore in memory. The source signal is COPIED into
+            # the new device and intentionally LEFT in the unknown catalog
+            # so it stays assignable. Only an explicit Delete / Dismiss /
+            # Clear All removes it.
             self._hair_store.add_device(new_device)
-
-            # Remove signal from unknowns in memory.
-            unknown_device.remove_signal(signal_fingerprint)
-            device_emptied = not unknown_device.signals
-            if device_emptied:
-                self._signal_store.remove_device(device_id)
 
             try:
                 await self._hair_store.async_save()
             except Exception:
-                # Rollback: remove device from store, restore signal.
+                # Rollback: drop the unsaved device.
                 self._hair_store.remove_device(new_device_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
                 _LOGGER.exception(
                     "Failed to save HAIR store during assign-new-device"
                 )
                 return {"success": False, "code": "save_failed",
                         "error": "Failed to save new device"}
 
-            try:
-                await self._signal_store.async_save()
-            except Exception:
-                # Rollback HAIRStore.
-                self._hair_store.remove_device(new_device_id)
-                if device_emptied:
-                    self._signal_store.add_device(unknown_device)
-                unknown_device.signals.append(signal)
-                try:
-                    await self._hair_store.async_save()
-                except Exception:
-                    _LOGGER.exception(
-                        "CRITICAL: Failed to rollback HAIR store after "
-                        "signal store save failure in assign-new-device"
-                    )
-                _LOGGER.exception(
-                    "Failed to save signal store during assign-new-device"
-                )
-                return {"success": False, "code": "save_failed",
-                        "error": "Failed to update signal store"}
-
-        # Both stores persisted -- safe to register in HA now.
+        # HAIR store persisted -- safe to register in HA now.
         # (Outside the lock since HA registry ops don't touch our stores.)
         return {
             "success": True,

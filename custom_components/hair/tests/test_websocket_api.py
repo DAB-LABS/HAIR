@@ -1285,8 +1285,10 @@ async def test_assign_new_device_success(fake_hass):
     manager._register_ha_device.assert_called_once()
     manager._entity_factory.async_create_entities.assert_called_once()
 
-    # Unknown signal should be gone.
-    assert monitor._signal_store.get_device("ud1") is None
+    # Unknown signal persists -- copied into the new device, not consumed.
+    remaining = monitor._signal_store.get_device("ud1")
+    assert remaining is not None
+    assert remaining.get_signal("sig_fp") is not None
 
 
 @pytest.mark.asyncio

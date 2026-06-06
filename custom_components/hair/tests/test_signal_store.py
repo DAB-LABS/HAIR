@@ -325,6 +325,30 @@ class TestEviction:
         assert removed == 0
         assert store.get_device("dismissed_old") is not None
 
+    def test_evict_does_not_touch_manual(self):
+        """Manual (clipped) remotes are user creations, not captured
+        noise -- eviction must never remove them, even old and at zero
+        hits.
+        """
+        hass = _make_hass()
+        store = SignalStore(hass)
+        old_time = (
+            datetime.now(UTC) - timedelta(days=SIGNAL_EVICT_AGE_DAYS + 1)
+        ).isoformat()
+        store.add_device(
+            UnknownDevice(
+                id="manual_old",
+                fingerprint="manual:x",
+                hit_count=0,
+                last_seen=old_time,
+                first_seen=old_time,
+                source="manual",
+            )
+        )
+        removed = store.evict()
+        assert removed == 0
+        assert store.get_device("manual_old") is not None
+
     def test_evict_over_buffer_limit(self):
         hass = _make_hass()
         store = SignalStore(hass)
