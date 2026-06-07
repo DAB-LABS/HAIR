@@ -5,6 +5,21 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-06-06
+
+### Added
+
+- Drag-to-reorder across the panel. Drag device cards on the Devices tab, remotes on the Sniffer and Clipper, and the signals within a remote on both tabs. On the Sniffer and Clipper a six-dot grip handle replaces each remote's leading icon (blue on the Sniffer, copper on the Clipper) and a lighter gray grip sits on each signal row; device cards drag by the whole card. The order you set persists across reloads.
+
+### Changed
+
+- The Sniffer and Clipper no longer order remotes by hit count. They use the manual order you set by dragging, and a newly seen remote or newly added signal appears at the top until you move it. Existing lists are seeded once from the previous hit-count order on upgrade so nothing jumps around.
+- Renamed the Clipper's add buttons to match the Devices tab. The top-right "Create" is now "Add Remote" (mirroring "Add Device"), and the in-card "Create" is now "Add Signal". The in-card button is a lighter borderless text action instead of a pill.
+
+### Fixed
+
+- The Clipper no longer accepts a Pronto code that is already on the remote. Previously a repeated paste created a second signal with the same fingerprint that could not be used independently and broke reordering. Pasting a duplicate now returns a clear message, and any duplicate created by an earlier version is removed automatically on the next restart.
+
 ## [0.3.1] - 2026-06-06
 
 ### Added

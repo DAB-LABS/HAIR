@@ -96,6 +96,12 @@ class DeviceManager:
         await self._entity_factory.async_update_entities(device)
         return device
 
+    async def async_reorder_devices(self, ordered_ids: list[str]) -> None:
+        """Reorder the device list and persist. Raises ValueError on a
+        stale/mismatched id list (see ``HAIRStore.reorder_devices``)."""
+        self._store.reorder_devices(ordered_ids)
+        await self._store.async_save()
+
     async def async_remove_device(self, device_id: str) -> bool:
         device = self._store.get_device(device_id)
         if device is None:

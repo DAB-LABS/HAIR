@@ -523,6 +523,10 @@ class UnknownDevice:
     last_seen: str = field(default_factory=_now_iso)
     dismissed: bool = False
     source: Literal["sniffed", "manual"] = "sniffed"
+    # Manual display order within a tab (Sniffer / Clipper). Lower sorts
+    # higher. New remotes are inserted below the minimum so they land on
+    # top until the user drags them. Replaces the old hit_count sort.
+    order: int = 0
 
     def get_signal(self, fingerprint: str) -> UnknownSignal | None:
         """Find a signal by fingerprint."""
@@ -539,6 +543,38 @@ class UnknownDevice:
                 return True
         return False
 
+    def reorder_signals(self, fingerprints: list[str]) -> None:
+        """Reorder ``self.signals`` to match the given fingerprint list.
+
+        The provided list must contain exactly the set of fingerprints
+        currently held by this remote -- no duplicates, no unknown, no
+        missing. The drag-to-reorder UI always sends the complete list,
+        so any divergence indicates a stale client and is rejected loudly
+        rather than applied. Mirrors ``IRDevice.reorder_commands``.
+
+        Raises :class:`ValueError` on mismatch and leaves ``self.signals``
+        untouched.
+        """
+        if len(fingerprints) != len(set(fingerprints)):
+            raise ValueError("Duplicate signal fingerprints in reorder list")
+        current = {s.fingerprint for s in self.signals}
+        requested = set(fingerprints)
+        if requested != current:
+            missing = current - requested
+            unknown = requested - current
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current signals: "
+                + ", ".join(details)
+            )
+
+        by_fp = {s.fingerprint: s for s in self.signals}
+        self.signals = [by_fp[fp] for fp in fingerprints]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -552,6 +588,7 @@ class UnknownDevice:
             "last_seen": self.last_seen,
             "dismissed": self.dismissed,
             "source": self.source,
+            "order": self.order,
         }
 
     @classmethod
@@ -571,4 +608,5 @@ class UnknownDevice:
             last_seen=data.get("last_seen") or _now_iso(),
             dismissed=bool(data.get("dismissed", False)),
             source=data.get("source", "sniffed"),
+            order=int(data.get("order", 0)),
         )

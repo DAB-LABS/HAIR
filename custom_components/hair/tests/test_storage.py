@@ -89,3 +89,80 @@ async def test_store_skips_malformed_entries(fake_hass):
         # Bad entry should be skipped, good one should load.
         assert store.get_device("good") is not None
         assert store.get_device("bad") is None
+
+
+# ---------------------------------------------------------------------------
+# reorder_devices (drag-to-reorder on the Devices tab, v0.3.2)
+# ---------------------------------------------------------------------------
+
+def _dev(name: str) -> IRDevice:
+    return IRDevice(name=name, device_type=DeviceType.MEDIA_PLAYER)
+
+
+@pytest.mark.asyncio
+async def test_reorder_devices_happy_path(fake_hass):
+    with patch("custom_components.hair.storage.Store", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a, b, c = _dev("A"), _dev("B"), _dev("C")
+        for d in (a, b, c):
+            store.add_device(d)
+
+        store.reorder_devices([c.id, a.id, b.id])
+
+        assert [d.id for d in store.get_all_devices()] == [c.id, a.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_reorder_devices_persists_order(fake_hass):
+    with patch("custom_components.hair.storage.Store", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a, b = _dev("A"), _dev("B")
+        store.add_device(a)
+        store.add_device(b)
+        store.reorder_devices([b.id, a.id])
+        await store.async_save()
+
+        store2 = HAIRStore(fake_hass)
+        store2._store = store._store  # type: ignore[attr-defined]
+        await store2.async_load()
+        assert [d.id for d in store2.get_all_devices()] == [b.id, a.id]
+
+
+@pytest.mark.asyncio
+async def test_reorder_devices_duplicate_raises(fake_hass):
+    with patch("custom_components.hair.storage.Store", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a = _dev("A")
+        store.add_device(a)
+        with pytest.raises(ValueError, match="Duplicate"):
+            store.reorder_devices([a.id, a.id])
+
+
+@pytest.mark.asyncio
+async def test_reorder_devices_unknown_raises(fake_hass):
+    with patch("custom_components.hair.storage.Store", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a = _dev("A")
+        store.add_device(a)
+        before = [d.id for d in store.get_all_devices()]
+        with pytest.raises(ValueError, match="unknown"):
+            store.reorder_devices([a.id, "ghost"])
+        assert [d.id for d in store.get_all_devices()] == before
+
+
+@pytest.mark.asyncio
+async def test_reorder_devices_missing_raises(fake_hass):
+    with patch("custom_components.hair.storage.Store", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a, b = _dev("A"), _dev("B")
+        store.add_device(a)
+        store.add_device(b)
+        before = [d.id for d in store.get_all_devices()]
+        with pytest.raises(ValueError, match="missing"):
+            store.reorder_devices([a.id])
+        assert [d.id for d in store.get_all_devices()] == before

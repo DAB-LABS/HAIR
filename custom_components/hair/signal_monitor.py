@@ -335,7 +335,10 @@ class SignalMonitor:
                     last_seen=now_iso,
                     hit_count=0,
                 )
-                device.signals.append(signal)
+                # New signal goes on top of the remote's list so the
+                # just-pressed button surfaces; existing signals keep
+                # their position (only hit_count updates below).
+                device.signals.insert(0, signal)
 
             signal.hit_count += 1
             signal.last_seen = now_iso
@@ -480,7 +483,12 @@ class SignalMonitor:
         min_hits: int | None = None,
         source: str | None = None,
     ) -> list[UnknownDevice]:
-        """Return unknown devices sorted by hit_count descending.
+        """Return unknown devices in manual display order.
+
+        Ordered by the persisted ``order`` field (ascending; lower sorts
+        higher), not by hit_count. Newly-discovered remotes are inserted
+        on top via ``SignalStore.add_device`` and stay there until the
+        user drags them. The min_hits noise filter is unchanged.
 
         Args:
             include_dismissed: Include dismissed devices in results.
@@ -501,7 +509,7 @@ class SignalMonitor:
         if source is not None:
             devices = [d for d in devices if d.source == source]
 
-        return sorted(devices, key=lambda d: d.hit_count, reverse=True)
+        return sorted(devices, key=lambda d: d.order)
 
     def get_unknown_device(self, device_id: str) -> UnknownDevice | None:
         """Return a single unknown device by ID."""
@@ -851,6 +859,17 @@ class SignalMonitor:
             now_iso = datetime.now(UTC).isoformat()
             code = result.normalized
             sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
+            # Reject a paste of a signal already on this remote. The whole
+            # signal model keys on fingerprint (get_signal, delete, alias,
+            # reorder, the frontend row key), so a twin would be unusable
+            # and would break reorder. The Sniffer dedupes on capture; this
+            # is the equivalent guard for the manual paste path.
+            if device.get_signal(sig_fp) is not None:
+                return {
+                    "success": False,
+                    "code": "duplicate_signal",
+                    "error": "This signal is already on this remote",
+                }
             frequency = (
                 round(result.frequency_khz * 1000)
                 if result.frequency_khz
@@ -868,7 +887,8 @@ class SignalMonitor:
                 source="manual",
                 alias=(alias or "").strip(),
             )
-            device.signals.append(signal)
+            # New signal goes on top so the just-added clip surfaces.
+            device.signals.insert(0, signal)
             device.last_seen = now_iso
             await self._signal_store.async_save()
         return {"success": True, "signal": signal.to_dict()}

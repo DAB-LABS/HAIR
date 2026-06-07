@@ -206,7 +206,7 @@ export class HaPanelIrDevices extends LitElement {
                                 <ha-svg-icon
                                     .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
                                 ></ha-svg-icon>
-                                Create
+                                Add Remote
                             </button>
                         `
                       : ""}

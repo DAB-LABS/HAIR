@@ -4,9 +4,7 @@
 
 # HAIR
 
-IR control in Home Assistant used to mean picking your manufacturer's integration, hoping its code database had your device model, and either trusting a JSON file from a forum or hand-rolling template entities. The captured signals lived on the blaster. The user lived in YAML. The codes were ***trapped where they were learned***: a Broadlink app's cloud, a vendor hub, a config file on disk.
-
-***HAIR moves IR into Home Assistant itself.*** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that ***triggers automations***. A command broadcast through any blaster on HA's native `infrared` platform, whether that is an ESPHome IR LED, a [Tuya Local](https://github.com/make-all/tuya-local) IR blaster, a Broadlink RM, an SMLIGHT SLZB, or anything else that adopts the platform.
+***HAIR moves your IR codes out of vendor clouds, blaster memory, and config files, and into Home Assistant itself.*** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that ***triggers automations***. A command broadcast through any blaster on HA's native `infrared` platform, whether that is an ESPHome IR LED, a [Tuya Local](https://github.com/make-all/tuya-local) IR blaster, a Broadlink RM, an SMLIGHT SLZB, or anything else that adopts the platform.
 
 No manufacturer picker. No model lookup. No code file downloads. No YAML. Just point, press, use.
 
@@ -117,11 +115,11 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 **Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Assigning a signal copies it into the device and leaves the original in place, so the same signal can be assigned to more than one device or as more than one command. Each device gets native HA entities automatically based on its type. One-click duplicate clones an existing device with all its commands, action mappings, and emitter assignments preserved, useful when you have several remotes of the same model or a stack of similar AC units.
 
-**Drag-to-Reorder** - Reorder the commands inside a device by dragging them. The new order persists across reloads and is reflected in the dashboard button entities. Helpful for putting power and mode commands at the top of the list where you actually use them.
+**Drag-to-Reorder** - Arrange things in the order that makes sense to you, and the order sticks across reloads. Drag the commands inside a device (reflected in the dashboard button entities), drag whole device cards on the Devices tab, and drag remotes or the signals within a remote on both the Sniffer and Clipper. On the Sniffer and Clipper, a grip handle replaces the leading icon on each remote (blue on the Sniffer, copper on the Clipper) and a lighter grip sits on each signal row. A newly seen or newly added remote or signal lands on top until you move it, so the latest thing is always easy to find.
 
 **Action Mapping** - Explicitly bind IR commands to HA entity features through a popover UI. When you map a command to "Volume Up," the media_player entity knows to call that command when the HA volume service is used. Features are only exposed when commands are mapped, so your entities stay clean.
 
-**Triggers** - Turn any IR signal into a native HA event entity. Create a trigger from a learned device command or from an unknown signal in the Sniffer. Each trigger gets an `event` entity under a virtual "HAIR Triggers" device, firing an `ir_command_received` event whenever the matching signal is received. Use triggers to build HA automations that react to physical remote presses (e.g., pressing a TV power button also turns off the room lights). A configurable "min hits" threshold (minimum button presses) lets you require multiple presses within a 5-second window before the trigger fires, which is useful for preventing accidental activations. The Devices tab shows all active triggers with real-time fire animations.
+**Triggers** - Turn any IR signal into a native HA event entity. Create a trigger from a learned device command, from an unknown signal in the Sniffer, or from a pasted signal in the Clipper. Each trigger gets an `event` entity under a virtual "HAIR Triggers" device, firing an `ir_command_received` event whenever the matching signal is received. Use triggers to build HA automations that react to physical remote presses (e.g., pressing a TV power button also turns off the room lights). A configurable "min hits" threshold (minimum button presses) lets you require multiple presses within a 5-second window before the trigger fires, which is useful for preventing accidental activations. The Devices tab shows all active triggers with real-time fire animations.
 
 **Emitter Routing & Broadcast Control** - Assign one or more IR emitters to each device with explicit control over how commands are broadcast. Lock a device to a single emitter for room-scoped control (an AC pinned to the bedroom emitter so commands never leak to the living room), or assign multiple emitters for a wide broadcast (a single "TV Power" command fires through emitters in every room simultaneously). Routing is configured per-device, so you can mix tight per-room targeting for some devices with whole-house broadcast for others.
 
@@ -137,7 +135,7 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 The main view shows five sections:
 
-**HAIR Devices** - Your managed IR device profiles. Each card shows the device name, type, command count, and how many emitters are assigned. Each card also carries two small corner actions: a duplicate icon in the top-right to clone the device with all its commands and emitter assignments preserved, and a delete icon in the bottom-right for removing the device without opening its detail view. Click anywhere else on the card to expand its detail view inline, where you can change the device type, manage emitters, drag-to-reorder commands, and see every learned command with its S/L diamond fingerprint pattern. From the detail view you can test commands, delete them, or assign action mappings.
+**HAIR Devices** - Your managed IR device profiles. Each card shows the device name, type, command count, and how many emitters are assigned. Drag a card to reorder your devices; the order persists. Each card also carries two small corner actions: a duplicate icon in the top-right to clone the device with all its commands and emitter assignments preserved, and a delete icon in the bottom-right for removing the device without opening its detail view. Click anywhere else on the card to expand its detail view inline, where you can change the device type, manage emitters, drag-to-reorder commands, and see every learned command with its S/L diamond fingerprint pattern. From the detail view you can test commands, delete them, or assign action mappings.
 
 **Triggers** - Active IR triggers that fire HA event entities when their signal is detected. Each trigger card shows the trigger name with a lightning bolt icon. When a trigger fires, the card flashes with an amber glow animation in real time.
 
@@ -159,29 +157,35 @@ Devices already managed by HAIR are tagged with a "HAIR Device" badge. You can d
 
 You can give any signal an alias by clicking its diamond pattern and typing a name. The alias replaces the diamonds in the row, which makes it easy to tell signals apart before you assign them. Assigning a signal no longer removes it from the Sniffer either. The signal is copied into the device and stays in the list, so you can assign the same signal to several devices, or as several commands, and reuse it later. Only Delete, Dismiss, and Clear All take a signal out of the Sniffer.
 
+Remotes and signals are yours to arrange. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. The order you set is remembered, and a newly seen remote or signal appears at the top until you move it.
+
 ### The Clipper Tab
 
 The Clipper tab is for building remotes by hand, for when you cannot or do not want to sniff them live. Instead of pointing a remote at a receiver, you paste a Pronto hex code for each button.
 
-Click "+ Create" to make a named remote, then expand it and click "+ Create" again to add a signal. Paste the Pronto code into the dialog. As you paste, HAIR validates the code and shows a green or red check, the detected carrier frequency, the burst pair count, and the same S/L diamond fingerprint you see in the Sniffer, along with a specific message if anything is wrong (a header that is not `0000`, a truncated code, non-hex characters, or an unusual carrier frequency). Press Enter or click Create once it validates, and give it an alias up front if you like.
+Click "+ Add Remote" to make a named remote, then expand it and click "+ Add Signal" to add a signal. Paste the Pronto code into the dialog. As you paste, HAIR validates the code and shows a green or red check, the detected carrier frequency, the burst pair count, and the same S/L diamond fingerprint you see in the Sniffer, along with a specific message if anything is wrong (a header that is not `0000`, a truncated code, non-hex characters, or an unusual carrier frequency). Press Enter or click Create once it validates, and give it an alias up front if you like. Pasting a code that is already on the remote is refused, so a remote never ends up with two identical signals.
 
-From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it.
+From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote.
 
 Pronto is the only paste format for now. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported. A device database picker that pre-fills commands is planned for a future release and will live alongside the paste field on this same tab.
 
 ### Adding a Device
 
-There are three ways to add a device.
+There are four ways to add a device.
 
 **From scratch:** Click the "Add Device" button in the tab bar on the Devices tab. Enter a name, pick a device type, and select which IR emitters should broadcast commands for this device. HAIR creates the device profile and the corresponding HA entities immediately.
 
 **From the Sniffer (promote an unknown source):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Click the pencil button on the source row to give it a custom name first, then promote it to a full HAIR device. Setting the name before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. This path is ideal when you have the physical remote in hand and want to capture its signals first.
+
+**From the Clipper (promote a built remote):** A remote you build by hand in the Clipper promotes the same way a sniffed one does. Once you have pasted its signals with "+ Add Remote" and "+ Add Signal", click Promote on the remote to turn it into a full HAIR device. This is the path for a device you have Pronto codes for (from a converter, datasheet, or ESPHome log) but cannot capture live.
 
 **From an existing device (duplicate):** Click the duplicate icon in the top-right corner of any device card. HAIR opens a dialog pre-filled with `<original name> (Copy)` so you can rename the clone before it lands. All of the original device's commands, action mappings, and emitter assignments are copied across; triggers stay attached to the original. This path is ideal when you have several remotes of the same model (a stack of similar AC units, two identical TVs in different rooms) or when you want a sandbox copy to experiment with action mappings without breaking the working device.
 
 ### Learning Commands
 
 Navigate to the Sniffer tab and press buttons on your physical remote. HAIR captures each signal in real time. Expand the source device row, then click on a signal to assign it to one of your HAIR devices. Pick a command name from the device-type-aware template list (e.g., "Power On," "Volume Up," "Mode: Cool") or enter a custom name.
+
+When you don't have the physical remote to hand, build the command in the Clipper instead: paste the button's Pronto code on the Clipper tab, then Assign it to a device exactly as you would a sniffed signal. Sniffed and clipped signals are interchangeable once captured.
 
 You can also start from a device. A device's detail view has two add-command buttons, "+ Sniffed Signal" and "+ Clipped Signal", which take you to the Sniffer or the Clipper tab so you can capture or paste the signal and assign it back to the device.
 
@@ -191,11 +195,13 @@ After learning commands, open a device's detail view and click the "ACTIONS" bad
 
 ### Triggers
 
-Triggers let you use incoming IR signals as automation triggers in Home Assistant. There are two ways to create a trigger.
+Triggers let you use incoming IR signals as automation triggers in Home Assistant. There are three ways to create a trigger.
 
 From a device command: expand a device in the Devices tab and click the trigger button on any command row. This creates a trigger linked to that command's signal. If a trigger already exists for that command, the button opens the trigger in edit mode instead.
 
 From the Sniffer: expand an unknown device and click the trigger button on any signal row. This creates a trigger from the raw signal fingerprint, which is useful for signals you want to react to without assigning them to a HAIR device.
+
+From the Clipper: expand a clipped remote and click the trigger button on any signal row, the same as in the Sniffer. This turns a pasted Pronto code into an automation trigger without having to assign it to a device first.
 
 Each trigger has a configurable "min hits" value (minimum button presses, 1 to 10) that controls how many times the signal must be received within a 5-second window before the trigger fires. Setting this to 2 or 3 is useful for preventing triggers from firing on stray or accidental presses.
 
@@ -241,30 +247,36 @@ S/L fingerprinting covers all major consumer IR protocols including NEC, Samsung
 
 ### Architecture
 
+Two signal sources feed one catalog: live capture (Sniffer) and manual Pronto paste (Clipper).
+
 ```
-Remote Control
-      |
-  IR Receiver Hardware
-      |
+  Remote Control                              Pasted Pronto hex
+        |                                            |
+  IR Receiver Hardware                               |
+        |                                            |
   +--------------------------+---------------------------+
   | Native (HA 2026.6+)      | Legacy (HA 2026.4-2026.5) |
   | InfraredReceiverEntity   | ESPHome remote_receiver   |
   | async_subscribe_receiver | esphome.remote_received   |
   +--------------------------+---------------------------+
-      |
-  HAIR Signal Monitor --> Signal Store (fingerprint + dedup)
-      |                         |
-      |                   Trigger Manager --> Event Entities (HA automations)
-      |
-  HAIR Admin Panel (Sniffer view)
-      |
-  Assign to Device --> Device Manager --> Entity Factory
-      |
-  HA Entities (media_player, climate, fan, light, switch, cover, remote, button)
-      |
-  HA infrared Platform (infrared.send_command) <-- TX path: any platform integration
-      |
-  IR Emitter Hardware (ESPHome, Tuya Local, Broadlink, SMLIGHT, etc.)
+        |                                            |
+  HAIR Signal Monitor (RX capture)        Clipper (manual paste)
+        |                                            |
+        +---------------------+----------------------+
+                              |
+   Signal Store  (S/L fingerprint + dedup; tracks sniffed vs manual)
+                              |
+                  Trigger Manager --> Event Entities (HA automations)
+                              |
+   HAIR Admin Panel  (Sniffer tab + Clipper tab)
+                              |
+   Assign signal / Promote remote --> Device Manager --> Entity Factory
+                              |
+   HA Entities (media_player, climate, fan, light, switch, cover, remote, button)
+                              |
+   HA infrared Platform (infrared.send_command)  <-- TX path: any platform integration
+                              |
+   IR Emitter Hardware (ESPHome, Tuya Local, Broadlink, SMLIGHT, etc.)
 ```
 
 ## Contributing

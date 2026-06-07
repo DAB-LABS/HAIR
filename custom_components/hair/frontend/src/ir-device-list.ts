@@ -10,6 +10,9 @@
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { keyed } from "lit/directives/keyed.js";
+import { repeat } from "lit/directives/repeat.js";
+import Sortable from "sortablejs";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
 import "./ir-confirm-dialog.js";
@@ -72,6 +75,9 @@ const ICON_TRASH =
 const ICON_COPY =
     "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 
+/** Debounce delay (ms) between a drop and the persist call. */
+const REORDER_DEBOUNCE_MS = 500;
+
 /**
  * Result of merging capture providers by HA device ID.
  *
@@ -108,6 +114,15 @@ export class IrDeviceList extends LitElement {
     @state() private _duplicateTarget: DeviceSummary | null = null;
     @state() private _confirmDeleteDevice: DeviceSummary | null = null;
 
+    // Drag-to-reorder for the HAIR device cards (whole-card drag, no handle).
+    // ``_localDevices`` holds the optimistic order between a drop and the
+    // next parent refresh; it is reset to null whenever the parent pushes a
+    // fresh ``devices`` property (which is then the source of truth).
+    @state() private _devicesVersion = 0;
+    @state() private _localDevices: DeviceSummary[] | null = null;
+    private _devicesSortable: Sortable | null = null;
+    private _pendingDevicesSave: number | null = null;
+
     private _unsubTriggerFired: (() => Promise<void>) | null = null;
 
     connectedCallback(): void {
@@ -120,6 +135,17 @@ export class IrDeviceList extends LitElement {
     disconnectedCallback(): void {
         super.disconnectedCallback();
         void this._unsubscribeTriggerFired();
+        this._devicesSortable?.destroy();
+        this._devicesSortable = null;
+        if (this._pendingDevicesSave !== null) clearTimeout(this._pendingDevicesSave);
+    }
+
+    protected willUpdate(changed: PropertyValues): void {
+        // When the parent hands us a fresh device list, adopt it as the
+        // source of truth and drop any optimistic local ordering.
+        if (changed.has("devices")) {
+            this._localDevices = null;
+        }
     }
 
     updated(changed: PropertyValues): void {
@@ -133,6 +159,78 @@ export class IrDeviceList extends LitElement {
         if (changed.has("expandedDeviceId")) {
             void this._loadExpandedDevice();
         }
+        this._syncDevicesSortable();
+    }
+
+    /** Attach / detach the device-grid SortableJS instance. */
+    private _syncDevicesSortable(): void {
+        const grid = this.renderRoot.querySelector(".device-grid") as HTMLElement | null;
+        if (grid && !this._devicesSortable) {
+            this._attachDevicesSortable(grid);
+        } else if (!grid && this._devicesSortable) {
+            this._devicesSortable.destroy();
+            this._devicesSortable = null;
+        }
+    }
+
+    private _attachDevicesSortable(grid: HTMLElement): void {
+        this._devicesSortable = Sortable.create(grid, {
+            // Whole card drags (no grip). ``delay`` keeps a quick click as
+            // expand/collapse and a press-and-hold as a drag. The corner
+            // duplicate/delete buttons are excluded as drag origins.
+            draggable: ".device-card",
+            filter: ".card-action",
+            preventOnFilter: false,
+            delay: 150,
+            delayOnTouchOnly: true,
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            onEnd: () => {
+                // Read the new order straight from the DOM (robust against
+                // the expanded-detail sibling that also lives in the grid).
+                const ids = Array.from(
+                    grid.querySelectorAll(".device-card"),
+                )
+                    .map((el) => (el as HTMLElement).dataset.id)
+                    .filter((id): id is string => !!id);
+                const base = this._localDevices ?? this.devices;
+                const byId = new Map(base.map((d) => [d.id, d]));
+                const reordered = ids
+                    .map((id) => byId.get(id))
+                    .filter((d): d is DeviceSummary => !!d);
+                if (reordered.length !== base.length) return;
+                this._localDevices = reordered;
+                this._devicesSortable?.destroy();
+                this._devicesSortable = null;
+                for (const el of Array.from(
+                    grid.querySelectorAll(".device-card, .expanded-detail"),
+                )) {
+                    el.remove();
+                }
+                this._devicesVersion++;
+                this._scheduleDevicesSave(reordered.map((d) => d.id));
+            },
+        });
+    }
+
+    private _scheduleDevicesSave(deviceIds: string[]): void {
+        if (this._pendingDevicesSave !== null) clearTimeout(this._pendingDevicesSave);
+        this._pendingDevicesSave = window.setTimeout(async () => {
+            this._pendingDevicesSave = null;
+            if (!this.api) return;
+            try {
+                await this.api.reorderDevices(deviceIds);
+            } catch {
+                // Backend rejected (stale set). Force a parent refresh to
+                // resync the canonical order.
+                this.dispatchEvent(
+                    new CustomEvent("device-changed", {
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+            }
+        }, REORDER_DEBOUNCE_MS);
     }
 
     private async _loadExpandedDevice(): Promise<void> {
@@ -526,7 +624,8 @@ export class IrDeviceList extends LitElement {
             return html`<div class="loading">Loading IR devices...</div>`;
         }
 
-        const hasDevices = this.devices.length > 0;
+        const devices = this._localDevices ?? this.devices;
+        const hasDevices = devices.length > 0;
         const hasEmitters = this._emitters.length > 0;
         const { receivers, proxies } = this._classifyHardware();
         const hasReceivers = receivers.length > 0;
@@ -555,11 +654,16 @@ export class IrDeviceList extends LitElement {
             </div>
             ${hasDevices
                 ? html`
-                      <div class="grid">
-                          ${this.devices.map(
-                              (device) => html`
+                      <div class="grid device-grid">
+                          ${keyed(
+                              this._devicesVersion,
+                              repeat(
+                                  devices,
+                                  (device) => device.id,
+                                  (device) => html`
                                   <div
                                       class="card device-card ${device.id === this.expandedDeviceId ? "expanded" : ""}"
+                                      data-id=${device.id}
                                       tabindex="0"
                                       @click=${() => this._select(device.id)}
                                       @keydown=${(e: KeyboardEvent) => {
@@ -631,6 +735,7 @@ export class IrDeviceList extends LitElement {
                                         `
                                       : nothing}
                               `,
+                              ),
                           )}
                       </div>
                   `
@@ -1070,6 +1175,13 @@ export class IrDeviceList extends LitElement {
         .device-card.expanded {
             border-color: #2e7d32;
             box-shadow: 0 0 0 1px #2e7d32;
+        }
+        /* SortableJS marks the card being dragged. */
+        .device-card.sortable-ghost {
+            opacity: 0.4;
+        }
+        .device-card.sortable-chosen {
+            cursor: grabbing;
         }
 
         /* --- Card corner actions (duplicate top-right, delete bottom-right) --- */

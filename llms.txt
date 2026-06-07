@@ -20,14 +20,18 @@ Key components:
   buttons are held), and groups signals by source remote based on carrier frequency
   and preamble analysis. All in real time. Any signal can be given an alias (a
   user nickname that replaces the diamond pattern in the UI); an alias is a label
-  on the signal, not a command name.
+  on the signal, not a command name. Remotes, and the signals within a remote, can
+  be drag-reordered; the order is persisted (it replaced the old hit-count sort),
+  and a newly seen remote or signal surfaces at the top until the user moves it.
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
   pasting Pronto hex codes, for cases where a live signal cannot be sniffed. Each
   pasted code is validated (hex shape, four-digit words, a learned-code 0000 header,
   burst-pair length math, and a carrier-frequency sanity warning) and then behaves
   identically to a sniffed signal: test, trigger, assign, or promote. Pasted signals
   share the same catalog as sniffed signals, distinguished by a source field
-  (sniffed vs manual). Manual remotes are never auto-evicted.
+  (sniffed vs manual). Manual remotes are never auto-evicted. Pasting a code already
+  on a remote is rejected, so a remote never holds two signals with the same
+  fingerprint. Remotes and their signals are drag-reorderable like the Sniffer's.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a

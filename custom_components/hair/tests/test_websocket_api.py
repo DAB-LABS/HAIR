@@ -39,6 +39,9 @@ from custom_components.hair.websocket_api import (
     ws_get_unknown_device,
     ws_get_unknown_devices,
     ws_reorder_commands,
+    ws_reorder_devices,
+    ws_reorder_unknown_devices,
+    ws_reorder_unknown_signals,
     ws_save_captured_command,
     ws_send_command,
     ws_set_signal_alias,
@@ -934,7 +937,8 @@ async def test_get_unknown_devices_returns_sorted(fake_hass):
     conn.send_result.assert_called_once()
     result = conn.send_result.call_args[0][1]
     assert len(result) == 2
-    assert result[0]["id"] == "d2"  # Higher hit count first.
+    # Manual order (v0.3.2): the most recently added remote is on top.
+    assert result[0]["id"] == "d2"
 
 
 @pytest.mark.asyncio
@@ -1599,3 +1603,125 @@ async def test_clip_delete_remote_rejects_sniffed(fake_hass):
     assert conn.send_error.call_args[0][1] == "not_manual"
     # Sniffed device is untouched.
     assert monitor._signal_store.get_device("s1") is not None
+
+
+# ---------------------------------------------------------------------------
+# Drag-to-reorder WS endpoints (v0.3.2)
+# ---------------------------------------------------------------------------
+
+
+def _wire_signal_store(fake_hass, monitor):
+    """Expose the monitor's signal store in entry data and stub its save."""
+    monitor._signal_store.async_save = AsyncMock()
+    fake_hass.data[DOMAIN]["entry-1"]["signal_store"] = monitor._signal_store
+
+
+@pytest.mark.asyncio
+async def test_reorder_devices_success(fake_hass):
+    manager = MagicMock()
+    manager.async_reorder_devices = AsyncMock()
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_reorder_devices(
+        fake_hass, conn,
+        {"id": 300, "type": "hair/devices/reorder",
+         "device_ids": ["b", "a"]},
+    )
+    manager.async_reorder_devices.assert_awaited_once_with(["b", "a"])
+    conn.send_result.assert_called_once_with(300, {"reordered": True})
+
+
+@pytest.mark.asyncio
+async def test_reorder_devices_invalid_format(fake_hass):
+    manager = MagicMock()
+    manager.async_reorder_devices = AsyncMock(
+        side_effect=ValueError("Reorder list does not match current devices")
+    )
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_reorder_devices(
+        fake_hass, conn,
+        {"id": 301, "type": "hair/devices/reorder", "device_ids": ["ghost"]},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+
+
+@pytest.mark.asyncio
+async def test_reorder_unknown_devices_success(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    _wire_signal_store(fake_hass, monitor)
+    m1 = UnknownDevice(id="m1", fingerprint="m1", source="manual")
+    m2 = UnknownDevice(id="m2", fingerprint="m2", source="manual")
+    monitor._signal_store.add_device(m1)
+    monitor._signal_store.add_device(m2)
+
+    conn = _make_connection()
+    await ws_reorder_unknown_devices(
+        fake_hass, conn,
+        {"id": 302, "type": "hair/unknown/reorder",
+         "source": "manual", "device_ids": ["m2", "m1"]},
+    )
+    conn.send_result.assert_called_once_with(302, {"reordered": True})
+    assert (m2.order, m1.order) == (0, 1)
+    monitor._signal_store.async_save.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reorder_unknown_devices_invalid_format(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    _wire_signal_store(fake_hass, monitor)
+    monitor._signal_store.add_device(
+        UnknownDevice(id="s1", fingerprint="s1", source="sniffed")
+    )
+
+    conn = _make_connection()
+    await ws_reorder_unknown_devices(
+        fake_hass, conn,
+        {"id": 303, "type": "hair/unknown/reorder",
+         "source": "sniffed", "device_ids": ["s1", "ghost"]},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+
+
+@pytest.mark.asyncio
+async def test_reorder_unknown_signals_success(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    _wire_signal_store(fake_hass, monitor)
+    device = UnknownDevice(id="d1", fingerprint="d1", source="manual")
+    device.signals = [
+        UnknownSignal(fingerprint="a"),
+        UnknownSignal(fingerprint="b"),
+    ]
+    monitor._signal_store.add_device(device)
+
+    conn = _make_connection()
+    await ws_reorder_unknown_signals(
+        fake_hass, conn,
+        {"id": 304, "type": "hair/unknown/signal/reorder",
+         "device_id": "d1", "fingerprints": ["b", "a"]},
+    )
+    conn.send_result.assert_called_once_with(304, {"reordered": True})
+    assert [s.fingerprint for s in device.signals] == ["b", "a"]
+
+
+@pytest.mark.asyncio
+async def test_reorder_unknown_signals_device_not_found(fake_hass):
+    monitor = _make_signal_monitor(fake_hass)
+    _wire_hass(fake_hass, signal_monitor=monitor)
+    _wire_signal_store(fake_hass, monitor)
+
+    conn = _make_connection()
+    await ws_reorder_unknown_signals(
+        fake_hass, conn,
+        {"id": 305, "type": "hair/unknown/signal/reorder",
+         "device_id": "missing", "fingerprints": []},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"

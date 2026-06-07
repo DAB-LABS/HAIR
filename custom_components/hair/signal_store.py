@@ -94,6 +94,43 @@ class SignalStore:
                 len(orphans),
             )
 
+        # Duplicate-signal cleanup (v0.3.2). The Clipper's manual paste
+        # path historically had no guard, so a remote could hold two
+        # signals with the same fingerprint (the same Pronto pasted
+        # twice). The signal model keys on fingerprint everywhere, so a
+        # twin is unusable and breaks reorder. Collapse each remote's
+        # signals to the first occurrence of each fingerprint on load.
+        # The guard in ``create_manual_signal`` prevents new twins; this
+        # heals any that predate it.
+        for device in self._devices.values():
+            seen: set[str] = set()
+            deduped = []
+            for sig in device.signals:
+                if sig.fingerprint in seen:
+                    continue
+                seen.add(sig.fingerprint)
+                deduped.append(sig)
+            if len(deduped) != len(device.signals):
+                device.signals = deduped
+                self._dirty = True
+
+        # One-time order backfill (v0.3.2). Pre-0.3.2 records have no
+        # ``order`` field, so every device deserializes with order 0. On
+        # first load after upgrade, seed the manual order from the old
+        # hit_count-descending sort so a user's list does not visibly
+        # reshuffle. After this the order is purely manual. Detect the
+        # un-migrated state as "more than one device and all order 0".
+        if len(self._devices) > 1 and all(
+            d.order == 0 for d in self._devices.values()
+        ):
+            ranked = sorted(
+                self._devices.values(),
+                key=lambda d: (-d.hit_count, d.first_seen),
+            )
+            for index, device in enumerate(ranked):
+                device.order = index
+            self._dirty = True
+
         self._loaded = True
 
     async def async_save(self) -> None:
@@ -175,7 +212,54 @@ class SignalStore:
         return list(self._devices.values())
 
     def add_device(self, device: UnknownDevice) -> None:
+        """Register a newly-discovered unknown device.
+
+        The device is placed at the top of its tab's list by giving it an
+        ``order`` strictly below every existing device (min - 1), so a
+        brand-new remote always surfaces on top until the user drags it
+        into place. ``order`` is computed across all devices; because the
+        Sniffer and Clipper each sort their own source-filtered slice, a
+        single global minimum is enough to float a new remote to the top
+        of whichever tab it belongs to. Reload reconstructs devices
+        directly (not through this method), so stored order is preserved.
+        """
+        if self._devices:
+            device.order = min(d.order for d in self._devices.values()) - 1
+        else:
+            device.order = 0
         self._devices[device.id] = device
+
+    def reorder_devices(self, source: str, ordered_ids: list[str]) -> None:
+        """Reorder the devices of one source to match ``ordered_ids``.
+
+        ``ordered_ids`` must be exactly the set of device ids currently
+        held for that ``source`` -- no duplicates, unknown, or missing.
+        The drag UI always sends the complete per-tab list, so any
+        divergence is a stale client and is rejected loudly. Devices of
+        the other source are untouched. Renumbers the given source 0..n.
+
+        Raises :class:`ValueError` on mismatch and changes nothing.
+        """
+        if len(ordered_ids) != len(set(ordered_ids)):
+            raise ValueError("Duplicate device ids in reorder list")
+        current = {
+            d.id for d in self._devices.values() if d.source == source
+        }
+        requested = set(ordered_ids)
+        if requested != current:
+            missing = current - requested
+            unknown = requested - current
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current devices: "
+                + ", ".join(details)
+            )
+        for index, device_id in enumerate(ordered_ids):
+            self._devices[device_id].order = index
 
     def remove_device(self, device_id: str) -> bool:
         """Remove an unknown device from the catalog.

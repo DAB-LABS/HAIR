@@ -54,6 +54,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_duplicate_device)
     websocket_api.async_register_command(hass, ws_delete_command)
     websocket_api.async_register_command(hass, ws_reorder_commands)
+    websocket_api.async_register_command(hass, ws_reorder_devices)
     websocket_api.async_register_command(hass, ws_send_command)
     websocket_api.async_register_command(hass, ws_start_capture)
     websocket_api.async_register_command(hass, ws_cancel_capture)
@@ -74,6 +75,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_rename_unknown)
     websocket_api.async_register_command(hass, ws_clear_unknowns)
     websocket_api.async_register_command(hass, ws_set_signal_alias)
+    websocket_api.async_register_command(hass, ws_reorder_unknown_devices)
+    websocket_api.async_register_command(hass, ws_reorder_unknown_signals)
 
     # Clips (manual remotes / signals)
     websocket_api.async_register_command(hass, ws_clip_create_remote)
@@ -416,6 +419,31 @@ async def ws_reorder_commands(
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], _device_full(device))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/devices/reorder",
+    vol.Required("device_ids"): [str],
+})
+@websocket_api.async_response
+async def ws_reorder_devices(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Reorder the HAIR device list to match the given id list."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    try:
+        await manager.async_reorder_devices(list(msg["device_ids"]))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"], {"reordered": True})
 
 
 # --- Capture Operations (with event streaming) ---
@@ -1040,6 +1068,64 @@ async def ws_set_signal_alias(
         )
         return
     connection.send_result(msg["id"], {"alias": result["alias"]})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/reorder",
+    vol.Required("source"): vol.Any("sniffed", "manual"),
+    vol.Required("device_ids"): [str],
+})
+@websocket_api.async_response
+async def ws_reorder_unknown_devices(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Reorder one tab's remotes (Sniffer or Clipper) to match the list."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    signal_store: SignalStore = data["signal_store"]
+    try:
+        signal_store.reorder_devices(msg["source"], list(msg["device_ids"]))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    await signal_store.async_save()
+    connection.send_result(msg["id"], {"reordered": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/reorder",
+    vol.Required("device_id"): str,
+    vol.Required("fingerprints"): [str],
+})
+@websocket_api.async_response
+async def ws_reorder_unknown_signals(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Reorder the signals within one remote to match the fingerprint list."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    signal_store: SignalStore = data["signal_store"]
+    device = signal_store.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Unknown device not found")
+        return
+    try:
+        device.reorder_signals(list(msg["fingerprints"]))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    await signal_store.async_save()
+    connection.send_result(msg["id"], {"reordered": True})
 
 
 # --- Clips (manual remotes / signals) ---

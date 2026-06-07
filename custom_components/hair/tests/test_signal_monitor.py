@@ -567,7 +567,8 @@ class TestRepeatSuppression:
 
 class TestPublicAPI:
 
-    def test_get_unknown_devices_sorted_by_hits(self):
+    def test_get_unknown_devices_sorted_by_order(self):
+        """Sorted by manual order (ascending), not hit_count (v0.3.2)."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
@@ -578,9 +579,52 @@ class TestPublicAPI:
         store.add_device(d1)
         store.add_device(d2)
         store.add_device(d3)
+        # Manual order wins over hit_count. Set it explicitly after add.
+        d1.order, d2.order, d3.order = 2, 0, 1
 
         result = monitor.get_unknown_devices(min_hits=0)
         assert [d.id for d in result] == ["d2", "d3", "d1"]
+
+    @pytest.mark.asyncio
+    async def test_new_manual_signal_inserts_on_top(self):
+        """A freshly added clipped signal lands at the top of the remote."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        with patch.object(store, "async_save", AsyncMock()):
+            device = await monitor.create_manual_remote("R")
+            first = await monitor.create_manual_signal(
+                device.id, "0000 006D 0002 0000 0010 0010 0010 0010"
+            )
+            # Second code must have a DIFFERENT S/L pattern (a long pulse,
+            # >= 0x30) so its fingerprint differs -- otherwise the new
+            # duplicate guard would (correctly) reject it.
+            second = await monitor.create_manual_signal(
+                device.id, "0000 006D 0002 0000 0010 0010 0010 0040"
+            )
+
+        assert first["success"] and second["success"]
+        # Newest is index 0; the first-added is now below it.
+        assert device.signals[0].fingerprint == second["signal"]["fingerprint"]
+        assert device.signals[1].fingerprint == first["signal"]["fingerprint"]
+
+    @pytest.mark.asyncio
+    async def test_duplicate_manual_signal_rejected(self):
+        """Pasting a Pronto already on the remote is refused, not twinned."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        code = "0000 006D 0002 0000 0010 0010 0010 0010"
+        with patch.object(store, "async_save", AsyncMock()):
+            device = await monitor.create_manual_remote("R")
+            first = await monitor.create_manual_signal(device.id, code)
+            dup = await monitor.create_manual_signal(device.id, code)
+
+        assert first["success"] is True
+        assert dup["success"] is False
+        assert dup["code"] == "duplicate_signal"
+        # Only the original signal remains; no twin was appended.
+        assert len(device.signals) == 1
 
     def test_get_unknown_devices_filters_dismissed(self):
         hass = _make_hass()

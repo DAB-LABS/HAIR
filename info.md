@@ -16,7 +16,7 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 - **Action Mapping** - Bind captured IR commands to HA entity features via dropdown selection.
 - **Auto Entities** - Devices get native HA entities (`media_player`, `climate`, `fan`, `light`, `switch`, `cover`, `remote`, `button`).
 - **Command Templates** - Device-type-aware guided setup with predefined command names.
-- **UX polish** - Drag-to-reorder commands, NATIVE / BRIDGE badges to see migration state at a glance, Sniffer Test with an emitter picker, and a mobile-friendly nav button for phone users.
+- **UX polish** - Drag-to-reorder device cards, remotes, signals, and commands, NATIVE / BRIDGE badges to see migration state at a glance, Sniffer Test with an emitter picker, and a mobile-friendly nav button for phone users.
 
 ## Requirements
 

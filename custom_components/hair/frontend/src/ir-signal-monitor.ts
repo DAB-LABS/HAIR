@@ -5,6 +5,9 @@
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { keyed } from "lit/directives/keyed.js";
+import { repeat } from "lit/directives/repeat.js";
+import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
@@ -79,6 +82,13 @@ const ICON_EXPAND =
 // MDI path: mdi:chevron-up
 const ICON_COLLAPSE =
     "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
+
+// MDI: drag (six-dot grip) -- same handle used by the command reorder.
+const ICON_GRIP =
+    "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
+
+/** Debounce delay (ms) between a drop and the persist call. */
+const REORDER_DEBOUNCE_MS = 500;
 
 
 @customElement("ir-signal-monitor")
@@ -156,6 +166,15 @@ export class IrSignalMonitor extends LitElement {
      */
     private static readonly DISMISS_GLOW_HOLD_MS = 3800;
 
+    // Drag-to-reorder (remotes + signals-within-a-remote).
+    @state() private _remotesVersion = 0;
+    @state() private _signalsVersion = 0;
+    private _remotesSortable: Sortable | null = null;
+    private _signalsSortable: Sortable | null = null;
+    private _signalsSortableContainer: HTMLElement | null = null;
+    private _pendingRemotesSave: number | null = null;
+    private _pendingSignalsSave: number | null = null;
+
     connectedCallback(): void {
         super.connectedCallback();
         void this._load();
@@ -174,6 +193,7 @@ export class IrSignalMonitor extends LitElement {
                 input.select();
             }
         }
+        this._syncSortables();
     }
 
     disconnectedCallback(): void {
@@ -185,6 +205,125 @@ export class IrSignalMonitor extends LitElement {
             clearTimeout(this._dismissGlowTimer);
             this._dismissGlowTimer = null;
         }
+        this._remotesSortable?.destroy();
+        this._remotesSortable = null;
+        this._signalsSortable?.destroy();
+        this._signalsSortable = null;
+        this._signalsSortableContainer = null;
+        if (this._pendingRemotesSave !== null) clearTimeout(this._pendingRemotesSave);
+        if (this._pendingSignalsSave !== null) clearTimeout(this._pendingSignalsSave);
+    }
+
+    /** Attach / detach SortableJS for the remote list and the open
+     *  remote's signal list, tracking container swaps so a re-render or
+     *  an expand change rebinds cleanly. */
+    private _syncSortables(): void {
+        const remotes = this.renderRoot.querySelector(".device-list") as HTMLElement | null;
+        if (remotes && !this._remotesSortable) {
+            this._attachRemotesSortable(remotes);
+        } else if (!remotes && this._remotesSortable) {
+            this._remotesSortable.destroy();
+            this._remotesSortable = null;
+        }
+
+        const sig = this.renderRoot.querySelector(".signal-list") as HTMLElement | null;
+        const canDrag = !!this._expandedDevice && !this._expandedDevice.dismissed;
+        if (sig && canDrag && (!this._signalsSortable || this._signalsSortableContainer !== sig)) {
+            this._signalsSortable?.destroy();
+            this._attachSignalsSortable(sig);
+        } else if ((!sig || !canDrag) && this._signalsSortable) {
+            this._signalsSortable.destroy();
+            this._signalsSortable = null;
+            this._signalsSortableContainer = null;
+        }
+    }
+
+    private _attachRemotesSortable(container: HTMLElement): void {
+        this._remotesSortable = Sortable.create(container, {
+            handle: ".remote-grip",
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            onEnd: (e) => {
+                const { oldIndex, newIndex } = e;
+                if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) {
+                    return;
+                }
+                const devices = [...this._devices];
+                const [moved] = devices.splice(oldIndex, 1);
+                devices.splice(newIndex, 0, moved);
+                this._devices = devices;
+                this._remotesSortable?.destroy();
+                this._remotesSortable = null;
+                this._purgeChildren(container, "ha-card");
+                this._remotesVersion++;
+                this._scheduleRemotesSave(devices.map((d) => d.id));
+            },
+        });
+    }
+
+    private _attachSignalsSortable(container: HTMLElement): void {
+        if (!this._expandedDevice) return;
+        this._signalsSortableContainer = container;
+        this._signalsSortable = Sortable.create(container, {
+            handle: ".signal-grip",
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            onEnd: (e) => {
+                const { oldIndex, newIndex } = e;
+                if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) {
+                    return;
+                }
+                // Read id + signals from the CURRENT expanded device so the
+                // device id always matches the signals being sent, even if
+                // the user switched remotes after this handler was bound
+                // (Lit reuses the .signal-list element across remotes).
+                const dev = this._expandedDevice;
+                if (!dev) return;
+                const signals = [...dev.signals];
+                const [moved] = signals.splice(oldIndex, 1);
+                signals.splice(newIndex, 0, moved);
+                this._expandedDevice = { ...dev, signals };
+                this._signalsSortable?.destroy();
+                this._signalsSortable = null;
+                this._signalsSortableContainer = null;
+                this._purgeChildren(container, ".signal-row");
+                this._signalsVersion++;
+                this._scheduleSignalsSave(dev.id, signals.map((s) => s.fingerprint));
+            },
+        });
+    }
+
+    /** Remove leftover children SortableJS may have left outside keyed()'s
+     *  managed range, so the rebuild starts from a clean container. */
+    private _purgeChildren(container: HTMLElement, selector: string): void {
+        for (const el of Array.from(container.querySelectorAll(selector))) {
+            el.remove();
+        }
+    }
+
+    private _scheduleRemotesSave(deviceIds: string[]): void {
+        if (this._pendingRemotesSave !== null) clearTimeout(this._pendingRemotesSave);
+        this._pendingRemotesSave = window.setTimeout(async () => {
+            this._pendingRemotesSave = null;
+            try {
+                await this.api.reorderUnknownDevices("sniffed", deviceIds);
+            } catch (err) {
+                this._error = `Reorder failed: ${(err as Error).message}`;
+                await this._load();
+            }
+        }, REORDER_DEBOUNCE_MS);
+    }
+
+    private _scheduleSignalsSave(deviceId: string, fingerprints: string[]): void {
+        if (this._pendingSignalsSave !== null) clearTimeout(this._pendingSignalsSave);
+        this._pendingSignalsSave = window.setTimeout(async () => {
+            this._pendingSignalsSave = null;
+            try {
+                await this.api.reorderUnknownSignals(deviceId, fingerprints);
+            } catch (err) {
+                this._error = `Reorder failed: ${(err as Error).message}`;
+            }
+        }, REORDER_DEBOUNCE_MS);
     }
 
     private async _load(): Promise<void> {
@@ -734,7 +873,14 @@ export class IrSignalMonitor extends LitElement {
                     `
                   : html`
                         <div class="device-list">
-                            ${this._devices.map((d) => this._renderDevice(d))}
+                            ${keyed(
+                                this._remotesVersion,
+                                repeat(
+                                    this._devices,
+                                    (d) => d.id,
+                                    (d) => this._renderDevice(d),
+                                ),
+                            )}
                         </div>
                     `}
 
@@ -880,8 +1026,10 @@ export class IrSignalMonitor extends LitElement {
                                       @click=${(e: Event) => e.stopPropagation()}
                                   />`
                                 : html`<ha-svg-icon
-                                          class="device-icon"
-                                          .path=${ICON_SIGNAL}
+                                          class="remote-grip"
+                                          .path=${ICON_GRIP}
+                                          title="Drag to reorder"
+                                          @click=${(e: Event) => e.stopPropagation()}
                                       ></ha-svg-icon>
                                       ${d.dismissed
                                           ? html`<span class="protocol locked"
@@ -958,8 +1106,12 @@ export class IrSignalMonitor extends LitElement {
                     <span class="first-seen">First seen: ${fmtTime(device.first_seen)}</span>
                 </div>
                 <div class="signal-list">
-                    ${device.signals.map(
-                        (sig) => {
+                    ${keyed(
+                        this._signalsVersion,
+                        repeat(
+                            device.signals,
+                            (sig) => sig.fingerprint,
+                            (sig) => {
                             const recentIdx = this._recentFingerprints.indexOf(sig.fingerprint);
                             const isLatest = recentIdx === 0;
                             const isPrevious = recentIdx === 1;
@@ -967,6 +1119,13 @@ export class IrSignalMonitor extends LitElement {
                             const isHitFlash = this._hitFlashFingerprints.has(sig.fingerprint);
                             return html`
                             <div class="signal-row">
+                                ${device.dismissed
+                                    ? ""
+                                    : html`<ha-svg-icon
+                                          class="signal-grip"
+                                          .path=${ICON_GRIP}
+                                          title="Drag to reorder"
+                                      ></ha-svg-icon>`}
                                 <div class="signal-info">
                                     <ir-signal-alias
                                         .api=${this.api}
@@ -1037,7 +1196,9 @@ export class IrSignalMonitor extends LitElement {
                                     >Delete</button>
                                 </div>
                             </div>
-                        `},
+                        `;
+                            },
+                        ),
                     )}
                 </div>
             </div>
@@ -1165,6 +1326,41 @@ export class IrSignalMonitor extends LitElement {
             --mdc-icon-size: 16px;
             color: var(--primary-color);
             flex-shrink: 0;
+        }
+        /* Remote drag handle (replaces the radio icon): blue, matches tab. */
+        .remote-grip {
+            --mdc-icon-size: 18px;
+            color: var(--primary-color);
+            cursor: grab;
+            flex-shrink: 0;
+            opacity: 0.85;
+            transition: opacity 120ms ease;
+        }
+        .remote-grip:hover {
+            opacity: 1;
+        }
+        .remote-grip:active {
+            cursor: grabbing;
+        }
+        /* Signal drag handle: gray, same as the hits / time / frequency meta. */
+        .signal-grip {
+            --mdc-icon-size: 16px;
+            color: var(--secondary-text-color);
+            cursor: grab;
+            flex-shrink: 0;
+            opacity: 0.6;
+            transition: opacity 120ms ease;
+        }
+        .signal-grip:hover {
+            opacity: 1;
+        }
+        .signal-grip:active {
+            cursor: grabbing;
+        }
+        /* SortableJS marks the element being dragged. */
+        ha-card.sortable-ghost,
+        .signal-row.sortable-ghost {
+            opacity: 0.4;
         }
         .protocol:not(.locked):hover {
             border-bottom-color: var(--primary-color);

@@ -129,6 +129,36 @@ class HAIRStore:
             return True
         return False
 
+    def reorder_devices(self, ordered_ids: list[str]) -> None:
+        """Reorder the device list to match ``ordered_ids``.
+
+        Persistence relies on dict insertion order, so the dict is
+        rebuilt in the requested sequence (no schema change). The list
+        must be exactly the current set of device ids -- no duplicates,
+        unknown, or missing. The drag UI always sends the complete list,
+        so any divergence is a stale client and is rejected loudly.
+        Mirrors ``IRDevice.reorder_commands``.
+
+        Raises :class:`ValueError` on mismatch and changes nothing.
+        """
+        if len(ordered_ids) != len(set(ordered_ids)):
+            raise ValueError("Duplicate device ids in reorder list")
+        current = set(self._data.keys())
+        requested = set(ordered_ids)
+        if requested != current:
+            missing = current - requested
+            unknown = requested - current
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current devices: "
+                + ", ".join(details)
+            )
+        self._data = {device_id: self._data[device_id] for device_id in ordered_ids}
+
     def get_devices_by_emitter(
         self, emitter_entity_id: str
     ) -> list[IRDevice]:

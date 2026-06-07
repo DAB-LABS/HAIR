@@ -164,6 +164,7 @@ export interface UnknownDeviceSummary {
     last_seen: string;
     dismissed: boolean;
     source?: SignalSourceId;
+    order?: number;
 }
 
 export interface UnknownDevice {
@@ -178,6 +179,7 @@ export interface UnknownDevice {
     last_seen: string;
     dismissed: boolean;
     source?: SignalSourceId;
+    order?: number;
 }
 
 /**

@@ -135,6 +135,18 @@ export class HairApi {
         });
     }
 
+    /**
+     * Persist a new order for the HAIR device list. ``deviceIds`` must
+     * list every device exactly once; the backend rejects a mismatched
+     * set with ``invalid_format``.
+     */
+    reorderDevices(deviceIds: string[]): Promise<{ reordered: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ reordered: boolean }>({
+            type: "hair/devices/reorder",
+            device_ids: deviceIds,
+        });
+    }
+
     sendCommand(deviceId: string, commandId: string): Promise<{ sent: boolean }> {
         return this.hass.connection.sendMessagePromise<{ sent: boolean }>({
             type: "hair/command/send",
@@ -357,6 +369,38 @@ export class HairApi {
             device_id: deviceId,
             signal_fingerprint: signalFingerprint,
             alias,
+        });
+    }
+
+    /**
+     * Persist a new order for one tab's remotes (Sniffer or Clipper).
+     * ``deviceIds`` must be exactly the devices of that ``source``; the
+     * backend rejects a mismatched set with ``invalid_format``.
+     */
+    reorderUnknownDevices(
+        source: SignalSourceId,
+        deviceIds: string[],
+    ): Promise<{ reordered: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ reordered: boolean }>({
+            type: "hair/unknown/reorder",
+            source,
+            device_ids: deviceIds,
+        });
+    }
+
+    /**
+     * Persist a new order for the signals within one remote. ``fingerprints``
+     * must list every signal on the remote exactly once; the backend rejects
+     * a mismatched set with ``invalid_format``.
+     */
+    reorderUnknownSignals(
+        deviceId: string,
+        fingerprints: string[],
+    ): Promise<{ reordered: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ reordered: boolean }>({
+            type: "hair/unknown/signal/reorder",
+            device_id: deviceId,
+            fingerprints,
         });
     }
 

@@ -464,3 +464,137 @@ class TestScheduleSave:
             await store.async_shutdown()
 
         mock_store.async_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Manual order: new-at-top, reorder, migration backfill (drag, v0.3.2)
+# ---------------------------------------------------------------------------
+
+
+def _ordered_device(device_id: str, source: str = "sniffed") -> UnknownDevice:
+    return UnknownDevice(id=device_id, fingerprint=device_id, source=source)
+
+
+class TestManualOrder:
+
+    def test_add_device_places_new_on_top(self):
+        store = SignalStore(_make_hass())
+        a = _ordered_device("a")
+        b = _ordered_device("b")
+        c = _ordered_device("c")
+        store.add_device(a)
+        store.add_device(b)
+        store.add_device(c)
+        # First gets 0, each subsequent floats below the current min.
+        assert a.order == 0
+        assert b.order == -1
+        assert c.order == -2
+
+    def test_reorder_devices_sets_indices(self):
+        store = SignalStore(_make_hass())
+        a, b, c = (
+            _ordered_device("a"), _ordered_device("b"), _ordered_device("c")
+        )
+        for d in (a, b, c):
+            store.add_device(d)
+        store.reorder_devices("sniffed", ["c", "a", "b"])
+        assert (c.order, a.order, b.order) == (0, 1, 2)
+
+    def test_reorder_devices_isolates_sources(self):
+        store = SignalStore(_make_hass())
+        s1, s2 = _ordered_device("s1"), _ordered_device("s2")
+        m1, m2 = (
+            _ordered_device("m1", "manual"), _ordered_device("m2", "manual")
+        )
+        for d in (s1, s2, m1, m2):
+            store.add_device(d)
+        # Reorder only the manual source; sniffed orders must be untouched.
+        before = (s1.order, s2.order)
+        store.reorder_devices("manual", ["m2", "m1"])
+        assert (m2.order, m1.order) == (0, 1)
+        assert (s1.order, s2.order) == before
+
+    def test_reorder_devices_rejects_cross_source_id(self):
+        store = SignalStore(_make_hass())
+        s1 = _ordered_device("s1")
+        m1 = _ordered_device("m1", "manual")
+        store.add_device(s1)
+        store.add_device(m1)
+        # m1 is not in the sniffed set -> unknown for that source.
+        with pytest.raises(ValueError, match="unknown"):
+            store.reorder_devices("sniffed", ["s1", "m1"])
+
+    def test_reorder_devices_duplicate_raises(self):
+        store = SignalStore(_make_hass())
+        s1 = _ordered_device("s1")
+        store.add_device(s1)
+        with pytest.raises(ValueError, match="Duplicate"):
+            store.reorder_devices("sniffed", ["s1", "s1"])
+
+    @pytest.mark.asyncio
+    async def test_load_backfills_order_by_hit_count(self):
+        """Pre-0.3.2 records (no order) seed manual order from hit_count."""
+        store = SignalStore(_make_hass())
+        raw = {
+            "devices": [
+                {"id": "low", "fingerprint": "low", "hit_count": 1,
+                 "first_seen": "2026-01-01T00:00:00+00:00"},
+                {"id": "high", "fingerprint": "high", "hit_count": 9,
+                 "first_seen": "2026-01-01T00:00:00+00:00"},
+                {"id": "mid", "fingerprint": "mid", "hit_count": 5,
+                 "first_seen": "2026-01-01T00:00:00+00:00"},
+            ],
+            "dismissed": [],
+        }
+        with patch.object(store, "_store") as mock_store:
+            mock_store.async_load = AsyncMock(return_value=raw)
+            await store.async_load()
+        # Highest hit_count lands on top (order 0).
+        assert store.get_device("high").order == 0
+        assert store.get_device("mid").order == 1
+        assert store.get_device("low").order == 2
+
+    @pytest.mark.asyncio
+    async def test_load_preserves_existing_order(self):
+        """If order is already set, load must not reshuffle it."""
+        store = SignalStore(_make_hass())
+        raw = {
+            "devices": [
+                {"id": "a", "fingerprint": "a", "hit_count": 1, "order": 0},
+                {"id": "b", "fingerprint": "b", "hit_count": 9, "order": 1},
+            ],
+            "dismissed": [],
+        }
+        with patch.object(store, "_store") as mock_store:
+            mock_store.async_load = AsyncMock(return_value=raw)
+            await store.async_load()
+        assert store.get_device("a").order == 0
+        assert store.get_device("b").order == 1
+
+    @pytest.mark.asyncio
+    async def test_load_dedupes_twin_signals(self):
+        """Signals sharing a fingerprint collapse to the first on load."""
+        store = SignalStore(_make_hass())
+        raw = {
+            "devices": [
+                {
+                    "id": "m1",
+                    "fingerprint": "manual:m1",
+                    "source": "manual",
+                    "order": 0,
+                    "signals": [
+                        {"fingerprint": "dup", "code": "AAAA", "source": "manual"},
+                        {"fingerprint": "dup", "code": "AAAA", "source": "manual"},
+                        {"fingerprint": "uniq", "code": "BBBB", "source": "manual"},
+                    ],
+                },
+            ],
+            "dismissed": [],
+        }
+        with patch.object(store, "_store") as mock_store:
+            mock_store.async_load = AsyncMock(return_value=raw)
+            await store.async_load()
+        sigs = store.get_device("m1").signals
+        assert [s.fingerprint for s in sigs] == ["dup", "uniq"]
+        # A change was made, so the cleaned list will be persisted.
+        assert store._dirty is True

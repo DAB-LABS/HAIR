@@ -1,6 +1,8 @@
 """Tests for the HAIR data models."""
 from __future__ import annotations
 
+import pytest
+
 from custom_components.hair.const import (
     CaptureProviderType,
     CommandCategory,
@@ -393,3 +395,86 @@ def test_unknown_signal_legacy_load_defaults_alias_to_empty():
 
     legacy = {"fingerprint": "abc123", "protocol": "PRONTO", "code": "0000 006D"}
     assert UnknownSignal.from_dict(legacy).alias == ""
+
+
+# ---------------------------------------------------------------------------
+# order field + reorder_signals (drag-to-reorder, v0.3.2)
+# ---------------------------------------------------------------------------
+
+def test_unknown_device_order_defaults_to_zero():
+    from custom_components.hair.models import UnknownDevice
+
+    assert UnknownDevice().order == 0
+
+
+def test_unknown_device_order_round_trip():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Remote", order=5)
+    d = dev.to_dict()
+    assert d["order"] == 5
+    assert UnknownDevice.from_dict(d).order == 5
+
+
+def test_unknown_device_legacy_load_defaults_order_to_zero():
+    """Old .storage records lack an order field and must default to 0."""
+    from custom_components.hair.models import UnknownDevice
+
+    legacy = {"id": "dev1", "label": "Old Remote", "signals": []}
+    assert UnknownDevice.from_dict(legacy).order == 0
+
+
+def _sig(fp: str):
+    from custom_components.hair.models import UnknownSignal
+
+    return UnknownSignal(fingerprint=fp)
+
+
+def test_reorder_signals_happy_path():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Remote")
+    dev.signals = [_sig("a"), _sig("b"), _sig("c")]
+    dev.reorder_signals(["c", "a", "b"])
+    assert [s.fingerprint for s in dev.signals] == ["c", "a", "b"]
+
+
+def test_reorder_signals_empty_with_empty_list():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Remote")
+    dev.reorder_signals([])
+    assert dev.signals == []
+
+
+def test_reorder_signals_duplicate_raises():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Remote")
+    dev.signals = [_sig("a")]
+    original = list(dev.signals)
+    with pytest.raises(ValueError, match="Duplicate"):
+        dev.reorder_signals(["a", "a"])
+    assert dev.signals == original
+
+
+def test_reorder_signals_unknown_raises():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Remote")
+    dev.signals = [_sig("a")]
+    original = list(dev.signals)
+    with pytest.raises(ValueError, match="unknown"):
+        dev.reorder_signals(["a", "ghost"])
+    assert dev.signals == original
+
+
+def test_reorder_signals_missing_raises():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Remote")
+    dev.signals = [_sig("a"), _sig("b")]
+    original = list(dev.signals)
+    with pytest.raises(ValueError, match="missing"):
+        dev.reorder_signals(["a"])
+    assert dev.signals == original
