@@ -1,0 +1,210 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            M5Stack AtomS3 Lite (SKU: C124) & M5Stack IR Unit (SKU: U002)
+# Hardware revision: n/a
+# Variant:           full
+# Contributor:       JenSte
+# Source:            in-house
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            0.3.4
+#   HA Core:         2026.6.1
+#   ESPHome:         2026.5.3
+# Last verified:     2026-06-09
+# Purpose:           RX+TX
+# Hardware purchase: https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit
+#                    https://shop.m5stack.com/products/ir-unit
+# GPIO map:
+#   GPIO1            IR receiver
+#   GPIO2            IR transmitter
+#   GPIO35           RGB LED
+#   GPIO41           Button on the top of the AtomS3 Lite
+# Notes:
+#   - The IR Unit comes with a ribbon cable used to connect the two 4-pin headers
+#     of the devices.
+#   - The AtomS3 Lite also has a tiny IR LED on-board (GPIO4), which is not used
+#     here. Instead, the transmitter LED of the IR Unit is used.
+#   - The white plastic case of the IR Unit does not shield the receiver diode from
+#     the transmitter very well. Therefore the device always reads back what it
+#     sends out, even when fully covered. This can be confusing when adjusting
+#     the RGB LED pattern.
+# ============================================================================
+
+substitutions:
+  name: m5stack-ir-proxy
+  friendly_name: M5Stack Infrared Proxy
+
+esphome:
+  name: "${name}"
+  friendly_name: "${friendly_name}"
+  comment: "M5Stack AtomS3 Lite & IR Unit Infrared Proxy"
+
+  on_boot:
+    - priority: -100
+      then:
+        - script.execute: start_pulse_effect
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+ota:
+  - platform: esphome
+    password: !secret ir_proxy_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+
+api:
+  encryption:
+    key: !secret ir_proxy_api_key
+
+binary_sensor:
+  - platform: status
+    name: "${friendly_name} Status"
+
+    # This is the "big" button on the top of the AtomS3 Lite.
+    # It's also the only usable button, the one on the side
+    # is wired to the reset pin of the chip.
+  - platform: gpio
+    name: "${friendly_name} Button"
+    pin:
+      number: GPIO41
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - delayed_off: 10ms
+
+light:
+    # The RGB LED on the AtomS3 Lite is used to indicate the state
+    # of the device:
+    #   * blue pulsing: idle
+    #   * red flashing: receiving IR
+    #   * green flashing: transmitting IR
+  - id: rgb_led
+    name: "${friendly_name} LED"
+    platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: GPIO35
+    num_leds: 1
+    chipset: WS2812
+    restore_mode: RESTORE_DEFAULT_OFF
+    # Having DMA enabled makes the remote transmitter fail during
+    # initialization because of a RTM symbol resource conflict.
+    use_dma: false
+    rmt_symbols: 48
+
+    effects:
+        # Animation for the idle state.
+      - pulse:
+          name: "Slow Pulse"
+          transition_length: 2s
+          update_interval: 2s
+          min_brightness: 30%
+          max_brightness: 60%
+
+script:
+    # Start pulsating the LED in blue, to
+    # indicate that the device is idle.
+  - id: start_pulse_effect
+    mode: restart
+    then:
+      - light.control:
+          id: rgb_led
+          red: 0%
+          green: 0%
+          blue: 100%
+          effect: "Slow Pulse"
+
+    # Flash the LED red or green, depending on the parameters,
+    # and then go back to the blue pulse.
+  - id: flash_led
+    mode: restart
+    parameters:
+      red: float
+      green: float
+    then:
+        # First, turn the RGB LED off, this disables the animation.
+      - light.turn_off:
+          id: rgb_led
+        # Flash red/green for a short duration.
+      - light.control:
+          id: rgb_led
+          state: ON
+          transition_length: 0s
+          brightness: 100%
+          red: !lambda return red;
+          green: !lambda return green;
+          blue: 0.0
+      - delay: 100ms
+        # Start the idle animation again.
+      - script.execute: start_pulse_effect
+        # Delay the script a bit longer, so that the receive path
+        # can detect when the transmit path has started it, and
+        # not trigger it again.
+      - delay: 200ms
+
+# The infrared receiver of the M5Stack IR Unit.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO1
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+
+  # Uncomment to see what is received in the device's log.
+  # dump: all
+
+  # Flash the RGB LED in red, but only if the transmitter
+  # has not turned it on yet. Needed to not flash green and
+  # red when transmitting data, which is read back.
+  on_raw:
+    then:
+      - if:
+          condition:
+            not:
+              - script.is_running: flash_led
+          then:
+            - script.execute:
+                id: flash_led
+                red: 1.0
+                green: 0.0
+
+
+# The infrared transmitter of the M5Stack IR Unit.
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO2
+  carrier_duty_percent: 50%
+  non_blocking: true
+  use_dma: true
+
+  # Flash the RGB LED in green to indicate transmission activity.
+  on_transmit:
+    then:
+      - script.execute:
+          id: flash_led
+          red: 0.0
+          green: 1.0
+
+# Native Home Assistant IR integration.
+#
+# This ties together the receiver and the transmitter defined above,
+# and exposes them to Home Assistant.
+infrared:
+  - platform: ir_rf_proxy
+    name: "${friendly_name} Receiver"
+    remote_receiver_id: ir_rx
+    receiver_frequency: 38kHz
+  - platform: ir_rf_proxy
+    name: "${friendly_name} Transmitter"
+    remote_transmitter_id: ir_tx

@@ -10,6 +10,8 @@ Curated, HAIR-tested ESPHome configurations for common IR hardware. Each config 
 | Athom RF IR Remote | esp32dev | full | 0.2.0 | 2026.5.2 | 2026.5.1 | DAB-LABS | [athom-rf-ir-remote/](athom-rf-ir-remote/) |
 | Generic ESP32-C3 dev kit | esp32-c3-devkitm-1 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [generic-esp32-c3/](generic-esp32-c3/) |
 | Generic ESP32 doit dev kit | esp32doit-devkit-v1 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [generic-esp32-doit/](generic-esp32-doit/) |
+| M5Stack IR Unit | esp32-s3-devkitc-1 | minimal | 0.3.4 | 2026.6.1 | 2026.5.3 | JenSte | [m5stack-ir-unit/](m5stack-ir-unit/) |
+| M5Stack IR Unit | esp32-s3-devkitc-1 | full | 0.3.4 | 2026.6.1 | 2026.5.3 | JenSte | [m5stack-ir-unit/](m5stack-ir-unit/) |
 | XIAO Smart IR Mate | seeed_xiao_esp32c3 | minimal | 0.1.2 | 2026.5.2 | 2026.4.5 | DAB-LABS | [xiao-ir-mate/](xiao-ir-mate/) |
 | XIAO Smart IR Mate | seeed_xiao_esp32c3 | full | 0.1.2 | 2026.5.2 | 2026.4.5 | @Didgeridrew | [xiao-ir-mate/](xiao-ir-mate/) |
 

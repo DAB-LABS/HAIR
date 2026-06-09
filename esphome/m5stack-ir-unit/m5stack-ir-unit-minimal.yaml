@@ -1,0 +1,88 @@
+# ============================================================================
+# HAIR ESPHome Config
+# ----------------------------------------------------------------------------
+# Device:            M5Stack AtomS3 Lite (SKU: C124) & M5Stack IR Unit (SKU: U002)
+# Hardware revision: n/a
+# Variant:           minimal
+# Contributor:       JenSte
+# Source:            in-house
+# License:           Apache 2.0
+# Tested against:
+#   HAIR:            0.3.4
+#   HA Core:         2026.6.1
+#   ESPHome:         2026.5.3
+# Last verified:     2026-06-09
+# Purpose:           RX+TX
+# Hardware purchase: https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit
+#                    https://shop.m5stack.com/products/ir-unit
+# GPIO map:
+#   GPIO1            IR receiver
+#   GPIO2            IR transmitter
+# Notes:
+#   - The IR Unit comes with a ribbon cable used to connect the two 4-pin headers
+#     of the devices.
+#   - The AtomS3 Lite also has a tiny IR LED on-board (GPIO4), which is not used
+#     here. Instead, the transmitter LED of the IR Unit is used.
+# ============================================================================
+
+substitutions:
+  name: m5stack-ir-proxy
+  friendly_name: M5Stack Infrared Proxy
+
+esphome:
+  name: "${name}"
+  friendly_name: "${friendly_name}"
+  comment: "M5Stack AtomS3 Lite & IR Unit Infrared Proxy"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+ota:
+  - platform: esphome
+    password: !secret ir_proxy_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+
+api:
+  encryption:
+    key: !secret ir_proxy_api_key
+
+# The infrared receiver of the M5Stack IR Unit.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO1
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+
+  # Uncomment to see what is received in the device's log.
+  # dump: all
+
+# The infrared transmitter of the M5Stack IR Unit.
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO2
+  carrier_duty_percent: 50%
+  non_blocking: true
+  use_dma: true
+
+# Native Home Assistant IR integration.
+#
+# This ties together the receiver and the transmitter defined above,
+# and exposes them to Home Assistant.
+infrared:
+  - platform: ir_rf_proxy
+    name: "${friendly_name} Receiver"
+    remote_receiver_id: ir_rx
+    receiver_frequency: 38kHz
+  - platform: ir_rf_proxy
+    name: "${friendly_name} Transmitter"
+    remote_transmitter_id: ir_tx
