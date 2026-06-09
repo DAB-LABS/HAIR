@@ -268,6 +268,10 @@ class SignalMonitor:
             parsed.protocol, device_address, parsed.raw_timings,
             code=parsed.code,
         )
+        # Byte-hash tiebreaker (v0.3.4): distinguishes two distinct commands
+        # that collapse to the same S/L fingerprint (Panasonic, TCL, etc.).
+        # None for non-Pronto codes, whose fingerprint is already unique.
+        byte_hash = EventParser.pronto_byte_hash(parsed.code)
 
         # Step 2: Check triggers (before known-command skip so triggers
         # work for both assigned commands and unknown signals).
@@ -323,10 +327,11 @@ class SignalMonitor:
                 )
                 self._signal_store.add_device(device)
 
-            signal = device.get_signal(sig_fp)
+            signal = device.get_signal(sig_fp, byte_hash)
             if signal is None:
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
+                    byte_hash=byte_hash,
                     protocol=parsed.protocol,
                     code=parsed.code,
                     raw_timings=list(parsed.raw_timings) if parsed.raw_timings else [],
@@ -356,6 +361,7 @@ class SignalMonitor:
         summary = {
             "device_id": device.id,
             "device_fingerprint": dev_fp,
+            "signal_id": signal.id,
             "signal_fingerprint": sig_fp,
             "protocol": parsed.protocol,
             "code": parsed.code,
@@ -542,16 +548,16 @@ class SignalMonitor:
     async def assign_signal(
         self,
         device_id: str,
-        signal_fingerprint: str,
+        signal_id: str,
         hair_device_id: str,
         command_name: str,
         command_category: str,
     ) -> dict[str, Any]:
         """Assign an unknown signal as a named command on a HAIR device.
 
-        Uses lock-first pattern with structured return. Checks idempotency
-        (rejects duplicate fingerprint on target device). Rolls back
-        cleanly on any failure.
+        Uses lock-first pattern with structured return. Rolls back cleanly
+        on any failure. The signal is identified by its stable id, not its
+        fingerprint, which is not unique on a remote (see UnknownSignal.id).
 
         Returns dict with ``success``, ``command_id``, or ``error``/``code``.
         """
@@ -563,7 +569,7 @@ class SignalMonitor:
             if unknown_device is None:
                 return {"success": False, "code": "device_not_found",
                         "error": "Unknown device not found"}
-            signal = unknown_device.get_signal(signal_fingerprint)
+            signal = unknown_device.get_signal_by_id(signal_id)
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found on device"}
@@ -591,6 +597,7 @@ class SignalMonitor:
             except ValueError:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
+            ir_command.byte_hash = signal.byte_hash
 
             hair_device.add_command(ir_command)
             command_id = ir_command.id
@@ -607,7 +614,7 @@ class SignalMonitor:
     async def assign_to_new_device(
         self,
         device_id: str,
-        signal_fingerprint: str,
+        signal_id: str,
         device_name: str,
         device_type: str,
         emitter_entity_ids: list[str],
@@ -635,7 +642,7 @@ class SignalMonitor:
             if unknown_device is None:
                 return {"success": False, "code": "device_not_found",
                         "error": "Unknown device not found"}
-            signal = unknown_device.get_signal(signal_fingerprint)
+            signal = unknown_device.get_signal_by_id(signal_id)
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found on device"}
@@ -659,6 +666,7 @@ class SignalMonitor:
             except ValueError:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
+            ir_command.byte_hash = signal.byte_hash
 
             # Create device in memory (NOT persisted yet).
             new_device = IRDevice(
@@ -697,10 +705,11 @@ class SignalMonitor:
         }
 
     async def delete_signal(
-        self, device_id: str, signal_fingerprint: str
+        self, device_id: str, signal_id: str
     ) -> dict[str, Any]:
         """Delete a single signal from an unknown device.
 
+        Identified by stable id (fingerprints are not unique on a remote).
         Fires ``hair_signal_removed`` on success. Removes the parent
         unknown device if no signals remain.
 
@@ -711,7 +720,7 @@ class SignalMonitor:
             if unknown_device is None:
                 return {"success": False, "code": "device_not_found",
                         "error": "Unknown device not found"}
-            if not unknown_device.remove_signal(signal_fingerprint):
+            if not unknown_device.remove_signal_by_id(signal_id):
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found on device"}
 
@@ -730,16 +739,17 @@ class SignalMonitor:
         # Fire event outside lock.
         self._hass.bus.async_fire(EVENT_SIGNAL_REMOVED, {
             "device_id": device_id,
-            "signal_fingerprint": signal_fingerprint,
+            "signal_id": signal_id,
             "device_removed": device_emptied,
         })
         return {"success": True, "device_removed": device_emptied}
 
     async def test_signal(
-        self, signal_fingerprint: str, emitter_entity_id: str
+        self, signal_id: str, emitter_entity_id: str
     ) -> dict[str, Any]:
         """Send an unknown signal through an emitter for user verification.
 
+        Signal identified by stable id (fingerprints are not unique).
         Returns structured result dict with ``success`` and error details.
         """
         # Validate emitter entity exists.
@@ -751,7 +761,7 @@ class SignalMonitor:
         # Find the signal across all devices.
         signal = None
         for device in self._signal_store.get_all_devices():
-            signal = device.get_signal(signal_fingerprint)
+            signal = device.get_signal_by_id(signal_id)
             if signal is not None:
                 break
 
@@ -859,12 +869,15 @@ class SignalMonitor:
             now_iso = datetime.now(UTC).isoformat()
             code = result.normalized
             sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-            # Reject a paste of a signal already on this remote. The whole
-            # signal model keys on fingerprint (get_signal, delete, alias,
-            # reorder, the frontend row key), so a twin would be unusable
-            # and would break reorder. The Sniffer dedupes on capture; this
-            # is the equivalent guard for the manual paste path.
-            if device.get_signal(sig_fp) is not None:
+            byte_hash = EventParser.pronto_byte_hash(code)
+            # Reject a paste of a signal already on this remote. The match
+            # is on the composite (fingerprint, byte_hash): a genuinely
+            # different code that merely shares an S/L fingerprint (e.g.
+            # Panasonic, TCL) has a different byte_hash and is allowed
+            # through as a distinct signal. Only a true duplicate (same
+            # fingerprint AND same byte_hash) is refused. The Sniffer
+            # dedupes the same way on capture.
+            if device.get_signal(sig_fp, byte_hash) is not None:
                 return {
                     "success": False,
                     "code": "duplicate_signal",
@@ -877,6 +890,7 @@ class SignalMonitor:
             )
             signal = UnknownSignal(
                 fingerprint=sig_fp,
+                byte_hash=byte_hash,
                 protocol="PRONTO",
                 code=code,
                 raw_timings=[],
@@ -894,15 +908,20 @@ class SignalMonitor:
         return {"success": True, "signal": signal.to_dict()}
 
     async def set_signal_alias(
-        self, device_id: str, signal_fingerprint: str, alias: str
+        self, device_id: str, signal_id: str, alias: str
     ) -> dict[str, Any]:
-        """Set or clear the alias on a signal. Empty clears it."""
+        """Set or clear the alias on a signal. Empty clears it.
+
+        Identified by stable id, not fingerprint -- two signals on a remote
+        can share a fingerprint, so aliasing by fingerprint would rewrite
+        both (the original GH #13 symptom). Keying on id fixes that.
+        """
         async with self._lock:
             device = self._signal_store.get_device(device_id)
             if device is None:
                 return {"success": False, "code": "device_not_found",
                         "error": "Remote not found"}
-            signal = device.get_signal(signal_fingerprint)
+            signal = device.get_signal_by_id(signal_id)
             if signal is None:
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found"}

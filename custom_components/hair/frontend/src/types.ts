@@ -139,7 +139,12 @@ export interface CaptureStartResponse {
 export type SignalSourceId = "sniffed" | "manual";
 
 export interface UnknownSignal {
+    // Stable per-signal identity. The fingerprint is NOT unique on a remote
+    // (two distinct commands can share an S/L pattern), so all per-signal
+    // operations and the row key use this id. Triggers stay on fingerprint.
+    id: string;
     fingerprint: string;
+    byte_hash?: string | null;
     protocol: string | null;
     code: string | null;
     raw_timings: number[];
@@ -198,6 +203,7 @@ export interface ProntoValidation {
 export interface UnknownSignalEvent {
     device_id: string;
     device_fingerprint: string;
+    signal_id: string;
     signal_fingerprint: string;
     protocol: string | null;
     code: string | null;
@@ -226,7 +232,7 @@ export interface DeleteSignalResult {
 
 export interface SignalRemovedEvent {
     device_id: string;
-    signal_fingerprint: string;
+    signal_id: string;
     device_removed: boolean;
 }
 

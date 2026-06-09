@@ -7,7 +7,7 @@
  * clears it back to the diamonds, Enter/blur saves, Esc cancels.
  *
  * Owns its own edit state and persists via api.setSignalAlias. Emits
- * ``alias-changed`` ({ fingerprint, alias }) on save so the host can sync
+ * ``alias-changed`` ({ id, alias }) on save so the host can sync
  * its local model, and ``alias-error`` (message) on failure.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
@@ -66,10 +66,10 @@ export class IrSignalAlias extends LitElement {
 
     private async _save(alias: string): Promise<void> {
         try {
-            await this.api.setSignalAlias(this.deviceId, this.signal.fingerprint, alias);
+            await this.api.setSignalAlias(this.deviceId, this.signal.id, alias);
             this.dispatchEvent(
                 new CustomEvent("alias-changed", {
-                    detail: { fingerprint: this.signal.fingerprint, alias },
+                    detail: { id: this.signal.id, alias },
                     bubbles: true,
                     composed: true,
                 }),

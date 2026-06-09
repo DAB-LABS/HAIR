@@ -771,6 +771,7 @@ export class IrDeviceDetail extends LitElement {
                                           .busy=${this._busy}
                                           .actionLabel=${this._getActionLabel(cmd.name)}
                                           .hasTrigger=${this._commandHasTrigger(cmd)}
+                                          .showActionMapping=${this.device.device_type !== "other"}
                                           @map-action=${this._onMapAction}
                                           @test=${this._onTest}
                                           @toggle-trigger=${this._onToggleTrigger}

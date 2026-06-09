@@ -38,6 +38,10 @@ class IRCommand:
     raw_timings: list[int] | None = None
     frequency: int = DEFAULT_CARRIER_FREQUENCY
     repeat_count: int = DEFAULT_REPEAT_COUNT
+    # Quantized byte hash carried over from the source signal on assign
+    # (the v0.3.4 duplicate-guard tiebreaker). Optional; None for commands
+    # created before 0.3.4 or from sources without a Pronto code.
+    byte_hash: str | None = None
     created_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
@@ -51,6 +55,7 @@ class IRCommand:
             "raw_timings": list(self.raw_timings) if self.raw_timings else None,
             "frequency": self.frequency,
             "repeat_count": self.repeat_count,
+            "byte_hash": self.byte_hash,
             "created_at": self.created_at,
         }
 
@@ -66,6 +71,7 @@ class IRCommand:
             raw_timings=data.get("raw_timings"),
             frequency=int(data.get("frequency", DEFAULT_CARRIER_FREQUENCY)),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
+            byte_hash=data.get("byte_hash"),
             created_at=data.get("created_at") or _now_iso(),
         )
 
@@ -460,7 +466,19 @@ class CaptureSession:
 class UnknownSignal:
     """A single unidentified IR signal observed by the signal monitor."""
 
+    # Stable per-signal identity. The S/L ``fingerprint`` is NOT unique on
+    # a remote once the byte-hash tiebreaker (v0.3.4) stores two distinct
+    # commands that share an S/L pattern (Panasonic, TCL, etc.), so all
+    # per-signal operations (alias, delete, test, assign, reorder, the
+    # frontend row key) key on this id, not the fingerprint. Triggers
+    # remain keyed on (device, fingerprint) by design.
+    id: str = field(default_factory=_new_id)
     fingerprint: str = ""
+    # Quantized byte hash, the duplicate-guard tiebreaker layered on top of
+    # the S/L fingerprint. Two signals with the same fingerprint but
+    # different byte_hash are distinct. None for pre-0.3.4 records until
+    # populated lazily on load.
+    byte_hash: str | None = None
     protocol: str | None = None
     code: str | None = None
     raw_timings: list[int] = field(default_factory=list)
@@ -473,7 +491,9 @@ class UnknownSignal:
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
+            "id": self.id,
             "fingerprint": self.fingerprint,
+            "byte_hash": self.byte_hash,
             "protocol": self.protocol,
             "code": self.code,
             "raw_timings": list(self.raw_timings),
@@ -495,7 +515,9 @@ class UnknownSignal:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UnknownSignal:
         return cls(
+            id=data.get("id") or _new_id(),
             fingerprint=data.get("fingerprint", ""),
+            byte_hash=data.get("byte_hash"),
             protocol=data.get("protocol"),
             code=data.get("code"),
             raw_timings=data.get("raw_timings") or [],
@@ -528,37 +550,61 @@ class UnknownDevice:
     # top until the user drags them. Replaces the old hit_count sort.
     order: int = 0
 
-    def get_signal(self, fingerprint: str) -> UnknownSignal | None:
-        """Find a signal by fingerprint."""
+    def get_signal(
+        self, fingerprint: str, byte_hash: str | None = None
+    ) -> UnknownSignal | None:
+        """Find a signal by the dedup key.
+
+        Matches on ``fingerprint`` alone unless ``byte_hash`` is given, in
+        which case BOTH must match. This is the duplicate-guard matcher
+        used by the capture pipeline and the Clipper paste guard; two
+        signals that share an S/L fingerprint but differ in ``byte_hash``
+        are distinct and must not collapse. For per-signal operations use
+        ``get_signal_by_id`` instead, since the fingerprint is not unique.
+        """
         for sig in self.signals:
-            if sig.fingerprint == fingerprint:
+            if sig.fingerprint != fingerprint:
+                continue
+            if byte_hash is not None and sig.byte_hash != byte_hash:
+                continue
+            return sig
+        return None
+
+    def get_signal_by_id(self, signal_id: str) -> UnknownSignal | None:
+        """Find a signal by its stable id (the per-operation identity)."""
+        for sig in self.signals:
+            if sig.id == signal_id:
                 return sig
         return None
 
-    def remove_signal(self, fingerprint: str) -> bool:
-        """Remove a signal by fingerprint. Returns True if found."""
+    def remove_signal_by_id(self, signal_id: str) -> bool:
+        """Remove a signal by its stable id. Returns True if found."""
         for i, sig in enumerate(self.signals):
-            if sig.fingerprint == fingerprint:
+            if sig.id == signal_id:
                 del self.signals[i]
                 return True
         return False
 
-    def reorder_signals(self, fingerprints: list[str]) -> None:
-        """Reorder ``self.signals`` to match the given fingerprint list.
+    def reorder_signals(self, signal_ids: list[str]) -> None:
+        """Reorder ``self.signals`` to match the given id list.
 
-        The provided list must contain exactly the set of fingerprints
+        The provided list must contain exactly the set of signal ids
         currently held by this remote -- no duplicates, no unknown, no
         missing. The drag-to-reorder UI always sends the complete list,
         so any divergence indicates a stale client and is rejected loudly
         rather than applied. Mirrors ``IRDevice.reorder_commands``.
 
+        Keyed by id, not fingerprint: two signals on a remote can share a
+        fingerprint (the byte-hash tiebreaker), so fingerprints are not a
+        valid reorder key.
+
         Raises :class:`ValueError` on mismatch and leaves ``self.signals``
         untouched.
         """
-        if len(fingerprints) != len(set(fingerprints)):
-            raise ValueError("Duplicate signal fingerprints in reorder list")
-        current = {s.fingerprint for s in self.signals}
-        requested = set(fingerprints)
+        if len(signal_ids) != len(set(signal_ids)):
+            raise ValueError("Duplicate signal ids in reorder list")
+        current = {s.id for s in self.signals}
+        requested = set(signal_ids)
         if requested != current:
             missing = current - requested
             unknown = requested - current
@@ -572,8 +618,8 @@ class UnknownDevice:
                 + ", ".join(details)
             )
 
-        by_fp = {s.fingerprint: s for s in self.signals}
-        self.signals = [by_fp[fp] for fp in fingerprints]
+        by_id = {s.id: s for s in self.signals}
+        self.signals = [by_id[sid] for sid in signal_ids]
 
     def to_dict(self) -> dict[str, Any]:
         return {

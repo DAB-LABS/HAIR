@@ -84,6 +84,19 @@ PRONTO_DEVICE_PREAMBLE_PAIRS = 1
 # NEC-family address length in burst pairs (8 address bits = 8 pairs).
 # Used for device grouping when a lead-in mark is detected.
 PRONTO_NEC_ADDRESS_PAIRS = 8
+# Byte-hash quantization bin, in Pronto timing units (carrier cycles).
+# The byte hash is a tiebreaker layered on top of the S/L fingerprint:
+# two signals that share an S/L pattern but differ in their quantized
+# timing bytes are stored as distinct signals rather than merged. Each
+# timing word is rounded to the nearest multiple of this bin before
+# hashing. N=20 is empirically the only bin size that collapses
+# same-button captures across NEC, RC-5, Sony SIRC, and Samsung at
+# typical receiver jitter (+/-3 cycles) while still distinguishing
+# protocols whose long pulse sits below PRONTO_SL_THRESHOLD (Panasonic
+# at 46 cycles, TCL112 at 40). Boundary placement matters more than bin
+# width; do not retune without re-running the protocol-matrix sweep.
+# Exposed as a tunable for unusually noisy capture environments.
+PRONTO_BYTE_HASH_BIN = 20
 ASSIGN_SERVICE_TIMEOUT_S = 10
 
 

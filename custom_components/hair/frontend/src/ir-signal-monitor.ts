@@ -105,12 +105,12 @@ export class IrSignalMonitor extends LitElement {
     @state() private _expandedDevice: UnknownDevice | null = null;
     @state() private _flashIds = new Set<string>();
     @state() private _flashStats = new Set<string>();
-    /** Last 2 signal fingerprints that received a hit (most recent first). */
-    @state() private _recentFingerprints: string[] = [];
-    /** Signal fingerprints currently in glow animation. */
-    @state() private _glowFingerprints = new Set<string>();
-    /** Signal fingerprints whose hit count is currently flashing. */
-    @state() private _hitFlashFingerprints = new Set<string>();
+    /** Last 2 signal ids that received a hit (most recent first). */
+    @state() private _recentSignalIds: string[] = [];
+    /** Signal ids currently in glow animation. */
+    @state() private _glowSignalIds = new Set<string>();
+    /** Signal ids whose hit count is currently flashing. */
+    @state() private _hitFlashSignalIds = new Set<string>();
     @state() private _confirmClearAll = false;
 
     // Trigger state
@@ -135,7 +135,7 @@ export class IrSignalMonitor extends LitElement {
         initialMode: "existing" | "new";
     } | null = null;
     @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
-    @state() private _testingFingerprint: string | null = null;
+    @state() private _testingSignalId: string | null = null;
     @state() private _testResult: string | null = null;
     // Dialog state for the Test emitter picker. ``_testEmitters`` persists
     // across opens (session-level memory) so users testing five signals
@@ -288,7 +288,7 @@ export class IrSignalMonitor extends LitElement {
                 this._signalsSortableContainer = null;
                 this._purgeChildren(container, ".signal-row");
                 this._signalsVersion++;
-                this._scheduleSignalsSave(dev.id, signals.map((s) => s.fingerprint));
+                this._scheduleSignalsSave(dev.id, signals.map((s) => s.id));
             },
         });
     }
@@ -314,12 +314,12 @@ export class IrSignalMonitor extends LitElement {
         }, REORDER_DEBOUNCE_MS);
     }
 
-    private _scheduleSignalsSave(deviceId: string, fingerprints: string[]): void {
+    private _scheduleSignalsSave(deviceId: string, signalIds: string[]): void {
         if (this._pendingSignalsSave !== null) clearTimeout(this._pendingSignalsSave);
         this._pendingSignalsSave = window.setTimeout(async () => {
             this._pendingSignalsSave = null;
             try {
-                await this.api.reorderUnknownSignals(deviceId, fingerprints);
+                await this.api.reorderUnknownSignals(deviceId, signalIds);
             } catch (err) {
                 this._error = `Reorder failed: ${(err as Error).message}`;
             }
@@ -549,7 +549,7 @@ export class IrSignalMonitor extends LitElement {
         const { deviceId, signal } = this._deleteSignal;
         this._deleteSignal = null;
         try {
-            await this.api.deleteSignal(deviceId, signal.fingerprint);
+            await this.api.deleteSignal(deviceId, signal.id);
             // Signal-removed event will refresh; manual fallback:
             await this._load();
         } catch (err) {
@@ -571,7 +571,7 @@ export class IrSignalMonitor extends LitElement {
         const emitters = e.detail.emitters as string[];
         if (emitters.length === 0) return;
 
-        this._testingFingerprint = signal.fingerprint;
+        this._testingSignalId = signal.id;
         this._testResult = null;
         // Close the dialog immediately so the row's "Sending..." toast is
         // visible against the live feed background, not the dialog scrim.
@@ -580,7 +580,7 @@ export class IrSignalMonitor extends LitElement {
         try {
             const results = await Promise.allSettled(
                 emitters.map((eid) =>
-                    this.api.testSignal(signal.fingerprint, eid),
+                    this.api.testSignal(signal.id, eid),
                 ),
             );
             const sent = results.filter(
@@ -599,7 +599,7 @@ export class IrSignalMonitor extends LitElement {
         }
         setTimeout(() => {
             this._testResult = null;
-            this._testingFingerprint = null;
+            this._testingSignalId = null;
         }, 3000);
     }
 
@@ -680,7 +680,7 @@ export class IrSignalMonitor extends LitElement {
         // Update per-signal hit count in expanded view.
         if (this._expandedDevice && this._expandedId === ev.device_id) {
             const sigIdx = this._expandedDevice.signals.findIndex(
-                (s) => s.fingerprint === ev.signal_fingerprint,
+                (s) => s.id === ev.signal_id,
             );
             if (sigIdx >= 0) {
                 const updatedSig = { ...this._expandedDevice.signals[sigIdx] };
@@ -728,40 +728,42 @@ export class IrSignalMonitor extends LitElement {
             this._flashStats = next;
         }, 1500);
 
-        // Track last 2 active signal fingerprints for Assign button highlighting.
-        if (ev.signal_fingerprint) {
-            const recent = [ev.signal_fingerprint, ...this._recentFingerprints.filter(
-                (fp) => fp !== ev.signal_fingerprint,
+        // Track the last 2 active signal ids for Assign button highlighting.
+        // Keyed by signal id, not fingerprint: two signals on a remote can
+        // share a fingerprint, so a fingerprint key would highlight both.
+        if (ev.signal_id) {
+            const recent = [ev.signal_id, ...this._recentSignalIds.filter(
+                (sid) => sid !== ev.signal_id,
             )].slice(0, 2);
-            this._recentFingerprints = recent;
+            this._recentSignalIds = recent;
 
             // Trigger glow animation on the Assign button.
-            this._glowFingerprints = new Set([...this._glowFingerprints, ev.signal_fingerprint]);
+            this._glowSignalIds = new Set([...this._glowSignalIds, ev.signal_id]);
             setTimeout(() => {
-                const next = new Set(this._glowFingerprints);
-                next.delete(ev.signal_fingerprint);
-                this._glowFingerprints = next;
+                const next = new Set(this._glowSignalIds);
+                next.delete(ev.signal_id);
+                this._glowSignalIds = next;
             }, 1200);
 
             // Trigger hit count flash animation.
-            this._hitFlashFingerprints = new Set([...this._hitFlashFingerprints, ev.signal_fingerprint]);
+            this._hitFlashSignalIds = new Set([...this._hitFlashSignalIds, ev.signal_id]);
             setTimeout(() => {
-                const next = new Set(this._hitFlashFingerprints);
-                next.delete(ev.signal_fingerprint);
-                this._hitFlashFingerprints = next;
+                const next = new Set(this._hitFlashSignalIds);
+                next.delete(ev.signal_id);
+                this._hitFlashSignalIds = next;
             }, 1200);
         }
     }
 
     private _onAliasChanged(
-        e: CustomEvent<{ fingerprint: string; alias: string }>,
+        e: CustomEvent<{ id: string; alias: string }>,
     ): void {
-        const { fingerprint, alias } = e.detail;
+        const { id, alias } = e.detail;
         if (!this._expandedDevice) return;
         this._expandedDevice = {
             ...this._expandedDevice,
             signals: this._expandedDevice.signals.map((s) =>
-                s.fingerprint === fingerprint ? { ...s, alias } : s,
+                s.id === id ? { ...s, alias } : s,
             ),
         };
     }
@@ -1110,13 +1112,13 @@ export class IrSignalMonitor extends LitElement {
                         this._signalsVersion,
                         repeat(
                             device.signals,
-                            (sig) => sig.fingerprint,
+                            (sig) => sig.id,
                             (sig) => {
-                            const recentIdx = this._recentFingerprints.indexOf(sig.fingerprint);
+                            const recentIdx = this._recentSignalIds.indexOf(sig.id);
                             const isLatest = recentIdx === 0;
                             const isPrevious = recentIdx === 1;
-                            const isGlowing = this._glowFingerprints.has(sig.fingerprint);
-                            const isHitFlash = this._hitFlashFingerprints.has(sig.fingerprint);
+                            const isGlowing = this._glowSignalIds.has(sig.id);
+                            const isHitFlash = this._hitFlashSignalIds.has(sig.id);
                             return html`
                             <div class="signal-row">
                                 ${device.dismissed
@@ -1169,11 +1171,11 @@ export class IrSignalMonitor extends LitElement {
                                             e.stopPropagation();
                                             this._openTestDialog(sig);
                                         }}
-                                        ?disabled=${device.dismissed || this._testingFingerprint === sig.fingerprint}
+                                        ?disabled=${device.dismissed || this._testingSignalId === sig.id}
                                         title=${device.dismissed
                                             ? "Restore this remote first"
                                             : "Send this signal through an emitter to test it"}
-                                    >${this._testingFingerprint === sig.fingerprint
+                                    >${this._testingSignalId === sig.id
                                         ? (this._testResult ?? "Sending...")
                                         : "Test"}</button>
                                     <button

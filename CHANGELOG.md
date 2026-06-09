@@ -5,6 +5,13 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-06-08
+
+### Fixed
+
+- Distinct IR codes that share an S/L fingerprint are now kept as separate signals. Some protocols (the Panasonic and Kaseikyo family, the TCL family, and a handful of similar consumer remotes) have a "long" pulse that sits just below HAIR's S/L threshold, so genuinely different buttons produced the same S/L pattern. The Clipper's duplicate guard then refused the second paste as "already on this remote", and on the Sniffer the two signals collapsed into one. HAIR now adds a byte-level tiebreaker so signals that share a pattern but carry different timing are stored, named, tested, reordered, and assigned independently. Only an identical code is still treated as a duplicate. Reported by @SNMetamorph (GH #13 follow-up) and @akikun21 (GH #16).
+- Empty Actions popover on Other-type device cards. The Actions button now hides on devices whose platform (remote) does not expose mappable feature actions, so it no longer opens an empty popover.
+
 ## [0.3.3] - 2026-06-07
 
 ### Fixed

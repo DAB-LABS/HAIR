@@ -626,6 +626,41 @@ class TestPublicAPI:
         # Only the original signal remains; no twin was appended.
         assert len(device.signals) == 1
 
+    @pytest.mark.asyncio
+    async def test_distinct_codes_sharing_fingerprint_are_independent(self):
+        """SNMetamorph (#13) regression: two Panasonic codes that collapse to
+        the same S/L fingerprint paste as two distinct signals, and alias and
+        delete by id act on only one of them (not both)."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        power = ("0000 006D 0006 0000 00E0 0070 0014 000D 0014 002E "
+                 "0014 000D 0014 000D 0014 0400")
+        volup = ("0000 006D 0006 0000 00E0 0070 0014 002E 0014 000D "
+                 "0014 000D 0014 002E 0014 0400")
+        with patch.object(store, "async_save", AsyncMock()):
+            device = await monitor.create_manual_remote("Panasonic")
+            r1 = await monitor.create_manual_signal(device.id, power, "Power")
+            r2 = await monitor.create_manual_signal(device.id, volup, "Volume Up")
+
+            assert r1["success"] is True
+            assert r2["success"] is True
+            # Both stored: same S/L fingerprint, different byte hash.
+            assert len(device.signals) == 2
+            assert device.signals[0].fingerprint == device.signals[1].fingerprint
+            assert device.signals[0].byte_hash != device.signals[1].byte_hash
+
+            power_id = r1["signal"]["id"]
+            volup_id = r2["signal"]["id"]
+            # Aliasing one by id leaves the other untouched.
+            await monitor.set_signal_alias(device.id, volup_id, "VOL")
+            assert device.get_signal_by_id(volup_id).alias == "VOL"
+            assert device.get_signal_by_id(power_id).alias == "Power"
+            # Deleting one by id leaves the other in place.
+            await monitor.delete_signal(device.id, power_id)
+            assert device.get_signal_by_id(power_id) is None
+            assert device.get_signal_by_id(volup_id) is not None
+
     def test_get_unknown_devices_filters_dismissed(self):
         hass = _make_hass()
         store = _make_signal_store(hass)
@@ -727,7 +762,7 @@ class TestAssignSignal:
 
         # Set up an unknown device with a signal.
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             frequency=38000, hit_count=5,
         )
         device = UnknownDevice(
@@ -768,7 +803,7 @@ class TestAssignSignal:
         monitor = SignalMonitor(hass, store, hair_store)
 
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             frequency=38000, hit_count=5,
         )
         device = UnknownDevice(
@@ -812,7 +847,7 @@ class TestAssignSignal:
 
         # Seed: dismissed device with one signal, ready to be assigned.
         sig = UnknownSignal(
-            fingerprint="sig_fp_first", protocol="NEC", code="0x1234",
+            id="sig_fp_first", fingerprint="sig_fp_first", protocol="NEC", code="0x1234",
             frequency=38000, hit_count=1,
         )
         device = UnknownDevice(
@@ -852,8 +887,8 @@ class TestAssignSignal:
         hair_store = _make_hair_store()
         monitor = SignalMonitor(hass, store, hair_store)
 
-        sig1 = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1234")
-        sig2 = UnknownSignal(fingerprint="sig2", protocol="NEC", code="0x5678")
+        sig1 = UnknownSignal(id="sig1", fingerprint="sig1", protocol="NEC", code="0x1234")
+        sig2 = UnknownSignal(id="sig2", fingerprint="sig2", protocol="NEC", code="0x5678")
         device = UnknownDevice(
             id="ud1", fingerprint="dev_fp", signals=[sig1, sig2],
         )
@@ -907,7 +942,7 @@ class TestAssignSignal:
         hair_store = _make_hair_store()
         monitor = SignalMonitor(hass, store, hair_store)
 
-        sig = UnknownSignal(fingerprint="sig_fp", protocol="NEC", code="0x1234")
+        sig = UnknownSignal(id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234")
         device = UnknownDevice(id="ud1", fingerprint="dev_fp", signals=[sig])
         store.add_device(device)
 
@@ -933,7 +968,7 @@ class TestTestSignal:
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             raw_timings=[9000, -4500, 560, -560],
         )
         device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
@@ -1032,7 +1067,7 @@ class TestAssignIdempotency:
         monitor = SignalMonitor(hass, store, hair_store)
 
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             frequency=38000, hit_count=5,
         )
         device = UnknownDevice(
@@ -1071,8 +1106,8 @@ class TestDeleteSignal:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
-        sig1 = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1")
-        sig2 = UnknownSignal(fingerprint="sig2", protocol="NEC", code="0x2")
+        sig1 = UnknownSignal(id="sig1", fingerprint="sig1", protocol="NEC", code="0x1")
+        sig2 = UnknownSignal(id="sig2", fingerprint="sig2", protocol="NEC", code="0x2")
         device = UnknownDevice(
             id="ud1", fingerprint="fp", signals=[sig1, sig2],
         )
@@ -1092,7 +1127,7 @@ class TestDeleteSignal:
         hass.bus.async_fire.assert_called()
         fire_args = hass.bus.async_fire.call_args
         assert fire_args[0][0] == "hair_signal_removed"
-        assert fire_args[0][1]["signal_fingerprint"] == "sig1"
+        assert fire_args[0][1]["signal_id"] == "sig1"
 
     @pytest.mark.asyncio
     async def test_delete_last_signal_removes_device(self):
@@ -1100,7 +1135,7 @@ class TestDeleteSignal:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
-        sig = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1")
+        sig = UnknownSignal(id="sig1", fingerprint="sig1", protocol="NEC", code="0x1")
         device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
         store.add_device(device)
 
@@ -1123,7 +1158,7 @@ class TestDeleteSignal:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
-        sig = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1")
+        sig = UnknownSignal(id="sig1", fingerprint="sig1", protocol="NEC", code="0x1")
         device = UnknownDevice(
             id="ud1", fingerprint="fp_dismissed", signals=[sig],
             dismissed=True,
@@ -1177,7 +1212,7 @@ class TestAssignToNewDevice:
         monitor = SignalMonitor(hass, store, hair_store)
 
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             frequency=38000, hit_count=5,
         )
         device = UnknownDevice(
@@ -1187,7 +1222,7 @@ class TestAssignToNewDevice:
 
         result = await monitor.assign_to_new_device(
             device_id="ud1",
-            signal_fingerprint="sig_fp",
+            signal_id="sig_fp",
             device_name="Living Room TV",
             device_type="media_player",
             emitter_entity_ids=["remote.ir_blaster"],
@@ -1219,7 +1254,7 @@ class TestAssignToNewDevice:
         monitor = SignalMonitor(hass, store, hair_store)
 
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             frequency=38000, hit_count=1,
         )
         device = UnknownDevice(
@@ -1232,7 +1267,7 @@ class TestAssignToNewDevice:
 
         result = await monitor.assign_to_new_device(
             device_id="ud1",
-            signal_fingerprint="sig_fp",
+            signal_id="sig_fp",
             device_name="Living Room TV",
             device_type="media_player",
             emitter_entity_ids=["remote.ir_blaster"],
@@ -1254,7 +1289,7 @@ class TestAssignToNewDevice:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
-        sig = UnknownSignal(fingerprint="sig_fp", protocol="NEC", code="0x1")
+        sig = UnknownSignal(id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1")
         device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
         store.add_device(device)
 
@@ -1273,7 +1308,7 @@ class TestAssignToNewDevice:
         hair_store.async_save = AsyncMock(side_effect=OSError("disk full"))
         monitor = SignalMonitor(hass, store, hair_store)
 
-        sig = UnknownSignal(fingerprint="sig_fp", protocol="NEC", code="0x1")
+        sig = UnknownSignal(id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1")
         device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
         store.add_device(device)
 
@@ -1313,7 +1348,7 @@ class TestTestSignalErrors:
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             raw_timings=[9000, -4500, 560, -560],
         )
         device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
@@ -1346,7 +1381,7 @@ class TestTestSignalErrors:
         monitor = SignalMonitor(hass, store, _make_hair_store())
 
         sig = UnknownSignal(
-            fingerprint="sig_fp", protocol="NEC", code="0x1234",
+            id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
             raw_timings=[9000, -4500, 560, -560],
         )
         device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])

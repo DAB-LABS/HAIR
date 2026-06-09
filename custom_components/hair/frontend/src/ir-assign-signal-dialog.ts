@@ -182,7 +182,7 @@ export class IrAssignSignalDialog extends LitElement {
                 }
                 result = await this.api.assignSignal({
                     device_id: this.unknownDeviceId,
-                    signal_fingerprint: this.signal.fingerprint,
+                    signal_id: this.signal.id,
                     hair_device_id: this._selectedDeviceId,
                     command_name: name,
                 });
@@ -199,7 +199,7 @@ export class IrAssignSignalDialog extends LitElement {
                 }
                 result = await this.api.assignToNewDevice({
                     device_id: this.unknownDeviceId,
-                    signal_fingerprint: this.signal.fingerprint,
+                    signal_id: this.signal.id,
                     device_name: this._newName.trim(),
                     device_type: this._newType,
                     emitter_entity_ids: this._newEmitterIds,

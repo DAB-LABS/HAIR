@@ -94,21 +94,42 @@ class SignalStore:
                 len(orphans),
             )
 
-        # Duplicate-signal cleanup (v0.3.2). The Clipper's manual paste
-        # path historically had no guard, so a remote could hold two
-        # signals with the same fingerprint (the same Pronto pasted
-        # twice). The signal model keys on fingerprint everywhere, so a
-        # twin is unusable and breaks reorder. Collapse each remote's
-        # signals to the first occurrence of each fingerprint on load.
-        # The guard in ``create_manual_signal`` prevents new twins; this
-        # heals any that predate it.
+        # v0.3.4 migration: every signal needs a stable id and a byte_hash.
+        # ``UnknownSignal.from_dict`` already assigns a fresh id when the
+        # stored record has none; compute the byte_hash from the Pronto
+        # code where it is missing. Mark the store dirty so the generated
+        # ids and computed hashes persist (otherwise ids would regenerate
+        # on every load). Runs BEFORE the duplicate cleanup below, which as
+        # of v0.3.4 keys on the composite (fingerprint, byte_hash).
+        from .event_parser import EventParser
+
+        legacy_signals = any(
+            not s.get("id") or s.get("byte_hash") is None
+            for d in (raw.get("devices") or [])
+            for s in (d.get("signals") or [])
+        )
         for device in self._devices.values():
-            seen: set[str] = set()
+            for sig in device.signals:
+                if sig.byte_hash is None and sig.code:
+                    sig.byte_hash = EventParser.pronto_byte_hash(sig.code)
+        if legacy_signals:
+            self._dirty = True
+
+        # Duplicate-signal cleanup (v0.3.2, composite key as of v0.3.4).
+        # The Clipper's manual paste path historically had no guard, so a
+        # remote could hold two truly identical signals (the same Pronto
+        # pasted twice). Collapse each remote's signals to the first
+        # occurrence of each (fingerprint, byte_hash) on load. Two signals
+        # that share an S/L fingerprint but differ in byte_hash (Panasonic,
+        # TCL, and similar protocols) are distinct and are NOT collapsed.
+        for device in self._devices.values():
+            seen: set[tuple[str, str | None]] = set()
             deduped = []
             for sig in device.signals:
-                if sig.fingerprint in seen:
+                key = (sig.fingerprint, sig.byte_hash)
+                if key in seen:
                     continue
-                seen.add(sig.fingerprint)
+                seen.add(key)
                 deduped.append(sig)
             if len(deduped) != len(device.signals):
                 device.signals = deduped

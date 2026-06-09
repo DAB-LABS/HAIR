@@ -1026,7 +1026,7 @@ async def test_assign_signal_success(fake_hass):
     monitor = _make_signal_monitor(fake_hass)
     _wire_hass(fake_hass, signal_monitor=monitor)
 
-    sig = UnknownSignal(fingerprint="sig_fp", protocol="NEC", code="0x1234")
+    sig = UnknownSignal(id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234")
     device = UnknownDevice(id="ud1", fingerprint="dev_fp", signals=[sig])
     monitor._signal_store.add_device(device)
 
@@ -1040,7 +1040,7 @@ async def test_assign_signal_success(fake_hass):
             "id": 107,
             "type": "hair/unknown/assign",
             "device_id": "ud1",
-            "signal_fingerprint": "sig_fp",
+            "signal_id": "sig_fp",
             "hair_device_id": "hd1",
             "command_name": "Power",
             "command_category": "custom",
@@ -1062,7 +1062,7 @@ async def test_assign_signal_failure(fake_hass):
             "id": 108,
             "type": "hair/unknown/assign",
             "device_id": "nope",
-            "signal_fingerprint": "x",
+            "signal_id": "x",
             "hair_device_id": "y",
             "command_name": "Power",
             "command_category": "custom",
@@ -1078,7 +1078,7 @@ async def test_test_signal_success(fake_hass):
     _wire_hass(fake_hass, signal_monitor=monitor)
 
     sig = UnknownSignal(
-        fingerprint="sig_fp", protocol="NEC", code="0x1234",
+        id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
         raw_timings=[9000, -4500, 560, -560],
     )
     device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
@@ -1096,7 +1096,7 @@ async def test_test_signal_success(fake_hass):
             {
                 "id": 109,
                 "type": "hair/unknown/test",
-                "signal_fingerprint": "sig_fp",
+                "signal_id": "sig_fp",
                 "emitter_entity_id": "remote.ir",
             },
         )
@@ -1117,7 +1117,7 @@ async def test_test_signal_not_found(fake_hass):
         {
             "id": 110,
             "type": "hair/unknown/test",
-            "signal_fingerprint": "nope",
+            "signal_id": "nope",
             "emitter_entity_id": "remote.ir",
         },
     )
@@ -1171,8 +1171,8 @@ async def test_delete_signal_success(fake_hass):
     monitor = _make_signal_monitor(fake_hass)
     _wire_hass(fake_hass, signal_monitor=monitor)
 
-    sig1 = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1")
-    sig2 = UnknownSignal(fingerprint="sig2", protocol="NEC", code="0x2")
+    sig1 = UnknownSignal(id="sig1", fingerprint="sig1", protocol="NEC", code="0x1")
+    sig2 = UnknownSignal(id="sig2", fingerprint="sig2", protocol="NEC", code="0x2")
     device = UnknownDevice(
         id="ud1", fingerprint="fp", signals=[sig1, sig2],
     )
@@ -1185,7 +1185,7 @@ async def test_delete_signal_success(fake_hass):
             "id": 120,
             "type": "hair/unknown/signal/delete",
             "device_id": "ud1",
-            "signal_fingerprint": "sig1",
+            "signal_id": "sig1",
         },
     )
     conn.send_result.assert_called_once()
@@ -1203,7 +1203,7 @@ async def test_delete_signal_last_removes_device(fake_hass):
     monitor = _make_signal_monitor(fake_hass)
     _wire_hass(fake_hass, signal_monitor=monitor)
 
-    sig = UnknownSignal(fingerprint="sig1", protocol="NEC", code="0x1")
+    sig = UnknownSignal(id="sig1", fingerprint="sig1", protocol="NEC", code="0x1")
     device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
     monitor._signal_store.add_device(device)
 
@@ -1214,7 +1214,7 @@ async def test_delete_signal_last_removes_device(fake_hass):
             "id": 121,
             "type": "hair/unknown/signal/delete",
             "device_id": "ud1",
-            "signal_fingerprint": "sig1",
+            "signal_id": "sig1",
         },
     )
     conn.send_result.assert_called_once()
@@ -1235,7 +1235,7 @@ async def test_delete_signal_not_found(fake_hass):
             "id": 122,
             "type": "hair/unknown/signal/delete",
             "device_id": "nope",
-            "signal_fingerprint": "x",
+            "signal_id": "x",
         },
     )
     conn.send_error.assert_called_once()
@@ -1257,7 +1257,7 @@ async def test_assign_new_device_success(fake_hass):
     _wire_hass(fake_hass, manager=manager, signal_monitor=monitor)
 
     sig = UnknownSignal(
-        fingerprint="sig_fp", protocol="NEC", code="0x1234",
+        id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1234",
         frequency=38000, hit_count=5,
     )
     device = UnknownDevice(
@@ -1272,7 +1272,7 @@ async def test_assign_new_device_success(fake_hass):
             "id": 130,
             "type": "hair/unknown/assign-new-device",
             "device_id": "ud1",
-            "signal_fingerprint": "sig_fp",
+            "signal_id": "sig_fp",
             "device_name": "Living Room TV",
             "device_type": "media_player",
             "emitter_entity_ids": ["remote.ir_blaster"],
@@ -1301,7 +1301,7 @@ async def test_assign_new_device_invalid_type(fake_hass):
     monitor = _make_signal_monitor(fake_hass)
     _wire_hass(fake_hass, signal_monitor=monitor)
 
-    sig = UnknownSignal(fingerprint="sig_fp", protocol="NEC", code="0x1")
+    sig = UnknownSignal(id="sig_fp", fingerprint="sig_fp", protocol="NEC", code="0x1")
     device = UnknownDevice(id="ud1", fingerprint="fp", signals=[sig])
     monitor._signal_store.add_device(device)
 
@@ -1312,7 +1312,7 @@ async def test_assign_new_device_invalid_type(fake_hass):
             "id": 131,
             "type": "hair/unknown/assign-new-device",
             "device_id": "ud1",
-            "signal_fingerprint": "sig_fp",
+            "signal_id": "sig_fp",
             "device_name": "Test",
             "device_type": "invalid_type",
             "emitter_entity_ids": ["remote.ir"],
@@ -1341,7 +1341,7 @@ async def test_assign_new_device_signal_not_found(fake_hass):
             "id": 132,
             "type": "hair/unknown/assign-new-device",
             "device_id": "ud1",
-            "signal_fingerprint": "nonexistent",
+            "signal_id": "nonexistent",
             "device_name": "Test",
             "device_type": "media_player",
             "emitter_entity_ids": ["remote.ir"],
@@ -1490,7 +1490,7 @@ async def test_set_signal_alias_success(fake_hass):
     _wire_hass(fake_hass, signal_monitor=monitor)
     remote = await monitor.create_manual_remote("Clip A")
     await monitor.create_manual_signal(remote.id, _VALID_PRONTO)
-    fp = monitor._signal_store.get_device(remote.id).signals[0].fingerprint
+    sid = monitor._signal_store.get_device(remote.id).signals[0].id
 
     conn = _make_connection()
     await ws_set_signal_alias(
@@ -1499,7 +1499,7 @@ async def test_set_signal_alias_success(fake_hass):
             "id": 207,
             "type": "hair/unknown/signal/set-alias",
             "device_id": remote.id,
-            "signal_fingerprint": fp,
+            "signal_id": sid,
             "alias": "  Mute  ",
         },
     )
@@ -1520,7 +1520,7 @@ async def test_set_signal_alias_signal_not_found(fake_hass):
             "id": 208,
             "type": "hair/unknown/signal/set-alias",
             "device_id": remote.id,
-            "signal_fingerprint": "missing",
+            "signal_id": "missing",
             "alias": "x",
         },
     )
@@ -1696,8 +1696,8 @@ async def test_reorder_unknown_signals_success(fake_hass):
     _wire_signal_store(fake_hass, monitor)
     device = UnknownDevice(id="d1", fingerprint="d1", source="manual")
     device.signals = [
-        UnknownSignal(fingerprint="a"),
-        UnknownSignal(fingerprint="b"),
+        UnknownSignal(id="a", fingerprint="a"),
+        UnknownSignal(id="b", fingerprint="b"),
     ]
     monitor._signal_store.add_device(device)
 
@@ -1705,10 +1705,10 @@ async def test_reorder_unknown_signals_success(fake_hass):
     await ws_reorder_unknown_signals(
         fake_hass, conn,
         {"id": 304, "type": "hair/unknown/signal/reorder",
-         "device_id": "d1", "fingerprints": ["b", "a"]},
+         "device_id": "d1", "signal_ids": ["b", "a"]},
     )
     conn.send_result.assert_called_once_with(304, {"reordered": True})
-    assert [s.fingerprint for s in device.signals] == ["b", "a"]
+    assert [s.id for s in device.signals] == ["b", "a"]
 
 
 @pytest.mark.asyncio
@@ -1721,7 +1721,7 @@ async def test_reorder_unknown_signals_device_not_found(fake_hass):
     await ws_reorder_unknown_signals(
         fake_hass, conn,
         {"id": 305, "type": "hair/unknown/signal/reorder",
-         "device_id": "missing", "fingerprints": []},
+         "device_id": "missing", "signal_ids": []},
     )
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "not_found"

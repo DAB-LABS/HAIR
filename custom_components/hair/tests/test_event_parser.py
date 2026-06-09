@@ -1,7 +1,76 @@
 """Tests for the EventParser adapter layer."""
 from __future__ import annotations
 
+import random
+
 from custom_components.hair.event_parser import EventParser
+
+# ---------------------------------------------------------------------------
+# pronto_byte_hash -- duplicate-guard tiebreaker (v0.3.4)
+#
+# Synthetic Pronto vectors from spec timing constants (same approach as the
+# research findings doc). Hand-rolled NEC values are easy to get wrong, so
+# the values below were cross-checked against the locked N=20 behavior.
+# ---------------------------------------------------------------------------
+
+
+def _pronto(data_words: list[str]) -> str:
+    """4-word header + an L preamble + data words + an end-of-signal gap."""
+    return "0000 006D 0000 0030 00E0 0070 " + " ".join(data_words) + " 0014 0400"
+
+
+def _nec_words(jitter: int, seed: int) -> list[str]:
+    """NEC data words: mark ~22, zero-space ~21, one-space ~64 carrier cycles."""
+    rng = random.Random(seed)
+    pattern = [22, 21, 22, 64, 22, 21, 22, 64, 22, 64, 22, 21, 22, 64, 22, 21]
+    return [f"{max(1, v + rng.randint(-jitter, jitter)):04X}" for v in pattern]
+
+
+def test_pronto_byte_hash_stable_across_nec_jitter():
+    """The same NEC button, captured with receiver jitter, hashes to one value."""
+    hashes = {
+        EventParser.pronto_byte_hash(_pronto(_nec_words(jitter=3, seed=i)))
+        for i in range(10)
+    }
+    assert len(hashes) == 1
+
+
+def test_pronto_byte_hash_distinguishes_panasonic_buttons():
+    """Two Panasonic (Kaseikyo) commands share an S/L pattern but hash apart."""
+    # mark=0x14, bit-0 space=0x0D (13 cyc), bit-1 space=0x2E (46 cyc) at 38 kHz.
+    power = _pronto(["0014", "000D", "0014", "002E", "0014", "000D", "0014", "000D"])
+    volup = _pronto(["0014", "002E", "0014", "000D", "0014", "000D", "0014", "002E"])
+    # Same S/L fingerprint -- both classify every data word as S (the collapse).
+    assert EventParser.signal_fingerprint("PRONTO", power, []) == (
+        EventParser.signal_fingerprint("PRONTO", volup, [])
+    )
+    # But distinct byte hashes -- the tiebreaker keeps them apart.
+    assert EventParser.pronto_byte_hash(power) != EventParser.pronto_byte_hash(volup)
+
+
+def test_pronto_byte_hash_distinguishes_tcl_buttons():
+    """Two TCL112-like commands share an S/L pattern but hash apart."""
+    # bit-0 space ~13 cyc, bit-1 space ~40 cyc (0x28), mark ~19 (0x13).
+    a = _pronto(["0013", "000D", "0013", "0028", "0013", "000D"])
+    b = _pronto(["0013", "0028", "0013", "000D", "0013", "0028"])
+    assert EventParser.signal_fingerprint("PRONTO", a, []) == (
+        EventParser.signal_fingerprint("PRONTO", b, [])
+    )
+    assert EventParser.pronto_byte_hash(a) != EventParser.pronto_byte_hash(b)
+
+
+def test_pronto_byte_hash_malformed_returns_none():
+    assert EventParser.pronto_byte_hash(None) is None
+    assert EventParser.pronto_byte_hash("not hex") is None
+    # Header only, no data words.
+    assert EventParser.pronto_byte_hash("0000 006D") is None
+
+
+def test_pronto_byte_hash_ignores_trailing_gap_variation():
+    """A different end-gap word (past the gap threshold) does not change the hash."""
+    base = _pronto(["0014", "000D", "0014", "002E"])
+    variant = "0000 006D 0000 0030 00E0 0070 0014 000D 0014 002E 0014 0800"
+    assert EventParser.pronto_byte_hash(base) == EventParser.pronto_byte_hash(variant)
 
 
 class TestParse:

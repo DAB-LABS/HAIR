@@ -93,7 +93,7 @@ export class IrClips extends LitElement {
     @state() private _confirmDeleteTriggerId: string | null = null;
     @state() private _testDialog: { signal: UnknownSignal } | null = null;
     @state() private _testEmitters: string[] = [];
-    @state() private _testingFingerprint: string | null = null;
+    @state() private _testingSignalId: string | null = null;
     @state() private _testResult: string | null = null;
 
     // Drag-to-reorder (remotes + signals-within-a-remote).
@@ -205,7 +205,7 @@ export class IrClips extends LitElement {
                 this._signalsSortableContainer = null;
                 this._purgeChildren(container, ".signal-row");
                 this._signalsVersion++;
-                this._scheduleSignalsSave(dev.id, signals.map((s) => s.fingerprint));
+                this._scheduleSignalsSave(dev.id, signals.map((s) => s.id));
             },
         });
     }
@@ -231,12 +231,12 @@ export class IrClips extends LitElement {
         }, REORDER_DEBOUNCE_MS);
     }
 
-    private _scheduleSignalsSave(deviceId: string, fingerprints: string[]): void {
+    private _scheduleSignalsSave(deviceId: string, signalIds: string[]): void {
         if (this._pendingSignalsSave !== null) clearTimeout(this._pendingSignalsSave);
         this._pendingSignalsSave = window.setTimeout(async () => {
             this._pendingSignalsSave = null;
             try {
-                await this.api.reorderUnknownSignals(deviceId, fingerprints);
+                await this.api.reorderUnknownSignals(deviceId, signalIds);
             } catch (err) {
                 this._error = `Reorder failed: ${(err as Error).message}`;
                 await this._refreshExpanded();
@@ -332,14 +332,14 @@ export class IrClips extends LitElement {
     // --- Signal alias (delegated to ir-signal-alias) ---
 
     private _onAliasChanged(
-        e: CustomEvent<{ fingerprint: string; alias: string }>,
+        e: CustomEvent<{ id: string; alias: string }>,
     ): void {
-        const { fingerprint, alias } = e.detail;
+        const { id, alias } = e.detail;
         if (!this._expandedDevice) return;
         this._expandedDevice = {
             ...this._expandedDevice,
             signals: this._expandedDevice.signals.map((s) =>
-                s.fingerprint === fingerprint ? { ...s, alias } : s,
+                s.id === id ? { ...s, alias } : s,
             ),
         };
     }
@@ -407,7 +407,7 @@ export class IrClips extends LitElement {
         const { deviceId, signal } = this._deleteSignal;
         this._deleteSignal = null;
         try {
-            await this.api.deleteSignal(deviceId, signal.fingerprint);
+            await this.api.deleteSignal(deviceId, signal.id);
             await this._load();
             await this._refreshExpanded();
         } catch (err) {
@@ -424,12 +424,12 @@ export class IrClips extends LitElement {
         const { signal } = this._testDialog;
         const emitters = e.detail.emitters as string[];
         if (emitters.length === 0) return;
-        this._testingFingerprint = signal.fingerprint;
+        this._testingSignalId = signal.id;
         this._testResult = null;
         this._testDialog = null;
         try {
             const results = await Promise.allSettled(
-                emitters.map((eid) => this.api.testSignal(signal.fingerprint, eid)),
+                emitters.map((eid) => this.api.testSignal(signal.id, eid)),
             );
             const sent = results.filter(
                 (r) => r.status === "fulfilled" && r.value.sent,
@@ -447,7 +447,7 @@ export class IrClips extends LitElement {
         }
         setTimeout(() => {
             this._testResult = null;
-            this._testingFingerprint = null;
+            this._testingSignalId = null;
         }, 3000);
     }
 
@@ -739,7 +739,7 @@ export class IrClips extends LitElement {
                                   this._signalsVersion,
                                   repeat(
                                       device.signals,
-                                      (sig) => sig.fingerprint,
+                                      (sig) => sig.id,
                                       (sig) =>
                                           this._renderSignal(
                                               device.id,
@@ -761,7 +761,7 @@ export class IrClips extends LitElement {
         dismissed: boolean,
         label: string | null,
     ) {
-        const isTesting = this._testingFingerprint === sig.fingerprint;
+        const isTesting = this._testingSignalId === sig.id;
         return html`
             <div class="signal-row">
                 ${dismissed

@@ -821,7 +821,7 @@ async def ws_undismiss_unknown(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/assign",
     vol.Required("device_id"): str,
-    vol.Required("signal_fingerprint"): str,
+    vol.Required("signal_id"): str,
     vol.Required("hair_device_id"): str,
     vol.Required("command_name"): str,
     vol.Optional("command_category", default="custom"): str,
@@ -840,7 +840,7 @@ async def ws_assign_signal(
     monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.assign_signal(
         msg["device_id"],
-        msg["signal_fingerprint"],
+        msg["signal_id"],
         msg["hair_device_id"],
         msg["command_name"],
         msg.get("command_category", "custom"),
@@ -861,7 +861,7 @@ async def ws_assign_signal(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/test",
-    vol.Required("signal_fingerprint"): str,
+    vol.Required("signal_id"): str,
     vol.Optional("emitter_entity_id"): str,
 })
 @websocket_api.async_response
@@ -890,7 +890,7 @@ async def ws_test_signal(
 
     monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.test_signal(
-        msg["signal_fingerprint"], emitter_id
+        msg["signal_id"], emitter_id
     )
     if not result["success"]:
         connection.send_error(
@@ -934,7 +934,7 @@ async def ws_rename_unknown(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/assign-new-device",
     vol.Required("device_id"): str,
-    vol.Required("signal_fingerprint"): str,
+    vol.Required("signal_id"): str,
     vol.Required("device_name"): str,
     vol.Required("device_type"): str,
     vol.Required("emitter_entity_ids"): [str],
@@ -955,7 +955,7 @@ async def ws_assign_new_device(
     monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.assign_to_new_device(
         msg["device_id"],
-        msg["signal_fingerprint"],
+        msg["signal_id"],
         msg["device_name"],
         msg["device_type"],
         list(msg["emitter_entity_ids"]),
@@ -987,7 +987,7 @@ async def ws_assign_new_device(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/signal/delete",
     vol.Required("device_id"): str,
-    vol.Required("signal_fingerprint"): str,
+    vol.Required("signal_id"): str,
 })
 @websocket_api.async_response
 async def ws_delete_signal(
@@ -1002,7 +1002,7 @@ async def ws_delete_signal(
         return
     monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.delete_signal(
-        msg["device_id"], msg["signal_fingerprint"]
+        msg["device_id"], msg["signal_id"]
     )
     if not result["success"]:
         connection.send_error(
@@ -1042,7 +1042,7 @@ async def ws_clear_unknowns(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/signal/set-alias",
     vol.Required("device_id"): str,
-    vol.Required("signal_fingerprint"): str,
+    vol.Required("signal_id"): str,
     vol.Required("alias"): str,
 })
 @websocket_api.async_response
@@ -1058,7 +1058,7 @@ async def ws_set_signal_alias(
         return
     monitor: SignalMonitor = data["signal_monitor"]
     result = await monitor.set_signal_alias(
-        msg["device_id"], msg["signal_fingerprint"], msg["alias"]
+        msg["device_id"], msg["signal_id"], msg["alias"]
     )
     if not result["success"]:
         connection.send_error(
@@ -1101,7 +1101,7 @@ async def ws_reorder_unknown_devices(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/signal/reorder",
     vol.Required("device_id"): str,
-    vol.Required("fingerprints"): [str],
+    vol.Required("signal_ids"): [str],
 })
 @websocket_api.async_response
 async def ws_reorder_unknown_signals(
@@ -1109,7 +1109,7 @@ async def ws_reorder_unknown_signals(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Reorder the signals within one remote to match the fingerprint list."""
+    """Reorder the signals within one remote to match the id list."""
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -1120,7 +1120,7 @@ async def ws_reorder_unknown_signals(
         connection.send_error(msg["id"], "not_found", "Unknown device not found")
         return
     try:
-        device.reorder_signals(list(msg["fingerprints"]))
+        device.reorder_signals(list(msg["signal_ids"]))
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_format", str(err))
         return

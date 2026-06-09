@@ -18,6 +18,7 @@ from typing import Any
 
 from .const import (
     DEFAULT_CARRIER_FREQUENCY,
+    PRONTO_BYTE_HASH_BIN,
     PRONTO_DEVICE_PREAMBLE_PAIRS,
     PRONTO_GAP_THRESHOLD,
     PRONTO_NEC_ADDRESS_PAIRS,
@@ -402,6 +403,42 @@ class EventParser:
             return None
 
         return "".join(pattern)
+
+    @staticmethod
+    def pronto_byte_hash(code: str | None) -> str | None:
+        """Quantized byte hash of a Pronto code, a duplicate-guard tiebreaker.
+
+        The S/L fingerprint classifies each timing word as short or long,
+        which collapses two genuinely different commands into one signal
+        when a protocol's "long" pulse sits below ``PRONTO_SL_THRESHOLD``
+        (e.g. Panasonic/Kaseikyo at 46 cycles, TCL112 at 40). This hash
+        preserves the distinction without over-fragmenting jittered
+        captures of the same physical button: each pre-gap timing word is
+        rounded to the nearest ``PRONTO_BYTE_HASH_BIN`` carrier cycles,
+        and the comma-joined sequence is SHA-256 hashed (first 16 hex).
+
+        Uses the same parse and gap-break point as ``_pronto_sl_pattern``
+        so the two layers of the composite key stay consistent. Returns
+        ``None`` if the code is malformed.
+        """
+        words = EventParser._parse_pronto_words(code)
+        if words is None:
+            return None
+
+        n = PRONTO_BYTE_HASH_BIN
+        # Skip the 4-word header; quantize timing words, break at the
+        # first end-of-signal gap (same truncation as the S/L pattern).
+        quantized: list[str] = []
+        for t in words[4:]:
+            if t >= PRONTO_GAP_THRESHOLD:
+                break
+            quantized.append(str(round(t / n) * n))
+
+        if not quantized:
+            return None
+
+        payload = ",".join(quantized)
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     # -----------------------------------------------------------------
     # Internal helpers

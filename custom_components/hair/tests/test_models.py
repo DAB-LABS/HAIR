@@ -424,10 +424,65 @@ def test_unknown_device_legacy_load_defaults_order_to_zero():
     assert UnknownDevice.from_dict(legacy).order == 0
 
 
-def _sig(fp: str):
+def _sig(signal_id: str, fingerprint: str | None = None):
     from custom_components.hair.models import UnknownSignal
 
-    return UnknownSignal(fingerprint=fp)
+    return UnknownSignal(id=signal_id, fingerprint=fingerprint or signal_id)
+
+
+# ---------------------------------------------------------------------------
+# id + byte_hash + composite matching (pronto-bytes tiebreaker, v0.3.4)
+# ---------------------------------------------------------------------------
+
+def test_unknown_signal_id_and_byte_hash_round_trip():
+    from custom_components.hair.models import UnknownSignal
+
+    sig = UnknownSignal(id="sig1", fingerprint="fp1", byte_hash="bh1")
+    d = sig.to_dict()
+    assert d["id"] == "sig1"
+    assert d["byte_hash"] == "bh1"
+    loaded = UnknownSignal.from_dict(d)
+    assert loaded.id == "sig1"
+    assert loaded.byte_hash == "bh1"
+
+
+def test_unknown_signal_legacy_load_generates_id_and_null_byte_hash():
+    """Pre-0.3.4 records lack id and byte_hash; id is generated, hash is None."""
+    from custom_components.hair.models import UnknownSignal
+
+    legacy = {"fingerprint": "fp1", "code": "0000 006D"}
+    loaded = UnknownSignal.from_dict(legacy)
+    assert loaded.id  # a fresh uuid was generated
+    assert loaded.byte_hash is None
+
+
+def test_get_signal_matches_fingerprint_then_byte_hash():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="R")
+    a = _sig("a", fingerprint="fp")
+    a.byte_hash = "h1"
+    b = _sig("b", fingerprint="fp")
+    b.byte_hash = "h2"
+    dev.signals = [a, b]
+    # Fingerprint-only matches the first signal with that fingerprint.
+    assert dev.get_signal("fp") is a
+    # The composite key distinguishes two same-fingerprint signals.
+    assert dev.get_signal("fp", "h2") is b
+    assert dev.get_signal("fp", "nope") is None
+
+
+def test_get_signal_by_id_and_remove_by_id():
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="R")
+    a = _sig("a", fingerprint="fp")
+    b = _sig("b", fingerprint="fp")  # same fingerprint, distinct id
+    dev.signals = [a, b]
+    assert dev.get_signal_by_id("b") is b
+    assert dev.remove_signal_by_id("a") is True
+    assert [s.id for s in dev.signals] == ["b"]
+    assert dev.remove_signal_by_id("missing") is False
 
 
 def test_reorder_signals_happy_path():
@@ -436,7 +491,18 @@ def test_reorder_signals_happy_path():
     dev = UnknownDevice(label="Remote")
     dev.signals = [_sig("a"), _sig("b"), _sig("c")]
     dev.reorder_signals(["c", "a", "b"])
-    assert [s.fingerprint for s in dev.signals] == ["c", "a", "b"]
+    assert [s.id for s in dev.signals] == ["c", "a", "b"]
+
+
+def test_reorder_signals_by_id_with_shared_fingerprint():
+    """Two signals can share a fingerprint (byte-hash tiebreaker); reorder
+    keys on id, not fingerprint."""
+    from custom_components.hair.models import UnknownDevice
+
+    dev = UnknownDevice(label="Remote")
+    dev.signals = [_sig("a", "fp"), _sig("b", "fp")]
+    dev.reorder_signals(["b", "a"])
+    assert [s.id for s in dev.signals] == ["b", "a"]
 
 
 def test_reorder_signals_empty_with_empty_list():

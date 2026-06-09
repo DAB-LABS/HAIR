@@ -29,9 +29,10 @@ Key components:
   burst-pair length math, and a carrier-frequency sanity warning) and then behaves
   identically to a sniffed signal: test, trigger, assign, or promote. Pasted signals
   share the same catalog as sniffed signals, distinguished by a source field
-  (sniffed vs manual). Manual remotes are never auto-evicted. Pasting a code already
-  on a remote is rejected, so a remote never holds two signals with the same
-  fingerprint. Remotes and their signals are drag-reorderable like the Sniffer's.
+  (sniffed vs manual). Manual remotes are never auto-evicted. Pasting an identical
+  code already on a remote is rejected, but genuinely different codes that share an
+  S/L fingerprint are kept as separate signals via a byte-level tiebreaker. Remotes
+  and their signals are drag-reorderable like the Sniffer's.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a
@@ -53,8 +54,10 @@ Key components:
 
 Signal fingerprinting details:
 - Uses S/L (short/long) pulse-duration classification. Each pulse is classified as
-  short or long, producing a pattern that uniquely identifies the signal regardless
-  of minor timing jitter between presses.
+  short or long, producing a pattern that identifies the signal regardless of minor
+  timing jitter between presses. Protocols whose long pulse falls just below the S/L
+  threshold (such as the Panasonic and TCL families) are separated by an additional
+  byte-level tiebreaker so distinct commands are not merged.
 - Patterns are rendered as two-tone diamond sequences in the UI for visual ID.
 - Covers all major consumer IR protocols: NEC, Samsung, JVC, LG, Sony, RC-5, RC-6.
 - Source-remote grouping uses carrier frequency and preamble fingerprinting, so the

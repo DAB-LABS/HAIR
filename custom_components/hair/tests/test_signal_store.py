@@ -598,3 +598,39 @@ class TestManualOrder:
         assert [s.fingerprint for s in sigs] == ["dup", "uniq"]
         # A change was made, so the cleaned list will be persisted.
         assert store._dirty is True
+
+    @pytest.mark.asyncio
+    async def test_load_v0_3_4_assigns_ids_and_keeps_distinct_byte_hash(self):
+        """v0.3.4 migration: legacy signals get a stable id and a byte_hash,
+        and two codes that share an S/L fingerprint but differ in bytes are
+        NOT collapsed (Panasonic/TCL case)."""
+        store = SignalStore(_make_hass())
+        power = ("0000 006D 0006 0000 00E0 0070 0014 000D 0014 002E "
+                 "0014 000D 0014 000D 0014 0400")
+        volup = ("0000 006D 0006 0000 00E0 0070 0014 002E 0014 000D "
+                 "0014 000D 0014 002E 0014 0400")
+        raw = {
+            "devices": [
+                {
+                    "id": "B", "fingerprint": "B", "order": 0, "signals": [
+                        {"fingerprint": "fpY", "code": power, "protocol": "PRONTO"},
+                        {"fingerprint": "fpY", "code": volup, "protocol": "PRONTO"},
+                    ],
+                },
+            ],
+            "dismissed": [],
+        }
+        with patch.object(store, "_store") as mock_store:
+            mock_store.async_load = AsyncMock(return_value=raw)
+            await store.async_load()
+        sigs = store.get_device("B").signals
+        # Distinct codes sharing a fingerprint stay as two separate signals.
+        assert len(sigs) == 2
+        assert sigs[0].fingerprint == sigs[1].fingerprint
+        assert sigs[0].byte_hash != sigs[1].byte_hash
+        # Each legacy signal received a stable id and a computed byte_hash,
+        # and the store is dirty so those persist on the next save.
+        for sig in sigs:
+            assert sig.id
+            assert sig.byte_hash is not None
+        assert store._dirty is True

@@ -290,7 +290,7 @@ export class HairApi {
 
     assignSignal(payload: {
         device_id: string;
-        signal_fingerprint: string;
+        signal_id: string;
         hair_device_id: string;
         command_name: string;
         command_category?: string;
@@ -303,7 +303,7 @@ export class HairApi {
 
     assignToNewDevice(payload: {
         device_id: string;
-        signal_fingerprint: string;
+        signal_id: string;
         device_name: string;
         device_type: string;
         emitter_entity_ids: string[];
@@ -318,22 +318,22 @@ export class HairApi {
 
     deleteSignal(
         deviceId: string,
-        signalFingerprint: string,
+        signalId: string,
     ): Promise<DeleteSignalResult> {
         return this.hass.connection.sendMessagePromise<DeleteSignalResult>({
             type: "hair/unknown/signal/delete",
             device_id: deviceId,
-            signal_fingerprint: signalFingerprint,
+            signal_id: signalId,
         });
     }
 
     testSignal(
-        signalFingerprint: string,
+        signalId: string,
         emitterEntityId?: string,
     ): Promise<TestSignalResult> {
         const msg: Record<string, unknown> = {
             type: "hair/unknown/test",
-            signal_fingerprint: signalFingerprint,
+            signal_id: signalId,
         };
         if (emitterEntityId) {
             msg.emitter_entity_id = emitterEntityId;
@@ -361,13 +361,13 @@ export class HairApi {
 
     setSignalAlias(
         deviceId: string,
-        signalFingerprint: string,
+        signalId: string,
         alias: string,
     ): Promise<{ alias: string }> {
         return this.hass.connection.sendMessagePromise<{ alias: string }>({
             type: "hair/unknown/signal/set-alias",
             device_id: deviceId,
-            signal_fingerprint: signalFingerprint,
+            signal_id: signalId,
             alias,
         });
     }
@@ -389,18 +389,18 @@ export class HairApi {
     }
 
     /**
-     * Persist a new order for the signals within one remote. ``fingerprints``
+     * Persist a new order for the signals within one remote. ``signalIds``
      * must list every signal on the remote exactly once; the backend rejects
      * a mismatched set with ``invalid_format``.
      */
     reorderUnknownSignals(
         deviceId: string,
-        fingerprints: string[],
+        signalIds: string[],
     ): Promise<{ reordered: boolean }> {
         return this.hass.connection.sendMessagePromise<{ reordered: boolean }>({
             type: "hair/unknown/signal/reorder",
             device_id: deviceId,
-            fingerprints,
+            signal_ids: signalIds,
         });
     }
 

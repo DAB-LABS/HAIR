@@ -19,6 +19,11 @@ export class IrCommandRow extends LitElement {
     /** Whether this command already has an associated trigger. */
     @property({ type: Boolean }) public hasTrigger = false;
 
+    /** Whether to show the action-mapping ("ACTIONS") button. Hidden for
+     *  device types whose platform exposes no mappable feature actions
+     *  (e.g. Other / the remote platform), where the popover would be empty. */
+    @property({ type: Boolean }) public showActionMapping = true;
+
     /** Human-friendly label for a captured command (plain text fallback). */
     private _commandLabel(): string {
         const cmd = this.command!;
@@ -93,13 +98,15 @@ export class IrCommandRow extends LitElement {
                 <div class="actions">
                     ${learned
                         ? html`
-                              <button
+                              ${this.showActionMapping
+                                  ? html`<button
                                   class="action-btn badge-btn"
                                   ?data-mapped=${!!this.actionLabel}
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("map-action")}
                                   title="Assign action mapping"
-                              >${this.actionLabel || "ACTIONS"}</button>
+                              >${this.actionLabel || "ACTIONS"}</button>`
+                                  : ""}
                               <button
                                   class="action-btn test-btn"
                                   ?disabled=${this.busy}
