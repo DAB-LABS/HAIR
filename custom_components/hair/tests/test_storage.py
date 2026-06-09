@@ -1,13 +1,18 @@
 """Tests for the HAIR storage layer."""
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.hair.const import DeviceType
+from custom_components.hair.const import (
+    STORAGE_KEY,
+    STORAGE_VERSION,
+    STORAGE_VERSION_MINOR,
+    DeviceType,
+)
 from custom_components.hair.models import IRDevice
-from custom_components.hair.storage import HAIRStore
+from custom_components.hair.storage import HAIRStore, _HAIRDeviceStore
 
 
 class _FakeStore:
@@ -24,8 +29,29 @@ class _FakeStore:
 
 
 @pytest.mark.asyncio
+async def test_device_store_migration_hook_wired_on_subclass():
+    """H3: the migrate hook lives on the Store subclass (so HA's
+    async_load dispatches to it), not on the HAIRStore wrapper where it
+    was dead code before v0.4.0."""
+    # The wrapper must NOT define the hook -- that was the bug.
+    assert "_async_migrate_func" not in HAIRStore.__dict__
+    # The Store subclass defines it, so HA's async_load will call it.
+    assert "_async_migrate_func" in _HAIRDeviceStore.__dict__
+
+    store = _HAIRDeviceStore(
+        MagicMock(),
+        STORAGE_VERSION,
+        STORAGE_KEY,
+        minor_version=STORAGE_VERSION_MINOR + 1,
+    )
+    old_data = {"devices": [{"id": "d1"}], "triggers": []}
+    migrated = await store._async_migrate_func(STORAGE_VERSION, 0, old_data)
+    assert migrated == old_data
+
+
+@pytest.mark.asyncio
 async def test_store_save_load_round_trip(fake_hass, mock_device: IRDevice):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
 
@@ -46,7 +72,7 @@ async def test_store_save_load_round_trip(fake_hass, mock_device: IRDevice):
 
 @pytest.mark.asyncio
 async def test_store_remove_device(fake_hass, mock_device: IRDevice):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
         store.add_device(mock_device)
@@ -57,7 +83,7 @@ async def test_store_remove_device(fake_hass, mock_device: IRDevice):
 
 @pytest.mark.asyncio
 async def test_store_filters(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
 
@@ -83,7 +109,7 @@ async def test_store_skips_malformed_entries(fake_hass):
             {"id": "bad", "device_type": "not-a-type"},  # Triggers ValueError
         ]
     }
-    with patch("custom_components.hair.storage.Store", lambda *a, **k: backing):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", lambda *a, **k: backing):
         store = HAIRStore(fake_hass)
         await store.async_load()
         # Bad entry should be skipped, good one should load.
@@ -101,7 +127,7 @@ def _dev(name: str) -> IRDevice:
 
 @pytest.mark.asyncio
 async def test_reorder_devices_happy_path(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
         a, b, c = _dev("A"), _dev("B"), _dev("C")
@@ -115,7 +141,7 @@ async def test_reorder_devices_happy_path(fake_hass):
 
 @pytest.mark.asyncio
 async def test_reorder_devices_persists_order(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
         a, b = _dev("A"), _dev("B")
@@ -132,7 +158,7 @@ async def test_reorder_devices_persists_order(fake_hass):
 
 @pytest.mark.asyncio
 async def test_reorder_devices_duplicate_raises(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
         a = _dev("A")
@@ -143,7 +169,7 @@ async def test_reorder_devices_duplicate_raises(fake_hass):
 
 @pytest.mark.asyncio
 async def test_reorder_devices_unknown_raises(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
         a = _dev("A")
@@ -156,7 +182,7 @@ async def test_reorder_devices_unknown_raises(fake_hass):
 
 @pytest.mark.asyncio
 async def test_reorder_devices_missing_raises(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         await store.async_load()
         a, b = _dev("A"), _dev("B")

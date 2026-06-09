@@ -5,7 +5,8 @@ The user-facing "add a device" experience lives in the admin panel; the
 config flow is just a one-time initial setup that:
 
 1. Detects available IR hardware (emitters via the native infrared
-   platform, capture-capable devices via ESPHome / Broadlink integrations).
+   platform, capture-capable devices via the native receiver API or the
+   ESPHome event-bus bridge).
 2. Aborts gracefully when nothing is found and points the user at the
    setup guide.
 3. Creates the singleton config entry once hardware is present.

@@ -17,6 +17,42 @@ from .models import IRDevice, IRTrigger
 _LOGGER = logging.getLogger(__name__)
 
 
+class _HAIRDeviceStore(Store):
+    """``Store`` subclass so the migration hook is actually invoked.
+
+    HA's ``Store.async_load`` calls ``_async_migrate_func`` on the Store
+    instance. Before v0.4.0, ``HAIRStore`` composed a plain ``Store`` and
+    defined ``_async_migrate_func`` on the wrapper, so the override was
+    never called and the base raised ``NotImplementedError`` on any
+    version mismatch -- the first ``STORAGE_VERSION_MINOR`` bump would
+    fail every install's load. Subclassing is the standard HA pattern.
+    v0.4.0 backfills the new decoded fields in-application (no version
+    bump), but the scaffold must be real before any future schema
+    migration ships.
+    """
+
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Migrate storage schema between versions.
+
+        v1.1 is the initial schema. Future migrations bump
+        ``STORAGE_VERSION_MINOR`` (or ``STORAGE_VERSION`` for breaking
+        changes) and add branches here.
+        """
+        _LOGGER.info(
+            "Migrating HAIR device store from v%s.%s to v%s.%s",
+            old_major_version,
+            old_minor_version,
+            STORAGE_VERSION,
+            STORAGE_VERSION_MINOR,
+        )
+        return old_data
+
+
 class HAIRStore:
     """Manage persistent storage of IR devices and commands.
 
@@ -26,7 +62,7 @@ class HAIRStore:
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
-        self._store: Store[dict[str, Any]] = Store(
+        self._store: Store[dict[str, Any]] = _HAIRDeviceStore(
             hass,
             STORAGE_VERSION,
             STORAGE_KEY,
@@ -89,27 +125,6 @@ class HAIRStore:
             "devices": [d.to_dict() for d in self._data.values()],
             "triggers": [t.to_dict() for t in self._triggers.values()],
         }
-
-    async def _async_migrate_func(
-        self,
-        old_major_version: int,
-        old_minor_version: int,
-        old_data: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Migrate storage schema between versions.
-
-        v1.1 (current) is the initial schema. Future migrations bump
-        STORAGE_VERSION_MINOR (or STORAGE_VERSION for breaking changes)
-        and add branches here.
-        """
-        _LOGGER.info(
-            "Migrating HAIR storage from v%s.%s to v%s.%s",
-            old_major_version,
-            old_minor_version,
-            STORAGE_VERSION,
-            STORAGE_VERSION_MINOR,
-        )
-        return old_data
 
     def get_device(self, device_id: str) -> IRDevice | None:
         return self._data.get(device_id)

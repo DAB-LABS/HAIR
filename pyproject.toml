@@ -22,6 +22,11 @@ test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
+    # Runtime consumes infrared-protocols via HA core's `infrared` dependency
+    # (no manifest pin). It is declared here only so the test suite can
+    # exercise the real NEC decoder. Pinned to the 5.x line HA core ships
+    # (5.6.1 in 2026.6, API stable through 5.8.x); 6.0 may break the surface.
+    "infrared-protocols>=5.6,<6.0",
 ]
 lint = [
     "ruff>=0.4",

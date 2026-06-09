@@ -4,9 +4,11 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import MagicMock, patch
 
+import homeassistant.components as ha_components
 import pytest
 
 from custom_components.hair.capture import (
+    ESPHomeCaptureProvider,
     MockCaptureProvider,
     NativeCaptureProvider,
     get_available_capture_providers,
@@ -44,6 +46,43 @@ async def test_mock_provider_unavailable_raises():
     provider = MockCaptureProvider(fail=True)
     with pytest.raises(RuntimeError):
         await provider.async_start_capture()
+
+
+@pytest.mark.asyncio
+async def test_esphome_listener_fires_and_enqueues(fake_hass):
+    """H1: the legacy capture listener actually enqueues a CaptureResult.
+
+    The pre-v0.4.0 code applied ``callback_factory`` as a decorator on an
+    empty stub, registering an unawaited coroutine object that never
+    fired, so every legacy session timed out. The fix registers the
+    factory product directly. Here we capture the listener handed to
+    ``bus.async_listen``, fire an event through it, and assert the queue
+    receives the parsed ``CaptureResult``.
+    """
+    provider = ESPHomeCaptureProvider(fake_hass, "entry-1", "dev-1")
+
+    # ``async_start_capture`` imports homeassistant.components.esphome to
+    # confirm the integration is loaded; provide a stub attribute for it.
+    with patch.object(ha_components, "esphome", MagicMock(), create=True):
+        await provider.async_start_capture(timeout=1)
+
+    fake_hass.bus.async_listen.assert_called_once()
+    event_name, listener = fake_hass.bus.async_listen.call_args[0]
+    assert event_name == "esphome.remote_received"
+
+    event = MagicMock()
+    event.data = {
+        "device_id": "dev-1",
+        "protocol": "NEC",
+        "code": "0x20DF10EF",
+        "raw": [9000, -4500, 560, -560],
+        "frequency": 38000,
+    }
+    await listener(event)
+
+    result = await provider.async_wait_for_signal()
+    assert isinstance(result, CaptureResult)
+    assert result.code == "0x20DF10EF"
 
 
 @pytest.mark.asyncio

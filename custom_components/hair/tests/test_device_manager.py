@@ -31,7 +31,7 @@ class _FakeStore:
 
 @pytest.fixture
 def manager(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         # Don't await async_load; the fake returns None synchronously for tests.
         store._loaded = True

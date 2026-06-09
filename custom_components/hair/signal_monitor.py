@@ -27,6 +27,7 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
+    DECODED_FINGERPRINT_FORMAT,
     DEFAULT_CARRIER_FREQUENCY,
     EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
@@ -40,6 +41,7 @@ from .const import (
 from .event_parser import EventParser
 from .models import UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
+from .protocol_decode import try_decode
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
@@ -223,6 +225,16 @@ class SignalMonitor:
         actually still have ``on_pronto:`` configured -- the only way to
         detect bridge presence is to observe events from it.
         """
+        # Drop events forged through the HA API. ESPHome-originated bus
+        # events carry no user context; a non-None ``user_id`` means an
+        # authenticated user (admin or not) fired this event via the
+        # WS/REST API. Since processing runs trigger matching before any
+        # filtering, an unguarded handler lets a non-admin user fire HAIR
+        # event entities (and any automations bound to them). Reject such
+        # events before they touch bridge tracking or the pipeline.
+        if event.context.user_id is not None:
+            return
+
         event_data = event.data or {}
 
         # Track this device as having an active bridge (regardless of
@@ -272,6 +284,25 @@ class SignalMonitor:
         # that collapse to the same S/L fingerprint (Panasonic, TCL, etc.).
         # None for non-Pronto codes, whose fingerprint is already unique.
         byte_hash = EventParser.pronto_byte_hash(parsed.code)
+
+        # Protocol decode (v0.4.0 Phase A): identify NEC-family signals at
+        # capture so the matcher can key on the decoded fingerprint and the
+        # TX path can re-encode canonical timings. This is the single decode
+        # point for both the native and legacy RX paths, which both arrive
+        # here. None for undecodable signals or when the library is
+        # unavailable; capture continues unchanged either way.
+        decoded = try_decode(parsed.raw_timings)
+        decoded_protocol: str | None = None
+        decoded_address: int | None = None
+        decoded_command: int | None = None
+        decoded_fingerprint: str | None = None
+        if decoded is not None:
+            decoded_protocol, decoded_address, decoded_command = decoded
+            decoded_fingerprint = DECODED_FINGERPRINT_FORMAT.format(
+                protocol=decoded_protocol,
+                address=decoded_address,
+                command=decoded_command,
+            )
 
         # Step 2: Check triggers (before known-command skip so triggers
         # work for both assigned commands and unknown signals).
@@ -332,6 +363,10 @@ class SignalMonitor:
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     byte_hash=byte_hash,
+                    decoded_protocol=decoded_protocol,
+                    decoded_address=decoded_address,
+                    decoded_command=decoded_command,
+                    decoded_fingerprint=decoded_fingerprint,
                     protocol=parsed.protocol,
                     code=parsed.code,
                     raw_timings=list(parsed.raw_timings) if parsed.raw_timings else [],

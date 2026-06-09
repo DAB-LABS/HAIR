@@ -9,9 +9,29 @@ import pytest
 from custom_components.hair.const import (
     SIGNAL_BUFFER_MAX_DEVICES,
     SIGNAL_EVICT_AGE_DAYS,
+    SIGNAL_STORAGE_KEY,
+    SIGNAL_STORAGE_VERSION,
 )
 from custom_components.hair.models import UnknownDevice, UnknownSignal
-from custom_components.hair.signal_store import SignalStore
+from custom_components.hair.signal_store import SignalStore, _SignalCatalogStore
+
+
+@pytest.mark.asyncio
+async def test_signal_store_migration_hook_wired_on_subclass():
+    """H3: the catalog store's migrate hook is on the Store subclass, not
+    the SignalStore wrapper, so a future SIGNAL_STORAGE_VERSION bump does
+    not fail every load the way the composed plain Store would have."""
+    assert "_async_migrate_func" not in SignalStore.__dict__
+    assert "_async_migrate_func" in _SignalCatalogStore.__dict__
+
+    store = _SignalCatalogStore(
+        MagicMock(), SIGNAL_STORAGE_VERSION, SIGNAL_STORAGE_KEY
+    )
+    old_data = {"devices": [], "dismissed": []}
+    migrated = await store._async_migrate_func(
+        SIGNAL_STORAGE_VERSION, 0, old_data
+    )
+    assert migrated == old_data
 
 
 def _make_hass():

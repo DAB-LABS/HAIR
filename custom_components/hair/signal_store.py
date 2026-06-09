@@ -29,12 +29,38 @@ from .models import UnknownDevice
 _LOGGER = logging.getLogger(__name__)
 
 
+class _SignalCatalogStore(Store):
+    """``Store`` subclass so the migration hook actually runs (H3).
+
+    Mirrors ``storage._HAIRDeviceStore``. The unknown-signal catalog does
+    its schema evolution with an in-application backfill on load (stable
+    ids, byte_hash, and the v0.4.0 decoded fields), not a storage-version
+    bump, but the migration scaffold must be wired so a future
+    ``SIGNAL_STORAGE_VERSION`` bump does not fail every install's load the
+    way the composed plain ``Store`` would have.
+    """
+
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        _LOGGER.info(
+            "Migrating HAIR signal store from v%s.%s to v%s",
+            old_major_version,
+            old_minor_version,
+            SIGNAL_STORAGE_VERSION,
+        )
+        return old_data
+
+
 class SignalStore:
     """Manage persistent storage of the unknown-signal catalog."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
-        self._store: Store[dict[str, Any]] = Store(
+        self._store: Store[dict[str, Any]] = _SignalCatalogStore(
             hass,
             SIGNAL_STORAGE_VERSION,
             SIGNAL_STORAGE_KEY,
