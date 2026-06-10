@@ -11,7 +11,7 @@
  * Errors and duplicate detection render inline in the same dialog.
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { CaptureEvent, CaptureResult, IRDevice } from "./types.js";
 

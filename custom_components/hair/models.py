@@ -42,6 +42,20 @@ class IRCommand:
     # (the v0.3.4 duplicate-guard tiebreaker). Optional; None for commands
     # created before 0.3.4 or from sources without a Pronto code.
     byte_hash: str | None = None
+    # Decoded protocol identity (v0.4.0 Phase A). Populated when the
+    # infrared-protocols library can read the signal as a known protocol
+    # (NEC today). Lets the matcher key on the decoded fingerprint and the
+    # TX path re-encode canonical timings. All None when undecodable or
+    # for commands created before v0.4.0 (backfilled lazily on load).
+    decoded_protocol: str | None = None
+    decoded_address: int | None = None
+    decoded_command: int | None = None
+    decoded_fingerprint: str | None = None
+    # Per-command opt-out: when True, TX replays the captured Pronto rather
+    # than re-encoding from the decoded value. Default False, so a command
+    # with decoded fields transmits canonical timings unless the user
+    # explicitly pins it to the captured ones.
+    tx_force_raw: bool = False
     created_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +70,11 @@ class IRCommand:
             "frequency": self.frequency,
             "repeat_count": self.repeat_count,
             "byte_hash": self.byte_hash,
+            "decoded_protocol": self.decoded_protocol,
+            "decoded_address": self.decoded_address,
+            "decoded_command": self.decoded_command,
+            "decoded_fingerprint": self.decoded_fingerprint,
+            "tx_force_raw": self.tx_force_raw,
             "created_at": self.created_at,
         }
 
@@ -72,6 +91,11 @@ class IRCommand:
             frequency=int(data.get("frequency", DEFAULT_CARRIER_FREQUENCY)),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             byte_hash=data.get("byte_hash"),
+            decoded_protocol=data.get("decoded_protocol"),
+            decoded_address=data.get("decoded_address"),
+            decoded_command=data.get("decoded_command"),
+            decoded_fingerprint=data.get("decoded_fingerprint"),
+            tx_force_raw=bool(data.get("tx_force_raw", False)),
             created_at=data.get("created_at") or _now_iso(),
         )
 
@@ -210,6 +234,16 @@ class IRDevice:
                 ),
                 frequency=cmd.frequency,
                 repeat_count=cmd.repeat_count,
+                # Carry every signal-identity field so a clone matches and
+                # transmits exactly like its source. Dropping any of these
+                # silently degrades dedup (byte_hash) or canonical TX
+                # (decoded_*) on the clone.
+                byte_hash=cmd.byte_hash,
+                decoded_protocol=cmd.decoded_protocol,
+                decoded_address=cmd.decoded_address,
+                decoded_command=cmd.decoded_command,
+                decoded_fingerprint=cmd.decoded_fingerprint,
+                tx_force_raw=cmd.tx_force_raw,
             )
             for cmd in self.commands
         ]
@@ -479,6 +513,14 @@ class UnknownSignal:
     # different byte_hash are distinct. None for pre-0.3.4 records until
     # populated lazily on load.
     byte_hash: str | None = None
+    # Decoded protocol identity (v0.4.0 Phase A). Populated at capture
+    # when the infrared-protocols library can read the signal (NEC today),
+    # and backfilled on load for older records. None when undecodable.
+    # ``tx_force_raw`` is a device-command concept and is NOT carried here.
+    decoded_protocol: str | None = None
+    decoded_address: int | None = None
+    decoded_command: int | None = None
+    decoded_fingerprint: str | None = None
     protocol: str | None = None
     code: str | None = None
     raw_timings: list[int] = field(default_factory=list)
@@ -494,6 +536,10 @@ class UnknownSignal:
             "id": self.id,
             "fingerprint": self.fingerprint,
             "byte_hash": self.byte_hash,
+            "decoded_protocol": self.decoded_protocol,
+            "decoded_address": self.decoded_address,
+            "decoded_command": self.decoded_command,
+            "decoded_fingerprint": self.decoded_fingerprint,
             "protocol": self.protocol,
             "code": self.code,
             "raw_timings": list(self.raw_timings),
@@ -518,6 +564,10 @@ class UnknownSignal:
             id=data.get("id") or _new_id(),
             fingerprint=data.get("fingerprint", ""),
             byte_hash=data.get("byte_hash"),
+            decoded_protocol=data.get("decoded_protocol"),
+            decoded_address=data.get("decoded_address"),
+            decoded_command=data.get("decoded_command"),
+            decoded_fingerprint=data.get("decoded_fingerprint"),
             protocol=data.get("protocol"),
             code=data.get("code"),
             raw_timings=data.get("raw_timings") or [],

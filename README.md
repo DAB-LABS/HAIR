@@ -29,6 +29,8 @@ As more integrations adopt the `infrared` platform, HAIR picks them up with no c
 
 HAIR fingerprints every captured signal using short/long (S/L) pulse-duration analysis. Each pulse is classified short or long, producing a pattern that identifies the signal regardless of minor timing jitter between presses. S/L works across NEC, Samsung, JVC, LG, Sony, and RC-5/RC-6 without needing to decode the protocol. The Sniffer groups signals by source remote, deduplicates repeated presses, filters held-button repeat frames, and tracks hit counts, all in real time.
 
+When HAIR can read a captured signal as a known protocol (NEC today), it also stores the decoded form alongside the raw timings for stronger matching and cleaner transmission. Raw timings remain the source of truth, and transmit can re-encode clean timings from the decoded value instead of replaying the captured ones, which fixes a class of replay failures against destinations that expect undistorted timing.
+
 ## Screenshots
 
 | Devices Overview | Device Detail |
@@ -111,7 +113,7 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 **HAIR Clipper** - Build virtual remotes by pasting Pronto hex codes, for when you have a code from an online converter, a vendor datasheet, or an ESPHome log but no live signal to sniff. Create a named remote on the Clipper tab, then add a button by pasting its Pronto code. The dialog validates the code as you paste it (the detected carrier frequency, the burst pair count, an S/L diamond preview, and specific error messages when something is off) so you know it is well-formed before you save. A pasted signal behaves exactly like a sniffed one: test it through an emitter, turn it into a trigger, assign it to a device, or promote the whole remote.
 
-**Signal Aliases** - Give any signal a nickname by clicking its S/L diamond pattern and typing. The alias replaces the diamonds in the list so you can tell your signals apart at a glance, in both the Sniffer and Clipper. An alias is a label on the signal, not a command name, so the same signal can still become differently-named commands on different devices.
+**Signal Aliases** - Give any signal a nickname by clicking its S/L diamond pattern and typing. The alias replaces the diamonds in the list so you can tell your signals apart at a glance, in both the Sniffer and Clipper. Click an existing alias to rename it, or clear the field to remove the alias and bring the diamonds back. An alias is a label on the signal, not a command name, so the same signal can still become differently-named commands on different devices.
 
 **Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Assigning a signal copies it into the device and leaves the original in place, so the same signal can be assigned to more than one device or as more than one command. Each device gets native HA entities automatically based on its type. One-click duplicate clones an existing device with all its commands, action mappings, and emitter assignments preserved, useful when you have several remotes of the same model or a stack of similar AC units.
 
@@ -135,7 +137,7 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 The main view shows five sections:
 
-**HAIR Devices** - Your managed IR device profiles. Each card shows the device name, type, command count, and how many emitters are assigned. Drag a card to reorder your devices; the order persists. Each card also carries two small corner actions: a duplicate icon in the top-right to clone the device with all its commands and emitter assignments preserved, and a delete icon in the bottom-right for removing the device without opening its detail view. Click anywhere else on the card to expand its detail view inline, where you can change the device type, manage emitters, drag-to-reorder commands, and see every learned command with its S/L diamond fingerprint pattern. From the detail view you can test commands, delete them, or assign action mappings.
+**HAIR Devices** - Your managed IR device profiles. Each card shows the device name, type, command count, and how many emitters are assigned. Drag a card to reorder your devices; the order persists. Hover over the device name and click it to rename the device inline; the change saves automatically. Each card also carries two small corner actions: a duplicate icon in the top-right to clone the device with all its commands and emitter assignments preserved, and a delete icon in the bottom-right for removing the device without opening its detail view. Click anywhere else on the card to expand its detail view inline, where you can change the device type, manage emitters, drag-to-reorder commands, and see every learned command with its S/L diamond fingerprint pattern. From the detail view you can test commands, delete them, or assign action mappings.
 
 **Triggers** - Active IR triggers that fire HA event entities when their signal is detected. Each trigger card shows the trigger name with a lightning bolt icon. When a trigger fires, the card flashes with an amber glow animation in real time.
 
@@ -149,7 +151,7 @@ The main view shows five sections:
 
 The Sniffer is a passive listener that shows every IR signal your receivers pick up. Signals are grouped by source device (identified by carrier frequency and preamble fingerprint) and displayed with hit counts, signal counts, and last-seen timestamps.
 
-Each source device row can be expanded to show individual signals with their S/L diamond fingerprint. From here you can assign a signal directly to a HAIR device as a named command, or promote an unknown source device into a full HAIR device profile. Before promoting, click the pencil button on the source device row to give it a custom name -- otherwise the new device inherits the auto-generated source name (e.g., "Unknown Remote 1"). Setting the name first means the promoted device lands in your Devices tab already labeled correctly.
+Each source device row can be expanded to show individual signals with their S/L diamond fingerprint. From here you can assign a signal directly to a HAIR device as a named command, or promote an unknown source device into a full HAIR device profile. Before promoting, hover over the source device's name on the row and click it to rename it -- otherwise the new device inherits the auto-generated source name (e.g., "Unknown Remote 1"). Renaming first lands the promoted device in your Devices tab already labeled correctly, though you can also rename it later from the Devices tab if you prefer to promote first.
 
 The Test button on any captured signal opens an emitter picker so you can choose which IR emitter to fire the test signal through, and broadcast through multiple emitters at once if you want. The picker remembers your selection for the session so subsequent Tests skip straight to Send.
 
@@ -165,9 +167,11 @@ The Clipper tab is for building remotes by hand, for when you cannot or do not w
 
 Click "+ Add Remote" to make a named remote, then expand it and click "+ Add Signal" to add a signal. Paste the Pronto code into the dialog. As you paste, HAIR validates the code and shows a green or red check, the detected carrier frequency, the burst pair count, and the same S/L diamond fingerprint you see in the Sniffer, along with a specific message if anything is wrong (a header that is not `0000`, a truncated code, non-hex characters, or an unusual carrier frequency). Press Enter or click Create once it validates, and give it an alias up front if you like. Pasting a code that is already on the remote is refused, so a remote never ends up with two identical signals.
 
-From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote.
+From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it.
 
-Pronto is the only paste format for now. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported. A device database picker that pre-fills commands is planned for a future release and will live alongside the paste field on this same tab.
+Pronto is the only paste format. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported.
+
+You do not always have to paste. The Create Remote dialog has a Type dropdown: leave it on Empty to fill the remote by pasting, or pick a manufacturer and model to materialize a remote pre-filled with one signal per button, each named for its function. The list is whatever device codes your installed Home Assistant infrared library carries -- some TVs (LG, Samsung, Vizio, Sharp), a Sony PlayStation, and a few audio and lighting devices. It is a shortcut for the supported devices, not a universal lookup, so anything not listed is still a paste away.
 
 ### Adding a Device
 
@@ -175,7 +179,7 @@ There are four ways to add a device.
 
 **From scratch:** Click the "Add Device" button in the tab bar on the Devices tab. Enter a name, pick a device type, and select which IR emitters should broadcast commands for this device. HAIR creates the device profile and the corresponding HA entities immediately.
 
-**From the Sniffer (promote an unknown source):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Click the pencil button on the source row to give it a custom name first, then promote it to a full HAIR device. Setting the name before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. This path is ideal when you have the physical remote in hand and want to capture its signals first.
+**From the Sniffer (promote an unknown source):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Hover over the source row's name and click it to rename it, then promote it to a full HAIR device. Renaming before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. You can also rename it later from the Devices tab if you'd rather promote first. This path is ideal when you have the physical remote in hand and want to capture its signals first.
 
 **From the Clipper (promote a built remote):** A remote you build by hand in the Clipper promotes the same way a sniffed one does. Once you have pasted its signals with "+ Add Remote" and "+ Add Signal", click Promote on the remote to turn it into a full HAIR device. This is the path for a device you have Pronto codes for (from a converter, datasheet, or ESPHome log) but cannot capture live.
 

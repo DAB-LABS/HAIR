@@ -9,9 +9,67 @@ import pytest
 from custom_components.hair.const import (
     SIGNAL_BUFFER_MAX_DEVICES,
     SIGNAL_EVICT_AGE_DAYS,
+    SIGNAL_STORAGE_KEY,
+    SIGNAL_STORAGE_VERSION,
 )
 from custom_components.hair.models import UnknownDevice, UnknownSignal
-from custom_components.hair.signal_store import SignalStore
+from custom_components.hair.signal_store import SignalStore, _SignalCatalogStore
+
+
+@pytest.mark.asyncio
+async def test_signal_store_migration_hook_wired_on_subclass():
+    """H3: the catalog store's migrate hook is on the Store subclass, not
+    the SignalStore wrapper, so a future SIGNAL_STORAGE_VERSION bump does
+    not fail every load the way the composed plain Store would have."""
+    assert "_async_migrate_func" not in SignalStore.__dict__
+    assert "_async_migrate_func" in _SignalCatalogStore.__dict__
+
+    store = _SignalCatalogStore(
+        MagicMock(), SIGNAL_STORAGE_VERSION, SIGNAL_STORAGE_KEY
+    )
+    old_data = {"devices": [], "dismissed": []}
+    migrated = await store._async_migrate_func(
+        SIGNAL_STORAGE_VERSION, 0, old_data
+    )
+    assert migrated == old_data
+
+
+@pytest.mark.asyncio
+async def test_async_load_backfills_catalog_decoded_fields():
+    """v0.4.0 load decodes stored catalog signals into their decoded_*
+    fields where the library can read them."""
+    hass = _make_hass()
+    store = SignalStore(hass)
+    raw = {
+        "devices": [
+            {
+                "id": "dev1",
+                "fingerprint": "fpA",
+                "label": "Remote",
+                "source": "sniffed",
+                "signals": [
+                    {
+                        "id": "sig1",
+                        "fingerprint": "fpA",
+                        "raw_timings": [9000, -4500, 562, -562, 562, -1687],
+                        "frequency": 38000,
+                    }
+                ],
+            }
+        ],
+        "dismissed": [],
+    }
+    with patch(
+        "custom_components.hair.protocol_decode.try_decode",
+        return_value=("NEC", 0xFB04, 0x49),
+    ), patch.object(store, "_store") as mock_store:
+        mock_store.async_load = AsyncMock(return_value=raw)
+        await store.async_load()
+    sig = store.get_device("dev1").signals[0]
+    assert sig.decoded_protocol == "NEC"
+    assert sig.decoded_address == 0xFB04
+    assert sig.decoded_command == 0x49
+    assert sig.decoded_fingerprint == "NEC:0xfb04:0x49"
 
 
 def _make_hass():

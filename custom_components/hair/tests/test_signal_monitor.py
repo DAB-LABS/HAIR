@@ -66,12 +66,20 @@ def _make_hair_store():
     hair_store.get_all_devices = MagicMock(return_value=[])
     hair_store.get_device = MagicMock(return_value=None)
     hair_store.async_save = AsyncMock()
+    # Default: no signal matches an assigned command. Tests that exercise
+    # the known-command skip set this to return a (device_id, command_id).
+    hair_store.match_command = MagicMock(return_value=None)
     return hair_store
 
 
-def _make_event(data: dict):
+def _make_event(data: dict, user_id: str | None = None):
     event = MagicMock()
     event.data = data
+    # Real ESPHome bus events carry no user context; the S1 forge guard in
+    # ``_on_ir_event`` drops events whose ``context.user_id`` is not None.
+    # Default to None so legacy-path tests flow through; pass a user_id to
+    # simulate an API-forged event.
+    event.context.user_id = user_id
     return event
 
 
@@ -81,6 +89,142 @@ def _nec_event(code: str = "0x1234", protocol: str = "NEC") -> dict:
 
 def _raw_event(timings: list[int] | None = None) -> dict:
     return {"raw": timings or [9000, -4500, 560, -560, 560, -1690]}
+
+
+# ---------------------------------------------------------------------------
+# Decode-at-capture (Phase A) and S1 forge guard
+# ---------------------------------------------------------------------------
+
+
+class TestDecodeAtCaptureAndForgeGuard:
+    """v0.4.0 commit 1: decoded fields land on stored signals, and the
+    legacy handler drops API-forged events (S1)."""
+
+    @pytest.mark.asyncio
+    async def test_decoded_fields_stored_on_capture(self):
+        """A decode result is wired onto the stored signal.
+
+        Patches ``try_decode`` so the wiring is verified without the
+        library; real decode correctness lives in test_protocol_decode.
+        """
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        await monitor.async_start()
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode",
+            return_value=("NEC", 0xFB04, 0x08),
+        ):
+            await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        devices = store.get_all_devices()
+        assert devices
+        sig = devices[0].signals[0]
+        assert sig.decoded_protocol == "NEC"
+        assert sig.decoded_address == 0xFB04
+        assert sig.decoded_command == 0x08
+        assert sig.decoded_fingerprint == "NEC:0xfb04:0x08"
+
+    @pytest.mark.asyncio
+    async def test_undecodable_signal_has_no_decoded_fields(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        await monitor.async_start()
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode",
+            return_value=None,
+        ):
+            await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        sig = store.get_all_devices()[0].signals[0]
+        assert sig.decoded_protocol is None
+        assert sig.decoded_address is None
+        assert sig.decoded_command is None
+        assert sig.decoded_fingerprint is None
+
+    @pytest.mark.asyncio
+    async def test_forged_event_with_user_context_dropped(self):
+        """S1: an event carrying a user_id (API-forged) is ignored before
+        trigger matching or storage."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        trigger_mgr = MagicMock()
+        monitor = SignalMonitor(
+            hass, store, _make_hair_store(), trigger_mgr
+        )
+        await monitor.async_start()
+        await monitor._on_ir_event(
+            _make_event(_nec_event("0x1234"), user_id="attacker")
+        )
+        assert store.get_all_devices() == []
+        trigger_mgr.on_signal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_esphome_event_without_user_context_processed(self):
+        """ESPHome-originated events (user_id None) still flow through."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        await monitor.async_start()
+        await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+        assert store.get_all_devices()
+
+
+class TestHasReceivers:
+    """has_receivers drives the Sniffer no-receiver empty state (Addition C)."""
+
+    def test_false_when_no_native_and_no_bridge(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+        assert monitor.has_receivers is False
+
+    def test_true_in_native_mode(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+        monitor._native_mode = True
+        assert monitor.has_receivers is True
+
+    def test_true_when_a_bridge_has_fired(self):
+        hass = _make_hass()
+        monitor = SignalMonitor(hass, _make_signal_store(hass), _make_hair_store())
+        monitor._bridge_active_device_ids.add("dev-1")
+        assert monitor.has_receivers is True
+
+
+@pytest.mark.asyncio
+async def test_import_manual_remote_creates_remote_with_signals():
+    """The picker import builds a manual remote, carries decoded fields and
+    aliases, and skips invalid/duplicate codes."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    code = (
+        "0000 006D 0006 0000 00E0 0070 0014 000D 0014 002E "
+        "0014 000D 0014 000D 0014 0400"
+    )
+    entries = [
+        {
+            "name": "Power",
+            "code": code,
+            "decoded_protocol": "NEC",
+            "decoded_address": 0xFB04,
+            "decoded_command": 0x08,
+            "decoded_fingerprint": "NEC:0xfb04:0x08",
+        },
+        {"name": "Bad", "code": "not a pronto code"},
+    ]
+    result = await monitor.import_manual_remote("LG TV", entries)
+    assert result["imported"] == 1
+    assert result["skipped"] == 1
+
+    devices = store.get_all_devices()
+    assert len(devices) == 1
+    dev = devices[0]
+    assert dev.source == "manual"
+    assert dev.label == "LG TV"
+    assert dev.fingerprint.startswith("manual:")
+    sig = dev.signals[0]
+    assert sig.alias == "Power"
+    assert sig.decoded_fingerprint == "NEC:0xfb04:0x08"
 
 
 # ---------------------------------------------------------------------------
@@ -247,33 +391,27 @@ class TestKnownCommandCheck:
 
     @pytest.mark.asyncio
     async def test_skips_known_command(self):
+        """When the store matches the signal to an assigned command, the
+        re-press is dropped from the live feed. The matcher delegates to
+        ``HAIRStore.match_command`` (whose tiered logic is covered in
+        test_storage); here we verify the monitor consults it and skips."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         hair_store = _make_hair_store()
-
-        # Set up a known device with a matching command.
-        known_device = IRDevice(
-            name="TV",
-            commands=[IRCommand(name="power", protocol="NEC", code="0x1234")],
-        )
-        hair_store.get_all_devices.return_value = [known_device]
+        hair_store.match_command.return_value = ("dev-1", "cmd-1")
 
         monitor = SignalMonitor(hass, store, hair_store)
         await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
 
         assert store.device_count == 0
+        hair_store.match_command.assert_called()
 
     @pytest.mark.asyncio
     async def test_does_not_skip_unknown_command(self):
         hass = _make_hass()
         store = _make_signal_store(hass)
         hair_store = _make_hair_store()
-
-        known_device = IRDevice(
-            name="TV",
-            commands=[IRCommand(name="power", protocol="NEC", code="0x5678")],
-        )
-        hair_store.get_all_devices.return_value = [known_device]
+        # Default match_command returns None -> not a known command.
 
         monitor = SignalMonitor(hass, store, hair_store)
         await monitor._on_ir_event(_make_event(_nec_event("0x1234")))

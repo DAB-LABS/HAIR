@@ -8,8 +8,9 @@
  * Fires `signal-assigned` on success (detail: AssignResult).
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import "./ir-emitter-picker.js";
+import "./ir-signal-alias.js";
 import type { HairApi } from "./api.js";
 import type {
     AssignResult,
@@ -240,7 +241,6 @@ export class IrAssignSignalDialog extends LitElement {
     }
 
     render() {
-        const proto = this.signal.protocol ?? "RAW";
         const freqKhz = this.signal.frequency
             ? `${Math.round(this.signal.frequency / 1000)}kHz`
             : "";
@@ -261,13 +261,12 @@ export class IrAssignSignalDialog extends LitElement {
                         ? html`<div class="device-name">${this.suggestedDeviceName}</div>`
                         : ""}
                     <div class="signal-detail">
-                        ${this.signal.sl_pattern
-                            ? html`<span class="diamonds">${[...this.signal.sl_pattern].map((ch) =>
-                                ch === "L"
-                                    ? html`<span class="diamond long">&#9670;</span>`
-                                    : html`<span class="diamond short">&#9671;</span>`
-                              )}</span>`
-                            : html`<span class="proto-label">${proto}</span>`}
+                        <ir-signal-alias
+                            .api=${this.api}
+                            .deviceId=${this.unknownDeviceId}
+                            .signal=${this.signal}
+                            disabled
+                        ></ir-signal-alias>
                     </div>
                     <div class="signal-stats">
                         <span>${this.signal.hit_count} hits</span>

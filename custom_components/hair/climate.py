@@ -183,9 +183,13 @@ class HAIRClimateEntity(ClimateEntity):
             self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        target = kwargs.get(ATTR_TEMPERATURE)
-        if target is None:
+        raw_target = kwargs.get(ATTR_TEMPERATURE)
+        if raw_target is None:
             return
+        # Bind a definitely-non-None float before the lambda below: mypy
+        # does not carry the None-narrowing into a nested closure, so
+        # ``target`` must already be a plain float where the lambda captures it.
+        target = float(raw_target)
         presets = self._device.entity_config.temperature_presets or []
         if presets:
             snapped = min(presets, key=lambda t: abs(t - target))

@@ -32,7 +32,11 @@ Key components:
   (sniffed vs manual). Manual remotes are never auto-evicted. Pasting an identical
   code already on a remote is rejected, but genuinely different codes that share an
   S/L fingerprint are kept as separate signals via a byte-level tiebreaker. Remotes
-  and their signals are drag-reorderable like the Sniffer's.
+  and their signals are drag-reorderable like the Sniffer's. The Create Remote
+  dialog can also pick a known manufacturer and model from the device codebooks in
+  the installed Home Assistant infrared library and materialize a remote pre-filled
+  with one signal per button; it is a shortcut for the supported devices, not a
+  universal lookup.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a
@@ -62,6 +66,10 @@ Signal fingerprinting details:
 - Covers all major consumer IR protocols: NEC, Samsung, JVC, LG, Sony, RC-5, RC-6.
 - Source-remote grouping uses carrier frequency and preamble fingerprinting, so the
   Sniffer can identify which remote sent a signal without decoding the protocol.
+- When a captured signal can be read as a known protocol (NEC today), HAIR also
+  stores the decoded identity alongside the raw timings as a cache layer. Raw
+  timings stay the source of truth; the decoded form gives stronger matching and
+  lets transmit re-encode clean timings instead of replaying captured ones.
 
 Supported capture providers (auto-discovered):
 - Native InfraredReceiverEntity instances (HA 2026.6+, hardware-agnostic)

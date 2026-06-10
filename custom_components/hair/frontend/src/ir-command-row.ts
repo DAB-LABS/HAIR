@@ -4,7 +4,7 @@
  * - Unlearned templates show a single Learn button.
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property } from "./decorators.js";
 import type { IRCommand } from "./types.js";
 
 @customElement("ir-command-row")
@@ -118,6 +118,16 @@ export class IrCommandRow extends LitElement {
                                   @click=${() => this._emit("toggle-trigger")}
                                   title=${this.hasTrigger ? "Edit trigger" : "Create trigger"}
                               >Trigger</button>
+                              ${this.command?.decoded_fingerprint
+                                  ? html`<button
+                                  class="action-btn tx-btn ${this.command.tx_force_raw ? "tx-raw-on" : ""}"
+                                  ?disabled=${this.busy}
+                                  @click=${() => this._emit("toggle-tx-raw")}
+                                  title=${this.command.tx_force_raw
+                                      ? "Transmitting the captured timings. Click to send clean decoded timings."
+                                      : "Transmitting clean decoded timings. Click to replay the captured timings instead."}
+                              >${this.command.tx_force_raw ? "RAW" : "AUTO"}</button>`
+                                  : ""}
                               <button
                                   class="action-btn delete-btn"
                                   ?disabled=${this.busy}
@@ -269,6 +279,21 @@ export class IrCommandRow extends LitElement {
         }
         .action-btn.delete-btn:hover {
             background: rgba(230, 81, 0, 0.08);
+        }
+        /* TX-mode toggle: AUTO (canonical decoded timings) is the neutral
+           default; RAW (replay captured timings) reads as the active,
+           deliberately-chosen override. */
+        .action-btn.tx-btn {
+            min-width: 46px;
+            text-align: center;
+        }
+        .action-btn.tx-btn.tx-raw-on {
+            color: #fff;
+            background: #6a5acd;
+            border-color: #6a5acd;
+        }
+        .action-btn.tx-btn.tx-raw-on:hover {
+            background: #5847b8;
         }
     `;
 }

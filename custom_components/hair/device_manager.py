@@ -196,18 +196,54 @@ class DeviceManager:
             async_send_command as ir_send,
         )
 
-        from .ir_command import build_command
+        from .ir_command import build_command, build_decoded_command
 
-        ir_cmd = build_command(
-            protocol=command.protocol,
-            code=command.code,
-            raw_timings=command.raw_timings,
-            frequency=command.frequency or 38000,
-            repeat_count=command.repeat_count or 0,
-        )
+        # Prefer canonical encode-from-decoded when the command carries a
+        # decoded protocol identity and the user has not pinned it to the
+        # captured timings. This transmits clean library-encoded timings
+        # rather than replaying captured (receiver-distorted) ones, which
+        # fixes replay failures against non-TSOP destinations (GH #14).
+        # Falls back to Pronto/raw replay when undecodable, opted out, or
+        # the library is unavailable.
+        ir_cmd = None
+        if command.decoded_fingerprint and not command.tx_force_raw:
+            ir_cmd = build_decoded_command(
+                command.decoded_protocol,
+                command.decoded_address,
+                command.decoded_command,
+                repeat_count=command.repeat_count or 0,
+            )
+        if ir_cmd is None:
+            ir_cmd = build_command(
+                protocol=command.protocol,
+                code=command.code,
+                raw_timings=command.raw_timings,
+                frequency=command.frequency or 38000,
+                repeat_count=command.repeat_count or 0,
+            )
 
         for emitter_id in device.emitter_entity_ids:
             await ir_send(self._hass, emitter_id, ir_cmd)
+
+    async def async_set_command_tx_force_raw(
+        self, device_id: str, command_id: str, tx_force_raw: bool
+    ) -> bool:
+        """Toggle a command's ``tx_force_raw`` flag and persist.
+
+        When True, transmit replays the captured Pronto/raw timings instead
+        of re-encoding from the decoded value -- the per-command escape
+        hatch for the rare destination that wants the captured timings.
+        """
+        device = self._store.get_device(device_id)
+        if device is None:
+            return False
+        command = device.get_command(command_id)
+        if command is None:
+            return False
+        command.tx_force_raw = tx_force_raw
+        self._store.update_device(device)
+        await self._store.async_save()
+        return True
 
     def _register_ha_device(self, device: IRDevice) -> None:
         registry = dr.async_get(self._hass)

@@ -1,14 +1,51 @@
 """Tests for the ir_command adapter module."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from custom_components.hair.ir_command import (
     ProntoCommand,
     RawTimingsCommand,
     build_command,
+    build_decoded_command,
     raw_to_pronto,
 )
+
+
+class TestBuildDecodedCommand:
+    """build_decoded_command: canonical encode-from-decoded TX (Phase B)."""
+
+    def test_unsupported_protocol_returns_none(self):
+        # Returns None before any library import, so no dependency needed.
+        assert build_decoded_command("SONY", 0x1, 0x2) is None
+
+    def test_missing_field_returns_none(self):
+        assert build_decoded_command("NEC", None, 0x08) is None
+        assert build_decoded_command("NEC", 0xFB04, None) is None
+        assert build_decoded_command(None, None, None) is None
+
+    def test_nec_canonical_roundtrip(self):
+        """With the library present, NEC encodes to canonical timings that
+        match the frafall fixture's expected re-encode element-by-element."""
+        pytest.importorskip("infrared_protocols")
+        fixtures = json.loads(
+            (
+                Path(__file__).parent / "fixtures" / "nec_test_fixtures.json"
+            ).read_text()
+        )
+        frafall = fixtures["frafall_reconstructed"]
+        cmd = build_decoded_command(
+            "NEC",
+            frafall["expected_decoded_address"],
+            frafall["expected_decoded_command"],
+        )
+        assert cmd is not None
+        assert cmd.get_raw_timings() == frafall[
+            "expected_canonical_reencode_raw_timings"
+        ]
 
 # ---------------------------------------------------------------------------
 # ProntoCommand

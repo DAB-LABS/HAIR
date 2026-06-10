@@ -99,6 +99,18 @@ PRONTO_NEC_ADDRESS_PAIRS = 8
 PRONTO_BYTE_HASH_BIN = 20
 ASSIGN_SERVICE_TIMEOUT_S = 10
 
+# ---------------------------------------------------------------------------
+# Protocol decode (infrared-protocols integration, v0.4.0 Phase A)
+# ---------------------------------------------------------------------------
+# Canonical string form of a decoded signal's identity, used as the
+# decoded_fingerprint for decoded-first matching. The address is always
+# rendered as 16-bit (the library emits a 16-bit NEC address; standard
+# 8-bit NEC has high byte == ~low) and the command as 8-bit. Example for
+# NEC(address=0xFB04, command=0x08): "NEC:0xFB04:0x08".
+DECODED_FINGERPRINT_FORMAT = "{protocol}:{address:#06x}:{command:#04x}"
+# Protocol-family label stored in decoded_protocol for NEC-family signals.
+DECODED_PROTOCOL_NEC = "NEC"
+
 
 class DeviceType(StrEnum):
     """IR device types."""

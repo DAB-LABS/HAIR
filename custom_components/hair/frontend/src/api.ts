@@ -12,6 +12,7 @@ import type {
     CaptureEvent,
     CaptureProviderInfo,
     CaptureStartResponse,
+    CodeBrand,
     CommandTemplate,
     DeleteSignalResult,
     DeviceSummary,
@@ -119,6 +120,19 @@ export class HairApi {
         });
     }
 
+    setCommandTxForceRaw(
+        deviceId: string,
+        commandId: string,
+        txForceRaw: boolean,
+    ): Promise<{ tx_force_raw: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ tx_force_raw: boolean }>({
+            type: "hair/command/set-tx-force-raw",
+            device_id: deviceId,
+            command_id: commandId,
+            tx_force_raw: txForceRaw,
+        });
+    }
+
     /**
      * Persist a new command order for a device.
      *
@@ -172,6 +186,30 @@ export class HairApi {
         return this.hass.connection.sendMessagePromise<ReceiverInfo[]>({
             type: "hair/receivers",
         });
+    }
+
+    getSnifferStatus(): Promise<{ has_receivers: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ has_receivers: boolean }>({
+            type: "hair/sniffer/status",
+        });
+    }
+
+    getCodeBrands(): Promise<CodeBrand[]> {
+        return this.hass.connection.sendMessagePromise<CodeBrand[]>({
+            type: "hair/codes/brands",
+        });
+    }
+
+    importCodeRemote(
+        codebookId: string,
+        name?: string,
+    ): Promise<{ device: UnknownDevice; imported: number; skipped: number }> {
+        const msg: Record<string, unknown> = {
+            type: "hair/codes/import-remote",
+            codebook_id: codebookId,
+        };
+        if (name) msg.name = name;
+        return this.hass.connection.sendMessagePromise(msg);
     }
 
     /**

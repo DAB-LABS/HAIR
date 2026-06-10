@@ -14,6 +14,7 @@ from custom_components.hair.models import (
     EntityConfig,
     IRCommand,
     IRDevice,
+    UnknownSignal,
 )
 
 
@@ -212,6 +213,82 @@ def test_device_clone_round_trips_through_dict(mock_device: IRDevice):
     assert restored.name == clone.name
     assert restored.id == clone.id
     assert len(restored.commands) == len(clone.commands)
+
+
+def test_device_clone_carries_signal_identity_fields():
+    """B14: clone preserves byte_hash and the v0.4.0 decoded fields on
+    every command, so a clone matches and transmits like its source."""
+    src = IRDevice(
+        name="Source",
+        device_type=DeviceType.MEDIA_PLAYER,
+        commands=[
+            IRCommand(
+                name="Power",
+                byte_hash="abc123",
+                decoded_protocol="NEC",
+                decoded_address=0xFB04,
+                decoded_command=0x08,
+                decoded_fingerprint="NEC:0xfb04:0x08",
+                tx_force_raw=True,
+            )
+        ],
+    )
+    clone = src.clone("Copy")
+    c = clone.commands[0]
+    assert c.id != src.commands[0].id
+    assert c.byte_hash == "abc123"
+    assert c.decoded_protocol == "NEC"
+    assert c.decoded_address == 0xFB04
+    assert c.decoded_command == 0x08
+    assert c.decoded_fingerprint == "NEC:0xfb04:0x08"
+    assert c.tx_force_raw is True
+
+
+def test_ircommand_decoded_fields_round_trip():
+    cmd = IRCommand(
+        name="X",
+        byte_hash="bh",
+        decoded_protocol="NEC",
+        decoded_address=0x1234,
+        decoded_command=0x56,
+        decoded_fingerprint="NEC:0x1234:0x56",
+        tx_force_raw=True,
+    )
+    restored = IRCommand.from_dict(cmd.to_dict())
+    assert restored.byte_hash == "bh"
+    assert restored.decoded_protocol == "NEC"
+    assert restored.decoded_address == 0x1234
+    assert restored.decoded_command == 0x56
+    assert restored.decoded_fingerprint == "NEC:0x1234:0x56"
+    assert restored.tx_force_raw is True
+
+
+def test_ircommand_decoded_fields_default_none_and_false():
+    cmd = IRCommand(name="X")
+    assert cmd.decoded_protocol is None
+    assert cmd.decoded_address is None
+    assert cmd.decoded_command is None
+    assert cmd.decoded_fingerprint is None
+    assert cmd.tx_force_raw is False
+    restored = IRCommand.from_dict({"name": "X"})
+    assert restored.decoded_fingerprint is None
+    assert restored.tx_force_raw is False
+
+
+def test_unknown_signal_decoded_fields_round_trip():
+    sig = UnknownSignal(
+        fingerprint="fp",
+        byte_hash="bh",
+        decoded_protocol="NEC",
+        decoded_address=0x1234,
+        decoded_command=0x56,
+        decoded_fingerprint="NEC:0x1234:0x56",
+    )
+    restored = UnknownSignal.from_dict(sig.to_dict())
+    assert restored.decoded_protocol == "NEC"
+    assert restored.decoded_address == 0x1234
+    assert restored.decoded_command == 0x56
+    assert restored.decoded_fingerprint == "NEC:0x1234:0x56"
 
 
 def test_capture_result_matches_by_protocol_code():

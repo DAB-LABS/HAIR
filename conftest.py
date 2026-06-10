@@ -410,6 +410,7 @@ except ImportError:
         "Schema": lambda schema: schema,
         "All": lambda *a: a,
         "Range": lambda **kw: kw,
+        "Length": lambda **kw: kw,
         "In": lambda vals: vals,
         "Coerce": lambda t: t,
     })

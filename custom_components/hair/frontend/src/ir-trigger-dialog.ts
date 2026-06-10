@@ -9,7 +9,7 @@
  *   closed         -- dialog dismissed
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { IRTrigger } from "./types.js";
 
@@ -22,6 +22,8 @@ export class IrTriggerDialog extends LitElement {
     @property() public protocol: string | null = null;
     @property() public code: string | null = null;
     @property() public slPattern: string | null = null;
+    /** Optional signal alias, shown instead of bare diamonds when set. */
+    @property() public alias: string | null = null;
 
     /** For create mode: optional source references. */
     @property() public sourceDeviceId: string | null = null;
@@ -126,6 +128,15 @@ export class IrTriggerDialog extends LitElement {
     /** Render diamonds from an S/L pattern string or Pronto hex code. */
     private _renderSignalInfo() {
         const isEdit = !!this.trigger;
+
+        // Named signal: show the alias instead of bare diamonds so the
+        // user recognizes which signal this trigger is for.
+        if (!isEdit && this.alias) {
+            return html`<span class="alias-inline"
+                ><span class="alias-tag">alias</span
+                ><span class="alias-name">${this.alias}</span></span
+            >`;
+        }
 
         // Try S/L pattern string first (from sniffer create mode).
         const patternStr = isEdit ? null : this.slPattern;
@@ -275,6 +286,21 @@ export class IrTriggerDialog extends LitElement {
         .proto {
             text-transform: uppercase;
             font-weight: 500;
+        }
+        .alias-inline {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 7px;
+        }
+        .alias-tag {
+            font-size: 0.6rem;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #ba7517;
+        }
+        .alias-name {
+            font-size: 0.9rem;
+            color: var(--primary-color);
         }
         .diamonds {
             display: inline-flex;

@@ -26,6 +26,8 @@ from custom_components.hair.websocket_api import (
     ws_clip_create_signal,
     ws_clip_delete_remote,
     ws_clip_validate_pronto,
+    ws_codes_get_brands,
+    ws_codes_import_remote,
     ws_create_device,
     ws_delete_command,
     ws_delete_device,
@@ -36,6 +38,7 @@ from custom_components.hair.websocket_api import (
     ws_get_command_templates,
     ws_get_device,
     ws_get_devices,
+    ws_get_sniffer_status,
     ws_get_unknown_device,
     ws_get_unknown_devices,
     ws_reorder_commands,
@@ -44,6 +47,7 @@ from custom_components.hair.websocket_api import (
     ws_reorder_unknown_signals,
     ws_save_captured_command,
     ws_send_command,
+    ws_set_command_tx_force_raw,
     ws_set_signal_alias,
     ws_start_capture,
     ws_test_signal,
@@ -465,6 +469,132 @@ async def test_delete_command_not_found(fake_hass):
         conn,
         {"id": 7, "type": "hair/command/delete", "device_id": "d1", "command_id": "bad"},
     )
+    conn.send_error.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# ws_set_command_tx_force_raw
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_tx_force_raw_success(fake_hass):
+    manager = MagicMock()
+    manager.async_set_command_tx_force_raw = AsyncMock(return_value=True)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_set_command_tx_force_raw(
+        fake_hass,
+        conn,
+        {
+            "id": 9,
+            "type": "hair/command/set-tx-force-raw",
+            "device_id": "d1",
+            "command_id": "c1",
+            "tx_force_raw": True,
+        },
+    )
+    manager.async_set_command_tx_force_raw.assert_awaited_once_with("d1", "c1", True)
+    conn.send_result.assert_called_once_with(9, {"tx_force_raw": True})
+
+
+@pytest.mark.asyncio
+async def test_set_tx_force_raw_not_found(fake_hass):
+    manager = MagicMock()
+    manager.async_set_command_tx_force_raw = AsyncMock(return_value=False)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_set_command_tx_force_raw(
+        fake_hass,
+        conn,
+        {
+            "id": 9,
+            "type": "hair/command/set-tx-force-raw",
+            "device_id": "d1",
+            "command_id": "bad",
+            "tx_force_raw": False,
+        },
+    )
+    conn.send_error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_sniffer_status_reports_has_receivers(fake_hass):
+    monitor = MagicMock()
+    monitor.has_receivers = True
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    conn = _make_connection()
+    await ws_get_sniffer_status(
+        fake_hass, conn, {"id": 11, "type": "hair/sniffer/status"}
+    )
+    conn.send_result.assert_called_once_with(11, {"has_receivers": True})
+
+
+# ---------------------------------------------------------------------------
+# Code database picker
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_codes_get_brands(fake_hass):
+    conn = _make_connection()
+    tree = [{"brand": "lg", "label": "LG", "codebooks": []}]
+    with patch("custom_components.hair.code_library.get_tree", return_value=tree):
+        await ws_codes_get_brands(
+            fake_hass, conn, {"id": 1, "type": "hair/codes/brands"}
+        )
+    conn.send_result.assert_called_once_with(1, tree)
+
+
+@pytest.mark.asyncio
+async def test_codes_import_remote_success(fake_hass):
+    monitor = MagicMock()
+    monitor.import_manual_remote = AsyncMock(
+        return_value={"device": {"id": "d1"}, "imported": 3, "skipped": 0}
+    )
+    _wire_hass(fake_hass, signal_monitor=monitor)
+
+    conn = _make_connection()
+    entries = [{"name": "Power", "code": "0000 006D 0002 0000 0020 0040 0020 0040"}]
+    with patch(
+        "custom_components.hair.code_library.materialize_codebook",
+        return_value=entries,
+    ), patch(
+        "custom_components.hair.code_library.codebook_label", return_value="LG TV"
+    ):
+        await ws_codes_import_remote(
+            fake_hass,
+            conn,
+            {
+                "id": 2,
+                "type": "hair/codes/import-remote",
+                "codebook_id": "mod:LGTVCode",
+            },
+        )
+    monitor.import_manual_remote.assert_awaited_once_with("LG TV", entries)
+    conn.send_result.assert_called_once()
+    assert conn.send_result.call_args[0][1]["imported"] == 3
+
+
+@pytest.mark.asyncio
+async def test_codes_import_remote_no_codes_errors(fake_hass):
+    _wire_hass(fake_hass, signal_monitor=MagicMock())
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.code_library.materialize_codebook", return_value=[]
+    ):
+        await ws_codes_import_remote(
+            fake_hass,
+            conn,
+            {
+                "id": 2,
+                "type": "hair/codes/import-remote",
+                "codebook_id": "mod:LGTVCode",
+            },
+        )
     conn.send_error.assert_called_once()
 
 

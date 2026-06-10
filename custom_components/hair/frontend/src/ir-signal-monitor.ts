@@ -4,7 +4,7 @@
  * new signals appear in real time without polling.
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -100,6 +100,11 @@ export class IrSignalMonitor extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
     @state() private _error: string | null = null;
+    // False when no receiver is configured (no native receiver, no bridge
+    // events this session). Distinguishes "no receiver" from "no signals
+    // yet" in the empty state. Optimistic default so the page does not
+    // flash the no-receiver message before the status query returns.
+    @state() private _hasReceivers = true;
     @state() private _showDismissed = false;
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
@@ -329,17 +334,19 @@ export class IrSignalMonitor extends LitElement {
     private async _load(): Promise<void> {
         this._loading = true;
         try {
-            const [unknowns, hairDevs, triggers] = await Promise.all([
+            const [unknowns, hairDevs, triggers, status] = await Promise.all([
                 this.api.getUnknownDevices({
                     include_dismissed: this._showDismissed,
                     source: "sniffed",
                 }),
                 this.api.listDevices(),
                 this.api.listTriggers(),
+                this.api.getSnifferStatus(),
             ]);
             this._devices = unknowns;
             this._hairDevices = hairDevs;
             this._triggers = triggers;
+            this._hasReceivers = status.has_receivers;
             this._error = null;
         } catch (err) {
             this._error = `Failed to load: ${(err as Error).message}`;
@@ -859,7 +866,8 @@ export class IrSignalMonitor extends LitElement {
             ${this._loading
                 ? html`<div class="loading">Scanning for signals...</div>`
                 : this._devices.length === 0
-                  ? html`
+                  ? this._hasReceivers
+                    ? html`
                         <ha-card class="empty">
                             <ha-svg-icon class="empty-icon" .path=${ICON_SIGNAL}></ha-svg-icon>
                             <h3>No unknown signals detected</h3>
@@ -870,6 +878,21 @@ export class IrSignalMonitor extends LitElement {
                             <p class="hint">
                                 Try pressing a button on a remote that hasn't been
                                 configured yet.
+                            </p>
+                        </ha-card>
+                    `
+                    : html`
+                        <ha-card class="empty">
+                            <ha-svg-icon class="empty-icon" .path=${ICON_SIGNAL}></ha-svg-icon>
+                            <h3>No IR receiver is set up</h3>
+                            <p>
+                                HAIR has no way to receive IR signals yet, so the
+                                Sniffer cannot capture anything.
+                            </p>
+                            <p class="hint">
+                                Set up an ESPHome receiver with the infrared
+                                platform, or check Settings, then Devices and
+                                Services, to confirm your IR device is adopted.
                             </p>
                         </ha-card>
                     `
@@ -959,6 +982,7 @@ export class IrSignalMonitor extends LitElement {
                           .protocol=${this._triggerDialog.signal.protocol}
                           .code=${this._triggerDialog.signal.code}
                           .slPattern=${this._triggerDialog.signal.sl_pattern ?? null}
+                          .alias=${this._triggerDialog.signal.alias || null}
                           @trigger-saved=${this._onTriggerSaved}
                           @closed=${this._closeTriggerDialog}
                       ></ir-trigger-dialog>

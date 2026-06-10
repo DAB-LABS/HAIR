@@ -45,7 +45,7 @@ custom_components/hair/
   switch.py                # Switch entity platform
   cover.py                 # Cover entity platform (screens, shades)
   frontend/src/            # LitElement/TypeScript admin panel
-  tests/                   # pytest test suite (383 tests)
+  tests/                   # pytest test suite
 ```
 
 ### Running Tests

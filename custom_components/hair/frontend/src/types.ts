@@ -47,6 +47,10 @@ export interface IRCommand {
     raw_timings?: number[] | null;
     frequency: number;
     repeat_count: number;
+    // Decoded protocol identity (v0.4.0). Present when the command was
+    // decoded as a known protocol; gates the canonical-TX toggle.
+    decoded_fingerprint?: string | null;
+    tx_force_raw?: boolean;
     created_at: string;
 }
 
@@ -54,6 +58,25 @@ export interface CommandTemplate {
     name: string;
     category: CommandCategoryId;
     essential: boolean;
+}
+
+// Code database picker (Add Remote): the introspected brand -> codebook ->
+// function tree from the installed infrared-protocols codebooks.
+export interface CodeFunction {
+    id: string;
+    name: string;
+}
+
+export interface CodeCodebook {
+    id: string;
+    label: string;
+    functions: CodeFunction[];
+}
+
+export interface CodeBrand {
+    brand: string;
+    label: string;
+    codebooks: CodeCodebook[];
 }
 
 export interface EntityConfig {

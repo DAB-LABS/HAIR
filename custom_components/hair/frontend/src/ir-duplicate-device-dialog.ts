@@ -9,7 +9,7 @@
  *   - ``closed`` on Cancel or after the parent drives a close
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { IRDevice } from "./types.js";
 

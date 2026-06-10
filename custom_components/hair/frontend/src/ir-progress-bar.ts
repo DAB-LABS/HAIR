@@ -3,7 +3,7 @@
  * Shows learned/total commands as a horizontal progress strip.
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property } from "./decorators.js";
 
 @customElement("ir-progress-bar")
 export class IrProgressBar extends LitElement {

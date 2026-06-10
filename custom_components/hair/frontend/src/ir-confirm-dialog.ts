@@ -12,7 +12,7 @@
  *   ></ir-confirm-dialog>
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 
 @customElement("ir-confirm-dialog")
 export class IrConfirmDialog extends LitElement {

@@ -5,6 +5,32 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-09
+
+### Added
+
+- Pick a known device when creating a remote. The Create Remote dialog on the Clipper tab gains a Type dropdown: leave it on Blank remote for the usual remote you fill by pasting, or choose a manufacturer and model under "From code library" to materialize a remote pre-filled with one signal per button, each named for its function. The list is whatever device codes your installed Home Assistant infrared library carries (TVs from LG, Samsung, Vizio and Sharp, Sony PlayStation, a few audio and lighting devices). It is a shortcut for the supported devices, not a universal lookup -- anything not listed is still a paste-Pronto away.
+- Protocol-decoded matching for NEC-family remotes. When HAIR can read a captured signal as NEC, it records the decoded identity alongside the raw timings. Pressing an already-assigned button is now recognized reliably even when the receiver path jitters the timings, so it no longer leaks back into the Sniffer as an unknown signal.
+- Encode-from-decoded transmit. For commands HAIR decoded as NEC, Test and automations send clean, library-encoded timings instead of replaying the captured ones. A per-command toggle (AUTO / RAW) on the device detail lets you fall back to the captured timings for the rare device that wants them.
+
+### Changed
+
+- Transmit uses canonical NEC timings by default for decodable commands, with the per-command opt-out described above. Commands HAIR cannot decode transmit exactly as before.
+- The Sniffer empty state now tells "no IR receiver is set up" apart from "no signals yet", so a missing receiver does not look like an idle one.
+- The Assign and Trigger dialogs show a signal's name when you have given it one, instead of the raw diamond pattern.
+- Diagnostics now report the installed infrared library version and a count of decoded commands by protocol.
+- The Clipper now has a persistent "Delete remote" button on every remote, so a remote can be removed in one step instead of deleting each signal first. The confirmation names the remote and how many signals it holds.
+
+### Fixed
+
+- Replaying a captured NEC signal failed against some destinations that expect clean timings (for example a NAD C320BEE bridged setup), because the captured Pronto carried receiver-side timing distortion. Transmitting the re-encoded canonical timings fixes it. Reported by @frafall (GH #14).
+- The code-library picker and diagnostics no longer do file-system work on the event loop. Building the manufacturer list and reading the installed library version now run in a worker thread, clearing the blocking-call warnings Home Assistant logged when opening the Create Remote dialog or downloading diagnostics.
+- Panel components now register defensively, so a re-evaluated frontend bundle no longer throws a "name has already been used" error in the browser console. The panel rendered correctly either way, but the stray exception is gone.
+
+### Removed
+
+- The Broadlink capture provider. Its learn-mode output was never a sendable IR code, so capturing through it could not work. Broadlink transmit is unaffected. Broadlink receive belongs upstream in the Broadlink integration.
+
 ## [0.3.4] - 2026-06-08
 
 ### Fixed

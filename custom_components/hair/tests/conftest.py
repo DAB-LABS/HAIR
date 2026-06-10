@@ -98,4 +98,7 @@ def fake_hass():
     hass.bus.async_fire = MagicMock()
     hass.bus.async_listen = MagicMock(return_value=lambda: None)
     hass.services.async_call = AsyncMock()
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
     return hass

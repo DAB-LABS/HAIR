@@ -14,7 +14,7 @@
  *   - ``closed`` on Cancel (or after a parent-driven close).
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 

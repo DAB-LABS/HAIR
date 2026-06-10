@@ -352,11 +352,13 @@ class EventParser:
     # -----------------------------------------------------------------
 
     @staticmethod
-    def _parse_pronto_words(code: str) -> list[int] | None:
+    def _parse_pronto_words(code: str | None) -> list[int] | None:
         """Parse a Pronto hex string into a list of integer words.
 
         Returns ``None`` if the string is malformed or too short
-        (needs at least 4 header words + 1 timing word).
+        (needs at least 4 header words + 1 timing word). Accepts ``None``
+        so the ``str | None`` callers (``_pronto_sl_pattern``,
+        ``pronto_byte_hash``) pass through without a separate guard.
         """
         if not code:
             return None

@@ -1,17 +1,18 @@
 """IR capture provider abstraction and implementations.
 
-Supports three capture paths:
+Supports two capture paths:
 1. **Native (HA 2026.6+):** ``NativeCaptureProvider`` uses
    ``infrared.async_subscribe_receiver()`` for hardware-agnostic capture.
 2. **ESPHome (legacy):** ``ESPHomeCaptureProvider`` listens to
    ``esphome.remote_received`` events on the HA bus.
-3. **Broadlink:** ``BroadlinkCaptureProvider`` uses the Broadlink
-   learning mode API.
+
+Broadlink RX is not supported: its learn-mode packets are neither Pronto
+nor raw timings, and it exposes no receive path HAIR can consume. The
+receiver-list UI labels such devices RX-UNSUPPORTED.
 """
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -108,14 +109,14 @@ class ESPHomeCaptureProvider(CaptureProvider):
             raise RuntimeError("ESPHome integration not available") from None
 
         # ESPHome publishes raw IR receiver events on the bus when the device
-        # is configured with a remote_receiver yielding `dump:`. We subscribe
-        # to all events and filter by device_id.
-        @callback_factory(self._signal_queue, self._device_id)
-        async def _on_event(event):  # pragma: no cover - HA-side wiring
-            pass
-
+        # is configured with a remote_receiver yielding `dump:`. Register the
+        # listener returned by ``callback_factory`` directly. Applying the
+        # factory as a decorator on a stub (the pre-v0.4.0 code) registered
+        # an unawaited coroutine object that never fired, so every legacy
+        # capture session timed out (H1, 2026-06-09 third-party review).
         self._unsubscribe = self._hass.bus.async_listen(
-            "esphome.remote_received", _on_event
+            "esphome.remote_received",
+            callback_factory(self._signal_queue, self._device_id),
         )
 
     async def async_wait_for_signal(self) -> CaptureResult | None:
@@ -162,74 +163,6 @@ def callback_factory(queue: asyncio.Queue, device_id: str):
         await queue.put(result)
 
     return _listener
-
-
-class BroadlinkCaptureProvider(CaptureProvider):
-    """Capture IR signals via Broadlink learning mode."""
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        config_entry_id: str,
-        device: Any,
-    ) -> None:
-        self._hass = hass
-        self._config_entry_id = config_entry_id
-        self._device = device
-        self._timeout = DEFAULT_CAPTURE_TIMEOUT
-        self._cancelled = False
-
-    @property
-    def provider_type(self) -> CaptureProviderType:
-        return CaptureProviderType.BROADLINK
-
-    @property
-    def device_name(self) -> str:
-        host = getattr(self._device, "host", None)
-        return f"Broadlink {host[0]}" if host else "Broadlink RM"
-
-    async def async_start_capture(
-        self, timeout: int = DEFAULT_CAPTURE_TIMEOUT
-    ) -> None:
-        self._timeout = timeout
-        self._cancelled = False
-        await self._hass.async_add_executor_job(self._device.enter_learning)
-
-    async def async_wait_for_signal(self) -> CaptureResult | None:
-        # Poll check_data() in 250ms steps until timeout.
-        elapsed = 0.0
-        step = 0.25
-        while elapsed < self._timeout and not self._cancelled:
-            data = await self._hass.async_add_executor_job(
-                self._safe_check_data
-            )
-            if data:
-                return CaptureResult(
-                    protocol=None,  # Broadlink returns raw bytes only
-                    code=data.hex() if isinstance(data, (bytes, bytearray)) else str(data),
-                    raw_timings=[],
-                    frequency=DEFAULT_CARRIER_FREQUENCY,
-                    confidence=1.0,
-                )
-            await asyncio.sleep(step)
-            elapsed += step
-        return None
-
-    def _safe_check_data(self):
-        try:
-            return self._device.check_data()
-        except Exception:
-            return None
-
-    async def async_stop_capture(self) -> None:
-        self._cancelled = True
-        with contextlib.suppress(Exception):
-            await self._hass.async_add_executor_job(
-                self._device.cancel_learning
-            )
-
-    def is_available(self) -> bool:
-        return getattr(self._device, "is_alive", lambda: True)()
 
 
 class NativeCaptureProvider(CaptureProvider):
@@ -414,8 +347,9 @@ async def get_available_capture_providers(
     demand by ``get_capture_provider_for_device``.
 
     On HA 2026.6+, native ``InfraredReceiverEntity`` instances are
-    discovered first.  Falls back to ESPHome device scanning and
-    Broadlink for older HA versions or additional hardware.
+    discovered first.  Falls back to ESPHome device scanning (the legacy
+    event-bus bridge) for older HA versions. Broadlink is not discovered
+    for capture -- it has no receive path HAIR can consume.
     """
     providers: list[dict[str, Any]] = []
 
@@ -479,22 +413,14 @@ async def get_available_capture_providers(
                     }
                 )
 
-    if "broadlink" in hass.config.components:
-        registry = dr.async_get(hass)
-        for entry in hass.config_entries.async_entries("broadlink"):
-            for device in dr.async_entries_for_config_entry(
-                registry, entry.entry_id
-            ):
-                providers.append(
-                    {
-                        "type": str(CaptureProviderType.BROADLINK),
-                        "device_id": device.id,
-                        "name": device.name_by_user
-                        or device.name
-                        or "Broadlink device",
-                        "config_entry_id": entry.entry_id,
-                    }
-                )
+    # Broadlink RX is intentionally NOT discovered. Broadlink exposes IR
+    # transmit through HA's infrared platform but has no receive path HAIR
+    # can consume (it does not fire esphome.remote_received and does not
+    # implement InfraredReceiverEntity), and its learn-mode packets are
+    # not Pronto or raw timings. The receiver-list UI labels such devices
+    # RX-UNSUPPORTED. If Broadlink upstream adopts InfraredReceiverEntity,
+    # HAIR picks it up automatically via the native path above. (H2,
+    # 2026-06-09 third-party review.)
 
     return providers
 
@@ -520,24 +446,6 @@ async def get_capture_provider_for_device(
         if config_entry_id is None:
             return None
         return ESPHomeCaptureProvider(hass, config_entry_id, device_id)
-
-    if provider_type == CaptureProviderType.BROADLINK:
-        # Resolve the broadlink Device object via the integration data.
-        broadlink_data = hass.data.get("broadlink")
-        if not broadlink_data:
-            return None
-        # broadlink stores the device under entry_id → BroadlinkDevice wrapper
-        for entry_id, wrapper in broadlink_data.items():
-            api = getattr(wrapper, "api", None)
-            registry = dr.async_get(hass)
-            ha_device = registry.async_get(device_id)
-            if ha_device is None:
-                continue
-            if entry_id in ha_device.config_entries:
-                if api is None:
-                    return None
-                return BroadlinkCaptureProvider(hass, entry_id, api)
-        return None
 
     if provider_type == CaptureProviderType.MOCK:
         return MockCaptureProvider()

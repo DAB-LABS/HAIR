@@ -27,6 +27,7 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
+    DECODED_FINGERPRINT_FORMAT,
     DEFAULT_CARRIER_FREQUENCY,
     EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
@@ -40,6 +41,7 @@ from .const import (
 from .event_parser import EventParser
 from .models import UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
+from .protocol_decode import try_decode
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
@@ -199,6 +201,18 @@ class SignalMonitor:
         """Return True if using native receiver API."""
         return self._native_mode
 
+    @property
+    def has_receivers(self) -> bool:
+        """Whether HAIR currently has any working receive path.
+
+        True when native receivers are subscribed (native mode), or at
+        least one ESPHome bridge has fired an event this session. False
+        means the Sniffer's empty state should explain that no receiver is
+        configured, rather than implying the user simply has not pressed a
+        button yet.
+        """
+        return self._native_mode or bool(self._bridge_active_device_ids)
+
     async def async_stop(self) -> None:
         """Stop listening, flush pending writes."""
         if self._unsub is not None:
@@ -223,6 +237,16 @@ class SignalMonitor:
         actually still have ``on_pronto:`` configured -- the only way to
         detect bridge presence is to observe events from it.
         """
+        # Drop events forged through the HA API. ESPHome-originated bus
+        # events carry no user context; a non-None ``user_id`` means an
+        # authenticated user (admin or not) fired this event via the
+        # WS/REST API. Since processing runs trigger matching before any
+        # filtering, an unguarded handler lets a non-admin user fire HAIR
+        # event entities (and any automations bound to them). Reject such
+        # events before they touch bridge tracking or the pipeline.
+        if event.context.user_id is not None:
+            return
+
         event_data = event.data or {}
 
         # Track this device as having an active bridge (regardless of
@@ -273,6 +297,25 @@ class SignalMonitor:
         # None for non-Pronto codes, whose fingerprint is already unique.
         byte_hash = EventParser.pronto_byte_hash(parsed.code)
 
+        # Protocol decode (v0.4.0 Phase A): identify NEC-family signals at
+        # capture so the matcher can key on the decoded fingerprint and the
+        # TX path can re-encode canonical timings. This is the single decode
+        # point for both the native and legacy RX paths, which both arrive
+        # here. None for undecodable signals or when the library is
+        # unavailable; capture continues unchanged either way.
+        decoded = try_decode(parsed.raw_timings)
+        decoded_protocol: str | None = None
+        decoded_address: int | None = None
+        decoded_command: int | None = None
+        decoded_fingerprint: str | None = None
+        if decoded is not None:
+            decoded_protocol, decoded_address, decoded_command = decoded
+            decoded_fingerprint = DECODED_FINGERPRINT_FORMAT.format(
+                protocol=decoded_protocol,
+                address=decoded_address,
+                command=decoded_command,
+            )
+
         # Step 2: Check triggers (before known-command skip so triggers
         # work for both assigned commands and unknown signals).
         if self._trigger_manager is not None:
@@ -280,8 +323,16 @@ class SignalMonitor:
                 sig_fp, parsed.protocol, parsed.code, dev_fp
             )
 
-        # Step 3: Check known commands.
-        if self._matches_known_command(parsed):
+        # Step 3: Check known commands. The matcher returns the matched
+        # (device_id, command_id), but in v0.4.0 we use it only to drop a
+        # re-press of an already-assigned command from the live feed
+        # (today's behavior, now correct across native-path jitter and the
+        # byte-hash tiebreaker). Surfacing the matched identity in the
+        # Sniffer is the v0.4.1 assigned-state work.
+        if (
+            self._matches_known_command(sig_fp, byte_hash, decoded_fingerprint)
+            is not None
+        ):
             return
 
         # Step 4: Check dismiss list.
@@ -332,6 +383,10 @@ class SignalMonitor:
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     byte_hash=byte_hash,
+                    decoded_protocol=decoded_protocol,
+                    decoded_address=decoded_address,
+                    decoded_command=decoded_command,
+                    decoded_fingerprint=decoded_fingerprint,
                     protocol=parsed.protocol,
                     code=parsed.code,
                     raw_timings=list(parsed.raw_timings) if parsed.raw_timings else [],
@@ -402,15 +457,31 @@ class SignalMonitor:
     # Known-command check
     # -----------------------------------------------------------------
 
-    def _matches_known_command(self, parsed: Any) -> bool:
-        """Return True if the parsed signal matches any existing HAIR command."""
-        if not parsed.protocol or not parsed.code:
-            return False
-        for device in self._hair_store.get_all_devices():
-            for cmd in device.commands:
-                if cmd.protocol == parsed.protocol and cmd.code == parsed.code:
-                    return True
-        return False
+    def _matches_known_command(
+        self,
+        signal_fingerprint: str,
+        byte_hash: str | None,
+        decoded_fingerprint: str | None,
+    ) -> tuple[str, str] | None:
+        """Return the ``(device_id, command_id)`` this signal is assigned to.
+
+        Delegates to the store's tiered reverse index: decoded protocol
+        identity first, then ``(S/L fingerprint, byte_hash)``, then the
+        S/L fingerprint alone. Returns ``None`` when the signal is not an
+        already-assigned command.
+
+        Replaces the old exact ``protocol`` + ``code`` string compare,
+        which missed two real cases: native-path captures re-encode Pronto
+        from jittered timings so the code string rarely matched, and the
+        v0.3.4 byte-hash tiebreaker stores distinct codes that the string
+        compare could not tell apart (B5, 2026-06-09 third-party review).
+        The identity is returned (not a bare bool) so the v0.4.1
+        assigned-state work can label the row; in v0.4.0 it is used only
+        to suppress the re-press from the live feed.
+        """
+        return self._hair_store.match_command(
+            decoded_fingerprint, signal_fingerprint, byte_hash
+        )
 
     # -----------------------------------------------------------------
     # Rate limiting
@@ -906,6 +977,74 @@ class SignalMonitor:
             device.last_seen = now_iso
             await self._signal_store.async_save()
         return {"success": True, "signal": signal.to_dict()}
+
+    async def import_manual_remote(
+        self, name: str, entries: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Create a clipped remote pre-filled from materialized codebook entries.
+
+        ``entries`` are the Clipper-ready dicts from ``code_library``: each
+        ``{name, code, decoded_protocol, decoded_address, decoded_command,
+        decoded_fingerprint}``. Signals are validated, deduplicated within
+        the batch, and appended in order under a single lock and save.
+        Invalid or duplicate codes are skipped; returns the new device plus
+        imported/skipped counts so the UI can report partial imports.
+        """
+        label = (name or "").strip() or "Imported Remote"
+        now_iso = datetime.now(UTC).isoformat()
+        imported = 0
+        skipped = 0
+        async with self._lock:
+            device = UnknownDevice(
+                label=label,
+                source="manual",
+                first_seen=now_iso,
+                last_seen=now_iso,
+                hit_count=0,
+            )
+            device.fingerprint = f"manual:{device.id}"
+            for entry in entries:
+                result = validate_pronto(entry.get("code") or "")
+                if not result.valid:
+                    skipped += 1
+                    continue
+                code = result.normalized
+                sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
+                byte_hash = EventParser.pronto_byte_hash(code)
+                if device.get_signal(sig_fp, byte_hash) is not None:
+                    skipped += 1
+                    continue
+                frequency = (
+                    round(result.frequency_khz * 1000)
+                    if result.frequency_khz
+                    else DEFAULT_CARRIER_FREQUENCY
+                )
+                signal = UnknownSignal(
+                    fingerprint=sig_fp,
+                    byte_hash=byte_hash,
+                    decoded_protocol=entry.get("decoded_protocol"),
+                    decoded_address=entry.get("decoded_address"),
+                    decoded_command=entry.get("decoded_command"),
+                    decoded_fingerprint=entry.get("decoded_fingerprint"),
+                    protocol="PRONTO",
+                    code=code,
+                    raw_timings=[],
+                    frequency=frequency,
+                    hit_count=1,
+                    first_seen=now_iso,
+                    last_seen=now_iso,
+                    source="manual",
+                    alias=(entry.get("name") or "").strip(),
+                )
+                device.signals.append(signal)
+                imported += 1
+            self._signal_store.add_device(device)
+            await self._signal_store.async_save()
+        return {
+            "device": device.to_dict(),
+            "imported": imported,
+            "skipped": skipped,
+        }
 
     async def set_signal_alias(
         self, device_id: str, signal_id: str, alias: str

@@ -11,7 +11,7 @@
  * clipping; its position is computed from the glyph on open.
  */
 import { LitElement, html, css } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 
 // mdi:content-copy
 const ICON_COPY =

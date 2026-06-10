@@ -1,7 +1,7 @@
 """Tests for HAIR diagnostics."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,6 +16,16 @@ from custom_components.hair.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
+
+
+def _diag_hass():
+    """MagicMock hass whose async_add_executor_job runs the job inline,
+    matching real HA behavior so offloaded diagnostics work in unit tests."""
+    hass = MagicMock()
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
+    return hass
 
 
 def _device_with_command():
@@ -41,8 +51,38 @@ def _device_with_command():
 class TestDiagnostics:
 
     @pytest.mark.asyncio
+    async def test_includes_library_version_and_decoded_counts(self):
+        """Addition A: diagnostics report the library version and a count of
+        commands carrying a decoded protocol identity, by protocol."""
+        hass = _diag_hass()
+        entry = MagicMock()
+        entry.entry_id = "test-entry"
+        entry.options = {}
+        entry.data = {}
+        dev = IRDevice(
+            id="d1",
+            name="TV",
+            device_type=DeviceType.MEDIA_PLAYER,
+            commands=[
+                IRCommand(id="c1", name="Power", decoded_protocol="NEC"),
+                IRCommand(id="c2", name="Mute", decoded_protocol="NEC"),
+                IRCommand(id="c3", name="Vol", decoded_protocol=None),
+            ],
+        )
+        manager = MagicMock()
+        manager.get_all_devices.return_value = [dev]
+        hass.data = {DOMAIN: {entry.entry_id: {
+            "device_manager": manager,
+            "orchestrator": MagicMock(is_capturing=False),
+        }}}
+        result = await async_get_config_entry_diagnostics(hass, entry)
+        assert isinstance(result["infrared_protocols_version"], str)
+        assert result["decoded_commands"]["total"] == 2
+        assert result["decoded_commands"]["by_protocol"] == {"NEC": 2}
+
+    @pytest.mark.asyncio
     async def test_returns_entry_info(self):
-        hass = MagicMock()
+        hass = _diag_hass()
         entry = MagicMock()
         entry.entry_id = "test-entry"
         entry.options = {}
@@ -67,7 +107,7 @@ class TestDiagnostics:
     @pytest.mark.asyncio
     async def test_devices_serialized_and_redacted(self):
         """Verify devices are serialized and passed through async_redact_data."""
-        hass = MagicMock()
+        hass = _diag_hass()
         entry = MagicMock()
         entry.entry_id = "test-entry"
         entry.options = {}
@@ -110,7 +150,7 @@ class TestDiagnostics:
 
     @pytest.mark.asyncio
     async def test_handles_unconfigured_gracefully(self):
-        hass = MagicMock()
+        hass = _diag_hass()
         entry = MagicMock()
         entry.entry_id = "missing-entry"
         entry.options = {}

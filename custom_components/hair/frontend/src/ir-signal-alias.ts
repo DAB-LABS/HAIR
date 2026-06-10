@@ -11,7 +11,7 @@
  * its local model, and ``alias-error`` (message) on failure.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import type { HairApi } from "./api.js";
 import type { UnknownSignal } from "./types.js";
 

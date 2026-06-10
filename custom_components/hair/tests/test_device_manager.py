@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import homeassistant.components.infrared as _infrared_mod
 import pytest
 
 from custom_components.hair.const import (
@@ -31,7 +32,7 @@ class _FakeStore:
 
 @pytest.fixture
 def manager(fake_hass):
-    with patch("custom_components.hair.storage.Store", _FakeStore):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
         store = HAIRStore(fake_hass)
         # Don't await async_load; the fake returns None synchronously for tests.
         store._loaded = True
@@ -46,6 +47,81 @@ def manager(fake_hass):
             ),
         ):
             yield DeviceManager(fake_hass, store, factory, "entry-1")
+
+
+@pytest.mark.asyncio
+async def test_send_command_uses_decoded_when_present(manager):
+    """TX prefers encode-from-decoded when the command carries decoded
+    fields and is not pinned to captured timings."""
+    cmd = IRCommand(
+        id="c1",
+        name="Power",
+        protocol="PRONTO",
+        code="0000 006D 0002 0000 0020 0040 0020 0040",
+        decoded_protocol="NEC",
+        decoded_address=0xFB04,
+        decoded_command=0x08,
+        decoded_fingerprint="NEC:0xfb04:0x08",
+    )
+    dev = IRDevice(name="TV", emitter_entity_ids=["infrared.e"], commands=[cmd])
+    manager._store.add_device(dev)
+    sentinel = object()
+    with patch.object(
+        _infrared_mod, "async_send_command", AsyncMock()
+    ) as ir_send, patch(
+        "custom_components.hair.ir_command.build_decoded_command",
+        return_value=sentinel,
+    ) as bdc, patch(
+        "custom_components.hair.ir_command.build_command"
+    ) as bc:
+        await manager.async_send_command(dev.id, "c1")
+    bdc.assert_called_once()
+    bc.assert_not_called()
+    ir_send.assert_awaited_once()
+    assert ir_send.call_args[0][2] is sentinel
+
+
+@pytest.mark.asyncio
+async def test_send_command_falls_back_when_tx_force_raw(manager):
+    cmd = IRCommand(
+        id="c1",
+        name="Power",
+        protocol="PRONTO",
+        code="0000 006D 0002 0000 0020 0040 0020 0040",
+        decoded_fingerprint="NEC:0xfb04:0x08",
+        decoded_protocol="NEC",
+        decoded_address=0xFB04,
+        decoded_command=0x08,
+        tx_force_raw=True,
+    )
+    dev = IRDevice(name="TV", emitter_entity_ids=["infrared.e"], commands=[cmd])
+    manager._store.add_device(dev)
+    fallback = object()
+    with patch.object(
+        _infrared_mod, "async_send_command", AsyncMock()
+    ) as ir_send, patch(
+        "custom_components.hair.ir_command.build_decoded_command"
+    ) as bdc, patch(
+        "custom_components.hair.ir_command.build_command", return_value=fallback
+    ):
+        await manager.async_send_command(dev.id, "c1")
+    bdc.assert_not_called()
+    assert ir_send.call_args[0][2] is fallback
+
+
+@pytest.mark.asyncio
+async def test_set_command_tx_force_raw(manager):
+    dev = IRDevice(name="TV", commands=[IRCommand(id="c1", name="Power")])
+    manager._store.add_device(dev)
+    assert await manager.async_set_command_tx_force_raw(dev.id, "c1", True) is True
+    assert manager._store.get_device(dev.id).commands[0].tx_force_raw is True
+    assert (
+        await manager.async_set_command_tx_force_raw(dev.id, "missing", True)
+        is False
+    )
+    assert (
+        await manager.async_set_command_tx_force_raw("nope", "c1", True) is False
+    )
 
 
 @pytest.mark.asyncio

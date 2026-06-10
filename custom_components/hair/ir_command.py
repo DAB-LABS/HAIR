@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 
+from .const import DECODED_PROTOCOL_NEC
+
 try:
     from infrared_protocols import Command
 except ImportError:  # test environment without infrared_protocols
@@ -166,6 +168,41 @@ def raw_to_pronto(
         words.extend([mark, space])
 
     return " ".join(f"{w:04X}" for w in words)
+
+
+def build_decoded_command(
+    decoded_protocol: str | None,
+    decoded_address: int | None,
+    decoded_command: int | None,
+    *,
+    repeat_count: int = 0,
+) -> Command | None:
+    """Build a protocol-native Command from decoded fields, or ``None``.
+
+    Returns a canonical-timing Command (NEC today) when the decoded fields
+    are present and the library is available, so transmit re-encodes clean
+    timings instead of replaying captured (receiver-distorted) ones -- the
+    frafall (GH #14) fix. Returns ``None`` when the protocol is
+    unsupported, a field is missing, or the library is unavailable, so the
+    caller falls back to Pronto/raw replay.
+    """
+    if (
+        decoded_protocol != DECODED_PROTOCOL_NEC
+        or decoded_address is None
+        or decoded_command is None
+    ):
+        return None
+    try:
+        from infrared_protocols.commands.nec import NECCommand
+    except ImportError:
+        return None
+    try:
+        cmd = NECCommand(address=decoded_address, command=decoded_command)
+    except (TypeError, ValueError):
+        return None
+    if repeat_count:
+        cmd.repeat_count = repeat_count
+    return cmd
 
 
 def build_command(

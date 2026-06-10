@@ -53,6 +53,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_delete_device)
     websocket_api.async_register_command(hass, ws_duplicate_device)
     websocket_api.async_register_command(hass, ws_delete_command)
+    websocket_api.async_register_command(hass, ws_set_command_tx_force_raw)
     websocket_api.async_register_command(hass, ws_reorder_commands)
     websocket_api.async_register_command(hass, ws_reorder_devices)
     websocket_api.async_register_command(hass, ws_send_command)
@@ -62,6 +63,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_command_templates)
     websocket_api.async_register_command(hass, ws_get_capture_providers)
     websocket_api.async_register_command(hass, ws_get_receivers)
+    websocket_api.async_register_command(hass, ws_get_sniffer_status)
 
     # Signal Monitor (unknown devices)
     websocket_api.async_register_command(hass, ws_get_unknown_devices)
@@ -83,6 +85,10 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_clip_create_signal)
     websocket_api.async_register_command(hass, ws_clip_validate_pronto)
     websocket_api.async_register_command(hass, ws_clip_delete_remote)
+
+    # Code database picker (Add Remote)
+    websocket_api.async_register_command(hass, ws_codes_get_brands)
+    websocket_api.async_register_command(hass, ws_codes_import_remote)
 
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
@@ -342,6 +348,39 @@ async def ws_delete_command(
         connection.send_error(msg["id"], "not_found", "Command not found")
         return
     connection.send_result(msg["id"], {"removed": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/set-tx-force-raw",
+    vol.Required("device_id"): str,
+    vol.Required("command_id"): str,
+    vol.Required("tx_force_raw"): bool,
+})
+@websocket_api.async_response
+async def ws_set_command_tx_force_raw(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Toggle a command's ``tx_force_raw`` (use captured timings) flag.
+
+    When True, transmit replays the captured Pronto/raw timings rather
+    than re-encoding from the decoded value. The per-command escape hatch
+    for the rare destination that wants the captured timings.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    updated = await manager.async_set_command_tx_force_raw(
+        msg["device_id"], msg["command_id"], msg["tx_force_raw"]
+    )
+    if not updated:
+        connection.send_error(msg["id"], "not_found", "Command not found")
+        return
+    connection.send_result(msg["id"], {"tx_force_raw": msg["tx_force_raw"]})
 
 
 @websocket_api.require_admin
@@ -696,6 +735,96 @@ async def ws_get_receivers(
         pass  # Pre-2026.6: no native receiver API.
 
     connection.send_result(msg["id"], receivers)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/sniffer/status",
+})
+@websocket_api.async_response
+async def ws_get_sniffer_status(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return Sniffer status so the empty state can explain itself.
+
+    ``has_receivers`` is False when no native receiver is subscribed and
+    no ESPHome bridge has fired this session, which means "no receiver is
+    set up" rather than "no signals seen yet".
+    """
+    data = _get_first_entry_data(hass)
+    has_receivers = False
+    if data is not None:
+        monitor: SignalMonitor = data["signal_monitor"]
+        has_receivers = monitor.has_receivers
+    connection.send_result(msg["id"], {"has_receivers": has_receivers})
+
+
+# --- Code database picker ---
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/codes/brands",
+})
+@websocket_api.async_response
+async def ws_codes_get_brands(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the picker tree (brand -> codebook -> function) from the
+    installed infrared-protocols codebooks. Empty when the library is
+    missing or exposes no codebooks."""
+    from .code_library import get_tree
+
+    # get_tree walks the codebook package on disk and imports modules, so it
+    # is offloaded to the executor rather than run on the event loop.
+    tree = await hass.async_add_executor_job(get_tree)
+    connection.send_result(msg["id"], tree)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/codes/import-remote",
+    vol.Required("codebook_id"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("name"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("function_ids"): [vol.All(str, vol.Length(max=200))],
+})
+@websocket_api.async_response
+async def ws_codes_import_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Materialize a codebook into a new clipped remote, one signal per
+    function, each aliased to its function name and pre-populated with its
+    decoded protocol identity for canonical transmit."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    from .code_library import codebook_label, materialize_codebook
+
+    # materialize_codebook imports library modules from disk; keep it off the
+    # event loop.
+    entries = await hass.async_add_executor_job(
+        materialize_codebook, msg["codebook_id"], msg.get("function_ids")
+    )
+    if not entries:
+        connection.send_error(
+            msg["id"], "no_codes", "No usable codes for that selection"
+        )
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    name = (
+        msg.get("name")
+        or codebook_label(msg["codebook_id"])
+        or "Imported Remote"
+    )
+    result = await monitor.import_manual_remote(name, entries)
+    connection.send_result(msg["id"], result)
 
 
 # --- Signal Monitor (Unknown Devices) ---

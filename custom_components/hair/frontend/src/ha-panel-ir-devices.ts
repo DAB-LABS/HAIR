@@ -6,7 +6,7 @@
  * WebSocket API client and the in-memory device cache.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import { HairApi } from "./api.js";
 import "./ir-device-list.js";
 import "./ir-add-device-dialog.js";

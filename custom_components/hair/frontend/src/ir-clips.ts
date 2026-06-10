@@ -9,7 +9,7 @@
  * editor that replaces the S/L diamonds on a signal once named.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, state } from "./decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -73,6 +73,8 @@ export class IrClips extends LitElement {
     @state() private _expandedDevice: UnknownDevice | null = null;
     @state() private _confirmClearAll = false;
     @state() private _deleteRemoteId: string | null = null;
+    @state() private _deleteRemoteLabel = "";
+    @state() private _deleteRemoteCount = 0;
 
     // Inline device rename
     @state() private _editingDeviceId: string | null = null;
@@ -309,8 +311,10 @@ export class IrClips extends LitElement {
         await this._load();
     }
 
-    private _openDeleteRemote(deviceId: string): void {
-        this._deleteRemoteId = deviceId;
+    private _openDeleteRemote(device: UnknownDevice): void {
+        this._deleteRemoteId = device.id;
+        this._deleteRemoteLabel = device.label || "this remote";
+        this._deleteRemoteCount = device.signals.length;
     }
 
     private async _confirmDeleteRemote(): Promise<void> {
@@ -724,14 +728,6 @@ export class IrClips extends LitElement {
                               >No signals yet. Click "+ Add Signal" to paste a
                               Pronto code.</span
                           >
-                          <button
-                              class="action-btn delete-btn"
-                              title="Delete this remote"
-                              @click=${(e: Event) => {
-                                  e.stopPropagation();
-                                  this._openDeleteRemote(device.id);
-                              }}
-                          >Delete</button>
                       </div>`
                     : html`
                           <div class="signal-list">
@@ -751,6 +747,16 @@ export class IrClips extends LitElement {
                               )}
                           </div>
                       `}
+                <div class="remote-footer">
+                    <button
+                        class="action-btn delete-btn"
+                        title="Delete this remote and all its signals"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._openDeleteRemote(device);
+                        }}
+                    >Delete remote</button>
+                </div>
             </div>
         `;
     }
@@ -905,7 +911,9 @@ export class IrClips extends LitElement {
             ${this._deleteRemoteId
                 ? html`<ir-confirm-dialog
                       title="Delete Remote"
-                      message="Remove this remote? This cannot be undone."
+                      message=${this._deleteRemoteCount > 0
+                          ? `Remove "${this._deleteRemoteLabel}" and its ${this._deleteRemoteCount} ${this._deleteRemoteCount === 1 ? "signal" : "signals"}? This cannot be undone.`
+                          : `Remove "${this._deleteRemoteLabel}"? This cannot be undone.`}
                       confirmLabel="Delete"
                       .destructive=${true}
                       @confirmed=${this._confirmDeleteRemote}
@@ -920,6 +928,7 @@ export class IrClips extends LitElement {
                       .protocol=${this._triggerDialog.signal.protocol}
                       .code=${this._triggerDialog.signal.code}
                       .slPattern=${this._triggerDialog.signal.sl_pattern ?? null}
+                      .alias=${this._triggerDialog.signal.alias || null}
                       @trigger-saved=${this._onTriggerSaved}
                       @closed=${this._closeTriggerDialog}
                   ></ir-trigger-dialog>`
@@ -1241,6 +1250,16 @@ export class IrClips extends LitElement {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
+        }
+        /* Persistent "Delete remote" footer: a row below the signal list,
+           right-justified so its button lines up with the per-signal Delete
+           buttons (which sit 8px in from the row edge). Same button size as
+           every other action button. */
+        .remote-footer {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+            padding-right: 8px;
         }
         .signal-list {
             display: flex;
