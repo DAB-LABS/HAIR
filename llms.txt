@@ -14,7 +14,7 @@ devices on top of the Z-Wave JS integration.
 
 Key components:
 
-- Signal Sniffer: a passive listener that captures every IR transmission seen by
+- HAIR Sniffer: a passive listener that captures every IR transmission seen by
   configured receivers, fingerprints each signal using short/long pulse-duration
   analysis, deduplicates repeated presses, filters out repeat frames (sent when
   buttons are held), and groups signals by source remote based on carrier frequency

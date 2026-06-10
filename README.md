@@ -6,7 +6,7 @@
 
 ***HAIR moves your IR codes out of vendor clouds, blaster memory, and config files, and into Home Assistant itself.*** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that ***triggers automations***. A command broadcast through any blaster on HA's native `infrared` platform, whether that is an ESPHome IR LED, a [Tuya Local](https://github.com/make-all/tuya-local) IR blaster, a Broadlink RM, an SMLIGHT SLZB, or anything else that adopts the platform.
 
-No manufacturer picker. No model lookup. No code file downloads. No YAML. Just point, press, use.
+No vendor cloud, no code-file downloads, no YAML -- just point, press, use. Prefer a head start? An optional manufacturer and model picker in the Clipper can pre-fill a remote from your installed code library.
 
 ## Platform state
 
@@ -99,7 +99,7 @@ remote_receiver:
             code: !lambda 'return x.data;'
 ```
 
-The `on_pronto` trigger catches every IR signal regardless of protocol (NEC, Samsung, Sony, RC-5, etc.) and fires it as a `homeassistant.event` on the HA bus. HAIR's Signal Monitor subscribes to these events automatically.
+The `on_pronto` trigger catches every IR signal regardless of protocol (NEC, Samsung, Sony, RC-5, etc.) and fires it as a `homeassistant.event` on the HA bus. The HAIR Sniffer subscribes to these events automatically.
 
 When you are ready to migrate to the native receiver path on HA 2026.6+, add the `infrared` platform receiver entry to your ESPHome YAML (canonical examples in [`esphome/`](esphome/)) and reflash. HAIR will detect the native receiver and switch over automatically. You can keep the legacy `on_pronto` bridge in place during the transition: HAIR will not double-process signals, and the panel will show both `RX-NATIVE` and `RX-BRIDGE` badges until you remove the bridge from your YAML.
 
@@ -109,9 +109,9 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 **Native Receiver Support (HA 2026.6+)** - HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. Hardware-agnostic. Any integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge with no change required from you.
 
-**Signal Sniffer** - Passive IR listener that runs in the background. Every IR transmission your receivers detect is captured, fingerprinted, and grouped by source device. Signals are deduplicated automatically: press the same button ten times and you see one signal with a hit count of ten. Repeat frames (sent when you hold a button down) are filtered out so only actual command signals appear. The Sniffer shows you what remotes are active in your home and which buttons are being pressed, all in real time. Use the Test button on any captured signal to fire it through an emitter picker before assigning it to a device, useful for spot-checking that the signal you captured actually controls the device you think it does.
+**HAIR Sniffer** - Passive IR listener that runs in the background. Every IR transmission your receivers detect is captured, fingerprinted, and grouped by source device. Signals are deduplicated automatically: press the same button ten times and you see one signal with a hit count of ten. Repeat frames (sent when you hold a button down) are filtered out so only actual command signals appear. The Sniffer shows you what remotes are active in your home and which buttons are being pressed, all in real time. Use the Test button on any captured signal to fire it through an emitter picker before assigning it to a device, useful for spot-checking that the signal you captured actually controls the device you think it does.
 
-**HAIR Clipper** - Build virtual remotes by pasting Pronto hex codes, for when you have a code from an online converter, a vendor datasheet, or an ESPHome log but no live signal to sniff. Create a named remote on the Clipper tab, then add a button by pasting its Pronto code. The dialog validates the code as you paste it (the detected carrier frequency, the burst pair count, an S/L diamond preview, and specific error messages when something is off) so you know it is well-formed before you save. A pasted signal behaves exactly like a sniffed one: test it through an emitter, turn it into a trigger, assign it to a device, or promote the whole remote.
+**HAIR Clipper** - Build virtual remotes by pasting Pronto hex codes, for when you have a code from an online converter, a vendor datasheet, or an ESPHome log but no live signal to sniff. Create a named remote on the Clipper tab, then add a button by pasting its Pronto code. The dialog validates the code as you paste it (the detected carrier frequency, the burst pair count, an S/L diamond preview, and specific error messages when something is off) so you know it is well-formed before you save. A pasted signal behaves exactly like a sniffed one: test it through an emitter, turn it into a trigger, assign it to a device, or promote the whole remote. The Create Remote dialog can also pre-fill a remote from a known manufacturer and model in your installed infrared code library, a shortcut for the supported devices when you would rather not paste each button.
 
 **Signal Aliases** - Give any signal a nickname by clicking its S/L diamond pattern and typing. The alias replaces the diamonds in the list so you can tell your signals apart at a glance, in both the Sniffer and Clipper. Click an existing alias to rename it, or clear the field to remove the alias and bring the diamonds back. An alias is a label on the signal, not a command name, so the same signal can still become differently-named commands on different devices.
 
@@ -167,11 +167,11 @@ The Clipper tab is for building remotes by hand, for when you cannot or do not w
 
 Click "+ Add Remote" to make a named remote, then expand it and click "+ Add Signal" to add a signal. Paste the Pronto code into the dialog. As you paste, HAIR validates the code and shows a green or red check, the detected carrier frequency, the burst pair count, and the same S/L diamond fingerprint you see in the Sniffer, along with a specific message if anything is wrong (a header that is not `0000`, a truncated code, non-hex characters, or an unusual carrier frequency). Press Enter or click Create once it validates, and give it an alias up front if you like. Pasting a code that is already on the remote is refused, so a remote never ends up with two identical signals.
 
-From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it.
+From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it. Each remote also has a "Delete remote" button that removes it and all of its signals in one step.
 
 Pronto is the only paste format. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported.
 
-You do not always have to paste. The Create Remote dialog has a Type dropdown: leave it on Empty to fill the remote by pasting, or pick a manufacturer and model to materialize a remote pre-filled with one signal per button, each named for its function. The list is whatever device codes your installed Home Assistant infrared library carries -- some TVs (LG, Samsung, Vizio, Sharp), a Sony PlayStation, and a few audio and lighting devices. It is a shortcut for the supported devices, not a universal lookup, so anything not listed is still a paste away.
+You do not always have to paste. The Create Remote dialog has a Type dropdown: leave it on Blank remote to fill the remote by pasting, or choose a manufacturer and model under "From code library" to materialize a remote pre-filled with one signal per button, each named for its function. The list is whatever device codes your installed Home Assistant infrared library carries -- some TVs (LG, Samsung, Vizio, Sharp), a Sony PlayStation, and a few audio and lighting devices. It is a shortcut for the supported devices, not a universal lookup, so anything not listed is still a paste away.
 
 ### Adding a Device
 
@@ -264,7 +264,7 @@ Two signal sources feed one catalog: live capture (Sniffer) and manual Pronto pa
   | async_subscribe_receiver | esphome.remote_received   |
   +--------------------------+---------------------------+
         |                                            |
-  HAIR Signal Monitor (RX capture)        Clipper (manual paste)
+  HAIR Sniffer (RX capture)               Clipper (manual paste)
         |                                            |
         +---------------------+----------------------+
                               |
