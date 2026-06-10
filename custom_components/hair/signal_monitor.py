@@ -978,6 +978,74 @@ class SignalMonitor:
             await self._signal_store.async_save()
         return {"success": True, "signal": signal.to_dict()}
 
+    async def import_manual_remote(
+        self, name: str, entries: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Create a clipped remote pre-filled from materialized codebook entries.
+
+        ``entries`` are the Clipper-ready dicts from ``code_library``: each
+        ``{name, code, decoded_protocol, decoded_address, decoded_command,
+        decoded_fingerprint}``. Signals are validated, deduplicated within
+        the batch, and appended in order under a single lock and save.
+        Invalid or duplicate codes are skipped; returns the new device plus
+        imported/skipped counts so the UI can report partial imports.
+        """
+        label = (name or "").strip() or "Imported Remote"
+        now_iso = datetime.now(UTC).isoformat()
+        imported = 0
+        skipped = 0
+        async with self._lock:
+            device = UnknownDevice(
+                label=label,
+                source="manual",
+                first_seen=now_iso,
+                last_seen=now_iso,
+                hit_count=0,
+            )
+            device.fingerprint = f"manual:{device.id}"
+            for entry in entries:
+                result = validate_pronto(entry.get("code") or "")
+                if not result.valid:
+                    skipped += 1
+                    continue
+                code = result.normalized
+                sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
+                byte_hash = EventParser.pronto_byte_hash(code)
+                if device.get_signal(sig_fp, byte_hash) is not None:
+                    skipped += 1
+                    continue
+                frequency = (
+                    round(result.frequency_khz * 1000)
+                    if result.frequency_khz
+                    else DEFAULT_CARRIER_FREQUENCY
+                )
+                signal = UnknownSignal(
+                    fingerprint=sig_fp,
+                    byte_hash=byte_hash,
+                    decoded_protocol=entry.get("decoded_protocol"),
+                    decoded_address=entry.get("decoded_address"),
+                    decoded_command=entry.get("decoded_command"),
+                    decoded_fingerprint=entry.get("decoded_fingerprint"),
+                    protocol="PRONTO",
+                    code=code,
+                    raw_timings=[],
+                    frequency=frequency,
+                    hit_count=1,
+                    first_seen=now_iso,
+                    last_seen=now_iso,
+                    source="manual",
+                    alias=(entry.get("name") or "").strip(),
+                )
+                device.signals.append(signal)
+                imported += 1
+            self._signal_store.add_device(device)
+            await self._signal_store.async_save()
+        return {
+            "device": device.to_dict(),
+            "imported": imported,
+            "skipped": skipped,
+        }
+
     async def set_signal_alias(
         self, device_id: str, signal_id: str, alias: str
     ) -> dict[str, Any]:

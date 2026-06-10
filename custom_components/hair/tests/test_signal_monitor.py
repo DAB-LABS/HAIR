@@ -190,6 +190,43 @@ class TestHasReceivers:
         assert monitor.has_receivers is True
 
 
+@pytest.mark.asyncio
+async def test_import_manual_remote_creates_remote_with_signals():
+    """The picker import builds a manual remote, carries decoded fields and
+    aliases, and skips invalid/duplicate codes."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    code = (
+        "0000 006D 0006 0000 00E0 0070 0014 000D 0014 002E "
+        "0014 000D 0014 000D 0014 0400"
+    )
+    entries = [
+        {
+            "name": "Power",
+            "code": code,
+            "decoded_protocol": "NEC",
+            "decoded_address": 0xFB04,
+            "decoded_command": 0x08,
+            "decoded_fingerprint": "NEC:0xfb04:0x08",
+        },
+        {"name": "Bad", "code": "not a pronto code"},
+    ]
+    result = await monitor.import_manual_remote("LG TV", entries)
+    assert result["imported"] == 1
+    assert result["skipped"] == 1
+
+    devices = store.get_all_devices()
+    assert len(devices) == 1
+    dev = devices[0]
+    assert dev.source == "manual"
+    assert dev.label == "LG TV"
+    assert dev.fingerprint.startswith("manual:")
+    sig = dev.signals[0]
+    assert sig.alias == "Power"
+    assert sig.decoded_fingerprint == "NEC:0xfb04:0x08"
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle tests
 # ---------------------------------------------------------------------------
