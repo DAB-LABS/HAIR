@@ -1,0 +1,108 @@
+@@ -1,2 +1,107 @@
++@websocket_api.require_admin
++@websocket_api.websocket_command({
++    vol.Required("type"): f"{WS_PREFIX}/command/update-code",
++    vol.Required("device_id"): str,
++    vol.Required("command_id"): str,
++    vol.Required("pronto"): str,
++})
++@websocket_api.async_response
++async def ws_update_command_code(
++    hass: HomeAssistant,
++    connection: websocket_api.ActiveConnection,
++    msg: dict[str, Any],
++) -> None:
++    """Replace a command's Pronto code in-place.
++
++    Recomputes the byte_hash and clears the decoded_* fields so the
++    backfill pass on next load re-decodes from the new timings. The
++    known-command index is rebuilt by DeviceManager after the update so
++    deduplication reflects the new code immediately.
++    """
++    from .const import PRONTO_BYTE_HASH_BIN, PRONTO_GAP_THRESHOLD
++    from .ir_command import ProntoCommand
++    from .pronto_validator import validate_pronto
++    from .protocol_decode import try_decode
++    from .const import DECODED_FINGERPRINT_FORMAT
++    import hashlib
++
++    data = _get_first_entry_data(hass)
++    if data is None:
++        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
++        return
++
++    validation = validate_pronto(msg["pronto"])
++    if not validation.valid:
++        connection.send_error(
++            msg["id"],
++            "invalid_pronto",
++            "; ".join(validation.errors) if validation.errors else "Invalid Pronto code",
++        )
++        return
++
++    manager: DeviceManager = data["device_manager"]
++    device = manager.get_device(msg["device_id"])
++    if device is None:
++        connection.send_error(msg["id"], "not_found", "Device not found")
++        return
++
++    command = device.get_command(msg["command_id"])
++    if command is None:
++        connection.send_error(msg["id"], "not_found", "Command not found")
++        return
++
++    pronto = validation.normalized or msg["pronto"].strip()
++
++    def _byte_hash(code: str) -> str | None:
++        words = [int(w, 16) for w in code.split()]
++        if len(words) < 5:
++            return None
++        quantized = []
++        for t in words[4:]:
++            if t >= PRONTO_GAP_THRESHOLD:
++                break
++            quantized.append(str(round(t / PRONTO_BYTE_HASH_BIN) * PRONTO_BYTE_HASH_BIN))
++        if not quantized:
++            return None
++        return hashlib.sha256(",".join(quantized).encode()).hexdigest()[:16]
++
++    new_hash = _byte_hash(pronto)
++
++    for other in device.commands:
++        if other.id != command.id and other.byte_hash == new_hash:
++            connection.send_error(
++                msg["id"],
++                "duplicate_signal",
++                f"This signal is already stored as '{other.name}'",
++            )
++            return
++
++    command.code = pronto
++    command.protocol = "PRONTO"
++    command.raw_timings = None
++    command.byte_hash = new_hash
++    command.decoded_protocol = None
++    command.decoded_address = None
++    command.decoded_command = None
++    command.decoded_fingerprint = None
++
++    try:
++        raw = ProntoCommand(pronto).get_raw_timings()
++        decoded = try_decode(raw)
++        if decoded is not None:
++            protocol, address, cmd_val = decoded
++            command.decoded_protocol = protocol
++            command.decoded_address = address
++            command.decoded_command = cmd_val
++            command.decoded_fingerprint = DECODED_FINGERPRINT_FORMAT.format(
++                protocol=protocol, address=address, command=cmd_val
++            )
++    except Exception:
++        pass
++
++    await manager.async_update_device(device)
++    connection.send_result(msg["id"], command.to_dict())
++
++
+ @websocket_api.require_admin
+ @websocket_api.websocket_command({

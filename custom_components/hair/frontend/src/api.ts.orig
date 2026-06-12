@@ -149,23 +149,6 @@ export class HairApi {
     
 
     /**
-     * Replace a command's Pronto code in-place.
-     * Recomputes byte_hash, clears decoded_* fields, and persists.
-     */
-    updateCommandCode(
-        deviceId: string,
-        commandId: string,
-        pronto: string,
-    ): Promise<IRCommand> {
-        return this.hass.connection.sendMessagePromise<IRCommand>({
-            type: "hair/command/update-code",
-            device_id: deviceId,
-            command_id: commandId,
-            pronto,
-        });
-    }
-
-    /**
      * Persist a new command order for a device.
      *
      * ``commandIds`` must list every command currently on the device

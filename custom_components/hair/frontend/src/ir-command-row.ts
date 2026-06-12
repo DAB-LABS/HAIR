@@ -1,10 +1,10 @@
 /**
  * One row in the device-detail command checklist.
- * - Captured commands show protocol info plus Test / Delete actions and an action badge.
+ * - Captured commands show protocol info plus Test / Edit / Delete actions and an action badge.
  * - Unlearned templates show a single Learn button.
  */
-import { LitElement, html, css } from "lit";
-import { customElement, property } from "./decorators.js";
+import { LitElement, html, css, type PropertyValues } from "lit";
+import { customElement, property, state } from "./decorators.js";
 import type { IRCommand } from "./types.js";
 
 @customElement("ir-command-row")
@@ -23,6 +23,11 @@ export class IrCommandRow extends LitElement {
      *  device types whose platform exposes no mappable feature actions
      *  (e.g. Other / the remote platform), where the popover would be empty. */
     @property({ type: Boolean }) public showActionMapping = true;
+
+    @state() private _editOpen = false;
+    @state() private _editValue = "";
+    @state() private _editError = "";
+    @state() private _editBusy = false;
 
     /** Human-friendly label for a captured command (plain text fallback). */
     private _commandLabel(): string {
@@ -77,6 +82,57 @@ export class IrCommandRow extends LitElement {
         );
     }
 
+    private _openEdit() {
+        this._editValue = this.command?.code ?? "";
+        this._editError = "";
+        this._editOpen = true;
+        // Focus the textarea after render
+        this.updateComplete.then(() => {
+            const ta = this.renderRoot.querySelector<HTMLTextAreaElement>(".edit-textarea");
+            ta?.focus();
+            ta?.select();
+        });
+    }
+
+    private _closeEdit() {
+        this._editOpen = false;
+        this._editError = "";
+        this._editBusy = false;
+    }
+
+    private async _saveEdit() {
+        const pronto = this._editValue.trim();
+        if (!pronto) {
+            this._editError = "Pronto code cannot be empty.";
+            return;
+        }
+        this._editBusy = true;
+        this._editError = "";
+        this.dispatchEvent(
+            new CustomEvent("update-code", {
+                detail: {
+                    templateName: this.templateName,
+                    command: this.command,
+                    pronto,
+                    onSuccess: () => {
+                        this._editBusy = false;
+                        this._editOpen = false;
+                    },
+                    onError: (msg: string) => {
+                        this._editBusy = false;
+                        this._editError = msg;
+                    },
+                },
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
+    private _onEditKeydown(e: KeyboardEvent) {
+        if (e.key === "Escape") this._closeEdit();
+    }
+
     render() {
         const learned = this.command !== null;
         const diamonds = learned ? this._renderDiamonds() : null;
@@ -94,6 +150,40 @@ export class IrCommandRow extends LitElement {
                               ? html`${this._commandLabel()}`
                               : html`<span class="muted">Not yet learned</span>`}
                     </div>
+                    ${this._editOpen ? html`
+                        <div class="edit-panel">
+                            <textarea
+                                class="edit-textarea"
+                                .value=${this._editValue}
+                                @input=${(e: InputEvent) => {
+                                    this._editValue = (e.target as HTMLTextAreaElement).value;
+                                }}
+                                @keydown=${this._onEditKeydown}
+                                placeholder="Paste Pronto hex code here…"
+                                rows="3"
+                                spellcheck="false"
+                                autocomplete="off"
+                                ?disabled=${this._editBusy}
+                            ></textarea>
+                            ${this._editError ? html`
+                                <div class="edit-error">${this._editError}</div>
+                            ` : ""}
+                            <div class="edit-actions">
+                                <button
+                                    class="action-btn save-btn"
+                                    ?disabled=${this._editBusy}
+                                    @click=${this._saveEdit}
+                                >
+                                    ${this._editBusy ? "Saving…" : "Save"}
+                                </button>
+                                <button
+                                    class="action-btn cancel-btn"
+                                    ?disabled=${this._editBusy}
+                                    @click=${this._closeEdit}
+                                >Cancel</button>
+                            </div>
+                        </div>
+                    ` : ""}
                 </div>
                 <div class="actions">
                     ${learned
@@ -112,6 +202,12 @@ export class IrCommandRow extends LitElement {
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("test")}
                               >Test</button>
+                              <button
+                                  class="action-btn edit-btn ${this._editOpen ? "edit-active" : ""}"
+                                  ?disabled=${this.busy}
+                                  @click=${() => this._editOpen ? this._closeEdit() : this._openEdit()}
+                                  title="Edit Pronto code"
+                              >Edit</button>
                               <button
                                   class="action-btn trigger-btn ${this.hasTrigger ? "trigger-on" : ""}"
                                   ?disabled=${this.busy}
@@ -156,18 +252,9 @@ export class IrCommandRow extends LitElement {
         .row {
             display: grid;
             grid-template-columns: 32px 1fr auto;
-            align-items: center;
+            align-items: start;
             gap: 12px;
             padding: 8px 10px;
-            /* Match the page background so the long horizontal command
-               strips visually merge with the device-detail backdrop
-               instead of reading as highlighted bands. Themes that
-               distinguish primary vs secondary background colors will
-               carry both through naturally; themes that keep them
-               equal end up with the same visual effect. The hover
-               state on action buttons inside the row still uses
-               --secondary-background-color so the button hover remains
-               distinguishable. */
             background: var(--primary-background-color);
             border-radius: 4px;
         }
@@ -175,6 +262,7 @@ export class IrCommandRow extends LitElement {
             display: flex;
             align-items: center;
             justify-content: center;
+            padding-top: 6px;
         }
         .name {
             font-weight: 500;
@@ -202,10 +290,72 @@ export class IrCommandRow extends LitElement {
         .diamond.short {
             color: var(--warning-color, #ff9800);
         }
+        /* ── Edit panel ── */
+        .edit-panel {
+            margin-top: 8px;
+        }
+        .edit-textarea {
+            width: 100%;
+            box-sizing: border-box;
+            font-family: var(--code-font-family, monospace);
+            font-size: 0.78rem;
+            padding: 6px 8px;
+            background: var(--secondary-background-color);
+            color: var(--primary-text-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            resize: vertical;
+            outline: none;
+            transition: border-color 150ms ease;
+        }
+        .edit-textarea:focus {
+            border-color: var(--primary-color);
+        }
+        .edit-textarea:disabled {
+            opacity: 0.6;
+        }
+        .edit-error {
+            margin-top: 4px;
+            font-size: 0.78rem;
+            color: var(--error-color, #b00020);
+        }
+        .edit-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .action-btn.save-btn {
+            color: #fff;
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        .action-btn.save-btn:hover:not(:disabled) {
+            filter: brightness(0.9);
+        }
+        .action-btn.cancel-btn {
+            color: var(--secondary-text-color);
+        }
+        .action-btn.edit-btn {
+            color: #5c6bc0;
+            border-color: rgba(92, 107, 192, 0.3);
+        }
+        .action-btn.edit-btn:hover {
+            background: rgba(92, 107, 192, 0.08);
+        }
+        .action-btn.edit-btn.edit-active {
+            color: #fff;
+            background: #5c6bc0;
+            border-color: #5c6bc0;
+        }
+        .action-btn.edit-btn.edit-active:hover {
+            background: #4a5ab0;
+        }
+        /* ── Actions column ── */
         .actions {
             display: flex;
             gap: 4px;
             align-items: center;
+            padding-top: 4px;
         }
         .action-btn {
             background: none;
@@ -280,9 +430,6 @@ export class IrCommandRow extends LitElement {
         .action-btn.delete-btn:hover {
             background: rgba(230, 81, 0, 0.08);
         }
-        /* TX-mode toggle: AUTO (canonical decoded timings) is the neutral
-           default; RAW (replay captured timings) reads as the active,
-           deliberately-chosen override. */
         .action-btn.tx-btn {
             min-width: 46px;
             text-align: center;
