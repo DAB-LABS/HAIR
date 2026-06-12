@@ -1,0 +1,4 @@
+@@ -56,2 +56,3 @@
+     websocket_api.async_register_command(hass, ws_set_command_tx_force_raw)
++    websocket_api.async_register_command(hass, ws_update_command_code)
+     websocket_api.async_register_command(hass, ws_reorder_commands)

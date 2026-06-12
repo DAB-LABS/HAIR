@@ -64,30 +64,22 @@ export class IrDeviceDetail extends LitElement {
     // Command reorder (SortableJS lifecycle)
     private _sortable: Sortable | null = null;
     private _pendingReorderTimeout: number | null = null;
-    // Incremented after each drop to force a fresh repeat() instance via
-    // the keyed() directive. SortableJS's mid-drag DOM mutations corrupt
-    // repeat()'s internal positional cache; reverting the DOM and
-    // reassigning the array isn't enough to recover. A keyed rebuild
-    // gives Lit a clean cache so the new commands order renders correctly.
     @state() private _commandsListVersion = 0;
 
     // ---------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------
 
-    /** Resolve emitter entity to friendly name, falling back to entity_id. */
     private _emitterName(entityId: string): string {
         const stateObj = this.hass?.states?.[entityId];
         return stateObj?.attributes?.friendly_name ?? entityId;
     }
 
-    /** Resolve a device-registry ID to its display name. */
     private _deviceRegistryName(deviceId: string): string {
         const deviceEntry = this.hass?.devices?.[deviceId];
         return deviceEntry?.name_by_user ?? deviceEntry?.name ?? deviceId;
     }
 
-    /** Get the config_entry_id for a device-registry device. */
     private _deviceConfigEntryId(deviceId: string): string | null {
         const deviceEntry = this.hass?.devices?.[deviceId];
         if (!deviceEntry) return null;
@@ -95,13 +87,11 @@ export class IrDeviceDetail extends LitElement {
         return entries[0] ?? null;
     }
 
-    /** Get the integration domain for a config entry. */
     private _configEntryDomain(configEntryId: string): string | null {
         const entry = this.hass?.config_entries?.entries?.[configEntryId];
         return entry?.domain ?? null;
     }
 
-    /** Build integration page URL for a config entry. */
     private _integrationUrl(configEntryId: string | null): string | null {
         if (!configEntryId) return null;
         const domain = this._configEntryDomain(configEntryId);
@@ -111,16 +101,12 @@ export class IrDeviceDetail extends LitElement {
         return null;
     }
 
-    /** Build integration page URL for an entity. */
     private _entityIntegrationUrl(entityId: string): string | null {
-        // Entity domain is the part before the first dot
         const domain = entityId.split(".")[0];
-        // Try to find the config entry via the entity registry
         const entityReg = this.hass?.entities?.[entityId];
         if (entityReg?.config_entry_id) {
             return this._integrationUrl(entityReg.config_entry_id);
         }
-        // Fallback: use the entity's platform domain
         if (entityReg?.platform) {
             return `/config/integrations/integration/${entityReg.platform}`;
         }
@@ -218,12 +204,6 @@ export class IrDeviceDetail extends LitElement {
     private async _onEmittersChanged(e: CustomEvent) {
         const newIds: string[] = e.detail.value;
         const previousIds = [...this.device.emitter_entity_ids];
-
-        // Optimistic local update -- otherwise the ``_busy = true`` line
-        // below triggers a parent re-render that passes the still-saved
-        // ``emitter_entity_ids`` back into the picker, briefly snapping
-        // the just-removed chip back. The picker re-renders with the
-        // new (empty) value as soon as Lit processes this assignment.
         this.device = { ...this.device, emitter_entity_ids: newIds };
         this._busy = true;
         try {
@@ -235,8 +215,6 @@ export class IrDeviceDetail extends LitElement {
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
         } catch (err) {
-            // Revert the optimistic update so the picker reflects what
-            // actually persisted server-side.
             this.device = { ...this.device, emitter_entity_ids: previousIds };
             this._flash(`Update failed: ${(err as Error).message}`);
         } finally {
@@ -259,8 +237,6 @@ export class IrDeviceDetail extends LitElement {
             void this._loadActionOptions();
             void this._loadTriggers();
         }
-        // After a keyed rebuild of the commands-list, Sortable needs to
-        // be re-attached to the freshly-created container.
         if (changed.has("_commandsListVersion") && !this._sortable) {
             this._attachSortable();
         }
@@ -282,17 +258,13 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    /** Check if a command has an associated trigger (by matching its signal fingerprint). */
     private _commandHasTrigger(cmd: IRCommand): boolean {
-        // A trigger's source_command_id links it back to the command.
         return this._triggers.some((t) => t.source_command_id === cmd.id);
     }
 
     private _onToggleTrigger(ev: CustomEvent): void {
         const cmd = ev.detail?.command as IRCommand | null;
         if (!cmd) return;
-
-        // If a trigger already exists for this command, open edit mode.
         const existing = this._triggers.find(
             (t) => t.source_command_id === cmd.id,
         );
@@ -312,12 +284,6 @@ export class IrDeviceDetail extends LitElement {
         this._triggerCommand = null;
         this._triggerEdit = null;
         await this._loadTriggers();
-        // Tell the parent (ir-device-list) to refresh its own _triggers
-        // state so the new trigger card appears in the panel's Triggers
-        // section immediately. Without this, the trigger is created on
-        // the backend and the device-detail's local list reflects it,
-        // but the panel's separate trigger list stays stale until the
-        // user reloads the page.
         this.dispatchEvent(
             new CustomEvent("trigger-changed", {
                 bubbles: true,
@@ -338,10 +304,6 @@ export class IrDeviceDetail extends LitElement {
         try {
             await this.api.deleteTrigger(id);
             await this._loadTriggers();
-            // Notify the parent so its Triggers section drops the deleted
-            // card without requiring a reload. Same rationale as
-            // _onTriggerSaved -- the device-detail and the device-list
-            // each maintain their own trigger state.
             this.dispatchEvent(
                 new CustomEvent("trigger-changed", {
                     bubbles: true,
@@ -353,7 +315,6 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    /** Look up the human label for the action mapped to a command. */
     private _getActionLabel(commandName: string): string | null {
         const mapping = this.device.entity_config?.command_mapping ?? {};
         for (const [key, val] of Object.entries(mapping)) {
@@ -368,18 +329,13 @@ export class IrDeviceDetail extends LitElement {
     private _onMapAction(e: CustomEvent) {
         const { command } = e.detail as { command: IRCommand };
         if (!command) return;
-
-        // Position popover near the badge button using fixed viewport coords.
         const badge = (e.target as LitElement).shadowRoot?.querySelector(".badge-btn") as HTMLElement | null;
         if (badge) {
             const rect = badge.getBoundingClientRect();
             this._popoverTop = rect.bottom + 4;
             this._popoverLeft = Math.max(8, rect.right - 220);
         }
-
         this._mappingCommandName = command.name;
-
-        // Dismiss on outside click (next tick so this click doesn't immediately close).
         requestAnimationFrame(() => {
             this._dismissHandler = (ev: MouseEvent) => {
                 const path = ev.composedPath();
@@ -415,7 +371,6 @@ export class IrDeviceDetail extends LitElement {
         this._attachSortable();
     }
 
-    /** Wire SortableJS to the commands list container. Idempotent. */
     private _attachSortable(): void {
         if (this._sortable) return;
         const container = this.renderRoot.querySelector(
@@ -436,25 +391,10 @@ export class IrDeviceDetail extends LitElement {
                 ) {
                     return;
                 }
-
-                // Compute the new commands order from the drag indices.
-                // We trust SortableJS for the DOM (no manual revert) and
-                // force a keyed rebuild below so Lit gets a fresh repeat()
-                // cache instead of trying to reconcile a stale one.
                 const commands = [...this.device.commands];
                 const [moved] = commands.splice(oldIndex, 1);
                 commands.splice(newIndex, 0, moved);
                 this.device = { ...this.device, commands };
-
-                // Bubble the new order to the parent so its cached
-                // ``_expandedDevice`` stays in sync. Without this, the
-                // parent's next re-render would pass its still-original
-                // device back down and Lit would overwrite our local
-                // ``this.device``. The custom event is intentionally
-                // lightweight -- the parent updates its cache without
-                // refetching, so the heavy ``device-changed`` cascade
-                // (round-trip, action-options reload, triggers reload)
-                // is avoided.
                 this.dispatchEvent(
                     new CustomEvent("commands-reordered", {
                         detail: { commands },
@@ -462,22 +402,8 @@ export class IrDeviceDetail extends LitElement {
                         composed: true,
                     }),
                 );
-
-                // Tear down the SortableJS instance bound to the old
-                // container and increment the version so ``keyed()``
-                // gives us a fresh ``.commands-list`` DOM tree. The
-                // ``updated()`` lifecycle re-attaches Sortable to the
-                // new container once Lit has rendered it.
                 this._sortable?.destroy();
                 this._sortable = null;
-
-                // SortableJS sometimes leaves the dragged element
-                // positioned after Lit's end-of-content marker, which
-                // puts it outside keyed()'s managed range. Lit can't
-                // clean it up there and it shows as a visual duplicate
-                // after the rebuild. Explicit pre-rebuild cleanup
-                // guarantees no orphans -- keyed() then rebuilds from
-                // a known-empty state.
                 const container = this.renderRoot.querySelector(
                     ".commands-list",
                 );
@@ -488,39 +414,25 @@ export class IrDeviceDetail extends LitElement {
                         row.remove();
                     }
                 }
-
                 this._commandsListVersion++;
-
                 this._scheduleReorderSave(commands.map((c) => c.id));
             },
         });
     }
 
-    /** Debounce a reorder save to ride out rapid sequential drags. */
     private _scheduleReorderSave(commandIds: string[]): void {
         this._cancelPendingReorderSave();
         this._pendingReorderTimeout = window.setTimeout(async () => {
             this._pendingReorderTimeout = null;
             try {
                 await this.api.reorderCommands(this.device.id, commandIds);
-                // Silent on success. Local ``this.device.commands`` already
-                // holds the canonical order (the server accepted exactly
-                // what we sent), so re-assigning would trigger an
-                // unnecessary re-render chain: child re-render, parent
-                // ``device-changed`` listener, ``_loadExpandedDevice``
-                // round-trip, ``updated()`` lifecycle, ``_loadActionOptions``
-                // + ``_loadTriggers`` re-fires. That cascade is what made
-                // the card visibly flash 500 ms after each drop.
             } catch (err) {
-                // Backend rejected (eg. stale command set after a parallel
-                // add/delete). Surface the error and resync from server.
                 this._flash(`Reorder failed: ${(err as Error).message}`);
                 await this._refresh();
             }
         }, REORDER_DEBOUNCE_MS);
     }
 
-    /** Drop any pending debounced reorder save (called before add/delete). */
     private _cancelPendingReorderSave(): void {
         if (this._pendingReorderTimeout !== null) {
             clearTimeout(this._pendingReorderTimeout);
@@ -528,7 +440,6 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    /** Get the command name currently mapped to a given action key. */
     private _getCommandForAction(actionKey: string): string | null {
         const mapping = this.device.entity_config?.command_mapping ?? {};
         return mapping[actionKey] ?? null;
@@ -561,7 +472,6 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    /** Find the action key currently mapped to a command name. */
     private _getCurrentActionKey(commandName: string): string {
         const mapping = this.device.entity_config?.command_mapping ?? {};
         for (const [key, val] of Object.entries(mapping)) {
@@ -608,6 +518,36 @@ export class IrDeviceDetail extends LitElement {
             this._flash(`Update failed: ${(err as Error).message}`);
         } finally {
             this._busy = false;
+        }
+    }
+
+    private async _onUpdateCode(e: CustomEvent) {
+        const { command, pronto, onSuccess, onError } = e.detail as {
+            command: IRCommand;
+            pronto: string;
+            onSuccess: () => void;
+            onError: (msg: string) => void;
+        };
+        if (!command) return;
+        try {
+            const updated = await this.api.updateCommandCode(
+                this.device.id,
+                command.id,
+                pronto,
+            );
+            this.device = {
+                ...this.device,
+                commands: this.device.commands.map((c) =>
+                    c.id === updated.id ? updated : c,
+                ),
+            };
+            this._flash(`"${command.name}" code updated`);
+            onSuccess();
+            this.dispatchEvent(
+                new CustomEvent("device-changed", { bubbles: true, composed: true }),
+            );
+        } catch (err) {
+            onError((err as Error).message ?? "Update failed");
         }
     }
 
@@ -795,6 +735,7 @@ export class IrDeviceDetail extends LitElement {
                                           .showActionMapping=${this.device.device_type !== "other"}
                                           @map-action=${this._onMapAction}
                                           @test=${this._onTest}
+                                          @update-code=${this._onUpdateCode}
                                           @toggle-trigger=${this._onToggleTrigger}
                                           @toggle-tx-raw=${this._onToggleTxRaw}
                                           @delete=${this._onDelete}
@@ -959,8 +900,6 @@ export class IrDeviceDetail extends LitElement {
         :host {
             display: block;
         }
-
-        /* --- Header --- */
         .header {
             display: flex;
             justify-content: space-between;
@@ -1011,8 +950,6 @@ export class IrDeviceDetail extends LitElement {
             flex-shrink: 0;
             align-self: center;
         }
-
-        /* --- Metadata grid --- */
         .device-meta {
             display: grid;
             grid-template-columns: 80px 1fr;
@@ -1040,8 +977,6 @@ export class IrDeviceDetail extends LitElement {
         .meta-value ir-emitter-picker {
             --picker-label-display: none;
         }
-
-        /* --- Buttons --- */
         .action-btn {
             background: none;
             border: 1px solid var(--divider-color);
@@ -1080,8 +1015,6 @@ export class IrDeviceDetail extends LitElement {
             color: var(--primary-text-color);
             background: var(--secondary-background-color);
         }
-
-        /* --- Commands section (Sniffer-style) --- */
         .commands-section {
             margin: 16px 0;
             border-top: 1px solid var(--divider-color);
@@ -1100,7 +1033,6 @@ export class IrDeviceDetail extends LitElement {
             display: flex;
             flex-direction: column;
         }
-        /* --- Drag handle (slotted into ir-command-row's status column) --- */
         .grip-handle {
             --mdc-icon-size: 18px;
             color: var(--secondary-text-color);
@@ -1114,11 +1046,9 @@ export class IrDeviceDetail extends LitElement {
         .grip-handle:active {
             cursor: grabbing;
         }
-        /* SortableJS applies this class to the element being dragged. */
         ir-command-row.sortable-ghost {
             opacity: 0.4;
         }
-        /* --- Action popover --- */
         .action-popover {
             position: fixed;
             z-index: 50;
@@ -1201,8 +1131,6 @@ export class IrDeviceDetail extends LitElement {
             font-size: 0.8rem;
             color: var(--secondary-text-color);
         }
-
-        /* --- Toast --- */
         .toast {
             position: fixed;
             bottom: 24px;
