@@ -10,6 +10,8 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 - **HAIR Sniffer** - Real-time IR signal monitor with fingerprinting, deduplication, and hit tracking. Find a mystery remote in seconds.
 - **HAIR Clipper** - Build virtual remotes by pasting Pronto hex codes, with live validation. For commands you have a code for but cannot sniff. The Create Remote dialog can also pick a known manufacturer and model from the device codes in your installed Home Assistant infrared library and pre-fill the buttons for you.
 - **Protocol-decoded transmit** - When HAIR can read a captured signal as NEC, it sends clean re-encoded timings instead of replaying the captured ones, which fixes replay failures against destinations that expect undistorted timing. A per-command toggle keeps the captured timings when you want them.
+- **Pronto editor** - View or edit a signal's or command's raw Pronto in one editor, with live validation, protocol recognition, and a one-click snap of an off-standard carrier to the nearest IR standard.
+- **Send N times** - Give a command a send count so HAIR transmits it more than once per press, for a device that needs the repeat to register.
 - **Signal aliases** - Name any signal by clicking its diamond pattern, in both the Sniffer and Clipper.
 - **IR triggers** - Captured signals become native HA event entities. Any automation can listen for them.
 - **Device Management** - Create profiles for TVs, ACs, fans, lights, switches, screens, and more. One-click duplicate to clone a device's commands, mappings, and emitters.

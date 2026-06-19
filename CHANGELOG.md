@@ -5,6 +5,25 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.20] - 2026-06-20
+
+### Added
+
+- A single Pronto editor for signals and device commands. The old read-only "copy code" popover and the separate paste-a-signal dialog are replaced by one editor you open from the copy/edit glyph on any Sniffer signal, Clipper signal, or device command. It validates the code live (carrier frequency, burst pair count, S/L diamond preview), recognizes a known protocol as you type ("Recognized as NEC"), grows to fit the code so a long Pronto opens fully visible, and lets you copy the code by selecting it (with a keyboard hint, since the panel runs in a context where the browser blocks programmatic clipboard writes on plain http).
+- Edit a stored Pronto in place. Change the code on a Sniffer signal, a Clipper signal, or a device command, and HAIR re-evaluates it as if freshly captured (new fingerprint, carrier, and decoded identity). If the edited signal or command has a trigger bound to it and the change shifts the S/L fingerprint, the trigger re-points to the new code automatically, and the editor names the trigger it moved.
+- Snap an off-standard carrier to the nearest IR standard. On the Sniffer, when a captured signal's carrier reads off the common consumer standards, the editor shows an amber notice with a one-click "Snap to N kHz" button that re-encodes the Pronto at the nearest standard (30, 33, 36, 38, 40, or 56 kHz). Useful for a receiver whose frequency detection drifts a little. You review the result before saving.
+- Rename a device command. Rename a command inline on its row or in the editor, and any action mappings that pointed at the old name follow it to the new name automatically. The editor names any trigger affected by the change.
+- Send a command more than once per press. Each device command has a "Send times" count (1 to 10): set it when you assign the signal, or change it later in the command editor. HAIR transmits the whole command that many times with a short gap between sends, for devices that need a repeat to register. A small orange indicator on the command row shows the count when it is above one.
+
+### Changed
+
+- The transmit-mode toggle on a decoded command now reads as the protocol name (for example "NEC") for the clean re-encoded path and "PRONTO" for the captured-replay override, instead of "AUTO" and "RAW". Both states are colored to match the signal's S/L diamonds: blue for the decoded protocol, orange for the captured Pronto.
+
+### Fixed
+
+- Assigning a signal as a standard-action command now wires up the action mapping. Picking a name like "Fan: Auto", "Mode: Cool", or "Power" while assigning previously created the command but left it unmapped, so the ACTIONS button stayed blank and an AC's fan or mode never appeared on the climate entity. The assign path now applies the same auto-mapping the learn path does, including registering an AC's fan and HVAC modes.
+- Reordering remotes on the Sniffer no longer snaps back. When the store held a low-hit remote that the Sniffer hides behind its noise filter (or a dismissed remote), the drag list left those out, the reorder was rejected, and the list silently reverted. A reorder now arranges the remotes you can see and leaves the hidden ones exactly where they are.
+
 ## [0.4.0] - 2026-06-09
 
 ### Added

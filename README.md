@@ -121,6 +121,14 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 **Action Mapping** - Explicitly bind IR commands to HA entity features through a popover UI. When you map a command to "Volume Up," the media_player entity knows to call that command when the HA volume service is used. Features are only exposed when commands are mapped, so your entities stay clean.
 
+**Pronto Editor** - Open any signal or device command in a single editor to view or change its raw Pronto code. It validates live (carrier frequency, burst pair count, S/L diamond preview) and recognizes a known protocol as you type. Editing a code re-evaluates it as a fresh capture, and a trigger bound to the signal re-points automatically if the change shifts its fingerprint. Copy a code by selecting it in the box.
+
+**Snap to Standard Carrier** - When a sniffed signal's carrier reads off the common IR standards, the editor offers a one-click snap to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) and re-encodes the Pronto, for a receiver whose frequency detection drifts.
+
+**Send N Times** - Give a device command a send count (1 to 10) so HAIR transmits the whole command more than once per press, for a device that needs a repeat to register. Set it when you assign the signal or change it in the command editor.
+
+**Command Rename** - Rename a device command inline on its row or in the editor; action mappings pointed at the old name follow it automatically.
+
 **Triggers** - Turn any IR signal into a native HA event entity. Create a trigger from a learned device command, from an unknown signal in the Sniffer, or from a pasted signal in the Clipper. Each trigger gets an `event` entity under a virtual "HAIR Triggers" device, firing an `ir_command_received` event whenever the matching signal is received. Use triggers to build HA automations that react to physical remote presses (e.g., pressing a TV power button also turns off the room lights). A configurable "min hits" threshold (minimum button presses) lets you require multiple presses within a 5-second window before the trigger fires, which is useful for preventing accidental activations. The Devices tab shows all active triggers with real-time fire animations.
 
 **Emitter Routing & Broadcast Control** - Assign one or more IR emitters to each device with explicit control over how commands are broadcast. Lock a device to a single emitter for room-scoped control (an AC pinned to the bedroom emitter so commands never leak to the living room), or assign multiple emitters for a wide broadcast (a single "TV Power" command fires through emitters in every room simultaneously). Routing is configured per-device, so you can mix tight per-room targeting for some devices with whole-house broadcast for others.
@@ -187,7 +195,7 @@ There are four ways to add a device.
 
 ### Learning Commands
 
-Navigate to the Sniffer tab and press buttons on your physical remote. HAIR captures each signal in real time. Expand the source device row, then click on a signal to assign it to one of your HAIR devices. Pick a command name from the device-type-aware template list (e.g., "Power On," "Volume Up," "Mode: Cool") or enter a custom name.
+Navigate to the Sniffer tab and press buttons on your physical remote. HAIR captures each signal in real time. Expand the source device row, then click on a signal to assign it to one of your HAIR devices. Pick a command name from the device-type-aware template list (e.g., "Power On," "Volume Up," "Mode: Cool") or enter a custom name. While assigning you can also set a "Send times" count for a device that needs the command repeated to register; you can change it later in the command editor.
 
 When you don't have the physical remote to hand, build the command in the Clipper instead: paste the button's Pronto code on the Clipper tab, then Assign it to a device exactly as you would a sniffed signal. Sniffed and clipped signals are interchangeable once captured.
 
@@ -196,6 +204,16 @@ You can also start from a device. A device's detail view has two add-command but
 ### Action Mapping
 
 After learning commands, open a device's detail view and click the "ACTIONS" badge on any command row. A popover shows all available actions for that device type. Pick an action to bind it to that command. For example, mapping "Power On" to the `turn_on` action means the HA media_player's power button will fire that IR command. Actions already mapped to other commands are shown with their current assignment so you can reassign with a single click.
+
+### Editing signals and commands
+
+Every signal and command has a copy/edit glyph that opens it in a single editor. Use it to read the raw Pronto code, copy it (select the code and press Cmd/Ctrl+C; the panel runs in a context where the browser blocks programmatic clipboard writes on plain http, so the button selects the code for you), or change it. Editing a code re-evaluates it as if freshly captured, so its fingerprint, carrier, and decoded identity update. If a trigger is bound to the signal and your edit shifts its S/L fingerprint, the trigger re-points to the new code automatically and the editor tells you which trigger it moved.
+
+On the Sniffer, when a signal's carrier reads off the common IR standards, the editor shows an amber notice with a "Snap to N kHz" button that re-encodes the Pronto at the nearest standard (30, 33, 36, 38, 40, or 56 kHz). You see the result before you save.
+
+A device command's editor also carries its name and a "Send times" count (how many times to transmit the whole command per press, for a device that needs a repeat). Renaming a command updates any action mappings that pointed at the old name.
+
+One thing to know about what an edit reaches: a device command is a copy of the signal you assigned from. Editing a stored Sniffer or Clipper signal does not change commands already assigned from it, and editing a command does not change the catalog signal. Edit the command on the device to change what that device transmits.
 
 ### Triggers
 

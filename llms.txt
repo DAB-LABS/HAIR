@@ -23,6 +23,11 @@ Key components:
   on the signal, not a command name. Remotes, and the signals within a remote, can
   be drag-reordered; the order is persisted (it replaced the old hit-count sort),
   and a newly seen remote or signal surfaces at the top until the user moves it.
+  A signal's raw Pronto can be edited in place from a single Pronto editor (shared
+  by the Sniffer, the Clipper, and device commands); a bound trigger re-points
+  automatically when an edit changes the S/L fingerprint, and a carrier reading off
+  the consumer standards can be snapped to the nearest one (30, 33, 36, 38, 40, or
+  56 kHz).
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
   pasting Pronto hex codes, for cases where a live signal cannot be sniffed. Each
   pasted code is validated (hex shape, four-digit words, a learned-code 0000 header,
@@ -42,7 +47,10 @@ Key components:
   commands. Assigning a sniffed or pasted signal copies it into the device as a
   command and leaves the source signal in the catalog, so one signal can be assigned
   to multiple devices or as multiple commands. Only delete, dismiss, and clear-all
-  remove a signal.
+  remove a signal. A device command can be renamed (its action mappings follow the
+  new name) and given a send count so HAIR transmits the whole command more than once
+  per press for a device that needs a repeat. The editor edits the command copy, not
+  the catalog signal it came from.
 - Entity Factory: automatically creates native HA entities based on device type --
   media_player, climate, fan, light, switch, cover, plus a universal remote entity
   for raw Pronto hex sending and a button entity for every learned command.
