@@ -1330,6 +1330,20 @@ async def ws_clip_validate_pronto(
 ) -> None:
     """Validate a Pronto string and return live feedback (no save)."""
     result = validate_pronto(msg["pronto"])
+    # Surface the recognized protocol (NEC today) during the paste scan, so
+    # the dialog can show "Recognized as NEC". Decode lives here, not in the
+    # pure validator. infrared-protocols is imported once at setup, so this
+    # is CPU-only on an already-loaded module.
+    recognized: str | None = None
+    if result.valid:
+        from .ir_command import ProntoCommand
+        from .protocol_decode import decode_to_fields
+
+        try:
+            raw = ProntoCommand(result.normalized).get_raw_timings()
+        except Exception:
+            raw = None
+        recognized = decode_to_fields(raw)[0]
     connection.send_result(msg["id"], {
         "valid": result.valid,
         "errors": result.errors,
@@ -1337,6 +1351,7 @@ async def ws_clip_validate_pronto(
         "frequency_khz": result.frequency_khz,
         "burst_pair_count": result.burst_pair_count,
         "normalized": result.normalized,
+        "recognized_protocol": recognized,
     })
 
 

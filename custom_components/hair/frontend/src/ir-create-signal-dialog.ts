@@ -136,6 +136,11 @@ export class IrCreateSignalDialog extends LitElement {
                                         ${v.burst_pair_count === 1 ? "pair" : "pairs"}</span
                                     >`
                                   : ""}
+                              ${v.recognized_protocol
+                                  ? html`<span class="recognized"
+                                        >Recognized as ${v.recognized_protocol}</span
+                                    >`
+                                  : ""}
                           </div>
                           ${sl
                               ? html`<div class="diamonds">
@@ -285,6 +290,9 @@ export class IrCreateSignalDialog extends LitElement {
             margin-top: 6px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
+        }
+        .recognized {
+            color: #2e7d32;
         }
         .diamonds {
             display: flex;

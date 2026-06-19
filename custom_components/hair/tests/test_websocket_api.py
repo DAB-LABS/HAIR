@@ -1612,6 +1612,23 @@ async def test_clip_validate_pronto_invalid(fake_hass):
     payload = conn.send_result.call_args[0][1]
     assert payload["valid"] is False
     assert payload["errors"]
+    assert payload["recognized_protocol"] is None
+
+
+@pytest.mark.asyncio
+async def test_clip_validate_pronto_recognized(fake_hass):
+    """A valid Pronto that decodes surfaces its recognized protocol."""
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.protocol_decode.decode_to_fields",
+        return_value=("NEC", 0xFB04, 0x08, "NEC:0xfb04:0x08"),
+    ):
+        await ws_clip_validate_pronto(
+            fake_hass, conn,
+            {"id": 207, "type": "hair/clip/validate-pronto", "pronto": _VALID_PRONTO},
+        )
+    payload = conn.send_result.call_args[0][1]
+    assert payload["recognized_protocol"] == "NEC"
 
 
 @pytest.mark.asyncio

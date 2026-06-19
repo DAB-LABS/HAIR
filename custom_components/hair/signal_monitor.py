@@ -952,9 +952,30 @@ class SignalMonitor:
                 if result.frequency_khz
                 else DEFAULT_CARRIER_FREQUENCY
             )
+            from .ir_command import ProntoCommand
+
+            # Decode-on-paste: mirror the Sniffer capture path so a pasted NEC
+            # code transmits canonical re-encoded timings instead of the
+            # quantized Pronto. Guarded; a non-NEC or unreadable code stays
+            # Pronto-only. Timings are computed only to feed the decoder --
+            # raw_timings stays [] (TX uses decoded_*, not raw).
+            try:
+                decode_raw = ProntoCommand(code).get_raw_timings()
+            except Exception:
+                decode_raw = None
+            (
+                decoded_protocol,
+                decoded_address,
+                decoded_command,
+                decoded_fingerprint,
+            ) = decode_to_fields(decode_raw)
             signal = UnknownSignal(
                 fingerprint=sig_fp,
                 byte_hash=byte_hash,
+                decoded_protocol=decoded_protocol,
+                decoded_address=decoded_address,
+                decoded_command=decoded_command,
+                decoded_fingerprint=decoded_fingerprint,
                 protocol="PRONTO",
                 code=code,
                 raw_timings=[],

@@ -3780,6 +3780,9 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                                         >${e.burst_pair_count} burst
                                         ${1===e.burst_pair_count?"pair":"pairs"}</span
                                     >`:""}
+                              ${e.recognized_protocol?B`<span class="recognized"
+                                        >Recognized as ${e.recognized_protocol}</span
+                                    >`:""}
                           </div>
                           ${t?B`<div class="diamonds">
                                     ${t.map(e=>"L"===e?B`<span class="diamond long">◆</span>`:B`<span class="diamond short">◇</span>`)}
@@ -3911,6 +3914,9 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             margin-top: 6px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
+        }
+        .recognized {
+            color: #2e7d32;
         }
         .diamonds {
             display: flex;

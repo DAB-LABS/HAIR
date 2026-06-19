@@ -221,6 +221,7 @@ export interface ProntoValidation {
     frequency_khz: number | null;
     burst_pair_count: number | null;
     normalized: string;
+    recognized_protocol?: string | null;
 }
 
 export interface UnknownSignalEvent {

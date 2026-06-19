@@ -747,6 +747,47 @@ class TestPublicAPI:
         assert device.signals[1].fingerprint == first["signal"]["fingerprint"]
 
     @pytest.mark.asyncio
+    async def test_decode_on_paste_populates_decoded_fields(self):
+        """A pasted code is decoded on save (wiring; real decode lives in
+        test_protocol_decode). Mirrors the Sniffer capture path."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        with patch.object(store, "async_save", AsyncMock()), patch(
+            "custom_components.hair.signal_monitor.decode_to_fields",
+            return_value=("NEC", 0xFB04, 0x08, "NEC:0xfb04:0x08"),
+        ):
+            device = await monitor.create_manual_remote("R")
+            res = await monitor.create_manual_signal(
+                device.id, "0000 006D 0002 0000 0010 0010 0010 0010"
+            )
+        assert res["success"]
+        sig = device.signals[0]
+        assert sig.decoded_protocol == "NEC"
+        assert sig.decoded_address == 0xFB04
+        assert sig.decoded_command == 0x08
+        assert sig.decoded_fingerprint == "NEC:0xfb04:0x08"
+
+    @pytest.mark.asyncio
+    async def test_paste_non_nec_leaves_decoded_none(self):
+        """An undecodable paste keeps the decoded fields None."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+        with patch.object(store, "async_save", AsyncMock()), patch(
+            "custom_components.hair.signal_monitor.decode_to_fields",
+            return_value=(None, None, None, None),
+        ):
+            device = await monitor.create_manual_remote("R")
+            res = await monitor.create_manual_signal(
+                device.id, "0000 006D 0002 0000 0010 0010 0010 0010"
+            )
+        assert res["success"]
+        sig = device.signals[0]
+        assert sig.decoded_protocol is None
+        assert sig.decoded_fingerprint is None
+
+    @pytest.mark.asyncio
     async def test_duplicate_manual_signal_rejected(self):
         """Pasting a Pronto already on the remote is refused, not twinned."""
         hass = _make_hass()
