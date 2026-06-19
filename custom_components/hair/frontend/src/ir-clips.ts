@@ -17,10 +17,9 @@ import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-create-remote-dialog.js";
-import "./ir-create-signal-dialog.js";
 import "./ir-promote-dialog.js";
-import "./ir-pronto-popover.js";
 import "./ir-signal-alias.js";
+import "./ir-signal-editor.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import type {
@@ -51,6 +50,9 @@ const ICON_PAPERCLIP =
 // mdi:chevron-down / up
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
+// mdi:content-copy
+const ICON_COPY =
+    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 // MDI: drag (six-dot grip) -- same handle used by the command reorder.
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
@@ -83,6 +85,10 @@ export class IrClips extends LitElement {
     // Dialog state
     @state() private _createRemoteOpen = false;
     @state() private _createSignalDeviceId: string | null = null;
+    @state() private _editSignal: {
+        deviceId: string;
+        signal: UnknownSignal;
+    } | null = null;
     @state() private _promoteTarget: UnknownDeviceSummary | null = null;
     @state() private _assignSignal: {
         deviceId: string;
@@ -307,6 +313,21 @@ export class IrClips extends LitElement {
 
     private async _onSignalCreated(): Promise<void> {
         this._createSignalDeviceId = null;
+        await this._refreshExpanded();
+        await this._load();
+    }
+
+    private _openEditSignal(
+        deviceId: string,
+        sig: UnknownSignal,
+        e: Event,
+    ): void {
+        e.stopPropagation();
+        this._editSignal = { deviceId, signal: sig };
+    }
+
+    private async _onSignalEdited(): Promise<void> {
+        this._editSignal = null;
         await this._refreshExpanded();
         await this._load();
     }
@@ -793,10 +814,18 @@ export class IrClips extends LitElement {
                         : html`<span>${Math.round(sig.frequency / 1000)} kHz</span>`}
                 </div>
                 ${sig.code
-                    ? html`<ir-pronto-popover
-                          .code=${sig.code}
+                    ? html`<button
                           ?disabled=${dismissed}
-                      ></ir-pronto-popover>`
+                          title="View or edit code"
+                          @click=${(e: Event) =>
+                              this._openEditSignal(deviceId, sig, e)}
+                          style="background:none;border:none;cursor:pointer;color:var(--secondary-text-color);padding:2px;display:inline-flex;align-items:center"
+                      >
+                          <ha-svg-icon
+                              .path=${ICON_COPY}
+                              style="--mdc-icon-size:18px"
+                          ></ha-svg-icon>
+                      </button>`
                     : ""}
                 <div class="signal-actions">
                     <button
@@ -855,12 +884,27 @@ export class IrClips extends LitElement {
                 : ""}
 
             ${this._createSignalDeviceId
-                ? html`<ir-create-signal-dialog
+                ? html`<ir-signal-editor
                       .api=${this.api}
                       .deviceId=${this._createSignalDeviceId}
                       @signal-created=${this._onSignalCreated}
                       @closed=${() => (this._createSignalDeviceId = null)}
-                  ></ir-create-signal-dialog>`
+                  ></ir-signal-editor>`
+                : ""}
+
+            ${this._editSignal
+                ? html`<ir-signal-editor
+                      .api=${this.api}
+                      .deviceId=${this._editSignal.deviceId}
+                      .signalId=${this._editSignal.signal.id}
+                      .initialPronto=${this._editSignal.signal.code ?? ""}
+                      .initialAlias=${this._editSignal.signal.alias ?? ""}
+                      .hasTrigger=${this._hasTrigger(
+                          this._editSignal.signal.fingerprint,
+                      )}
+                      @signal-edited=${this._onSignalEdited}
+                      @closed=${() => (this._editSignal = null)}
+                  ></ir-signal-editor>`
                 : ""}
 
             ${this._assignSignal

@@ -12,8 +12,8 @@ import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-promote-dialog.js";
-import "./ir-pronto-popover.js";
 import "./ir-signal-alias.js";
+import "./ir-signal-editor.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import type {
@@ -86,6 +86,9 @@ const ICON_COLLAPSE =
 // MDI: drag (six-dot grip) -- same handle used by the command reorder.
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
+// mdi:content-copy
+const ICON_COPY =
+    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 
 /** Debounce delay (ms) between a drop and the persist call. */
 const REORDER_DEBOUNCE_MS = 500;
@@ -140,6 +143,7 @@ export class IrSignalMonitor extends LitElement {
         initialMode: "existing" | "new";
     } | null = null;
     @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
+    @state() private _editSignal: { deviceId: string; signal: UnknownSignal } | null = null;
     @state() private _testingSignalId: string | null = null;
     @state() private _testResult: string | null = null;
     // Dialog state for the Test emitter picker. ``_testEmitters`` persists
@@ -549,6 +553,20 @@ export class IrSignalMonitor extends LitElement {
 
     private _closeDelete(): void {
         this._deleteSignal = null;
+    }
+
+    private _openEditSignal(
+        deviceId: string,
+        signal: UnknownSignal,
+        e: Event,
+    ): void {
+        e.stopPropagation();
+        this._editSignal = { deviceId, signal };
+    }
+
+    private async _onSignalEdited(): Promise<void> {
+        this._editSignal = null;
+        await this._load();
     }
 
     private async _confirmDelete(): Promise<void> {
@@ -961,6 +979,18 @@ export class IrSignalMonitor extends LitElement {
                   `
                 : ""}
 
+            ${this._editSignal
+                ? html`<ir-signal-editor
+                      .api=${this.api}
+                      .deviceId=${this._editSignal.deviceId}
+                      .signalId=${this._editSignal.signal.id}
+                      .initialPronto=${this._editSignal.signal.code ?? ""}
+                      .initialAlias=${this._editSignal.signal.alias ?? ""}
+                      @signal-edited=${this._onSignalEdited}
+                      @closed=${() => (this._editSignal = null)}
+                  ></ir-signal-editor>`
+                : ""}
+
             ${this._confirmClearAll
                 ? html`
                       <ir-confirm-dialog
@@ -1172,10 +1202,18 @@ export class IrSignalMonitor extends LitElement {
                                     <span>${Math.round(sig.frequency / 1000)} kHz</span>
                                 </div>
                                 ${sig.code
-                                    ? html`<ir-pronto-popover
-                                          .code=${sig.code}
+                                    ? html`<button
                                           ?disabled=${device.dismissed}
-                                      ></ir-pronto-popover>`
+                                          title="View or edit code"
+                                          @click=${(e: Event) =>
+                                              this._openEditSignal(device.id, sig, e)}
+                                          style="background:none;border:none;cursor:pointer;color:var(--secondary-text-color);padding:2px;display:inline-flex;align-items:center"
+                                      >
+                                          <ha-svg-icon
+                                              .path=${ICON_COPY}
+                                              style="--mdc-icon-size:18px"
+                                          ></ha-svg-icon>
+                                      </button>`
                                     : ""}
                                 <div class="signal-actions">
                                     <button
