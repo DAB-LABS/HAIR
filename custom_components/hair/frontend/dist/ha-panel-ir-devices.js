@@ -248,7 +248,6 @@ function e(e,t,i,s){var o,a=arguments.length,n=a<3?t:null===s?s=Object.getOwnPro
         .action-btn.badge-btn {
             color: var(--secondary-text-color, #999);
             border-color: var(--divider-color);
-            font-size: 0.65rem;
             min-width: 50px;
             text-align: center;
         }

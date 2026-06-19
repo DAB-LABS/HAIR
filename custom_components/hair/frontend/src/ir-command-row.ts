@@ -405,7 +405,6 @@ export class IrCommandRow extends LitElement {
         .action-btn.badge-btn {
             color: var(--secondary-text-color, #999);
             border-color: var(--divider-color);
-            font-size: 0.65rem;
             min-width: 50px;
             text-align: center;
         }
