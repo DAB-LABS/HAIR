@@ -12,6 +12,7 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 - **Protocol-decoded transmit** - When HAIR can read a captured signal as NEC, it sends clean re-encoded timings instead of replaying the captured ones, which fixes replay failures against destinations that expect undistorted timing. A per-command toggle keeps the captured timings when you want them.
 - **Pronto editor** - View or edit a signal's or command's raw Pronto in one editor, with live validation, protocol recognition, and a one-click snap of an off-standard carrier to the nearest IR standard.
 - **Send N times** - Give a command a send count so HAIR transmits it more than once per press, for a device that needs the repeat to register.
+- **Command rename** - Rename a device command inline on its row or in the editor; action mappings pointed at the old name follow it automatically.
 - **Signal aliases** - Name any signal by clicking its diamond pattern, in both the Sniffer and Clipper.
 - **IR triggers** - Captured signals become native HA event entities. Any automation can listen for them.
 - **Device Management** - Create profiles for TVs, ACs, fans, lights, switches, screens, and more. One-click duplicate to clone a device's commands, mappings, and emitters.
