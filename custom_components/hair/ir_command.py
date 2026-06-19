@@ -170,6 +170,18 @@ def raw_to_pronto(
     return " ".join(f"{w:04X}" for w in words)
 
 
+def snap_pronto(pronto: str, target_frequency: int) -> str:
+    """Re-encode a normalized Pronto string at a standard carrier.
+
+    Derives the raw mark/space timings from the Pronto and re-encodes them at
+    ``target_frequency`` via :func:`raw_to_pronto`, preserving the burst
+    timings while correcting the carrier. The caller validates ``pronto`` and
+    that ``target_frequency`` is a known standard.
+    """
+    raw = ProntoCommand(pronto).get_raw_timings()
+    return raw_to_pronto(raw, frequency=target_frequency)
+
+
 def build_decoded_command(
     decoded_protocol: str | None,
     decoded_address: int | None,

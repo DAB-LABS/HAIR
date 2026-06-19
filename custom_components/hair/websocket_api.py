@@ -27,6 +27,7 @@ from .const import (
     DeviceType,
 )
 from .device_manager import DeviceManager, category_for_command_name
+from .frequency_standards import IR_CARRIER_STANDARDS_HZ
 from .models import IRDevice, IRTrigger
 from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
@@ -84,6 +85,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_clip_create_remote)
     websocket_api.async_register_command(hass, ws_clip_create_signal)
     websocket_api.async_register_command(hass, ws_unknown_signal_edit_pronto)
+    websocket_api.async_register_command(hass, ws_unknown_signal_snap_preview)
     websocket_api.async_register_command(hass, ws_clip_validate_pronto)
     websocket_api.async_register_command(hass, ws_clip_delete_remote)
 
@@ -1389,6 +1391,52 @@ async def ws_clip_validate_pronto(
         "burst_pair_count": result.burst_pair_count,
         "normalized": result.normalized,
         "recognized_protocol": recognized,
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/snap-preview",
+    vol.Required("pronto"): str,
+    vol.Required("target_frequency"): int,
+})
+@websocket_api.async_response
+async def ws_unknown_signal_snap_preview(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Re-encode a Pronto at a standard carrier and return it (no save).
+
+    Pure transform behind the editor's snap-to-standard action: validate the
+    code, re-derive its timings, and re-encode at the requested standard. The
+    user commits the staged result through the normal edit-pronto path.
+    """
+    result = validate_pronto(msg["pronto"])
+    if not result.valid:
+        connection.send_error(
+            msg["id"],
+            "invalid_pronto",
+            result.errors[0] if result.errors else "Invalid Pronto code",
+        )
+        return
+    target = msg["target_frequency"]
+    if target not in IR_CARRIER_STANDARDS_HZ:
+        connection.send_error(
+            msg["id"], "invalid_target", "Target is not a standard carrier"
+        )
+        return
+
+    from .ir_command import snap_pronto
+
+    try:
+        snapped = snap_pronto(result.normalized, target)
+    except Exception as err:  # defensive: never leak a stack trace to the WS
+        connection.send_error(msg["id"], "snap_failed", str(err))
+        return
+    connection.send_result(msg["id"], {
+        "pronto": snapped,
+        "frequency_khz": round(target / 1000, 1),
     })
 
 
