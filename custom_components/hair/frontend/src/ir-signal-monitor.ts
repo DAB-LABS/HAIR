@@ -567,6 +567,17 @@ export class IrSignalMonitor extends LitElement {
     private async _onSignalEdited(): Promise<void> {
         this._editSignal = null;
         await this._load();
+        // The open signal list is rendered from _expandedDevice, not the
+        // _devices summaries, so re-fetch it to surface the edited code/alias
+        // without needing a re-expand.
+        if (this._expandedId) {
+            try {
+                this._expandedDevice = await this.api.getUnknownDevice(this._expandedId);
+            } catch {
+                this._expandedId = null;
+                this._expandedDevice = null;
+            }
+        }
     }
 
     private async _confirmDelete(): Promise<void> {
