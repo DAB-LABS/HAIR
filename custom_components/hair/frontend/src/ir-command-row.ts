@@ -332,7 +332,7 @@ export class IrCommandRow extends LitElement {
             color: var(--primary-text-color);
         }
         .edit-glyph {
-            --mdc-icon-size: 16px;
+            --mdc-icon-size: 10px;
         }
         .meta {
             font-size: 0.8rem;

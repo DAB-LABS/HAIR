@@ -53,7 +53,7 @@ export class IrSignalEditor extends LitElement {
     @state() private _busy = false;
     @state() private _error: string | null = null;
     @state() private _validation: ProntoValidation | null = null;
-    @state() private _copied = false;
+    @state() private _copyHint: string | null = null;
     @state() private _snapping = false;
     @state() private _snapFlash = false;
 
@@ -86,6 +86,16 @@ export class IrSignalEditor extends LitElement {
         this._alias = this.initialAlias;
         if (this._pronto.trim()) {
             void this._validate();
+        }
+    }
+
+    updated(): void {
+        // Grow the code box to fit its content (capped by CSS max-height),
+        // so a long Pronto opens fully visible instead of scrolled.
+        const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
+        if (ta) {
+            ta.style.height = "auto";
+            ta.style.height = `${ta.scrollHeight}px`;
         }
     }
 
@@ -199,42 +209,31 @@ export class IrSignalEditor extends LitElement {
         }
     }
 
-    private async _copy(): Promise<void> {
-        const text = this._pronto;
-        let ok = false;
+    private async _selectCode(): Promise<void> {
+        // HA custom panels run in an iframe that is not granted
+        // clipboard-write, so neither navigator.clipboard nor execCommand
+        // reaches the system clipboard. The reliable path is to select the
+        // code so the user copies it with their own keyboard gesture. We
+        // still try the real clipboard silently in case a future HA build
+        // allows it.
+        const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
+        if (ta) {
+            ta.focus();
+            ta.select();
+        }
+        let copied = false;
         try {
             if (window.isSecureContext && navigator.clipboard) {
-                await navigator.clipboard.writeText(text);
-                ok = true;
+                await navigator.clipboard.writeText(this._pronto);
+                copied = true;
             }
         } catch {
-            ok = false;
+            copied = false;
         }
-        if (!ok) {
-            // HA is often served over plain http on a LAN IP, where
-            // navigator.clipboard is unavailable. Fall back to a hidden
-            // textarea + execCommand, which works in a non-secure context.
-            try {
-                const ta = document.createElement("textarea");
-                ta.value = text;
-                ta.style.position = "fixed";
-                ta.style.top = "-1000px";
-                ta.style.opacity = "0";
-                document.body.appendChild(ta);
-                ta.focus();
-                ta.select();
-                ok = document.execCommand("copy");
-                document.body.removeChild(ta);
-            } catch {
-                ok = false;
-            }
-        }
-        if (ok) {
-            this._copied = true;
-            setTimeout(() => {
-                this._copied = false;
-            }, 1500);
-        }
+        this._copyHint = copied ? "Copied" : "Press Cmd/Ctrl+C";
+        setTimeout(() => {
+            this._copyHint = null;
+        }, 2000);
     }
 
     private _renderFeedback() {
@@ -409,9 +408,9 @@ export class IrSignalEditor extends LitElement {
                     ${this._isEdit
                         ? html`<button
                               class="action-btn copy-btn"
-                              @click=${this._copy}
+                              @click=${this._selectCode}
                           >
-                              ${this._copied ? "Copied" : "Copy code"}
+                              ${this._copyHint ?? "Select code"}
                           </button>`
                         : ""}
                     <span class="spacer"></span>
@@ -461,6 +460,10 @@ export class IrSignalEditor extends LitElement {
         textarea {
             font-family: monospace;
             resize: vertical;
+            /* updated() grows the height to fit the code; cap it here so a
+               very long Pronto scrolls instead of overflowing the dialog. */
+            max-height: 45vh;
+            overflow-y: auto;
         }
         input[type="text"]:focus,
         textarea:focus {
