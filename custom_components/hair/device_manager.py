@@ -1,13 +1,21 @@
 """Device CRUD and entity lifecycle management."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from .const import DEFAULT_CARRIER_FREQUENCY, DOMAIN, CommandCategory, DeviceType
+from .const import (
+    DEFAULT_CARRIER_FREQUENCY,
+    DOMAIN,
+    MAX_SEND_COUNT,
+    SEND_REPEAT_GAP,
+    CommandCategory,
+    DeviceType,
+)
 from .entity_factory import EntityFactory
 from .models import IRCommand, IRDevice
 from .storage import HAIRStore
@@ -107,6 +115,7 @@ class DeviceManager:
         *,
         name: str | None = None,
         pronto: str | None = None,
+        send_count: int | None = None,
         trigger_manager: TriggerManager | None = None,
     ) -> dict[str, Any]:
         """Edit a device command's name and/or Pronto in place.
@@ -204,6 +213,10 @@ class DeviceManager:
                 rewire = await trigger_manager.rewire(
                     old_fp, new_fp, "PRONTO", new_code
                 )
+
+        # --- whole-frame send count ---
+        if send_count is not None:
+            command.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
 
         await self.async_update_device(device)
         return {
@@ -339,8 +352,15 @@ class DeviceManager:
                 repeat_count=command.repeat_count or 0,
             )
 
-        for emitter_id in device.emitter_entity_ids:
-            await ir_send(self._hass, emitter_id, ir_cmd)
+        # Whole-frame repetition: transmit the built Command send_count times
+        # to every emitter, with a short pause between frames so the receiver
+        # registers them as distinct presses. send_count defaults to 1.
+        send_count = max(1, command.send_count or 1)
+        for i in range(send_count):
+            if i:
+                await asyncio.sleep(SEND_REPEAT_GAP)
+            for emitter_id in device.emitter_entity_ids:
+                await ir_send(self._hass, emitter_id, ir_cmd)
 
     async def async_set_command_tx_force_raw(
         self, device_id: str, command_id: str, tx_force_raw: bool

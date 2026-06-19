@@ -38,6 +38,11 @@ class IRCommand:
     raw_timings: list[int] | None = None
     frequency: int = DEFAULT_CARRIER_FREQUENCY
     repeat_count: int = DEFAULT_REPEAT_COUNT
+    # Whole-frame send count: transmit the built signal this many times
+    # (1 = once). Orthogonal to repeat_count (NEC dittos) -- this loops the
+    # entire frame protocol-agnostically. Set at assign, edited in the command
+    # editor. Defaults to 1 so existing commands send once exactly as before.
+    send_count: int = 1
     # Quantized byte hash carried over from the source signal on assign
     # (the v0.3.4 duplicate-guard tiebreaker). Optional; None for commands
     # created before 0.3.4 or from sources without a Pronto code.
@@ -69,6 +74,7 @@ class IRCommand:
             "raw_timings": list(self.raw_timings) if self.raw_timings else None,
             "frequency": self.frequency,
             "repeat_count": self.repeat_count,
+            "send_count": self.send_count,
             "byte_hash": self.byte_hash,
             "decoded_protocol": self.decoded_protocol,
             "decoded_address": self.decoded_address,
@@ -90,6 +96,7 @@ class IRCommand:
             raw_timings=data.get("raw_timings"),
             frequency=int(data.get("frequency", DEFAULT_CARRIER_FREQUENCY)),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
+            send_count=int(data.get("send_count", 1)),
             byte_hash=data.get("byte_hash"),
             decoded_protocol=data.get("decoded_protocol"),
             decoded_address=data.get("decoded_address"),
@@ -234,6 +241,7 @@ class IRDevice:
                 ),
                 frequency=cmd.frequency,
                 repeat_count=cmd.repeat_count,
+                send_count=cmd.send_count,
                 # Carry every signal-identity field so a clone matches and
                 # transmits exactly like its source. Dropping any of these
                 # silently degrades dedup (byte_hash) or canonical TX

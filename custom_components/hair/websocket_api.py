@@ -21,6 +21,7 @@ from .command_templates import get_action_options, get_templates_for_device_type
 from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
     DOMAIN,
+    MAX_SEND_COUNT,
     WS_PREFIX,
     CaptureState,
     CommandCategory,
@@ -958,6 +959,9 @@ async def ws_undismiss_unknown(
     vol.Required("hair_device_id"): str,
     vol.Required("command_name"): str,
     vol.Optional("command_category", default="custom"): str,
+    vol.Optional("send_count", default=1): vol.All(
+        int, vol.Range(min=1, max=MAX_SEND_COUNT)
+    ),
 })
 @websocket_api.async_response
 async def ws_assign_signal(
@@ -977,6 +981,7 @@ async def ws_assign_signal(
         msg["hair_device_id"],
         msg["command_name"],
         msg.get("command_category", "custom"),
+        send_count=msg.get("send_count", 1),
     )
     if not result["success"]:
         connection.send_error(
@@ -1073,6 +1078,9 @@ async def ws_rename_unknown(
     vol.Required("emitter_entity_ids"): [str],
     vol.Required("command_name"): str,
     vol.Optional("command_category", default="custom"): str,
+    vol.Optional("send_count", default=1): vol.All(
+        int, vol.Range(min=1, max=MAX_SEND_COUNT)
+    ),
 })
 @websocket_api.async_response
 async def ws_assign_new_device(
@@ -1094,6 +1102,7 @@ async def ws_assign_new_device(
         list(msg["emitter_entity_ids"]),
         msg["command_name"],
         msg.get("command_category", "custom"),
+        send_count=msg.get("send_count", 1),
     )
     if not result["success"]:
         connection.send_error(
@@ -1402,6 +1411,9 @@ async def ws_clip_validate_pronto(
     vol.Required("command_id"): str,
     vol.Optional("name"): str,
     vol.Optional("pronto"): str,
+    vol.Optional("send_count"): vol.All(
+        int, vol.Range(min=1, max=MAX_SEND_COUNT)
+    ),
 })
 @websocket_api.async_response
 async def ws_command_update(
@@ -1426,6 +1438,7 @@ async def ws_command_update(
         msg["command_id"],
         name=msg.get("name"),
         pronto=msg.get("pronto"),
+        send_count=msg.get("send_count"),
         trigger_manager=trigger_manager,
     )
     if not result["success"]:

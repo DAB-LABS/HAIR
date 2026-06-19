@@ -616,6 +616,7 @@ class SignalMonitor:
         hair_device_id: str,
         command_name: str,
         command_category: str,
+        send_count: int = 1,
     ) -> dict[str, Any]:
         """Assign an unknown signal as a named command on a HAIR device.
 
@@ -662,6 +663,7 @@ class SignalMonitor:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
             ir_command.byte_hash = signal.byte_hash
+            ir_command.send_count = max(1, send_count)
 
             hair_device.add_command(ir_command)
             command_id = ir_command.id
@@ -684,6 +686,7 @@ class SignalMonitor:
         emitter_entity_ids: list[str],
         command_name: str,
         command_category: str,
+        send_count: int = 1,
     ) -> dict[str, Any]:
         """Create a new HAIR device and assign the signal in one atomic op.
 
@@ -731,6 +734,7 @@ class SignalMonitor:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
             ir_command.byte_hash = signal.byte_hash
+            ir_command.send_count = max(1, send_count)
 
             # Create device in memory (NOT persisted yet).
             new_device = IRDevice(

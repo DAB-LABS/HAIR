@@ -18,6 +18,12 @@ CONF_MODEL = "model"
 DEFAULT_CAPTURE_TIMEOUT = 15
 DEFAULT_CARRIER_FREQUENCY = 38000
 DEFAULT_REPEAT_COUNT = 1
+# Whole-frame "send N times" for a device command. Orthogonal to the NEC
+# ditto repeat_count above: this loops the entire built frame, protocol-
+# agnostically. 1 = transmit once (default). MAX_SEND_COUNT caps the value;
+# SEND_REPEAT_GAP is the inter-frame pause in seconds between whole-frame sends.
+MAX_SEND_COUNT = 10
+SEND_REPEAT_GAP = 0.1
 
 PLATFORMS = ["remote", "media_player", "climate", "fan", "light", "switch", "cover"]
 
