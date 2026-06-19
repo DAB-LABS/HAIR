@@ -462,6 +462,21 @@ export class HairApi {
         });
     }
 
+    editSignalPronto(payload: {
+        device_id: string;
+        signal_id: string;
+        pronto: string;
+        alias?: string | null;
+    }): Promise<{
+        signal: UnknownSignal;
+        triggers: { rewired: string[]; skipped: string[] };
+    }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/unknown/signal/edit-pronto",
+            ...payload,
+        });
+    }
+
     validatePronto(pronto: string): Promise<ProntoValidation> {
         return this.hass.connection.sendMessagePromise<ProntoValidation>({
             type: "hair/clip/validate-pronto",
