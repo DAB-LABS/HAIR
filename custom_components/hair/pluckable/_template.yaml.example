@@ -1,0 +1,62 @@
+# Pluckable template. Copy this file to <integration>.yaml (drop the leading
+# underscore and the .example suffix) and fill it in for your vendor. Files
+# whose name starts with "_" are skipped by the loader, so this template is
+# never registered.
+#
+# A pluckable describes how HAIR asks a vendor integration to replay one of
+# its stored IR codes, by name, through a chosen emitter. HAIR points that
+# emitter at its own HAIR Tweezer and captures the code. The vendor must
+# expose a service that takes a target emitter entity. If it only fires
+# through its own hardware, it cannot be a pluckable yet.
+
+# Required. The schema version this file is written against. Keep it at 1
+# unless the HAIR docs tell you a newer version is needed.
+schema_version: 1
+
+# Required. Human-friendly vendor name shown in the UI and used as the
+# prefix on pass-through error messages.
+name: Example Vendor
+
+# Required. The HA integration domain that owns the blaster entities and the
+# send service (for example tuya_local, broadlink).
+integration: example_vendor
+
+# Optional. A link to the vendor integration's docs.
+docs_url: https://example.com
+
+# Optional. A RemoteEntityFeature member name. When set, only remote.*
+# entities advertising that feature are offered as blasters. Usually
+# LEARN_COMMAND. Allowed: LEARN_COMMAND, DELETE_COMMAND, LEARN_RF.
+remote_feature_filter: LEARN_COMMAND
+
+# Required. How to call the vendor's "send a stored code" service.
+service:
+  # The service's integration domain and name (domain.name).
+  domain: example_vendor
+  name: send_learned_ir_command
+  # The service-call target parameter that receives the vendor blaster
+  # entity id (almost always entity_id).
+  target_param: entity_id
+  # The service-call data. Values are templates. You may use ONLY these
+  # three placeholders:
+  #   {command_name}  the command name the user types in the Pluck dialog
+  #   {appliance}     the appliance/group name the user sets on the blaster
+  #   {tweezer}       the HAIR Tweezer entity id (filled in by HAIR)
+  # A literal value is fine too. Anything outside that set fails at load
+  # time, so typos surface in the log rather than at pluck time.
+  data:
+    command: "{command_name}"
+    device: "{appliance}"
+    emitter_entity_id: "{tweezer}"
+
+# Optional. Override the Add Remote dialog's appliance field label and help
+# text for this vendor.
+appliance_label: "Appliance"
+appliance_help: "Where to find the appliance name for this vendor."
+
+# Optional. Map a raw vendor error substring to friendlier text. If no key
+# matches, the raw error passes through prefixed with the vendor name. Only
+# add a mapping when the raw message is genuinely confusing. Never use this
+# to hide a real failure behind a cheerful message.
+error_map:
+  "some raw error substring": "A clearer message for the user."

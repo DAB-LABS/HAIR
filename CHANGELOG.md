@@ -5,6 +5,21 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-22
+
+### Added
+
+- HAIR Plucker. A third capture tab, alongside the Sniffer and Clipper, that pulls IR codes already learned into a vendor blaster into HAIR as native signals, without re-learning each one at a receiver. HAIR registers a no-transmit observer emitter (the HAIR Tweezer) on HA's native `infrared` platform, asks the vendor integration to replay a stored code by name through that emitter, and captures the code before it becomes physical IR. Nothing is broadcast over the air during a pluck, and the blaster keeps working normally. Register a blaster with "+ Add Blaster" (vendor entity plus the appliance name you learned the codes under), then "+ Pluck Signal" with a stored command name. A plucked signal behaves like a sniffed or clipped one: test, alias, trigger, assign, or promote.
+- Pluckable vendor registry. The Plucker works with any integration that can replay a stored code by name through a caller-chosen emitter. [Tuya Local](https://github.com/make-all/tuya-local) is the first to support it. Adding another vendor is a single YAML file in `custom_components/hair/pluckable/` with no HAIR code changes. The new guide [Making your integration pluckable](docs/making-your-integration-pluckable.md) explains the service contract for integration authors, and `custom_components/hair/pluckable/README.md` documents the registry file format.
+- Blasters (Pluckable) section on the Devices tab. Lists the vendor blasters HAIR can pluck from, with an "Open in Plucker" action on each. Both the Plucker tab and this section appear only when a compatible blaster is configured. The Plucker requires HA 2026.6+ on the receiving side (where the `infrared` platform exports `InfraredEmitterEntity`).
+
+### Changed
+
+- The transmit-mode pill (NEC / PRONTO) and the send-count indicator on a device command now sit on the command name line, just to the right of the name, instead of in the row's action group.
+- Refreshed the panel iconography: the Sniffer signal icon, the Devices remote icon, the Plucker tab and Blasters card (tweezers), and the Clipper tab (hair clippers).
+- A Sniffer remote now pulses its row background when it receives a signal, which replaces the previous card-border flash. A collapsed card flashes as a whole; an expanded card flashes just its top row, leaving the signal list below readable.
+- The "Open in Plucker" and trigger hit-count badges now render in uppercase to match the rest of the panel.
+
 ## [0.4.20] - 2026-06-19
 
 ### Added

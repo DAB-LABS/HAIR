@@ -1,12 +1,14 @@
 /**
- * Clips tab -- build "clipped" remotes by pasting Pronto codes.
+ * Plucker tab -- pull IR codes off existing vendor blasters into HAIR.
  *
- * Mirrors the Sniffer (ir-signal-monitor) card + dialog structure but
- * without the live-capture, flash, and dismiss-glow machinery, since
- * manual remotes never receive live signals. Queries only manual-source
- * devices and reuses the same Assign / Promote / Trigger / Test / Confirm
- * dialogs the Sniffer uses. Adds two create dialogs and an inline alias
- * editor that replaces the S/L diamonds on a signal once named.
+ * Mirrors the Clipper (ir-clips) card + dialog structure. Each card is a
+ * plucked blaster (one vendor entity + one appliance), holding plucked
+ * signals. "+ Pluck Signal" fires the vendor send service at the HAIR
+ * Tweezer and captures the code. Reuses the shared Assign / Trigger / Test /
+ * Confirm dialogs and the inline alias editor. Slate accent (#455a64).
+ *
+ * Plucked blasters are never dismissed or evicted; the refresh model is
+ * delete-and-recreate, so there is no Show Dismissed / Promote machinery.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -16,7 +18,8 @@ import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-create-remote-dialog.js";
+import "./ir-pluck-add-remote-dialog.js";
+import "./ir-pluck-signal-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
@@ -26,44 +29,29 @@ import type {
     AssignResult,
     DeviceSummary,
     IRTrigger,
+    PluckVendor,
     UnknownDevice,
     UnknownDeviceSummary,
     UnknownSignal,
 } from "./types.js";
 
-function fmtTime(iso: string): string {
-    try {
-        return new Date(iso).toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
-    } catch {
-        return iso;
-    }
-}
-
-// Hair clippers (SVG Repo, two paths merged + scaled to a 24x24 box).
-const ICON_CLIPPER =
-    "M12.462,10.448c-0.639-0.639-1.678-0.639-2.317,0c-0.639,0.639-0.639,1.678,0,2.317l1.09,1.09c0.319,0.319,0.739,0.479,1.159,0.479c0.42,0,0.839-0.16,1.159-0.479c0-0,0-0,0-0c0.639-0.639,0.639-1.678,0-2.317L12.462,10.448z M12.763,13.066c-0.204,0.204-0.535,0.204-0.739,0l-1.09-1.09c-0.204-0.204-0.204-0.535,0-0.739c0.102-0.102,0.236-0.153,0.369-0.153c0.134,0,0.267,0.051,0.369,0.153l1.09,1.09C12.966,12.531,12.966,12.863,12.763,13.066z M23.998,6.609l-0.104-1.419c-0.02-0.276-0.24-0.496-0.516-0.516l-0.938-0.068l-0.068-0.938c-0.02-0.276-0.24-0.496-0.516-0.516l-0.938-0.068l-0.069-0.938c-0.02-0.276-0.24-0.496-0.516-0.516l-0.938-0.068l-0.069-0.938c-0.02-0.276-0.24-0.496-0.516-0.516l-1.419-0.103c-0.162-0.012-0.321,0.047-0.435,0.162l-1.993,1.993c-0,0.001-0.001,0.001-0.001,0.001c-0.097,0.097-0.191,0.197-0.282,0.298c-1.933,2.042-12.871,13.598-13.716,14.551c-0.722,0.814-0.712,1.983,0.023,2.717l0.341,0.341L0.539,20.852c-0.719,0.719-0.719,1.889,0,2.609c0.36,0.36,0.832,0.539,1.304,0.539c0.472,0,0.945-0.18,1.304-0.539l0.787-0.787l0.341,0.341c0.735,0.735,1.903,0.745,2.717,0.023c0.953-0.845,12.509-11.783,14.551-13.716c0.102-0.091,0.201-0.186,0.299-0.283c0.001-0.001,0.001-0.001,0.001-0.002l1.992-1.992C23.951,6.93,24.01,6.771,23.998,6.609z M20.61,4.179l0.684,0.05l0.05,0.684l-1.418,1.418l-0.733-0.734L20.61,4.179z M19.087,2.656l0.684,0.05l0.05,0.684L18.403,4.807L17.67,4.074L19.087,2.656z M17.564,1.133l0.684,0.05l0.05,0.684l-1.418,1.418l-0.733-0.733L17.564,1.133z M2.359,22.671c-0.284,0.284-0.746,0.284-1.03,0c-0.284-0.284-0.284-0.746,0-1.03l0.787-0.787l1.03,1.03L2.359,22.671z M6.253,22.202c-0.366,0.324-0.877,0.334-1.188,0.023l-0.735-0.735l-2.555-2.555c-0.311-0.311-0.301-0.822,0.023-1.188c0.633-0.715,7.3-7.769,11.189-11.88c-0.014,0.084-0.026,0.169-0.036,0.253c-0.179,1.482,0.239,2.815,1.176,3.752c0.937,0.937,2.27,1.355,3.752,1.176c0.084-0.01,0.169-0.022,0.253-0.036C14.022,14.901,6.968,21.568,6.253,22.202z M14.917,9.083c-0.69-0.69-0.994-1.694-0.857-2.829c0.123-1.019,0.585-2.03,1.315-2.897l0.717,0.717l-0.879,0.879c-0.218,0.218-0.218,0.571,0,0.789c0.218,0.218,0.571,0.218,0.789,0l0.879-0.879l0.734,0.734l-0.879,0.879c-0.218,0.218-0.218,0.571,0,0.789c0.218,0.218,0.571,0.218,0.789,0l0.879-0.879l0.734,0.734l-0.879,0.879c-0.218,0.218-0.218,0.571,0,0.789c0.218,0.218,0.571,0.218,0.789,0l0.879-0.879l0.717,0.717C18.756,10.213,16.277,10.443,14.917,9.083z M21.449,7.853l-0.734-0.734l1.418-1.418l0.684,0.05l0.05,0.684L21.449,7.853z";
-// mdi:chevron-down / up
+// Tweezers (SVG Repo, scaled to a 24x24 box), the Plucker / HAIR Tweezer motif.
+const ICON_PLUCK =
+    "M0.861,24c-0.22,0-0.441-0.084-0.609-0.252c-0.336-0.336-0.336-0.882,0-1.218l1.563-1.563c1.648-1.649,3.474-4.166,5.588-7.082c2.984-4.116,6.367-8.781,10.695-13.109c0.081-0.081,0.178-0.145,0.284-0.189l1.283-0.523c0.441-0.18,0.943,0.032,1.123,0.472l-0.472,1.123L19.194,2.116c-4.175,4.199-7.478,8.755-10.397,12.78c-0.275,0.379-0.545,0.752-0.811,1.117c0.365-0.266,0.738-0.536,1.117-0.811C13.128,12.284,17.685,8.98,21.884,4.806l0.457-1.121L23.464,3.212c0.44,0.18,0.652,0.682,0.472,1.123l-0.523,1.283c-0.043,0.106-0.107,0.203-0.188,0.284c-4.329,4.329-8.994,7.711-13.109,10.695c-2.915,2.114-5.433,3.939-7.082,5.588l-1.563,1.563C1.302,23.916,1.082,24,0.861,24z";
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
-// mdi:content-copy
 const ICON_COPY =
     "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
-// MDI: drag (six-dot grip) -- same handle used by the command reorder.
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
 
-/** Debounce delay (ms) between a drop and the persist call. */
 const REORDER_DEBOUNCE_MS = 500;
 
-@customElement("ir-clips")
-export class IrClips extends LitElement {
+@customElement("ir-pluck")
+export class IrPluck extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public hass?: any;
+    @property() public pendingEntity = "";
 
     @state() private _devices: UnknownDeviceSummary[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
@@ -77,25 +65,29 @@ export class IrClips extends LitElement {
     @state() private _deleteRemoteLabel = "";
     @state() private _deleteRemoteCount = 0;
 
-    // Inline device rename
+    // entity_id -> integration domain, from the discovery list.
+    private _vendorIntegration: Record<string, string> = {};
+
+    // Inline rename
     @state() private _editingDeviceId: string | null = null;
     @state() private _editLabel = "";
 
     // Dialog state
     @state() private _createRemoteOpen = false;
-    @state() private _createSignalDeviceId: string | null = null;
-    @state() private _editSignal: {
-        deviceId: string;
-        signal: UnknownSignal;
-    } | null = null;
     @state() private _promoteTarget: UnknownDeviceSummary | null = null;
+    @state() private _pluckDialog: { device: UnknownDevice; integration: string } | null =
+        null;
+    @state() private _editSignal: { deviceId: string; signal: UnknownSignal } | null =
+        null;
     @state() private _assignSignal: {
         deviceId: string;
         signal: UnknownSignal;
         label: string | null;
     } | null = null;
-    @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
-    @state() private _triggerDialog: { signal: UnknownSignal; deviceId: string } | null = null;
+    @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null =
+        null;
+    @state() private _triggerDialog: { signal: UnknownSignal; deviceId: string } | null =
+        null;
     @state() private _triggerEditDialog: IRTrigger | null = null;
     @state() private _confirmDeleteTriggerId: string | null = null;
     @state() private _testDialog: { signal: UnknownSignal } | null = null;
@@ -103,7 +95,7 @@ export class IrClips extends LitElement {
     @state() private _testingSignalId: string | null = null;
     @state() private _testResult: string | null = null;
 
-    // Drag-to-reorder (remotes + signals-within-a-remote).
+    // Drag-to-reorder
     @state() private _remotesVersion = 0;
     @state() private _signalsVersion = 0;
     private _remotesSortable: Sortable | null = null;
@@ -138,9 +130,6 @@ export class IrClips extends LitElement {
         this._syncSortables();
     }
 
-    /** Attach / detach SortableJS for the remote list and the open
-     *  remote's signal list, tracking container swaps so a re-render or
-     *  an expand change rebinds cleanly. */
     private _syncSortables(): void {
         const remotes = this.renderRoot.querySelector(".device-list") as HTMLElement | null;
         if (remotes && !this._remotesSortable) {
@@ -151,8 +140,12 @@ export class IrClips extends LitElement {
         }
 
         const sig = this.renderRoot.querySelector(".signal-list") as HTMLElement | null;
-        const canDrag = !!this._expandedDevice && !this._expandedDevice.dismissed;
-        if (sig && canDrag && (!this._signalsSortable || this._signalsSortableContainer !== sig)) {
+        const canDrag = !!this._expandedDevice;
+        if (
+            sig &&
+            canDrag &&
+            (!this._signalsSortable || this._signalsSortableContainer !== sig)
+        ) {
             this._signalsSortable?.destroy();
             this._attachSignalsSortable(sig);
         } else if ((!sig || !canDrag) && this._signalsSortable) {
@@ -169,7 +162,11 @@ export class IrClips extends LitElement {
             ghostClass: "sortable-ghost",
             onEnd: (e) => {
                 const { oldIndex, newIndex } = e;
-                if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) {
+                if (
+                    oldIndex === undefined ||
+                    newIndex === undefined ||
+                    oldIndex === newIndex
+                ) {
                     return;
                 }
                 const devices = [...this._devices];
@@ -194,13 +191,13 @@ export class IrClips extends LitElement {
             ghostClass: "sortable-ghost",
             onEnd: (e) => {
                 const { oldIndex, newIndex } = e;
-                if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) {
+                if (
+                    oldIndex === undefined ||
+                    newIndex === undefined ||
+                    oldIndex === newIndex
+                ) {
                     return;
                 }
-                // Read id + signals from the CURRENT expanded device so the
-                // device id always matches the signals being sent, even if
-                // the user switched remotes after this handler was bound
-                // (Lit reuses the .signal-list element across remotes).
                 const dev = this._expandedDevice;
                 if (!dev) return;
                 const signals = [...dev.signals];
@@ -212,13 +209,14 @@ export class IrClips extends LitElement {
                 this._signalsSortableContainer = null;
                 this._purgeChildren(container, ".signal-row");
                 this._signalsVersion++;
-                this._scheduleSignalsSave(dev.id, signals.map((s) => s.id));
+                this._scheduleSignalsSave(
+                    dev.id,
+                    signals.map((s) => s.id),
+                );
             },
         });
     }
 
-    /** Remove leftover children SortableJS may have left outside keyed()'s
-     *  managed range, so the rebuild starts from a clean container. */
     private _purgeChildren(container: HTMLElement, selector: string): void {
         for (const el of Array.from(container.querySelectorAll(selector))) {
             el.remove();
@@ -230,7 +228,7 @@ export class IrClips extends LitElement {
         this._pendingRemotesSave = window.setTimeout(async () => {
             this._pendingRemotesSave = null;
             try {
-                await this.api.reorderUnknownDevices("manual", deviceIds);
+                await this.api.reorderUnknownDevices("plucked", deviceIds);
             } catch (err) {
                 this._error = `Reorder failed: ${(err as Error).message}`;
                 await this._load();
@@ -254,18 +252,20 @@ export class IrClips extends LitElement {
     private async _load(): Promise<void> {
         this._loading = true;
         try {
-            const [unknowns, hairDevs, triggers] = await Promise.all([
+            const [unknowns, hairDevs, triggers, vendors] = await Promise.all([
                 this.api.getUnknownDevices({
-                    include_dismissed: true,
+                    include_dismissed: false,
                     min_hits: 0,
-                    source: "manual",
+                    source: "plucked",
                 }),
                 this.api.listDevices(),
                 this.api.listTriggers(),
+                this.api.listPluckVendors().catch(() => ({ vendors: [] })),
             ]);
             this._devices = unknowns;
             this._hairDevices = hairDevs;
             this._triggers = triggers;
+            this._vendorIntegration = this._mapIntegrations(vendors.vendors);
             this._error = null;
         } catch (err) {
             this._error = `Failed to load: ${(err as Error).message}`;
@@ -274,10 +274,14 @@ export class IrClips extends LitElement {
         }
     }
 
-    private _matchesHairDevice(label: string | null): boolean {
-        if (!label) return false;
-        const lower = label.toLowerCase();
-        return this._hairDevices.some((d) => d.name.toLowerCase() === lower);
+    private _mapIntegrations(vendors: PluckVendor[]): Record<string, string> {
+        const map: Record<string, string> = {};
+        for (const v of vendors) {
+            for (const b of v.blasters) {
+                map[b.entity_id] = v.integration;
+            }
+        }
+        return map;
     }
 
     private async _refreshExpanded(): Promise<void> {
@@ -290,37 +294,42 @@ export class IrClips extends LitElement {
         }
     }
 
-    // --- Create remote / signal ---
+    // --- Add Remote / Pluck Signal ---
 
-    /** Public so the panel's tab-bar "+ Create" button can open it. */
+    /** Public so the panel's tab-bar "+ Add Remote" button can open it. */
     openCreateRemote(): void {
         this._createRemoteOpen = true;
     }
 
-    private async _onRemoteCreated(e: CustomEvent<UnknownDevice>): Promise<void> {
+    private async _onBlasterCreated(e: CustomEvent<UnknownDevice>): Promise<void> {
         this._createRemoteOpen = false;
+        this.pendingEntity = "";
         await this._load();
-        // Auto-expand the new remote so the user can add a signal at once.
         this._expandedId = e.detail.id;
         await this._refreshExpanded();
     }
 
-    private _openCreateSignal(deviceId: string, e: Event): void {
+    private _openPluckSignal(device: UnknownDevice, e: Event): void {
         e.stopPropagation();
-        this._createSignalDeviceId = deviceId;
+        const integration = device.vendor_entity_id
+            ? (this._vendorIntegration[device.vendor_entity_id] ?? "")
+            : "";
+        if (!integration) {
+            this._error =
+                "This blaster's integration is not available right now. " +
+                "Make sure the vendor integration is loaded.";
+            return;
+        }
+        this._pluckDialog = { device, integration };
     }
 
-    private async _onSignalCreated(): Promise<void> {
-        this._createSignalDeviceId = null;
+    private async _onSignalsCreated(): Promise<void> {
+        this._pluckDialog = null;
         await this._refreshExpanded();
         await this._load();
     }
 
-    private _openEditSignal(
-        deviceId: string,
-        sig: UnknownSignal,
-        e: Event,
-    ): void {
+    private _openEditSignal(deviceId: string, sig: UnknownSignal, e: Event): void {
         e.stopPropagation();
         this._editSignal = { deviceId, signal: sig };
     }
@@ -333,7 +342,7 @@ export class IrClips extends LitElement {
 
     private _openDeleteRemote(device: UnknownDevice): void {
         this._deleteRemoteId = device.id;
-        this._deleteRemoteLabel = device.label || "this remote";
+        this._deleteRemoteLabel = device.label || "this blaster";
         this._deleteRemoteCount = device.signals.length;
     }
 
@@ -342,7 +351,7 @@ export class IrClips extends LitElement {
         this._deleteRemoteId = null;
         if (!id) return;
         try {
-            await this.api.deleteRemote(id);
+            await this.api.deletePluckedBlaster(id);
             if (this._expandedId === id) {
                 this._expandedId = null;
                 this._expandedDevice = null;
@@ -353,11 +362,21 @@ export class IrClips extends LitElement {
         }
     }
 
-    // --- Signal alias (delegated to ir-signal-alias) ---
+    private async _doClearAll(): Promise<void> {
+        this._confirmClearAll = false;
+        try {
+            await this.api.clearUnknowns("plucked");
+            this._devices = [];
+            this._expandedId = null;
+            this._expandedDevice = null;
+        } catch (err) {
+            this._error = `Clear failed: ${(err as Error).message}`;
+        }
+    }
 
-    private _onAliasChanged(
-        e: CustomEvent<{ id: string; alias: string }>,
-    ): void {
+    // --- Alias / rename ---
+
+    private _onAliasChanged(e: CustomEvent<{ id: string; alias: string }>): void {
         const { id, alias } = e.detail;
         if (!this._expandedDevice) return;
         this._expandedDevice = {
@@ -367,8 +386,6 @@ export class IrClips extends LitElement {
             ),
         };
     }
-
-    // --- Inline device rename ---
 
     private _startRename(d: UnknownDeviceSummary, e: Event): void {
         e.stopPropagation();
@@ -400,7 +417,27 @@ export class IrClips extends LitElement {
         }
     }
 
-    // --- Promote / Assign / Delete / Test / Trigger (reuse Sniffer dialogs) ---
+    // --- Assign / Delete / Test / Trigger (reuse shared dialogs) ---
+
+    private _openAssign(
+        deviceId: string,
+        signal: UnknownSignal,
+        label?: string | null,
+    ): void {
+        this._assignSignal = { deviceId, signal, label: label ?? null };
+    }
+
+    private async _onSignalAssigned(_ev: CustomEvent<AssignResult>): Promise<void> {
+        this._assignSignal = null;
+        await this._load();
+        await this._refreshExpanded();
+    }
+
+    private _matchesHairDevice(label: string | null): boolean {
+        if (!label) return false;
+        const lower = label.toLowerCase();
+        return this._hairDevices.some((d) => d.name.toLowerCase() === lower);
+    }
 
     private _promoteDevice(d: UnknownDeviceSummary, e: Event): void {
         e.stopPropagation();
@@ -410,16 +447,6 @@ export class IrClips extends LitElement {
     private async _onDevicePromoted(): Promise<void> {
         this._promoteTarget = null;
         await this._load();
-    }
-
-    private _openAssign(deviceId: string, signal: UnknownSignal, label?: string | null): void {
-        this._assignSignal = { deviceId, signal, label: label ?? null };
-    }
-
-    private async _onSignalAssigned(_ev: CustomEvent<AssignResult>): Promise<void> {
-        this._assignSignal = null;
-        await this._load();
-        await this._refreshExpanded();
     }
 
     private _openDelete(deviceId: string, signal: UnknownSignal): void {
@@ -522,8 +549,6 @@ export class IrClips extends LitElement {
         }
     }
 
-    // --- Device list actions ---
-
     private async _toggleExpand(deviceId: string): Promise<void> {
         if (this._expandedId === deviceId) {
             this._expandedId = null;
@@ -534,19 +559,6 @@ export class IrClips extends LitElement {
         await this._refreshExpanded();
     }
 
-    private async _doClearAll(): Promise<void> {
-        this._confirmClearAll = false;
-        try {
-            await this.api.clearUnknowns("manual");
-            this._devices = [];
-            this._expandedId = null;
-            this._expandedDevice = null;
-        } catch (err) {
-            this._error = `Clear failed: ${(err as Error).message}`;
-        }
-    }
-
-
     // --- Render ---
 
     render() {
@@ -554,11 +566,11 @@ export class IrClips extends LitElement {
         return html`
             <div class="toolbar">
                 <span class="title">
-                    <ha-svg-icon .path=${ICON_CLIPPER}></ha-svg-icon>
-                    HAIR Clipper
+                    <ha-svg-icon .path=${ICON_PLUCK}></ha-svg-icon>
+                    HAIR Plucker
                     ${!this._loading
                         ? html`<span class="count"
-                              >(${count} ${count === 1 ? "remote" : "remotes"})</span
+                              >(${count} ${count === 1 ? "blaster" : "blasters"})</span
                           >`
                         : ""}
                 </span>
@@ -567,7 +579,7 @@ export class IrClips extends LitElement {
                         class="create-btn"
                         @click=${() => (this._createRemoteOpen = true)}
                     >
-                        + Add Remote
+                        + Add Blaster
                     </button>
                 </div>
             </div>
@@ -581,14 +593,15 @@ export class IrClips extends LitElement {
                 : count === 0
                   ? html`
                         <ha-card class="empty">
-                            <ha-svg-icon class="empty-icon" .path=${ICON_CLIPPER}></ha-svg-icon>
-                            <h3>No virtual remotes yet</h3>
+                            <ha-svg-icon class="empty-icon" .path=${ICON_PLUCK}></ha-svg-icon>
+                            <h3>No plucked blasters yet</h3>
                             <p>
-                                Clipper lets you build remotes by pasting Pronto codes.
-                                Create a remote, then add a signal for each button.
+                                The Plucker imports IR codes from your existing
+                                blasters so you can use them in HAIR without
+                                re-learning each one.
                             </p>
                             <p class="hint">
-                                Click "+ Add Remote" above to start a clipped remote.
+                                Click "+ Add Blaster" above to mirror a blaster.
                             </p>
                         </ha-card>
                     `
@@ -610,7 +623,7 @@ export class IrClips extends LitElement {
                       <div class="clear-all-row">
                           <button
                               class="action-btn delete-btn"
-                              title="Delete all clipped remotes and their signals. Sniffed signals are untouched."
+                              title="Delete all plucked blasters and their signals. Sniffed and clipped signals are untouched."
                               @click=${() => (this._confirmClearAll = true)}
                           >
                               Clear All
@@ -626,7 +639,7 @@ export class IrClips extends LitElement {
     private _renderDevice(d: UnknownDeviceSummary) {
         const expanded = this._expandedId === d.id;
         return html`
-            <ha-card class="device clip-device">
+            <ha-card class="device pluck-device">
                 <div class="device-row" @click=${() => this._toggleExpand(d.id)}>
                     <div class="device-info">
                         <div class="device-header">
@@ -636,9 +649,12 @@ export class IrClips extends LitElement {
                                       type="text"
                                       .value=${this._editLabel}
                                       @input=${(e: Event) => {
-                                          this._editLabel = (e.target as HTMLInputElement).value;
+                                          this._editLabel = (
+                                              e.target as HTMLInputElement
+                                          ).value;
                                       }}
-                                      @keydown=${(e: KeyboardEvent) => this._onRenameKeydown(d.id, e)}
+                                      @keydown=${(e: KeyboardEvent) =>
+                                          this._onRenameKeydown(d.id, e)}
                                       @blur=${() => void this._commitRename(d.id)}
                                       @click=${(e: Event) => e.stopPropagation()}
                                   />`
@@ -652,8 +668,15 @@ export class IrClips extends LitElement {
                                           class="protocol"
                                           title="Click to rename"
                                           @click=${(e: Event) => this._startRename(d, e)}
-                                          >${d.label ?? "Remote"}</span
+                                          >${d.label ?? "Blaster"}</span
                                       >`}
+                            ${d.appliance
+                                ? html`<span
+                                      class="appliance-badge"
+                                      @click=${(e: Event) => e.stopPropagation()}
+                                      >${d.appliance}</span
+                                  >`
+                                : ""}
                             <span class="stat"
                                 ><strong>${d.signal_count}</strong>
                                 ${d.signal_count === 1 ? "signal" : "signals"}</span
@@ -662,13 +685,16 @@ export class IrClips extends LitElement {
                                 ? html`<span
                                       class="status-badge hair-device"
                                       @click=${(e: Event) => e.stopPropagation()}
-                                  >HAIR Device</span>`
+                                      >HAIR Device</span
+                                  >`
                                 : d.label
-                                    ? html`<span
-                                          class="status-badge promote-badge"
-                                          @click=${(e: Event) => this._promoteDevice(d, e)}
-                                      >Promote</span>`
-                                    : ""}
+                                  ? html`<span
+                                        class="status-badge promote-badge"
+                                        title="Create a HAIR device from this blaster"
+                                        @click=${(e: Event) => this._promoteDevice(d, e)}
+                                        >Promote</span
+                                    >`
+                                  : ""}
                         </div>
                     </div>
                     <ha-svg-icon
@@ -691,17 +717,17 @@ export class IrClips extends LitElement {
                     <span>Signals (${device.signals.length})</span>
                     <button
                         class="create-btn create-signal-btn"
-                        title="Add a signal to this remote"
-                        @click=${(e: Event) => this._openCreateSignal(device.id, e)}
+                        title="Pluck a code off this blaster"
+                        @click=${(e: Event) => this._openPluckSignal(device, e)}
                     >
-                        + Add Signal
+                        + Pluck Signal
                     </button>
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
                           <span class="no-signals"
-                              >No signals yet. Click "+ Add Signal" to paste a
-                              Pronto code.</span
+                              >No signals yet. Click "+ Pluck Signal" to pull a
+                              code off this blaster.</span
                           >
                       </div>`
                     : html`
@@ -712,11 +738,7 @@ export class IrClips extends LitElement {
                                       device.signals,
                                       (sig) => sig.id,
                                       (sig) =>
-                                          this._renderSignal(
-                                              device.id,
-                                              sig,
-                                              device.label,
-                                          ),
+                                          this._renderSignal(device.id, sig, device.label),
                                   ),
                               )}
                           </div>
@@ -724,22 +746,20 @@ export class IrClips extends LitElement {
                 <div class="remote-footer">
                     <button
                         class="action-btn delete-btn"
-                        title="Delete this remote and all its signals"
+                        title="Delete this blaster and all its signals"
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDeleteRemote(device);
                         }}
-                    >Delete remote</button>
+                    >
+                        Delete blaster
+                    </button>
                 </div>
             </div>
         `;
     }
 
-    private _renderSignal(
-        deviceId: string,
-        sig: UnknownSignal,
-        label: string | null,
-    ) {
+    private _renderSignal(deviceId: string, sig: UnknownSignal, label: string | null) {
         const isTesting = this._testingSignalId === sig.id;
         return html`
             <div class="signal-row">
@@ -765,8 +785,7 @@ export class IrClips extends LitElement {
                 ${sig.code
                     ? html`<button
                           title="View or edit code"
-                          @click=${(e: Event) =>
-                              this._openEditSignal(deviceId, sig, e)}
+                          @click=${(e: Event) => this._openEditSignal(deviceId, sig, e)}
                           style="background:none;border:none;cursor:pointer;color:var(--secondary-text-color);padding:2px;display:inline-flex;align-items:center"
                       >
                           <ha-svg-icon
@@ -783,7 +802,9 @@ export class IrClips extends LitElement {
                             e.stopPropagation();
                             this._openAssign(deviceId, sig, label);
                         }}
-                    >Assign</button>
+                    >
+                        Assign
+                    </button>
                     <button
                         class="action-btn test-btn"
                         ?disabled=${isTesting}
@@ -792,22 +813,30 @@ export class IrClips extends LitElement {
                             e.stopPropagation();
                             this._openTestDialog(sig);
                         }}
-                    >${isTesting ? "Sending..." : "Test"}</button>
+                    >
+                        ${isTesting ? "Sending..." : "Test"}
+                    </button>
                     <button
-                        class="action-btn trigger-btn ${this._hasTrigger(sig.fingerprint) ? "trigger-on" : ""}"
+                        class="action-btn trigger-btn ${this._hasTrigger(sig.fingerprint)
+                            ? "trigger-on"
+                            : ""}"
                         title="Create an HA event entity that fires on this signal"
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openTriggerDialog(deviceId, sig);
                         }}
-                    >Trigger</button>
+                    >
+                        Trigger
+                    </button>
                     <button
                         class="action-btn delete-btn"
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDelete(deviceId, sig);
                         }}
-                    >Delete</button>
+                    >
+                        Delete
+                    </button>
                 </div>
             </div>
         `;
@@ -816,20 +845,35 @@ export class IrClips extends LitElement {
     private _renderDialogs() {
         return html`
             ${this._createRemoteOpen
-                ? html`<ir-create-remote-dialog
+                ? html`<ir-pluck-add-remote-dialog
                       .api=${this.api}
-                      @remote-created=${this._onRemoteCreated}
-                      @closed=${() => (this._createRemoteOpen = false)}
-                  ></ir-create-remote-dialog>`
+                      .pendingEntity=${this.pendingEntity}
+                      @blaster-created=${this._onBlasterCreated}
+                      @closed=${() => {
+                          this._createRemoteOpen = false;
+                          this.pendingEntity = "";
+                      }}
+                  ></ir-pluck-add-remote-dialog>`
                 : ""}
 
-            ${this._createSignalDeviceId
-                ? html`<ir-signal-editor
+            ${this._promoteTarget
+                ? html`<ir-promote-dialog
                       .api=${this.api}
-                      .deviceId=${this._createSignalDeviceId}
-                      @signal-created=${this._onSignalCreated}
-                      @closed=${() => (this._createSignalDeviceId = null)}
-                  ></ir-signal-editor>`
+                      .hass=${this.hass}
+                      .suggestedName=${this._promoteTarget.label ?? ""}
+                      @device-created=${this._onDevicePromoted}
+                      @closed=${() => (this._promoteTarget = null)}
+                  ></ir-promote-dialog>`
+                : ""}
+
+            ${this._pluckDialog
+                ? html`<ir-pluck-signal-dialog
+                      .api=${this.api}
+                      .blaster=${this._pluckDialog.device}
+                      .integration=${this._pluckDialog.integration}
+                      @signals-created=${this._onSignalsCreated}
+                      @closed=${() => (this._pluckDialog = null)}
+                  ></ir-pluck-signal-dialog>`
                 : ""}
 
             ${this._editSignal
@@ -839,9 +883,7 @@ export class IrClips extends LitElement {
                       .signalId=${this._editSignal.signal.id}
                       .initialPronto=${this._editSignal.signal.code ?? ""}
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
-                      .hasTrigger=${this._hasTrigger(
-                          this._editSignal.signal.fingerprint,
-                      )}
+                      .hasTrigger=${this._hasTrigger(this._editSignal.signal.fingerprint)}
                       @signal-edited=${this._onSignalEdited}
                       @closed=${() => (this._editSignal = null)}
                   ></ir-signal-editor>`
@@ -860,16 +902,6 @@ export class IrClips extends LitElement {
                   ></ir-assign-signal-dialog>`
                 : ""}
 
-            ${this._promoteTarget
-                ? html`<ir-promote-dialog
-                      .api=${this.api}
-                      .hass=${this.hass}
-                      .suggestedName=${this._promoteTarget.label ?? ""}
-                      @device-created=${this._onDevicePromoted}
-                      @closed=${() => (this._promoteTarget = null)}
-                  ></ir-promote-dialog>`
-                : ""}
-
             ${this._deleteSignal
                 ? html`<ir-confirm-dialog
                       title="Delete Signal"
@@ -883,8 +915,8 @@ export class IrClips extends LitElement {
 
             ${this._confirmClearAll
                 ? html`<ir-confirm-dialog
-                      title="Clear All Clips"
-                      message="Remove all clipped remotes and their signals? This cannot be undone. Sniffed signals are not affected."
+                      title="Clear All Plucked"
+                      message="Remove all plucked blasters and their signals? This cannot be undone. Sniffed and clipped signals are not affected."
                       confirmLabel="Clear All"
                       .destructive=${true}
                       @confirmed=${this._doClearAll}
@@ -894,7 +926,7 @@ export class IrClips extends LitElement {
 
             ${this._deleteRemoteId
                 ? html`<ir-confirm-dialog
-                      title="Delete Remote"
+                      title="Delete Blaster"
                       message=${this._deleteRemoteCount > 0
                           ? `Remove "${this._deleteRemoteLabel}" and its ${this._deleteRemoteCount} ${this._deleteRemoteCount === 1 ? "signal" : "signals"}? This cannot be undone.`
                           : `Remove "${this._deleteRemoteLabel}"? This cannot be undone.`}
@@ -966,6 +998,11 @@ export class IrClips extends LitElement {
             flex-wrap: wrap;
             gap: 8px;
         }
+        .toolbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
         .title {
             display: flex;
             align-items: center;
@@ -976,24 +1013,17 @@ export class IrClips extends LitElement {
         }
         .title ha-svg-icon {
             --mdc-icon-size: 24px;
-            color: #b87333;
+            color: #455a64;
         }
         .count {
             font-weight: 400;
             color: var(--secondary-text-color);
             font-size: 0.9rem;
         }
-        .toolbar-actions {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        /* Header "+ Create" -- sized to match the Hide Dismissed (action-btn)
-           button beside it: same padding/font, copper colors. */
         .create-btn {
             background: none;
-            color: #b87333;
-            border: 1px solid #b87333;
+            color: #78909c;
+            border: 1px solid #78909c;
             border-radius: 4px;
             padding: 4px 10px;
             font-size: 0.75rem;
@@ -1005,17 +1035,14 @@ export class IrClips extends LitElement {
             transition: background 150ms ease;
         }
         .create-btn:hover:not(:disabled) {
-            background: rgba(184, 115, 51, 0.08);
+            background: rgba(120, 144, 156, 0.12);
         }
         .create-btn:disabled {
             opacity: 0.5;
             cursor: default;
         }
-        /* Card-internal "+ Add Signal" -- borderless copper text action
-           sitting just right of the "Signals (N)" label, so it reads as a
-           lighter sibling of the bordered "Add Remote" / "Add Device"
-           top-right buttons. No pill, no stroke; slightly larger than the
-           old pill label. */
+        /* Borderless text action, consistent with the Clipper's "+ Add
+           Signal". Lighter slate to match the Add Blaster button. */
         .create-signal-btn {
             border: none;
             background: none;
@@ -1023,23 +1050,15 @@ export class IrClips extends LitElement {
             font-size: 0.64rem;
             position: relative;
             top: 1px;
+            color: #78909c;
         }
         .create-signal-btn:hover:not(:disabled) {
             background: none;
             text-decoration: underline;
         }
-
         .clear-all-row {
             display: flex;
             justify-content: flex-end;
-            margin-top: 16px;
-        }
-        /* Show Dismissed stacked above Clear All, both right-aligned. */
-        .bottom-bar {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
             margin-top: 16px;
         }
         .loading,
@@ -1050,7 +1069,7 @@ export class IrClips extends LitElement {
         }
         .empty-icon {
             --mdc-icon-size: 48px;
-            color: #b87333;
+            color: #455a64;
             opacity: 0.5;
             margin-bottom: 16px;
         }
@@ -1062,21 +1081,14 @@ export class IrClips extends LitElement {
             font-size: 0.85rem;
             font-style: italic;
         }
-
         .device-list {
             display: flex;
             flex-direction: column;
             gap: 8px;
         }
-        .device.clip-device {
-            border: 1px solid rgba(184, 115, 51, 0.3);
-            /* Clip the row's rectangular hover highlight to the card's
-               rounded corners so its square corners do not poke out over
-               the border stroke. */
+        .device.pluck-device {
+            border: 1px solid rgba(69, 90, 100, 0.3);
             overflow: hidden;
-        }
-        .device.dismissed {
-            opacity: 0.6;
         }
         .device-row {
             display: flex;
@@ -1098,14 +1110,9 @@ export class IrClips extends LitElement {
             gap: 8px;
             flex-wrap: wrap;
         }
-        .clip-icon {
-            --mdc-icon-size: 14px;
-            color: #b87333;
-        }
-        /* Remote drag handle (replaces the paperclip): copper, matches tab. */
         .remote-grip {
             --mdc-icon-size: 18px;
-            color: #b87333;
+            color: #455a64;
             cursor: grab;
             flex-shrink: 0;
             opacity: 0.85;
@@ -1117,7 +1124,6 @@ export class IrClips extends LitElement {
         .remote-grip:active {
             cursor: grabbing;
         }
-        /* Signal drag handle: gray, same as the hits / time / frequency meta. */
         .signal-grip {
             --mdc-icon-size: 16px;
             color: var(--secondary-text-color);
@@ -1132,7 +1138,6 @@ export class IrClips extends LitElement {
         .signal-grip:active {
             cursor: grabbing;
         }
-        /* SortableJS marks the element being dragged. */
         ha-card.sortable-ghost,
         .signal-row.sortable-ghost {
             opacity: 0.4;
@@ -1144,17 +1149,14 @@ export class IrClips extends LitElement {
             border-bottom: 1px dashed transparent;
             transition: border-color 150ms ease;
         }
-        .protocol:not(.locked):hover {
-            border-bottom-color: #b87333;
-        }
-        .protocol.locked {
-            cursor: default;
+        .protocol:hover {
+            border-bottom-color: #455a64;
         }
         .rename-input {
             font-weight: 600;
             font-size: 0.95rem;
             font-family: inherit;
-            border: 1px solid #b87333;
+            border: 1px solid #455a64;
             border-radius: 4px;
             padding: 2px 6px;
             background: var(--card-background-color, #fff);
@@ -1162,20 +1164,18 @@ export class IrClips extends LitElement {
             outline: none;
             width: 160px;
         }
-        .dismissed-badge {
+        .appliance-badge {
             font-size: 0.7rem;
-            background: var(--disabled-color, #999);
-            color: white;
-            padding: 1px 6px;
+            font-weight: 500;
+            font-family: inherit;
+            padding: 2px 8px;
             border-radius: 4px;
-            text-transform: uppercase;
-        }
-        .stat {
-            font-size: 0.85rem;
-            color: var(--secondary-text-color);
-        }
-        .stat strong {
-            color: var(--primary-text-color);
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+            flex-shrink: 0;
+            background: rgba(69, 90, 100, 0.15);
+            color: #455a64;
+            border: 1px solid rgba(69, 90, 100, 0.35);
         }
         .status-badge.hair-device {
             font-size: 0.7rem;
@@ -1208,21 +1208,22 @@ export class IrClips extends LitElement {
         .status-badge.promote-badge:hover {
             background: rgba(0, 151, 167, 0.25);
         }
-        .device-dismiss-btn {
-            flex-shrink: 0;
+        .stat {
+            font-size: 0.85rem;
+            color: var(--secondary-text-color);
+        }
+        .stat strong {
+            color: var(--primary-text-color);
         }
         .expand-icon {
             --mdc-icon-size: 24px;
             color: var(--secondary-text-color);
             flex-shrink: 0;
         }
-
         .expanded {
             border-top: 1px solid var(--divider-color);
             padding: 12px 16px 16px;
         }
-        /* "+ Create" sits immediately right of the "Signals (N)" label,
-           left-aligned, rather than pushed to the far right. */
         .signal-header {
             display: flex;
             align-items: center;
@@ -1243,10 +1244,6 @@ export class IrClips extends LitElement {
             color: var(--secondary-text-color);
             font-style: italic;
         }
-        /* Persistent "Delete remote" footer: a row below the signal list,
-           right-justified so its button lines up with the per-signal Delete
-           buttons (which sit 8px in from the row edge). Same button size as
-           every other action button. */
         .remote-footer {
             display: flex;
             justify-content: flex-end;
@@ -1350,15 +1347,11 @@ export class IrClips extends LitElement {
         .action-btn.delete-btn:hover {
             background: rgba(230, 81, 0, 0.08);
         }
-        .action-btn.dismiss-btn {
-            color: var(--secondary-text-color);
-            border-color: var(--divider-color);
-        }
     `;
 }
 
 declare global {
     interface HTMLElementTagNameMap {
-        "ir-clips": IrClips;
+        "ir-pluck": IrPluck;
     }
 }

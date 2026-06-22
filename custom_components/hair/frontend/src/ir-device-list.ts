@@ -47,9 +47,9 @@ const DEVICE_TYPE_LABELS: Record<DeviceTypeId, string> = {
     other: "IR Device",
 };
 
-// MDI: remote (devices header icon)
+// Remote control (SVG Repo, scaled to a 24x24 box).
 const ICON_DEVICES =
-    "M12,0C8.96,0 6.21,1.23 4.22,3.22L5.63,4.63C7.26,3 9.5,2 12,2C14.5,2 16.74,3 18.36,4.64L19.78,3.22C17.79,1.23 15.04,0 12,0M7.05,6.05L8.46,7.46C9.37,6.56 10.62,6 12,6C13.38,6 14.63,6.56 15.54,7.46L16.95,6.05C15.68,4.78 13.93,4 12,4C10.07,4 8.32,4.78 7.05,6.05M12,15A2,2 0 0,1 10,13A2,2 0 0,1 12,11A2,2 0 0,1 14,13A2,2 0 0,1 12,15M15,9H9A1,1 0 0,0 8,10V22A1,1 0 0,0 9,23H15A1,1 0 0,0 16,22V10A1,1 0 0,0 15,9Z";
+    "M17.655 0C17.391 0.034 17.201 0.276 17.235 0.54C17.269 0.804 17.511 0.994 17.775 0.96C17.775 0.96 18.154 0.941 18.81 1.155C19.466 1.369 20.353 1.804 21.255 2.73C22.162 3.66 22.611 4.551 22.83 5.205C23.049 5.859 23.04 6.24 23.04 6.24C23.038 6.412 23.128 6.574 23.278 6.662C23.428 6.748 23.612 6.748 23.762 6.662C23.912 6.574 24.002 6.412 24 6.24C24 6.24 23.991 5.679 23.73 4.905C23.469 4.131 22.957 3.109 21.945 2.07C20.927 1.027 19.894 0.495 19.11 0.24C18.326 -0.015 17.745 0 17.745 0C17.73 0 17.715 0 17.7 0C17.685 0 17.67 0 17.655 0 Z M 13.77 2.88C13.26 2.88 12.746 3.064 12.345 3.435C12.339 3.441 12.336 3.444 12.33 3.45L0.57 15.255C-0.195 16.02 -0.188 17.286 0.555 18.09C0.561 18.096 0.564 18.099 0.57 18.105L5.955 23.475C6.72 24.24 7.971 24.232 8.775 23.49C8.781 23.484 8.784 23.481 8.79 23.475L20.55 11.715C20.556 11.706 20.561 11.694 20.565 11.685C21.289 10.841 21.315 9.6 20.55 8.835L15.165 3.45C14.782 3.067 14.28 2.88 13.77 2.88 Z M 17.67 2.88C17.406 2.904 17.211 3.141 17.235 3.405C17.259 3.669 17.496 3.864 17.76 3.84C17.76 3.84 17.91 3.831 18.21 3.93C18.51 4.029 18.911 4.241 19.335 4.665C19.759 5.089 19.971 5.49 20.07 5.79C20.169 6.09 20.16 6.24 20.16 6.24C20.158 6.412 20.248 6.574 20.398 6.662C20.548 6.748 20.732 6.748 20.882 6.662C21.032 6.574 21.122 6.412 21.12 6.24C21.12 6.24 21.111 5.91 20.97 5.49C20.829 5.07 20.561 4.511 20.025 3.975C19.489 3.439 18.93 3.171 18.51 3.03C18.09 2.889 17.76 2.88 17.76 2.88C17.745 2.88 17.73 2.88 17.715 2.88C17.7 2.88 17.685 2.88 17.67 2.88 Z M 13.77 3.84C14.04 3.84 14.297 3.932 14.49 4.125L19.875 9.51C20.263 9.898 20.274 10.569 19.845 11.07L8.115 22.785C7.671 23.194 7.018 23.188 6.63 22.8L1.26 17.43C1.254 17.424 1.251 17.421 1.245 17.415C0.849 16.971 0.862 16.328 1.245 15.945L13.005 4.14C13.226 3.936 13.5 3.84 13.77 3.84 Z M 13.44 6.72C11.325 6.72 9.6 8.445 9.6 10.56C9.6 12.675 11.325 14.4 13.44 14.4C15.555 14.4 17.28 12.675 17.28 10.56C17.28 8.445 15.555 6.72 13.44 6.72 Z M 13.44 7.68C15.036 7.68 16.32 8.964 16.32 10.56C16.32 12.156 15.036 13.44 13.44 13.44C11.844 13.44 10.56 12.156 10.56 10.56C10.56 8.964 11.844 7.68 13.44 7.68 Z M 13.44 9.6C12.909 9.6 12.48 10.029 12.48 10.56C12.48 11.091 12.909 11.52 13.44 11.52C13.971 11.52 14.4 11.091 14.4 10.56C14.4 10.029 13.971 9.6 13.44 9.6 Z M 7.2 12.96C6.669 12.96 6.24 13.389 6.24 13.92C6.24 14.451 6.669 14.88 7.2 14.88C7.731 14.88 8.16 14.451 8.16 13.92C8.16 13.389 7.731 12.96 7.2 12.96 Z M 4.8 15.36C4.269 15.36 3.84 15.789 3.84 16.32C3.84 16.851 4.269 17.28 4.8 17.28C5.331 17.28 5.76 16.851 5.76 16.32C5.76 15.789 5.331 15.36 4.8 15.36 Z M 10.08 15.84C9.549 15.84 9.12 16.269 9.12 16.8C9.12 17.331 9.549 17.76 10.08 17.76C10.611 17.76 11.04 17.331 11.04 16.8C11.04 16.269 10.611 15.84 10.08 15.84 Z M 7.68 18.24C7.149 18.24 6.72 18.669 6.72 19.2C6.72 19.731 7.149 20.16 7.68 20.16C8.211 20.16 8.64 19.731 8.64 19.2C8.64 18.669 8.211 18.24 7.68 18.24Z";
 
 // MDI: upload-outline for emitters (mirrors download-outline for receivers)
 const ICON_EMITTER =
@@ -74,6 +74,10 @@ const ICON_TRASH =
 // MDI: content-copy (duplicate icon)
 const ICON_COPY =
     "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
+
+// Tweezers (matches the Plucker tab icon).
+const ICON_BLASTER =
+    "M0.861,24c-0.22,0-0.441-0.084-0.609-0.252c-0.336-0.336-0.336-0.882,0-1.218l1.563-1.563c1.648-1.649,3.474-4.166,5.588-7.082c2.984-4.116,6.367-8.781,10.695-13.109c0.081-0.081,0.178-0.145,0.284-0.189l1.283-0.523c0.441-0.18,0.943,0.032,1.123,0.472l-0.472,1.123L19.194,2.116c-4.175,4.199-7.478,8.755-10.397,12.78c-0.275,0.379-0.545,0.752-0.811,1.117c0.365-0.266,0.738-0.536,1.117-0.811C13.128,12.284,17.685,8.98,21.884,4.806l0.457-1.121L23.464,3.212c0.44,0.18,0.652,0.682,0.472,1.123l-0.523,1.283c-0.043,0.106-0.107,0.203-0.188,0.284c-4.329,4.329-8.994,7.711-13.109,10.695c-2.915,2.114-5.433,3.939-7.082,5.588l-1.563,1.563C1.302,23.916,1.082,24,0.861,24z";
 
 /** Debounce delay (ms) between a drop and the persist call. */
 const REORDER_DEBOUNCE_MS = 500;
@@ -106,6 +110,12 @@ export class IrDeviceList extends LitElement {
 
     @state() private _emitters: { entity_id: string; name: string }[] = [];
     @state() private _captureProviders: CaptureProviderInfo[] = [];
+    @state() private _pluckBlasters: {
+        integration: string;
+        entity_id: string;
+        name: string;
+        vendorName: string;
+    }[] = [];
     @state() private _expandedDevice: IRDevice | null = null;
     @state() private _triggers: IRTrigger[] = [];
     @state() private _glowTriggerIds = new Set<string>();
@@ -305,11 +315,18 @@ export class IrDeviceList extends LitElement {
         // Emitters from hass.states (exclude receiver entities)
         const states = (this.hass?.states ?? {}) as Record<
             string,
-            { entity_id: string; attributes: { friendly_name?: string } }
+            {
+                entity_id: string;
+                attributes: { friendly_name?: string; hair_observer?: boolean };
+            }
         >;
         const emitters: { entity_id: string; name: string }[] = [];
         for (const [entityId, st] of Object.entries(states)) {
-            if (entityId.startsWith("infrared.") && !receiverEntityIds.has(entityId)) {
+            if (
+                entityId.startsWith("infrared.") &&
+                !receiverEntityIds.has(entityId) &&
+                !st.attributes.hair_observer
+            ) {
                 emitters.push({
                     entity_id: entityId,
                     name: st.attributes.friendly_name ?? entityId,
@@ -324,6 +341,32 @@ export class IrDeviceList extends LitElement {
                 this._captureProviders = await this.api.listCaptureProviders();
             } catch {
                 // Non-fatal
+            }
+        }
+
+        // Pluckable blasters (vendor IR blasters HAIR can pull codes from).
+        if (this.api) {
+            try {
+                const { vendors } = await this.api.listPluckVendors();
+                const blasters: {
+                    integration: string;
+                    entity_id: string;
+                    name: string;
+                    vendorName: string;
+                }[] = [];
+                for (const v of vendors) {
+                    for (const b of v.blasters) {
+                        blasters.push({
+                            integration: v.integration,
+                            entity_id: b.entity_id,
+                            name: b.name,
+                            vendorName: v.name,
+                        });
+                    }
+                }
+                this._pluckBlasters = blasters;
+            } catch {
+                this._pluckBlasters = [];
             }
         }
     }
@@ -341,6 +384,16 @@ export class IrDeviceList extends LitElement {
     private _add() {
         this.dispatchEvent(
             new CustomEvent("add-device", { bubbles: true, composed: true }),
+        );
+    }
+
+    private _openInPlucker(entityId: string): void {
+        this.dispatchEvent(
+            new CustomEvent("navigate-plucker", {
+                detail: { vendor_entity_id: entityId },
+                bubbles: true,
+                composed: true,
+            }),
         );
     }
 
@@ -651,6 +704,12 @@ export class IrDeviceList extends LitElement {
                     HAIR Devices
                     <span class="toolbar-count">(${this.devices.length})</span>
                 </span>
+                <button class="add-btn" @click=${this._add}>
+                    <ha-svg-icon
+                        .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
+                    ></ha-svg-icon>
+                    Add Device
+                </button>
             </div>
             ${hasDevices
                 ? html`
@@ -787,6 +846,49 @@ export class IrDeviceList extends LitElement {
                                               title="Delete trigger"
                                               @click=${(e: Event) => this._requestDeleteTrigger(t, e)}
                                           ></ha-svg-icon>
+                                      </div>
+                                  </div>
+                              `,
+                          )}
+                      </div>
+                  `
+                : nothing}
+
+            <!-- Blasters (Pluckable) -- vendor IR blasters HAIR can pull from -->
+            ${this._pluckBlasters.length > 0
+                ? html`
+                      <div class="section-header">
+                          <h2>Blasters (Pluckable)</h2>
+                          <span class="section-count"
+                              >${this._pluckBlasters.length}</span
+                          >
+                      </div>
+                      <div class="grid">
+                          ${this._pluckBlasters.map(
+                              (b) => html`
+                                  <div
+                                      class="card hw-card"
+                                      tabindex="0"
+                                      title="Open in the Plucker"
+                                      @click=${() => this._openInPlucker(b.entity_id)}
+                                      @keydown=${(e: KeyboardEvent) => {
+                                          if (e.key === "Enter" || e.key === " ") {
+                                              e.preventDefault();
+                                              this._openInPlucker(b.entity_id);
+                                          }
+                                      }}
+                                  >
+                                      <div class="card-header">
+                                          <ha-svg-icon .path=${ICON_BLASTER}></ha-svg-icon>
+                                          <div class="card-name">
+                                              ${b.vendorName}: ${b.name}
+                                          </div>
+                                      </div>
+                                      <div class="card-meta">${b.entity_id}</div>
+                                      <div class="card-footer">
+                                          <span class="badge pluck-badge"
+                                              >Open in Plucker</span
+                                          >
                                       </div>
                                   </div>
                               `,
@@ -1013,6 +1115,27 @@ export class IrDeviceList extends LitElement {
             --mdc-icon-size: 24px;
             color: var(--primary-color);
         }
+        .add-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: none;
+            color: var(--primary-color);
+            border: 1px solid var(--primary-color);
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 150ms ease;
+        }
+        .add-btn ha-svg-icon {
+            --mdc-icon-size: 18px;
+        }
+        .add-btn:hover {
+            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.08);
+        }
         .toolbar-count {
             font-weight: 400;
             color: var(--secondary-text-color);
@@ -1235,6 +1358,12 @@ export class IrDeviceList extends LitElement {
         .hw-card {
             /* Neutral -- no per-section color backgrounds */
         }
+        /* "Open in Plucker" badge -- standard badge form, no stroke. */
+        .pluck-badge {
+            background: var(--secondary-background-color);
+            color: #78909c;
+            text-transform: uppercase;
+        }
 
         /* --- Trigger section --- */
         .trigger-card {
@@ -1289,6 +1418,7 @@ export class IrDeviceList extends LitElement {
         .trigger-hits-badge {
             background: rgba(184, 153, 48, 0.15);
             color: #b89930;
+            text-transform: uppercase;
         }
         .trigger-toggle {
             cursor: pointer;

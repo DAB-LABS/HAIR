@@ -12,10 +12,10 @@ import "./ir-device-list.js";
 import "./ir-add-device-dialog.js";
 import "./ir-signal-monitor.js";
 import "./ir-clips.js";
-import type { IrClips } from "./ir-clips.js";
+import "./ir-pluck.js";
 import type { DeviceSummary, IRDevice } from "./types.js";
 
-type PanelTab = "devices" | "sniffer" | "clips";
+type PanelTab = "devices" | "sniffer" | "clips" | "plucker";
 
 @customElement("ha-panel-ir-devices")
 export class HaPanelIrDevices extends LitElement {
@@ -30,6 +30,8 @@ export class HaPanelIrDevices extends LitElement {
     @state() private _loading = true;
     @state() private _error: string | null = null;
     @state() private _addDialogOpen = false;
+    @state() private _pluckersAvailable = false;
+    @state() private _pendingPluckEntity = "";
 
     private _api: HairApi | null = null;
 
@@ -49,6 +51,32 @@ export class HaPanelIrDevices extends LitElement {
     private _init(): void {
         this._api = new HairApi(this.hass);
         void this._refreshDevices();
+        void this._checkPluckers();
+    }
+
+    /** Gate the Plucker tab on at least one compatible blaster being
+     *  configured. Default false + render-only-when-true means no flash. */
+    private async _checkPluckers(): Promise<void> {
+        if (!this._api) return;
+        try {
+            const { vendors } = await this._api.listPluckVendors();
+            this._pluckersAvailable = vendors.length > 0;
+        } catch {
+            this._pluckersAvailable = false;
+        }
+        if (this._activeTab === "plucker" && !this._pluckersAvailable) {
+            this._switchTab("devices");
+        }
+    }
+
+    private _tagline(): string {
+        const taglines: Record<PanelTab, string> = {
+            devices: "Manage your IR devices and the hardware that drives them.",
+            sniffer: "Capture IR codes live from the air.",
+            clips: "Build remotes by pasting known IR codes.",
+            plucker: "Pluck IR codes from existing blasters.",
+        };
+        return taglines[this._activeTab];
     }
 
     private async _refreshDevices(): Promise<void> {
@@ -73,11 +101,11 @@ export class HaPanelIrDevices extends LitElement {
         this._addDialogOpen = true;
     }
 
-    /** Tab-bar "+ Create" on the Clipper tab opens the create-remote dialog
-     *  owned by the ir-clips component. */
-    private _openClipperCreate(): void {
-        const el = this.renderRoot.querySelector("ir-clips") as IrClips | null;
-        el?.openCreateRemote();
+    private _onNavigatePlucker(
+        e: CustomEvent<{ vendor_entity_id?: string }>,
+    ): void {
+        this._pendingPluckEntity = e.detail?.vendor_entity_id ?? "";
+        this._switchTab("plucker");
     }
 
     private _closeAddDialog(): void {
@@ -183,33 +211,17 @@ export class HaPanelIrDevices extends LitElement {
                 >
                     Clipper
                 </button>
-                <div class="tab-spacer"></div>
-                ${this._activeTab === "devices"
-                    ? html`
-                          <button
-                              class="add-device-btn"
-                              @click=${this._openAddDialog}
-                          >
-                              <ha-svg-icon
-                                  .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                              ></ha-svg-icon>
-                              Add Device
-                          </button>
-                      `
-                    : this._activeTab === "clips"
-                      ? html`
-                            <button
-                                class="add-device-btn clipper-create-btn"
-                                @click=${this._openClipperCreate}
-                            >
-                                <ha-svg-icon
-                                    .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                                ></ha-svg-icon>
-                                Add Remote
-                            </button>
-                        `
-                      : ""}
+                ${this._pluckersAvailable
+                    ? html`<button
+                          class="tab ${this._activeTab === "plucker" ? "active" : ""}"
+                          @click=${() => this._switchTab("plucker")}
+                      >
+                          Plucker
+                      </button>`
+                    : ""}
             </div>
+
+            <div class="tab-tagline">${this._tagline()}</div>
 
             <div class="content">
                 ${this._error
@@ -229,6 +241,7 @@ export class HaPanelIrDevices extends LitElement {
                               @device-deleted=${this._onDeviceDeleted}
                               @navigate-sniffer=${() => this._switchTab("sniffer")}
                               @navigate-clips=${() => this._switchTab("clips")}
+                              @navigate-plucker=${this._onNavigatePlucker}
                               @add-device=${this._openAddDialog}
                           ></ir-device-list>
 
@@ -240,12 +253,20 @@ export class HaPanelIrDevices extends LitElement {
                                 .hass=${this.hass}
                             ></ir-signal-monitor>
                         `
-                      : html`
-                            <ir-clips
-                                .api=${this._api}
-                                .hass=${this.hass}
-                            ></ir-clips>
-                        `}
+                      : this._activeTab === "clips"
+                        ? html`
+                              <ir-clips
+                                  .api=${this._api}
+                                  .hass=${this.hass}
+                              ></ir-clips>
+                          `
+                        : html`
+                              <ir-pluck
+                                  .api=${this._api}
+                                  .hass=${this.hass}
+                                  .pendingEntity=${this._pendingPluckEntity}
+                              ></ir-pluck>
+                          `}
             </div>
 
             ${this._addDialogOpen
@@ -280,6 +301,17 @@ export class HaPanelIrDevices extends LitElement {
             max-height: 120px;
             object-fit: contain;
             border-radius: 6px;
+        }
+        .tab-tagline {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 8px 16px 0;
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            text-align: center;
+            color: var(--secondary-text-color);
         }
         .tab-bar {
             display: flex;

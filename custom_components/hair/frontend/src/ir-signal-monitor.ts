@@ -55,9 +55,9 @@ function relTime(iso: string): string {
     }
 }
 
-// MDI path: mdi:access-point
+// Signal-stream (SVG Repo, scaled to a 24x24 box).
 const ICON_SIGNAL =
-    "M4.93,4.93C3.12,6.74 2,9.24 2,12C2,14.76 3.12,17.26 4.93,19.07L6.34,17.66C4.89,16.22 4,14.22 4,12C4,9.79 4.89,7.78 6.34,6.34L4.93,4.93M19.07,4.93L17.66,6.34C19.11,7.78 20,9.79 20,12C20,14.22 19.11,16.22 17.66,17.66L19.07,19.07C20.88,17.26 22,14.76 22,12C22,9.24 20.88,6.74 19.07,4.93M7.76,7.76C6.67,8.85 6,10.35 6,12C6,13.65 6.67,15.15 7.76,16.24L9.17,14.83C8.45,14.11 8,13.11 8,12C8,10.89 8.45,9.89 9.17,9.17L7.76,7.76M16.24,7.76L14.83,9.17C15.55,9.89 16,10.89 16,12C16,13.11 15.55,14.11 14.83,14.83L16.24,16.24C17.33,15.15 18,13.65 18,12C18,10.35 17.33,8.85 16.24,7.76M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10Z";
+    "M12 9.188c-1.553 0-2.812 1.259-2.812 2.812s1.259 2.812 2.812 2.812c1.553 0 2.812-1.259 2.812-2.812v0c-0.002-1.552-1.26-2.81-2.812-2.812h-0zM12 13.688c-0.932 0-1.688-0.755-1.688-1.688s0.755-1.688 1.688-1.688c0.932 0 1.688 0.755 1.688 1.688v0c-0.002 0.931-0.756 1.686-1.688 1.688h-0zM2.062 12c0.16-2.665 1.25-5.049 2.948-6.856l-0.005 0.006c0.098-0.101 0.159-0.239 0.159-0.392 0-0.31-0.252-0.562-0.562-0.562-0.153 0-0.291 0.061-0.393 0.16l0-0c-1.906 1.998-3.125 4.667-3.27 7.618l-0.001 0.028c0.146 2.979 1.365 5.647 3.275 7.652l-0.005-0.005c0.101 0.098 0.239 0.159 0.392 0.159 0.31 0 0.562-0.252 0.562-0.562 0-0.152-0.061-0.291-0.16-0.392l0 0c-1.694-1.8-2.785-4.185-2.94-6.821l-0.002-0.03zM6.647 12c0.113-1.859 0.874-3.523 2.058-4.784l-0.004 0.004c0.098-0.101 0.159-0.239 0.159-0.392 0-0.31-0.252-0.562-0.562-0.562-0.153 0-0.291 0.061-0.392 0.16l0-0c-1.39 1.457-2.278 3.403-2.383 5.554l-0.001 0.02c0.105 2.171 0.994 4.117 2.386 5.577l-0.003-0.004c0.102 0.104 0.244 0.167 0.4 0.167 0.31 0 0.562-0.251 0.562-0.562 0-0.156-0.064-0.297-0.167-0.399l-0-0c-1.183-1.256-1.944-2.92-2.053-4.759l-0.001-0.021zM19.793 4.355c-0.102-0.101-0.241-0.164-0.396-0.164-0.31 0-0.562 0.252-0.562 0.562 0 0.154 0.062 0.294 0.162 0.395l-0-0c1.691 1.802 2.782 4.185 2.94 6.82l0.002 0.03c-0.16 2.665-1.249 5.05-2.947 6.857l0.005-0.006c-0.105 0.102-0.17 0.244-0.17 0.403 0 0.31 0.252 0.562 0.562 0.562 0.158 0 0.301-0.065 0.404-0.171l0-0c1.906-1.999 3.125-4.667 3.268-7.618l0.001-0.028c-0.146-2.978-1.364-5.647-3.274-7.65l0.005 0.005zM15.299 6.425c-0.102 0.102-0.165 0.242-0.165 0.398 0 0.154 0.062 0.295 0.164 0.397l-0-0c1.181 1.257 1.942 2.92 2.054 4.758l0.001 0.022c-0.114 1.86-0.875 3.523-2.059 4.784l0.004-0.004c-0.101 0.102-0.164 0.241-0.164 0.396 0 0.311 0.252 0.563 0.563 0.563 0.155 0 0.295-0.062 0.397-0.164l-0 0c1.389-1.458 2.277-3.404 2.383-5.555l0.001-0.02c-0.105-2.172-0.994-4.118-2.388-5.578l0.003 0.003c-0.101-0.102-0.242-0.165-0.397-0.165s-0.295 0.063-0.397 0.165l-0 0z";
 
 // MDI path: mdi:eye-off-outline
 const ICON_DISMISS =
@@ -874,18 +874,6 @@ export class IrSignalMonitor extends LitElement {
                           >`
                         : ""}
                 </span>
-                <div class="toolbar-actions">
-                    <button
-                        class="action-btn dismiss-btn ${this._dismissGlowActive ? "dismiss-glow" : ""}"
-                        title="Restore previously hidden remotes"
-                        @click=${this._toggleDismissed}
-                    >
-                        ${this._showDismissed ? "Hide Dismissed" : "Show Dismissed"}
-                        ${this._dismissDotVisible
-                            ? html`<span class="dismiss-dot" aria-hidden="true"></span>`
-                            : ""}
-                    </button>
-                </div>
             </div>
 
             ${this._error
@@ -938,17 +926,27 @@ export class IrSignalMonitor extends LitElement {
                         </div>
                     `}
 
-            ${this._devices.length > 0 || this._showDismissed
-                ? html`
-                      <div class="clear-all-row">
-                          <button
-                              class="action-btn delete-btn"
-                              title="Wipe the entire unknown catalog AND the dismiss list. Use Show Dismissed before Clear All if you want to retain individual dismissed entries."
-                              @click=${() => (this._confirmClearAll = true)}
-                          >Clear All</button>
-                      </div>
-                  `
-                : ""}
+            <div class="bottom-bar">
+                <button
+                    class="action-btn dismiss-btn ${this._dismissGlowActive ? "dismiss-glow" : ""}"
+                    title="Restore previously hidden remotes"
+                    @click=${this._toggleDismissed}
+                >
+                    ${this._showDismissed ? "Hide Dismissed" : "Show Dismissed"}
+                    ${this._dismissDotVisible
+                        ? html`<span class="dismiss-dot" aria-hidden="true"></span>`
+                        : ""}
+                </button>
+                ${this._devices.length > 0 || this._showDismissed
+                    ? html`<button
+                          class="action-btn delete-btn"
+                          title="Wipe the entire unknown catalog AND the dismiss list. Use Show Dismissed before Clear All if you want to retain individual dismissed entries."
+                          @click=${() => (this._confirmClearAll = true)}
+                      >
+                          Clear All
+                      </button>`
+                    : ""}
+            </div>
 
             ${this._assignSignal
                 ? html`
@@ -1076,9 +1074,9 @@ export class IrSignalMonitor extends LitElement {
         const statsFlash = this._flashStats.has(d.id);
 
         return html`
-            <ha-card class="device ${flashing ? "flash" : ""} ${d.dismissed ? "dismissed" : ""}">
+            <ha-card class="device ${d.dismissed ? "dismissed" : ""}">
                 <div
-                    class="device-row"
+                    class="device-row ${flashing ? "flash-row" : ""}"
                     @click=${() => this._toggleExpand(d.id)}
                 >
                     <div class="device-info">
@@ -1326,6 +1324,14 @@ export class IrSignalMonitor extends LitElement {
             justify-content: flex-end;
             margin-top: 16px;
         }
+        /* Show Dismissed stacked above Clear All, both right-aligned. */
+        .bottom-bar {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            margin-top: 16px;
+        }
 
         .loading,
         .empty {
@@ -1364,8 +1370,21 @@ export class IrSignalMonitor extends LitElement {
             border: 1px solid rgba(33, 150, 243, 0.3);
             border-color: color-mix(in srgb, var(--primary-color) 30%, transparent);
         }
-        .device.flash {
-            box-shadow: 0 0 0 2px var(--primary-color), var(--ha-card-box-shadow, none);
+        /* Hit flash: pulse the device-row background. When the card is
+           collapsed the row fills the whole card (the card's overflow:hidden
+           clips the pulse to the rounded corners), so the entire card appears
+           to flash; when expanded only the top row flashes, leaving the signal
+           list below calm. */
+        .device-row.flash-row {
+            animation: row-flash 900ms ease-out;
+        }
+        @keyframes row-flash {
+            0% { background: transparent; }
+            18% {
+                background: rgba(33, 150, 243, 0.32);
+                background: color-mix(in srgb, var(--primary-color) 32%, transparent);
+            }
+            100% { background: transparent; }
         }
         .device.dismissed {
             opacity: 0.6;

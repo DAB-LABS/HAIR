@@ -141,8 +141,17 @@ _stub("homeassistant.components.panel_custom", {
 _stub("homeassistant.components.frontend", {
     "async_remove_panel": MagicMock(),
 })
+class _InfraredEmitterEntity:
+    """Stub base for the HAIR Tweezer (HA 2026.6+ InfraredEmitterEntity)."""
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    hass = None  # mirrors HA's Entity class attribute (None pre-registration)
+    def __init_subclass__(cls, **kw): pass
+
 _stub("homeassistant.components.infrared", {
     "async_get_emitters": MagicMock(return_value=[]),
+    "InfraredEmitterEntity": _InfraredEmitterEntity,
+    "InfraredEntity": _InfraredEmitterEntity,
 })
 _stub("homeassistant.components.websocket_api", {
     "require_admin": lambda fn: fn,
