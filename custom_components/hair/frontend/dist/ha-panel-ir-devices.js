@@ -4952,7 +4952,6 @@ function e(e,t,i,s){var o,a=arguments.length,n=a<3?t:null===s?s=Object.getOwnPro
                     slot="navigationIcon"
                     .hass=${this.hass}
                 ></ha-menu-button>
-                <span slot="title">Home Assistant Infrared Registry</span>
             </ha-top-app-bar-fixed>
 
             <div class="mobile-nav-row">
