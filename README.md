@@ -27,6 +27,8 @@ On HA 2026.6+, HAIR subscribes to native `InfraredReceiverEntity` instances via 
 
 As more integrations adopt the `infrared` platform, HAIR picks them up with no changes needed on HAIR's side.
 
+Some integrations go a step further and let HAIR pull codes already learned into their own blasters out of the vendor silo and into Home Assistant. [Tuya Local](https://github.com/make-all/tuya-local) is the first to support this. See [The Plucker Tab](#the-plucker-tab) for how it works, and [Making your integration pluckable](docs/making-your-integration-pluckable.md) if you maintain an integration and want to add support.
+
 HAIR fingerprints every captured signal using short/long (S/L) pulse-duration analysis. Each pulse is classified short or long, producing a pattern that identifies the signal regardless of minor timing jitter between presses. S/L works across NEC, Samsung, JVC, LG, Sony, and RC-5/RC-6 without needing to decode the protocol. The Sniffer groups signals by source remote, deduplicates repeated presses, filters held-button repeat frames, and tracks hit counts, all in real time.
 
 When HAIR can read a captured signal as a known protocol (NEC today), it also stores the decoded form alongside the raw timings for stronger matching and cleaner transmission. Raw timings remain the source of truth, and transmit can re-encode clean timings from the decoded value instead of replaying the captured ones, which fixes a class of replay failures against destinations that expect undistorted timing.
@@ -113,6 +115,8 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 **HAIR Clipper** - Build virtual remotes by pasting Pronto hex codes, for when you have a code from an online converter, a vendor datasheet, or an ESPHome log but no live signal to sniff. Create a named remote on the Clipper tab, then add a button by pasting its Pronto code. The dialog validates the code as you paste it (the detected carrier frequency, the burst pair count, an S/L diamond preview, and specific error messages when something is off) so you know it is well-formed before you save. A pasted signal behaves exactly like a sniffed one: test it through an emitter, turn it into a trigger, assign it to a device, or promote the whole remote. The Create Remote dialog can also pre-fill a remote from a known manufacturer and model in your installed infrared code library, a shortcut for the supported devices when you would rather not paste each button.
 
+**HAIR Plucker** - Pull IR codes that already live in a vendor blaster, the codes you learned in the vendor's own app, into HAIR as native signals without re-learning each one at a receiver. The Plucker works with integrations that can replay a stored code by name through a chosen emitter on HA's native `infrared` platform. HAIR points that replay at its own observer emitter (the HAIR Tweezer) and captures the code before it becomes physical IR, so nothing is broadcast over the air during a pluck and your blaster keeps working normally. [Tuya Local](https://github.com/make-all/tuya-local) is the first integration to support it; adding another is a single YAML file (see [Making your integration pluckable](docs/making-your-integration-pluckable.md)). The Plucker tab, and a Blasters (Pluckable) section on the Devices tab, appear only when a compatible blaster is configured.
+
 **Signal Aliases** - Give any signal a nickname by clicking its S/L diamond pattern and typing. The alias replaces the diamonds in the list so you can tell your signals apart at a glance, in both the Sniffer and Clipper. Click an existing alias to rename it, or clear the field to remove the alias and bring the diamonds back. An alias is a label on the signal, not a command name, so the same signal can still become differently-named commands on different devices.
 
 **Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Assigning a signal copies it into the device and leaves the original in place, so the same signal can be assigned to more than one device or as more than one command. Each device gets native HA entities automatically based on its type. One-click duplicate clones an existing device with all its commands, action mappings, and emitter assignments preserved, useful when you have several remotes of the same model or a stack of similar AC units.
@@ -143,7 +147,7 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 ### The Devices Tab
 
-The main view shows five sections:
+The main view shows up to six sections (the Blasters section appears only when a pluckable blaster is configured):
 
 **HAIR Devices** - Your managed IR device profiles. Each card shows the device name, type, command count, and how many emitters are assigned. Drag a card to reorder your devices; the order persists. Hover over the device name and click it to rename the device inline; the change saves automatically. Each card also carries two small corner actions: a duplicate icon in the top-right to clone the device with all its commands and emitter assignments preserved, and a delete icon in the bottom-right for removing the device without opening its detail view. Click anywhere else on the card to expand its detail view inline, where you can change the device type, manage emitters, drag-to-reorder commands, and see every learned command with its S/L diamond fingerprint pattern. From the detail view you can test commands, delete them, or assign action mappings.
 
@@ -154,6 +158,8 @@ The main view shows five sections:
 **Receivers** - Your IR receiver hardware. These feed captured signals into the Sniffer. Each receiver card shows its source integration, its entity ID, and one of two RX badges. `RX-NATIVE` means the device is exposing the receiver via HA's native `InfraredReceiverEntity` (HA 2026.6+) and HAIR is subscribing through the official API. `RX-BRIDGE` means HAIR is consuming `esphome.remote_received` events from the legacy event-bus bridge. Both work; the badge tells you which path is active. Devices on the bridge path that also have a native receiver registered will show both badges side by side during the migration window.
 
 **Proxies** - Hardware devices that have both TX and RX capabilities. A single ESPHome board with an IR LED and an IR receiver shows up here with TX and RX badges plus their NATIVE / BRIDGE state, so you can see the full migration picture for that device in one card.
+
+**Blasters (Pluckable)** - Vendor IR blasters that HAIR can pull already-learned codes from. This section shows only when you have a compatible blaster configured. Each card carries the blaster and appliance name and an "Open in Plucker" action that jumps to the Plucker tab so you can pluck its codes. See [The Plucker Tab](#the-plucker-tab).
 
 ### The Sniffer Tab
 
@@ -178,6 +184,14 @@ Click "+ Add Remote" to make a named remote, then expand it and click "+ Add Sig
 From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it. Each remote also has a "Delete remote" button that removes it and all of its signals in one step.
 
 Pronto is the only paste format. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported.
+
+### The Plucker Tab
+
+The Plucker tab pulls IR codes off a vendor blaster that already has them learned, so you do not have to re-learn each button at a receiver. It appears only when you have a compatible blaster configured, meaning one whose integration can replay a stored code by name through a chosen emitter (such as a [Tuya Local](https://github.com/make-all/tuya-local) IR blaster).
+
+Click "+ Add Blaster" to register one: pick the vendor entity, then enter the appliance name you used when you learned the codes in the vendor's app (required for vendors that group codes by appliance, such as Tuya). Expand the blaster card and click "+ Pluck Signal", type the name of a stored command (for example "pwr_on"), and HAIR asks the vendor to replay it through the HAIR Tweezer, captures it, and adds it to the card. From there a plucked signal is identical to a sniffed or clipped one: test it, alias it, turn it into a trigger, assign it to a device, or promote the whole blaster.
+
+Nothing is transmitted over the air during a pluck, and your blaster keeps working normally. If your integration is not pluckable yet, the tab stays hidden. See [Making your integration pluckable](docs/making-your-integration-pluckable.md) for what it takes to add support.
 
 You do not always have to paste. The Create Remote dialog has a Type dropdown: leave it on Blank remote to fill the remote by pasting, or choose a manufacturer and model under "From code library" to materialize a remote pre-filled with one signal per button, each named for its function. The list is whatever device codes your installed Home Assistant infrared library carries -- some TVs (LG, Samsung, Vizio, Sharp), a Sony PlayStation, and a few audio and lighting devices. It is a shortcut for the supported devices, not a universal lookup, so anything not listed is still a paste away.
 
@@ -269,7 +283,7 @@ S/L fingerprinting covers all major consumer IR protocols including NEC, Samsung
 
 ### Architecture
 
-Two signal sources feed one catalog: live capture (Sniffer) and manual Pronto paste (Clipper).
+Three signal sources feed one catalog: live capture (Sniffer), manual Pronto paste (Clipper), and vendor code import (Plucker).
 
 ```
   Remote Control                              Pasted Pronto hex
@@ -282,11 +296,11 @@ Two signal sources feed one catalog: live capture (Sniffer) and manual Pronto pa
   | async_subscribe_receiver | esphome.remote_received   |
   +--------------------------+---------------------------+
         |                                            |
-  HAIR Sniffer (RX capture)               Clipper (manual paste)
-        |                                            |
-        +---------------------+----------------------+
+  HAIR Sniffer (RX capture)      Clipper (paste)      Plucker (vendor pluck)
+        |                             |                         |
+        +--------------+--------------+-------------+-----------+
                               |
-   Signal Store  (S/L fingerprint + dedup; tracks sniffed vs manual)
+   Signal Store  (S/L fingerprint + dedup; tracks sniffed / manual / plucked)
                               |
                   Trigger Manager --> Event Entities (HA automations)
                               |

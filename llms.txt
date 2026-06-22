@@ -34,7 +34,7 @@ Key components:
   burst-pair length math, and a carrier-frequency sanity warning) and then behaves
   identically to a sniffed signal: test, trigger, assign, or promote. Pasted signals
   share the same catalog as sniffed signals, distinguished by a source field
-  (sniffed vs manual). Manual remotes are never auto-evicted. Pasting an identical
+  (sniffed, manual, or plucked). Manual and plucked remotes are never auto-evicted. Pasting an identical
   code already on a remote is rejected, but genuinely different codes that share an
   S/L fingerprint are kept as separate signals via a byte-level tiebreaker. Remotes
   and their signals are drag-reorderable like the Sniffer's. The Create Remote
@@ -42,6 +42,21 @@ Key components:
   the installed Home Assistant infrared library and materialize a remote pre-filled
   with one signal per button; it is a shortcut for the supported devices, not a
   universal lookup.
+- Plucker: a vendor-code import surface (a capture tab parallel to the Sniffer and
+  Clipper) that pulls IR codes already learned into a vendor blaster into HAIR as
+  native signals, without re-learning each code at a receiver. HAIR registers a
+  no-transmit observer emitter on HA's infrared platform (the HAIR Tweezer, an
+  InfraredEmitterEntity), asks the vendor integration to replay a stored code by
+  name through that emitter, and captures the resulting Command before it becomes
+  physical IR. No IR is broadcast during a pluck. It works with any integration
+  that can replay a stored code by name through a caller-chosen emitter; Tuya Local
+  (send_learned_ir_command) is the first. New vendors are added as a single YAML
+  file in custom_components/hair/pluckable/ with no HAIR code changes, validated
+  against a versioned schema. The Plucker tab and a Blasters (Pluckable) section on
+  the Devices page appear only when a compatible blaster is configured. Requires HA
+  2026.6+, where the infrared platform exports InfraredEmitterEntity. Plucked
+  signals share the same catalog as sniffed and clipped ones, distinguished by the
+  source field.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a
@@ -139,6 +154,10 @@ Receiver architecture:
   tab walkthroughs, installation and setup, and architecture diagram.
 - [info.md](https://github.com/DAB-LABS/HAIR/blob/main/info.md): HACS short-form
   summary shown in the HACS UI during install.
+- [Making your integration pluckable](https://github.com/DAB-LABS/HAIR/blob/main/docs/making-your-integration-pluckable.md):
+  guide for HA integration authors on exposing the cross-emitter replay service the
+  Plucker needs. The registry file format is documented in
+  custom_components/hair/pluckable/README.md.
 - [CHANGELOG](https://github.com/DAB-LABS/HAIR/blob/main/CHANGELOG.md): Release
   history.
 - [CONTRIBUTING](https://github.com/DAB-LABS/HAIR/blob/main/CONTRIBUTING.md):
