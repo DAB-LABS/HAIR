@@ -28,6 +28,12 @@ from .models import UnknownDevice
 
 _LOGGER = logging.getLogger(__name__)
 
+# Only sniffed signals are eviction-eligible. Manual (clipped) and plucked
+# remotes are user creations, never captured noise, so they are never
+# evicted. Keying eviction on a single "evictable" source future-proofs the
+# guards against any new user-created source value.
+_EVICTABLE = "sniffed"
+
 
 class _SignalCatalogStore(Store):
     """``Store`` subclass so the migration hook actually runs (H3).
@@ -408,11 +414,11 @@ class SignalStore:
         now = datetime.now(UTC)
         cutoff = now - timedelta(days=SIGNAL_EVICT_AGE_DAYS)
 
-        # Pass 1: age + low activity. Manual (clipped) remotes are user
-        # creations, not captured noise -- never evict them.
+        # Pass 1: age + low activity. Manual (clipped) and plucked remotes
+        # are user creations, not captured noise -- never evict them.
         to_remove = []
         for device in self._devices.values():
-            if device.dismissed or device.source == "manual":
+            if device.dismissed or device.source != _EVICTABLE:
                 continue
             try:
                 last = datetime.fromisoformat(device.last_seen)
@@ -437,7 +443,7 @@ class SignalStore:
                 (
                     d
                     for d in self._devices.values()
-                    if not d.dismissed and d.source != "manual"
+                    if not d.dismissed and d.source == _EVICTABLE
                 ),
                 key=lambda d: (d.hit_count, d.last_seen),
             )

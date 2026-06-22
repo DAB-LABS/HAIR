@@ -328,4 +328,8 @@ class TestPlatformsList:
         assert Platform.COVER in PLATFORMS_LIST
         assert Platform.BUTTON in PLATFORMS_LIST
         assert Platform.EVENT in PLATFORMS_LIST
-        assert len(PLATFORMS_LIST) == 9
+        # Infrared emitter platform (the HAIR Tweezer, Plucker v0.5.0). On a
+        # HA build without a Platform.INFRARED enum member this is the bare
+        # "infrared" domain string, so match on the value, not enum identity.
+        assert any(str(p) == "infrared" for p in PLATFORMS_LIST)
+        assert len(PLATFORMS_LIST) == 10

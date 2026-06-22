@@ -117,6 +117,27 @@ DECODED_FINGERPRINT_FORMAT = "{protocol}:{address:#06x}:{command:#04x}"
 # Protocol-family label stored in decoded_protocol for NEC-family signals.
 DECODED_PROTOCOL_NEC = "NEC"
 
+# ---------------------------------------------------------------------------
+# Plucker (vendor code import via observer emitter, v0.5.0)
+# ---------------------------------------------------------------------------
+# Per-pluck capture window. The vendor service call is awaited (blocking),
+# so happy-path captures land synchronously within the await; this timeout
+# is the safety net for a vendor call that returns without dispatching a
+# Command to the HAIR Tweezer.
+PLUCK_TIMEOUT_S = 5
+# Marker attribute set on the HAIR Tweezer observer-emitter entity so HAIR
+# can filter it out of its own emitter pickers while leaving it visible to
+# HA's general infrared emitter list (vendor services must be able to target
+# it).
+TWEEZER_OBSERVER_ATTR = "hair_observer"
+# Directory (relative to this package) holding the pluckable YAML registry,
+# one file per vendor integration. Files starting with "_" are skipped by
+# the loader (templates, drafts).
+PLUCKABLE_DIRNAME = "pluckable"
+# Schema versions the running HAIR knows how to validate. A file declaring a
+# version not in this set is skipped (higher version: needs a newer HAIR).
+PLUCKABLE_SCHEMA_VERSIONS = (1,)
+
 
 class DeviceType(StrEnum):
     """IR device types."""

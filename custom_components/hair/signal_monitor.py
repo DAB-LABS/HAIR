@@ -20,6 +20,7 @@ import logging
 import time
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,13 +39,108 @@ from .const import (
     SIGNAL_WS_PUSH_RATE_LIMIT,
 )
 from .event_parser import EventParser
-from .models import UnknownDevice, UnknownSignal
+from .ir_command import raw_to_pronto
+from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
 from .protocol_decode import decode_to_fields
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class NormalizedSignal:
+    """Pure normalization output of the capture pipeline (Plucker, v0.5.0).
+
+    The fingerprint / byte-hash / protocol-decode half of
+    ``_process_parsed_signal``, split out so the Plucker can normalize a
+    plucked ``Command`` without running the Sniffer's dedup / persist /
+    live-feed pipeline.
+    """
+
+    protocol: str | None
+    code: str | None
+    raw_timings: list[int]
+    frequency: int
+    sig_fp: str
+    device_address: str | None
+    dev_fp: str
+    byte_hash: str | None
+    decoded_protocol: str | None
+    decoded_address: int | None
+    decoded_command: int | None
+    decoded_fingerprint: str | None
+
+
+def normalize(parsed: Any) -> NormalizedSignal:
+    """Compute fingerprints, byte-hash, and protocol decode for a capture.
+
+    Pure: no ``self`` / ``hass`` / store reference and no side effects.
+    Extracted verbatim from ``_process_parsed_signal`` step 1; the
+    route / store / push half stays in that method. Both the Sniffer
+    pipeline and the Plucker call this, and Sniffer behavior is unchanged
+    (same values computed in the same order).
+    """
+    sig_fp = EventParser.signal_fingerprint(
+        parsed.protocol, parsed.code, parsed.raw_timings
+    )
+    device_address = EventParser.extract_device_address(
+        parsed.protocol, parsed.code
+    )
+    dev_fp = EventParser.device_fingerprint(
+        parsed.protocol, device_address, parsed.raw_timings,
+        code=parsed.code,
+    )
+    # Byte-hash tiebreaker (v0.3.4): distinguishes two distinct commands
+    # that collapse to the same S/L fingerprint (Panasonic, TCL, etc.).
+    # None for non-Pronto codes, whose fingerprint is already unique.
+    byte_hash = EventParser.pronto_byte_hash(parsed.code)
+    # Protocol decode (v0.4.0 Phase A): identify NEC-family signals so the
+    # matcher can key on the decoded fingerprint and the TX path can
+    # re-encode canonical timings. None for undecodable signals or when the
+    # library is unavailable.
+    (
+        decoded_protocol,
+        decoded_address,
+        decoded_command,
+        decoded_fingerprint,
+    ) = decode_to_fields(parsed.raw_timings)
+    return NormalizedSignal(
+        protocol=parsed.protocol,
+        code=parsed.code,
+        raw_timings=list(parsed.raw_timings),
+        frequency=getattr(parsed, "frequency", DEFAULT_CARRIER_FREQUENCY),
+        sig_fp=sig_fp,
+        device_address=device_address,
+        dev_fp=dev_fp,
+        byte_hash=byte_hash,
+        decoded_protocol=decoded_protocol,
+        decoded_address=decoded_address,
+        decoded_command=decoded_command,
+        decoded_fingerprint=decoded_fingerprint,
+    )
+
+
+def normalize_command(command: Any) -> NormalizedSignal:
+    """Normalize an infrared ``Command`` captured by the HAIR Tweezer.
+
+    Builds a ``CaptureResult`` from the Command's raw timings and modulation
+    (mirroring ``EventParser.parse_received_signal``'s tail) and runs it
+    through :func:`normalize`. Used by the Plucker only; never touches the
+    Sniffer pipeline.
+    """
+    raw = list(command.get_raw_timings())
+    frequency = (
+        getattr(command, "modulation", None) or DEFAULT_CARRIER_FREQUENCY
+    )
+    parsed = CaptureResult(
+        protocol="PRONTO",
+        code=raw_to_pronto(raw, frequency=frequency),
+        raw_timings=raw,
+        frequency=frequency,
+    )
+    return normalize(parsed)
 
 
 class SignalMonitor:
@@ -280,34 +376,19 @@ class SignalMonitor:
         11. Fire HA event
         12. Notify subscribers
         """
-        # Step 1: Compute fingerprints.
-        sig_fp = EventParser.signal_fingerprint(
-            parsed.protocol, parsed.code, parsed.raw_timings
-        )
-        device_address = EventParser.extract_device_address(
-            parsed.protocol, parsed.code
-        )
-        dev_fp = EventParser.device_fingerprint(
-            parsed.protocol, device_address, parsed.raw_timings,
-            code=parsed.code,
-        )
-        # Byte-hash tiebreaker (v0.3.4): distinguishes two distinct commands
-        # that collapse to the same S/L fingerprint (Panasonic, TCL, etc.).
-        # None for non-Pronto codes, whose fingerprint is already unique.
-        byte_hash = EventParser.pronto_byte_hash(parsed.code)
-
-        # Protocol decode (v0.4.0 Phase A): identify NEC-family signals at
-        # capture so the matcher can key on the decoded fingerprint and the
-        # TX path can re-encode canonical timings. This is the single decode
-        # point for both the native and legacy RX paths, which both arrive
-        # here. None for undecodable signals or when the library is
-        # unavailable; capture continues unchanged either way.
-        (
-            decoded_protocol,
-            decoded_address,
-            decoded_command,
-            decoded_fingerprint,
-        ) = decode_to_fields(parsed.raw_timings)
+        # Step 1: Compute fingerprints + byte-hash + protocol decode. This
+        # pure normalization lives in the module-level normalize() so the
+        # Plucker can reuse it without the route/store/push half below.
+        # Rebound to locals to keep the downstream pipeline verbatim.
+        n = normalize(parsed)
+        sig_fp = n.sig_fp
+        device_address = n.device_address
+        dev_fp = n.dev_fp
+        byte_hash = n.byte_hash
+        decoded_protocol = n.decoded_protocol
+        decoded_address = n.decoded_address
+        decoded_command = n.decoded_command
+        decoded_fingerprint = n.decoded_fingerprint
 
         # Step 2: Check triggers (before known-command skip so triggers
         # work for both assigned commands and unknown signals).
@@ -1201,7 +1282,7 @@ class SignalMonitor:
             if device is None:
                 return {"success": False, "code": "device_not_found",
                         "error": "Remote not found"}
-            if device.source != "manual":
+            if device.source not in ("manual", "plucked"):
                 return {"success": False, "code": "not_manual",
                         "error": "Only clipped remotes can be deleted this way"}
             self._signal_store.remove_device(device_id)

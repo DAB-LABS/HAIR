@@ -61,6 +61,10 @@ class IRCommand:
     # with decoded fields transmits canonical timings unless the user
     # explicitly pins it to the captured ones.
     tx_force_raw: bool = False
+    # Source attribution carried from a plucked signal on assign-to-device
+    # (Plucker, v0.5.0). The user-typed vendor command name; None for
+    # commands not sourced from a pluck.
+    plucked_command_name: str | None = None
     created_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,6 +85,7 @@ class IRCommand:
             "decoded_command": self.decoded_command,
             "decoded_fingerprint": self.decoded_fingerprint,
             "tx_force_raw": self.tx_force_raw,
+            "plucked_command_name": self.plucked_command_name,
             "created_at": self.created_at,
         }
 
@@ -103,6 +108,7 @@ class IRCommand:
             decoded_command=data.get("decoded_command"),
             decoded_fingerprint=data.get("decoded_fingerprint"),
             tx_force_raw=bool(data.get("tx_force_raw", False)),
+            plucked_command_name=data.get("plucked_command_name"),
             created_at=data.get("created_at") or _now_iso(),
         )
 
@@ -536,8 +542,11 @@ class UnknownSignal:
     hit_count: int = 0
     first_seen: str = field(default_factory=_now_iso)
     last_seen: str = field(default_factory=_now_iso)
-    source: Literal["sniffed", "manual"] = "sniffed"
+    source: Literal["sniffed", "manual", "plucked"] = "sniffed"
     alias: str = ""
+    # User-typed vendor command name for a plucked signal (Plucker, v0.5.0).
+    # None for sniffed/manual signals. Preserved across a Pronto edit.
+    plucked_command_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -557,6 +566,7 @@ class UnknownSignal:
             "last_seen": self.last_seen,
             "source": self.source,
             "alias": self.alias,
+            "plucked_command_name": self.plucked_command_name,
         }
         # Compute S/L pattern for Pronto signals (not stored, derived).
         if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
@@ -585,6 +595,7 @@ class UnknownSignal:
             last_seen=data.get("last_seen") or _now_iso(),
             source=data.get("source", "sniffed"),
             alias=data.get("alias", ""),
+            plucked_command_name=data.get("plucked_command_name"),
         )
 
 
@@ -602,11 +613,17 @@ class UnknownDevice:
     first_seen: str = field(default_factory=_now_iso)
     last_seen: str = field(default_factory=_now_iso)
     dismissed: bool = False
-    source: Literal["sniffed", "manual"] = "sniffed"
+    source: Literal["sniffed", "manual", "plucked"] = "sniffed"
     # Manual display order within a tab (Sniffer / Clipper). Lower sorts
     # higher. New remotes are inserted below the minimum so they land on
     # top until the user drags them. Replaces the old hit_count sort.
     order: int = 0
+    # Plucker source attribution (v0.5.0). Set on plucked blasters at create
+    # time and immutable; None for sniffed/manual remotes. vendor_entity_id
+    # is the mirrored HA remote entity; appliance is the user-typed grouping
+    # that maps to the vendor service's device parameter.
+    vendor_entity_id: str | None = None
+    appliance: str | None = None
 
     def get_signal(
         self, fingerprint: str, byte_hash: str | None = None
@@ -693,6 +710,8 @@ class UnknownDevice:
             "dismissed": self.dismissed,
             "source": self.source,
             "order": self.order,
+            "vendor_entity_id": self.vendor_entity_id,
+            "appliance": self.appliance,
         }
 
     @classmethod
@@ -713,4 +732,6 @@ class UnknownDevice:
             dismissed=bool(data.get("dismissed", False)),
             source=data.get("source", "sniffed"),
             order=int(data.get("order", 0)),
+            vendor_entity_id=data.get("vendor_entity_id"),
+            appliance=data.get("appliance"),
         )

@@ -25,8 +25,13 @@ _LOGGER = logging.getLogger(__name__)
 
 _BUTTON_PLATFORM = getattr(Platform, "BUTTON", None)
 _EVENT_PLATFORM = getattr(Platform, "EVENT", None)
+# Infrared emitter platform (HA 2026.6+) hosts the HAIR Tweezer observer
+# used by the Plucker. Falls back to the bare "infrared" domain string when
+# the Platform enum member is absent; async_forward_entry_setups accepts the
+# domain string, so this works either way (Plucker plan Q12).
+_INFRARED_PLATFORM = getattr(Platform, "INFRARED", None) or "infrared"
 
-PLATFORMS_LIST: list[Platform] = [
+PLATFORMS_LIST: list[Platform | str] = [
     p
     for p in [
         _BUTTON_PLATFORM,
@@ -38,6 +43,7 @@ PLATFORMS_LIST: list[Platform] = [
         Platform.LIGHT,
         Platform.SWITCH,
         Platform.COVER,
+        _INFRARED_PLATFORM,
     ]
     if p is not None
 ]

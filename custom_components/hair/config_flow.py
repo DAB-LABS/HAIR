@@ -20,7 +20,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 
 from .capture import get_available_capture_providers
-from .const import DOMAIN
+from .const import DOMAIN, TWEEZER_OBSERVER_ATTR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,7 +35,13 @@ async def _async_get_emitters(hass) -> list:
     domain.  We filter those out by checking against the native
     receiver list when available.
     """
-    all_infrared = list(hass.states.async_all("infrared"))
+    # Exclude HAIR's own observer emitter (the Tweezer): it is an internal
+    # capture target for the Plucker, never a user-selectable TX emitter.
+    all_infrared = [
+        s
+        for s in hass.states.async_all("infrared")
+        if not s.attributes.get(TWEEZER_OBSERVER_ATTR)
+    ]
     receiver_ids = await _async_get_native_receivers(hass)
     if not receiver_ids:
         return all_infrared
