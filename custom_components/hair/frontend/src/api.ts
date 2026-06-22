@@ -21,6 +21,8 @@ import type {
     IRCommand,
     IRDevice,
     IRTrigger,
+    PluckRunResult,
+    PluckVendor,
     ProntoValidation,
     ReceiverInfo,
     SignalRemovedEvent,
@@ -516,6 +518,56 @@ export class HairApi {
     deleteRemote(deviceId: string): Promise<{ deleted: boolean }> {
         return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
             type: "hair/clip/delete-remote",
+            device_id: deviceId,
+        });
+    }
+
+    // --- Plucker (vendor code import) ---
+
+    listPluckVendors(): Promise<{ vendors: PluckVendor[] }> {
+        return this.hass.connection.sendMessagePromise<{ vendors: PluckVendor[] }>({
+            type: "hair/pluck/list-vendors",
+        });
+    }
+
+    runPluck(payload: {
+        integration: string;
+        vendor_entity_id: string;
+        appliance: string;
+        command_name: string;
+    }): Promise<PluckRunResult> {
+        return this.hass.connection.sendMessagePromise<PluckRunResult>({
+            type: "hair/pluck/run",
+            ...payload,
+        });
+    }
+
+    createPluckedBlaster(payload: {
+        vendor_entity_id: string;
+        appliance: string;
+        name: string;
+    }): Promise<UnknownDevice> {
+        return this.hass.connection.sendMessagePromise<UnknownDevice>({
+            type: "hair/pluck/create-blaster",
+            ...payload,
+        });
+    }
+
+    createPluckedSignal(payload: {
+        device_id: string;
+        pronto: string;
+        command_name: string;
+        alias?: string;
+    }): Promise<UnknownSignal> {
+        return this.hass.connection.sendMessagePromise<UnknownSignal>({
+            type: "hair/pluck/create-signal",
+            ...payload,
+        });
+    }
+
+    deletePluckedBlaster(deviceId: string): Promise<{ deleted: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
+            type: "hair/pluck/delete-blaster",
             device_id: deviceId,
         });
     }

@@ -164,7 +164,7 @@ export interface CaptureStartResponse {
 // Signal Monitor (unknown devices)
 // ---------------------------------------------------------------------------
 
-export type SignalSourceId = "sniffed" | "manual";
+export type SignalSourceId = "sniffed" | "manual" | "plucked";
 
 export interface UnknownSignal {
     // Stable per-signal identity. The fingerprint is NOT unique on a remote
@@ -183,6 +183,7 @@ export interface UnknownSignal {
     sl_pattern?: string | null;
     source?: SignalSourceId;
     alias?: string;
+    plucked_command_name?: string | null;
 }
 
 export interface UnknownDeviceSummary {
@@ -198,6 +199,8 @@ export interface UnknownDeviceSummary {
     dismissed: boolean;
     source?: SignalSourceId;
     order?: number;
+    vendor_entity_id?: string | null;
+    appliance?: string | null;
 }
 
 export interface UnknownDevice {
@@ -213,6 +216,46 @@ export interface UnknownDevice {
     dismissed: boolean;
     source?: SignalSourceId;
     order?: number;
+    vendor_entity_id?: string | null;
+    appliance?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Plucker (vendor code import)
+// ---------------------------------------------------------------------------
+
+export interface PluckBlaster {
+    entity_id: string;
+    name: string;
+}
+
+export interface PluckVendor {
+    integration: string;
+    name: string;
+    appliance_label?: string | null;
+    appliance_help?: string | null;
+    blasters: PluckBlaster[];
+}
+
+export interface PluckedSignalPreview {
+    code: string | null;
+    protocol: string | null;
+    frequency: number;
+    raw_timings: number[];
+    fingerprint: string;
+    byte_hash?: string | null;
+    decoded_protocol?: string | null;
+    decoded_address?: number | null;
+    decoded_command?: number | null;
+    decoded_fingerprint?: string | null;
+    plucked_command_name: string;
+    suggested_alias: string;
+}
+
+export interface PluckRunResult {
+    signals?: PluckedSignalPreview[];
+    error?: string;
+    message?: string;
 }
 
 /**

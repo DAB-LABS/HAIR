@@ -863,7 +863,7 @@ def _unknown_device_summary(device) -> dict[str, Any]:
     vol.Required("type"): f"{WS_PREFIX}/unknown/devices",
     vol.Optional("include_dismissed", default=False): bool,
     vol.Optional("min_hits"): vol.Any(int, None),
-    vol.Optional("source"): vol.Any("sniffed", "manual", None),
+    vol.Optional("source"): vol.Any("sniffed", "manual", "plucked", None),
 })
 @websocket_api.async_response
 async def ws_get_unknown_devices(
@@ -1182,7 +1182,7 @@ async def ws_delete_signal(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/clear",
-    vol.Optional("source"): vol.Any("sniffed", "manual", None),
+    vol.Optional("source"): vol.Any("sniffed", "manual", "plucked", None),
 })
 @websocket_api.async_response
 async def ws_clear_unknowns(
@@ -1235,7 +1235,7 @@ async def ws_set_signal_alias(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/unknown/reorder",
-    vol.Required("source"): vol.Any("sniffed", "manual"),
+    vol.Required("source"): vol.Any("sniffed", "manual", "plucked"),
     vol.Required("device_ids"): [str],
 })
 @websocket_api.async_response

@@ -93,7 +93,10 @@ export class IrEmitterPicker extends LitElement {
     private _getEmitters(): EmitterInfo[] {
         const states = (this.hass?.states ?? {}) as Record<
             string,
-            { entity_id: string; attributes: { friendly_name?: string } }
+            {
+                entity_id: string;
+                attributes: { friendly_name?: string; hair_observer?: boolean };
+            }
         >;
         const excludeSet = new Set(this.excludeEntityIds);
         const emitters: EmitterInfo[] = [];
@@ -101,7 +104,8 @@ export class IrEmitterPicker extends LitElement {
             if (
                 entityId.startsWith("infrared.") &&
                 !excludeSet.has(entityId) &&
-                !this._receiverIds.has(entityId)
+                !this._receiverIds.has(entityId) &&
+                !st.attributes.hair_observer
             ) {
                 emitters.push({
                     entity_id: entityId,
