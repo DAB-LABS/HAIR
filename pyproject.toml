@@ -22,6 +22,10 @@ test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
+    # PyYAML ships with Home Assistant at runtime (no manifest pin). It is
+    # declared here only so the stubbed test environment, which does not
+    # install Home Assistant, can import the pluckable registry loader.
+    "pyyaml>=6.0",
     # Runtime consumes infrared-protocols via HA core's `infrared` dependency
     # (no manifest pin). It is declared here only so the test suite can
     # exercise the real NEC decoder. Pinned to the 5.x line HA core ships
