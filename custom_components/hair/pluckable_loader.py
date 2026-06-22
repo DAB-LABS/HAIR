@@ -69,7 +69,11 @@ SCHEMA_V1 = vol.Schema(
         vol.Required("schema_version"): vol.All(int, vol.Range(min=1)),
         vol.Required("name"): str,
         vol.Required("integration"): str,
-        vol.Optional("docs_url"): vol.Url(),
+        # Validated as a plain string, not vol.Url(): the URL-format
+        # validators were dropped from newer voluptuous releases, and docs_url
+        # is an optional informational link, so strict URL validation is not
+        # worth the cross-version fragility.
+        vol.Optional("docs_url"): str,
         vol.Optional("remote_feature_filter"): vol.In(_REMOTE_FEATURES),
         vol.Required("service"): _SERVICE_SCHEMA,
         vol.Optional("appliance_label"): str,
