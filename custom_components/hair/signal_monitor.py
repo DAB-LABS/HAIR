@@ -745,6 +745,7 @@ class SignalMonitor:
             ir_command = capture.to_command(command_name, category)
             ir_command.byte_hash = signal.byte_hash
             ir_command.send_count = max(1, send_count)
+            ir_command.plucked_command_name = signal.plucked_command_name
 
             hair_device.add_command(ir_command)
             command_id = ir_command.id
@@ -816,6 +817,7 @@ class SignalMonitor:
             ir_command = capture.to_command(command_name, category)
             ir_command.byte_hash = signal.byte_hash
             ir_command.send_count = max(1, send_count)
+            ir_command.plucked_command_name = signal.plucked_command_name
 
             # Create device in memory (NOT persisted yet).
             new_device = IRDevice(
@@ -1072,6 +1074,121 @@ class SignalMonitor:
                 alias=(alias or "").strip(),
             )
             # New signal goes on top so the just-added clip surfaces.
+            device.signals.insert(0, signal)
+            device.last_seen = now_iso
+            await self._signal_store.async_save()
+        return {"success": True, "signal": signal.to_dict()}
+
+    async def create_plucked_blaster(
+        self, vendor_entity_id: str, appliance: str, name: str
+    ) -> UnknownDevice:
+        """Create a plucked blaster (one vendor entity + one appliance).
+
+        Mirrors ``create_manual_remote``: a synthetic device fingerprint
+        (``plucked:<id>``) keeps live sniffed signals from ever grouping into
+        it. ``vendor_entity_id`` and ``appliance`` are set here and are
+        immutable for the life of the blaster.
+        """
+        label = (name or "").strip() or "Plucked Blaster"
+        now_iso = datetime.now(UTC).isoformat()
+        async with self._lock:
+            device = UnknownDevice(
+                label=label,
+                source="plucked",
+                vendor_entity_id=vendor_entity_id,
+                appliance=appliance,
+                first_seen=now_iso,
+                last_seen=now_iso,
+                hit_count=0,
+            )
+            device.fingerprint = f"plucked:{device.id}"
+            self._signal_store.add_device(device)
+            await self._signal_store.async_save()
+        return device
+
+    async def create_plucked_signal(
+        self,
+        device_id: str,
+        pronto: str,
+        command_name: str,
+        alias: str = "",
+    ) -> dict[str, Any]:
+        """Place a plucked Pronto signal directly onto a named blaster.
+
+        Mirrors ``create_manual_signal`` but is guarded to plucked blasters,
+        records the user-typed ``command_name`` as ``plucked_command_name``,
+        and tags the signal ``source="plucked"``. Validates the Pronto and
+        rejects a true duplicate (same fingerprint AND byte_hash) already on
+        the blaster. Placement is by ``device_id``; nothing is fingerprint-
+        grouped and nothing reaches the Sniffer feed.
+        """
+        result = validate_pronto(pronto)
+        if not result.valid:
+            return {
+                "success": False,
+                "code": "invalid_pronto",
+                "error": (
+                    result.errors[0] if result.errors else "Invalid Pronto code"
+                ),
+            }
+
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Plucked blaster not found"}
+            if device.source != "plucked":
+                return {"success": False, "code": "not_plucked",
+                        "error": "Can only add plucked signals to a plucked blaster"}
+
+            now_iso = datetime.now(UTC).isoformat()
+            code = result.normalized
+            sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
+            byte_hash = EventParser.pronto_byte_hash(code)
+            if device.get_signal(sig_fp, byte_hash) is not None:
+                return {
+                    "success": False,
+                    "code": "duplicate_signal",
+                    "error": "This signal is already on this blaster",
+                }
+            frequency = (
+                round(result.frequency_khz * 1000)
+                if result.frequency_khz
+                else DEFAULT_CARRIER_FREQUENCY
+            )
+            from .ir_command import ProntoCommand
+
+            # Decode-on-place: mirror the Sniffer/clip path so a plucked NEC
+            # code transmits canonical re-encoded timings. Guarded; a non-NEC
+            # or unreadable code stays Pronto-only.
+            try:
+                decode_raw = ProntoCommand(code).get_raw_timings()
+            except Exception:
+                decode_raw = None
+            (
+                decoded_protocol,
+                decoded_address,
+                decoded_command,
+                decoded_fingerprint,
+            ) = decode_to_fields(decode_raw)
+            signal = UnknownSignal(
+                fingerprint=sig_fp,
+                byte_hash=byte_hash,
+                decoded_protocol=decoded_protocol,
+                decoded_address=decoded_address,
+                decoded_command=decoded_command,
+                decoded_fingerprint=decoded_fingerprint,
+                protocol="PRONTO",
+                code=code,
+                raw_timings=[],
+                frequency=frequency,
+                hit_count=1,
+                first_seen=now_iso,
+                last_seen=now_iso,
+                source="plucked",
+                alias=(alias or "").strip(),
+                plucked_command_name=command_name,
+            )
             device.signals.insert(0, signal)
             device.last_seen = now_iso
             await self._signal_store.async_save()

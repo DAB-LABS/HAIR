@@ -88,6 +88,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_clip_create_remote)
     websocket_api.async_register_command(hass, ws_pluck_list_vendors)
     websocket_api.async_register_command(hass, ws_pluck_run)
+    websocket_api.async_register_command(hass, ws_pluck_create_blaster)
+    websocket_api.async_register_command(hass, ws_pluck_create_signal)
+    websocket_api.async_register_command(hass, ws_pluck_delete_blaster)
     websocket_api.async_register_command(hass, ws_clip_create_signal)
     websocket_api.async_register_command(hass, ws_unknown_signal_edit_pronto)
     websocket_api.async_register_command(hass, ws_unknown_signal_snap_preview)
@@ -1356,6 +1359,102 @@ async def ws_pluck_run(
         command_name=msg["command_name"].strip(),
     )
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/create-blaster",
+    vol.Required("vendor_entity_id"): str,
+    vol.Required("appliance"): str,
+    vol.Required("name"): str,
+})
+@websocket_api.async_response
+async def ws_pluck_create_blaster(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Create a plucked blaster (vendor entity + appliance, both required)."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    vendor_entity_id = msg["vendor_entity_id"].strip()
+    appliance = msg["appliance"].strip()
+    name = msg["name"].strip()
+    if not vendor_entity_id or not appliance:
+        connection.send_error(
+            msg["id"], "invalid_input", "Vendor entity and appliance are required"
+        )
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    device = await monitor.create_plucked_blaster(vendor_entity_id, appliance, name)
+    connection.send_result(msg["id"], device.to_dict())
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/create-signal",
+    vol.Required("device_id"): str,
+    vol.Required("pronto"): str,
+    vol.Required("command_name"): str,
+    vol.Optional("alias", default=""): str,
+})
+@websocket_api.async_response
+async def ws_pluck_create_signal(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Persist a plucked signal onto a named plucked blaster."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    command_name = msg["command_name"].strip()
+    if not command_name:
+        connection.send_error(msg["id"], "invalid_name", "Command name is required")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.create_plucked_signal(
+        msg["device_id"], msg["pronto"], command_name, msg.get("alias", "")
+    )
+    if not result["success"]:
+        connection.send_error(
+            msg["id"],
+            result.get("code", "create_failed"),
+            result.get("error", "Failed to create signal"),
+        )
+        return
+    connection.send_result(msg["id"], result["signal"])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/delete-blaster",
+    vol.Required("device_id"): str,
+})
+@websocket_api.async_response
+async def ws_pluck_delete_blaster(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete a plucked blaster and its signals (delete-and-recreate model)."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.delete_manual_remote(msg["device_id"])
+    if not result["success"]:
+        connection.send_error(
+            msg["id"],
+            result.get("code", "delete_failed"),
+            result.get("error", "Failed to delete blaster"),
+        )
+        return
+    connection.send_result(msg["id"], {"deleted": True})
 
 
 # --- Clips (manual remotes / signals) ---

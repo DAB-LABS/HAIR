@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -19,6 +20,7 @@ from custom_components.hair.ir_command import raw_to_pronto
 from custom_components.hair.models import (
     CaptureResult,
     IRCommand,
+    IRDevice,
     UnknownDevice,
     UnknownSignal,
 )
@@ -26,9 +28,11 @@ from custom_components.hair.pluckable_loader import validate_pluckable
 from custom_components.hair.protocol_decode import decode_to_fields
 from custom_components.hair.signal_monitor import (
     NormalizedSignal,
+    SignalMonitor,
     normalize,
     normalize_command,
 )
+from custom_components.hair.signal_store import SignalStore
 
 # --- fakes ----------------------------------------------------------------
 
@@ -526,3 +530,127 @@ def test_list_vendors_skips_other_integrations(monkeypatch):
     )
     hass = _Hass(_Services(has=True))
     assert pluck.list_vendors(hass, [_TUYA]) == []
+
+
+# --- Phase 3: plucked create paths + assign propagation -------------------
+
+_PRONTO_A = "0000 006D 0002 0000 0010 0010 0010 0010"
+_PRONTO_B = "0000 006D 0002 0000 0010 0010 0010 0040"
+
+
+def _monitor():
+    hass = MagicMock()
+    store = SignalStore(hass)
+    store._loaded = True
+    hair_store = MagicMock()
+    hair_store.get_device = MagicMock(return_value=None)
+    hair_store.async_save = AsyncMock()
+    return SignalMonitor(hass, store, hair_store), store, hair_store
+
+
+async def test_create_plucked_blaster_round_trip():
+    monitor, store, _ = _monitor()
+    device = await monitor.create_plucked_blaster(
+        "remote.ir_remote_garage", "candles", "Tuya candles"
+    )
+    assert device.source == "plucked"
+    assert device.vendor_entity_id == "remote.ir_remote_garage"
+    assert device.appliance == "candles"
+    assert device.fingerprint.startswith("plucked:")
+    assert store.get_device(device.id) is device
+
+
+async def test_create_plucked_signal_lands_on_named_blaster():
+    monitor, store, _ = _monitor()
+    blaster = await monitor.create_plucked_blaster("remote.x", "candles", "B")
+    result = await monitor.create_plucked_signal(
+        blaster.id, _PRONTO_A, "pwr_on", alias="Power On"
+    )
+    assert result["success"] is True
+    stored = store.get_device(blaster.id)
+    assert len(stored.signals) == 1
+    sig = stored.signals[0]
+    assert sig.source == "plucked"
+    assert sig.plucked_command_name == "pwr_on"
+    assert sig.alias == "Power On"
+    # On the named blaster, not a fingerprint-grouped sniffed device.
+    assert stored.source == "plucked"
+
+
+async def test_create_plucked_signal_rejects_non_plucked_device():
+    monitor, _, _ = _monitor()
+    manual = await monitor.create_manual_remote("Clip")
+    result = await monitor.create_plucked_signal(manual.id, _PRONTO_A, "x")
+    assert result["success"] is False
+    assert result["code"] == "not_plucked"
+
+
+async def test_create_plucked_signal_duplicate_rejected():
+    monitor, _, _ = _monitor()
+    blaster = await monitor.create_plucked_blaster("remote.x", "candles", "B")
+    first = await monitor.create_plucked_signal(blaster.id, _PRONTO_A, "a")
+    assert first["success"] is True
+    dup = await monitor.create_plucked_signal(blaster.id, _PRONTO_A, "a-again")
+    assert dup["success"] is False
+    assert dup["code"] == "duplicate_signal"
+
+
+async def test_create_plucked_signal_distinct_codes_both_kept():
+    monitor, store, _ = _monitor()
+    blaster = await monitor.create_plucked_blaster("remote.x", "candles", "B")
+    await monitor.create_plucked_signal(blaster.id, _PRONTO_A, "a")
+    await monitor.create_plucked_signal(blaster.id, _PRONTO_B, "b")
+    assert len(store.get_device(blaster.id).signals) == 2
+
+
+async def test_create_plucked_signal_invalid_pronto():
+    monitor, _, _ = _monitor()
+    blaster = await monitor.create_plucked_blaster("remote.x", "candles", "B")
+    result = await monitor.create_plucked_signal(blaster.id, "not pronto", "x")
+    assert result["success"] is False
+    assert result["code"] == "invalid_pronto"
+
+
+async def test_create_plucked_signal_missing_blaster():
+    monitor, _, _ = _monitor()
+    result = await monitor.create_plucked_signal("nope", _PRONTO_A, "x")
+    assert result["success"] is False
+    assert result["code"] == "device_not_found"
+
+
+async def test_assign_signal_propagates_plucked_command_name():
+    monitor, store, hair_store = _monitor()
+    sig = UnknownSignal(
+        id="sig1",
+        fingerprint="sig1",
+        protocol="NEC",
+        code="0x1234",
+        frequency=38000,
+        source="plucked",
+        plucked_command_name="pwr_on",
+    )
+    store.add_device(UnknownDevice(id="ud1", fingerprint="dev", signals=[sig]))
+    hair_device = IRDevice(id="hd1", name="TV")
+    hair_store.get_device.return_value = hair_device
+    result = await monitor.assign_signal("ud1", "sig1", "hd1", "Power", "custom")
+    assert result["success"] is True
+    assert hair_device.commands[0].plucked_command_name == "pwr_on"
+
+
+async def test_assign_to_new_device_propagates_plucked_command_name():
+    monitor, store, _ = _monitor()
+    sig = UnknownSignal(
+        id="sig1",
+        fingerprint="sig1",
+        protocol="NEC",
+        code="0x1234",
+        frequency=38000,
+        source="plucked",
+        plucked_command_name="pwr_off",
+    )
+    store.add_device(UnknownDevice(id="ud1", fingerprint="dev", signals=[sig]))
+    result = await monitor.assign_to_new_device(
+        "ud1", "sig1", "New TV", "media_player", ["infrared.x"], "Power", "custom"
+    )
+    assert result["success"] is True
+    assert result["device"].commands[0].plucked_command_name == "pwr_off"
