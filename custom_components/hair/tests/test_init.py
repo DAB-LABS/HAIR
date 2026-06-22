@@ -32,6 +32,13 @@ def _fake_hass():
     hass.bus.async_fire = MagicMock()
     hass.http = MagicMock()
     hass.http.async_register_static_paths = AsyncMock()
+
+    # Run executor jobs inline so awaited calls (e.g. the pluckable registry
+    # load) return the job's real result instead of an un-awaitable MagicMock.
+    async def _exec_job(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = _exec_job
     return hass
 
 

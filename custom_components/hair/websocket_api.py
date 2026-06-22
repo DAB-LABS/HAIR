@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
+from . import pluck
 from .capture import (
     CaptureProviderType,
     get_available_capture_providers,
@@ -85,6 +86,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 
     # Clips (manual remotes / signals)
     websocket_api.async_register_command(hass, ws_clip_create_remote)
+    websocket_api.async_register_command(hass, ws_pluck_list_vendors)
+    websocket_api.async_register_command(hass, ws_pluck_run)
     websocket_api.async_register_command(hass, ws_clip_create_signal)
     websocket_api.async_register_command(hass, ws_unknown_signal_edit_pronto)
     websocket_api.async_register_command(hass, ws_unknown_signal_snap_preview)
@@ -1282,6 +1285,77 @@ async def ws_reorder_unknown_signals(
         return
     await signal_store.async_save()
     connection.send_result(msg["id"], {"reordered": True})
+
+
+# --- Plucker (vendor code import) ---
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/list-vendors",
+})
+@websocket_api.async_response
+async def ws_pluck_list_vendors(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return candidate pluckable blasters per the two-stage discovery."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    registry = data.get("pluckable_registry", [])
+    vendors = pluck.list_vendors(hass, registry)
+    connection.send_result(msg["id"], {"vendors": vendors})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/run",
+    vol.Required("integration"): str,
+    vol.Required("vendor_entity_id"): str,
+    vol.Required("appliance"): str,
+    vol.Required("command_name"): str,
+})
+@websocket_api.async_response
+async def ws_pluck_run(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Fire a vendor send service at the HAIR Tweezer and return captures.
+
+    The payload is either ``{"signals": [...]}`` or
+    ``{"error": code, "message": text}``; both go back as a normal result so
+    the Pluck dialog can render the inline error states (vendor_error,
+    no_response, unknown).
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    registry = data.get("pluckable_registry", [])
+    vendor_entry = next(
+        (e for e in registry if e.get("integration") == msg["integration"]),
+        None,
+    )
+    if vendor_entry is None:
+        connection.send_error(
+            msg["id"],
+            "unknown_vendor",
+            "No pluckable is registered for that integration",
+        )
+        return
+    result = await pluck.run_pluck(
+        hass,
+        entry_data=data,
+        vendor_entry=vendor_entry,
+        vendor_entity_id=msg["vendor_entity_id"],
+        appliance=msg["appliance"].strip(),
+        command_name=msg["command_name"].strip(),
+    )
+    connection.send_result(msg["id"], result)
 
 
 # --- Clips (manual remotes / signals) ---

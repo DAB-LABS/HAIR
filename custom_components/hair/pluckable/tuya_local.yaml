@@ -1,0 +1,22 @@
+# Pluckable registry entry: Tuya Local IR blasters.
+# Verified against Tuya Local send_learned_ir_command (production, 2026-06-21).
+schema_version: 1
+name: Tuya Local
+integration: tuya_local
+docs_url: https://github.com/make-all/tuya-local
+remote_feature_filter: LEARN_COMMAND
+
+service:
+  domain: tuya_local
+  name: send_learned_ir_command
+  target_param: entity_id
+  data:
+    command: "{command_name}"
+    device: "{appliance}"
+    emitter_entity_id: "{tweezer}"
+
+appliance_label: "Appliance (the name you used at learn time)"
+appliance_help: "Find this in your Tuya Smart app under the blaster's controlled devices."
+
+error_map:
+  "device must be specified": "Tuya needs the appliance name. Set one on this plucked blaster."

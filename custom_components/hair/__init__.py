@@ -12,9 +12,10 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .capture_orchestrator import CaptureOrchestrator
-from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL
+from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
 from .device_manager import DeviceManager
 from .entity_factory import EntityFactory
+from .pluckable_loader import load_pluckables
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .storage import HAIRStore
@@ -72,6 +73,11 @@ async def async_setup_entry(
     signal_store = SignalStore(hass)
     await signal_store.async_load()
 
+    # Load the pluckable YAML registry in a single executor hop (off-loop).
+    pluckable_registry = await hass.async_add_executor_job(
+        load_pluckables, Path(__file__).parent / PLUCKABLE_DIRNAME
+    )
+
     entity_factory = EntityFactory(hass)
     orchestrator = CaptureOrchestrator(hass)
     device_manager = DeviceManager(hass, store, entity_factory, entry.entry_id)
@@ -87,6 +93,7 @@ async def async_setup_entry(
         "entity_factory": entity_factory,
         "signal_monitor": signal_monitor,
         "trigger_manager": trigger_manager,
+        "pluckable_registry": pluckable_registry,
         "config_entry": entry,
     }
 
