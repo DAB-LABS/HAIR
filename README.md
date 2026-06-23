@@ -16,12 +16,12 @@ Home Assistant's native `infrared` platform shipped transmit (TX) support in HA 
 
 HAIR works with any integration that exposes HA's native `infrared` entity platform. These integrations have adopted it:
 
-| Integration | Source | TX | RX | Status |
-|---|---|---|---|---|
-| [ESPHome](https://esphome.io/) | Core | Yes | Yes | Since 2026.4 (TX), 2026.6 (native RX) |
-| [Tuya Local](https://github.com/make-all/tuya-local) | HACS | Yes | No | Since 2026.4 |
-| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Core | Yes | No | Since 2026.5 |
-| [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Core | Yes | No | Since 2026.5 |
+| Integration | Source | TX | RX | Pluck | Status |
+|---|---|---|---|---|---|
+| [ESPHome](https://esphome.io/) | Core | Yes | Yes | No | Since 2026.4 (TX), 2026.6 (native RX) |
+| [Tuya Local](https://github.com/make-all/tuya-local) | HACS | Yes | No | Yes | TX since 2026.4, Pluck since 2026.6.2 |
+| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Core | Yes | No | No | Since 2026.5 |
+| [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Core | Yes | No | No | Since 2026.5 |
 
 On HA 2026.6+, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. Any integration that implements the receiver entity works as a HAIR receiver automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) below).
 
@@ -185,6 +185,8 @@ From there a clipped signal is identical to a sniffed one. Test it through an em
 
 Pronto is the only paste format. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported.
 
+You do not always have to paste. The Create Remote dialog has a Type dropdown: leave it on Blank remote to fill the remote by pasting, or choose a manufacturer and model under "From code library" to materialize a remote pre-filled with one signal per button, each named for its function. The list is whatever device codes your installed Home Assistant infrared library carries -- some TVs (LG, Samsung, Vizio, Sharp), a Sony PlayStation, and a few audio and lighting devices. It is a shortcut for the supported devices, not a universal lookup, so anything not listed is still a paste away.
+
 ### The Plucker Tab
 
 The Plucker tab pulls IR codes off a vendor blaster that already has them learned, so you do not have to re-learn each button at a receiver. It appears only when you have a compatible blaster configured, meaning one whose integration can replay a stored code by name through a chosen emitter (such as a [Tuya Local](https://github.com/make-all/tuya-local) IR blaster).
@@ -193,17 +195,17 @@ Click "+ Add Blaster" to register one: pick the vendor entity, then enter the ap
 
 Nothing is transmitted over the air during a pluck, and your blaster keeps working normally. If your integration is not pluckable yet, the tab stays hidden. See [Making your integration pluckable](docs/making-your-integration-pluckable.md) for what it takes to add support.
 
-You do not always have to paste. The Create Remote dialog has a Type dropdown: leave it on Blank remote to fill the remote by pasting, or choose a manufacturer and model under "From code library" to materialize a remote pre-filled with one signal per button, each named for its function. The list is whatever device codes your installed Home Assistant infrared library carries -- some TVs (LG, Samsung, Vizio, Sharp), a Sony PlayStation, and a few audio and lighting devices. It is a shortcut for the supported devices, not a universal lookup, so anything not listed is still a paste away.
-
 ### Adding a Device
 
-There are four ways to add a device.
+There are five ways to add a device.
 
 **From scratch:** Click the "Add Device" button in the tab bar on the Devices tab. Enter a name, pick a device type, and select which IR emitters should broadcast commands for this device. HAIR creates the device profile and the corresponding HA entities immediately.
 
 **From the Sniffer (promote an unknown source):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Hover over the source row's name and click it to rename it, then promote it to a full HAIR device. Renaming before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. You can also rename it later from the Devices tab if you'd rather promote first. This path is ideal when you have the physical remote in hand and want to capture its signals first.
 
 **From the Clipper (promote a built remote):** A remote you build by hand in the Clipper promotes the same way a sniffed one does. Once you have pasted its signals with "+ Add Remote" and "+ Add Signal", click Promote on the remote to turn it into a full HAIR device. This is the path for a device you have Pronto codes for (from a converter, datasheet, or ESPHome log) but cannot capture live.
+
+**From the Plucker (promote a plucked blaster):** A blaster you mirror on the Plucker tab promotes the same way a sniffed or clipped remote does. Once you have plucked the signals you want with "+ Pluck Signal", click Promote on the blaster to turn it into a full HAIR device. This is the path when the codes already live in a vendor blaster (such as Tuya Local) and you want them as HA entities without re-learning each one at a receiver.
 
 **From an existing device (duplicate):** Click the duplicate icon in the top-right corner of any device card. HAIR opens a dialog pre-filled with `<original name> (Copy)` so you can rename the clone before it lands. All of the original device's commands, action mappings, and emitter assignments are copied across; triggers stay attached to the original. This path is ideal when you have several remotes of the same model (a stack of similar AC units, two identical TVs in different rooms) or when you want a sandbox copy to experiment with action mappings without breaking the working device.
 
@@ -213,7 +215,9 @@ Navigate to the Sniffer tab and press buttons on your physical remote. HAIR capt
 
 When you don't have the physical remote to hand, build the command in the Clipper instead: paste the button's Pronto code on the Clipper tab, then Assign it to a device exactly as you would a sniffed signal. Sniffed and clipped signals are interchangeable once captured.
 
-You can also start from a device. A device's detail view has two add-command buttons, "+ Sniffed Signal" and "+ Clipped Signal", which take you to the Sniffer or the Clipper tab so you can capture or paste the signal and assign it back to the device.
+When the code already lives in a vendor blaster (such as Tuya Local), use the Plucker tab to pull it into HAIR by name without re-learning it at a receiver. Register the blaster with "+ Add Blaster", then "+ Pluck Signal" with the command name you used in the vendor's app, and the resulting signal is interchangeable with sniffed and clipped ones for assignment, alias, trigger, and promote.
+
+You can also start from a device. A device's detail view has add-command buttons that take you to the appropriate capture surface (Sniffer, Clipper, or Plucker depending on what you have configured) so you can capture, paste, or pluck the signal and assign it back to the device.
 
 ### Action Mapping
 
@@ -304,7 +308,7 @@ Three signal sources feed one catalog: live capture (Sniffer), manual Pronto pas
                               |
                   Trigger Manager --> Event Entities (HA automations)
                               |
-   HAIR Admin Panel  (Sniffer tab + Clipper tab)
+   HAIR Admin Panel  (Sniffer tab + Clipper tab + Plucker tab)
                               |
    Assign signal / Promote remote --> Device Manager --> Entity Factory
                               |
