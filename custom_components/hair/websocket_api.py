@@ -675,6 +675,21 @@ async def ws_save_captured_command(
         category = category_for_command_name(msg["command_name"])
 
     command = result.to_command(msg["command_name"], category)
+    # Decode at save so a captured NEC command transmits canonical timings on
+    # the first press (mirrors the catalog-signal capture pipeline). Also sets
+    # byte_hash because no IRCommand byte_hash backfill exists, and the
+    # matcher's reverse index uses (fingerprint, byte_hash) when both are
+    # present. Both fields default to None on undecodable / non-Pronto
+    # captures, matching today's behavior for the NEC-only assign paths.
+    from .event_parser import EventParser
+    from .protocol_decode import decode_to_fields
+
+    d_proto, d_addr, d_cmd, d_fp = decode_to_fields(result.raw_timings)
+    command.decoded_protocol = d_proto
+    command.decoded_address = d_addr
+    command.decoded_command = d_cmd
+    command.decoded_fingerprint = d_fp
+    command.byte_hash = EventParser.pronto_byte_hash(result.code)
     await manager.async_add_command(device.id, command)
     connection.send_result(msg["id"], command.to_dict())
 

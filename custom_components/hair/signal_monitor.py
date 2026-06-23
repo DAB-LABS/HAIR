@@ -143,6 +143,22 @@ def normalize_command(command: Any) -> NormalizedSignal:
     return normalize(parsed)
 
 
+def _apply_signal_provenance(command, signal, *, send_count: int) -> None:
+    """Carry identity from an UnknownSignal onto a newly-assigned IRCommand.
+
+    Centralizes the per-field copy so a future addition to either dataclass
+    is made in one place and cannot be half-added (the absent decoded_*
+    copy on both assign paths is exactly the bug that produced this fix).
+    """
+    command.byte_hash = signal.byte_hash
+    command.decoded_protocol = signal.decoded_protocol
+    command.decoded_address = signal.decoded_address
+    command.decoded_command = signal.decoded_command
+    command.decoded_fingerprint = signal.decoded_fingerprint
+    command.send_count = max(1, send_count)
+    command.plucked_command_name = signal.plucked_command_name
+
+
 class SignalMonitor:
     """Core always-on IR signal listener.
 
@@ -743,9 +759,7 @@ class SignalMonitor:
             except ValueError:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
-            ir_command.byte_hash = signal.byte_hash
-            ir_command.send_count = max(1, send_count)
-            ir_command.plucked_command_name = signal.plucked_command_name
+            _apply_signal_provenance(ir_command, signal, send_count=send_count)
 
             hair_device.add_command(ir_command)
             command_id = ir_command.id
@@ -815,9 +829,7 @@ class SignalMonitor:
             except ValueError:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
-            ir_command.byte_hash = signal.byte_hash
-            ir_command.send_count = max(1, send_count)
-            ir_command.plucked_command_name = signal.plucked_command_name
+            _apply_signal_provenance(ir_command, signal, send_count=send_count)
 
             # Create device in memory (NOT persisted yet).
             new_device = IRDevice(
@@ -925,19 +937,32 @@ class SignalMonitor:
             async_send_command as ir_send,
         )
 
-        from .ir_command import build_command
+        from .ir_command import build_command, build_decoded_command
 
-        # Build an infrared_protocols.Command from the stored signal data.
-        try:
-            ir_cmd = build_command(
-                protocol=signal.protocol,
-                code=signal.code,
-                raw_timings=signal.raw_timings,
-                frequency=signal.frequency or 38000,
+        # Prefer canonical encode-from-decoded when the signal carries a
+        # decoded protocol identity, so the catalog-signal Test path (Sniffer
+        # / Clipper / Plucker) transmits clean library-encoded timings rather
+        # than replaying captured (receiver-distorted) ones. Mirrors
+        # device_manager.async_send_command. Falls back to Pronto/raw replay
+        # when undecodable.
+        ir_cmd = None
+        if signal.decoded_fingerprint:
+            ir_cmd = build_decoded_command(
+                signal.decoded_protocol,
+                signal.decoded_address,
+                signal.decoded_command,
             )
-        except ValueError as exc:
-            return {"success": False, "code": "no_signal_data",
-                    "error": str(exc)}
+        if ir_cmd is None:
+            try:
+                ir_cmd = build_command(
+                    protocol=signal.protocol,
+                    code=signal.code,
+                    raw_timings=signal.raw_timings,
+                    frequency=signal.frequency or 38000,
+                )
+            except ValueError as exc:
+                return {"success": False, "code": "no_signal_data",
+                        "error": str(exc)}
 
         try:
             await asyncio.wait_for(

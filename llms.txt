@@ -93,6 +93,11 @@ Signal fingerprinting details:
   stores the decoded identity alongside the raw timings as a cache layer. Raw
   timings stay the source of truth; the decoded form gives stronger matching and
   lets transmit re-encode clean timings instead of replaying captured ones.
+- The decoded form drives every transmit path consistently: device commands, the
+  catalog-signal Test button (Sniffer, Clipper, Plucker), and the guided Capture
+  save all prefer the re-encoded clean timings when a decoded identity is present.
+  Assigning a signal and saving a captured command carry that identity onto the new
+  command at creation time, not just at the next load.
 
 Supported capture providers (auto-discovered):
 - Native InfraredReceiverEntity instances (HA 2026.6+, hardware-agnostic)
