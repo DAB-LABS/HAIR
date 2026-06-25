@@ -131,7 +131,9 @@ def _decoded_signal(**overrides) -> UnknownSignal:
 def test_apply_signal_provenance_copies_all_fields():
     """The single copy site sets every field. This is the assertion the
     duplicated inline blocks used to dodge -- extend it when a field is added."""
-    sig = _decoded_signal(byte_hash="bh", plucked_command_name="pwr_on")
+    sig = _decoded_signal(
+        byte_hash="bh", plucked_command_name="pwr_on", repeat_count=7
+    )
     cmd = IRCommand(name="Power")
 
     _apply_signal_provenance(cmd, sig, send_count=3)
@@ -142,6 +144,7 @@ def test_apply_signal_provenance_copies_all_fields():
     assert cmd.decoded_command == 0x18
     assert cmd.decoded_fingerprint == "NEC:0x1000:0x18"
     assert cmd.send_count == 3
+    assert cmd.repeat_count == 7
     assert cmd.plucked_command_name == "pwr_on"
 
 
@@ -250,7 +253,9 @@ async def test_catalog_test_uses_decoded_when_available(fake_hass):
         result = await monitor.test_signal("s1", "infrared.e")
 
     assert result["success"] is True
-    bdc.assert_called_once_with("NEC", 0x1000, 0x18)
+    # test_signal now forwards the signal's repeat_count (default 1) to the
+    # decoded build (v0.5.5 ditto-honoring Test path).
+    bdc.assert_called_once_with("NEC", 0x1000, 0x18, repeat_count=1)
     bc.assert_not_called()
     ir_send.assert_awaited_once()
     assert ir_send.call_args[0][2] is sentinel
