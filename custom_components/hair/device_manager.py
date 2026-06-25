@@ -11,6 +11,7 @@ from homeassistant.helpers import device_registry as dr
 from .const import (
     DEFAULT_CARRIER_FREQUENCY,
     DOMAIN,
+    MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
     SEND_REPEAT_GAP,
     CommandCategory,
@@ -116,6 +117,7 @@ class DeviceManager:
         name: str | None = None,
         pronto: str | None = None,
         send_count: int | None = None,
+        repeat_count: int | None = None,
         trigger_manager: TriggerManager | None = None,
     ) -> dict[str, Any]:
         """Edit a device command's name and/or Pronto in place.
@@ -217,6 +219,10 @@ class DeviceManager:
         # --- whole-frame send count ---
         if send_count is not None:
             command.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
+
+        # --- NEC ditto count ---
+        if repeat_count is not None:
+            command.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
 
         await self.async_update_device(device)
         return {

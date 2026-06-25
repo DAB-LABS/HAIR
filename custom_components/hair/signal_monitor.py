@@ -29,10 +29,15 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
     DEFAULT_CARRIER_FREQUENCY,
+    DITTO_INTER_FRAME_MAX_S,
     EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
     LEGACY_ESPHOME_IR_EVENT,
+    MAX_DITTO_COUNT,
+    MAX_SEND_COUNT,
+    REPEAT_ATTRIBUTION_WINDOW,
+    SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
@@ -143,19 +148,47 @@ def normalize_command(command: Any) -> NormalizedSignal:
     return normalize(parsed)
 
 
-def _apply_signal_provenance(command, signal, *, send_count: int) -> None:
+def _apply_signal_provenance(
+    command,
+    signal,
+    *,
+    send_count: int | None = None,
+    repeat_count: int | None = None,
+) -> None:
     """Carry identity from an UnknownSignal onto a newly-assigned IRCommand.
 
     Centralizes the per-field copy so a future addition to either dataclass
     is made in one place and cannot be half-added (the absent decoded_*
     copy on both assign paths is exactly the bug that produced this fix).
+
+    Precedence on send_count:
+      - an explicit WS arg (not None) wins, clamped to >= 1
+      - None (the default, meaning the WS payload did not pass the field)
+        falls back to signal.send_count, clamped to >= 1
+      - a signal.send_count of 0 / falsy also falls back to 1
+
+    Precedence on repeat_count (mirrors send_count):
+      - an explicit WS arg (not None) wins, clamped to [0, MAX_DITTO_COUNT]
+      - None (the default) falls back to signal.repeat_count
+
+    The Optional sentinel is required for both because ``0 or X`` and ``1 or X``
+    short-circuit under Python truthiness, so a truthy fallback cannot tell
+    "caller passed 0/1" from "caller did not pass." observed_repeat_count is a
+    capture-side observation and intentionally does NOT transfer.
     """
     command.byte_hash = signal.byte_hash
     command.decoded_protocol = signal.decoded_protocol
     command.decoded_address = signal.decoded_address
     command.decoded_command = signal.decoded_command
     command.decoded_fingerprint = signal.decoded_fingerprint
-    command.send_count = max(1, send_count)
+    if repeat_count is not None:
+        command.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
+    else:
+        command.repeat_count = signal.repeat_count
+    if send_count is not None:
+        command.send_count = max(1, send_count)
+    else:
+        command.send_count = max(1, signal.send_count or 1)
     command.plucked_command_name = signal.plucked_command_name
 
 
@@ -208,6 +241,26 @@ class SignalMonitor:
         # introspect the ESPHome YAML statically, so the only signal that
         # ``on_pronto:`` is configured is observing events.
         self._bridge_active_device_ids: set[str] = set()
+
+        # Capture-side NEC ditto observation (v0.5.5). In-memory only; does
+        # not persist across restarts.
+        #
+        # Sentinel-aware single anchor. Written synchronously in
+        # _on_received_signal the moment a non-repeat signal arrives, then
+        # filled with the persisted signal_id once _process_parsed_signal
+        # completes, or invalidated to None if that path returns early for
+        # dismiss / rate-limit / known-command / repeat-suppress.
+        #   None                   -- no anchor active
+        #   (None, t, dev_fp)      -- main frame in flight (sentinel)
+        #   (signal_id, t, dev_fp) -- anchor live and writable
+        # The dev_fp slot is unread today; reserved for a v2 per-receiver
+        # attribution refinement so that upgrade does not change the shape.
+        self._ditto_anchor: tuple[str | None, float, str | None] | None = None
+        # Running count of dittos in the current burst; resets per main frame.
+        self._ditto_running_count: int = 0
+        # Timestamp of the most recent attributed ditto, for the inter-frame
+        # gate. None at the start of each burst.
+        self._last_ditto_monotonic: float | None = None
 
     @property
     def bridge_active_device_ids(self) -> set[str]:
@@ -367,6 +420,11 @@ class SignalMonitor:
             self._bridge_active_device_ids.add(device_id)
 
         # Filter out repeat frames (no command data).
+        # TODO(v0.6.0): ditto observation (v0.5.5) is native-only. If a
+        # legacy-bridge user requests it, the same anchor / counter / max-merge
+        # pattern from _on_received_signal applies here -- attribute the NEC
+        # repeat instead of dropping it. Held until the legacy bridge phase-out
+        # decision lands.
         if EventParser.is_nec_repeat(event_data):
             return
         if EventParser.is_pronto_repeat(event_data):
@@ -423,6 +481,7 @@ class SignalMonitor:
             self._matches_known_command(sig_fp, byte_hash, decoded_fingerprint)
             is not None
         ):
+            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
             return
 
         # Step 4: Check dismiss list.
@@ -441,14 +500,17 @@ class SignalMonitor:
                     EVENT_DISMISS_ACTIVITY,
                     {"device_fingerprint": dev_fp},
                 )
+            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
             return
 
         # Step 5: Rate limit.
         if not self._check_rate_limit(sig_fp):
+            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
             return
 
         # Step 6: Repeat suppression.
         if not self._check_repeat(sig_fp):
+            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
             return
 
         # Steps 7-9: Find/create device and signal (locked).
@@ -499,6 +561,15 @@ class SignalMonitor:
             if self._signal_store.device_count > 500:
                 self._signal_store.evict()
 
+        # Capture observation (v0.5.5): confirm the ditto anchor by writing in
+        # the persisted signal_id. The timestamp and dev_fp came from the sync
+        # entry point and are still correct. If the sentinel was already
+        # invalidated (an early return, or a racing main frame), do not
+        # resurrect it -- the next press starts a fresh anchor.
+        if self._ditto_anchor is not None:
+            _, t_anchor, dev_fp_anchor = self._ditto_anchor
+            self._ditto_anchor = (signal.id, t_anchor, dev_fp_anchor)
+
         # Step 10: Schedule save.
         self._signal_store.schedule_save()
 
@@ -533,15 +604,81 @@ class SignalMonitor:
         Converts the ``InfraredReceivedSignal`` to Pronto hex at the
         entry point, then schedules the async processing pipeline.
         """
-        # Filter repeat frames.
+        # NEC ditto (short repeat frame): attribute it to the most recent
+        # main frame instead of dropping it on the floor (v0.5.5).
         if EventParser.is_native_repeat(signal):
+            self._maybe_attribute_repeat_frame()
             return
 
         parsed = EventParser.parse_received_signal(signal)
         if parsed is None:
             return
 
+        # Sentinel write BEFORE scheduling the async work, so a ditto arriving
+        # between this callback and the async-task completion sees "main frame
+        # in flight, hold off" rather than the stale previous anchor. The
+        # signal_id stays None until _process_parsed_signal confirms
+        # persistence (or invalidates the anchor on an early return). The
+        # dev_fp is computed here too; this duplicates the call inside
+        # normalize() -- acceptable cost for the race fix.
+        n_dev_fp = EventParser.device_fingerprint(
+            parsed.protocol,
+            EventParser.extract_device_address(parsed.protocol, parsed.code),
+            parsed.raw_timings,
+            code=parsed.code,
+        )
+        self._ditto_anchor = (None, time.monotonic(), n_dev_fp)
+        self._ditto_running_count = 0
+        self._last_ditto_monotonic = None
+
         self._hass.async_create_task(self._process_parsed_signal(parsed))
+
+    def _maybe_attribute_repeat_frame(self) -> None:
+        """Attribute an incoming short signal (NEC ditto) to the most recent
+        main-frame arrival, if it is within the attribution window AND the
+        inter-frame gate is satisfied. Updates ``observed_repeat_count`` on the
+        stored signal with max-merge (high water mark) semantics.
+
+        v1 of ditto observation is native-only; the legacy ESPHome bridge
+        (``_on_ir_event``) gets the same treatment if a user requests it.
+        """
+        if self._ditto_anchor is None:
+            return
+        signal_id, last_main_monotonic, _ = self._ditto_anchor
+
+        # Sentinel: the main frame has not been persisted yet. Drop -- we
+        # cannot attribute to a signal_id we do not have.
+        if signal_id is None:
+            return
+
+        now = time.monotonic()
+
+        # Gate 1: outside the main-frame attribution window.
+        if now - last_main_monotonic > REPEAT_ATTRIBUTION_WINDOW:
+            return
+
+        # Gate 2: inter-frame staleness. NEC dittos arrive ~110ms apart; a gap
+        # > DITTO_INTER_FRAME_MAX_S means the burst is over and this short
+        # signal starts a new orphan burst until the next main-frame anchor.
+        if (
+            self._last_ditto_monotonic is not None
+            and now - self._last_ditto_monotonic > DITTO_INTER_FRAME_MAX_S
+        ):
+            return
+
+        self._ditto_running_count += 1
+        new_count = self._ditto_running_count
+        self._last_ditto_monotonic = now
+
+        # Locate the stored UnknownSignal by id and max-merge the count.
+        for device in self._signal_store.get_all_devices():
+            sig = device.get_signal_by_id(signal_id)
+            if sig is None:
+                continue
+            if new_count > sig.observed_repeat_count:
+                sig.observed_repeat_count = new_count
+                self._signal_store.schedule_save()
+            return
 
     # -----------------------------------------------------------------
     # Known-command check
@@ -713,7 +850,8 @@ class SignalMonitor:
         hair_device_id: str,
         command_name: str,
         command_category: str,
-        send_count: int = 1,
+        send_count: int | None = None,
+        repeat_count: int | None = None,
     ) -> dict[str, Any]:
         """Assign an unknown signal as a named command on a HAIR device.
 
@@ -759,7 +897,11 @@ class SignalMonitor:
             except ValueError:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
-            _apply_signal_provenance(ir_command, signal, send_count=send_count)
+            _apply_signal_provenance(
+                ir_command, signal,
+                send_count=send_count,
+                repeat_count=repeat_count,
+            )
 
             hair_device.add_command(ir_command)
             command_id = ir_command.id
@@ -782,7 +924,8 @@ class SignalMonitor:
         emitter_entity_ids: list[str],
         command_name: str,
         command_category: str,
-        send_count: int = 1,
+        send_count: int | None = None,
+        repeat_count: int | None = None,
     ) -> dict[str, Any]:
         """Create a new HAIR device and assign the signal in one atomic op.
 
@@ -829,7 +972,11 @@ class SignalMonitor:
             except ValueError:
                 category = CommandCategory.CUSTOM
             ir_command = capture.to_command(command_name, category)
-            _apply_signal_provenance(ir_command, signal, send_count=send_count)
+            _apply_signal_provenance(
+                ir_command, signal,
+                send_count=send_count,
+                repeat_count=repeat_count,
+            )
 
             # Create device in memory (NOT persisted yet).
             new_device = IRDevice(
@@ -951,6 +1098,7 @@ class SignalMonitor:
                 signal.decoded_protocol,
                 signal.decoded_address,
                 signal.decoded_command,
+                repeat_count=signal.repeat_count or 0,
             )
         if ir_cmd is None:
             try:
@@ -959,16 +1107,25 @@ class SignalMonitor:
                     code=signal.code,
                     raw_timings=signal.raw_timings,
                     frequency=signal.frequency or 38000,
+                    repeat_count=signal.repeat_count or 0,
                 )
             except ValueError as exc:
                 return {"success": False, "code": "no_signal_data",
                         "error": str(exc)}
 
+        # Honor the signal's whole-frame send_count, mirroring
+        # device_manager.async_send_command: transmit the built Command N times
+        # with SEND_REPEAT_GAP between so the receiver registers them as
+        # distinct presses. send_count defaults to 1.
+        send_count = max(1, signal.send_count or 1)
         try:
-            await asyncio.wait_for(
-                ir_send(self._hass, emitter_entity_id, ir_cmd),
-                timeout=ASSIGN_SERVICE_TIMEOUT_S,
-            )
+            for i in range(send_count):
+                if i:
+                    await asyncio.sleep(SEND_REPEAT_GAP)
+                await asyncio.wait_for(
+                    ir_send(self._hass, emitter_entity_id, ir_cmd),
+                    timeout=ASSIGN_SERVICE_TIMEOUT_S,
+                )
         except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):  # noqa: UP041
             return {"success": False, "code": "send_timeout",
                     "error": "Emitter timed out"}
@@ -1015,7 +1172,12 @@ class SignalMonitor:
         return device
 
     async def create_manual_signal(
-        self, device_id: str, pronto: str, alias: str = ""
+        self,
+        device_id: str,
+        pronto: str,
+        alias: str = "",
+        repeat_count: int | None = None,
+        send_count: int | None = None,
     ) -> dict[str, Any]:
         """Add a manually-pasted Pronto signal to a clipped remote.
 
@@ -1098,6 +1260,13 @@ class SignalMonitor:
                 source="manual",
                 alias=(alias or "").strip(),
             )
+            # Create-time TX knobs from the editor (clamped). Absent -> the
+            # dataclass defaults apply (repeat_count=DEFAULT_REPEAT_COUNT,
+            # send_count=1).
+            if repeat_count is not None:
+                signal.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
+            if send_count is not None:
+                signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
             # New signal goes on top so the just-added clip surfaces.
             device.signals.insert(0, signal)
             device.last_seen = now_iso
@@ -1225,6 +1394,8 @@ class SignalMonitor:
         signal_id: str,
         pronto: str,
         alias: str | None = None,
+        repeat_count: int | None = None,
+        send_count: int | None = None,
     ) -> dict[str, Any]:
         """Edit a stored signal's Pronto in place, re-evaluated as a capture.
 
@@ -1298,6 +1469,12 @@ class SignalMonitor:
                 else DEFAULT_CARRIER_FREQUENCY
             )
 
+            # Re-derive identity from the new code. repeat_count, send_count,
+            # and observed_repeat_count are TX knobs / capture observations,
+            # NOT signal identity, so this re-derivation intentionally does NOT
+            # touch them -- an edit preserves the user's tunings. Explicit
+            # repeat_count / send_count args (from the editor Save) are applied
+            # just below.
             signal.code = code
             signal.fingerprint = new_fp
             signal.byte_hash = new_byte_hash
@@ -1309,6 +1486,10 @@ class SignalMonitor:
             signal.decoded_fingerprint = decoded_fingerprint
             if alias is not None:
                 signal.alias = alias.strip()
+            if repeat_count is not None:
+                signal.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
+            if send_count is not None:
+                signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
             signal.last_seen = datetime.now(UTC).isoformat()
 
             rewire: dict[str, list[str]] = {"rewired": [], "skipped": []}

@@ -547,6 +547,18 @@ class UnknownSignal:
     # User-typed vendor command name for a plucked signal (Plucker, v0.5.0).
     # None for sniffed/manual signals. Preserved across a Pronto edit.
     plucked_command_name: str | None = None
+    # User-tunable TX knobs (mirror IRCommand, default to the same values).
+    # Surfaced in the signal editor as "Send times" and "Ditto count" so a
+    # user can tune them on the catalog signal before assigning; carried onto
+    # the new IRCommand at assign time via _apply_signal_provenance.
+    repeat_count: int = DEFAULT_REPEAT_COUNT  # NEC ditto count
+    send_count: int = 1  # whole-frame TX count
+    # Capture-side observation: count of NEC dittos that followed the main
+    # frame within the attribution window. Max-merge (high water mark) across
+    # captures so a held-press observation persists across later brief taps.
+    # Read-only at the model layer; surfaced as a UI hint. NOT carried onto an
+    # IRCommand at assign time.
+    observed_repeat_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -567,6 +579,9 @@ class UnknownSignal:
             "source": self.source,
             "alias": self.alias,
             "plucked_command_name": self.plucked_command_name,
+            "repeat_count": self.repeat_count,
+            "send_count": self.send_count,
+            "observed_repeat_count": self.observed_repeat_count,
         }
         # Compute S/L pattern for Pronto signals (not stored, derived).
         if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
@@ -596,6 +611,9 @@ class UnknownSignal:
             source=data.get("source", "sniffed"),
             alias=data.get("alias", ""),
             plucked_command_name=data.get("plucked_command_name"),
+            repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
+            send_count=int(data.get("send_count", 1)),
+            observed_repeat_count=int(data.get("observed_repeat_count", 0)),
         )
 
 

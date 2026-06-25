@@ -25,6 +25,24 @@ DEFAULT_REPEAT_COUNT = 1
 MAX_SEND_COUNT = 10
 SEND_REPEAT_GAP = 0.1
 
+# Maximum delay (seconds) between a captured main frame and any NEC ditto from
+# the same source device for the ditto to attribute to that frame. NEC dittos
+# arrive every ~110ms; this 1.0s window covers up to ~9 consecutive dittos,
+# enough for an intentional press-and-hold. Longer than that is treated as a
+# fresh unrelated press.
+REPEAT_ATTRIBUTION_WINDOW = 1.0
+
+# Maximum delay (seconds) between two successive attributed dittos in the same
+# burst. NEC dittos arrive ~110ms apart; > 250ms means the burst is over and
+# the next short signal starts a new orphan burst. Closes the cross-remote
+# attribution edge case (see ditto-count plan Section 1).
+DITTO_INTER_FRAME_MAX_S = 0.25
+
+# Maximum ditto count exposed in the UI. Mirrors MAX_SEND_COUNT for symmetric
+# clamping. NEC has no hard spec ceiling, but 20 covers an intentional 2-second
+# hold-down and prevents pathological values.
+MAX_DITTO_COUNT = 20
+
 PLATFORMS = ["remote", "media_player", "climate", "fan", "light", "switch", "cover"]
 
 PANEL_URL = "hair"
