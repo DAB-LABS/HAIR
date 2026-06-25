@@ -48,8 +48,17 @@ export class IrSignalEditor extends LitElement {
     @property({ attribute: false }) public commandId: string | null = null;
     @property({ attribute: false }) public initialPronto = "";
     @property({ attribute: false }) public initialAlias = "";
-    /** Command mode only: the command's current whole-frame send count. */
+    /** Current whole-frame send count (all modes). */
     @property({ attribute: false }) public initialSendCount = 1;
+    /** Current NEC ditto count (all modes). */
+    @property({ attribute: false }) public initialDitto = 1;
+    /** Read-only hint: dittos observed following this signal at capture. */
+    @property({ attribute: false }) public initialObservedRepeatCount = 0;
+    /** Command mode only: the command's per-command PRONTO toggle. */
+    @property({ attribute: false }) public initialTxForceRaw = false;
+    /** Command mode only: the command's stored decoded protocol (null if raw). */
+    @property({ attribute: false }) public initialDecodedProtocol: string | null =
+        null;
     @property({ type: Boolean }) public hasTrigger = false;
     /** Sniffer-only: enables the off-standard carrier snap affordance. */
     @property({ type: Boolean }) public allowSnap = false;
@@ -57,6 +66,7 @@ export class IrSignalEditor extends LitElement {
     @state() private _pronto = "";
     @state() private _alias = "";
     @state() private _sendCount = 1;
+    @state() private _ditto = 1;
     @state() private _busy = false;
     @state() private _error: string | null = null;
     @state() private _validation: ProntoValidation | null = null;
@@ -78,7 +88,8 @@ export class IrSignalEditor extends LitElement {
         return (
             this._pronto !== this.initialPronto ||
             this._alias !== this.initialAlias ||
-            (this._isCommand && this._sendCount !== this.initialSendCount)
+            this._sendCount !== this.initialSendCount ||
+            this._ditto !== this.initialDitto
         );
     }
 
@@ -87,12 +98,47 @@ export class IrSignalEditor extends LitElement {
         return this._isEdit ? this._dirty : true;
     }
 
+    /**
+     * The Ditto count input is meaningful only when transmit will take the
+     * decoded (NEC) path. Generic across decoded protocols, not NEC-specific.
+     */
+    private get _dittoCountDisabled(): boolean {
+        // Signal-edit / create mode: gate on the live-validated decoded form.
+        if (!this._isCommand) {
+            if (!this._pronto.trim()) return true;
+            if (this._validation === null) return true;
+            if (!this._validation.recognized_protocol) return true;
+            return false;
+        }
+        // Command-edit mode: gate on the command's stored decoded form AND
+        // honor the per-command PRONTO toggle. Ditto only fires when TX takes
+        // the decoded path (build_decoded_command); a command with
+        // tx_force_raw=True goes through build_command and the dittos do not
+        // fire on the wire.
+        if (!this.initialDecodedProtocol) return true;
+        if (this.initialTxForceRaw) return true;
+        return false;
+    }
+
+    /** Tooltip for the disabled Ditto count input, by reason. */
+    private get _dittoDisabledTooltip(): string {
+        if (
+            this._isCommand &&
+            this.initialDecodedProtocol &&
+            this.initialTxForceRaw
+        ) {
+            return "Ditto count applies when the command transmits as NEC. Toggle the pill to NEC to enable.";
+        }
+        return "Ditto count applies to decoded signals (NEC today). Raw Pronto codes transmit as captured.";
+    }
+
     firstUpdated(): void {
         // Properties bound by the parent are set by first render; seed the
         // editable copies and validate a pre-filled code immediately.
         this._pronto = this.initialPronto;
         this._alias = this.initialAlias;
         this._sendCount = this.initialSendCount;
+        this._ditto = this.initialDitto;
         if (this._pronto.trim()) {
             void this._validate();
         }
@@ -130,6 +176,11 @@ export class IrSignalEditor extends LitElement {
         this._sendCount = Number.isNaN(raw)
             ? 1
             : Math.max(1, Math.min(raw, 10));
+    }
+
+    private _onDittoInput(e: Event): void {
+        const raw = parseInt((e.target as HTMLInputElement).value, 10);
+        this._ditto = Number.isNaN(raw) ? 0 : Math.max(0, Math.min(raw, 20));
     }
 
     private _onProntoInput(e: Event): void {
@@ -178,6 +229,10 @@ export class IrSignalEditor extends LitElement {
         if (!this._canSave) return;
         this._busy = true;
         this._error = null;
+        // Ditto count persists only when the code is decodable; on a raw /
+        // non-decoded code the input is disabled and we omit the field so the
+        // saved record keeps the default rather than a stale tuned value.
+        const ditto = this._dittoCountDisabled ? undefined : this._ditto;
         try {
             if (this._isCommand) {
                 const result = await this.api.updateCommand({
@@ -186,6 +241,7 @@ export class IrSignalEditor extends LitElement {
                     name: this._alias.trim(),
                     pronto: this._pronto,
                     send_count: this._sendCount,
+                    repeat_count: ditto,
                 });
                 this.dispatchEvent(
                     new CustomEvent("command-edited", {
@@ -200,6 +256,8 @@ export class IrSignalEditor extends LitElement {
                     signal_id: this.signalId as string,
                     pronto: this._pronto,
                     alias: this._alias.trim(),
+                    send_count: this._sendCount,
+                    repeat_count: ditto,
                 });
                 this.dispatchEvent(
                     new CustomEvent("signal-edited", {
@@ -214,6 +272,8 @@ export class IrSignalEditor extends LitElement {
                         device_id: this.deviceId,
                         pronto: this._pronto,
                         alias: this._alias.trim() || undefined,
+                        send_count: this._sendCount,
+                        repeat_count: ditto,
                     });
                 this.dispatchEvent(
                     new CustomEvent("signal-created", {
@@ -441,22 +501,43 @@ export class IrSignalEditor extends LitElement {
                     />
                 </div>
 
-                ${this._isCommand
-                    ? html`<div class="field">
-                          <label>Send times</label>
-                          <input
-                              class="send-count"
-                              type="number"
-                              min="1"
-                              max="10"
-                              .value=${String(this._sendCount)}
-                              @input=${this._onSendCountInput}
-                              @keydown=${this._onKeydown}
-                          />
-                          <div class="hint">
-                              Transmit the whole command this many times per
-                              press (for devices that need a repeat).
-                          </div>
+                <div class="field tx-knobs">
+                    <div class="knob">
+                        <label>Send times</label>
+                        <input
+                            class="num-input"
+                            type="number"
+                            min="1"
+                            max="10"
+                            .value=${String(this._sendCount)}
+                            title="Transmit the whole command this many times as independent presses, for devices that need a repeat to register."
+                            @input=${this._onSendCountInput}
+                            @keydown=${this._onKeydown}
+                        />
+                    </div>
+                    ${this._dittoCountDisabled
+                        ? ""
+                        : html`<div class="knob">
+                              <label>Ditto count</label>
+                              <input
+                                  class="num-input"
+                                  type="number"
+                                  min="0"
+                                  max="20"
+                                  .value=${String(this._ditto)}
+                                  title='Append repeat frames after the main frame. Some strict receivers, notably commercial audio gear, need at least one to register the command.'
+                                  @input=${this._onDittoInput}
+                                  @keydown=${this._onKeydown}
+                              />
+                          </div>`}
+                </div>
+                ${this.initialObservedRepeatCount > 0
+                    ? html`<div class="observed-hint">
+                          Observed at capture:
+                          ${this.initialObservedRepeatCount}
+                          ${this.initialObservedRepeatCount === 1
+                              ? "ditto"
+                              : "dittos"}
                       </div>`
                     : ""}
 
@@ -562,7 +643,15 @@ export class IrSignalEditor extends LitElement {
             outline: none;
             border-color: #b87333;
         }
-        input.send-count {
+        .tx-knobs {
+            display: flex;
+            gap: 16px;
+        }
+        .knob {
+            display: flex;
+            flex-direction: column;
+        }
+        input.num-input {
             width: 80px;
             padding: 8px;
             border-radius: 4px;
@@ -573,9 +662,18 @@ export class IrSignalEditor extends LitElement {
             font-family: inherit;
             box-sizing: border-box;
         }
-        input.send-count:focus {
+        input.num-input:focus {
             outline: none;
             border-color: #b87333;
+        }
+        input.num-input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .observed-hint {
+            margin: -4px 0 12px;
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
         }
         .hint {
             margin-top: 6px;

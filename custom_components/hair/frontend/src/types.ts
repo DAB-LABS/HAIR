@@ -184,6 +184,18 @@ export interface UnknownSignal {
     source?: SignalSourceId;
     alias?: string;
     plucked_command_name?: string | null;
+    // Decoded protocol identity, populated when the signal matches a known
+    // protocol (NEC today). Mirrors the same fields on IRCommand. Optional
+    // because non-decoded signals leave them null.
+    decoded_protocol?: string | null;
+    decoded_address?: number | null;
+    decoded_command?: number | null;
+    decoded_fingerprint?: string | null;
+    // User-tunable TX knobs (mirror IRCommand) plus the capture-side ditto
+    // observation surfaced as an editor hint.
+    repeat_count?: number;
+    send_count?: number;
+    observed_repeat_count?: number;
 }
 
 export interface UnknownDeviceSummary {

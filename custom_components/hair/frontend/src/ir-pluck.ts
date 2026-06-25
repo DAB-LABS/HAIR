@@ -883,6 +883,10 @@ export class IrPluck extends LitElement {
                       .signalId=${this._editSignal.signal.id}
                       .initialPronto=${this._editSignal.signal.code ?? ""}
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
+                      .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                      .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
+                      .initialObservedRepeatCount=${this._editSignal.signal
+                          .observed_repeat_count ?? 0}
                       .hasTrigger=${this._hasTrigger(this._editSignal.signal.fingerprint)}
                       @signal-edited=${this._onSignalEdited}
                       @closed=${() => (this._editSignal = null)}

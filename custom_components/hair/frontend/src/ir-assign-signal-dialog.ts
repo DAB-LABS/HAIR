@@ -67,6 +67,9 @@ export class IrAssignSignalDialog extends LitElement {
 
     // Whole-frame send count for the new command (1 = send once).
     @state() private _sendCount = 1;
+    // NEC ditto count for the new command. Editable only when the signal is
+    // decoded; defaulted from the signal's stored repeat_count.
+    @state() private _dittoCount = 1;
 
     @state() private _busy = false;
     @state() private _error: string | null = null;
@@ -77,6 +80,7 @@ export class IrAssignSignalDialog extends LitElement {
         if (this.suggestedDeviceName && !this._newName) {
             this._newName = this.suggestedDeviceName;
         }
+        this._dittoCount = this.signal?.repeat_count ?? 1;
         void this._loadDevices();
         // Templates loaded after _loadDevices resolves (for existing mode)
         // or immediately for new mode.
@@ -172,6 +176,13 @@ export class IrAssignSignalDialog extends LitElement {
             : Math.max(1, Math.min(raw, 10));
     }
 
+    private _onDittoInput(e: Event): void {
+        const raw = parseInt((e.target as HTMLInputElement).value, 10);
+        this._dittoCount = Number.isNaN(raw)
+            ? 0
+            : Math.max(0, Math.min(raw, 20));
+    }
+
     private async _assign(): Promise<void> {
         const name = this._commandName.trim();
         if (!name) {
@@ -197,6 +208,9 @@ export class IrAssignSignalDialog extends LitElement {
                     hair_device_id: this._selectedDeviceId,
                     command_name: name,
                     send_count: this._sendCount,
+                    repeat_count: this.signal.decoded_fingerprint
+                        ? this._dittoCount
+                        : undefined,
                 });
             } else {
                 if (!this._newName.trim()) {
@@ -217,6 +231,9 @@ export class IrAssignSignalDialog extends LitElement {
                     emitter_entity_ids: this._newEmitterIds,
                     command_name: name,
                     send_count: this._sendCount,
+                    repeat_count: this.signal.decoded_fingerprint
+                        ? this._dittoCount
+                        : undefined,
                 });
             }
 
@@ -326,6 +343,27 @@ export class IrAssignSignalDialog extends LitElement {
                         devices that need a repeat. Default 1.
                     </div>
                 </div>
+
+                ${this.signal.decoded_fingerprint
+                    ? html`<!-- NEC ditto count (decoded signals only) -->
+                          <div class="field">
+                              <label>Ditto count</label>
+                              <input
+                                  class="send-count"
+                                  type="number"
+                                  min="0"
+                                  max="20"
+                                  .value=${String(this._dittoCount)}
+                                  title="Append repeat frames after the main frame; some strict receivers need at least one to register the command."
+                                  @input=${this._onDittoInput}
+                              />
+                              <div class="hint">
+                                  Append repeat frames after the main frame;
+                                  some strict receivers require at least one
+                                  to register the command.
+                              </div>
+                          </div>`
+                    : ""}
 
                 <div class="dialog-actions">
                     <button
@@ -528,6 +566,10 @@ export class IrAssignSignalDialog extends LitElement {
         input.send-count:focus {
             outline: none;
             border-color: var(--primary-color);
+        }
+        input.send-count:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         .hint {
             margin-top: 6px;

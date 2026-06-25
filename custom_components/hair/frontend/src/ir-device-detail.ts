@@ -977,6 +977,10 @@ export class IrDeviceDetail extends LitElement {
                           .initialPronto=${this._editCommand.code ?? ""}
                           .initialAlias=${this._editCommand.name}
                           .initialSendCount=${this._editCommand.send_count ?? 1}
+                          .initialDitto=${this._editCommand.repeat_count ?? 1}
+                          .initialTxForceRaw=${this._editCommand.tx_force_raw ?? false}
+                          .initialDecodedProtocol=${this._editCommand
+                              .decoded_protocol ?? null}
                           .hasTrigger=${this._commandHasTrigger(this._editCommand)}
                           @command-edited=${this._onCommandEdited}
                           @closed=${() => (this._editCommand = null)}

@@ -335,6 +335,7 @@ export class HairApi {
         command_name: string;
         command_category?: string;
         send_count?: number;
+        repeat_count?: number;
     }): Promise<AssignResult> {
         return this.hass.connection.sendMessagePromise<AssignResult>({
             type: "hair/unknown/assign",
@@ -351,6 +352,7 @@ export class HairApi {
         command_name: string;
         command_category?: string;
         send_count?: number;
+        repeat_count?: number;
     }): Promise<AssignResult> {
         return this.hass.connection.sendMessagePromise<AssignResult>({
             type: "hair/unknown/assign-new-device",
@@ -459,6 +461,8 @@ export class HairApi {
         device_id: string;
         pronto: string;
         alias?: string;
+        send_count?: number;
+        repeat_count?: number;
     }): Promise<{ signal: UnknownSignal }> {
         return this.hass.connection.sendMessagePromise<{ signal: UnknownSignal }>({
             type: "hair/clip/create-signal",
@@ -471,6 +475,8 @@ export class HairApi {
         signal_id: string;
         pronto: string;
         alias?: string | null;
+        send_count?: number;
+        repeat_count?: number;
     }): Promise<{
         signal: UnknownSignal;
         triggers: { rewired: string[]; skipped: string[] };
@@ -504,6 +510,7 @@ export class HairApi {
         name?: string;
         pronto?: string;
         send_count?: number;
+        repeat_count?: number;
     }): Promise<{
         command: IRCommand;
         triggers: { rewired: string[]; skipped: string[] };

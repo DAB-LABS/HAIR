@@ -10,9 +10,13 @@ import type { IRCommand } from "./types.js";
 // mdi:content-copy -- shared view/edit glyph (matches the signal rows).
 const ICON_COPY =
     "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
-// mdi:repeat -- stubbed per-command repeat indicator (Feature 7, deferred).
+// mdi:repeat -- whole-frame send-count indicator (orange).
 const ICON_REPEAT =
     "M17,17H7V14L3,18L7,22V19H19V13H17M7,7H17V10L21,6L17,2V5H5V11H7V7Z";
+// mdi:dots-horizontal -- NEC ditto-count indicator (blue), paired with the
+// decoded-protocol blue diamond.
+const ICON_DITTO =
+    "M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z";
 
 @customElement("ir-command-row")
 export class IrCommandRow extends LitElement {
@@ -178,6 +182,26 @@ export class IrCommandRow extends LitElement {
                                   >${this.command.send_count}</span
                               >`
                             : ""}
+                        ${
+                            // Hide the ditto chip when tx_force_raw is set: TX
+                            // takes the raw replay path in that case and the
+                            // dittos would not fire on the wire, so showing the
+                            // chip would mislead about transmit behavior.
+                            learned &&
+                            this.command &&
+                            this.command.repeat_count > 1 &&
+                            this.command.decoded_protocol &&
+                            !this.command.tx_force_raw
+                            ? html`<span
+                                  class="ditto-indicator"
+                                  title="Appends ${this.command
+                                      .repeat_count} NEC dittos"
+                                  ><ha-svg-icon
+                                      .path=${ICON_DITTO}
+                                  ></ha-svg-icon
+                                  >${this.command.repeat_count}</span
+                              >`
+                            : ""}
                     </div>
                     <div class="meta">
                         ${diamonds
@@ -328,6 +352,20 @@ export class IrCommandRow extends LitElement {
             opacity: 0.85;
         }
         .repeat-indicator ha-svg-icon {
+            --mdc-icon-size: 10px;
+        }
+        .ditto-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 1px;
+            font-size: 9px;
+            font-weight: 600;
+            /* Match the long-diamond blue (decoded protocol); same size as the
+               orange send-count indicator it sits beside. */
+            color: var(--primary-color);
+            opacity: 0.85;
+        }
+        .ditto-indicator ha-svg-icon {
             --mdc-icon-size: 10px;
         }
         .icon-btn {
