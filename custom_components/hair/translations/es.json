@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurar HAIR",
+        "description": "HAIR permite gestionar tus dispositivos de infrarrojos desde un único panel.\n\nHardware detectado:\n\n{hardware_summary}",
+        "data": {}
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "HAIR ya está configurado.",
+      "no_ir_hardware": "No se ha detectado ningún dispositivo compatible con infrarrojos. Para capturar señales necesitas un dispositivo ESPHome con el componente remote_receiver. Para enviar señales necesitas una integración compatible con la plataforma nativa de infrarrojos de Home Assistant (Broadlink, ESPHome, etc.). Consulta la [guía de configuración]({setup_url}) para obtener más información."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones de HAIR",
+        "description": "Configura los ajustes globales para la gestión de dispositivos de infrarrojos.",
+        "data": {
+          "capture_timeout": "Tiempo de espera para la captura (segundos)",
+          "default_repeat_count": "Número predeterminado de repeticiones de las órdenes IR"
+        },
+        "data_description": {
+          "capture_timeout": "Tiempo máximo de espera para recibir una señal de infrarrojos durante la captura (entre 5 y 60 segundos).",
+          "default_repeat_count": "Número de veces que, de forma predeterminada, se repetirá la transmisión de cada orden de infrarrojos (entre 1 y 10)."
+        }
+      }
+    }
+  }
+}
