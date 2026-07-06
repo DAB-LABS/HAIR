@@ -33,6 +33,7 @@ from .const import (
     EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
+    EVENT_SIGNAL_UPDATED,
     LEGACY_ESPHOME_IR_EVENT,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
@@ -220,7 +221,9 @@ class SignalMonitor:
         self._rate_buckets: dict[str, list[float]] = defaultdict(list)
 
         # Repeat suppression: fingerprint -> last event time (monotonic).
-        self._last_seen_times: dict[str, float] = {}
+        # Keyed by (fingerprint, receiver_key) so cross-receiver captures of
+        # the same press are not dropped as storage-path repeats (v0.5.7).
+        self._last_seen_times: dict[tuple[str, str], float] = {}
 
         # Per-device-fingerprint rate limit for the dismiss-activity bus
         # event push. Separate from ``_rate_buckets`` so the dismiss-activity
@@ -245,22 +248,25 @@ class SignalMonitor:
         # Capture-side NEC ditto observation (v0.5.5). In-memory only; does
         # not persist across restarts.
         #
-        # Sentinel-aware single anchor. Written synchronously in
-        # _on_received_signal the moment a non-repeat signal arrives, then
+        # Per-receiver ditto anchors (v0.5.7). Keyed by receiver_entity_id, or
+        # the "__legacy__" sentinel for legacy captures, so two receivers
+        # observing the same physical press keep independent attribution
+        # instead of corrupting a shared single anchor. Written synchronously
+        # in _on_received_signal the moment a non-repeat signal arrives, then
         # filled with the persisted signal_id once _process_parsed_signal
-        # completes, or invalidated to None if that path returns early for
-        # dismiss / rate-limit / known-command / repeat-suppress.
-        #   None                   -- no anchor active
-        #   (None, t, dev_fp)      -- main frame in flight (sentinel)
-        #   (signal_id, t, dev_fp) -- anchor live and writable
-        # The dev_fp slot is unread today; reserved for a v2 per-receiver
-        # attribution refinement so that upgrade does not change the shape.
-        self._ditto_anchor: tuple[str | None, float, str | None] | None = None
-        # Running count of dittos in the current burst; resets per main frame.
-        self._ditto_running_count: int = 0
-        # Timestamp of the most recent attributed ditto, for the inter-frame
-        # gate. None at the start of each burst.
-        self._last_ditto_monotonic: float | None = None
+        # completes, or removed if that path returns early.
+        #   value (None, t, dev_fp)      -- main frame in flight (sentinel)
+        #   value (signal_id, t, dev_fp) -- anchor live and writable
+        # The dev_fp slot is unread today; kept for shape stability.
+        self._ditto_anchor: dict[
+            str, tuple[str | None, float, str | None]
+        ] = {}
+        # Running ditto count in the current burst, per receiver; reset on each
+        # new main frame.
+        self._ditto_running_count: dict[str, int] = {}
+        # Timestamp of the most recent attributed ditto per receiver, for the
+        # inter-frame gate. Key absent = no ditto yet in this burst.
+        self._last_ditto_monotonic: dict[str, float] = {}
 
     @property
     def bridge_active_device_ids(self) -> set[str]:
@@ -339,10 +345,15 @@ class SignalMonitor:
             return
 
         for receiver_entity_id in receivers:
+            # rid=... binds the loop var by value (avoids late-binding) and
+            # threads the capturing receiver's entity_id into the callback so
+            # location-aware triggers know where the signal was received.
             unsub = async_subscribe_receiver(
                 self._hass,
                 receiver_entity_id,
-                self._on_received_signal,
+                lambda sig, rid=receiver_entity_id: self._on_received_signal(
+                    sig, rid
+                ),
             )
             self._unsubs.append(unsub)
 
@@ -433,9 +444,13 @@ class SignalMonitor:
         if parsed is None:
             return
 
-        await self._process_parsed_signal(parsed)
+        # Legacy captures cannot reliably map to an infrared.* receiver entity,
+        # so scoped triggers will not match them; unscoped triggers still fire.
+        await self._process_parsed_signal(parsed, receiver_entity_id=None)
 
-    async def _process_parsed_signal(self, parsed: Any) -> None:
+    async def _process_parsed_signal(
+        self, parsed: Any, receiver_entity_id: str | None = None
+    ) -> None:
         """Shared signal processing pipeline for both native and legacy paths.
 
         Steps:
@@ -450,6 +465,9 @@ class SignalMonitor:
         11. Fire HA event
         12. Notify subscribers
         """
+        # Per-receiver key for ditto attribution + repeat suppression (v0.5.7).
+        rid_key = receiver_entity_id or "__legacy__"
+
         # Step 1: Compute fingerprints + byte-hash + protocol decode. This
         # pure normalization lives in the module-level normalize() so the
         # Plucker can reuse it without the route/store/push half below.
@@ -465,10 +483,13 @@ class SignalMonitor:
         decoded_fingerprint = n.decoded_fingerprint
 
         # Step 2: Check triggers (before known-command skip so triggers
-        # work for both assigned commands and unknown signals).
+        # work for both assigned commands and unknown signals). Threads the
+        # capturing receiver so scoped triggers can match and the payload
+        # carries receiver + area (v0.5.7).
         if self._trigger_manager is not None:
-            self._trigger_manager.on_signal(
-                sig_fp, parsed.protocol, parsed.code, dev_fp
+            self._trigger_manager.on_signal_captured(
+                sig_fp, parsed.protocol, parsed.code, dev_fp,
+                receiver_entity_id,
             )
 
         # Step 3: Check known commands. The matcher returns the matched
@@ -481,7 +502,7 @@ class SignalMonitor:
             self._matches_known_command(sig_fp, byte_hash, decoded_fingerprint)
             is not None
         ):
-            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
+            self._ditto_anchor.pop(rid_key, None)  # invalidate this receiver's sentinel
             return
 
         # Step 4: Check dismiss list.
@@ -500,17 +521,18 @@ class SignalMonitor:
                     EVENT_DISMISS_ACTIVITY,
                     {"device_fingerprint": dev_fp},
                 )
-            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
+            self._ditto_anchor.pop(rid_key, None)  # invalidate this receiver's sentinel
             return
 
         # Step 5: Rate limit.
         if not self._check_rate_limit(sig_fp):
-            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
+            self._ditto_anchor.pop(rid_key, None)  # invalidate this receiver's sentinel
             return
 
-        # Step 6: Repeat suppression.
-        if not self._check_repeat(sig_fp):
-            self._ditto_anchor = None  # invalidate the in-flight ditto sentinel
+        # Step 6: Repeat suppression (per receiver, so cross-receiver captures
+        # of the same press are not dropped as storage-path repeats).
+        if not self._check_repeat(sig_fp, receiver_entity_id):
+            self._ditto_anchor.pop(rid_key, None)  # invalidate this receiver's sentinel
             return
 
         # Steps 7-9: Find/create device and signal (locked).
@@ -566,9 +588,10 @@ class SignalMonitor:
         # entry point and are still correct. If the sentinel was already
         # invalidated (an early return, or a racing main frame), do not
         # resurrect it -- the next press starts a fresh anchor.
-        if self._ditto_anchor is not None:
-            _, t_anchor, dev_fp_anchor = self._ditto_anchor
-            self._ditto_anchor = (signal.id, t_anchor, dev_fp_anchor)
+        anchor = self._ditto_anchor.get(rid_key)
+        if anchor is not None:
+            _, t_anchor, dev_fp_anchor = anchor
+            self._ditto_anchor[rid_key] = (signal.id, t_anchor, dev_fp_anchor)
 
         # Step 10: Schedule save.
         self._signal_store.schedule_save()
@@ -597,17 +620,21 @@ class SignalMonitor:
     # Native receiver callback (HA 2026.6+)
     # -----------------------------------------------------------------
 
-    def _on_received_signal(self, signal: Any) -> None:
+    def _on_received_signal(
+        self, signal: Any, receiver_entity_id: str | None = None
+    ) -> None:
         """Handle a signal from the native ``InfraredReceiverEntity`` API.
 
         Called synchronously by HA's ``@callback`` subscription system.
-        Converts the ``InfraredReceivedSignal`` to Pronto hex at the
-        entry point, then schedules the async processing pipeline.
+        ``receiver_entity_id`` is threaded in by the per-receiver subscription
+        closure so ditto attribution and location-aware triggers know which
+        receiver captured the signal.
         """
-        # NEC ditto (short repeat frame): attribute it to the most recent
-        # main frame instead of dropping it on the floor (v0.5.5).
+        rid_key = receiver_entity_id or "__legacy__"
+        # NEC ditto (short repeat frame): attribute it to the most recent main
+        # frame on the SAME receiver instead of dropping it (v0.5.5/0.5.7).
         if EventParser.is_native_repeat(signal):
-            self._maybe_attribute_repeat_frame()
+            self._maybe_attribute_repeat_frame(rid_key)
             return
 
         parsed = EventParser.parse_received_signal(signal)
@@ -616,35 +643,39 @@ class SignalMonitor:
 
         # Sentinel write BEFORE scheduling the async work, so a ditto arriving
         # between this callback and the async-task completion sees "main frame
-        # in flight, hold off" rather than the stale previous anchor. The
-        # signal_id stays None until _process_parsed_signal confirms
-        # persistence (or invalidates the anchor on an early return). The
-        # dev_fp is computed here too; this duplicates the call inside
-        # normalize() -- acceptable cost for the race fix.
+        # in flight, hold off" rather than the stale previous anchor. Keyed per
+        # receiver. signal_id stays None until _process_parsed_signal confirms
+        # persistence (or removes the anchor on an early return). The dev_fp is
+        # computed here too; duplicates the normalize() call -- acceptable for
+        # the race fix.
         n_dev_fp = EventParser.device_fingerprint(
             parsed.protocol,
             EventParser.extract_device_address(parsed.protocol, parsed.code),
             parsed.raw_timings,
             code=parsed.code,
         )
-        self._ditto_anchor = (None, time.monotonic(), n_dev_fp)
-        self._ditto_running_count = 0
-        self._last_ditto_monotonic = None
+        self._ditto_anchor[rid_key] = (None, time.monotonic(), n_dev_fp)
+        self._ditto_running_count[rid_key] = 0
+        self._last_ditto_monotonic.pop(rid_key, None)
 
-        self._hass.async_create_task(self._process_parsed_signal(parsed))
+        self._hass.async_create_task(
+            self._process_parsed_signal(parsed, receiver_entity_id)
+        )
 
-    def _maybe_attribute_repeat_frame(self) -> None:
+    def _maybe_attribute_repeat_frame(self, rid_key: str) -> None:
         """Attribute an incoming short signal (NEC ditto) to the most recent
-        main-frame arrival, if it is within the attribution window AND the
-        inter-frame gate is satisfied. Updates ``observed_repeat_count`` on the
-        stored signal with max-merge (high water mark) semantics.
+        main-frame arrival ON THE SAME RECEIVER, if it is within the
+        attribution window AND the inter-frame gate is satisfied. Updates
+        ``observed_repeat_count`` on the stored signal with max-merge (high
+        water mark) semantics.
 
-        v1 of ditto observation is native-only; the legacy ESPHome bridge
-        (``_on_ir_event``) gets the same treatment if a user requests it.
+        Per-receiver (v0.5.7): ``rid_key`` selects this receiver's anchor so
+        concurrent presses on different receivers do not corrupt each other.
         """
-        if self._ditto_anchor is None:
+        anchor = self._ditto_anchor.get(rid_key)
+        if anchor is None:
             return
-        signal_id, last_main_monotonic, _ = self._ditto_anchor
+        signal_id, last_main_monotonic, _ = anchor
 
         # Sentinel: the main frame has not been persisted yet. Drop -- we
         # cannot attribute to a signal_id we do not have.
@@ -660,15 +691,13 @@ class SignalMonitor:
         # Gate 2: inter-frame staleness. NEC dittos arrive ~110ms apart; a gap
         # > DITTO_INTER_FRAME_MAX_S means the burst is over and this short
         # signal starts a new orphan burst until the next main-frame anchor.
-        if (
-            self._last_ditto_monotonic is not None
-            and now - self._last_ditto_monotonic > DITTO_INTER_FRAME_MAX_S
-        ):
+        last_ditto = self._last_ditto_monotonic.get(rid_key)
+        if last_ditto is not None and now - last_ditto > DITTO_INTER_FRAME_MAX_S:
             return
 
-        self._ditto_running_count += 1
-        new_count = self._ditto_running_count
-        self._last_ditto_monotonic = now
+        new_count = self._ditto_running_count.get(rid_key, 0) + 1
+        self._ditto_running_count[rid_key] = new_count
+        self._last_ditto_monotonic[rid_key] = now
 
         # Locate the stored UnknownSignal by id and max-merge the count.
         for device in self._signal_store.get_all_devices():
@@ -762,19 +791,24 @@ class SignalMonitor:
     # Repeat suppression
     # -----------------------------------------------------------------
 
-    def _check_repeat(self, fingerprint: str) -> bool:
+    def _check_repeat(
+        self, fingerprint: str, receiver_entity_id: str | None = None
+    ) -> bool:
         """Return True if the event is NOT a repeat (passes suppression).
 
-        Suppresses duplicate fingerprints within ``SIGNAL_REPEAT_SUPPRESS_MS``.
+        Suppresses duplicate fingerprints within ``SIGNAL_REPEAT_SUPPRESS_MS``,
+        keyed per receiver (v0.5.7) so the same press captured by two receivers
+        is not dropped -- each receiver's captures suppress only their own.
         """
+        key = (fingerprint, receiver_entity_id or "__legacy__")
         now = time.monotonic()
-        last = self._last_seen_times.get(fingerprint)
+        last = self._last_seen_times.get(key)
         suppress_s = SIGNAL_REPEAT_SUPPRESS_MS / 1000.0
 
         if last is not None and (now - last) < suppress_s:
             return False
 
-        self._last_seen_times[fingerprint] = now
+        self._last_seen_times[key] = now
         return True
 
     # -----------------------------------------------------------------
@@ -913,6 +947,12 @@ class SignalMonitor:
                 return {"success": False, "code": "save_failed",
                         "error": "Failed to save command"}
 
+        # Assignment set for this signal changed -- notify other browser tabs
+        # so the green Assign badge / trigger dot refresh live (v0.5.7). Fired
+        # outside the lock; the payload is fingerprint-only.
+        self._hass.bus.async_fire(
+            EVENT_SIGNAL_UPDATED, {"signal_fingerprint": signal.fingerprint}
+        )
         return {"success": True, "command_id": command_id}
 
     async def assign_to_new_device(
@@ -1007,6 +1047,10 @@ class SignalMonitor:
 
         # HAIR store persisted -- safe to register in HA now.
         # (Outside the lock since HA registry ops don't touch our stores.)
+        # Notify other tabs that this signal's assignment set changed (v0.5.7).
+        self._hass.bus.async_fire(
+            EVENT_SIGNAL_UPDATED, {"signal_fingerprint": signal.fingerprint}
+        )
         return {
             "success": True,
             "command_id": command_id,
