@@ -22,6 +22,7 @@ from .command_templates import get_action_options, get_templates_for_device_type
 from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
     DOMAIN,
+    EVENT_SIGNAL_UPDATED,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
     WS_PREFIX,
@@ -353,12 +354,27 @@ async def ws_delete_command(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     manager: DeviceManager = data["device_manager"]
+    # Capture the removed command's signal fingerprint before deletion so we
+    # can notify other browser tabs that this signal's assignment set changed
+    # (v0.5.7 hair_signal_updated: refreshes the green Assign badge live).
+    from .event_parser import EventParser
+
+    sig_fp: str | None = None
+    device = manager.get_device(msg["device_id"])
+    if device is not None:
+        cmd = device.get_command(msg["command_id"])
+        if cmd is not None:
+            sig_fp = EventParser.signal_fingerprint(
+                cmd.protocol, cmd.code, cmd.raw_timings
+            )
     removed = await manager.async_remove_command(
         msg["device_id"], msg["command_id"]
     )
     if not removed:
         connection.send_error(msg["id"], "not_found", "Command not found")
         return
+    if sig_fp:
+        hass.bus.async_fire(EVENT_SIGNAL_UPDATED, {"signal_fingerprint": sig_fp})
     connection.send_result(msg["id"], {"removed": True})
 
 
@@ -692,6 +708,12 @@ async def ws_save_captured_command(
     command.decoded_fingerprint = d_fp
     command.byte_hash = EventParser.pronto_byte_hash(result.code)
     await manager.async_add_command(device.id, command)
+    # Notify other tabs this signal now has an assignment (v0.5.7).
+    save_fp = EventParser.signal_fingerprint(
+        command.protocol, command.code, command.raw_timings
+    )
+    if save_fp:
+        hass.bus.async_fire(EVENT_SIGNAL_UPDATED, {"signal_fingerprint": save_fp})
     connection.send_result(msg["id"], command.to_dict())
 
 
@@ -857,6 +879,45 @@ async def ws_codes_import_remote(
 # --- Signal Monitor (Unknown Devices) ---
 
 
+def _assignment_index(hair_devices: list[IRDevice]) -> dict[str, list[str]]:
+    """Map each signal fingerprint to the list of assigned HAIR commands.
+
+    A catalog signal is "assigned" when a HAIR device command re-encodes to the
+    same S/L fingerprint. ``IRCommand`` carries no stored fingerprint, so it is
+    computed here exactly as ``storage._rebuild_command_index`` does. Values are
+    ``"<device name>.<command name>"`` strings for the frontend tooltip. Keyed on
+    the S/L fingerprint only (dots plan Section 4.7); the byte-hash tiebreaker is
+    not applied here, so two distinct codes sharing an S/L fingerprint count
+    together -- acceptable for a soft row indicator.
+    """
+    from .event_parser import EventParser
+
+    index: dict[str, list[str]] = {}
+    for device in hair_devices:
+        for command in device.commands:
+            fp = EventParser.signal_fingerprint(
+                command.protocol, command.code, command.raw_timings
+            )
+            if not fp:
+                continue
+            index.setdefault(fp, []).append(f"{device.name}.{command.name}")
+    return index
+
+
+def _augment_signals_with_assignments(
+    device_dict: dict[str, Any], assignment_index: dict[str, list[str]]
+) -> None:
+    """Annotate each serialized signal with its assignment count + list.
+
+    Mutates ``device_dict['signals']`` in place, adding ``assignment_count`` and
+    ``assigned_to`` (dots polish, v0.5.7). Cheap; runs on the per-device fetch.
+    """
+    for sig in device_dict.get("signals", []):
+        assigned = assignment_index.get(sig.get("fingerprint"), [])
+        sig["assignment_count"] = len(assigned)
+        sig["assigned_to"] = assigned
+
+
 def _unknown_device_summary(device) -> dict[str, Any]:
     """Build a summary dict for an unknown device."""
     return {
@@ -924,7 +985,16 @@ async def ws_get_unknown_device(
     if device is None:
         connection.send_error(msg["id"], "not_found", "Unknown device not found")
         return
-    connection.send_result(msg["id"], device.to_dict())
+    result = device.to_dict()
+    # Annotate each signal with its HAIR-command assignment count for the green
+    # Assign dot (dots polish, v0.5.7). Non-critical enrichment: if the HAIR
+    # store is not wired, the signals simply carry no assignment info.
+    store = data.get("store")
+    if store is not None:
+        _augment_signals_with_assignments(
+            result, _assignment_index(store.get_all_devices())
+        )
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.require_admin
@@ -1862,6 +1932,7 @@ async def ws_get_triggers(
     vol.Optional("min_hits", default=1): int,
     vol.Optional("source_device_id"): vol.Any(str, None),
     vol.Optional("source_command_id"): vol.Any(str, None),
+    vol.Optional("receiver_entity_ids"): [str],
 })
 @websocket_api.async_response
 async def ws_create_trigger(
@@ -1910,15 +1981,11 @@ async def ws_create_trigger(
         )
         return
 
-    # Reject duplicate fingerprint.
-    existing = store.get_trigger_by_fingerprint(sig_fp)
-    if existing is not None:
-        connection.send_error(
-            msg["id"], "duplicate",
-            f"A trigger already exists for this signal: {existing.name}"
-        )
-        return
-
+    # v0.5.7: multiple triggers per fingerprint are legal -- users create
+    # per-receiver-scoped triggers on the same signal (different rooms). The
+    # frontend routes through the trigger popover's explicit "+ new trigger"
+    # action, so a second trigger on a known fingerprint is intentional. No
+    # duplicate rejection.
     trigger = IRTrigger(
         name=msg["name"],
         signal_fingerprint=sig_fp,
@@ -1927,6 +1994,7 @@ async def ws_create_trigger(
         min_hits=msg.get("min_hits", 1),
         source_device_id=msg.get("source_device_id"),
         source_command_id=msg.get("source_command_id"),
+        receiver_entity_ids=list(msg.get("receiver_entity_ids") or []),
     )
     store.add_trigger(trigger)
     await store.async_save()
@@ -1947,6 +2015,7 @@ async def ws_create_trigger(
     vol.Optional("name"): str,
     vol.Optional("min_hits"): int,
     vol.Optional("enabled"): bool,
+    vol.Optional("receiver_entity_ids"): [str],
 })
 @websocket_api.async_response
 async def ws_update_trigger(
@@ -1973,6 +2042,9 @@ async def ws_update_trigger(
         trigger.min_hits = max(1, msg["min_hits"])
     if "enabled" in msg:
         trigger.enabled = msg["enabled"]
+    if "receiver_entity_ids" in msg:
+        # Receiver scope (v0.5.7). Empty list = any receiver (backward compat).
+        trigger.receiver_entity_ids = list(msg["receiver_entity_ids"] or [])
     trigger.updated_at = datetime.now(UTC).isoformat()
 
     store.update_trigger(trigger)
