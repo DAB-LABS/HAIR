@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Location-aware triggers. A trigger's event now reports where the signal was received: the event data carries `receiver_entity_id` plus the receiver's `receiver_area_id` and `receiver_area_name`, resolved live from Home Assistant's area registry at fire time. You can now route an automation by room, for example mute only the speakers in the room whose receiver heard the button. Triggers also gain an optional Receiver scope in the trigger dialog: leave it on "Any receiver" (the default, unchanged behavior) or pick one or more receivers so the trigger fires only when one of them observes the signal. A single physical press heard by several receivers fires each matching trigger once. Requested by @blalor, with a workaround and independent endorsement from @Didgeridrew (GH #34).
 - Multiple triggers on the same signal are now supported, so you can create one per room with different receiver scopes.
+- Spanish (`es`) translation for the config flow and options dialogs. Contributed by @Waterbrain (GH #37, closes #36).
 
 ### Changed
 
