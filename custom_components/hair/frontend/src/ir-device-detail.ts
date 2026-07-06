@@ -13,8 +13,17 @@ import "./ir-confirm-dialog.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
+import "./ir-trigger-popover.js";
+import { popoverStyles } from "./ir-popover-styles.js";
 import type { HairApi } from "./api.js";
-import type { ActionOption, IRCommand, IRDevice, IRTrigger, DeviceTypeId } from "./types.js";
+import type {
+    ActionOption,
+    IRCommand,
+    IRDevice,
+    IRTrigger,
+    DeviceTypeId,
+    ReceiverInfo,
+} from "./types.js";
 
 // MDI: drag (six-dot grip)
 const ICON_GRIP =
@@ -62,6 +71,14 @@ export class IrDeviceDetail extends LitElement {
     @state() private _triggerCommand: IRCommand | null = null;
     @state() private _triggerEdit: IRTrigger | null = null;
     @state() private _confirmDeleteTriggerId: string | null = null;
+    // Trigger picker popover (v0.5.7): shown when a command already has 1+
+    // triggers; zero-trigger click opens the Create dialog directly.
+    @state() private _triggerPopover: {
+        command: IRCommand;
+        top: number;
+        left: number;
+    } | null = null;
+    @state() private _receivers: ReceiverInfo[] = [];
 
     // Command reorder (SortableJS lifecycle)
     private _sortable: Sortable | null = null;
@@ -254,6 +271,15 @@ export class IrDeviceDetail extends LitElement {
         super.connectedCallback();
         void this._loadActionOptions();
         void this._loadTriggers();
+        // Best-effort: receiver names for the trigger popover's scope labels.
+        this.api
+            .listReceivers()
+            .then((r) => {
+                this._receivers = r;
+            })
+            .catch(() => {
+                this._receivers = [];
+            });
     }
 
     updated(changed: Map<string, unknown>): void {
@@ -290,19 +316,86 @@ export class IrDeviceDetail extends LitElement {
         return this._triggers.some((t) => t.source_command_id === cmd.id);
     }
 
+    /** Count triggers bound to a command (yellow dot; multiple legal in v0.5.7). */
+    private _commandTriggerCount(cmd: IRCommand): number {
+        return this._triggers.filter((t) => t.source_command_id === cmd.id).length;
+    }
+
     private _onToggleTrigger(ev: CustomEvent): void {
         const cmd = ev.detail?.command as IRCommand | null;
         if (!cmd) return;
 
-        // If a trigger already exists for this command, open edit mode.
-        const existing = this._triggers.find(
+        const matches = this._triggers.filter(
             (t) => t.source_command_id === cmd.id,
         );
-        if (existing) {
-            this._triggerEdit = existing;
-        } else {
+        // Zero triggers: open the Create dialog directly (no popover).
+        if (matches.length === 0) {
             this._triggerCommand = cmd;
+            return;
         }
+        // 1+ triggers: show the picker popover near the command's Trigger button.
+        const rect = ev.detail?.buttonRect as DOMRect | null;
+        this._triggerPopover = {
+            command: cmd,
+            top: rect ? rect.bottom + 4 : 120,
+            left: rect ? Math.max(8, rect.right - 220) : 120,
+        };
+        this._installTriggerPopoverDismiss();
+    }
+
+    private _triggersForCommand(cmd: IRCommand): IRTrigger[] {
+        return this._triggers.filter((t) => t.source_command_id === cmd.id);
+    }
+
+    private _closeTriggerPopover(): void {
+        this._triggerPopover = null;
+        this._removeTriggerPopoverDismiss();
+    }
+
+    private _onTriggerPopoverCreateNew(): void {
+        const p = this._triggerPopover;
+        this._closeTriggerPopover();
+        if (p) this._triggerCommand = p.command;
+    }
+
+    private _onTriggerPopoverEdit(ev: CustomEvent): void {
+        const t = ev.detail as IRTrigger | undefined;
+        this._closeTriggerPopover();
+        if (t) this._triggerEdit = t;
+    }
+
+    private _onDocClickForTriggerPopover = (ev: Event): void => {
+        const pop = this.shadowRoot?.querySelector("ir-trigger-popover");
+        if (pop && ev.composedPath().includes(pop)) return;
+        this._closeTriggerPopover();
+    };
+
+    private _onScrollForTriggerPopover = (): void => {
+        this._closeTriggerPopover();
+    };
+
+    private _installTriggerPopoverDismiss(): void {
+        setTimeout(() => {
+            document.addEventListener(
+                "click",
+                this._onDocClickForTriggerPopover,
+                true,
+            );
+            window.addEventListener(
+                "scroll",
+                this._onScrollForTriggerPopover,
+                true,
+            );
+        }, 0);
+    }
+
+    private _removeTriggerPopoverDismiss(): void {
+        document.removeEventListener(
+            "click",
+            this._onDocClickForTriggerPopover,
+            true,
+        );
+        window.removeEventListener("scroll", this._onScrollForTriggerPopover, true);
     }
 
     private _closeTriggerDialog(): void {
@@ -408,6 +501,7 @@ export class IrDeviceDetail extends LitElement {
             document.removeEventListener("click", this._dismissHandler, true);
             this._dismissHandler = null;
         }
+        this._removeTriggerPopoverDismiss();
         this._sortable?.destroy();
         this._sortable = null;
         this._cancelPendingReorderSave();
@@ -846,6 +940,7 @@ export class IrDeviceDetail extends LitElement {
                                           .busy=${this._busy}
                                           .actionLabel=${this._getActionLabel(cmd.name)}
                                           .hasTrigger=${this._commandHasTrigger(cmd)}
+                                          .triggerCount=${this._commandTriggerCount(cmd)}
                                           .showActionMapping=${this.device.device_type !== "other"}
                                           @map-action=${this._onMapAction}
                                           @test=${this._onTest}
@@ -987,6 +1082,20 @@ export class IrDeviceDetail extends LitElement {
                       ></ir-signal-editor>
                   `
                 : ""}
+            ${this._triggerPopover
+                ? html`
+                      <ir-trigger-popover
+                          .triggers=${this._triggersForCommand(
+                              this._triggerPopover.command,
+                          )}
+                          .receivers=${this._receivers}
+                          .top=${this._triggerPopover.top}
+                          .left=${this._triggerPopover.left}
+                          @create-new=${this._onTriggerPopoverCreateNew}
+                          @edit-trigger=${this._onTriggerPopoverEdit}
+                      ></ir-trigger-popover>
+                  `
+                : ""}
             ${this._triggerCommand
                 ? html`
                       <ir-trigger-dialog
@@ -1030,7 +1139,9 @@ export class IrDeviceDetail extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [
+        popoverStyles,
+        css`
         :host {
             display: block;
         }
@@ -1193,66 +1304,9 @@ export class IrDeviceDetail extends LitElement {
         ir-command-row.sortable-ghost {
             opacity: 0.4;
         }
-        /* --- Action popover --- */
-        .action-popover {
-            position: fixed;
-            z-index: 50;
-            min-width: 200px;
-            max-width: 280px;
-            background: var(--card-background-color, #1c1c1c);
-            border: 1px solid var(--divider-color);
-            border-radius: 6px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-            padding: 4px 0;
-            overflow: auto;
-            max-height: 320px;
-        }
-        .popover-header {
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--secondary-text-color);
-            padding: 6px 12px 4px;
-        }
-        .popover-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            width: 100%;
-            padding: 7px 12px;
-            background: none;
-            border: none;
-            color: var(--primary-text-color);
-            font-size: 0.82rem;
-            font-family: inherit;
-            cursor: pointer;
-            text-align: left;
-            transition: background 100ms ease;
-        }
-        .popover-item:hover {
-            background: var(--secondary-background-color);
-        }
-        .popover-item.active {
-            color: var(--primary-color);
-            font-weight: 500;
-        }
-        .popover-item.clear {
-            color: var(--secondary-text-color);
-            font-style: italic;
-            border-bottom: 1px solid var(--divider-color);
-            margin-bottom: 2px;
-        }
-        .popover-check {
-            color: var(--primary-color);
-            font-size: 0.9rem;
-        }
-        .popover-existing {
-            font-size: 0.72rem;
-            color: var(--secondary-text-color);
-            font-style: italic;
-            margin-left: 8px;
-            flex-shrink: 0;
-        }
+        /* Action-popover styles live in the shared ir-popover-styles module
+           (spread into static styles below) so ir-trigger-popover reuses the
+           exact same treatment. */
         .empty {
             color: var(--secondary-text-color);
             font-style: italic;
@@ -1290,7 +1344,8 @@ export class IrDeviceDetail extends LitElement {
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             z-index: 100;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

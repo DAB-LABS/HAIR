@@ -16,10 +16,13 @@ import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
+import "./ir-count-dot.js";
+import "./ir-trigger-popover.js";
 import type {
     AssignResult,
     DeviceSummary,
     IRTrigger,
+    ReceiverInfo,
     SignalRemovedEvent,
     UnknownDeviceSummary,
     UnknownDevice,
@@ -129,6 +132,17 @@ export class IrSignalMonitor extends LitElement {
     } | null = null;
     @state() private _triggerEditDialog: IRTrigger | null = null;
     @state() private _confirmDeleteTriggerId: string | null = null;
+    // Trigger picker popover (v0.5.7): shown when 1+ triggers already bind a
+    // signal's fingerprint; zero-trigger click opens the Create dialog directly.
+    @state() private _triggerPopover: {
+        deviceId: string;
+        signal: UnknownSignal;
+        top: number;
+        left: number;
+    } | null = null;
+    // Receiver list for the popover's scope subtitles (best-effort load).
+    @state() private _receivers: ReceiverInfo[] = [];
+    private _unsubUpdated: (() => Promise<void>) | null = null;
 
     // Inline rename state
     @state() private _editingDeviceId: string | null = null;
@@ -190,6 +204,7 @@ export class IrSignalMonitor extends LitElement {
         void this._subscribeLive();
         void this._subscribeRemoved();
         void this._subscribeDismissActivity();
+        void this._subscribeUpdated();
     }
 
     protected updated(changed: PropertyValues): void {
@@ -210,6 +225,8 @@ export class IrSignalMonitor extends LitElement {
         void this._unsubscribeLive();
         void this._unsubscribeRemoved();
         void this._unsubscribeDismissActivity();
+        void this._unsubscribeUpdated();
+        this._removePopoverDismiss();
         if (this._dismissGlowTimer !== null) {
             clearTimeout(this._dismissGlowTimer);
             this._dismissGlowTimer = null;
@@ -352,6 +369,16 @@ export class IrSignalMonitor extends LitElement {
             this._triggers = triggers;
             this._hasReceivers = status.has_receivers;
             this._error = null;
+            // Best-effort: receiver names for the trigger popover scope labels.
+            // Never let a pre-2026.6 HA (no receiver API) break the main load.
+            this.api
+                .listReceivers()
+                .then((r) => {
+                    this._receivers = r;
+                })
+                .catch(() => {
+                    this._receivers = [];
+                });
         } catch (err) {
             this._error = `Failed to load: ${(err as Error).message}`;
         } finally {
@@ -646,15 +673,113 @@ export class IrSignalMonitor extends LitElement {
         return this._triggers.some((t) => t.signal_fingerprint === fingerprint);
     }
 
-    private _openTriggerDialog(deviceId: string, signal: UnknownSignal): void {
-        // If a trigger already exists for this fingerprint, open edit mode.
-        const existing = this._triggers.find(
+    /** Count triggers bound to a fingerprint (yellow dot count). */
+    private _triggerCountFor(fingerprint: string): number {
+        return this._triggers.filter(
+            (t) => t.signal_fingerprint === fingerprint,
+        ).length;
+    }
+
+    private _openTriggerDialog(
+        deviceId: string,
+        signal: UnknownSignal,
+        ev?: Event,
+    ): void {
+        const matches = this._triggers.filter(
             (t) => t.signal_fingerprint === signal.fingerprint,
         );
-        if (existing) {
-            this._triggerEditDialog = existing;
-        } else {
+        // Zero triggers: open the Create dialog directly (no popover).
+        if (matches.length === 0) {
             this._triggerDialog = { signal, deviceId };
+            return;
+        }
+        // 1+ triggers: show the picker popover near the Trigger button.
+        const btn = ev?.currentTarget as HTMLElement | undefined;
+        const rect = btn?.getBoundingClientRect();
+        this._triggerPopover = {
+            deviceId,
+            signal,
+            top: rect ? rect.bottom + 4 : 120,
+            left: rect ? Math.max(8, rect.right - 220) : 120,
+        };
+        this._installPopoverDismiss();
+    }
+
+    private _closeTriggerPopover(): void {
+        this._triggerPopover = null;
+        this._removePopoverDismiss();
+    }
+
+    private _onPopoverCreateNew(): void {
+        const p = this._triggerPopover;
+        this._closeTriggerPopover();
+        if (p) this._triggerDialog = { signal: p.signal, deviceId: p.deviceId };
+    }
+
+    private _onPopoverEditTrigger(ev: CustomEvent): void {
+        const t = ev.detail as IRTrigger | undefined;
+        this._closeTriggerPopover();
+        if (t) this._triggerEditDialog = t;
+    }
+
+    // Dismiss the popover on an outside click or any scroll (bound refs so
+    // add/removeEventListener pair up).
+    private _onDocClickForPopover = (ev: Event): void => {
+        const pop = this.shadowRoot?.querySelector("ir-trigger-popover");
+        if (pop && ev.composedPath().includes(pop)) return;
+        this._closeTriggerPopover();
+    };
+
+    private _onScrollForPopover = (): void => {
+        this._closeTriggerPopover();
+    };
+
+    private _installPopoverDismiss(): void {
+        // Defer so the click that opened the popover doesn't immediately close it.
+        setTimeout(() => {
+            document.addEventListener("click", this._onDocClickForPopover, true);
+            window.addEventListener("scroll", this._onScrollForPopover, true);
+        }, 0);
+    }
+
+    private _removePopoverDismiss(): void {
+        document.removeEventListener("click", this._onDocClickForPopover, true);
+        window.removeEventListener("scroll", this._onScrollForPopover, true);
+    }
+
+    private async _subscribeUpdated(): Promise<void> {
+        try {
+            this._unsubUpdated = await this.api.subscribeSignalUpdated(() => {
+                void this._refreshAfterSignalUpdate();
+            });
+        } catch {
+            // Non-fatal.
+        }
+    }
+
+    private async _unsubscribeUpdated(): Promise<void> {
+        if (this._unsubUpdated) {
+            await this._unsubUpdated();
+            this._unsubUpdated = null;
+        }
+    }
+
+    /** A signal's assignment set changed: refresh triggers + the expanded
+     * device so the green Assign and yellow trigger dots reflect it live. */
+    private async _refreshAfterSignalUpdate(): Promise<void> {
+        try {
+            this._triggers = await this.api.listTriggers();
+        } catch {
+            // Non-fatal.
+        }
+        if (this._expandedId) {
+            try {
+                this._expandedDevice = await this.api.getUnknownDevice(
+                    this._expandedId,
+                );
+            } catch {
+                // Non-fatal.
+            }
         }
     }
 
@@ -1018,6 +1143,22 @@ export class IrSignalMonitor extends LitElement {
                   `
                 : ""}
 
+            ${this._triggerPopover
+                ? html`
+                      <ir-trigger-popover
+                          .triggers=${this._triggers.filter(
+                              (t) =>
+                                  t.signal_fingerprint ===
+                                  this._triggerPopover!.signal.fingerprint,
+                          )}
+                          .receivers=${this._receivers}
+                          .top=${this._triggerPopover.top}
+                          .left=${this._triggerPopover.left}
+                          @create-new=${this._onPopoverCreateNew}
+                          @edit-trigger=${this._onPopoverEditTrigger}
+                      ></ir-trigger-popover>
+                  `
+                : ""}
             ${this._triggerDialog
                 ? html`
                       <ir-trigger-dialog
@@ -1237,10 +1378,17 @@ export class IrSignalMonitor extends LitElement {
                                             this._openAssign(device.id, sig, device.label);
                                         }}
                                         ?disabled=${device.dismissed}
-                                        title=${device.dismissed
-                                            ? "Restore this remote first"
-                                            : "Assign this signal to a HAIR device"}
-                                    >Assign</button>
+                                        title=${sig.assignment_count && sig.assigned_to?.length
+                                            ? (sig.assignment_count === 1
+                                                ? `Assigned to ${sig.assigned_to[0]}`
+                                                : `Assigned to ${sig.assignment_count} commands:\n- ${sig.assigned_to.join("\n- ")}`)
+                                            : (device.dismissed
+                                                ? "Restore this remote first"
+                                                : "Assign this signal to a HAIR device")}
+                                    >Assign<ir-count-dot
+                                            color="green"
+                                            .count=${sig.assignment_count ?? 0}
+                                        ></ir-count-dot></button>
                                     <button
                                         class="action-btn test-btn"
                                         @click=${(e: Event) => {
@@ -1255,16 +1403,21 @@ export class IrSignalMonitor extends LitElement {
                                         ? (this._testResult ?? "Sending...")
                                         : "Test"}</button>
                                     <button
-                                        class="action-btn trigger-btn ${this._hasTrigger(sig.fingerprint) ? "trigger-on" : ""}"
+                                        class="action-btn trigger-btn"
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
-                                            this._openTriggerDialog(device.id, sig);
+                                            this._openTriggerDialog(device.id, sig, e);
                                         }}
                                         ?disabled=${device.dismissed}
-                                        title=${device.dismissed
-                                            ? "Restore this remote first"
-                                            : "Create an HA event entity that fires on this signal"}
-                                    >Trigger</button>
+                                        title=${this._hasTrigger(sig.fingerprint)
+                                            ? "Edit trigger(s) for this signal"
+                                            : (device.dismissed
+                                                ? "Restore this remote first"
+                                                : "Create an HA event entity that fires on this signal")}
+                                    >Trigger<ir-count-dot
+                                            color="yellow"
+                                            .count=${this._triggerCountFor(sig.fingerprint)}
+                                        ></ir-count-dot></button>
                                     <button
                                         class="action-btn delete-btn"
                                         @click=${(e: Event) => {
@@ -1686,6 +1839,7 @@ export class IrSignalMonitor extends LitElement {
         .action-btn.assign-btn {
             color: #2e7d32;
             border-color: rgba(46, 125, 50, 0.3);
+            position: relative; /* anchor for the green assignment dot */
         }
         .action-btn.assign-btn:hover {
             background: rgba(46, 125, 50, 0.08);
@@ -1696,17 +1850,10 @@ export class IrSignalMonitor extends LitElement {
         .action-btn.trigger-btn {
             color: #b89930;
             border-color: rgba(184, 153, 48, 0.3);
+            position: relative; /* anchor for the yellow trigger dot */
         }
         .action-btn.trigger-btn:hover {
             background: rgba(184, 153, 48, 0.08);
-        }
-        .action-btn.trigger-btn.trigger-on {
-            color: #fff;
-            background: #b89930;
-            border-color: #b89930;
-        }
-        .action-btn.trigger-btn.trigger-on:hover {
-            background: #a08328;
         }
         .action-btn.delete-btn {
             color: #e65100;

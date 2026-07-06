@@ -27,6 +27,7 @@ import type {
     ReceiverInfo,
     SignalRemovedEvent,
     SignalSourceId,
+    SignalUpdatedEvent,
     TestSignalResult,
     TriggerFiredEvent,
     UnknownDevice,
@@ -606,6 +607,22 @@ export class HairApi {
     }
 
     /**
+     * Subscribe to signal-updated events (fired when a signal's assignment
+     * set changes: an assign, or a device command referencing it is added or
+     * removed). Backed by the ``hair_signal_updated`` HA bus event. The
+     * Sniffer/Clipper/Plucker wire this to refresh the green Assign badge and
+     * yellow trigger dot live across browser tabs. Returns an unsubscribe fn.
+     */
+    async subscribeSignalUpdated(
+        onEvent: (event: SignalUpdatedEvent) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeEvents<SignalUpdatedEvent>(
+            (ev) => onEvent(ev.data),
+            "hair_signal_updated",
+        );
+    }
+
+    /**
      * Subscribe to dismiss-activity events. Fires (rate-limited) when a
      * signal arrives from a remote whose device fingerprint is in the
      * dismiss set. Backed by the ``hair_dismiss_activity`` HA bus event
@@ -642,6 +659,7 @@ export class HairApi {
         min_hits?: number;
         source_device_id?: string | null;
         source_command_id?: string | null;
+        receiver_entity_ids?: string[];
     }): Promise<IRTrigger> {
         return this.hass.connection.sendMessagePromise<IRTrigger>({
             type: "hair/trigger/create",
@@ -655,6 +673,7 @@ export class HairApi {
             name: string;
             min_hits: number;
             enabled: boolean;
+            receiver_entity_ids: string[];
         }>,
     ): Promise<IRTrigger> {
         return this.hass.connection.sendMessagePromise<IRTrigger>({

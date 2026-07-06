@@ -22,10 +22,13 @@ import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
+import "./ir-count-dot.js";
+import "./ir-trigger-popover.js";
 import type {
     AssignResult,
     DeviceSummary,
     IRTrigger,
+    ReceiverInfo,
     UnknownDevice,
     UnknownDeviceSummary,
     UnknownSignal,
@@ -97,6 +100,14 @@ export class IrClips extends LitElement {
     @state() private _deleteSignal: { deviceId: string; signal: UnknownSignal } | null = null;
     @state() private _triggerDialog: { signal: UnknownSignal; deviceId: string } | null = null;
     @state() private _triggerEditDialog: IRTrigger | null = null;
+    @state() private _triggerPopover: {
+        deviceId: string;
+        signal: UnknownSignal;
+        top: number;
+        left: number;
+    } | null = null;
+    @state() private _receivers: ReceiverInfo[] = [];
+    private _unsubUpdated: (() => Promise<void>) | null = null;
     @state() private _confirmDeleteTriggerId: string | null = null;
     @state() private _testDialog: { signal: UnknownSignal } | null = null;
     @state() private _testEmitters: string[] = [];
@@ -115,10 +126,13 @@ export class IrClips extends LitElement {
     connectedCallback(): void {
         super.connectedCallback();
         void this._load();
+        void this._subscribeUpdated();
     }
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
+        void this._unsubscribeUpdated();
+        this._removePopoverDismiss();
         this._remotesSortable?.destroy();
         this._remotesSortable = null;
         this._signalsSortable?.destroy();
@@ -267,6 +281,14 @@ export class IrClips extends LitElement {
             this._hairDevices = hairDevs;
             this._triggers = triggers;
             this._error = null;
+            this.api
+                .listReceivers()
+                .then((r) => {
+                    this._receivers = r;
+                })
+                .catch(() => {
+                    this._receivers = [];
+                });
         } catch (err) {
             this._error = `Failed to load: ${(err as Error).message}`;
         } finally {
@@ -479,14 +501,105 @@ export class IrClips extends LitElement {
         return this._triggers.some((t) => t.signal_fingerprint === fingerprint);
     }
 
-    private _openTriggerDialog(deviceId: string, signal: UnknownSignal): void {
-        const existing = this._triggers.find(
+    private _triggerCountFor(fingerprint: string): number {
+        return this._triggers.filter(
+            (t) => t.signal_fingerprint === fingerprint,
+        ).length;
+    }
+
+    private _openTriggerDialog(
+        deviceId: string,
+        signal: UnknownSignal,
+        ev?: Event,
+    ): void {
+        const matches = this._triggers.filter(
             (t) => t.signal_fingerprint === signal.fingerprint,
         );
-        if (existing) {
-            this._triggerEditDialog = existing;
-        } else {
+        if (matches.length === 0) {
             this._triggerDialog = { signal, deviceId };
+            return;
+        }
+        const btn = ev?.currentTarget as HTMLElement | undefined;
+        const rect = btn?.getBoundingClientRect();
+        this._triggerPopover = {
+            deviceId,
+            signal,
+            top: rect ? rect.bottom + 4 : 120,
+            left: rect ? Math.max(8, rect.right - 220) : 120,
+        };
+        this._installPopoverDismiss();
+    }
+
+    private _closeTriggerPopover(): void {
+        this._triggerPopover = null;
+        this._removePopoverDismiss();
+    }
+
+    private _onPopoverCreateNew(): void {
+        const p = this._triggerPopover;
+        this._closeTriggerPopover();
+        if (p) this._triggerDialog = { signal: p.signal, deviceId: p.deviceId };
+    }
+
+    private _onPopoverEditTrigger(ev: CustomEvent): void {
+        const t = ev.detail as IRTrigger | undefined;
+        this._closeTriggerPopover();
+        if (t) this._triggerEditDialog = t;
+    }
+
+    private _onDocClickForPopover = (ev: Event): void => {
+        const pop = this.shadowRoot?.querySelector("ir-trigger-popover");
+        if (pop && ev.composedPath().includes(pop)) return;
+        this._closeTriggerPopover();
+    };
+
+    private _onScrollForPopover = (): void => {
+        this._closeTriggerPopover();
+    };
+
+    private _installPopoverDismiss(): void {
+        setTimeout(() => {
+            document.addEventListener("click", this._onDocClickForPopover, true);
+            window.addEventListener("scroll", this._onScrollForPopover, true);
+        }, 0);
+    }
+
+    private _removePopoverDismiss(): void {
+        document.removeEventListener("click", this._onDocClickForPopover, true);
+        window.removeEventListener("scroll", this._onScrollForPopover, true);
+    }
+
+    private async _subscribeUpdated(): Promise<void> {
+        try {
+            this._unsubUpdated = await this.api.subscribeSignalUpdated(() => {
+                void this._refreshAfterSignalUpdate();
+            });
+        } catch {
+            // Non-fatal.
+        }
+    }
+
+    private async _unsubscribeUpdated(): Promise<void> {
+        if (this._unsubUpdated) {
+            await this._unsubUpdated();
+            this._unsubUpdated = null;
+        }
+    }
+
+    private async _refreshAfterSignalUpdate(): Promise<void> {
+        try {
+            this._triggers = await this.api.listTriggers();
+        } catch {
+            // Non-fatal.
+        }
+        if (this._expandedId) {
+            try {
+                this._expandedDevice = await this.api.getUnknownDevice(
+                    this._expandedId,
+                );
+            } catch {
+                // Non-fatal.
+            }
         }
     }
 
@@ -778,12 +891,19 @@ export class IrClips extends LitElement {
                 <div class="signal-actions">
                     <button
                         class="action-btn assign-btn"
-                        title="Assign this signal to a HAIR device"
+                        title=${sig.assignment_count && sig.assigned_to?.length
+                            ? (sig.assignment_count === 1
+                                ? `Assigned to ${sig.assigned_to[0]}`
+                                : `Assigned to ${sig.assignment_count} commands:\n- ${sig.assigned_to.join("\n- ")}`)
+                            : "Assign this signal to a HAIR device"}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openAssign(deviceId, sig, label);
                         }}
-                    >Assign</button>
+                    >Assign<ir-count-dot
+                            color="green"
+                            .count=${sig.assignment_count ?? 0}
+                        ></ir-count-dot></button>
                     <button
                         class="action-btn test-btn"
                         ?disabled=${isTesting}
@@ -794,13 +914,18 @@ export class IrClips extends LitElement {
                         }}
                     >${isTesting ? "Sending..." : "Test"}</button>
                     <button
-                        class="action-btn trigger-btn ${this._hasTrigger(sig.fingerprint) ? "trigger-on" : ""}"
-                        title="Create an HA event entity that fires on this signal"
+                        class="action-btn trigger-btn"
+                        title=${this._hasTrigger(sig.fingerprint)
+                            ? "Edit trigger(s) for this signal"
+                            : "Create an HA event entity that fires on this signal"}
                         @click=${(e: Event) => {
                             e.stopPropagation();
-                            this._openTriggerDialog(deviceId, sig);
+                            this._openTriggerDialog(deviceId, sig, e);
                         }}
-                    >Trigger</button>
+                    >Trigger<ir-count-dot
+                            color="yellow"
+                            .count=${this._triggerCountFor(sig.fingerprint)}
+                        ></ir-count-dot></button>
                     <button
                         class="action-btn delete-btn"
                         @click=${(e: Event) => {
@@ -907,6 +1032,21 @@ export class IrClips extends LitElement {
                       @confirmed=${this._confirmDeleteRemote}
                       @closed=${() => (this._deleteRemoteId = null)}
                   ></ir-confirm-dialog>`
+                : ""}
+
+            ${this._triggerPopover
+                ? html`<ir-trigger-popover
+                      .triggers=${this._triggers.filter(
+                          (t) =>
+                              t.signal_fingerprint ===
+                              this._triggerPopover!.signal.fingerprint,
+                      )}
+                      .receivers=${this._receivers}
+                      .top=${this._triggerPopover.top}
+                      .left=${this._triggerPopover.left}
+                      @create-new=${this._onPopoverCreateNew}
+                      @edit-trigger=${this._onPopoverEditTrigger}
+                  ></ir-trigger-popover>`
                 : ""}
 
             ${this._triggerDialog
@@ -1328,6 +1468,7 @@ export class IrClips extends LitElement {
         .action-btn.assign-btn {
             color: #2e7d32;
             border-color: rgba(46, 125, 50, 0.3);
+            position: relative;
         }
         .action-btn.assign-btn:hover {
             background: rgba(46, 125, 50, 0.08);
@@ -1338,14 +1479,10 @@ export class IrClips extends LitElement {
         .action-btn.trigger-btn {
             color: #b89930;
             border-color: rgba(184, 153, 48, 0.3);
+            position: relative;
         }
         .action-btn.trigger-btn:hover {
             background: rgba(184, 153, 48, 0.08);
-        }
-        .action-btn.trigger-btn.trigger-on {
-            color: #fff;
-            background: #b89930;
-            border-color: #b89930;
         }
         .action-btn.delete-btn {
             color: #e65100;

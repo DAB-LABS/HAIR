@@ -5,6 +5,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
 
 // mdi:content-copy -- shared view/edit glyph (matches the signal rows).
@@ -29,6 +30,10 @@ export class IrCommandRow extends LitElement {
 
     /** Whether this command already has an associated trigger. */
     @property({ type: Boolean }) public hasTrigger = false;
+
+    /** Number of triggers bound to this command's signal (yellow dot count).
+     * Falls back to hasTrigger (0/1) when the parent doesn't supply a count. */
+    @property({ type: Number }) public triggerCount = 0;
 
     /** Whether to show the action-mapping ("ACTIONS") button. Hidden for
      *  device types whose platform exposes no mappable feature actions
@@ -81,10 +86,20 @@ export class IrCommandRow extends LitElement {
         )}</span>`;
     }
 
-    private _emit(name: string) {
+    private _emit(name: string, ev?: Event) {
+        // When the originating click is passed (the Trigger button), include
+        // the button's viewport rect so the parent can position the trigger
+        // popover next to it (mirrors the catalog views' currentTarget rect).
+        const buttonRect =
+            (ev?.currentTarget as HTMLElement | undefined)?.getBoundingClientRect() ??
+            null;
         this.dispatchEvent(
             new CustomEvent(name, {
-                detail: { templateName: this.templateName, command: this.command },
+                detail: {
+                    templateName: this.templateName,
+                    command: this.command,
+                    buttonRect,
+                },
                 bubbles: true,
                 composed: true,
             }),
@@ -238,11 +253,15 @@ export class IrCommandRow extends LitElement {
                                   @click=${() => this._emit("test")}
                               >Test</button>
                               <button
-                                  class="action-btn trigger-btn ${this.hasTrigger ? "trigger-on" : ""}"
+                                  class="action-btn trigger-btn"
                                   ?disabled=${this.busy}
-                                  @click=${() => this._emit("toggle-trigger")}
+                                  @click=${(e: Event) => this._emit("toggle-trigger", e)}
                                   title=${this.hasTrigger ? "Edit trigger" : "Create trigger"}
-                              >Trigger</button>
+                              >Trigger<ir-count-dot
+                                      color="yellow"
+                                      .count=${this.triggerCount ||
+                                      (this.hasTrigger ? 1 : 0)}
+                                  ></ir-count-dot></button>
                               <button
                                   class="action-btn delete-btn"
                                   ?disabled=${this.busy}
@@ -466,19 +485,12 @@ export class IrCommandRow extends LitElement {
             background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.12);
         }
         .action-btn.trigger-btn {
+            position: relative;
             color: #b89930;
             border-color: rgba(184, 153, 48, 0.3);
         }
         .action-btn.trigger-btn:hover {
             background: rgba(184, 153, 48, 0.08);
-        }
-        .action-btn.trigger-btn.trigger-on {
-            color: #fff;
-            background: #b89930;
-            border-color: #b89930;
-        }
-        .action-btn.trigger-btn.trigger-on:hover {
-            background: #a08328;
         }
         .action-btn.delete-btn {
             color: #e65100;

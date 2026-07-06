@@ -10,6 +10,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import "./ir-receiver-picker.js";
 import type { HairApi } from "./api.js";
 import type { IRTrigger } from "./types.js";
 
@@ -34,6 +35,7 @@ export class IrTriggerDialog extends LitElement {
 
     @state() private _name = "";
     @state() private _minHits = 1;
+    @state() private _receiverIds: string[] = [];
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
@@ -42,6 +44,7 @@ export class IrTriggerDialog extends LitElement {
         if (this.trigger) {
             this._name = this.trigger.name;
             this._minHits = this.trigger.min_hits;
+            this._receiverIds = [...(this.trigger.receiver_entity_ids ?? [])];
         }
     }
 
@@ -66,6 +69,7 @@ export class IrTriggerDialog extends LitElement {
                 saved = await this.api.updateTrigger(this.trigger.id, {
                     name,
                     min_hits: this._minHits,
+                    receiver_entity_ids: this._receiverIds,
                 });
             } else {
                 // Create mode -- signalFingerprint may be empty when
@@ -77,6 +81,7 @@ export class IrTriggerDialog extends LitElement {
                     min_hits: this._minHits,
                     source_device_id: this.sourceDeviceId,
                     source_command_id: this.sourceCommandId,
+                    receiver_entity_ids: this._receiverIds,
                 };
                 if (this.signalFingerprint) {
                     payload.signal_fingerprint = this.signalFingerprint;
@@ -217,6 +222,22 @@ export class IrTriggerDialog extends LitElement {
                         ?disabled=${this._busy}
                     />
 
+                    <!-- Receiver scope -->
+                    <div class="receiver-field">
+                        <ir-receiver-picker
+                            .api=${this.api}
+                            .value=${this._receiverIds}
+                            ?disabled=${this._busy}
+                            @receivers-changed=${(e: CustomEvent) => {
+                                this._receiverIds = e.detail.value;
+                            }}
+                        ></ir-receiver-picker>
+                        <p class="field-hint scope-hint">
+                            Fires once per press, regardless of how many scoped
+                            receivers observe the signal.
+                        </p>
+                    </div>
+
                     ${this._error
                         ? html`<p class="error">${this._error}</p>`
                         : ""}
@@ -353,6 +374,13 @@ export class IrTriggerDialog extends LitElement {
         }
         .hits-input {
             width: 80px;
+        }
+        .receiver-field {
+            margin-bottom: 14px;
+        }
+        .scope-hint {
+            margin: 6px 0 0;
+            margin-left: 0;
         }
         .error {
             color: #e65100;
