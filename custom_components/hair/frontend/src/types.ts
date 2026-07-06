@@ -196,6 +196,11 @@ export interface UnknownSignal {
     repeat_count?: number;
     send_count?: number;
     observed_repeat_count?: number;
+    // Assignment provenance (dots polish, v0.5.7). Number of HAIR device
+    // commands whose fingerprint matches this signal, and their
+    // "<device>.<command>" labels for the green Assign dot's tooltip.
+    assignment_count?: number;
+    assigned_to?: string[];
 }
 
 export interface UnknownDeviceSummary {
@@ -346,6 +351,8 @@ export interface IRTrigger {
     source_command_id: string | null;
     created_at: string;
     updated_at: string;
+    // Receiver scope (location-aware triggers, v0.5.7). Empty = any receiver.
+    receiver_entity_ids: string[];
 }
 
 export interface TriggerFiredEvent {
@@ -356,4 +363,18 @@ export interface TriggerFiredEvent {
     code: string | null;
     source_remote: string | null;
     timestamp: string;
+    // Location-aware fields (v0.5.7). Null for legacy captures or a receiver
+    // whose device has no HA area assignment.
+    receiver_entity_id: string | null;
+    receiver_area_id: string | null;
+    receiver_area_name: string | null;
+}
+
+/**
+ * Fired when a signal's assignment set changes (assign, or a device command
+ * referencing it is added/removed). Lets the Sniffer/Clipper/Plucker refresh
+ * the green Assign badge and yellow trigger dot on other browser tabs.
+ */
+export interface SignalUpdatedEvent {
+    signal_fingerprint: string;
 }
