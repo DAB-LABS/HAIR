@@ -78,6 +78,16 @@ Key components:
   configurable min-hits threshold prevents accidental triggers from a single
   misfire. To the best of the project's knowledge, HAIR is the only HA integration
   turning received IR into automation triggers as of HA 2026.6.
+  Location-aware (v0.5.7): the fire payload also carries receiver_entity_id plus
+  receiver_area_id and receiver_area_name, resolved from the entity/device/area
+  registry chain at fire time (so area renames and device moves need no migration).
+  A trigger can carry a receiver_entity_ids scope list (empty = any receiver,
+  backward compatible); scoped triggers fire only when a listed receiver observes
+  the signal, and legacy ESPHome-bridge captures (receiver_entity_id=None) match
+  only unscoped triggers. Multiple triggers per signal fingerprint are legal (one
+  per room). A single press observed by several receivers within a 60ms window
+  fires each matching trigger once (per-(trigger, fingerprint) dedup) and counts as
+  one hit toward min_hits.
 
 Signal fingerprinting details:
 - Uses S/L (short/long) pulse-duration classification. Each pulse is classified as

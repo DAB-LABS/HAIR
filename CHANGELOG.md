@@ -5,7 +5,17 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.6] - 2026-06-25 -- Forehead Removal
+## [0.5.7] - 2026-07-05
+
+### Added
+
+- Location-aware triggers. A trigger's event now reports where the signal was received: the event data carries `receiver_entity_id` plus the receiver's `receiver_area_id` and `receiver_area_name`, resolved live from Home Assistant's area registry at fire time. You can now route an automation by room, for example mute only the speakers in the room whose receiver heard the button. Triggers also gain an optional Receiver scope in the trigger dialog: leave it on "Any receiver" (the default, unchanged behavior) or pick one or more receivers so the trigger fires only when one of them observes the signal. A single physical press heard by several receivers fires each matching trigger once. Requested by @blalor, with a workaround and independent endorsement from @Didgeridrew (GH #34).
+- Multiple triggers on the same signal are now supported, so you can create one per room with different receiver scopes.
+
+### Changed
+
+- Signal-row indicators are now unified on a single corner-dot pattern. The Assign button shows a green dot when a signal is assigned to at least one device command, with a small count when it maps to more than one; hover for the list. The Trigger button shows a yellow dot, counted the same way, and the old solid-fill "trigger on" styling is gone. The Trigger button opens a small picker when a signal already has one or more triggers, so you can edit an existing one or add another.
+- Assign and Trigger indicators now refresh live across browser tabs when a signal's assignments change.
 
 ### Fixed
 
