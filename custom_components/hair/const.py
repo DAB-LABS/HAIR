@@ -56,6 +56,10 @@ EVENT_CAPTURE_TIMEOUT = f"{DOMAIN}_capture_timeout"
 EVENT_CAPTURE_ERROR = f"{DOMAIN}_capture_error"
 EVENT_SIGNAL_DETECTED = f"{DOMAIN}_signal_detected"
 EVENT_SIGNAL_REMOVED = f"{DOMAIN}_signal_removed"
+# Fired when a signal's assignment set changes (assign, or a device command
+# referencing it is added/removed). Carries {signal_fingerprint}. Lets other
+# browser tabs refresh the green Assign badge and yellow trigger dot live.
+EVENT_SIGNAL_UPDATED = f"{DOMAIN}_signal_updated"
 # Fired (rate-limited) when a signal arrives whose device fingerprint is in
 # the persisted dismiss set. Drives the Sniffer's "Show Dismissed" button
 # glow + dot indicator so users can tell that dismissed remotes are still
@@ -92,6 +96,11 @@ SIGNAL_RAW_FINGERPRINT_LEN = 64
 # ---------------------------------------------------------------------------
 TRIGGER_HIT_RESET_WINDOW_S = 5
 EVENT_TRIGGER_FIRED = f"{DOMAIN}_trigger_fired"
+# Location-aware triggers (v0.5.7). A single physical press captured by several
+# receivers within this window counts as one press per (trigger, fingerprint):
+# it increments a trigger's hit state once and fires each matching trigger at
+# most once. Composes with min_hits (distinct presses still accumulate).
+MULTI_RECEIVER_DEDUP_WINDOW_S = 0.060
 
 # Pronto S/L classification threshold (in Pronto timing units).
 # Timing words below this are "short" (S), above are "long" (L).

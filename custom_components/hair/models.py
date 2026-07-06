@@ -393,6 +393,11 @@ class IRTrigger:
     source_command_id: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+    # Location-aware trigger scope (v0.5.7). Empty = fires on any receiver
+    # (backward-compatible with pre-0.5.7 triggers). Non-empty = fires only
+    # when the capturing receiver's entity_id is in this list. Legacy captures
+    # (receiver_entity_id None) never match a scoped trigger.
+    receiver_entity_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -407,6 +412,7 @@ class IRTrigger:
             "source_command_id": self.source_command_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "receiver_entity_ids": list(self.receiver_entity_ids),
         }
 
     @classmethod
@@ -423,7 +429,23 @@ class IRTrigger:
             source_command_id=data.get("source_command_id"),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
+            # Absent (pre-0.5.7 record) or null both resolve to [] = unscoped.
+            receiver_entity_ids=list(data.get("receiver_entity_ids") or []),
         )
+
+    def matches_receiver(self, receiver_entity_id: str | None) -> bool:
+        """Return True if this trigger's scope matches the capturing receiver.
+
+        Empty ``receiver_entity_ids`` = unscoped = matches any receiver,
+        including None (legacy captures). A non-empty list matches only when
+        ``receiver_entity_id`` is in the list; legacy captures (None) never
+        match a scoped trigger.
+        """
+        if not self.receiver_entity_ids:
+            return True
+        if receiver_entity_id is None:
+            return False
+        return receiver_entity_id in self.receiver_entity_ids
 
 
 @dataclass

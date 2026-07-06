@@ -322,11 +322,31 @@ class HAIRStore:
     def get_trigger_by_fingerprint(
         self, fingerprint: str
     ) -> IRTrigger | None:
-        """Find a trigger by signal fingerprint."""
+        """Find a trigger by signal fingerprint (first match).
+
+        Retained for callers that only need existence. Prefer
+        :meth:`get_triggers_by_fingerprint` where multiple scoped triggers per
+        fingerprint are possible (v0.5.7).
+        """
         for t in self._triggers.values():
             if t.signal_fingerprint == fingerprint:
                 return t
         return None
+
+    def get_triggers_by_fingerprint(
+        self, fingerprint: str
+    ) -> list[IRTrigger]:
+        """Return all triggers bound to a signal fingerprint.
+
+        Multiple triggers per fingerprint are legal (v0.5.7 location-aware
+        scoping): one signal can drive several triggers with different receiver
+        scopes. Returns every match so callers can present or scope them all.
+        """
+        return [
+            t
+            for t in self._triggers.values()
+            if t.signal_fingerprint == fingerprint
+        ]
 
     def get_triggers_for_signal(
         self, protocol: str | None, code: str | None, fingerprint: str
