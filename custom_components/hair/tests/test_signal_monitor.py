@@ -156,7 +156,7 @@ class TestDecodeAtCaptureAndForgeGuard:
             _make_event(_nec_event("0x1234"), user_id="attacker")
         )
         assert store.get_all_devices() == []
-        trigger_mgr.on_signal.assert_not_called()
+        trigger_mgr.on_signal_captured.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_esphome_event_without_user_context_processed(self):
@@ -684,8 +684,10 @@ class TestRepeatSuppression:
         assert monitor._check_repeat("fp1")
         assert not monitor._check_repeat("fp1")
 
-        # Simulate time beyond suppression window.
-        monitor._last_seen_times["fp1"] = (
+        # Simulate time beyond suppression window. The suppression map is keyed
+        # per (fingerprint, receiver); a bare-fingerprint capture uses the
+        # "__legacy__" sentinel (v0.5.7 per-receiver suppression).
+        monitor._last_seen_times[("fp1", "__legacy__")] = (
             time.monotonic() - (SIGNAL_REPEAT_SUPPRESS_MS / 1000.0) - 0.01
         )
         assert monitor._check_repeat("fp1")

@@ -1,7 +1,6 @@
 """Tests for HAIR TriggerManager."""
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,6 +27,34 @@ def mock_store(mock_hass):
 @pytest.fixture
 def manager(mock_hass, mock_store):
     return TriggerManager(mock_hass, mock_store)
+
+
+class _FakeClock:
+    """Controllable monotonic clock for TriggerManager's time-based logic.
+
+    The 60ms multi-receiver dedup and the 5s min_hits reset window both read
+    ``time.monotonic``. Real distinct presses are hundreds of ms apart; these
+    tests fire synchronously, so a fake clock lets them advance time
+    deterministically past the dedup window between distinct presses.
+    """
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.t = start
+
+    def monotonic(self) -> float:
+        return self.t
+
+    def advance(self, dt: float) -> None:
+        self.t += dt
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = _FakeClock()
+    monkeypatch.setattr(
+        "custom_components.hair.trigger_manager.time", fake
+    )
+    return fake
 
 
 def _make_trigger(
@@ -71,16 +98,22 @@ class TestRewire:
         assert t.code == "0000 0001"  # untouched
         mock_store.async_save.assert_not_awaited()
 
-    async def test_skips_collision_and_reports(self, manager, mock_store):
+    async def test_rewires_all_matching_even_on_collision(
+        self, manager, mock_store
+    ):
+        """v0.5.7: multiple triggers per fingerprint are legal (they may carry
+        different receiver scopes), so a fingerprint collision no longer blocks
+        the rewire. Every trigger bound to the old fingerprint is repointed."""
         mock_store.async_save = AsyncMock()
         bound = _make_trigger(name="A", fingerprint="OLD")
         owner = _make_trigger(name="B", fingerprint="NEW")
         mock_store.add_trigger(bound)
         mock_store.add_trigger(owner)
         result = await manager.rewire("OLD", "NEW", "PRONTO", "0000 DDDD")
-        assert result == {"rewired": [], "skipped": ["A"]}
-        assert bound.signal_fingerprint == "OLD"  # left alone, no duplicate
-        mock_store.async_save.assert_not_awaited()
+        assert result == {"rewired": ["A"], "skipped": []}
+        assert bound.signal_fingerprint == "NEW"  # rewired despite collision
+        assert owner.signal_fingerprint == "NEW"  # untouched (already NEW)
+        mock_store.async_save.assert_awaited_once()
 
     async def test_ignores_unbound_triggers(self, manager, mock_store):
         mock_store.async_save = AsyncMock()
@@ -160,6 +193,16 @@ class TestTriggerStorage:
         assert found is t
         assert mock_store.get_trigger_by_fingerprint("other") is None
 
+    def test_get_triggers_by_fingerprint_returns_all(self, mock_store):
+        """v0.5.7: multiple triggers per fingerprint (different scopes)."""
+        a = _make_trigger(name="Garage", fingerprint="shared_fp")
+        b = _make_trigger(name="Kitchen", fingerprint="shared_fp")
+        mock_store.add_trigger(a)
+        mock_store.add_trigger(b)
+        matches = mock_store.get_triggers_by_fingerprint("shared_fp")
+        assert {t.name for t in matches} == {"Garage", "Kitchen"}
+        assert mock_store.get_triggers_by_fingerprint("none") == []
+
     def test_get_triggers_for_signal_by_code(self, mock_store):
         t = _make_trigger(protocol="pronto", code="ABCD")
         mock_store.add_trigger(t)
@@ -189,71 +232,82 @@ class TestTriggerStorage:
 
 
 class TestTriggerManagerHitCounting:
-    """Test hit counting with min_hits and 5s reset window."""
+    """Test hit counting with min_hits and 5s reset window.
 
-    def test_min_hits_1_fires_immediately(self, manager, mock_store):
+    Distinct presses are spaced past the 60ms multi-receiver dedup window via
+    the ``clock`` fixture, matching real-world press timing.
+    """
+
+    def test_min_hits_1_fires_immediately(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=1)
         mock_store.add_trigger(t)
-        fired = manager.on_signal("fp1", "pronto", "0000 0001")
+        fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert t.id in fired
 
-    def test_min_hits_3_requires_three_hits(self, manager, mock_store):
+    def test_min_hits_3_requires_three_hits(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=3)
         mock_store.add_trigger(t)
 
         # Hits 1 and 2 should not fire.
-        assert manager.on_signal("fp1", "pronto", "0000 0001") == []
-        assert manager.on_signal("fp1", "pronto", "0000 0001") == []
+        assert manager.on_signal_captured("fp1", "pronto", "0000 0001") == []
+        clock.advance(1.0)
+        assert manager.on_signal_captured("fp1", "pronto", "0000 0001") == []
+        clock.advance(1.0)
 
         # Hit 3 should fire.
-        fired = manager.on_signal("fp1", "pronto", "0000 0001")
+        fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert t.id in fired
 
-    def test_counter_resets_after_fire(self, manager, mock_store):
+    def test_counter_resets_after_fire(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=2)
         mock_store.add_trigger(t)
 
-        assert manager.on_signal("fp1", "pronto", "0000 0001") == []
-        fired = manager.on_signal("fp1", "pronto", "0000 0001")
+        assert manager.on_signal_captured("fp1", "pronto", "0000 0001") == []
+        clock.advance(1.0)
+        fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert t.id in fired
+        clock.advance(1.0)
 
         # Counter should have reset; next single hit should not fire.
-        assert manager.on_signal("fp1", "pronto", "0000 0001") == []
+        assert manager.on_signal_captured("fp1", "pronto", "0000 0001") == []
+        clock.advance(1.0)
         # But second hit should fire again.
-        fired = manager.on_signal("fp1", "pronto", "0000 0001")
+        fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert t.id in fired
 
-    def test_reset_window_clears_counter(self, manager, mock_store):
+    def test_reset_window_clears_counter(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=3)
         mock_store.add_trigger(t)
 
         # Two hits within window.
-        manager.on_signal("fp1", "pronto", "0000 0001")
-        manager.on_signal("fp1", "pronto", "0000 0001")
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        clock.advance(1.0)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
 
         # Simulate 6 seconds passing (beyond 5s window).
         state = manager._hit_states[t.id]
-        state.last_hit = time.monotonic() - 6
+        state.last_hit = clock.monotonic() - 6
+        clock.advance(1.0)
 
         # Next hit should reset counter to 1 (not accumulate to 3).
-        fired = manager.on_signal("fp1", "pronto", "0000 0001")
+        fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert fired == []
         assert state.count == 1
 
-    def test_disabled_trigger_does_not_fire(self, manager, mock_store):
+    def test_disabled_trigger_does_not_fire(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=1, enabled=False)
         mock_store.add_trigger(t)
-        fired = manager.on_signal("fp1", "pronto", "0000 0001")
+        fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert fired == []
 
-    def test_no_triggers_returns_empty(self, manager):
-        fired = manager.on_signal("fp1", "pronto", "0000 0001")
+    def test_no_triggers_returns_empty(self, manager, clock):
+        fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert fired == []
 
-    def test_fires_ha_bus_event(self, manager, mock_store, mock_hass):
+    def test_fires_ha_bus_event(self, manager, mock_store, mock_hass, clock):
         t = _make_trigger(min_hits=1)
         mock_store.add_trigger(t)
-        manager.on_signal("fp1", "pronto", "0000 0001", "dev_fp")
+        manager.on_signal_captured("fp1", "pronto", "0000 0001", "dev_fp")
 
         mock_hass.bus.async_fire.assert_called_once()
         call_args = mock_hass.bus.async_fire.call_args
@@ -261,29 +315,33 @@ class TestTriggerManagerHitCounting:
         event_data = call_args[0][1]
         assert event_data["trigger_id"] == t.id
         assert event_data["trigger_name"] == t.name
+        # Location-aware fields present (None for an unscoped/legacy capture).
+        assert event_data["receiver_entity_id"] is None
+        assert event_data["receiver_area_id"] is None
+        assert event_data["receiver_area_name"] is None
 
-    def test_entity_callback_called(self, manager, mock_store):
+    def test_entity_callback_called(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=1)
         mock_store.add_trigger(t)
 
         cb = MagicMock()
         manager.register_entity_callback(cb)
 
-        manager.on_signal("fp1", "pronto", "0000 0001")
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
         cb.assert_called_once()
         assert cb.call_args[0][0] == t.id
 
-    def test_ws_subscriber_notified(self, manager, mock_store):
+    def test_ws_subscriber_notified(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=1)
         mock_store.add_trigger(t)
 
         cb = MagicMock()
         manager.subscribe(cb)
 
-        manager.on_signal("fp1", "pronto", "0000 0001")
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
         cb.assert_called_once()
 
-    def test_unsubscribe(self, manager, mock_store):
+    def test_unsubscribe(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=1)
         mock_store.add_trigger(t)
 
@@ -291,5 +349,5 @@ class TestTriggerManagerHitCounting:
         manager.subscribe(cb)
         manager.unsubscribe(cb)
 
-        manager.on_signal("fp1", "pronto", "0000 0001")
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
         cb.assert_not_called()

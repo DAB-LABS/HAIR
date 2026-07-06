@@ -381,6 +381,12 @@ _stub("homeassistant.helpers.entity_registry", {
     "RegistryEntry": MagicMock,
 })
 
+_mock_area_registry = MagicMock()
+_stub("homeassistant.helpers.area_registry", {
+    "async_get": MagicMock(return_value=_mock_area_registry),
+    "AreaEntry": MagicMock,
+})
+
 _stub("homeassistant.helpers.entity_platform", {
     "AddEntitiesCallback": MagicMock,
 })

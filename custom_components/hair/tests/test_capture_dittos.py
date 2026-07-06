@@ -90,9 +90,23 @@ def _decoded_sig(sig_id="s1", **overrides):
     return UnknownSignal(**fields)
 
 
+# v0.5.7: ditto-anchor state is per-receiver (dict keyed by receiver_entity_id,
+# or the "__legacy__" sentinel for the ESPHome-bridge / no-receiver path). These
+# capture-attribution tests exercise a single receiver, so they key everything on
+# the legacy sentinel.
+_RID = "__legacy__"
+
+
+def _set_anchor(monitor, anchor, running=0, last=None):
+    """Seed the per-receiver ditto state for the legacy sentinel receiver."""
+    monitor._ditto_anchor = {_RID: anchor}
+    monitor._ditto_running_count = {_RID: running}
+    monitor._last_ditto_monotonic = {} if last is None else {_RID: last}
+
+
 def _fire_ditto(monitor, now):
     with patch(_MONO, return_value=now):
-        monitor._maybe_attribute_repeat_frame()
+        monitor._maybe_attribute_repeat_frame(_RID)
 
 
 # ---------------------------------------------------------------------------
@@ -103,9 +117,7 @@ def _fire_ditto(monitor, now):
 def test_ditto_attribution_within_window(fake_hass):
     sig = _sig("s1")
     monitor, _ = _monitor(fake_hass, sig)
-    monitor._ditto_anchor = ("s1", 0.0, "df")
-    monitor._ditto_running_count = 0
-    monitor._last_ditto_monotonic = None
+    _set_anchor(monitor, ("s1", 0.0, "df"))
     _fire_ditto(monitor, 0.2)  # 200ms, inside the 1.0s window
     assert sig.observed_repeat_count == 1
 
@@ -113,7 +125,7 @@ def test_ditto_attribution_within_window(fake_hass):
 def test_ditto_attribution_outside_window(fake_hass):
     sig = _sig("s1")
     monitor, _ = _monitor(fake_hass, sig)
-    monitor._ditto_anchor = ("s1", 0.0, "df")
+    _set_anchor(monitor, ("s1", 0.0, "df"))
     # Past REPEAT_ATTRIBUTION_WINDOW (1.0s): the main-frame window gate refuses.
     _fire_ditto(monitor, REPEAT_ATTRIBUTION_WINDOW + 0.5)
     assert sig.observed_repeat_count == 0
@@ -126,9 +138,7 @@ def test_ditto_attribution_different_device(fake_hass):
     sig_a = _sig("sA")
     sig_b = _sig("sB")
     monitor, _ = _monitor(fake_hass, sig_a, sig_b)
-    monitor._ditto_anchor = ("sB", 0.0, "dfB")
-    monitor._ditto_running_count = 0
-    monitor._last_ditto_monotonic = None
+    _set_anchor(monitor, ("sB", 0.0, "dfB"))
     _fire_ditto(monitor, 0.1)
     assert sig_b.observed_repeat_count == 1
     assert sig_a.observed_repeat_count == 0
@@ -138,9 +148,7 @@ def test_ditto_max_merge(fake_hass):
     # An earlier hold observed 5; a later 2-ditto tap must not lower it.
     sig = _sig("s1", observed=5)
     monitor, _ = _monitor(fake_hass, sig)
-    monitor._ditto_anchor = ("s1", 0.0, "df")
-    monitor._ditto_running_count = 0
-    monitor._last_ditto_monotonic = None
+    _set_anchor(monitor, ("s1", 0.0, "df"))
     _fire_ditto(monitor, 0.10)
     _fire_ditto(monitor, 0.21)
     assert sig.observed_repeat_count == 5
@@ -149,9 +157,7 @@ def test_ditto_max_merge(fake_hass):
 def test_ditto_inter_frame_gate_stops_burst(fake_hass):
     sig = _sig("s1")
     monitor, _ = _monitor(fake_hass, sig)
-    monitor._ditto_anchor = ("s1", 0.0, "df")
-    monitor._ditto_running_count = 0
-    monitor._last_ditto_monotonic = None
+    _set_anchor(monitor, ("s1", 0.0, "df"))
     # 5 dittos at ~110ms intervals all attribute.
     for i in range(5):
         _fire_ditto(monitor, 0.05 + i * 0.11)
@@ -166,13 +172,11 @@ def test_ditto_dropped_during_sentinel_window(fake_hass):
     sig = _sig("s1")
     monitor, _ = _monitor(fake_hass, sig)
     # Sentinel: main frame in flight, signal_id is None -> drop the ditto.
-    monitor._ditto_anchor = (None, 0.0, "df")
+    _set_anchor(monitor, (None, 0.0, "df"))
     _fire_ditto(monitor, 0.1)
     assert sig.observed_repeat_count == 0
     # Pipeline confirms the anchor; subsequent dittos now attribute.
-    monitor._ditto_anchor = ("s1", 0.0, "df")
-    monitor._ditto_running_count = 0
-    monitor._last_ditto_monotonic = None
+    _set_anchor(monitor, ("s1", 0.0, "df"))
     _fire_ditto(monitor, 0.2)
     assert sig.observed_repeat_count == 1
 
@@ -187,22 +191,20 @@ async def test_dismiss_invalidates_anchor_no_inflation(fake_hass):
 
     # D's main frame wrote a sentinel synchronously; the async pipeline's
     # dismiss early-return must invalidate it before any ditto attributes.
-    monitor._ditto_anchor = (None, 0.0, "dfD")
+    _set_anchor(monitor, (None, 0.0, "dfD"))
     parsed = CaptureResult(
         protocol="PRONTO", code=_PRONTO_A,
         raw_timings=[560, -560, 560, -1690], frequency=38000,
     )
     await monitor._process_parsed_signal(parsed)
-    assert monitor._ditto_anchor is None
+    assert monitor._ditto_anchor.get(_RID) is None
 
     # D's dittos drop (anchor is None).
     _fire_ditto(monitor, 0.1)
     assert sig_n.observed_repeat_count == 0
 
     # N's main frame sets a fresh confirmed anchor; its dittos attribute to N.
-    monitor._ditto_anchor = ("sN", 1.0, "dfN")
-    monitor._ditto_running_count = 0
-    monitor._last_ditto_monotonic = None
+    _set_anchor(monitor, ("sN", 1.0, "dfN"))
     _fire_ditto(monitor, 1.1)
     assert sig_n.observed_repeat_count == 1
 
