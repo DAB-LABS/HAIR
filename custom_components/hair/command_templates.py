@@ -59,6 +59,8 @@ COMMAND_TEMPLATES: dict[DeviceType, list[CommandTemplate]] = {
         CommandTemplate("Off", CommandCategory.POWER, essential=True),
         CommandTemplate("Brightness Up", CommandCategory.BRIGHTNESS, essential=False),
         CommandTemplate("Brightness Down", CommandCategory.BRIGHTNESS, essential=False),
+        CommandTemplate("Color Temp Warmer", CommandCategory.COLOR_TEMP, essential=False),
+        CommandTemplate("Color Temp Cooler", CommandCategory.COLOR_TEMP, essential=False),
     ],
     DeviceType.SWITCH: [
         CommandTemplate("On", CommandCategory.POWER, essential=True),
@@ -146,6 +148,8 @@ ACTION_OPTIONS: dict[DeviceType, list[tuple[str, str]]] = {
         ("turn_off", "Off"),
         ("brightness_up", "Brightness Up"),
         ("brightness_down", "Brightness Down"),
+        ("color_temp_warmer", "Color Temp Warmer"),
+        ("color_temp_cooler", "Color Temp Cooler"),
     ],
     DeviceType.SWITCH: [
         ("turn_on", "On"),

@@ -66,6 +66,8 @@ AUTO_MAP_RULES: dict[str, str] = {
     "off": "turn_off",
     "brightness up": "brightness_up",
     "brightness down": "brightness_down",
+    "color temp warmer": "color_temp_warmer",
+    "color temp cooler": "color_temp_cooler",
     # Cover / screen
     "open": "open_cover",
     "close": "close_cover",

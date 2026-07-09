@@ -189,6 +189,7 @@ class CommandCategory(StrEnum):
     TEMPERATURE = "temperature"
     FAN_SPEED = "fan_speed"
     BRIGHTNESS = "brightness"
+    COLOR_TEMP = "color_temp"
     COVER = "cover"
     MEDIA_CONTROL = "media_control"
     CUSTOM = "custom"

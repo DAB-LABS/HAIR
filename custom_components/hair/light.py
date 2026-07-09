@@ -86,6 +86,8 @@ class HAIRLightEntity(LightEntity):
     @property
     def color_mode(self) -> ColorMode:
         mapping = self._device.entity_config.command_mapping
+        if "color_temp_warmer" in mapping or "color_temp_cooler" in mapping:
+            return ColorMode.COLOR_TEMP
         if "brightness_up" in mapping or "brightness_down" in mapping:
             return ColorMode.BRIGHTNESS
         return ColorMode.ONOFF

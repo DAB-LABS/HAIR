@@ -24,6 +24,7 @@ export type CommandCategoryId =
     | "temperature"
     | "fan_speed"
     | "brightness"
+    | "color_temp"
     | "cover"
     | "media_control"
     | "custom";
