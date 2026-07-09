@@ -135,7 +135,7 @@ Supported device types and resulting HA entities:
 - Media Player -> media_player (power, volume, mute, source, channels, navigation, transport)
 - AC -> climate (HVAC modes, temperature presets, fan modes)
 - Fan -> fan (power, speed stepping, oscillate)
-- Light -> light (on/off, brightness stepping)
+- Light -> light (on/off, brightness stepping, color temperature stepping)
 - Switch -> switch (on/off)
 - Screen -> cover (open, close, stop)
 - Other -> remote (generic IR command sender)
