@@ -783,11 +783,6 @@ class TestHAIRLightEntity:
         assert entity.color_mode == ColorMode.BRIGHTNESS
         assert entity.supported_color_modes == {ColorMode.BRIGHTNESS}
 
-    def test_color_mode_color_temp(self):
-        entity, _ = self._make(command_mapping={"color_temp_warmer": "Warmer"})
-        assert entity.color_mode == ColorMode.COLOR_TEMP
-        assert entity.supported_color_modes == {ColorMode.COLOR_TEMP}
-
     def test_initial_state(self):
         entity, _ = self._make()
         assert entity.is_on is False

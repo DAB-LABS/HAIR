@@ -275,7 +275,6 @@ _stub("homeassistant.components.fan", {
 class _ColorMode(StrEnum):
     ONOFF = "onoff"
     BRIGHTNESS = "brightness"
-    COLOR_TEMP = "color_temp"
 
 class _LightEntity:
     _attr_has_entity_name = True
