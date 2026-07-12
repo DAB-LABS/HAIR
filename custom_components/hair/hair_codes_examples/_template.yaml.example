@@ -1,0 +1,46 @@
+# HAIR — custom remote code file (template)
+#
+# HOW TO USE
+#   1. Copy this file into:   <config>/hair_codes/<your-remote>.yaml
+#      (drop the ".example" suffix — files ending in .yaml.example are ignored)
+#   2. Edit the fields below.
+#   3. Reload the integration (or restart HA) and open "Add Remote".
+#
+# One file describes ONE remote = one brand + one model. Add more remotes by
+# adding more files. This directory lives OUTSIDE custom_components/, so a
+# HACS update of HAIR will never delete your remotes.
+
+brand: LG                 # REQUIRED. Top-level group in the picker.
+model: AKB74915324        # REQUIRED. The codebook shown under the brand.
+
+functions:                # REQUIRED. Mapping of STABLE id -> code definition.
+  # The KEY (left side) is the stable function id. Use short, lowercase,
+  # snake_case, human ids like  power, temp_up, mode, fan_speed  —
+  # NOT btn_0 / btn_1. Ids are how HAIR refers to a button forever, so keep
+  # them meaningful and don't renumber them.
+
+  power:
+    name: Power                       # optional label (defaults to "Power")
+    # Give the code EITHER as a ready Pronto hex string ...
+    pronto: "0000 006D 0022 0002 0157 00AB 0016 0016 0016 0041 0016 05EC"
+
+  temp_up:
+    name: Temp Up
+    # ... OR as raw signed timings (ESPHome / Flipper style) + carrier freq.
+    # Positive = mark (carrier on), negative = space (carrier off), microseconds.
+    raw: [9000, -4500, 560, -560, 560, -1690, 560, -560, 560, -1690]
+    frequency: 38000                  # optional, defaults to 38000 (Hz)
+    # OPTIONAL decoded identity. Keep it whenever you know it: HAIR stores
+    # protocol / address / command / fingerprint alongside the Pronto code
+    # instead of throwing that information away.
+    protocol: NEC
+    address: 0x04                     # int or hex string; 0x04 and "0x04" both work
+    command: 0x08
+
+  temp_down:
+    name: Temp Down
+    raw: [9000, -4500, 560, -560, 560, -1690, 560, -560, 560, -560]
+    frequency: 38000
+    protocol: NEC
+    address: 0x04
+    command: 0x09
