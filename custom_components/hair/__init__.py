@@ -63,6 +63,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> bool:
     """Set up HAIR from a config entry."""
+    from . import code_library
+    await hass.async_add_executor_job(code_library.ensure_custom_dir)
+
     # One-time migration: fix legacy entry title.
     if entry.title != "HAIR":
         hass.config_entries.async_update_entry(entry, title="HAIR")
@@ -218,5 +221,3 @@ async def async_remove_entry(
     # Storage is shared across the integration's lifetime; we leave it
     # in place so re-installation preserves captured commands. Users
     # can clear it manually via the panel.
-
-
