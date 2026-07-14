@@ -32,6 +32,7 @@ unchanged. The NEC codes are the test_event_parser remote-1 Power code
 """
 from __future__ import annotations
 
+import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,6 +48,17 @@ from custom_components.hair.models import (
 )
 from custom_components.hair.storage import HAIRStore
 from custom_components.hair.trigger_manager import TriggerManager
+
+# The real NEC decoder ships via infrared-protocols, which requires
+# Python 3.13+ (see the pyproject test extra). Tests that exercise the
+# decoded tier against REAL decode results skip below that; everything
+# byte_hash/fingerprint-tier still runs (mirrors test_protocol_decode's
+# importorskip convention, but per-test so the rest of this suite keeps
+# covering 3.12).
+_needs_nec = pytest.mark.skipif(
+    importlib.util.find_spec("infrared_protocols") is None,
+    reason="real NEC decoder unavailable (infrared-protocols needs 3.13+)",
+)
 
 # --- Sony fixtures (see module docstring) ---
 
@@ -176,6 +188,7 @@ class TestFlipFixtures:
             "identity layer the flip cannot break"
         )
 
+    @_needs_nec
     def test_nec_pair_decodes_identically_with_different_hashes(self):
         assert _decoded(NEC_POWER) == _decoded(NEC_POWER_LEADSHIFT) == (
             "NEC:0xff00:0xaa"
@@ -297,6 +310,7 @@ class TestTriggerFlipRescue:
         )
         assert fired == []
 
+    @_needs_nec
     def test_tier1_trigger_fires_across_hash_change(self, manager, mock_store, clock):
         """The decoder-takeover path: a trigger with a decoded identity
         fires on a capture that decodes the same, even though jitter moved
@@ -445,6 +459,7 @@ class _FakeStore:
         self._data = data
 
 
+@_needs_nec
 @pytest.mark.asyncio
 async def test_trigger_backfill_decoded_only(mock_hass):
     """A pre-upgrade trigger with a stored decodable code gains
@@ -660,6 +675,7 @@ async def test_signal_store_heals_flip_duplicates(mock_hass):
 
 
 class TestRewireDecoded:
+    @_needs_nec
     @pytest.mark.asyncio
     async def test_rewire_stamps_decoded_identity(self, manager, mock_store):
         t = _trigger(NEC_POWER, byte_hash=None, decoded=None, name="legacy")
