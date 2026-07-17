@@ -152,9 +152,8 @@ class SignalStore:
         # decode the stored raw timings (or timings derived from the
         # Pronto code) and populate the identity. Non-decodable signals are
         # left untouched. Idempotent across restarts.
-        from .const import DECODED_FINGERPRINT_FORMAT
         from .ir_command import ProntoCommand
-        from .protocol_decode import try_decode
+        from .protocol_decode import try_decode_identity
 
         decoded_backfilled = 0
         for device in self._devices.values():
@@ -167,15 +166,15 @@ class SignalStore:
                         raw = ProntoCommand(sig.code).get_raw_timings()
                     except (ValueError, IndexError):
                         raw = None
-                decoded = try_decode(raw)
-                if decoded is None:
+                identity = try_decode_identity(raw)
+                if identity is None:
                     continue
-                protocol, address, command = decoded
-                sig.decoded_protocol = protocol
-                sig.decoded_address = address
-                sig.decoded_command = command
-                sig.decoded_fingerprint = DECODED_FINGERPRINT_FORMAT.format(
-                    protocol=protocol, address=address, command=command
+                sig.decoded_protocol = identity.protocol
+                sig.decoded_address = identity.address
+                sig.decoded_command = identity.command
+                sig.decoded_fingerprint = identity.fingerprint
+                sig.decoded_extras = (
+                    dict(identity.extras) if identity.extras else None
                 )
                 decoded_backfilled += 1
         if decoded_backfilled:

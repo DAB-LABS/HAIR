@@ -30,6 +30,7 @@ from custom_components.hair.models import (
     UnknownDevice,
     UnknownSignal,
 )
+from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.signal_monitor import (
     SignalMonitor,
     _apply_signal_provenance,
@@ -255,7 +256,9 @@ async def test_catalog_test_uses_decoded_when_available(fake_hass):
     assert result["success"] is True
     # test_signal now forwards the signal's repeat_count (default 1) to the
     # decoded build (v0.5.5 ditto-honoring Test path).
-    bdc.assert_called_once_with("NEC", 0x1000, 0x18, repeat_count=1)
+    bdc.assert_called_once_with(
+        "NEC", 0x1000, 0x18, repeat_count=1, decoded_extras=None
+    )
     bc.assert_not_called()
     ir_send.assert_awaited_once()
     assert ir_send.call_args[0][2] is sentinel
@@ -342,8 +345,11 @@ async def test_save_captured_command_decodes_at_save(fake_hass):
     conn = _make_connection()
 
     with patch(
-        "custom_components.hair.protocol_decode.decode_to_fields",
-        return_value=("NEC", 0x1000, 0x18, "NEC:0x1000:0x18"),
+        "custom_components.hair.protocol_decode.try_decode_identity",
+        return_value=DecodedIdentity(
+            protocol="NEC", address=0x1000, command=0x18,
+            fingerprint="NEC:0x1000:0x18", extras=None, source="upstream",
+        ),
     ):
         await ws_save_captured_command(
             fake_hass,
@@ -381,8 +387,8 @@ async def test_save_captured_command_non_nec_leaves_fields_none(fake_hass):
     conn = _make_connection()
 
     with patch(
-        "custom_components.hair.protocol_decode.decode_to_fields",
-        return_value=(None, None, None, None),
+        "custom_components.hair.protocol_decode.try_decode_identity",
+        return_value=None,
     ):
         await ws_save_captured_command(
             fake_hass,

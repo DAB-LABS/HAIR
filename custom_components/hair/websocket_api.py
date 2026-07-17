@@ -701,13 +701,16 @@ async def ws_save_captured_command(
     # but a freshly captured command should not need it.) Both fields default
     # to None on undecodable / non-Pronto captures.
     from .event_parser import EventParser
-    from .protocol_decode import decode_to_fields
+    from .protocol_decode import try_decode_identity
 
-    d_proto, d_addr, d_cmd, d_fp = decode_to_fields(result.raw_timings)
-    command.decoded_protocol = d_proto
-    command.decoded_address = d_addr
-    command.decoded_command = d_cmd
-    command.decoded_fingerprint = d_fp
+    identity = try_decode_identity(result.raw_timings)
+    command.decoded_protocol = identity.protocol if identity else None
+    command.decoded_address = identity.address if identity else None
+    command.decoded_command = identity.command if identity else None
+    command.decoded_fingerprint = identity.fingerprint if identity else None
+    command.decoded_extras = (
+        dict(identity.extras) if identity and identity.extras else None
+    )
     command.byte_hash = EventParser.pronto_byte_hash(result.code)
     await manager.async_add_command(device.id, command)
     # Notify other tabs this signal now has an assignment (v0.5.7).

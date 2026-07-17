@@ -41,7 +41,10 @@ test = [
     # (decode paths in protocol_decode.py are defensively guarded either
     # way). PyPI currently publishes through 5.8.1, so CI installs the
     # newest 5.x today and picks up 6.x automatically once it is published.
-    "infrared-protocols>=5.6,<7.0; python_version >= '3.13'",
+    # Upstream moved to 7.x in 2026-07; the commands.Command contract is
+    # unchanged from 5.x (verified against the 7.5.0 source), so the cap
+    # tracks the next major.
+    "infrared-protocols>=5.6,<8.0; python_version >= '3.13'",
 ]
 lint = [
     "ruff>=0.4",

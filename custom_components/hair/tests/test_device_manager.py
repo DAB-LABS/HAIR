@@ -328,8 +328,8 @@ class TestUpdateCommand:
         assert manager._store.match_command(None, old_fp, None) == (dev.id, "c1")
 
         with patch(
-            "custom_components.hair.protocol_decode.decode_to_fields",
-            return_value=(None, None, None, None),
+            "custom_components.hair.protocol_decode.try_decode_identity",
+            return_value=None,
         ):
             result = await manager.async_update_command(
                 dev.id, "c1", pronto=_CODE_LONG
@@ -428,8 +428,8 @@ class TestUpdateCommand:
         tm = TriggerManager(manager._hass, manager._store)
 
         with patch(
-            "custom_components.hair.protocol_decode.decode_to_fields",
-            return_value=(None, None, None, None),
+            "custom_components.hair.protocol_decode.try_decode_identity",
+            return_value=None,
         ):
             result = await manager.async_update_command(
                 dev.id, "c1", pronto=_CODE_LONG, trigger_manager=tm

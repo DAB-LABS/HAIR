@@ -334,7 +334,7 @@ class HAIRStore:
         carries a ``decoded_fingerprint`` is skipped.
         """
         from .ir_command import ProntoCommand
-        from .protocol_decode import decode_to_fields
+        from .protocol_decode import try_decode_identity
 
         changed = 0
         for device in self._data.values():
@@ -347,13 +347,16 @@ class HAIRStore:
                         raw = ProntoCommand(cmd.code).get_raw_timings()
                     except (ValueError, IndexError):
                         raw = None
-                protocol, address, command, fingerprint = decode_to_fields(raw)
-                if fingerprint is None:
+                identity = try_decode_identity(raw)
+                if identity is None:
                     continue
-                cmd.decoded_protocol = protocol
-                cmd.decoded_address = address
-                cmd.decoded_command = command
-                cmd.decoded_fingerprint = fingerprint
+                cmd.decoded_protocol = identity.protocol
+                cmd.decoded_address = identity.address
+                cmd.decoded_command = identity.command
+                cmd.decoded_fingerprint = identity.fingerprint
+                cmd.decoded_extras = (
+                    dict(identity.extras) if identity.extras else None
+                )
                 changed += 1
         if changed:
             _LOGGER.info(

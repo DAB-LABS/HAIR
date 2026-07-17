@@ -13,6 +13,7 @@ from custom_components.hair.const import (
 )
 from custom_components.hair.event_parser import EventParser
 from custom_components.hair.models import IRCommand, IRDevice
+from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.storage import HAIRStore, _HAIRDeviceStore
 
 
@@ -129,8 +130,11 @@ async def test_async_load_backfills_decoded_fields(fake_hass):
         "custom_components.hair.storage._HAIRDeviceStore",
         lambda *a, **k: backing,
     ), patch(
-        "custom_components.hair.protocol_decode.try_decode",
-        return_value=("NEC", 0xFB04, 0x08),
+        "custom_components.hair.protocol_decode.try_decode_identity",
+        return_value=DecodedIdentity(
+            protocol="NEC", address=0xFB04, command=0x08,
+            fingerprint="NEC:0xfb04:0x08", extras=None, source="upstream",
+        ),
     ):
         store = HAIRStore(fake_hass)
         await store.async_load()

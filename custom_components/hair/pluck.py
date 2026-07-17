@@ -58,6 +58,7 @@ def _normalized_to_dict(
         "decoded_address": n.decoded_address,
         "decoded_command": n.decoded_command,
         "decoded_fingerprint": n.decoded_fingerprint,
+        "decoded_extras": dict(n.decoded_extras) if n.decoded_extras else None,
         "plucked_command_name": command_name,
         "suggested_alias": suggested_alias,
     }

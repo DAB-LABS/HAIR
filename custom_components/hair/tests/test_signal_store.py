@@ -13,6 +13,7 @@ from custom_components.hair.const import (
     SIGNAL_STORAGE_VERSION,
 )
 from custom_components.hair.models import UnknownDevice, UnknownSignal
+from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.signal_store import SignalStore, _SignalCatalogStore
 
 
@@ -60,8 +61,11 @@ async def test_async_load_backfills_catalog_decoded_fields():
         "dismissed": [],
     }
     with patch(
-        "custom_components.hair.protocol_decode.try_decode",
-        return_value=("NEC", 0xFB04, 0x49),
+        "custom_components.hair.protocol_decode.try_decode_identity",
+        return_value=DecodedIdentity(
+            protocol="NEC", address=0xFB04, command=0x49,
+            fingerprint="NEC:0xfb04:0x49", extras=None, source="upstream",
+        ),
     ), patch.object(store, "_store") as mock_store:
         mock_store.async_load = AsyncMock(return_value=raw)
         await store.async_load()

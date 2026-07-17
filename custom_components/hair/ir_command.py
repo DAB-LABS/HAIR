@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import logging
 
-from .const import DECODED_PROTOCOL_NEC
-
 try:
     from infrared_protocols import Command
 except ImportError:  # test environment without infrared_protocols
@@ -188,29 +186,29 @@ def build_decoded_command(
     decoded_command: int | None,
     *,
     repeat_count: int = 0,
+    decoded_extras: dict[str, int] | None = None,
 ) -> Command | None:
     """Build a protocol-native Command from decoded fields, or ``None``.
 
-    Returns a canonical-timing Command (NEC today) when the decoded fields
-    are present and the library is available, so transmit re-encodes clean
-    timings instead of replaying captured (receiver-distorted) ones -- the
-    frafall (GH #14) fix. Returns ``None`` when the protocol is
-    unsupported, a field is missing, or the library is unavailable, so the
-    caller falls back to Pronto/raw replay.
+    Returns a canonical-timing Command when the decoded protocol is
+    registered on the rebuild tier, so transmit re-encodes clean timings
+    instead of replaying captured (receiver-distorted) ones -- the
+    frafall (GH #14) fix, generalized to every registered protocol in
+    v0.6.0. ``decoded_extras`` carries protocol state the re-encode
+    needs (RC-5/Marantz toggle, Sharp extension). Returns ``None`` when
+    the protocol is unregistered, identity-only, a field is missing, or
+    the library is unavailable, so the caller falls back to Pronto/raw
+    replay.
     """
-    if (
-        decoded_protocol != DECODED_PROTOCOL_NEC
-        or decoded_address is None
-        or decoded_command is None
-    ):
-        return None
-    try:
-        from infrared_protocols.commands.nec import NECCommand
-    except ImportError:
-        return None
-    try:
-        cmd = NECCommand(address=decoded_address, command=decoded_command)
-    except (TypeError, ValueError):
+    from .protocol_decode import build_protocol_command
+
+    cmd = build_protocol_command(
+        decoded_protocol,
+        decoded_address,
+        decoded_command,
+        extras=decoded_extras,
+    )
+    if cmd is None:
         return None
     if repeat_count:
         cmd.repeat_count = repeat_count

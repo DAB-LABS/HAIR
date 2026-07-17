@@ -56,6 +56,9 @@ export interface IRCommand {
     // its button (e.g. NEC).
     decoded_protocol?: string | null;
     decoded_fingerprint?: string | null;
+    // Protocol state beyond the identity (v0.6.0): RC-5/Marantz toggle,
+    // Sharp extension. Server-managed; surfaced for display only.
+    decoded_extras?: Record<string, number> | null;
     // Byte-level identity (v0.3.4 tiebreaker; identity since v0.5.8).
     // Was missing from this interface -- the device-detail trigger dialog
     // reads it -- which surfaced as a TS2339 build warning.
@@ -197,6 +200,7 @@ export interface UnknownSignal {
     decoded_address?: number | null;
     decoded_command?: number | null;
     decoded_fingerprint?: string | null;
+    decoded_extras?: Record<string, number> | null;
     // User-tunable TX knobs (mirror IRCommand) plus the capture-side ditto
     // observation surfaced as an editor hint.
     repeat_count?: number;
@@ -271,6 +275,7 @@ export interface PluckedSignalPreview {
     decoded_address?: number | null;
     decoded_command?: number | null;
     decoded_fingerprint?: string | null;
+    decoded_extras?: Record<string, number> | null;
     plucked_command_name: string;
     suggested_alias: string;
 }

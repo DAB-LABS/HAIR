@@ -228,7 +228,9 @@ async def test_test_signal_honors_repeat_count(fake_hass):
     ):
         res = await monitor.test_signal("s1", "infrared.e")
     assert res["success"]
-    bdc.assert_called_once_with("NEC", 0x1000, 0x18, repeat_count=3)
+    bdc.assert_called_once_with(
+        "NEC", 0x1000, 0x18, repeat_count=3, decoded_extras=None
+    )
 
 
 @pytest.mark.asyncio
@@ -267,7 +269,9 @@ async def test_test_signal_composes_repeat_and_send(fake_hass):
     ):
         res = await monitor.test_signal("s1", "infrared.e")
     assert res["success"]
-    bdc.assert_called_once_with("NEC", 0x1000, 0x18, repeat_count=5)
+    bdc.assert_called_once_with(
+        "NEC", 0x1000, 0x18, repeat_count=5, decoded_extras=None
+    )
     assert ir_send.await_count == 3
 
 

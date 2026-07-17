@@ -500,8 +500,11 @@ async def test_trigger_backfill_decoded_only(mock_hass):
 
     t_nec = store.get_trigger("t_nec")
     assert t_nec.decoded_fingerprint == "NEC:0xff00:0xaa"
+    # v0.6.0: the local SIRC decoder reads the real captured Sony fixture,
+    # so the legacy Sony trigger now gains tier-1 identity at load too
+    # (through v0.5.8 this asserted None -- "no Sony decoder yet").
     t_sony = store.get_trigger("t_sony")
-    assert t_sony.decoded_fingerprint is None  # no Sony decoder yet
+    assert t_sony.decoded_fingerprint == "SONY15:0x0097:0x27"
     t_codeless = store.get_trigger("t_codeless")
     assert t_codeless.decoded_fingerprint is None
     # The explicit negative assertion: the backfill must not have given

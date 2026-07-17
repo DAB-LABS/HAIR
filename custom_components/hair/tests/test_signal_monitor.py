@@ -23,6 +23,7 @@ from custom_components.hair.models import (
     UnknownDevice,
     UnknownSignal,
 )
+from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.signal_monitor import SignalMonitor
 from custom_components.hair.signal_store import SignalStore
 
@@ -112,8 +113,11 @@ class TestDecodeAtCaptureAndForgeGuard:
         monitor = SignalMonitor(hass, store, _make_hair_store())
         await monitor.async_start()
         with patch(
-            "custom_components.hair.signal_monitor.decode_to_fields",
-            return_value=("NEC", 0xFB04, 0x08, "NEC:0xfb04:0x08"),
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=DecodedIdentity(
+                protocol="NEC", address=0xFB04, command=0x08,
+                fingerprint="NEC:0xfb04:0x08", extras=None, source="upstream",
+            ),
         ):
             await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
         devices = store.get_all_devices()
@@ -131,8 +135,8 @@ class TestDecodeAtCaptureAndForgeGuard:
         monitor = SignalMonitor(hass, store, _make_hair_store())
         await monitor.async_start()
         with patch(
-            "custom_components.hair.signal_monitor.decode_to_fields",
-            return_value=(None, None, None, None),
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=None,
         ):
             await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
         sig = store.get_all_devices()[0].signals[0]
@@ -766,8 +770,11 @@ class TestPublicAPI:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
         with patch.object(store, "async_save", AsyncMock()), patch(
-            "custom_components.hair.signal_monitor.decode_to_fields",
-            return_value=("NEC", 0xFB04, 0x08, "NEC:0xfb04:0x08"),
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=DecodedIdentity(
+                protocol="NEC", address=0xFB04, command=0x08,
+                fingerprint="NEC:0xfb04:0x08", extras=None, source="upstream",
+            ),
         ):
             device = await monitor.create_manual_remote("R")
             res = await monitor.create_manual_signal(
@@ -787,8 +794,8 @@ class TestPublicAPI:
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
         with patch.object(store, "async_save", AsyncMock()), patch(
-            "custom_components.hair.signal_monitor.decode_to_fields",
-            return_value=(None, None, None, None),
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=None,
         ):
             device = await monitor.create_manual_remote("R")
             res = await monitor.create_manual_signal(

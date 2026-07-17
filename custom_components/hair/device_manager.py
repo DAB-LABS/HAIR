@@ -140,7 +140,7 @@ class DeviceManager:
         from .event_parser import EventParser
         from .ir_command import ProntoCommand
         from .pronto_validator import validate_pronto
-        from .protocol_decode import decode_to_fields
+        from .protocol_decode import try_decode_identity
 
         device = self._store.get_device(device_id)
         if device is None:
@@ -201,12 +201,11 @@ class DeviceManager:
                 raw = ProntoCommand(new_code).get_raw_timings()
             except Exception:  # bad code falls back to no decoded timings
                 raw = None
-            (
-                decoded_protocol,
-                decoded_address,
-                decoded_command,
-                decoded_fingerprint,
-            ) = decode_to_fields(raw)
+            identity = try_decode_identity(raw)
+            decoded_protocol = identity.protocol if identity else None
+            decoded_address = identity.address if identity else None
+            decoded_command = identity.command if identity else None
+            decoded_fingerprint = identity.fingerprint if identity else None
             command.protocol = "PRONTO"
             command.code = new_code
             command.raw_timings = list(raw) if raw else None
@@ -220,6 +219,9 @@ class DeviceManager:
             command.decoded_address = decoded_address
             command.decoded_command = decoded_command
             command.decoded_fingerprint = decoded_fingerprint
+            command.decoded_extras = (
+                dict(identity.extras) if identity and identity.extras else None
+            )
             # Rewire on ANY identity component changing (v0.5.8): a
             # sub-threshold edit shifts only the byte_hash, never the S/L
             # fingerprint, and would otherwise orphan a scoped trigger.
@@ -394,7 +396,9 @@ class DeviceManager:
                 command.decoded_address,
                 command.decoded_command,
                 repeat_count=command.repeat_count or 0,
+                decoded_extras=command.decoded_extras,
             )
+        decoded_tx = ir_cmd is not None
         if ir_cmd is None:
             ir_cmd = build_command(
                 protocol=command.protocol,
@@ -413,6 +417,22 @@ class DeviceManager:
                 await asyncio.sleep(SEND_REPEAT_GAP)
             for emitter_id in device.emitter_entity_ids:
                 await ir_send(self._hass, emitter_id, ir_cmd)
+
+        # RC-5-family toggle state (v0.6.0): one send-command call is one
+        # logical press, so flip once after the full emitter loop completes
+        # without raising -- send_count > 1 deliberately re-sends the same
+        # toggle. The decoded fingerprint excludes toggle, so the reverse
+        # index is unaffected and a bare save is safe.
+        if (
+            decoded_tx
+            and command.decoded_extras
+            and "toggle" in command.decoded_extras
+        ):
+            command.decoded_extras["toggle"] = (
+                int(command.decoded_extras["toggle"]) ^ 1
+            )
+            self._store.update_device(device)
+            await self._store.async_save()
 
     async def async_set_command_tx_force_raw(
         self, device_id: str, command_id: str, tx_force_raw: bool

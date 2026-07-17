@@ -22,7 +22,6 @@ import os
 import re
 from typing import Any
 
-from .const import DECODED_FINGERPRINT_FORMAT
 from .ir_command import raw_to_pronto
 
 _LOGGER = logging.getLogger(__name__)
@@ -192,6 +191,20 @@ def _decoded_fields(command) -> dict[str, Any]:
     (``NECCommand`` -> ``NEC``). Address and command must both be ints to
     form the fingerprint; otherwise the entry stays Pronto-only.
     """
+    from .protocol_decode import format_fingerprint, identity_from_command
+
+    identity = identity_from_command(command)
+    if identity is not None:
+        return {
+            "decoded_protocol": identity.protocol,
+            "decoded_address": identity.address,
+            "decoded_command": identity.command,
+            "decoded_fingerprint": identity.fingerprint,
+            "decoded_extras": dict(identity.extras) if identity.extras else None,
+        }
+    # Fallback for classes outside the registry: the pre-v0.6.0 generic
+    # derivation, so a future library class with plain address/command
+    # fields still yields a usable identity.
     protocol = type(command).__name__.removesuffix("Command") or None
     address = getattr(command, "address", None)
     cmd = getattr(command, "command", None)
@@ -200,15 +213,17 @@ def _decoded_fields(command) -> dict[str, Any]:
             "decoded_protocol": protocol,
             "decoded_address": int(address),
             "decoded_command": int(cmd),
-            "decoded_fingerprint": DECODED_FINGERPRINT_FORMAT.format(
-                protocol=protocol, address=int(address), command=int(cmd)
+            "decoded_fingerprint": format_fingerprint(
+                protocol, int(address), int(cmd)
             ),
+            "decoded_extras": None,
         }
     return {
         "decoded_protocol": None,
         "decoded_address": None,
         "decoded_command": None,
         "decoded_fingerprint": None,
+        "decoded_extras": None,
     }
 
 

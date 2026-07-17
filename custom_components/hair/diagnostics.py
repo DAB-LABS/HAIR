@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .protocol_decode import registered_protocols
 
 REDACT_KEYS = {"raw_timings", "code"}
 
@@ -53,6 +54,7 @@ async def async_get_config_entry_diagnostics(
         "devices": devices,
         "is_capturing": getattr(orchestrator, "is_capturing", False),
         "infrared_protocols_version": version,
+        "protocol_registry": registered_protocols(),
         "decoded_commands": {
             "total": decoded_total,
             "by_protocol": dict(decoded_by_protocol),

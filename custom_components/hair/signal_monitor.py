@@ -60,7 +60,7 @@ from .event_parser import EventParser
 from .ir_command import raw_to_pronto
 from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
-from .protocol_decode import decode_to_fields
+from .protocol_decode import try_decode_identity
 from .signal_store import SignalStore
 from .storage import HAIRStore
 
@@ -89,6 +89,7 @@ class NormalizedSignal:
     decoded_address: int | None
     decoded_command: int | None
     decoded_fingerprint: str | None
+    decoded_extras: dict[str, int] | None
 
 
 def normalize(parsed: Any) -> NormalizedSignal:
@@ -118,12 +119,7 @@ def normalize(parsed: Any) -> NormalizedSignal:
     # matcher can key on the decoded fingerprint and the TX path can
     # re-encode canonical timings. None for undecodable signals or when the
     # library is unavailable.
-    (
-        decoded_protocol,
-        decoded_address,
-        decoded_command,
-        decoded_fingerprint,
-    ) = decode_to_fields(parsed.raw_timings)
+    identity = try_decode_identity(parsed.raw_timings)
     return NormalizedSignal(
         protocol=parsed.protocol,
         code=parsed.code,
@@ -133,10 +129,13 @@ def normalize(parsed: Any) -> NormalizedSignal:
         device_address=device_address,
         dev_fp=dev_fp,
         byte_hash=byte_hash,
-        decoded_protocol=decoded_protocol,
-        decoded_address=decoded_address,
-        decoded_command=decoded_command,
-        decoded_fingerprint=decoded_fingerprint,
+        decoded_protocol=identity.protocol if identity else None,
+        decoded_address=identity.address if identity else None,
+        decoded_command=identity.command if identity else None,
+        decoded_fingerprint=identity.fingerprint if identity else None,
+        decoded_extras=(
+            dict(identity.extras) if identity and identity.extras else None
+        ),
     )
 
 
@@ -194,6 +193,9 @@ def _apply_signal_provenance(
     command.decoded_address = signal.decoded_address
     command.decoded_command = signal.decoded_command
     command.decoded_fingerprint = signal.decoded_fingerprint
+    command.decoded_extras = (
+        dict(signal.decoded_extras) if signal.decoded_extras else None
+    )
     if repeat_count is not None:
         command.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
     else:
@@ -737,6 +739,7 @@ class SignalMonitor:
         decoded_address = n.decoded_address
         decoded_command = n.decoded_command
         decoded_fingerprint = n.decoded_fingerprint
+        decoded_extras = n.decoded_extras
 
         # Step 2: Check triggers (before known-command skip so triggers
         # work for both assigned commands and unknown signals). Threads the
@@ -819,6 +822,9 @@ class SignalMonitor:
                     decoded_address=decoded_address,
                     decoded_command=decoded_command,
                     decoded_fingerprint=decoded_fingerprint,
+                    decoded_extras=(
+                        dict(decoded_extras) if decoded_extras else None
+                    ),
                     protocol=parsed.protocol,
                     code=parsed.code,
                     raw_timings=list(parsed.raw_timings) if parsed.raw_timings else [],
@@ -1419,7 +1425,9 @@ class SignalMonitor:
                 signal.decoded_address,
                 signal.decoded_command,
                 repeat_count=signal.repeat_count or 0,
+                decoded_extras=signal.decoded_extras,
             )
+        decoded_tx = ir_cmd is not None
         if ir_cmd is None:
             try:
                 ir_cmd = build_command(
@@ -1452,6 +1460,20 @@ class SignalMonitor:
         except Exception as exc:
             return {"success": False, "code": "send_failed",
                     "error": f"Emitter did not respond: {exc}"}
+
+        # RC-5-family toggle state (v0.6.0): mirror
+        # device_manager.async_send_command -- one Test is one logical
+        # press, flipped once after a fully successful send. Fingerprint
+        # excludes toggle, so the catalog row's identity is unchanged.
+        if (
+            decoded_tx
+            and signal.decoded_extras
+            and "toggle" in signal.decoded_extras
+        ):
+            signal.decoded_extras["toggle"] = (
+                int(signal.decoded_extras["toggle"]) ^ 1
+            )
+            await self._signal_store.async_save()
 
         return {"success": True}
 
@@ -1540,12 +1562,14 @@ class SignalMonitor:
                 decode_raw = ProntoCommand(code).get_raw_timings()
             except Exception:
                 decode_raw = None
-            (
-                decoded_protocol,
-                decoded_address,
-                decoded_command,
-                decoded_fingerprint,
-            ) = decode_to_fields(decode_raw)
+            identity = try_decode_identity(decode_raw)
+            decoded_protocol = identity.protocol if identity else None
+            decoded_address = identity.address if identity else None
+            decoded_command = identity.command if identity else None
+            decoded_fingerprint = identity.fingerprint if identity else None
+            decoded_extras = (
+                dict(identity.extras) if identity and identity.extras else None
+            )
 
             # Reject a paste of a signal already on this remote. The match
             # is the tiered identity rule (decoded > byte_hash > S/L
@@ -1573,6 +1597,9 @@ class SignalMonitor:
                 decoded_address=decoded_address,
                 decoded_command=decoded_command,
                 decoded_fingerprint=decoded_fingerprint,
+                decoded_extras=(
+                    dict(decoded_extras) if decoded_extras else None
+                ),
                 protocol="PRONTO",
                 code=code,
                 raw_timings=[],
@@ -1672,12 +1699,14 @@ class SignalMonitor:
                 decode_raw = ProntoCommand(code).get_raw_timings()
             except Exception:
                 decode_raw = None
-            (
-                decoded_protocol,
-                decoded_address,
-                decoded_command,
-                decoded_fingerprint,
-            ) = decode_to_fields(decode_raw)
+            identity = try_decode_identity(decode_raw)
+            decoded_protocol = identity.protocol if identity else None
+            decoded_address = identity.address if identity else None
+            decoded_command = identity.command if identity else None
+            decoded_fingerprint = identity.fingerprint if identity else None
+            decoded_extras = (
+                dict(identity.extras) if identity and identity.extras else None
+            )
 
             # Tiered duplicate guard (matches the paste/edit/capture paths):
             # a re-encoding of an already-plucked command is refused even
@@ -1701,6 +1730,9 @@ class SignalMonitor:
                 decoded_address=decoded_address,
                 decoded_command=decoded_command,
                 decoded_fingerprint=decoded_fingerprint,
+                decoded_extras=(
+                    dict(decoded_extras) if decoded_extras else None
+                ),
                 protocol="PRONTO",
                 code=code,
                 raw_timings=[],
@@ -1774,12 +1806,14 @@ class SignalMonitor:
                 raw = ProntoCommand(code).get_raw_timings()
             except Exception:
                 raw = None
-            (
-                decoded_protocol,
-                decoded_address,
-                decoded_command,
-                decoded_fingerprint,
-            ) = decode_to_fields(raw)
+            identity = try_decode_identity(raw)
+            decoded_protocol = identity.protocol if identity else None
+            decoded_address = identity.address if identity else None
+            decoded_command = identity.command if identity else None
+            decoded_fingerprint = identity.fingerprint if identity else None
+            decoded_extras = (
+                dict(identity.extras) if identity and identity.extras else None
+            )
 
             # Refuse a code a *different* signal on this remote already holds
             # (tiered identity, so a jittered re-paste of an existing button
@@ -1822,6 +1856,7 @@ class SignalMonitor:
             signal.decoded_address = decoded_address
             signal.decoded_command = decoded_command
             signal.decoded_fingerprint = decoded_fingerprint
+            signal.decoded_extras = decoded_extras
             if alias is not None:
                 signal.alias = alias.strip()
             if repeat_count is not None:
@@ -1904,6 +1939,7 @@ class SignalMonitor:
                     decoded_address=entry.get("decoded_address"),
                     decoded_command=entry.get("decoded_command"),
                     decoded_fingerprint=entry.get("decoded_fingerprint"),
+                    decoded_extras=entry.get("decoded_extras") or None,
                     protocol="PRONTO",
                     code=code,
                     raw_timings=[],

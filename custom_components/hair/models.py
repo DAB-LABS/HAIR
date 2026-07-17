@@ -56,6 +56,11 @@ class IRCommand:
     decoded_address: int | None = None
     decoded_command: int | None = None
     decoded_fingerprint: str | None = None
+    # Protocol state the decoded re-encode needs beyond the identity
+    # triple (v0.6.0): RC-5/Marantz toggle, Sharp extension. Plain dict,
+    # no schema; None for protocols without extras and for commands
+    # stored before v0.6.0.
+    decoded_extras: dict[str, int] | None = None
     # Per-command opt-out: when True, TX replays the captured Pronto rather
     # than re-encoding from the decoded value. Default False, so a command
     # with decoded fields transmits canonical timings unless the user
@@ -84,6 +89,9 @@ class IRCommand:
             "decoded_address": self.decoded_address,
             "decoded_command": self.decoded_command,
             "decoded_fingerprint": self.decoded_fingerprint,
+            "decoded_extras": dict(self.decoded_extras)
+            if self.decoded_extras
+            else None,
             "tx_force_raw": self.tx_force_raw,
             "plucked_command_name": self.plucked_command_name,
             "created_at": self.created_at,
@@ -107,6 +115,7 @@ class IRCommand:
             decoded_address=data.get("decoded_address"),
             decoded_command=data.get("decoded_command"),
             decoded_fingerprint=data.get("decoded_fingerprint"),
+            decoded_extras=data.get("decoded_extras") or None,
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
             created_at=data.get("created_at") or _now_iso(),
@@ -254,6 +263,9 @@ class IRDevice:
                 # (decoded_*) on the clone.
                 byte_hash=cmd.byte_hash,
                 decoded_protocol=cmd.decoded_protocol,
+                decoded_extras=(
+                    dict(cmd.decoded_extras) if cmd.decoded_extras else None
+                ),
                 decoded_address=cmd.decoded_address,
                 decoded_command=cmd.decoded_command,
                 decoded_fingerprint=cmd.decoded_fingerprint,
@@ -624,6 +636,10 @@ class UnknownSignal:
     decoded_address: int | None = None
     decoded_command: int | None = None
     decoded_fingerprint: str | None = None
+    # Protocol state beyond the identity triple (v0.6.0): RC-5/Marantz
+    # toggle, Sharp extension. Carried onto the IRCommand at assign time
+    # via _apply_signal_provenance so decoded TX can re-encode it.
+    decoded_extras: dict[str, int] | None = None
     protocol: str | None = None
     code: str | None = None
     raw_timings: list[int] = field(default_factory=list)
@@ -658,6 +674,9 @@ class UnknownSignal:
             "decoded_address": self.decoded_address,
             "decoded_command": self.decoded_command,
             "decoded_fingerprint": self.decoded_fingerprint,
+            "decoded_extras": dict(self.decoded_extras)
+            if self.decoded_extras
+            else None,
             "protocol": self.protocol,
             "code": self.code,
             "raw_timings": list(self.raw_timings),
@@ -690,6 +709,7 @@ class UnknownSignal:
             decoded_address=data.get("decoded_address"),
             decoded_command=data.get("decoded_command"),
             decoded_fingerprint=data.get("decoded_fingerprint"),
+            decoded_extras=data.get("decoded_extras") or None,
             protocol=data.get("protocol"),
             code=data.get("code"),
             raw_timings=data.get("raw_timings") or [],
