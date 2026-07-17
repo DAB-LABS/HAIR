@@ -213,6 +213,69 @@ class TestRoundTrips:
             extension,
         )
 
+    def test_sharp_lone_halves_decode_to_same_identity(self):
+        """The 40ms mid-pair trailer splits real captures, so each half
+        must decode alone -- and both halves of one press must agree
+        (field finding: Sharp hardware via the Athom receiver delivers
+        one half per capture)."""
+        full = SharpCommand(
+            address=0x01, command=0x68, extension=0
+        ).get_raw_timings()
+        # The pair is two 32-entry frames; split them apart.
+        data_half, inverted_half = full[:32], full[32:]
+        a = SharpCommand.from_raw_timings(data_half)
+        b = SharpCommand.from_raw_timings(inverted_half)
+        assert a is not None and b is not None
+        assert (a.address, a.command, a.extension) == (0x01, 0x68, 0)
+        assert (b.address, b.command, b.extension) == (0x01, 0x68, 0)
+
+    def test_sharp_real_capture_fixtures(self):
+        """Real Sharp-remote captures (test-bench Athom receiver,
+        2026-07-17): lone inverted halves with receiver-shifted mark
+        widths (342us and 263us against the nominal 320us)."""
+        real = {
+            # (address, command, extension) -> Pronto capture
+            (0x01, 0x14, 1): (
+                "0000 006D 0010 0000 000D 0042 000D 001A 000D 001A 000D "
+                "001A 000D 001A 000D 0042 000D 0042 000D 001A 000D 0042 "
+                "000D 001A 000D 0042 000D 0042 000D 0042 000D 001A 000D "
+                "0042 000D 017C"
+            ),
+            (0x11, 0x4B, 1): (
+                "0000 006D 0010 0000 000A 0046 000A 001E 000A 001E 000A "
+                "001E 000A 0046 000A 001E 000A 001E 000A 0046 000A 001E "
+                "000A 0046 000A 0046 000A 001E 000A 0046 000A 001E 000A "
+                "0046 000A 017C"
+            ),
+        }
+        for (address, command, extension), code in real.items():
+            words = [int(w, 16) for w in code.split()]
+            period = words[1] * 0.241246
+            raw: list[int] = []
+            for i in range(words[2]):
+                mark, space = words[4 + 2 * i], words[5 + 2 * i]
+                raw.append(round(mark * period))
+                if space:
+                    raw.append(-round(space * period))
+            decoded = SharpCommand.from_raw_timings(raw)
+            assert decoded is not None, f"real capture {address:#x} refused"
+            assert (decoded.address, decoded.command, decoded.extension) == (
+                address,
+                command,
+                extension,
+            )
+
+    def test_sharp_mark_constancy_rejects_mixed_marks(self):
+        """With the check bit spent on half-detection, mark constancy is
+        the structural gate: a 15-pair frame whose marks vary wildly is
+        not Sharp."""
+        frame: list[int] = []
+        for i in range(15):
+            frame.append(320 if i % 2 else 640)  # alternating mark widths
+            frame.append(-680)
+        frame.append(320)
+        assert SharpCommand.from_raw_timings(frame) is None
+
     def test_sharp_repeats(self):
         encoded = SharpCommand(
             address=0x01, command=0x68, extension=1, repeat_count=1

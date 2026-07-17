@@ -15,9 +15,18 @@ frame -- as its integrity check:
 - Second frame repeats the address bits and inverts command, extension,
   and check (XOR 0x7FE0).
 
-The decoder requires the frame pair: a lone 15-bit frame's single check
-bit is far too weak to accept, and real Sharp hardware always sends the
-pair. Captures holding multiple pairs majority-vote as usual.
+The 40ms trailer between the two frames exceeds typical capture-window
+gap limits, so on real receivers the halves routinely arrive as SEPARATE
+captures (observed on Sharp hardware in the field) -- a decoder that
+demands the pair inside one capture never fires. Each frame therefore
+decodes alone: the check bit says which half it is (0 = data, 1 =
+inverted), and an inverted half is XOR-folded back to the data form, so
+both halves of one press produce the identical identity and merge. With
+the check bit spent on half-detection, the integrity gate is Sharp's
+other signature: all sixteen marks in a frame are nominally identical
+(320us), so the decoder rejects any frame whose marks are not mutually
+consistent. Captures holding several frames majority-vote as usual, and
+a (data, inverted) pair in one capture simply casts two agreeing votes.
 """
 from __future__ import annotations
 
@@ -35,6 +44,10 @@ _TRAILER_SPACE_US = 40000
 _SPACE_MIDPOINT_US = 1180
 _MARK_MIN_US = 120
 _MARK_MAX_US = 700
+# All marks in a Sharp frame are nominally identical; any mark deviating
+# more than this fraction from the frame's own mean is a structure reject
+# (the integrity check that replaces the pair requirement for lone halves).
+_MARK_SPREAD_TOLERANCE = 0.25
 _SPACE_MIN_US = 300
 _SPACE_MAX_US = 2400
 # Bit spaces top out at 1680us; the 40ms trailer separates frames.
@@ -105,48 +118,39 @@ class SharpCommand(Command):
     def from_raw_timings(cls, timings: list[int]) -> Self | None:
         """Decode raw IR timings into a SharpCommand.
 
-        Frames pair up as (data, inverted); the decoder validates each
-        pair and majority-votes across pairs. Returns None when no valid
-        pair exists in the capture.
+        Each 15-bit frame decodes independently; inverted halves fold
+        back to the data form via the check bit, so a press whose two
+        halves were split across the capture boundary still yields the
+        identity, and a pair inside one capture casts two agreeing
+        votes. Returns None when no structurally valid frame exists.
         """
         frames = split_frames(timings, _FRAME_GAP_US)
-        words = [cls._decode_frame(frame) for frame in frames]
-
-        pairs: list[tuple[int, int, int]] = []
-        i = 0
-        while i + 1 < len(words):
-            first, second = words[i], words[i + 1]
-            if first is None or second is None:
-                i += 1
-                continue
-            decoded = cls._validate_pair(first, second)
-            if decoded is None:
-                i += 1
-                continue
-            pairs.append(decoded)
-            i += 2
-
-        result = decode_frames_majority(pairs, lambda pair: pair)
+        result = decode_frames_majority(frames, cls._decode_normalized)
         if result is None:
             return None
         (address, command, extension), votes = result
+        # Two frames (one pair) per press: votes count halves.
+        presses = (votes + 1) // 2
         return cls(
             address=address,
             command=command,
             extension=extension,
-            repeat_count=votes - 1,
+            repeat_count=presses - 1,
         )
 
-    @staticmethod
-    def _validate_pair(data: int, idata: int) -> tuple[int, int, int] | None:
-        """Validate a (data, inverted) frame pair; extract the fields."""
-        if data ^ idata != _INVERT_MASK:
+    @classmethod
+    def _decode_normalized(
+        cls, frame: Sequence[int]
+    ) -> tuple[int, int, int] | None:
+        """Decode one frame and fold an inverted half to the data form."""
+        word = cls._decode_frame(frame)
+        if word is None:
             return None
-        if (data >> 14) & 1 != 0:  # check bit: 0 in the data frame
-            return None
-        address = data & 0x1F
-        command = (data >> 5) & 0xFF
-        extension = (data >> 13) & 1
+        if (word >> 14) & 1:  # check bit set: this is the inverted half
+            word ^= _INVERT_MASK
+        address = word & 0x1F
+        command = (word >> 5) & 0xFF
+        extension = (word >> 13) & 1
         return (address, command, extension)
 
     @staticmethod
@@ -156,6 +160,7 @@ class SharpCommand(Command):
         if len(frame) < 2 * _FRAME_BITS + 1:
             return None
 
+        marks: list[int] = []
         data = 0
         for i in range(_FRAME_BITS):
             mark = frame[2 * i]
@@ -164,11 +169,22 @@ class SharpCommand(Command):
                 return None
             if not _SPACE_MIN_US <= space <= _SPACE_MAX_US:
                 return None
+            marks.append(mark)
             if space > _SPACE_MIDPOINT_US:
                 data |= 1 << i
 
-        if not _MARK_MIN_US <= frame[2 * _FRAME_BITS] <= _MARK_MAX_US:
+        trailer_mark = frame[2 * _FRAME_BITS]
+        if not _MARK_MIN_US <= trailer_mark <= _MARK_MAX_US:
             return None
+        marks.append(trailer_mark)
         if any(value > 0 for value in frame[2 * _FRAME_BITS + 1 :]):
+            return None
+
+        # Structural integrity: every mark in a Sharp frame is the same
+        # nominal 320us pulse. A frame mixing genuinely different mark
+        # widths is another protocol, whatever its spaces look like.
+        mean_mark = sum(marks) / len(marks)
+        spread = mean_mark * _MARK_SPREAD_TOLERANCE
+        if any(abs(mark - mean_mark) > spread for mark in marks):
             return None
         return data
