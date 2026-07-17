@@ -164,9 +164,22 @@ class KaseikyoCommand(Command):
         ):
             return None
 
+        # The frame's LAST mark is the end pulse; everything between the
+        # leader and it is bit pairs. Anchoring on the last mark (rather
+        # than greedily consuming pairs) keeps a trailing sub-gap space
+        # after the end pulse from being misread as a final bit's space.
+        end_index = None
+        for j in range(len(frame) - 1, 1, -1):
+            if frame[j] > 0:
+                end_index = j
+                break
+        if end_index is None or (end_index - 2) % 2 != 0:
+            return None
+        if not _MARK_MIN_US <= frame[end_index] <= _MARK_MAX_US:
+            return None
+
         bits: list[int] = []
-        i = 2
-        while i + 1 < len(frame):
+        for i in range(2, end_index, 2):
             mark = frame[i]
             space = -frame[i + 1]
             if not _MARK_MIN_US <= mark <= _MARK_MAX_US:
@@ -174,15 +187,9 @@ class KaseikyoCommand(Command):
             if not _SPACE_MIN_US <= space <= _SPACE_MAX_US:
                 return None
             bits.append(1 if space > _SPACE_MIDPOINT_US else 0)
-            i += 2
             if len(bits) > 8 * _MAX_PAYLOAD_BYTES:
                 return None
 
-        # End pulse, then nothing but (possibly) a truncated space.
-        if i >= len(frame) or not _MARK_MIN_US <= frame[i] <= _MARK_MAX_US:
-            return None
-        if any(value > 0 for value in frame[i + 1 :]):
-            return None
         if len(bits) % 8 != 0 or len(bits) < 8 * _MIN_PAYLOAD_BYTES:
             return None
 

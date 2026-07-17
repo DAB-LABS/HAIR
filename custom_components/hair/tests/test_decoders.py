@@ -314,6 +314,21 @@ class TestRoundTrips:
             == encoded
         )
 
+    def test_kaseikyo_trailing_subgap_space_tolerated(self):
+        """A small trailing space after the end pulse (below the frame-gap
+        threshold, so it stays glued to the frame) must not be misread as
+        a 49th bit's space -- field finding from bench loopback codes."""
+        clean = KaseikyoCommand(
+            address=0x2002, data=bytes([0x80, 0x00, 0x3D, 0xBD])
+        ).get_raw_timings()
+        # Replace the 10ms trailer-adjacent tail with a 368us stray space.
+        assert clean[-1] > 0  # ends on the end pulse mark
+        dirty = [*clean, -368]
+        decoded = KaseikyoCommand.from_raw_timings(dirty)
+        assert decoded is not None
+        assert decoded.address == 0x2002
+        assert bytes(decoded.data) == bytes([0x80, 0x00, 0x3D, 0xBD])
+
     def test_kaseikyo_nec_style_repeats(self):
         encoded = KaseikyoCommand(
             address=0x2002, data=bytes([0x40, 0x04, 0x01, 0x00]), repeat_count=2
