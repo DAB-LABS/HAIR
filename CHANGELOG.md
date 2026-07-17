@@ -5,6 +5,26 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - Unreleased -- Shave and a Haircut
+
+### Added
+
+- HAIR now decodes seven more protocols: Sony SIRC (12, 15, and 20-bit), Symphony (the ceiling-fan family), Philips RC-5 (including the RC5X extension), Samsung32, Sharp, Kaseikyo (the Panasonic family), and Marantz Extended. Until now only NEC signals got a decoded identity; every other remote leaned on the byte-level tiebreaker, which is exactly where the remaining rough edges lived. A decoded signal gets the strongest identity HAIR has: stable per-button matching that survives receiver jitter, clean re-encoded transmit instead of replaying captured timings, and the protocol name on the Sniffer row.
+- The decoders live inside HAIR and are written in the shared infrared-protocols library's own style, because that library is their long-term home. Each one is headed upstream as a pull request; whenever a Home Assistant release bundles a library version that can decode one of these protocols itself, HAIR automatically defers to the library for that protocol, no update required. Until then the built-in decoder covers the gap. The diagnostics download lists which source is serving each protocol.
+- RC-5 and Marantz remotes alternate a toggle bit between key presses so the receiver can tell "held" from "pressed twice". HAIR now tracks that state per command and flips it on every send, the way the original remotes do.
+
+### Fixed
+
+- One button is one row again, even on remotes without a decodable protocol in yesterday's HAIR. Day-one v0.5.8 reports showed the strict byte-level identity could split repeat presses of a single button into many Sniffer rows: the press length varies, so captures contain different numbers of repeated frames, and on some receivers the pulse widths wobble across a quantization edge between presses. The new decoders read the actual bits instead: a capture is split into its frames, each frame is decoded, and the majority decides, so a two-frame capture, a three-frame capture, and a jittery capture of the same button all produce the same identity. Reported by @loic.gouraud (twelve rows for twelve presses of one button) and @blalor (a duplicate row on an NEC remote) within a day of v0.5.8 -- thank you both for the fast, precise reports.
+- Sniffer catalogs that already fragmented heal at startup: the existing load-time merge now runs with decoded identity available, so the split rows collapse into the oldest row, keeping its alias and summing its hit counts.
+- The ceiling-fan class from GH #38 decodes now. Symphony remotes send a preamble frame or two and then repeat the button code for as long as the button is held, so every capture used to look different. The majority vote discards the preambles and the truncated tail, and all captures of a button collapse to one row. Thanks @mvdwetering for the ESPHome log that identified the protocol and the preamble detail; your captures are in the test suite.
+- Sony remotes transmit reliably from the catalog now: decoded Sony signals re-encode canonical timings on Test and device TX, the same first-class treatment NEC has had since v0.4.0.
+
+### Changed
+
+- Decode-capable protocols no longer market themselves as "NEC today" in the docs. The registry reports itself in diagnostics, including whether each protocol is served by the bundled library or by HAIR's built-in decoder, and whether its transmit path re-encodes or replays raw.
+- The infrared-protocols test dependency cap moved from <7.0 to <8.0; upstream's 7.x line keeps the same command contract (verified against source).
+
 ## [0.5.8] - 2026-07-14 -- Fine-Tooth Comb
 
 ### Fixed

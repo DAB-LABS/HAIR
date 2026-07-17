@@ -106,9 +106,25 @@ Key components:
   precondition the trigger then randomly misses its own button. The dedup window
   slides and is keyed per trigger, so protocols that transmit several full frames
   per press (Sony sends 4-5) count as one press even when frames flip fingerprints.
-  When an upstream decoder lands for a protocol (e.g. Sony SIRC in
-  infrared-protocols), the decoded tier takes over automatically with no further
-  HAIR changes.
+  Local-first decoders (v0.6.0): HAIR ships its own decoders for seven
+  protocols -- Sony SIRC 12/15/20, Symphony (8/12/16-bit rc_switch family),
+  Philips RC-5 (incl. RC5X), Samsung32, Sharp, Kaseikyo (Panasonic family),
+  and Marantz Extended -- in custom_components/hair/decoders/, each shaped
+  exactly like an infrared_protocols module so it can be donated upstream as
+  a near-file-copy. A registry in protocol_decode.py feature-detects per
+  protocol: when the user's bundled infrared-protocols ships a decoder
+  (from_raw_timings present), upstream wins; otherwise the local polyfill
+  registers. Decoders split a capture into frames and majority-vote, so
+  variable frame counts and receiver jitter cannot fragment one button into
+  many identities (the v0.5.8 day-one field regression). The decoded
+  fingerprint is formatted in exactly one place (format_fingerprint);
+  bit-count variants fold into the protocol label (SONY15, KASEIKYO48,
+  SYMPHONY12), Sharp/Marantz extension bits fold into a fingerprint suffix,
+  and the RC-5/Marantz toggle bit is press STATE, stored in decoded_extras,
+  excluded from identity, threaded into decoded TX, and flipped once per
+  successful send. GE-AC registers identity-only (tx_rebuild=False): decoded
+  identity matches/collapses signals, but TX always replays the captured
+  raw, since re-encoding AC state risks transmitting wrong state.
 
 Signal fingerprinting details:
 - Uses S/L (short/long) pulse-duration classification. Each pulse is classified as
@@ -120,7 +136,8 @@ Signal fingerprinting details:
 - Covers all major consumer IR protocols: NEC, Samsung, JVC, LG, Sony, RC-5, RC-6.
 - Source-remote grouping uses carrier frequency and preamble fingerprinting, so the
   Sniffer can identify which remote sent a signal without decoding the protocol.
-- When a captured signal can be read as a known protocol (NEC today), HAIR also
+- When a captured signal can be read as a known protocol (NEC plus the seven
+  v0.6.0 registry protocols), HAIR also
   stores the decoded identity alongside the raw timings as a cache layer. Raw
   timings stay the source of truth; the decoded form gives stronger matching and
   lets transmit re-encode clean timings instead of replaying captured ones.
