@@ -80,6 +80,11 @@ export class IrAssignSignalDialog extends LitElement {
         if (this.suggestedDeviceName && !this._newName) {
             this._newName = this.suggestedDeviceName;
         }
+        // Seed BOTH TX knobs from the signal. The ditto seed shipped with
+        // the knobs (v0.5.5); the send-count seed was missed, so the
+        // dialog's explicit default of 1 overrode a signal's stored send
+        // count at assign time (v0.6.3 bench find, via a Mirror row).
+        this._sendCount = this.signal?.send_count ?? 1;
         this._dittoCount = this.signal?.repeat_count ?? 1;
         void this._loadDevices();
         // Templates loaded after _loadDevices resolves (for existing mode)
