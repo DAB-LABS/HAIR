@@ -81,7 +81,7 @@ export class HaPanelIrDevices extends LitElement {
             sniffer: "Capture IR codes live from the air.",
             clips: "Build remotes by pasting known IR codes.",
             plucker: "Pluck IR codes from existing blasters.",
-            mirror: "See what your house transmits.",
+            mirror: "See your live Home Assistant infrared transmissions.",
         };
         return taglines[this._activeTab];
     }
