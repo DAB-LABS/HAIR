@@ -571,6 +571,28 @@ def test_samsung32_fused_end_pulse_real_capture():
     assert cmd.address == 0x0007
 
 
+def test_samsung32_larger_fusion_real_capture():
+    """Second real junction variant: ~6968us fused end mark. The end
+    pulse has no upper bound once fusion is possible."""
+    pairs = (
+        "00A0 009F 0014 003B 0014 003B 0014 003A 0014 0013 0014 0013"
+        " 0014 0013 0014 0013 0015 0012 0014 003B 0014 003A 0015 003A"
+        " 0014 0013 0014 0013 0014 0013 0014 0013 0014 0013 0014 003B"
+        " 0014 003A 0015 003A 0014 0013 0014 0013 0014 0013 0014 0013"
+        " 0014 0013 0014 0013 0014 0013 0014 0013 0014 003A 0014 003B"
+        " 0014 003B 0014 003B 0014 003B 0109 017C"
+    )
+    unit = 0x6D * 0.241246
+    words = [int(w, 16) for w in pairs.split()]
+    timings = [
+        round(w * unit) if i % 2 == 0 else -round(w * unit)
+        for i, w in enumerate(words)
+    ]
+    cmd = Samsung32Command.from_raw_timings(timings)
+    assert cmd is not None
+    assert cmd.address == 0x0007
+
+
 def test_samsung32_fused_end_pulse_still_checksum_gated():
     """A fused tail does not loosen the gate: corrupt one command bit
     and the frame must still decode as nothing."""
