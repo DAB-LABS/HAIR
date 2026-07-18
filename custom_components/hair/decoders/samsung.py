@@ -34,6 +34,10 @@ _ONE_SPACE_US = 1690
 _SPACE_MIDPOINT_US = 1125
 _MARK_MIN_US = 220
 _MARK_MAX_US = 1000
+# End pulse fused with a replayed packet's 4500us leader (no junction
+# gap): 560 + 4500 = 5060 nominal, plus tolerance for clock-slow
+# emitters. Applies to the end pulse ONLY; data marks keep _MARK_MAX_US.
+_FUSED_END_MARK_MAX_US = 6200
 _SPACE_MIN_US = 220
 _SPACE_MAX_US = 2400
 _FRAME_PERIOD_US = 108000
@@ -140,7 +144,15 @@ class Samsung32Command(Command):
             if space > _SPACE_MIDPOINT_US:
                 data |= 1 << i
 
-        if not _MARK_MIN_US <= frame[66] <= _MARK_MAX_US:
+        # End pulse. Nominally 560us, but real emitters that replay the
+        # packet for repeats can butt the next replay's 4500us leader
+        # directly against it with no gap, fusing both into one mark of
+        # up to ~5100us (v0.6.1 bench: Broadlink TX honors the command's
+        # repeat_count on top of the timings' baked repeat frames, and
+        # the packet junction carries no space). The 32 data bits and
+        # the inverted-command checksum still gate the decode, so a
+        # fused end pulse costs nothing in honesty.
+        if not _MARK_MIN_US <= frame[66] <= _FUSED_END_MARK_MAX_US:
             return None
         if any(value > 0 for value in frame[67:]):
             return None

@@ -542,3 +542,53 @@ class TestRejectionMatrix:
         assert (
             _DECODERS[decoder_name].from_raw_timings([1000, -1000] * 200) is None
         )
+
+
+# --- Samsung32 fused end pulse (v0.6.1 bench, Broadlink packet replay) ------
+
+
+def test_samsung32_fused_end_pulse_real_capture():
+    """Real loopback capture: Broadlink replayed the packet for the
+    command's repeat_count with no junction gap, fusing the 560us end
+    mark with the replay's 4500us leader into one ~4944us mark. Data
+    and checksum are intact; the decode must survive the fused tail."""
+    pairs = (
+        "00A0 009F 0014 003B 0014 003B 0014 003A 0014 0013 0014 0013"
+        " 0015 0013 0014 0013 0014 0013 0014 003B 0014 003A 0015 003A"
+        " 0014 0013 0014 0013 0014 0013 0014 0013 0014 0013 0014 0013"
+        " 0014 003B 0014 0012 0015 0012 0014 0013 0014 0013 0014 0013"
+        " 0014 0013 0014 003B 0014 0013 0014 003B 0014 003A 0014 003B"
+        " 0014 003B 0014 003B 0014 003B 00BC 017C"
+    )
+    unit = 0x6D * 0.241246
+    words = [int(w, 16) for w in pairs.split()]
+    timings = [
+        round(w * unit) if i % 2 == 0 else -round(w * unit)
+        for i, w in enumerate(words)
+    ]
+    cmd = Samsung32Command.from_raw_timings(timings)
+    assert cmd is not None
+    assert cmd.address == 0x0007
+
+
+def test_samsung32_fused_end_pulse_still_checksum_gated():
+    """A fused tail does not loosen the gate: corrupt one command bit
+    and the frame must still decode as nothing."""
+    base = Samsung32Command(address=0x0007, command=0x07).get_raw_timings()
+    # Fuse the end pulse as the junction artifact does.
+    fused = [*base[:-1], base[-1] + 4500]
+    assert Samsung32Command.from_raw_timings(fused) is not None
+    # Now flip a command bit's space (bit 16 pair space index 3 + 2*16).
+    corrupt = list(fused)
+    idx = 3 + 2 * 16
+    corrupt[idx] = -1690 if corrupt[idx] > -1125 else -560
+    assert Samsung32Command.from_raw_timings(corrupt) is None
+
+
+def test_samsung32_data_marks_keep_strict_bounds():
+    """The fused allowance applies to the end pulse only; an oversized
+    DATA mark still rejects the frame."""
+    base = Samsung32Command(address=0x0007, command=0x07).get_raw_timings()
+    bad = list(base)
+    bad[2] = 4944  # first data mark
+    assert Samsung32Command.from_raw_timings(bad) is None
