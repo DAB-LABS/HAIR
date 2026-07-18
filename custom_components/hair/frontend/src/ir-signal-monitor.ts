@@ -1904,11 +1904,14 @@ export class IrSignalMonitor extends LitElement {
             pointer-events: none;
         }
 
-        /* Latest signal: bright green filled Assign button */
+        /* Latest signal: deep green fill (AA contrast with the white
+           label) with a mint rim that previews the hit ring. Locked
+           design: sniffer-hit-glow.md -- the earlier same-green halo
+           read as a blob against the fill. */
         .action-btn.assign-btn.recent-latest {
             color: #fff;
             background: #2e7d32;
-            border-color: #2e7d32;
+            border-color: #69f0ae;
         }
         .action-btn.assign-btn.recent-latest:hover {
             background: #1b5e20;
@@ -1924,14 +1927,15 @@ export class IrSignalMonitor extends LitElement {
             background: rgba(46, 125, 50, 0.12);
         }
 
-        /* Glow pulse animation on hit */
+        /* Hit pulse: the mint rim blooms into a ring, brighter than
+           the fill so the halo separates instead of blobbing. */
         .action-btn.assign-btn.glow {
-            animation: assign-glow 1.2s ease-out;
+            animation: assign-glow 1.4s ease-out;
         }
         @keyframes assign-glow {
-            0% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.6); }
-            50% { box-shadow: 0 0 8px 3px rgba(46, 125, 50, 0.3); }
-            100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0); }
+            0% { box-shadow: 0 0 0 0 rgba(105, 240, 174, 0.9); }
+            35% { box-shadow: 0 0 0 2px #69f0ae, 0 0 12px 5px rgba(105, 240, 174, 0.55); }
+            100% { box-shadow: 0 0 0 0 rgba(105, 240, 174, 0); }
         }
 
         /* Hit count flash animation */
