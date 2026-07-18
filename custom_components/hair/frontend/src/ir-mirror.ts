@@ -88,7 +88,12 @@ const ICON_DITTO =
 const VIA_SEP = " -- via ";
 
 /** Bloom duration must match the CSS animation. */
-const BLOOM_MS = 1400;
+// Held 100ms past the 2.4s animation on purpose: when the animation
+// ends, the static .bloom styles snap back for one last silver pass,
+// then the class drops and the row's transitions fade it out. This is
+// the trigger card's exact glow lifecycle (see ir-device-list.ts,
+// trigger-glow at 2.4s animation / 2500ms class hold).
+const BLOOM_MS = 2500;
 
 /** Debounce between a live push and the full device re-fetch. */
 const REFRESH_DEBOUNCE_MS = 300;
@@ -1196,53 +1201,45 @@ export class IrMirror extends LitElement {
                 border: 1px solid var(--divider-color);
                 border-radius: 10px;
                 background: var(--card-background-color);
+                /* Carries the soft exit after the bloom class drops --
+                   same durations as the trigger card. */
+                transition: box-shadow 300ms ease, border-color 300ms ease,
+                            background 400ms ease;
             }
             .mrow:hover {
                 background: var(--secondary-background-color);
             }
             /* The silver bloom a send makes while you watch: the WHOLE
-               card rings and fades (owner bench note -- the old left-edge
-               chip read as a sliver). Timing follows the trigger fire's
-               double-pulse (owner: "ba-boom") -- bright, breathe, second
-               bloom, then the long fade, at the trigger's 2.4s length. */
+               card glows and fades (owner bench note -- the old left-edge
+               chip read as a sliver). Lifecycle is the trigger card's,
+               verbatim, in silver: the animation fades to nothing over
+               2.4s, the class's static styles snap back for one last
+               pass (class held to 2500ms, see BLOOM_MS), then the class
+               drops and the row's transitions carry the soft exit. */
             .mrow.bloom {
+                border-color: #90a4ae;
+                background: rgba(144, 164, 174, 0.08);
                 animation: mirror-bloom 2.4s ease-out;
             }
             @keyframes mirror-bloom {
                 0% {
-                    border-color: #90a4ae;
-                    background: rgba(144, 164, 174, 0.12);
-                    box-shadow:
-                        0 0 0 1px rgba(144, 164, 174, 0.9),
-                        0 0 16px 3px rgba(144, 164, 174, 0.6);
-                }
-                15% {
-                    border-color: #90a4ae;
-                    background: rgba(144, 164, 174, 0.05);
-                    box-shadow:
-                        0 0 0 1px rgba(144, 164, 174, 0.4),
-                        0 0 8px 1px rgba(144, 164, 174, 0.25);
+                    background: rgba(144, 164, 174, 0.18);
+                    border-color: #b0bec5;
+                    box-shadow: 0 0 16px 4px rgba(144, 164, 174, 0.4);
                 }
                 30% {
+                    background: rgba(144, 164, 174, 0.1);
                     border-color: #90a4ae;
-                    background: rgba(144, 164, 174, 0.09);
-                    box-shadow:
-                        0 0 0 1px rgba(144, 164, 174, 0.85),
-                        0 0 14px 3px rgba(144, 164, 174, 0.5);
+                    box-shadow: 0 0 8px 2px rgba(144, 164, 174, 0.2);
                 }
                 60% {
-                    border-color: #90a4ae;
-                    background: rgba(144, 164, 174, 0.04);
-                    box-shadow:
-                        0 0 0 1px rgba(144, 164, 174, 0.3),
-                        0 0 6px 1px rgba(144, 164, 174, 0.18);
+                    background: rgba(144, 164, 174, 0.06);
+                    box-shadow: 0 0 4px 1px rgba(144, 164, 174, 0.1);
                 }
                 100% {
+                    background: transparent;
                     border-color: var(--divider-color);
-                    background: var(--card-background-color);
-                    box-shadow:
-                        0 0 0 1px rgba(144, 164, 174, 0),
-                        0 0 0 0 rgba(144, 164, 174, 0);
+                    box-shadow: none;
                 }
             }
             .mrow-main {
