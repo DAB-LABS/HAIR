@@ -5,6 +5,27 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-07-18 -- Hot Towel Finish
+
+### Fixed
+
+- A single jittery pulse no longer splits an NEC button into two rows. Real receivers occasionally deliver a capture where one pulse measures in the dead zone between the protocol's two legal widths while every other pulse is fine; the strict decoder rightly rejected the frame, so the capture fell back to byte-level identity and became a second row for the same button. When the strict decode fails, HAIR now re-reads the frame leniently and accepts the result only if NEC's own built-in checksum validates, so a one-pulse wobble cannot fake a different button and a genuinely corrupt frame still decodes as nothing. Reported by @blalor with two captures of his Previous Track button, which are now permanent fixtures in the test suite.
+- NEC captures that start with leftover repeat chatter from a previous press decode now. The decoder used to require the capture to open on the main frame's leader; HAIR now seeks forward past a stray repeat marker or partial burst to the true frame start. This was the class behind several bench remotes whose buttons never decoded.
+- Air conditioner devices finally expose real target temperatures. The climate entity has supported temperature presets since the entity work landed, but nothing could create them from the UI. Commands named like "Temp 22" or "Temperature 26" now map themselves to the matching temperature step and register the degree value on the thermostat, the same way "Mode: Cool" and "Fan: High" have always self-mapped. Deleting a temp command retires its step. Found by @ripolltata (GH #45), who read the source and correctly identified a half-shipped feature; thank you for the precise report.
+- The thermostat dial is draggable from the start. Without an initial target temperature the dial rendered no handle, and nothing could ever set the first target, so a preset-equipped AC was stuck read-only. The entity now starts at the middle preset; nothing transmits until you actually move it.
+- The climate entity follows your installation's temperature unit instead of assuming Fahrenheit. Metric users' presets are Celsius now, as they always should have been.
+- Samsung32 captures whose end pulse arrives fused with a following frame decode now. Some emitters replay the whole packet for repeats with no gap at the junction, welding the end pulse to the next frame's leader; the decoder tolerates the fused pulse while the protocol checksum keeps gating every decode. Found on the bench with real captures, which are now fixtures.
+
+### Changed
+
+- The most-recent-hit Assign button in the Sniffer wears a mint rim, and each new hit blooms it into a mint ring. The old pulse used the same green as the button fill, so the halo disappeared into it.
+- The adopters table gains SMLIGHT Ultima native receiving (HA 2026.7), the second receiver source after ESPHome.
+- The infrared-protocols test dependency cap moved from <8.0 to <9.0; upstream's 8.0.0 changes only Edifier code sets and keeps the command contract.
+
+### Known issues
+
+- When the startup heal merges duplicate rows, a trigger created on one of the merged rows can lose its yellow badge in the Sniffer, because the surviving row carries a different waveform identity. The trigger itself keeps firing normally; only the row badge and count display are affected. A proper fix (triggers following decoded identity, the way commands already do) is planned as its own release.
+
 ## [0.6.0] - 2026-07-17 -- Shave and a Haircut
 
 ### Added

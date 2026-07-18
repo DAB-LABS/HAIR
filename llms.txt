@@ -125,6 +125,20 @@ Key components:
   successful send. GE-AC registers identity-only (tx_rebuild=False): decoded
   identity matches/collapses signals, but TX always replays the captured
   raw, since re-encoding AC state risks transmitting wrong state.
+  Recovery passes (v0.6.1): registry specs can carry optional seek and
+  salvage hooks, wired for NEC today. Seek trims junk ahead of the main
+  leader (stray repeat markers, partial bursts) before the strict decode;
+  salvage runs only after a strict reject, re-reads data pulses by
+  midpoint, and accepts solely on the protocol's own checksum. Samsung32
+  additionally tolerates an end pulse fused with a replayed packet's
+  leader (emitters that honor repeat_count on top of baked repeat frames
+  leave no junction gap); its inverted-command checksum still gates.
+  AC climate mapping (v0.6.1): commands named "Temp N" on an AC device
+  auto-map to temp_N and derive temperature_presets (deduped, sorted);
+  deleting one retires the preset. The climate entity seeds its target
+  from the median preset so the thermostat dial has a handle, and
+  reports the installation's temperature unit rather than a hardcoded
+  scale.
 
 Signal fingerprinting details:
 - Uses S/L (short/long) pulse-duration classification. Each pulse is classified as
