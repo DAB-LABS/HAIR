@@ -45,10 +45,19 @@ def _cmd(name: str, code: str) -> IRCommand:
 # ---------------------------------------------------------------------------
 
 
+def _labels(entries):
+    """Render structured payloads back to compact labels for assertions."""
+    return [
+        f"{p['device_name']}.{p['command_name']}" for _, p in entries
+    ]
+
+
 class TestAssignmentIndex:
-    """The index is a list of (SignalIdentity, label) entries since the
-    v0.5.8 unified-identity work; matching is the exact pairwise tiered
-    rule applied in _augment_signals_with_assignments."""
+    """The index is a list of (SignalIdentity, payload) entries: identity
+    since the v0.5.8 unified-identity work, structured payloads (device_id
+    / command_id for the assigned popover's click-through) since v0.6.3;
+    matching is the exact pairwise tiered rule applied in
+    _augment_signals_with_assignments."""
 
     def test_zero_assignments(self):
         assert _assignment_index([]) == []
@@ -56,9 +65,25 @@ class TestAssignmentIndex:
     def test_single_assignment(self):
         d = IRDevice(id="d1", name="TV", commands=[_cmd("Power", _CODE_A)])
         idx = _assignment_index([d])
-        assert [label for _, label in idx] == ["TV.Power"]
+        assert _labels(idx) == ["TV.Power"]
         assert idx[0][0].fingerprint == _fp(_CODE_A)
         assert idx[0][0].byte_hash is None
+
+    def test_payload_carries_navigation_ids(self):
+        """The structured payload gives the frontend popover its
+        click-through target: device_id opens the device card, command
+        ids/names render the rows."""
+        cmd = IRCommand(
+            id="c9", name="Power", protocol="PRONTO", code=_CODE_A
+        )
+        d = IRDevice(id="d7", name="TV", commands=[cmd])
+        _, payload = _assignment_index([d])[0]
+        assert payload == {
+            "device_id": "d7",
+            "device_name": "TV",
+            "command_id": "c9",
+            "command_name": "Power",
+        }
 
     def test_three_assignments_across_two_devices(self):
         d1 = IRDevice(
@@ -68,7 +93,7 @@ class TestAssignmentIndex:
         )
         d2 = IRDevice(id="d2", name="AVR", commands=[_cmd("Power", _CODE_A)])
         idx = _assignment_index([d1, d2])
-        assert [label for _, label in idx] == ["TV.Power", "TV.Mute", "AVR.Power"]
+        assert _labels(idx) == ["TV.Power", "TV.Mute", "AVR.Power"]
 
     def test_distinct_codes_indexed_separately(self):
         d = IRDevice(
@@ -77,7 +102,10 @@ class TestAssignmentIndex:
             commands=[_cmd("Power", _CODE_A), _cmd("Vol", _CODE_B)],
         )
         idx = _assignment_index([d])
-        by_label = {label: ident for ident, label in idx}
+        by_label = {
+            f"{p['device_name']}.{p['command_name']}": ident
+            for ident, p in idx
+        }
         assert by_label["TV.Power"].fingerprint == _fp(_CODE_A)
         assert by_label["TV.Vol"].fingerprint == _fp(_CODE_B)
         assert by_label["TV.Power"].fingerprint != by_label["TV.Vol"].fingerprint
@@ -97,7 +125,18 @@ class TestAssignmentIndex:
             "signals": [{"fingerprint": _fp(_CODE_A), "byte_hash": "bh_red"}]
         }
         _augment_signals_with_assignments(device_dict, _assignment_index([d]))
-        assert device_dict["signals"][0]["assigned_to"] == ["Fan.Red"]
+        assigned = device_dict["signals"][0]["assigned_to"]
+        assert [p["command_name"] for p in assigned] == ["Red"]
+
+
+def _p(device_name: str, command_name: str) -> dict[str, str]:
+    """Minimal structured payload for augment tests (ids elided)."""
+    return {
+        "device_id": "x",
+        "device_name": device_name,
+        "command_id": "y",
+        "command_name": command_name,
+    }
 
 
 class TestAugmentSignals:
@@ -110,12 +149,14 @@ class TestAugmentSignals:
             ]
         }
         index = [
-            (SignalIdentity(None, None, fp), "TV.Power"),
-            (SignalIdentity(None, None, fp), "AVR.Power"),
+            (SignalIdentity(None, None, fp), _p("TV", "Power")),
+            (SignalIdentity(None, None, fp), _p("AVR", "Power")),
         ]
         _augment_signals_with_assignments(device_dict, index)
         assert device_dict["signals"][0]["assignment_count"] == 2
-        assert device_dict["signals"][0]["assigned_to"] == ["TV.Power", "AVR.Power"]
+        assert [
+            p["device_name"] for p in device_dict["signals"][0]["assigned_to"]
+        ] == ["TV", "AVR"]
         assert device_dict["signals"][1]["assignment_count"] == 0
         assert device_dict["signals"][1]["assigned_to"] == []
 
@@ -132,12 +173,16 @@ class TestAugmentSignals:
             ]
         }
         index = [
-            (SignalIdentity(None, "bh_red", fp), "Fan.Red"),
-            (SignalIdentity(None, None, fp), "Old.Legacy"),
+            (SignalIdentity(None, "bh_red", fp), _p("Fan", "Red")),
+            (SignalIdentity(None, None, fp), _p("Old", "Legacy")),
         ]
         _augment_signals_with_assignments(device_dict, index)
-        assert device_dict["signals"][0]["assigned_to"] == ["Fan.Red", "Old.Legacy"]
-        assert device_dict["signals"][1]["assigned_to"] == ["Old.Legacy"]
+        assert [
+            p["command_name"] for p in device_dict["signals"][0]["assigned_to"]
+        ] == ["Red", "Legacy"]
+        assert [
+            p["command_name"] for p in device_dict["signals"][1]["assigned_to"]
+        ] == ["Legacy"]
 
     def test_augment_fingerprint_flip_rescued_by_byte_hash(self):
         """Unified identity: the green dot survives a boundary-protocol
@@ -149,10 +194,12 @@ class TestAugmentSignals:
             ]
         }
         index = [
-            (SignalIdentity(None, "bh_yellow", "fp_original"), "TV.Yellow"),
+            (SignalIdentity(None, "bh_yellow", "fp_original"), _p("TV", "Yellow")),
         ]
         _augment_signals_with_assignments(device_dict, index)
-        assert device_dict["signals"][0]["assigned_to"] == ["TV.Yellow"]
+        assert [
+            p["command_name"] for p in device_dict["signals"][0]["assigned_to"]
+        ] == ["Yellow"]
 
     def test_no_signals_key_is_safe(self):
         d: dict = {}

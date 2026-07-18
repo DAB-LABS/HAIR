@@ -113,6 +113,14 @@ export class HaPanelIrDevices extends LitElement {
         this._switchTab("plucker");
     }
 
+    /** Assigned-popover click-through (v0.6.3): switch to Devices and
+     * expand the assignment's device card. Set the expansion AFTER the
+     * tab switch, which clears it. */
+    private _onNavigateDevice(e: CustomEvent<string>): void {
+        this._switchTab("devices");
+        this._expandedDeviceId = e.detail;
+    }
+
     private _closeAddDialog(): void {
         this._addDialogOpen = false;
     }
@@ -255,6 +263,7 @@ export class HaPanelIrDevices extends LitElement {
                             <ir-signal-monitor
                                 .api=${this._api}
                                 .hass=${this.hass}
+                                @navigate-device=${this._onNavigateDevice}
                             ></ir-signal-monitor>
                         `
                       : this._activeTab === "clips"
@@ -262,6 +271,7 @@ export class HaPanelIrDevices extends LitElement {
                               <ir-clips
                                   .api=${this._api}
                                   .hass=${this.hass}
+                                  @navigate-device=${this._onNavigateDevice}
                               ></ir-clips>
                           `
                         : html`
@@ -269,6 +279,7 @@ export class HaPanelIrDevices extends LitElement {
                                   .api=${this._api}
                                   .hass=${this.hass}
                                   .pendingEntity=${this._pendingPluckEntity}
+                                  @navigate-device=${this._onNavigateDevice}
                               ></ir-pluck>
                           `}
             </div>

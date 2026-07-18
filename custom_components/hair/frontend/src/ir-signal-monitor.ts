@@ -19,12 +19,14 @@ import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
+import "./ir-assigned-popover.js";
 import { triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
     DeviceSummary,
     IRTrigger,
     ReceiverInfo,
+    SignalAssignment,
     SignalRemovedEvent,
     UnknownDeviceSummary,
     UnknownDevice,
@@ -139,6 +141,16 @@ export class IrSignalMonitor extends LitElement {
     @state() private _triggerPopover: {
         deviceId: string;
         signal: UnknownSignal;
+        top: number;
+        left: number;
+    } | null = null;
+    // Assigned-commands popover (v0.6.3): shown when 1+ HAIR commands
+    // already carry a signal's identity; zero-assignment click opens the
+    // Assign dialog directly. Mirrors the trigger popover's flow.
+    @state() private _assignedPopover: {
+        deviceId: string;
+        signal: UnknownSignal;
+        label: string | null;
         top: number;
         left: number;
     } | null = null;
@@ -557,6 +569,57 @@ export class IrSignalMonitor extends LitElement {
         };
     }
 
+    /** Assign-button click router (v0.6.3, mirrors the Trigger flow):
+     * zero assignments opens the Assign dialog directly; 1+ shows the
+     * assigned popover with "+ new assignment" and click-through rows. */
+    private _onAssignClick(
+        deviceId: string,
+        signal: UnknownSignal,
+        label: string | null | undefined,
+        ev?: Event,
+    ): void {
+        if (!signal.assigned_to?.length) {
+            this._openAssign(deviceId, signal, label);
+            return;
+        }
+        const btn = ev?.currentTarget as HTMLElement | undefined;
+        const rect = btn?.getBoundingClientRect();
+        this._assignedPopover = {
+            deviceId,
+            signal,
+            label: label ?? null,
+            top: rect ? rect.bottom + 4 : 120,
+            left: rect ? Math.max(8, rect.right - 220) : 120,
+        };
+        this._installPopoverDismiss();
+    }
+
+    private _closeAssignedPopover(): void {
+        this._assignedPopover = null;
+        this._removePopoverDismiss();
+    }
+
+    private _onAssignedPopoverCreateNew(): void {
+        const p = this._assignedPopover;
+        this._closeAssignedPopover();
+        if (p) this._openAssign(p.deviceId, p.signal, p.label);
+    }
+
+    private _onAssignedPopoverOpen(ev: CustomEvent): void {
+        const a = ev.detail as SignalAssignment | undefined;
+        this._closeAssignedPopover();
+        if (!a) return;
+        // Bubble up to the panel: switch to the Devices tab and expand
+        // the assignment's device card.
+        this.dispatchEvent(
+            new CustomEvent("navigate-device", {
+                detail: a.device_id,
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     private _closeAssign(): void {
         this._assignSignal = null;
     }
@@ -723,16 +786,23 @@ export class IrSignalMonitor extends LitElement {
         if (t) this._triggerEditDialog = t;
     }
 
-    // Dismiss the popover on an outside click or any scroll (bound refs so
-    // add/removeEventListener pair up).
+    // Dismiss the popovers on an outside click or any scroll (bound refs so
+    // add/removeEventListener pair up). One handler pair covers both the
+    // trigger and assigned popovers; only one is ever open at a time.
     private _onDocClickForPopover = (ev: Event): void => {
-        const pop = this.shadowRoot?.querySelector("ir-trigger-popover");
-        if (pop && ev.composedPath().includes(pop)) return;
+        const path = ev.composedPath();
+        const trig = this.shadowRoot?.querySelector("ir-trigger-popover");
+        const asgn = this.shadowRoot?.querySelector("ir-assigned-popover");
+        if ((trig && path.includes(trig)) || (asgn && path.includes(asgn))) {
+            return;
+        }
         this._closeTriggerPopover();
+        this._closeAssignedPopover();
     };
 
     private _onScrollForPopover = (): void => {
         this._closeTriggerPopover();
+        this._closeAssignedPopover();
     };
 
     private _installPopoverDismiss(): void {
@@ -1161,6 +1231,17 @@ export class IrSignalMonitor extends LitElement {
                       ></ir-trigger-popover>
                   `
                 : ""}
+            ${this._assignedPopover
+                ? html`
+                      <ir-assigned-popover
+                          .assignments=${this._assignedPopover.signal.assigned_to ?? []}
+                          .top=${this._assignedPopover.top}
+                          .left=${this._assignedPopover.left}
+                          @create-new=${this._onAssignedPopoverCreateNew}
+                          @open-assignment=${this._onAssignedPopoverOpen}
+                      ></ir-assigned-popover>
+                  `
+                : ""}
             ${this._triggerDialog
                 ? html`
                       <ir-trigger-dialog
@@ -1379,13 +1460,13 @@ export class IrSignalMonitor extends LitElement {
                                         class="action-btn assign-btn ${isLatest ? "recent-latest" : ""} ${isPrevious ? "recent-previous" : ""} ${isGlowing ? "glow" : ""}"
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
-                                            this._openAssign(device.id, sig, device.label);
+                                            this._onAssignClick(device.id, sig, device.label, e);
                                         }}
                                         ?disabled=${device.dismissed}
                                         title=${sig.assignment_count && sig.assigned_to?.length
                                             ? (sig.assignment_count === 1
-                                                ? `Assigned to ${sig.assigned_to[0]}`
-                                                : `Assigned to ${sig.assignment_count} commands:\n- ${sig.assigned_to.join("\n- ")}`)
+                                                ? `Assigned to ${sig.assigned_to[0].device_name} / ${sig.assigned_to[0].command_name}`
+                                                : `Assigned to ${sig.assignment_count} commands:\n- ${sig.assigned_to.map((a) => `${a.device_name} / ${a.command_name}`).join("\n- ")}`)
                                             : (device.dismissed
                                                 ? "Restore this remote first"
                                                 : "Assign this signal to a HAIR device")}

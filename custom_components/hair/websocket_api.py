@@ -891,13 +891,16 @@ async def ws_codes_import_remote(
 
 def _assignment_index(
     hair_devices: list[IRDevice],
-) -> list[tuple[SignalIdentity, str]]:
-    """List every HAIR command as ``(identity, "<device>.<command>")``.
+) -> list[tuple[SignalIdentity, dict[str, str]]]:
+    """List every HAIR command as ``(identity, assignment payload)``.
 
     A catalog signal is "assigned" when a HAIR device command re-encodes to
     the same identity. ``IRCommand`` carries no stored fingerprint, so it is
-    computed here exactly as ``storage._rebuild_command_index`` does. Labels
-    are ``"<device name>.<command name>"`` strings for the frontend tooltip.
+    computed here exactly as ``storage._rebuild_command_index`` does. The
+    payload is structured (v0.6.3, assigned popover): ``device_id`` and
+    ``command_id`` give the frontend a click-through navigation target,
+    ``device_name`` / ``command_name`` render the popover rows. (Pre-0.6.3
+    this was a bare ``"<device>.<command>"`` tooltip string.)
 
     Tiered identity (v0.5.8 unified identity): matching is the exact
     pairwise rule via ``SignalIdentity.same_as`` in
@@ -910,7 +913,7 @@ def _assignment_index(
     """
     from .event_parser import EventParser
 
-    entries: list[tuple[SignalIdentity, str]] = []
+    entries: list[tuple[SignalIdentity, dict[str, str]]] = []
     for device in hair_devices:
         for command in device.commands:
             fp = EventParser.signal_fingerprint(
@@ -922,19 +925,25 @@ def _assignment_index(
                 SignalIdentity(
                     command.decoded_fingerprint, command.byte_hash, fp
                 ),
-                f"{device.name}.{command.name}",
+                {
+                    "device_id": device.id,
+                    "device_name": device.name,
+                    "command_id": command.id,
+                    "command_name": command.name,
+                },
             ))
     return entries
 
 
 def _augment_signals_with_assignments(
     device_dict: dict[str, Any],
-    assignment_index: list[tuple[SignalIdentity, str]],
+    assignment_index: list[tuple[SignalIdentity, dict[str, str]]],
 ) -> None:
     """Annotate each serialized signal with its assignment count + list.
 
     Mutates ``device_dict['signals']`` in place, adding ``assignment_count``
-    and ``assigned_to`` (dots polish, v0.5.7). Matching is the tiered
+    and ``assigned_to`` (dots polish, v0.5.7; structured payloads for the
+    assigned popover as of v0.6.3). Matching is the tiered
     identity rule (v0.5.8 unified identity, ``SignalIdentity.same_as``):
     assigning one sub-threshold button (Sony et al) lights the green dot
     on that row only, and the dot survives the row's coarse fingerprint
