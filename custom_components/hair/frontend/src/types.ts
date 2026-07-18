@@ -172,7 +172,12 @@ export interface CaptureStartResponse {
 // Signal Monitor (unknown devices)
 // ---------------------------------------------------------------------------
 
-export type SignalSourceId = "sniffed" | "manual" | "plucked";
+export type SignalSourceId = "sniffed" | "manual" | "plucked" | "echo";
+
+// The Mirror's synthetic catalog device (v0.6.3). Rows under this
+// fingerprint are send-audit entries, rendered by the Mirror tab and
+// filtered out of the Sniffer's live feed.
+export const MIRROR_DEVICE_FP = "hair-mirror";
 
 export interface UnknownSignal {
     // Stable per-signal identity. The fingerprint is NOT unique on a remote
@@ -213,6 +218,12 @@ export interface UnknownSignal {
     // to the device card.
     assignment_count?: number;
     assigned_to?: SignalAssignment[];
+    // The Mirror (v0.6.3, source "echo" rows only). echo_source is the
+    // provenance display string "<label> -- via <friendly emitters>";
+    // heard_by lists the receiver entity_ids that echoed the LAST send
+    // (empty = sent, not heard).
+    echo_source?: string | null;
+    heard_by?: string[] | null;
 }
 
 // One catalog-signal-to-HAIR-command assignment link (v0.6.3, assigned

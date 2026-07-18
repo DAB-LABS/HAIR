@@ -39,6 +39,10 @@ export class IrTriggerDialog extends LitElement {
     /** For edit mode: pass the existing trigger. */
     @property({ attribute: false }) public trigger: IRTrigger | null = null;
 
+    // Set when opened from a Mirror row (v0.6.3): renders a one-line note
+    // that the echo gate keeps the house's own sends from firing triggers.
+    @property({ type: Boolean }) public mirrorContext = false;
+
     @state() private _name = "";
     @state() private _minHits = 1;
     @state() private _receiverIds: string[] = [];
@@ -197,6 +201,14 @@ export class IrTriggerDialog extends LitElement {
                     <div class="signal-info">
                         ${this._renderSignalInfo()}
                     </div>
+
+                    ${this.mirrorContext
+                        ? html`<p class="field-hint scope-hint">
+                              Fires when this signal arrives from outside
+                              Home Assistant (a physical remote or another
+                              app), never on the house's own sends.
+                          </p>`
+                        : ""}
 
                     <!-- Name -->
                     <label class="field-label">Trigger Name</label>

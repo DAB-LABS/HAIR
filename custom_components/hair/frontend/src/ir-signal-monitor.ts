@@ -20,7 +20,7 @@ import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
-import { triggerMatchesSignal } from "./types.js";
+import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
     DeviceSummary,
@@ -888,6 +888,10 @@ export class IrSignalMonitor extends LitElement {
     }
 
     private _onLiveSignal(ev: UnknownSignalEvent): void {
+        // Mirror pushes (v0.6.3) are the house's own sends; the Mirror tab
+        // renders them. Without this guard every HAIR send would look like
+        // an unknown device and trigger a full list reload.
+        if (ev.device_fingerprint === MIRROR_DEVICE_FP) return;
         const now = new Date().toISOString();
 
         // Update the matching device in our local list, or add a new one.

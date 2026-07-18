@@ -989,7 +989,12 @@ def _unknown_device_summary(device) -> dict[str, Any]:
     vol.Required("type"): f"{WS_PREFIX}/unknown/devices",
     vol.Optional("include_dismissed", default=False): bool,
     vol.Optional("min_hits"): vol.Any(int, None),
-    vol.Optional("source"): vol.Any("sniffed", "manual", "plucked", None),
+    # "echo" serves the Mirror tab its synthetic device (v0.6.3). The
+    # clear and reorder commands deliberately do NOT accept "echo": the
+    # Mirror is a log -- it has no clear-all and no manual order.
+    vol.Optional("source"): vol.Any(
+        "sniffed", "manual", "plucked", "echo", None
+    ),
 })
 @websocket_api.async_response
 async def ws_get_unknown_devices(
