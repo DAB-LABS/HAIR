@@ -365,7 +365,10 @@ export class IrMirror extends LitElement {
                   : "";
 
         // Zero-receiver homes suppress the clause entirely: amber (or even
-        // grey) everywhere would be alarm without information.
+        // grey) everywhere would be alarm without information. The clause
+        // says LAST heard (owner bench note): heard_by resets on every
+        // send and describes only the most recent one, while the row
+        // aggregates many sends -- "heard in Office" over-claimed.
         let heard: string | null = null;
         let heardOk = false;
         if (this._hasReceivers) {
@@ -377,10 +380,10 @@ export class IrMirror extends LitElement {
                 const areas = by.map((r) => this._receiverArea(r));
                 if (areas.every((a) => a !== null)) {
                     const unique = [...new Set(areas as string[])];
-                    heard = `heard in ${unique.join(", ")}`;
+                    heard = `last heard in ${unique.join(", ")}`;
                 } else {
                     const names = by.map((r) => this._friendlyReceiver(r));
-                    heard = `heard by ${names.join(", ")}`;
+                    heard = `last heard by ${names.join(", ")}`;
                 }
             }
         }
@@ -1177,22 +1180,22 @@ export class IrMirror extends LitElement {
                 border-color: #607d8b;
             }
 
-            /* Rows */
+            /* Rows: each send is its own rounded card (owner bench note),
+               matching the card language of the Devices, Sniffer, and
+               Clipper surfaces instead of a welded table. */
             .rows {
-                border: 1px solid var(--divider-color);
-                border-radius: 10px;
-                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
             }
             .mrow {
                 display: flex;
                 align-items: center;
                 gap: 12px;
                 padding: 10px 16px;
-                border-bottom: 1px solid var(--divider-color);
+                border: 1px solid var(--divider-color);
+                border-radius: 10px;
                 background: var(--card-background-color);
-            }
-            .mrow:last-child {
-                border-bottom: none;
             }
             .mrow:hover {
                 background: var(--secondary-background-color);
