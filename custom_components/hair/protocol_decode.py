@@ -77,6 +77,15 @@ class ProtocolSpec:
     extract: Any  # Callable[[command], (label, address, command, extras|None)]
     construct: Any  # Callable[[label, address, command, extras|None], command|None]
     labels: tuple[str, ...] = field(default=())  # labels this spec serves
+    # Optional recovery hooks (v0.6.1, NEC only today).
+    # ``seek``: pre-pass trimming leading junk before the decode attempt.
+    # ``salvage``: lenient re-read tried ONLY when the strict decoder
+    # rejects; must gate on the protocol's own integrity check and
+    # return (address, command) or None. Both apply to this spec's
+    # attempt alone; later specs in the probe order see the original
+    # capture untouched.
+    seek: Any = None  # Callable[[list[int]], list[int]] | None
+    salvage: Any = None  # Callable[[list[int]], tuple[int, int] | None] | None
 
 
 def _import_class(module_name: str, class_name: str) -> type | None:
@@ -303,6 +312,15 @@ def _build_registry() -> list[ProtocolSpec]:
         if resolved is None:
             continue
         cls, source = resolved
+        seek = salvage = None
+        if key == "nec":
+            # v0.6.1 recovery hooks: leader-seek admits repeat-prefix
+            # captures to the strict decoder; checksum salvage rescues
+            # single-pulse dead-zone jitter (blalor's Previous Track).
+            from .decoders import nec_recovery
+
+            seek = nec_recovery.seek_main_leader
+            salvage = nec_recovery.salvage_decode
         specs.append(
             ProtocolSpec(
                 key=key,
@@ -312,6 +330,8 @@ def _build_registry() -> list[ProtocolSpec]:
                 extract=extract,
                 construct=construct,
                 labels=labels,
+                seek=seek,
+                salvage=salvage,
             )
         )
     return specs
@@ -401,11 +421,35 @@ def try_decode_identity(raw_timings: list[int] | None) -> DecodedIdentity | None
     if not raw_timings:
         return None
     for spec in _ensure_registry():
+        attempt = list(raw_timings)
+        if spec.seek is not None:
+            try:
+                attempt = spec.seek(attempt)
+            except Exception:  # a broken seek must not cost the strict path
+                attempt = list(raw_timings)
         try:
-            cmd = spec.command_cls.from_raw_timings(list(raw_timings))
+            cmd = spec.command_cls.from_raw_timings(attempt)
         except Exception:  # never break capture on a malformed-input error
-            continue
+            cmd = None
         if cmd is None:
+            if spec.salvage is not None:
+                try:
+                    salvaged = spec.salvage(attempt)
+                except Exception:
+                    salvaged = None
+                if salvaged is not None:
+                    address, command = salvaged
+                    protocol = spec.labels[0]
+                    return DecodedIdentity(
+                        protocol=protocol,
+                        address=address,
+                        command=command,
+                        fingerprint=format_fingerprint(
+                            protocol, address, command, None
+                        ),
+                        extras=None,
+                        source=spec.source,
+                    )
             continue
         try:
             protocol, address, command, extras = spec.extract(cmd)
