@@ -1224,15 +1224,13 @@ export class IrClips extends LitElement {
             border: none;
             background: none;
             padding: 0;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 500;
             font-family: inherit;
             text-transform: uppercase;
             letter-spacing: 0.03em;
             color: #b87333;
             cursor: pointer;
-            position: relative;
-            top: 1px;
         }
         .create-signal-btn:hover:not(:disabled) {
             background: none;

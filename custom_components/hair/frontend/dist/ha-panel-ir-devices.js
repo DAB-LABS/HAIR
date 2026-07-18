@@ -4897,15 +4897,13 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             border: none;
             background: none;
             padding: 0;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 500;
             font-family: inherit;
             text-transform: uppercase;
             letter-spacing: 0.03em;
             color: #b87333;
             cursor: pointer;
-            position: relative;
-            top: 1px;
         }
         .create-signal-btn:hover:not(:disabled) {
             background: none;
@@ -5869,15 +5867,13 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             border: none;
             background: none;
             padding: 0;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 500;
             font-family: inherit;
             text-transform: uppercase;
             letter-spacing: 0.03em;
             color: #78909c;
             cursor: pointer;
-            position: relative;
-            top: 1px;
         }
         .create-signal-btn:hover:not(:disabled) {
             background: none;
