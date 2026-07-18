@@ -314,22 +314,25 @@ export class IrMirror extends LitElement {
         // catalog-tab Test press; "Catalog test[: <alias>]" is its
         // pre-rename form, still present on rows persisted before the
         // v0.6.6 bench rename. Either way the chip is the provenance and
-        // the title falls through to the identity chain below.
+        // the title falls through to the identity chain below. Chips
+        // render Title Case per the owner's bench ruling.
         const testPrefix = ["Manual test send", "Catalog test"].find((p) =>
             label.startsWith(p),
         );
-        if (label === "automation send" || label === "integration send") {
-            chip = label;
+        if (label === "automation send") {
+            chip = "Automation Send";
+        } else if (label === "integration send") {
+            chip = "Integration Send";
         } else if (testPrefix) {
-            chip = "Manual test send";
+            chip = "Manual Test Send";
             labelTitle =
                 label.slice(testPrefix.length).replace(/^:\s*/, "").trim() ||
                 null;
         } else if (label) {
-            chip = "HAIR device";
+            chip = "HAIR Device";
             labelTitle = label;
         } else {
-            chip = "send";
+            chip = "Send";
         }
 
         // Title chain: alias > send label > decoded identity > the S/L
@@ -626,7 +629,7 @@ export class IrMirror extends LitElement {
             <div class="tab-head">
                 <span class="title">
                     <ha-svg-icon .path=${ICON_MIRROR}></ha-svg-icon>
-                    Mirror
+                    HAIR Mirror
                     ${!this._loading
                         ? html`<span class="count"
                               >(${rows.length}
