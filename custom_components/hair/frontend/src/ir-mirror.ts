@@ -66,6 +66,19 @@ function relShort(iso: string | undefined): string {
 // mdi:content-copy (the code glyph, same as the other catalog tabs)
 const ICON_COPY =
     "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
+// Hand mirror (SVG Repo, owner-supplied images/mirror-makeup-svgrepo-com.svg),
+// rotated 45 degrees to the tool-icon diagonal (head top-right, handle
+// bottom-left, matching the clippers and tweezers) and scaled to a 24x24 box.
+const ICON_MIRROR =
+    "M 19.39,4.60 C 16.51,1.71 11.78,1.71 8.89,4.60 C 6.00,7.49 6.00,12.21 8.89,15.10 C 11.78,17.99 16.51,17.99 19.39,15.10 C 22.28,12.21 22.28,7.49 19.39,4.60 M 9.29,14.70 C 6.63,12.03 6.63,7.67 9.29,5.00 C 11.96,2.34 16.32,2.34 18.99,5.00 C 21.66,7.67 21.66,12.03 18.99,14.70 C 16.32,17.36 11.96,17.36 9.29,14.70 M 4.85,19.14 C 4.29,18.58 3.40,18.58 2.83,19.14 C 2.27,19.71 2.27,20.60 2.83,21.16 C 3.40,21.73 4.29,21.73 4.85,21.16 C 5.42,20.60 5.42,19.71 4.85,19.14 M 3.24,20.76 C 2.89,20.41 2.89,19.89 3.24,19.55 C 3.58,19.20 4.10,19.20 4.45,19.55 C 4.79,19.89 4.79,20.41 4.45,20.76 C 4.10,21.10 3.58,21.10 3.24,20.76 M 22.99,9.57 C 22.91,7.10 21.84,4.82 19.98,3.20 C 16.65,0.28 11.62,0.26 8.31,3.20 C 5.52,5.67 4.57,9.49 5.86,12.96 C 6.33,14.19 6.02,15.55 5.13,16.43 C 4.65,16.92 4.04,17.24 3.40,17.32 C 2.79,17.40 2.25,17.71 1.82,18.13 C 0.75,19.20 0.73,21.00 1.78,22.09 C 1.80,22.11 1.82,22.13 1.84,22.15 C 2.37,22.68 3.07,22.98 3.82,23.00 C 4.61,23.02 5.32,22.72 5.88,22.15 C 6.31,21.73 6.57,21.18 6.67,20.60 C 6.77,19.93 7.07,19.34 7.56,18.86 C 8.45,17.97 9.82,17.69 11.03,18.13 C 14.28,19.36 17.96,18.56 20.40,16.11 C 22.12,14.39 23.07,11.99 22.99,9.57 M 11.23,17.61 C 9.82,17.08 8.20,17.40 7.15,18.45 C 6.59,19.02 6.22,19.75 6.10,20.51 C 6.02,21.00 5.80,21.42 5.46,21.77 C 5.01,22.21 4.43,22.43 3.82,22.43 C 3.17,22.43 2.61,22.19 2.18,21.73 C 1.34,20.84 1.38,19.42 2.21,18.56 C 2.55,18.21 2.99,17.97 3.48,17.89 C 4.25,17.77 4.97,17.40 5.54,16.84 C 6.59,15.79 6.93,14.19 6.39,12.76 C 5.17,9.53 6.06,5.93 8.69,3.63 C 11.80,0.88 16.49,0.88 19.60,3.63 C 19.74,3.73 19.88,3.87 20.00,3.99 C 21.49,5.49 22.36,7.45 22.42,9.57 C 22.48,11.89 21.64,14.07 20.00,15.71 C 17.70,18.01 14.26,18.74 11.23,17.61 M 17.58,10.86 L 10.71,10.86 C 10.55,10.86 10.43,10.98 10.43,11.14 C 10.43,11.22 10.47,11.30 10.51,11.34 C 10.55,11.38 10.63,11.43 10.71,11.43 L 17.58,11.43 C 17.74,11.43 17.86,11.30 17.86,11.14 C 17.86,10.98 17.72,10.88 17.58,10.86 M 17.88,8.54 C 17.88,8.38 17.76,8.25 17.60,8.25 L 10.73,8.25 C 10.57,8.25 10.45,8.38 10.45,8.54 C 10.45,8.62 10.49,8.70 10.53,8.74 C 10.57,8.78 10.65,8.82 10.73,8.82 L 17.60,8.82 C 17.72,8.82 17.86,8.68 17.88,8.54";
+// mdi:repeat -- whole-frame send-count indicator (orange), same anatomy as
+// the command rows'. A Mirror row can carry TX knobs (someone edits a row
+// here and then assigns it), so the row shows them the same way.
+const ICON_REPEAT =
+    "M17,17H7V14L3,18L7,22V19H19V13H17M7,7H17V10L21,6L17,2V5H5V11H7V7Z";
+// mdi:dots-horizontal -- NEC ditto-count indicator (blue).
+const ICON_DITTO =
+    "M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z";
 
 /** The separator record_send/_match_echo bake into echo_source. */
 const VIA_SEP = " -- via ";
@@ -297,15 +310,20 @@ export class IrMirror extends LitElement {
 
         let chip: string;
         let labelTitle: string | null = null;
+        // "Manual test send[: <alias>]" is the current label for a
+        // catalog-tab Test press; "Catalog test[: <alias>]" is its
+        // pre-rename form, still present on rows persisted before the
+        // v0.6.3 bench rename. Either way the chip is the provenance and
+        // the title falls through to the identity chain below.
+        const testPrefix = ["Manual test send", "Catalog test"].find((p) =>
+            label.startsWith(p),
+        );
         if (label === "automation send" || label === "integration send") {
             chip = label;
-        } else if (label.startsWith("Catalog test")) {
-            // "Catalog test: <alias>" or bare "Catalog test" (unnamed
-            // signal) -- either way the chip is the provenance and the
-            // title falls through to the identity chain below.
-            chip = "Catalog test";
+        } else if (testPrefix) {
+            chip = "Manual test send";
             labelTitle =
-                label.slice("Catalog test".length).replace(/^:\s*/, "").trim() ||
+                label.slice(testPrefix.length).replace(/^:\s*/, "").trim() ||
                 null;
         } else if (label) {
             chip = "HAIR device";
@@ -605,6 +623,18 @@ export class IrMirror extends LitElement {
         const filtered = this._filteredRows(rows);
 
         return html`
+            <div class="tab-head">
+                <span class="title">
+                    <ha-svg-icon .path=${ICON_MIRROR}></ha-svg-icon>
+                    Mirror
+                    ${!this._loading
+                        ? html`<span class="count"
+                              >(${rows.length}
+                              ${rows.length === 1 ? "signal" : "signals"})</span
+                          >`
+                        : ""}
+                </span>
+            </div>
             ${this._error
                 ? html`<div class="error">${this._error}</div>`
                 : ""}
@@ -736,6 +766,26 @@ export class IrMirror extends LitElement {
                                   >${r.pill}</span
                               >`
                             : ""}
+                        ${(sig.send_count ?? 1) > 1
+                            ? html`<span
+                                  class="repeat-indicator"
+                                  title="Sends this signal ${sig.send_count} times"
+                                  ><ha-svg-icon
+                                      .path=${ICON_REPEAT}
+                                  ></ha-svg-icon
+                                  >${sig.send_count}</span
+                              >`
+                            : ""}
+                        ${(sig.repeat_count ?? 1) > 1 && sig.decoded_protocol
+                            ? html`<span
+                                  class="ditto-indicator"
+                                  title="Appends ${sig.repeat_count} NEC dittos"
+                                  ><ha-svg-icon
+                                      .path=${ICON_DITTO}
+                                  ></ha-svg-icon
+                                  >${sig.repeat_count}</span
+                              >`
+                            : ""}
                     </div>
                     <div class="mrow-sub">
                         ${r.via
@@ -834,7 +884,10 @@ export class IrMirror extends LitElement {
     private _renderEmpty() {
         return html`
             <div class="empty">
-                <div class="mirror-glyph"></div>
+                <ha-svg-icon
+                    class="empty-icon"
+                    .path=${ICON_MIRROR}
+                ></ha-svg-icon>
                 <div class="empty-title">Nothing sent yet</div>
                 <div class="empty-sub">
                     Commands sent by HAIR devices, automations, or any
@@ -958,21 +1011,48 @@ export class IrMirror extends LitElement {
                 color: var(--secondary-text-color);
                 padding: 24px;
             }
+
+            /* Tab header, same anatomy as the Sniffer/Clipper/Plucker
+               titles; the mirror icon wears the tab's silver. */
+            .tab-head {
+                display: flex;
+                align-items: center;
+                margin-bottom: 12px;
+            }
+            .title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 1.1rem;
+                font-weight: 500;
+                color: var(--primary-text-color);
+            }
+            .title ha-svg-icon {
+                --mdc-icon-size: 24px;
+                color: #607d8b;
+            }
+            .title .count {
+                font-size: 0.85rem;
+                font-weight: 400;
+                color: var(--secondary-text-color);
+            }
             .error {
                 color: var(--error-color, #db4437);
                 padding: 8px 0;
             }
 
-            /* Stats strip: the silver sheen lives here, as texture. */
+            /* Stats strip: the silver sheen lives here, as texture.
+               Deliberately slim (owner bench note: less air above and
+               below) -- values and labels sit on one line per stat. */
             .stats {
                 display: flex;
-                align-items: center;
-                gap: 26px;
+                align-items: baseline;
+                gap: 22px;
                 background: var(--secondary-background-color);
                 border: 1px solid var(--divider-color);
-                border-radius: 10px;
-                padding: 12px 18px;
-                margin-bottom: 14px;
+                border-radius: 8px;
+                padding: 6px 14px;
+                margin-bottom: 12px;
                 background-image: linear-gradient(
                     105deg,
                     transparent 42%,
@@ -980,16 +1060,20 @@ export class IrMirror extends LitElement {
                     transparent 58%
                 );
             }
+            .stat {
+                display: flex;
+                align-items: baseline;
+                gap: 5px;
+            }
             .stat .v {
-                font-size: 19px;
+                font-size: 15px;
                 font-weight: 600;
                 color: var(--primary-text-color);
             }
             .stat .l {
-                font-size: 11px;
+                font-size: 10.5px;
                 color: var(--secondary-text-color);
                 letter-spacing: 0.4px;
-                margin-top: 1px;
             }
             .stat .v.warn {
                 color: #e65100;
@@ -1107,6 +1191,26 @@ export class IrMirror extends LitElement {
                 background: rgba(230, 140, 60, 0.12);
                 color: #b87333;
             }
+            /* TX-knob indicators, same anatomy as the command rows'. */
+            .repeat-indicator,
+            .ditto-indicator {
+                display: inline-flex;
+                align-items: center;
+                gap: 1px;
+                font-size: 9px;
+                font-weight: 600;
+                opacity: 0.85;
+            }
+            .repeat-indicator {
+                color: var(--warning-color, #ff9800);
+            }
+            .ditto-indicator {
+                color: var(--primary-color);
+            }
+            .repeat-indicator ha-svg-icon,
+            .ditto-indicator ha-svg-icon {
+                --mdc-icon-size: 10px;
+            }
             .mrow-sub {
                 margin-top: 4px;
                 font-size: 12px;
@@ -1160,30 +1264,10 @@ export class IrMirror extends LitElement {
                 text-align: center;
                 padding: 44px 20px 52px;
             }
-            .mirror-glyph {
-                width: 44px;
-                height: 44px;
-                margin: 0 auto 14px;
-                border-radius: 10px;
-                border: 2.5px solid #607d8b;
-                background: linear-gradient(
-                    135deg,
-                    #eceff1 30%,
-                    #ffffff 45%,
-                    #eceff1 60%
-                );
-                position: relative;
-            }
-            .mirror-glyph::after {
-                content: "";
-                position: absolute;
-                top: 5px;
-                left: 11px;
-                width: 5px;
-                height: 24px;
-                background: rgba(255, 255, 255, 0.95);
-                transform: rotate(18deg);
-                border-radius: 3px;
+            .empty-icon {
+                --mdc-icon-size: 44px;
+                color: #607d8b;
+                margin-bottom: 12px;
             }
             .empty-title {
                 font-size: 15px;

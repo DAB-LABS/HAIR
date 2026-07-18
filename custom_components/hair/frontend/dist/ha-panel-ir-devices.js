@@ -6435,7 +6435,17 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             gap: 4px;
             flex-shrink: 0;
         }
-    `],e([he({attribute:!1})],xs.prototype,"api",void 0),e([he({attribute:!1})],xs.prototype,"hass",void 0),e([he()],xs.prototype,"pendingEntity",void 0),e([pe()],xs.prototype,"_devices",void 0),e([pe()],xs.prototype,"_hairDevices",void 0),e([pe()],xs.prototype,"_triggers",void 0),e([pe()],xs.prototype,"_loading",void 0),e([pe()],xs.prototype,"_error",void 0),e([pe()],xs.prototype,"_expandedId",void 0),e([pe()],xs.prototype,"_expandedDevice",void 0),e([pe()],xs.prototype,"_confirmClearAll",void 0),e([pe()],xs.prototype,"_deleteRemoteId",void 0),e([pe()],xs.prototype,"_deleteRemoteLabel",void 0),e([pe()],xs.prototype,"_deleteRemoteCount",void 0),e([pe()],xs.prototype,"_editingDeviceId",void 0),e([pe()],xs.prototype,"_editLabel",void 0),e([pe()],xs.prototype,"_createRemoteOpen",void 0),e([pe()],xs.prototype,"_promoteTarget",void 0),e([pe()],xs.prototype,"_pluckDialog",void 0),e([pe()],xs.prototype,"_editSignal",void 0),e([pe()],xs.prototype,"_assignSignal",void 0),e([pe()],xs.prototype,"_deleteSignal",void 0),e([pe()],xs.prototype,"_triggerDialog",void 0),e([pe()],xs.prototype,"_triggerEditDialog",void 0),e([pe()],xs.prototype,"_triggerPopover",void 0),e([pe()],xs.prototype,"_assignedPopover",void 0),e([pe()],xs.prototype,"_receivers",void 0),e([pe()],xs.prototype,"_confirmDeleteTriggerId",void 0),e([pe()],xs.prototype,"_testDialog",void 0),e([pe()],xs.prototype,"_testEmitters",void 0),e([pe()],xs.prototype,"_testingSignalId",void 0),e([pe()],xs.prototype,"_testResult",void 0),e([pe()],xs.prototype,"_remotesVersion",void 0),e([pe()],xs.prototype,"_signalsVersion",void 0),xs=e([ue("ir-pluck")],xs);let ws=class extends ne{constructor(){super(...arguments),this._device=null,this._loading=!0,this._error=null,this._triggers=[],this._receivers=[],this._hasReceivers=!0,this._filter="all",this._search="",this._bloomIds=new Set,this._assignSignal=null,this._assignedPopover=null,this._triggerDialog=null,this._triggerEditDialog=null,this._triggerPopover=null,this._confirmDeleteTriggerId=null,this._editSignal=null,this._testDialog=null,this._testEmitters=[],this._testingSignalId=null,this._testResult=null,this._unsubSignals=null,this._unsubUpdated=null,this._refreshTimer=null,this._onDocClickForPopover=e=>{const t=e.composedPath(),i=this.shadowRoot?.querySelector("ir-trigger-popover"),s=this.shadowRoot?.querySelector("ir-assigned-popover");i&&t.includes(i)||s&&t.includes(s)||(this._closeTriggerPopover(),this._closeAssignedPopover())},this._onScrollForPopover=()=>{this._closeTriggerPopover(),this._closeAssignedPopover()}}connectedCallback(){super.connectedCallback(),this._load(),this._subscribe()}disconnectedCallback(){super.disconnectedCallback(),this._unsubscribe(),this._removePopoverDismiss(),null!==this._refreshTimer&&(clearTimeout(this._refreshTimer),this._refreshTimer=null)}async _load(){this._loading=!0;try{const[e,t,i]=await Promise.all([this.api.getUnknownDevices({source:"echo",min_hits:0}),this.api.listTriggers(),this.api.getSnifferStatus()]);this._triggers=t,this._hasReceivers=i.has_receivers;const s=e.find(e=>e.fingerprint===as);this._device=s?await this.api.getUnknownDevice(s.id):null,this._error=null,this.api.listReceivers().then(e=>{this._receivers=e}).catch(()=>{this._receivers=[]})}catch(e){this._error=`Failed to load: ${e.message}`}finally{this._loading=!1}}async _refreshDevice(){if(this._device)try{this._device=await this.api.getUnknownDevice(this._device.id)}catch{await this._load()}else await this._load()}async _subscribe(){try{this._unsubSignals=await this.api.subscribeUnknownSignals(e=>this._onLiveSignal(e))}catch{}try{this._unsubUpdated=await this.api.subscribeSignalUpdated(()=>{this._refreshDots()})}catch{}}async _unsubscribe(){this._unsubSignals&&(await this._unsubSignals(),this._unsubSignals=null),this._unsubUpdated&&(await this._unsubUpdated(),this._unsubUpdated=null)}async _refreshDots(){try{this._triggers=await this.api.listTriggers()}catch{}await this._refreshDevice()}_onLiveSignal(e){e.device_fingerprint===as&&(this._bloomIds=new Set([...this._bloomIds,e.signal_id]),setTimeout(()=>{const t=new Set(this._bloomIds);t.delete(e.signal_id),this._bloomIds=t},1400),null!==this._refreshTimer&&clearTimeout(this._refreshTimer),this._refreshTimer=window.setTimeout(()=>{this._refreshTimer=null,this._refreshDevice()},300))}_friendlyReceiver(e){const t=this._receivers.find(t=>t.entity_id===e);if(t?.name)return t.name;const i=this.hass?.states?.[e];return i?.attributes?.friendly_name??e}_receiverArea(e){const t=this.hass?.entities?.[e],i=t?.area_id??(t?.device_id?this.hass?.devices?.[t.device_id]?.area_id:null);return i?this.hass?.areas?.[i]?.name??null:null}_decodedDisplay(e){const t=e.decoded_fingerprint;if(!t)return null;const i=t.split(":");return i.length>=3?`${i[0]} ${i[1]} : ${i.slice(2).join(":")}`:t}_rowView(e){const t=e.echo_source??"",i=t.indexOf(" -- via "),s=i>=0?t.slice(0,i):t,o=i>=0?t.slice(i+8):"",a=o?o.split(", "):[];let r,n=null;"automation send"===s||"integration send"===s?r=s:s.startsWith("Catalog test")?(r="Catalog test",n=s.slice(12).replace(/^:\s*/,"").trim()||null):s?(r="HAIR device",n=s):r="send";const l=e.alias||n||this._decodedDisplay(e)||(e.sl_pattern?[...e.sl_pattern].map(e=>"L"===e?"◆":"◇").join(""):null)||"Unknown send",d=e.decoded_protocol??e.protocol,c=!e.decoded_protocol,h=a.length>2?`via ${a.length} emitters`:o?`via ${o}`:"";let p=null,g=!1;if(this._hasReceivers){const t=e.heard_by??[];if(0===t.length)p="not heard";else{g=!0;const e=t.map(e=>this._receiverArea(e));if(e.every(e=>null!==e))p=`heard in ${[...new Set(e)].join(", ")}`;else{const e=t.map(e=>this._friendlyReceiver(e));p=`heard by ${e.join(", ")}`}}}return{sig:e,title:l,pill:d??null,pillRaw:c,via:h,viaFull:o,emitters:a,chip:r,heard:p,heardOk:g}}_rows(){return(this._device?.signals??[]).map(e=>this._rowView(e))}_filteredRows(e){let t=e;"notheard"===this._filter?t=t.filter(e=>0===(e.sig.heard_by??[]).length):"all"!==this._filter&&(t=t.filter(e=>e.emitters.includes(this._filter)));const i=this._search.trim().toLowerCase();return i&&(t=t.filter(e=>[e.title,e.pill??"",e.viaFull,e.chip,e.sig.decoded_fingerprint??"",e.sig.alias??""].join(" ").toLowerCase().includes(i))),t}_triggerCountFor(e){return this._triggers.filter(t=>rs(t,e)).length}_onAssignClick(e,t){if(!this._device)return;if(!e.assigned_to?.length)return void(this._assignSignal={signal:e,initialMode:"existing"});const i=t?.currentTarget,s=i?.getBoundingClientRect();this._assignedPopover={signal:e,top:s?s.bottom+4:120,left:s?Math.max(8,s.right-220):120},this._installPopoverDismiss()}_closeAssignedPopover(){this._assignedPopover=null,this._removePopoverDismiss()}_onAssignedPopoverCreateNew(){const e=this._assignedPopover;this._closeAssignedPopover(),e&&(this._assignSignal={signal:e.signal,initialMode:"existing"})}_onAssignedPopoverOpen(e){const t=e.detail;this._closeAssignedPopover(),t&&this.dispatchEvent(new CustomEvent("navigate-device",{detail:t.device_id,bubbles:!0,composed:!0}))}async _onSignalAssigned(e){this._assignSignal=null,await this._refreshDots()}_openTriggerDialog(e,t){const i=this._triggers.filter(t=>rs(t,e));if(0===i.length)return void(this._triggerDialog=e);const s=t?.currentTarget,o=s?.getBoundingClientRect();this._triggerPopover={signal:e,top:o?o.bottom+4:120,left:o?Math.max(8,o.right-220):120},this._installPopoverDismiss()}_closeTriggerPopover(){this._triggerPopover=null,this._removePopoverDismiss()}_onPopoverCreateNew(){const e=this._triggerPopover;this._closeTriggerPopover(),e&&(this._triggerDialog=e.signal)}_onPopoverEditTrigger(e){const t=e.detail;this._closeTriggerPopover(),t&&(this._triggerEditDialog=t)}async _onTriggerSaved(){this._triggerDialog=null,this._triggerEditDialog=null;try{this._triggers=await this.api.listTriggers()}catch{}}_closeTriggerDialog(){this._triggerDialog=null,this._triggerEditDialog=null}_requestDeleteTrigger(e){this._closeTriggerDialog(),this._confirmDeleteTriggerId=e}async _confirmDeleteTrigger(){const e=this._confirmDeleteTriggerId;if(this._confirmDeleteTriggerId=null,e)try{await this.api.deleteTrigger(e),this._triggers=await this.api.listTriggers()}catch(e){this._error=`Delete failed: ${e.message}`}}_installPopoverDismiss(){setTimeout(()=>{document.addEventListener("click",this._onDocClickForPopover,!0),window.addEventListener("scroll",this._onScrollForPopover,!0)},0)}_removePopoverDismiss(){document.removeEventListener("click",this._onDocClickForPopover,!0),window.removeEventListener("scroll",this._onScrollForPopover,!0)}async _sendTest(e){if(!this._testDialog)return;const t=this._testDialog,i=e.detail.emitters;if(0!==i.length){this._testingSignalId=t.id,this._testResult=null,this._testDialog=null;try{const e=(await Promise.allSettled(i.map(e=>this.api.testSignal(t.id,e)))).filter(e=>"fulfilled"===e.status&&e.value.sent).length,s=i.length;this._testResult=e===s?1===s?"Sent!":`Sent! (${e}/${s})`:0===e?"Failed":`Sent (${e}/${s})`}catch{this._testResult="Error"}setTimeout(()=>{this._testResult=null,this._testingSignalId=null},3e3)}}async _onSignalEdited(){this._editSignal=null,await this._refreshDevice()}render(){const e=this._rows(),t=this._filteredRows(e);return B`
+    `],e([he({attribute:!1})],xs.prototype,"api",void 0),e([he({attribute:!1})],xs.prototype,"hass",void 0),e([he()],xs.prototype,"pendingEntity",void 0),e([pe()],xs.prototype,"_devices",void 0),e([pe()],xs.prototype,"_hairDevices",void 0),e([pe()],xs.prototype,"_triggers",void 0),e([pe()],xs.prototype,"_loading",void 0),e([pe()],xs.prototype,"_error",void 0),e([pe()],xs.prototype,"_expandedId",void 0),e([pe()],xs.prototype,"_expandedDevice",void 0),e([pe()],xs.prototype,"_confirmClearAll",void 0),e([pe()],xs.prototype,"_deleteRemoteId",void 0),e([pe()],xs.prototype,"_deleteRemoteLabel",void 0),e([pe()],xs.prototype,"_deleteRemoteCount",void 0),e([pe()],xs.prototype,"_editingDeviceId",void 0),e([pe()],xs.prototype,"_editLabel",void 0),e([pe()],xs.prototype,"_createRemoteOpen",void 0),e([pe()],xs.prototype,"_promoteTarget",void 0),e([pe()],xs.prototype,"_pluckDialog",void 0),e([pe()],xs.prototype,"_editSignal",void 0),e([pe()],xs.prototype,"_assignSignal",void 0),e([pe()],xs.prototype,"_deleteSignal",void 0),e([pe()],xs.prototype,"_triggerDialog",void 0),e([pe()],xs.prototype,"_triggerEditDialog",void 0),e([pe()],xs.prototype,"_triggerPopover",void 0),e([pe()],xs.prototype,"_assignedPopover",void 0),e([pe()],xs.prototype,"_receivers",void 0),e([pe()],xs.prototype,"_confirmDeleteTriggerId",void 0),e([pe()],xs.prototype,"_testDialog",void 0),e([pe()],xs.prototype,"_testEmitters",void 0),e([pe()],xs.prototype,"_testingSignalId",void 0),e([pe()],xs.prototype,"_testResult",void 0),e([pe()],xs.prototype,"_remotesVersion",void 0),e([pe()],xs.prototype,"_signalsVersion",void 0),xs=e([ue("ir-pluck")],xs);const ws="M 19.39,4.60 C 16.51,1.71 11.78,1.71 8.89,4.60 C 6.00,7.49 6.00,12.21 8.89,15.10 C 11.78,17.99 16.51,17.99 19.39,15.10 C 22.28,12.21 22.28,7.49 19.39,4.60 M 9.29,14.70 C 6.63,12.03 6.63,7.67 9.29,5.00 C 11.96,2.34 16.32,2.34 18.99,5.00 C 21.66,7.67 21.66,12.03 18.99,14.70 C 16.32,17.36 11.96,17.36 9.29,14.70 M 4.85,19.14 C 4.29,18.58 3.40,18.58 2.83,19.14 C 2.27,19.71 2.27,20.60 2.83,21.16 C 3.40,21.73 4.29,21.73 4.85,21.16 C 5.42,20.60 5.42,19.71 4.85,19.14 M 3.24,20.76 C 2.89,20.41 2.89,19.89 3.24,19.55 C 3.58,19.20 4.10,19.20 4.45,19.55 C 4.79,19.89 4.79,20.41 4.45,20.76 C 4.10,21.10 3.58,21.10 3.24,20.76 M 22.99,9.57 C 22.91,7.10 21.84,4.82 19.98,3.20 C 16.65,0.28 11.62,0.26 8.31,3.20 C 5.52,5.67 4.57,9.49 5.86,12.96 C 6.33,14.19 6.02,15.55 5.13,16.43 C 4.65,16.92 4.04,17.24 3.40,17.32 C 2.79,17.40 2.25,17.71 1.82,18.13 C 0.75,19.20 0.73,21.00 1.78,22.09 C 1.80,22.11 1.82,22.13 1.84,22.15 C 2.37,22.68 3.07,22.98 3.82,23.00 C 4.61,23.02 5.32,22.72 5.88,22.15 C 6.31,21.73 6.57,21.18 6.67,20.60 C 6.77,19.93 7.07,19.34 7.56,18.86 C 8.45,17.97 9.82,17.69 11.03,18.13 C 14.28,19.36 17.96,18.56 20.40,16.11 C 22.12,14.39 23.07,11.99 22.99,9.57 M 11.23,17.61 C 9.82,17.08 8.20,17.40 7.15,18.45 C 6.59,19.02 6.22,19.75 6.10,20.51 C 6.02,21.00 5.80,21.42 5.46,21.77 C 5.01,22.21 4.43,22.43 3.82,22.43 C 3.17,22.43 2.61,22.19 2.18,21.73 C 1.34,20.84 1.38,19.42 2.21,18.56 C 2.55,18.21 2.99,17.97 3.48,17.89 C 4.25,17.77 4.97,17.40 5.54,16.84 C 6.59,15.79 6.93,14.19 6.39,12.76 C 5.17,9.53 6.06,5.93 8.69,3.63 C 11.80,0.88 16.49,0.88 19.60,3.63 C 19.74,3.73 19.88,3.87 20.00,3.99 C 21.49,5.49 22.36,7.45 22.42,9.57 C 22.48,11.89 21.64,14.07 20.00,15.71 C 17.70,18.01 14.26,18.74 11.23,17.61 M 17.58,10.86 L 10.71,10.86 C 10.55,10.86 10.43,10.98 10.43,11.14 C 10.43,11.22 10.47,11.30 10.51,11.34 C 10.55,11.38 10.63,11.43 10.71,11.43 L 17.58,11.43 C 17.74,11.43 17.86,11.30 17.86,11.14 C 17.86,10.98 17.72,10.88 17.58,10.86 M 17.88,8.54 C 17.88,8.38 17.76,8.25 17.60,8.25 L 10.73,8.25 C 10.57,8.25 10.45,8.38 10.45,8.54 C 10.45,8.62 10.49,8.70 10.53,8.74 C 10.57,8.78 10.65,8.82 10.73,8.82 L 17.60,8.82 C 17.72,8.82 17.86,8.68 17.88,8.54";let ks=class extends ne{constructor(){super(...arguments),this._device=null,this._loading=!0,this._error=null,this._triggers=[],this._receivers=[],this._hasReceivers=!0,this._filter="all",this._search="",this._bloomIds=new Set,this._assignSignal=null,this._assignedPopover=null,this._triggerDialog=null,this._triggerEditDialog=null,this._triggerPopover=null,this._confirmDeleteTriggerId=null,this._editSignal=null,this._testDialog=null,this._testEmitters=[],this._testingSignalId=null,this._testResult=null,this._unsubSignals=null,this._unsubUpdated=null,this._refreshTimer=null,this._onDocClickForPopover=e=>{const t=e.composedPath(),i=this.shadowRoot?.querySelector("ir-trigger-popover"),s=this.shadowRoot?.querySelector("ir-assigned-popover");i&&t.includes(i)||s&&t.includes(s)||(this._closeTriggerPopover(),this._closeAssignedPopover())},this._onScrollForPopover=()=>{this._closeTriggerPopover(),this._closeAssignedPopover()}}connectedCallback(){super.connectedCallback(),this._load(),this._subscribe()}disconnectedCallback(){super.disconnectedCallback(),this._unsubscribe(),this._removePopoverDismiss(),null!==this._refreshTimer&&(clearTimeout(this._refreshTimer),this._refreshTimer=null)}async _load(){this._loading=!0;try{const[e,t,i]=await Promise.all([this.api.getUnknownDevices({source:"echo",min_hits:0}),this.api.listTriggers(),this.api.getSnifferStatus()]);this._triggers=t,this._hasReceivers=i.has_receivers;const s=e.find(e=>e.fingerprint===as);this._device=s?await this.api.getUnknownDevice(s.id):null,this._error=null,this.api.listReceivers().then(e=>{this._receivers=e}).catch(()=>{this._receivers=[]})}catch(e){this._error=`Failed to load: ${e.message}`}finally{this._loading=!1}}async _refreshDevice(){if(this._device)try{this._device=await this.api.getUnknownDevice(this._device.id)}catch{await this._load()}else await this._load()}async _subscribe(){try{this._unsubSignals=await this.api.subscribeUnknownSignals(e=>this._onLiveSignal(e))}catch{}try{this._unsubUpdated=await this.api.subscribeSignalUpdated(()=>{this._refreshDots()})}catch{}}async _unsubscribe(){this._unsubSignals&&(await this._unsubSignals(),this._unsubSignals=null),this._unsubUpdated&&(await this._unsubUpdated(),this._unsubUpdated=null)}async _refreshDots(){try{this._triggers=await this.api.listTriggers()}catch{}await this._refreshDevice()}_onLiveSignal(e){e.device_fingerprint===as&&(this._bloomIds=new Set([...this._bloomIds,e.signal_id]),setTimeout(()=>{const t=new Set(this._bloomIds);t.delete(e.signal_id),this._bloomIds=t},1400),null!==this._refreshTimer&&clearTimeout(this._refreshTimer),this._refreshTimer=window.setTimeout(()=>{this._refreshTimer=null,this._refreshDevice()},300))}_friendlyReceiver(e){const t=this._receivers.find(t=>t.entity_id===e);if(t?.name)return t.name;const i=this.hass?.states?.[e];return i?.attributes?.friendly_name??e}_receiverArea(e){const t=this.hass?.entities?.[e],i=t?.area_id??(t?.device_id?this.hass?.devices?.[t.device_id]?.area_id:null);return i?this.hass?.areas?.[i]?.name??null:null}_decodedDisplay(e){const t=e.decoded_fingerprint;if(!t)return null;const i=t.split(":");return i.length>=3?`${i[0]} ${i[1]} : ${i.slice(2).join(":")}`:t}_rowView(e){const t=e.echo_source??"",i=t.indexOf(" -- via "),s=i>=0?t.slice(0,i):t,o=i>=0?t.slice(i+8):"",a=o?o.split(", "):[];let r,n=null;const l=["Manual test send","Catalog test"].find(e=>s.startsWith(e));"automation send"===s||"integration send"===s?r=s:l?(r="Manual test send",n=s.slice(l.length).replace(/^:\s*/,"").trim()||null):s?(r="HAIR device",n=s):r="send";const d=e.alias||n||this._decodedDisplay(e)||(e.sl_pattern?[...e.sl_pattern].map(e=>"L"===e?"◆":"◇").join(""):null)||"Unknown send",c=e.decoded_protocol??e.protocol,h=!e.decoded_protocol,p=a.length>2?`via ${a.length} emitters`:o?`via ${o}`:"";let g=null,u=!1;if(this._hasReceivers){const t=e.heard_by??[];if(0===t.length)g="not heard";else{u=!0;const e=t.map(e=>this._receiverArea(e));if(e.every(e=>null!==e))g=`heard in ${[...new Set(e)].join(", ")}`;else{const e=t.map(e=>this._friendlyReceiver(e));g=`heard by ${e.join(", ")}`}}}return{sig:e,title:d,pill:c??null,pillRaw:h,via:p,viaFull:o,emitters:a,chip:r,heard:g,heardOk:u}}_rows(){return(this._device?.signals??[]).map(e=>this._rowView(e))}_filteredRows(e){let t=e;"notheard"===this._filter?t=t.filter(e=>0===(e.sig.heard_by??[]).length):"all"!==this._filter&&(t=t.filter(e=>e.emitters.includes(this._filter)));const i=this._search.trim().toLowerCase();return i&&(t=t.filter(e=>[e.title,e.pill??"",e.viaFull,e.chip,e.sig.decoded_fingerprint??"",e.sig.alias??""].join(" ").toLowerCase().includes(i))),t}_triggerCountFor(e){return this._triggers.filter(t=>rs(t,e)).length}_onAssignClick(e,t){if(!this._device)return;if(!e.assigned_to?.length)return void(this._assignSignal={signal:e,initialMode:"existing"});const i=t?.currentTarget,s=i?.getBoundingClientRect();this._assignedPopover={signal:e,top:s?s.bottom+4:120,left:s?Math.max(8,s.right-220):120},this._installPopoverDismiss()}_closeAssignedPopover(){this._assignedPopover=null,this._removePopoverDismiss()}_onAssignedPopoverCreateNew(){const e=this._assignedPopover;this._closeAssignedPopover(),e&&(this._assignSignal={signal:e.signal,initialMode:"existing"})}_onAssignedPopoverOpen(e){const t=e.detail;this._closeAssignedPopover(),t&&this.dispatchEvent(new CustomEvent("navigate-device",{detail:t.device_id,bubbles:!0,composed:!0}))}async _onSignalAssigned(e){this._assignSignal=null,await this._refreshDots()}_openTriggerDialog(e,t){const i=this._triggers.filter(t=>rs(t,e));if(0===i.length)return void(this._triggerDialog=e);const s=t?.currentTarget,o=s?.getBoundingClientRect();this._triggerPopover={signal:e,top:o?o.bottom+4:120,left:o?Math.max(8,o.right-220):120},this._installPopoverDismiss()}_closeTriggerPopover(){this._triggerPopover=null,this._removePopoverDismiss()}_onPopoverCreateNew(){const e=this._triggerPopover;this._closeTriggerPopover(),e&&(this._triggerDialog=e.signal)}_onPopoverEditTrigger(e){const t=e.detail;this._closeTriggerPopover(),t&&(this._triggerEditDialog=t)}async _onTriggerSaved(){this._triggerDialog=null,this._triggerEditDialog=null;try{this._triggers=await this.api.listTriggers()}catch{}}_closeTriggerDialog(){this._triggerDialog=null,this._triggerEditDialog=null}_requestDeleteTrigger(e){this._closeTriggerDialog(),this._confirmDeleteTriggerId=e}async _confirmDeleteTrigger(){const e=this._confirmDeleteTriggerId;if(this._confirmDeleteTriggerId=null,e)try{await this.api.deleteTrigger(e),this._triggers=await this.api.listTriggers()}catch(e){this._error=`Delete failed: ${e.message}`}}_installPopoverDismiss(){setTimeout(()=>{document.addEventListener("click",this._onDocClickForPopover,!0),window.addEventListener("scroll",this._onScrollForPopover,!0)},0)}_removePopoverDismiss(){document.removeEventListener("click",this._onDocClickForPopover,!0),window.removeEventListener("scroll",this._onScrollForPopover,!0)}async _sendTest(e){if(!this._testDialog)return;const t=this._testDialog,i=e.detail.emitters;if(0!==i.length){this._testingSignalId=t.id,this._testResult=null,this._testDialog=null;try{const e=(await Promise.allSettled(i.map(e=>this.api.testSignal(t.id,e)))).filter(e=>"fulfilled"===e.status&&e.value.sent).length,s=i.length;this._testResult=e===s?1===s?"Sent!":`Sent! (${e}/${s})`:0===e?"Failed":`Sent (${e}/${s})`}catch{this._testResult="Error"}setTimeout(()=>{this._testResult=null,this._testingSignalId=null},3e3)}}async _onSignalEdited(){this._editSignal=null,await this._refreshDevice()}render(){const e=this._rows(),t=this._filteredRows(e);return B`
+            <div class="tab-head">
+                <span class="title">
+                    <ha-svg-icon .path=${ws}></ha-svg-icon>
+                    Mirror
+                    ${this._loading?"":B`<span class="count"
+                              >(${e.length}
+                              ${1===e.length?"signal":"signals"})</span
+                          >`}
+                </span>
+            </div>
             ${this._error?B`<div class="error">${this._error}</div>`:""}
             ${this._loading&&!this._device?B`<div class="loading">Loading…</div>`:0===e.length?this._renderEmpty():B`
                         ${this._renderStats(e)}
@@ -6514,6 +6524,22 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                                   class="pill ${e.pillRaw?"raw":""}"
                                   >${e.pill}</span
                               >`:""}
+                        ${(t.send_count??1)>1?B`<span
+                                  class="repeat-indicator"
+                                  title="Sends this signal ${t.send_count} times"
+                                  ><ha-svg-icon
+                                      .path=${"M17,17H7V14L3,18L7,22V19H19V13H17M7,7H17V10L21,6L17,2V5H5V11H7V7Z"}
+                                  ></ha-svg-icon
+                                  >${t.send_count}</span
+                              >`:""}
+                        ${(t.repeat_count??1)>1&&t.decoded_protocol?B`<span
+                                  class="ditto-indicator"
+                                  title="Appends ${t.repeat_count} NEC dittos"
+                                  ><ha-svg-icon
+                                      .path=${"M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"}
+                                  ></ha-svg-icon
+                                  >${t.repeat_count}</span
+                              >`:""}
                     </div>
                     <div class="mrow-sub">
                         ${e.via?B`<span title=${e.viaFull}>${e.via}</span>`:""}
@@ -6572,7 +6598,10 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             </div>
         `}_renderEmpty(){return B`
             <div class="empty">
-                <div class="mirror-glyph"></div>
+                <ha-svg-icon
+                    class="empty-icon"
+                    .path=${ws}
+                ></ha-svg-icon>
                 <div class="empty-title">Nothing sent yet</div>
                 <div class="empty-sub">
                     Commands sent by HAIR devices, automations, or any
@@ -6656,7 +6685,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                       @send=${this._sendTest}
                       @closed=${()=>this._testDialog=null}
                   ></ir-test-emitter-dialog>`:""}
-        `}};ws.styles=[Ei,r`
+        `}};ks.styles=[Ei,r`
             :host {
                 display: block;
             }
@@ -6666,21 +6695,48 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                 color: var(--secondary-text-color);
                 padding: 24px;
             }
+
+            /* Tab header, same anatomy as the Sniffer/Clipper/Plucker
+               titles; the mirror icon wears the tab's silver. */
+            .tab-head {
+                display: flex;
+                align-items: center;
+                margin-bottom: 12px;
+            }
+            .title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 1.1rem;
+                font-weight: 500;
+                color: var(--primary-text-color);
+            }
+            .title ha-svg-icon {
+                --mdc-icon-size: 24px;
+                color: #607d8b;
+            }
+            .title .count {
+                font-size: 0.85rem;
+                font-weight: 400;
+                color: var(--secondary-text-color);
+            }
             .error {
                 color: var(--error-color, #db4437);
                 padding: 8px 0;
             }
 
-            /* Stats strip: the silver sheen lives here, as texture. */
+            /* Stats strip: the silver sheen lives here, as texture.
+               Deliberately slim (owner bench note: less air above and
+               below) -- values and labels sit on one line per stat. */
             .stats {
                 display: flex;
-                align-items: center;
-                gap: 26px;
+                align-items: baseline;
+                gap: 22px;
                 background: var(--secondary-background-color);
                 border: 1px solid var(--divider-color);
-                border-radius: 10px;
-                padding: 12px 18px;
-                margin-bottom: 14px;
+                border-radius: 8px;
+                padding: 6px 14px;
+                margin-bottom: 12px;
                 background-image: linear-gradient(
                     105deg,
                     transparent 42%,
@@ -6688,16 +6744,20 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                     transparent 58%
                 );
             }
+            .stat {
+                display: flex;
+                align-items: baseline;
+                gap: 5px;
+            }
             .stat .v {
-                font-size: 19px;
+                font-size: 15px;
                 font-weight: 600;
                 color: var(--primary-text-color);
             }
             .stat .l {
-                font-size: 11px;
+                font-size: 10.5px;
                 color: var(--secondary-text-color);
                 letter-spacing: 0.4px;
-                margin-top: 1px;
             }
             .stat .v.warn {
                 color: #e65100;
@@ -6815,6 +6875,26 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                 background: rgba(230, 140, 60, 0.12);
                 color: #b87333;
             }
+            /* TX-knob indicators, same anatomy as the command rows'. */
+            .repeat-indicator,
+            .ditto-indicator {
+                display: inline-flex;
+                align-items: center;
+                gap: 1px;
+                font-size: 9px;
+                font-weight: 600;
+                opacity: 0.85;
+            }
+            .repeat-indicator {
+                color: var(--warning-color, #ff9800);
+            }
+            .ditto-indicator {
+                color: var(--primary-color);
+            }
+            .repeat-indicator ha-svg-icon,
+            .ditto-indicator ha-svg-icon {
+                --mdc-icon-size: 10px;
+            }
             .mrow-sub {
                 margin-top: 4px;
                 font-size: 12px;
@@ -6868,30 +6948,10 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                 text-align: center;
                 padding: 44px 20px 52px;
             }
-            .mirror-glyph {
-                width: 44px;
-                height: 44px;
-                margin: 0 auto 14px;
-                border-radius: 10px;
-                border: 2.5px solid #607d8b;
-                background: linear-gradient(
-                    135deg,
-                    #eceff1 30%,
-                    #ffffff 45%,
-                    #eceff1 60%
-                );
-                position: relative;
-            }
-            .mirror-glyph::after {
-                content: "";
-                position: absolute;
-                top: 5px;
-                left: 11px;
-                width: 5px;
-                height: 24px;
-                background: rgba(255, 255, 255, 0.95);
-                transform: rotate(18deg);
-                border-radius: 3px;
+            .empty-icon {
+                --mdc-icon-size: 44px;
+                color: #607d8b;
+                margin-bottom: 12px;
             }
             .empty-title {
                 font-size: 15px;
@@ -6907,7 +6967,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                 margin-right: auto;
                 line-height: 1.5;
             }
-        `],e([he({attribute:!1})],ws.prototype,"api",void 0),e([he({attribute:!1})],ws.prototype,"hass",void 0),e([pe()],ws.prototype,"_device",void 0),e([pe()],ws.prototype,"_loading",void 0),e([pe()],ws.prototype,"_error",void 0),e([pe()],ws.prototype,"_triggers",void 0),e([pe()],ws.prototype,"_receivers",void 0),e([pe()],ws.prototype,"_hasReceivers",void 0),e([pe()],ws.prototype,"_filter",void 0),e([pe()],ws.prototype,"_search",void 0),e([pe()],ws.prototype,"_bloomIds",void 0),e([pe()],ws.prototype,"_assignSignal",void 0),e([pe()],ws.prototype,"_assignedPopover",void 0),e([pe()],ws.prototype,"_triggerDialog",void 0),e([pe()],ws.prototype,"_triggerEditDialog",void 0),e([pe()],ws.prototype,"_triggerPopover",void 0),e([pe()],ws.prototype,"_confirmDeleteTriggerId",void 0),e([pe()],ws.prototype,"_editSignal",void 0),e([pe()],ws.prototype,"_testDialog",void 0),e([pe()],ws.prototype,"_testEmitters",void 0),e([pe()],ws.prototype,"_testingSignalId",void 0),e([pe()],ws.prototype,"_testResult",void 0),ws=e([ue("ir-mirror")],ws);let ks=class extends ne{constructor(){super(...arguments),this.narrow=!1,this._activeTab="devices",this._devices=[],this._expandedDeviceId=null,this._loading=!0,this._error=null,this._addDialogOpen=!1,this._pluckersAvailable=!1,this._pendingPluckEntity="",this._api=null}connectedCallback(){super.connectedCallback(),this.hass&&this._init()}updated(e){e.has("hass")&&this.hass&&!this._api&&this._init()}_init(){this._api=new me(this.hass),this._refreshDevices(),this._checkPluckers()}async _checkPluckers(){if(this._api){try{const{vendors:e}=await this._api.listPluckVendors();this._pluckersAvailable=e.length>0}catch{this._pluckersAvailable=!1}"plucker"!==this._activeTab||this._pluckersAvailable||this._switchTab("devices")}}_tagline(){return{devices:"Manage your IR devices and the hardware that drives them.",sniffer:"Capture IR codes live from the air.",clips:"Build remotes by pasting known IR codes.",plucker:"Pluck IR codes from existing blasters.",mirror:"See what your house transmits."}[this._activeTab]}async _refreshDevices(){if(this._api){this._loading=!0;try{this._devices=await this._api.listDevices(),this._error=null}catch(e){this._error=`Failed to load devices: ${e.message}`}finally{this._loading=!1}}}_toggleDevice(e){this._expandedDeviceId=this._expandedDeviceId===e?null:e}_openAddDialog(){this._addDialogOpen=!0}_onNavigatePlucker(e){this._pendingPluckEntity=e.detail?.vendor_entity_id??"",this._switchTab("plucker")}_onNavigateDevice(e){this._switchTab("devices"),this._expandedDeviceId=e.detail}_closeAddDialog(){this._addDialogOpen=!1}async _onDeviceCreated(e){this._addDialogOpen=!1,await this._refreshDevices(),this._expandedDeviceId=e.detail.id}async _onDeviceChanged(){await this._refreshDevices()}async _onDeviceDeleted(){this._expandedDeviceId=null,await this._refreshDevices()}_switchTab(e){this._expandedDeviceId=null,this._activeTab=e,"devices"===e&&this._refreshDevices()}_openHaSidebar(){this.dispatchEvent(new Event("hass-toggle-menu",{bubbles:!0,composed:!0}))}render(){return this._api?B`
+        `],e([he({attribute:!1})],ks.prototype,"api",void 0),e([he({attribute:!1})],ks.prototype,"hass",void 0),e([pe()],ks.prototype,"_device",void 0),e([pe()],ks.prototype,"_loading",void 0),e([pe()],ks.prototype,"_error",void 0),e([pe()],ks.prototype,"_triggers",void 0),e([pe()],ks.prototype,"_receivers",void 0),e([pe()],ks.prototype,"_hasReceivers",void 0),e([pe()],ks.prototype,"_filter",void 0),e([pe()],ks.prototype,"_search",void 0),e([pe()],ks.prototype,"_bloomIds",void 0),e([pe()],ks.prototype,"_assignSignal",void 0),e([pe()],ks.prototype,"_assignedPopover",void 0),e([pe()],ks.prototype,"_triggerDialog",void 0),e([pe()],ks.prototype,"_triggerEditDialog",void 0),e([pe()],ks.prototype,"_triggerPopover",void 0),e([pe()],ks.prototype,"_confirmDeleteTriggerId",void 0),e([pe()],ks.prototype,"_editSignal",void 0),e([pe()],ks.prototype,"_testDialog",void 0),e([pe()],ks.prototype,"_testEmitters",void 0),e([pe()],ks.prototype,"_testingSignalId",void 0),e([pe()],ks.prototype,"_testResult",void 0),ks=e([ue("ir-mirror")],ks);let Ds=class extends ne{constructor(){super(...arguments),this.narrow=!1,this._activeTab="devices",this._devices=[],this._expandedDeviceId=null,this._loading=!0,this._error=null,this._addDialogOpen=!1,this._pluckersAvailable=!1,this._pendingPluckEntity="",this._api=null}connectedCallback(){super.connectedCallback(),this.hass&&this._init()}updated(e){e.has("hass")&&this.hass&&!this._api&&this._init()}_init(){this._api=new me(this.hass),this._refreshDevices(),this._checkPluckers()}async _checkPluckers(){if(this._api){try{const{vendors:e}=await this._api.listPluckVendors();this._pluckersAvailable=e.length>0}catch{this._pluckersAvailable=!1}"plucker"!==this._activeTab||this._pluckersAvailable||this._switchTab("devices")}}_tagline(){return{devices:"Manage your IR devices and the hardware that drives them.",sniffer:"Capture IR codes live from the air.",clips:"Build remotes by pasting known IR codes.",plucker:"Pluck IR codes from existing blasters.",mirror:"See what your house transmits."}[this._activeTab]}async _refreshDevices(){if(this._api){this._loading=!0;try{this._devices=await this._api.listDevices(),this._error=null}catch(e){this._error=`Failed to load devices: ${e.message}`}finally{this._loading=!1}}}_toggleDevice(e){this._expandedDeviceId=this._expandedDeviceId===e?null:e}_openAddDialog(){this._addDialogOpen=!0}_onNavigatePlucker(e){this._pendingPluckEntity=e.detail?.vendor_entity_id??"",this._switchTab("plucker")}_onNavigateDevice(e){this._switchTab("devices"),this._expandedDeviceId=e.detail}_closeAddDialog(){this._addDialogOpen=!1}async _onDeviceCreated(e){this._addDialogOpen=!1,await this._refreshDevices(),this._expandedDeviceId=e.detail.id}async _onDeviceChanged(){await this._refreshDevices()}async _onDeviceDeleted(){this._expandedDeviceId=null,await this._refreshDevices()}_switchTab(e){this._expandedDeviceId=null,this._activeTab=e,"devices"===e&&this._refreshDevices()}_openHaSidebar(){this.dispatchEvent(new Event("hass-toggle-menu",{bubbles:!0,composed:!0}))}render(){return this._api?B`
             <ha-top-app-bar-fixed>
                 <ha-menu-button
                     slot="navigationIcon"
@@ -7027,7 +7087,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
 
             <div class="version-footer">v${"0.6.3"}</div>
             </ha-top-app-bar-fixed>
-        `:B`<div class="loading">Loading…</div>`}};ks.styles=r`
+        `:B`<div class="loading">Loading…</div>`}};Ds.styles=r`
         :host {
             display: block;
             background: var(--primary-background-color);
@@ -7178,4 +7238,4 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
         .mobile-nav-button ha-svg-icon {
             --mdc-icon-size: 22px;
         }
-    `,e([he({attribute:!1})],ks.prototype,"hass",void 0),e([he({attribute:!1})],ks.prototype,"narrow",void 0),e([he({attribute:!1})],ks.prototype,"route",void 0),e([he({attribute:!1})],ks.prototype,"panel",void 0),e([pe()],ks.prototype,"_activeTab",void 0),e([pe()],ks.prototype,"_devices",void 0),e([pe()],ks.prototype,"_expandedDeviceId",void 0),e([pe()],ks.prototype,"_loading",void 0),e([pe()],ks.prototype,"_error",void 0),e([pe()],ks.prototype,"_addDialogOpen",void 0),e([pe()],ks.prototype,"_pluckersAvailable",void 0),e([pe()],ks.prototype,"_pendingPluckEntity",void 0),ks=e([ue("ha-panel-ir-devices")],ks);export{ks as HaPanelIrDevices};
+    `,e([he({attribute:!1})],Ds.prototype,"hass",void 0),e([he({attribute:!1})],Ds.prototype,"narrow",void 0),e([he({attribute:!1})],Ds.prototype,"route",void 0),e([he({attribute:!1})],Ds.prototype,"panel",void 0),e([pe()],Ds.prototype,"_activeTab",void 0),e([pe()],Ds.prototype,"_devices",void 0),e([pe()],Ds.prototype,"_expandedDeviceId",void 0),e([pe()],Ds.prototype,"_loading",void 0),e([pe()],Ds.prototype,"_error",void 0),e([pe()],Ds.prototype,"_addDialogOpen",void 0),e([pe()],Ds.prototype,"_pluckersAvailable",void 0),e([pe()],Ds.prototype,"_pendingPluckEntity",void 0),Ds=e([ue("ha-panel-ir-devices")],Ds);export{Ds as HaPanelIrDevices};

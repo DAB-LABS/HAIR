@@ -1811,9 +1811,13 @@ class SignalMonitor:
         # The Mirror (v0.6.3): a catalog test is a send; audit it and arm
         # echo attribution BEFORE transmitting so the emitter's state
         # beacon and the loopback capture both attribute here.
+        # Provenance label for the Mirror row. "Manual test send" per the
+        # owner's bench ruling (was "Catalog test" during the build; the
+        # frontend still parses the old prefix for rows persisted before
+        # the rename).
         label = (
-            f"Catalog test: {signal.alias}" if signal.alias
-            else "Catalog test"
+            f"Manual test send: {signal.alias}" if signal.alias
+            else "Manual test send"
         )
         self.record_send(
             ir_cmd, label, [emitter_entity_id],
