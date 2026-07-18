@@ -166,6 +166,23 @@ PLUCK_TIMEOUT_S = 5
 # HA's general infrared emitter list (vendor services must be able to target
 # it).
 TWEEZER_OBSERVER_ATTR = "hair_observer"
+
+# --- The Mirror (v0.6.3) ----------------------------------------------------
+# Synthetic Sniffer-store device that logs every HA-originated IR
+# transmission (send-time rows; echoes enrich with heard_by). Rendered by
+# the Mirror tab; the Sniffer filters it out of its own feed.
+MIRROR_DEVICE_FP = "hair-mirror"
+MIRROR_DEVICE_LABEL = "Mirror"
+# How long after a send (or a foreign emitter beacon) an arriving capture
+# may still be claimed as that send's echo. Generous for slow emitters
+# (Broadlink queueing) and multi-frame sends.
+MIRROR_ECHO_TTL_S = 2.5
+# A state beacon on an emitter within this window of HAIR's own recorded
+# send on that emitter is HAIR's own beacon, not a foreign integration's.
+MIRROR_OWN_BEACON_WINDOW_S = 1.0
+# Synthetic per-emitter fingerprint prefix for foreign sends that no
+# receiver heard (identity unknown, send still audited).
+MIRROR_UNKNOWN_SEND_FP_PREFIX = "mirror-unknown::"
 # Directory (relative to this package) holding the pluckable YAML registry,
 # one file per vendor integration. Files starting with "_" are skipped by
 # the loader (templates, drafts).

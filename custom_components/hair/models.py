@@ -647,7 +647,7 @@ class UnknownSignal:
     hit_count: int = 0
     first_seen: str = field(default_factory=_now_iso)
     last_seen: str = field(default_factory=_now_iso)
-    source: Literal["sniffed", "manual", "plucked"] = "sniffed"
+    source: Literal["sniffed", "manual", "plucked", "echo"] = "sniffed"
     alias: str = ""
     # User-typed vendor command name for a plucked signal (Plucker, v0.5.0).
     # None for sniffed/manual signals. Preserved across a Pronto edit.
@@ -658,6 +658,13 @@ class UnknownSignal:
     # the new IRCommand at assign time via _apply_signal_provenance.
     repeat_count: int = DEFAULT_REPEAT_COUNT  # NEC ditto count
     send_count: int = 1  # whole-frame TX count
+    # Mirror provenance (v0.6.3). Only ever set on rows of the synthetic
+    # Mirror device: a human-readable line describing the most recent send
+    # ("Test AC / Temp 22 -- via Living Room Broadlink"), and the receiver
+    # entity ids whose echoes matched that send's window (empty list =
+    # sent, not heard; None = not a Mirror row).
+    echo_source: str | None = None
+    heard_by: list[str] | None = None
     # Capture-side observation: count of NEC dittos that followed the main
     # frame within the attribution window. Max-merge (high water mark) across
     # captures so a held-press observation persists across later brief taps.
@@ -690,6 +697,8 @@ class UnknownSignal:
             "repeat_count": self.repeat_count,
             "send_count": self.send_count,
             "observed_repeat_count": self.observed_repeat_count,
+            "echo_source": self.echo_source,
+            "heard_by": list(self.heard_by) if self.heard_by is not None else None,
         }
         # Compute S/L pattern for Pronto signals (not stored, derived).
         if self.protocol and self.protocol.upper() == "PRONTO" and self.code:
@@ -723,6 +732,10 @@ class UnknownSignal:
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
             observed_repeat_count=int(data.get("observed_repeat_count", 0)),
+            echo_source=data.get("echo_source"),
+            heard_by=(
+                list(data["heard_by"]) if data.get("heard_by") is not None else None
+            ),
         )
 
 
@@ -740,7 +753,7 @@ class UnknownDevice:
     first_seen: str = field(default_factory=_now_iso)
     last_seen: str = field(default_factory=_now_iso)
     dismissed: bool = False
-    source: Literal["sniffed", "manual", "plucked"] = "sniffed"
+    source: Literal["sniffed", "manual", "plucked", "echo"] = "sniffed"
     # Manual display order within a tab (Sniffer / Clipper). Lower sorts
     # higher. New remotes are inserted below the minimum so they land on
     # top until the user drags them. Replaces the old hit_count sort.

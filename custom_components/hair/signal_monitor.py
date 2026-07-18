@@ -22,6 +22,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, STATE_UNAVAILABLE
@@ -49,12 +50,18 @@ from .const import (
     LEGACY_ESPHOME_IR_EVENT,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
+    MIRROR_DEVICE_FP,
+    MIRROR_DEVICE_LABEL,
+    MIRROR_ECHO_TTL_S,
+    MIRROR_OWN_BEACON_WINDOW_S,
+    MIRROR_UNKNOWN_SEND_FP_PREFIX,
     REPEAT_ATTRIBUTION_WINDOW,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
     SIGNAL_RATE_LIMIT_PER_SEC,
     SIGNAL_REPEAT_SUPPRESS_MS,
     SIGNAL_WS_PUSH_RATE_LIMIT,
+    TWEEZER_OBSERVER_ATTR,
 )
 from .event_parser import EventParser
 from .ir_command import raw_to_pronto
@@ -245,6 +252,17 @@ class SignalMonitor:
         # core's own InfraredReceiverConsumerEntity, which drops its
         # subscription on unavailable and resubscribes on available.
         self._receiver_watch_unsub: CALLBACK_TYPE | None = None
+        # --- The Mirror (v0.6.3): send expectations + emitter beacons ---
+        # Expectations for HAIR's OWN sends: full identity known.
+        # Each: {"decoded_fp", "sig_fp", "row_key", "expires", "cancel"}.
+        self._echo_expectations: list[dict[str, Any]] = []
+        # Foreign sends discovered via emitter state beacons: emitter ->
+        # {"expires", "cancel", "label", "echoed"}.
+        self._foreign_pending: dict[str, dict[str, Any]] = {}
+        # Own-beacon suppression marks: emitter -> monotonic timestamp of
+        # HAIR's most recent recorded send on that emitter.
+        self._own_send_marks: dict[str, float] = {}
+        self._beacon_unsub: CALLBACK_TYPE | None = None
         self._lock = asyncio.Lock()
         self._native_mode: bool = False
 
@@ -342,6 +360,14 @@ class SignalMonitor:
         """
         if not self._signal_store.loaded:
             await self._signal_store.async_load()
+
+        # The Mirror (v0.6.3): every platform send flips its emitter's
+        # state to the send timestamp (core's @final bookkeeping), so a
+        # state_changed on an infrared emitter is a send beacon -- which
+        # emitter, exactly when -- for ANY integration's transmissions.
+        self._beacon_unsub = self._hass.bus.async_listen(
+            "state_changed", self._on_emitter_beacon
+        )
 
         try:
             # Capability probe only -- no inventory consulted, nothing
@@ -641,8 +667,339 @@ class SignalMonitor:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        if self._beacon_unsub is not None:
+            self._beacon_unsub()
+            self._beacon_unsub = None
+        for exp in self._echo_expectations:
+            cancel = exp.get("cancel")
+            if cancel is not None:
+                cancel.cancel()
+        self._echo_expectations.clear()
+        for pending in self._foreign_pending.values():
+            cancel = pending.get("cancel")
+            if cancel is not None:
+                cancel.cancel()
+        self._foreign_pending.clear()
         await self._signal_store.async_shutdown()
         _LOGGER.info("Signal monitor stopped")
+
+
+    # -----------------------------------------------------------------
+    # The Mirror (v0.6.3): send audit + echo attribution
+    # -----------------------------------------------------------------
+
+    def record_send(
+        self,
+        command: Any,
+        source_label: str,
+        emitter_entity_ids: list[str],
+        decoded_fingerprint: str | None = None,
+    ) -> None:
+        """Log an outgoing HAIR transmission on the Mirror, send-time.
+
+        Called by the device TX path and the catalog Test path with the
+        actual Command object being transmitted. Creates or bumps the
+        Mirror row immediately (a send is a fact whether or not anyone
+        hears it), resets its heard_by window, registers an echo
+        expectation so arriving captures attribute here instead of
+        entering the Sniffer pipeline, and arms the own-beacon
+        suppression so this send's emitter state flip is not mistaken
+        for a foreign integration's transmission.
+        """
+        try:
+            n = normalize_command(command)
+        except Exception:  # never let audit bookkeeping break a send
+            _LOGGER.exception("Mirror: failed to normalize outgoing command")
+            return
+        decoded_fp = decoded_fingerprint or n.decoded_fingerprint
+        emitters = ", ".join(
+            self._friendly_name(e) for e in emitter_entity_ids
+        ) or "unknown emitter"
+        label = f"{source_label} -- via {emitters}"
+        now = monotonic()
+        for entity_id in emitter_entity_ids:
+            self._own_send_marks[entity_id] = now
+
+        row_key = decoded_fp or n.sig_fp
+        self._hass.async_create_task(
+            self._mirror_upsert(
+                n,
+                decoded_fp=decoded_fp,
+                echo_source=label,
+                reset_heard=True,
+            )
+        )
+
+        expectation: dict[str, Any] = {
+            "decoded_fp": decoded_fp,
+            "sig_fp": n.sig_fp,
+            "row_key": row_key,
+            "expires": now + MIRROR_ECHO_TTL_S,
+            "cancel": None,
+        }
+        self._echo_expectations.append(expectation)
+
+        def _expire() -> None:
+            if expectation in self._echo_expectations:
+                self._echo_expectations.remove(expectation)
+
+        expectation["cancel"] = self._hass.loop.call_later(
+            MIRROR_ECHO_TTL_S, _expire
+        )
+
+    def _friendly_name(self, entity_id: str) -> str:
+        state = self._hass.states.get(entity_id)
+        if state is not None:
+            name = state.attributes.get("friendly_name")
+            if name:
+                return str(name)
+        return entity_id
+
+    @callback
+    def _on_emitter_beacon(self, event: Any) -> None:
+        """A state change on an infrared emitter is a send beacon.
+
+        Core's ``async_send_command_internal`` is @final and writes the
+        emitter's state as the send timestamp on EVERY platform send, so
+        this catches transmissions from any integration -- including
+        ones that call the Python helper directly and therefore never
+        produce service events. HAIR's own sends are filtered by the
+        own-beacon window; the Tweezer never transmits and is filtered
+        by its observer marker attribute.
+        """
+        data = event.data
+        entity_id = data.get("entity_id") or ""
+        if not entity_id.startswith("infrared."):
+            return
+        new_state = data.get("new_state")
+        old_state = data.get("old_state")
+        if new_state is None or old_state is None:
+            return  # startup restore / removal, not a send
+        attrs = getattr(new_state, "attributes", {}) or {}
+        if attrs.get("device_class") != "emitter":
+            return
+        if attrs.get(TWEEZER_OBSERVER_ATTR):
+            return  # the Tweezer observes; it does not transmit
+        if new_state.state in (None, "unknown", "unavailable"):
+            return
+        if new_state.state == getattr(old_state, "state", None):
+            return
+        now = monotonic()
+        own_mark = self._own_send_marks.get(entity_id)
+        if own_mark is not None and now - own_mark < MIRROR_OWN_BEACON_WINDOW_S:
+            return  # HAIR's own send; already recorded with full identity
+
+        # Foreign send: emitter + moment known, identity only via echo.
+        pending = self._foreign_pending.get(entity_id)
+        if pending is not None and pending.get("cancel") is not None:
+            pending["cancel"].cancel()
+        context = getattr(event, "context", None)
+        caused = "automation send" if getattr(
+            context, "parent_id", None
+        ) else "integration send"
+        record: dict[str, Any] = {
+            "expires": now + MIRROR_ECHO_TTL_S,
+            "label": caused,
+            "echoed": False,
+            "cancel": None,
+        }
+        self._foreign_pending[entity_id] = record
+
+        def _expire() -> None:
+            current = self._foreign_pending.get(entity_id)
+            if current is not record:
+                return
+            self._foreign_pending.pop(entity_id, None)
+            if not record["echoed"]:
+                # Sent, never heard, identity unknown: still audited.
+                self._hass.async_create_task(
+                    self._mirror_upsert_unknown(entity_id, record["label"])
+                )
+
+        record["cancel"] = self._hass.loop.call_later(
+            MIRROR_ECHO_TTL_S, _expire
+        )
+
+    async def _match_echo(
+        self, n: NormalizedSignal, receiver_entity_id: str | None
+    ) -> bool:
+        """Claim an arriving capture as an echo of a known send.
+
+        HAIR's precise identity expectations claim first; foreign
+        beacon windows second. A claimed capture is routed to the
+        Mirror (heard_by enrichment) and never enters the trigger /
+        catalog pipeline. Returns True when claimed.
+        """
+        now = monotonic()
+        for exp in list(self._echo_expectations):
+            if now > exp["expires"]:
+                continue
+            matched = (
+                exp["decoded_fp"] is not None
+                and n.decoded_fingerprint == exp["decoded_fp"]
+            ) or n.sig_fp == exp["sig_fp"]
+            if matched:
+                await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
+                return True
+        for entity_id, pending in list(self._foreign_pending.items()):
+            if now > pending["expires"]:
+                continue
+            pending["echoed"] = True
+            label = (
+                f"{pending['label']} -- via {self._friendly_name(entity_id)}"
+            )
+            await self._mirror_upsert(
+                n,
+                decoded_fp=n.decoded_fingerprint,
+                echo_source=label,
+                reset_heard=True,
+                heard=receiver_entity_id,
+            )
+            return True
+        return False
+
+    async def _mirror_device(self) -> UnknownDevice:
+        device = self._signal_store.get_device_by_fingerprint(MIRROR_DEVICE_FP)
+        if device is None:
+            device = UnknownDevice(
+                fingerprint=MIRROR_DEVICE_FP,
+                protocol=None,
+                device_address=None,
+                label=MIRROR_DEVICE_LABEL,
+                source="echo",
+            )
+            self._signal_store.add_device(device)
+        return device
+
+    async def _mirror_upsert(
+        self,
+        n: NormalizedSignal,
+        decoded_fp: str | None,
+        echo_source: str,
+        reset_heard: bool,
+        heard: str | None = None,
+    ) -> None:
+        """Create or bump a Mirror row keyed by the send's identity."""
+        now_iso = datetime.now(UTC).isoformat()
+        async with self._lock:
+            device = await self._mirror_device()
+            signal = device.get_signal(
+                n.sig_fp, n.byte_hash, decoded_fp
+            )
+            if signal is None:
+                signal = UnknownSignal(
+                    fingerprint=n.sig_fp,
+                    byte_hash=n.byte_hash,
+                    decoded_protocol=n.decoded_protocol,
+                    decoded_address=n.decoded_address,
+                    decoded_command=n.decoded_command,
+                    decoded_fingerprint=decoded_fp,
+                    decoded_extras=(
+                        dict(n.decoded_extras) if n.decoded_extras else None
+                    ),
+                    protocol=n.protocol,
+                    code=n.code,
+                    raw_timings=list(n.raw_timings),
+                    frequency=n.frequency,
+                    source="echo",
+                    heard_by=[],
+                )
+                device.signals.insert(0, signal)
+            signal.hit_count += 1
+            signal.last_seen = now_iso
+            signal.echo_source = echo_source
+            if reset_heard:
+                signal.heard_by = []
+            if heard and heard not in (signal.heard_by or []):
+                signal.heard_by = [*(signal.heard_by or []), heard]
+            device.hit_count += 1
+            device.last_seen = now_iso
+            summary = self._mirror_summary(device, signal)
+        self._signal_store.schedule_save()
+        self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
+        self._notify_subscribers(summary)
+
+    async def _mirror_mark_heard(
+        self, row_key: str, receiver_entity_id: str | None
+    ) -> None:
+        """Append a receiver to the expected send's heard_by list."""
+        if receiver_entity_id is None:
+            receiver_entity_id = "legacy receiver"
+        async with self._lock:
+            device = self._signal_store.get_device_by_fingerprint(
+                MIRROR_DEVICE_FP
+            )
+            if device is None:
+                return
+            signal = None
+            for candidate in device.signals:
+                if (
+                    candidate.decoded_fingerprint == row_key
+                    or candidate.fingerprint == row_key
+                ):
+                    signal = candidate
+                    break
+            if signal is None:
+                return
+            if receiver_entity_id not in (signal.heard_by or []):
+                signal.heard_by = [
+                    *(signal.heard_by or []),
+                    receiver_entity_id,
+                ]
+            summary = self._mirror_summary(device, signal)
+        self._signal_store.schedule_save()
+        self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
+        self._notify_subscribers(summary)
+
+    async def _mirror_upsert_unknown(
+        self, emitter_entity_id: str, label: str
+    ) -> None:
+        """A foreign send no receiver heard: audited, identity unknown."""
+        now_iso = datetime.now(UTC).isoformat()
+        sig_fp = f"{MIRROR_UNKNOWN_SEND_FP_PREFIX}{emitter_entity_id}"
+        friendly = self._friendly_name(emitter_entity_id)
+        async with self._lock:
+            device = await self._mirror_device()
+            signal = device.get_signal(sig_fp)
+            if signal is None:
+                signal = UnknownSignal(
+                    fingerprint=sig_fp,
+                    source="echo",
+                    heard_by=[],
+                    alias="Unknown send",
+                )
+                device.signals.insert(0, signal)
+            signal.hit_count += 1
+            signal.last_seen = now_iso
+            signal.echo_source = f"{label} -- via {friendly}"
+            signal.heard_by = []
+            device.hit_count += 1
+            device.last_seen = now_iso
+            summary = self._mirror_summary(device, signal)
+        self._signal_store.schedule_save()
+        self._hass.bus.async_fire(EVENT_SIGNAL_DETECTED, summary)
+        self._notify_subscribers(summary)
+
+    def _mirror_summary(
+        self, device: UnknownDevice, signal: UnknownSignal
+    ) -> dict[str, Any]:
+        return {
+            "device_id": device.id,
+            "device_fingerprint": device.fingerprint,
+            "signal_id": signal.id,
+            "signal_fingerprint": signal.fingerprint,
+            "protocol": signal.protocol,
+            "code": signal.code,
+            "hit_count": signal.hit_count,
+            "device_hit_count": device.hit_count,
+        }
+
+    def _notify_subscribers(self, summary: dict[str, Any]) -> None:
+        for subscriber in self._subscribers:
+            try:
+                subscriber(summary)
+            except Exception:
+                _LOGGER.exception("Error notifying signal subscriber")
 
     # -----------------------------------------------------------------
     # Event handler
@@ -713,8 +1070,11 @@ class SignalMonitor:
 
         Steps:
         1. Compute fingerprints
-        2. Check triggers (before known-command skip)
-        3. Check known commands -- skip if already assigned
+        2. Echo claim (the Mirror, v0.6.3): a capture matching a known
+           send's expectation or a foreign beacon window is the house
+           hearing itself -- routed to the Mirror, never to triggers or
+           the catalog.
+        3. Check triggers
         4. Check dismiss list
         5. Rate limit check
         6. Repeat suppression check
@@ -741,28 +1101,30 @@ class SignalMonitor:
         decoded_fingerprint = n.decoded_fingerprint
         decoded_extras = n.decoded_extras
 
-        # Step 2: Check triggers (before known-command skip so triggers
-        # work for both assigned commands and unknown signals). Threads the
-        # capturing receiver so scoped triggers can match and the payload
-        # carries receiver + area (v0.5.7).
+        # Step 2: Echo claim (v0.6.3). BEFORE triggers, so the house's
+        # own transmissions never fire them (the feedback-loop class) and
+        # never pollute the human-press catalog. Claimed captures enrich
+        # the Mirror's heard_by instead.
+        if await self._match_echo(n, receiver_entity_id):
+            self._ditto_anchor.pop(rid_key, None)
+            return
+
+        # Step 3: Check triggers. Threads the capturing receiver so scoped
+        # triggers can match and the payload carries receiver + area
+        # (v0.5.7).
         if self._trigger_manager is not None:
             self._trigger_manager.on_signal_captured(
                 sig_fp, parsed.protocol, parsed.code, dev_fp,
                 receiver_entity_id, byte_hash, decoded_fingerprint,
             )
 
-        # Step 3: Check known commands. The matcher returns the matched
-        # (device_id, command_id), but in v0.4.0 we use it only to drop a
-        # re-press of an already-assigned command from the live feed
-        # (today's behavior, now correct across native-path jitter and the
-        # byte-hash tiebreaker). Surfacing the matched identity in the
-        # Sniffer is the v0.4.1 assigned-state work.
-        if (
-            self._matches_known_command(sig_fp, byte_hash, decoded_fingerprint)
-            is not None
-        ):
-            self._ditto_anchor.pop(rid_key, None)  # invalidate this receiver's sentinel
-            return
+        # The v0.4.0 known-command suppression is GONE (v0.6.3, "heard
+        # means shown"): a human pressing an assigned button is Sniffer
+        # activity like any other press -- the row flashes, counts, and
+        # persists forever. Deleted rows resurrect on re-hearing; DISMISS
+        # is the one and only hiding tool. The echo claim above now covers
+        # the only thing the suppression was ever really for: keeping the
+        # house's own transmissions out of the human-press feed.
 
         # Step 4: Check dismiss list.
         if self._signal_store.is_dismissed(dev_fp):
@@ -1446,6 +1808,17 @@ class SignalMonitor:
         # with SEND_REPEAT_GAP between so the receiver registers them as
         # distinct presses. send_count defaults to 1.
         send_count = max(1, signal.send_count or 1)
+        # The Mirror (v0.6.3): a catalog test is a send; audit it and arm
+        # echo attribution BEFORE transmitting so the emitter's state
+        # beacon and the loopback capture both attribute here.
+        label = (
+            f"Catalog test: {signal.alias}" if signal.alias
+            else "Catalog test"
+        )
+        self.record_send(
+            ir_cmd, label, [emitter_entity_id],
+            decoded_fingerprint=signal.decoded_fingerprint,
+        )
         try:
             for i in range(send_count):
                 if i:

@@ -362,6 +362,21 @@ class DeviceManager:
         await self._entity_factory.async_update_entities(device)
         return True
 
+    def _signal_monitor(self) -> Any | None:
+        """Resolve the SignalMonitor for Mirror send auditing (v0.6.3).
+
+        Looked up lazily through hass.data to avoid a construction-order
+        dependency; None (and silently no audit) when unavailable, e.g.
+        in tests that build a bare DeviceManager.
+        """
+        domain_data = self._hass.data.get(DOMAIN)
+        if not isinstance(domain_data, dict):
+            return None
+        entry = domain_data.get(self._config_entry_id)
+        if not isinstance(entry, dict):
+            return None
+        return entry.get("signal_monitor")
+
     async def async_send_command(
         self, device_id: str, command_id: str
     ) -> None:
@@ -415,6 +430,22 @@ class DeviceManager:
                 raw_timings=command.raw_timings,
                 frequency=command.frequency or 38000,
                 repeat_count=command.repeat_count or 0,
+            )
+
+        # The Mirror (v0.6.3): audit this send and arm echo attribution
+        # BEFORE transmitting, so every emitter's state beacon reads as
+        # HAIR's own and the loopback captures enrich the Mirror row
+        # instead of entering the Sniffer.
+        monitor = self._signal_monitor()
+        if monitor is not None:
+            monitor.record_send(
+                ir_cmd,
+                f"{device.name} / {command.name}",
+                list(device.emitter_entity_ids),
+                decoded_fingerprint=(
+                    command.decoded_fingerprint
+                    if not command.tx_force_raw else None
+                ),
             )
 
         # Whole-frame repetition: transmit the built Command send_count times

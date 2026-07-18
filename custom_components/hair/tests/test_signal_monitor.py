@@ -248,14 +248,15 @@ class TestLifecycle:
 
     @pytest.mark.asyncio
     async def test_start_subscribes_to_bus(self):
-        """Legacy fallback: subscribes to esphome.remote_received."""
+        """Legacy fallback subscribes esphome.remote_received; the Mirror
+        (v0.6.3) additionally subscribes the emitter state beacons."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
         await monitor.async_start()
-        hass.bus.async_listen.assert_called_once()
-        args = hass.bus.async_listen.call_args
-        assert args[0][0] == LEGACY_ESPHOME_IR_EVENT
+        events = [c[0][0] for c in hass.bus.async_listen.call_args_list]
+        assert LEGACY_ESPHOME_IR_EVENT in events
+        assert "state_changed" in events
 
     @pytest.mark.asyncio
     async def test_start_legacy_fallback_sets_native_mode_false(self):
@@ -285,7 +286,8 @@ class TestLifecycle:
         monitor = SignalMonitor(hass, store, _make_hair_store())
         await monitor.async_start()
         await monitor.async_stop()
-        unsub.assert_called_once()
+        # Both subscriptions (legacy event + Mirror beacon) release.
+        assert unsub.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -402,11 +404,12 @@ class TestEventHandling:
 class TestKnownCommandCheck:
 
     @pytest.mark.asyncio
-    async def test_skips_known_command(self):
-        """When the store matches the signal to an assigned command, the
-        re-press is dropped from the live feed. The matcher delegates to
-        ``HAIRStore.match_command`` (whose tiered logic is covered in
-        test_storage); here we verify the monitor consults it and skips."""
+    async def test_known_command_no_longer_skips(self):
+        """Heard means shown (v0.6.3): a human pressing an assigned button
+        is Sniffer activity like any other press. The v0.4.0 suppression
+        is gone; the row lands / bumps regardless of assignment. (The
+        house's OWN sends stay out via the echo claim, covered in
+        test_mirror.)"""
         hass = _make_hass()
         store = _make_signal_store(hass)
         hair_store = _make_hair_store()
@@ -415,8 +418,7 @@ class TestKnownCommandCheck:
         monitor = SignalMonitor(hass, store, hair_store)
         await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
 
-        assert store.device_count == 0
-        hair_store.match_command.assert_called()
+        assert store.device_count == 1
 
     @pytest.mark.asyncio
     async def test_does_not_skip_unknown_command(self):
