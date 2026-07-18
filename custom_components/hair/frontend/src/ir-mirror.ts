@@ -299,9 +299,14 @@ export class IrMirror extends LitElement {
         let labelTitle: string | null = null;
         if (label === "automation send" || label === "integration send") {
             chip = label;
-        } else if (label.startsWith("Catalog test:")) {
+        } else if (label.startsWith("Catalog test")) {
+            // "Catalog test: <alias>" or bare "Catalog test" (unnamed
+            // signal) -- either way the chip is the provenance and the
+            // title falls through to the identity chain below.
             chip = "Catalog test";
-            labelTitle = label.slice("Catalog test:".length).trim() || null;
+            labelTitle =
+                label.slice("Catalog test".length).replace(/^:\s*/, "").trim() ||
+                null;
         } else if (label) {
             chip = "HAIR device";
             labelTitle = label;
@@ -309,10 +314,18 @@ export class IrMirror extends LitElement {
             chip = "send";
         }
 
+        // Title chain: alias > send label > decoded identity > the S/L
+        // diamonds (the panel's established unnamed-signal identity) >
+        // "Unknown send" (foreign, never heard, nothing known).
         const title =
             sig.alias ||
             labelTitle ||
             this._decodedDisplay(sig) ||
+            (sig.sl_pattern
+                ? [...sig.sl_pattern]
+                      .map((ch) => (ch === "L" ? "◆" : "◇"))
+                      .join("")
+                : null) ||
             "Unknown send";
 
         const pill = sig.decoded_protocol ?? sig.protocol;
