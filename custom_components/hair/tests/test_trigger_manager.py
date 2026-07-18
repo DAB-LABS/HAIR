@@ -284,15 +284,46 @@ class TestTriggerManagerHitCounting:
         clock.advance(1.0)
         manager.on_signal_captured("fp1", "pronto", "0000 0001")
 
-        # Simulate 6 seconds passing (beyond 5s window).
+        # Simulate 6 seconds passing since the chain STARTED (the window
+        # anchors at the first press as of v0.6.3).
         state = manager._hit_states[t.id]
-        state.last_hit = clock.monotonic() - 6
+        state.first_hit = clock.monotonic() - 6
         clock.advance(1.0)
 
         # Next hit should reset counter to 1 (not accumulate to 3).
         fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert fired == []
         assert state.count == 1
+
+    def test_window_anchors_at_first_press(self, manager, mock_store, clock):
+        """The owner's bench case (v0.6.3): 2 presses, a pause that keeps
+        every GAP under 5s, 2 more presses. Under the pre-0.6.3 sliding
+        window this fired; anchored at the first press, the chain expires
+        and the late presses start a fresh one."""
+        t = _make_trigger(min_hits=4)
+        mock_store.add_trigger(t)
+
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        clock.advance(1.0)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        # 4.5s pause: gap < 5s, but 5.5s total since the first press.
+        clock.advance(4.5)
+        fired3 = manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        clock.advance(1.0)
+        fired4 = manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        assert fired3 == []
+        assert fired4 == []  # presses 3+4 are a fresh chain of 2, not 4
+        assert manager._hit_states[t.id].count == 2
+
+    def test_four_quick_presses_fire(self, manager, mock_store, clock):
+        """All four presses inside 5s of the first still fire."""
+        t = _make_trigger(min_hits=4)
+        mock_store.add_trigger(t)
+        fired = []
+        for _ in range(4):
+            fired = manager.on_signal_captured("fp1", "pronto", "0000 0001")
+            clock.advance(1.0)
+        assert t.id in fired
 
     def test_disabled_trigger_does_not_fire(self, manager, mock_store, clock):
         t = _make_trigger(min_hits=1, enabled=False)

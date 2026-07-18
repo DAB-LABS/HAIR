@@ -94,6 +94,13 @@ SIGNAL_RAW_FINGERPRINT_LEN = 64
 # ---------------------------------------------------------------------------
 # Triggers
 # ---------------------------------------------------------------------------
+# min_hits accumulation window, anchored at the FIRST press of a chain
+# (v0.6.3): all min_hits presses must land within this many seconds of the
+# first one, exactly as the trigger dialog's "within 5s" copy states. A
+# press arriving after the window closes starts a fresh chain. (Pre-0.6.3
+# the window slid on every press, letting slow chains accumulate across an
+# unbounded total span.) Distinct from MULTI_RECEIVER_DEDUP_WINDOW_S below,
+# which collapses one physical press seen by several receivers.
 TRIGGER_HIT_RESET_WINDOW_S = 5
 EVENT_TRIGGER_FIRED = f"{DOMAIN}_trigger_fired"
 # Trigger dedup window (v0.5.7, resized v0.5.8). A single physical press

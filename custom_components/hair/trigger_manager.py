@@ -57,25 +57,37 @@ class _RecentObservation:
 
 
 class _HitState:
-    """Per-trigger hit accumulator."""
+    """Per-trigger hit accumulator.
 
-    __slots__ = ("count", "last_hit")
+    The reset window is anchored at the FIRST press of the chain
+    (v0.6.3, owner bench ruling): all min_hits presses must land within
+    ``TRIGGER_HIT_RESET_WINDOW_S`` of the first one, which is what the
+    trigger dialog's "within 5s" copy always promised. Before v0.6.3
+    the window slid on every press, so a chain of slow presses with
+    sub-5s gaps could accumulate to the threshold across an arbitrary
+    total span (two presses, a long thoughtful pause, two more = fire).
+    A press that arrives after the window closes starts a fresh chain
+    and counts as its first hit.
+    """
+
+    __slots__ = ("count", "first_hit")
 
     def __init__(self) -> None:
         self.count: int = 0
-        self.last_hit: float = 0.0
+        self.first_hit: float = 0.0
 
     def increment(self, now: float) -> int:
         """Increment hit count, resetting if the window has elapsed."""
-        if now - self.last_hit > TRIGGER_HIT_RESET_WINDOW_S:
+        if now - self.first_hit > TRIGGER_HIT_RESET_WINDOW_S:
             self.count = 0
+        if self.count == 0:
+            self.first_hit = now
         self.count += 1
-        self.last_hit = now
         return self.count
 
     def reset(self) -> None:
         self.count = 0
-        self.last_hit = 0.0
+        self.first_hit = 0.0
 
 
 class TriggerManager:
