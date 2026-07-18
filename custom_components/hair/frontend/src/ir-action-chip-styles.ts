@@ -17,7 +17,7 @@
  * dismiss neutral) and the position anchor the corner count-dots need.
  *
  * Consumers: ir-signal-monitor, ir-clips, ir-pluck, ir-device-detail,
- * ir-mirror (v0.6.3, the first tab to NEVER carry its own copy).
+ * ir-mirror (v0.6.6, the first tab to NEVER carry its own copy).
  */
 import { css } from "lit";
 

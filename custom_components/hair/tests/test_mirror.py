@@ -1,4 +1,4 @@
-"""The Mirror (v0.6.3): send audit, echo attribution, heard-means-shown.
+"""The Mirror (v0.6.6): send audit, echo attribution, heard-means-shown.
 
 Covers the echo machinery end to end with the real store and a stubbed
 hass: HAIR sends create Mirror rows at SEND time; loopback captures are
@@ -301,7 +301,7 @@ class TestBadgeOrphanRetired:
         store = _make_signal_store(hass)
         hair_store = _make_hair_store()
         # The identity is assigned to a device command ("Mode: Cool" in
-        # the bench case) -- pre-v0.6.3 this suppressed the row.
+        # the bench case) -- pre-v0.6.6 this suppressed the row.
         hair_store.match_command.return_value = ("dev-1", "cmd-1")
         trigger_manager = MagicMock()
         trigger_manager.on_signal_captured = MagicMock(return_value=[])

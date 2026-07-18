@@ -363,7 +363,7 @@ class DeviceManager:
         return True
 
     def _signal_monitor(self) -> Any | None:
-        """Resolve the SignalMonitor for Mirror send auditing (v0.6.3).
+        """Resolve the SignalMonitor for Mirror send auditing (v0.6.6).
 
         Looked up lazily through hass.data to avoid a construction-order
         dependency; None (and silently no audit) when unavailable, e.g.
@@ -432,7 +432,7 @@ class DeviceManager:
                 repeat_count=command.repeat_count or 0,
             )
 
-        # The Mirror (v0.6.3): audit this send and arm echo attribution
+        # The Mirror (v0.6.6): audit this send and arm echo attribution
         # BEFORE transmitting, so every emitter's state beacon reads as
         # HAIR's own and the loopback captures enrich the Mirror row
         # instead of entering the Sniffer.

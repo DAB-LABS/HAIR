@@ -249,7 +249,7 @@ class TestLifecycle:
     @pytest.mark.asyncio
     async def test_start_subscribes_to_bus(self):
         """Legacy fallback subscribes esphome.remote_received; the Mirror
-        (v0.6.3) additionally subscribes the emitter state beacons."""
+        (v0.6.6) additionally subscribes the emitter state beacons."""
         hass = _make_hass()
         store = _make_signal_store(hass)
         monitor = SignalMonitor(hass, store, _make_hair_store())
@@ -405,7 +405,7 @@ class TestKnownCommandCheck:
 
     @pytest.mark.asyncio
     async def test_known_command_no_longer_skips(self):
-        """Heard means shown (v0.6.3): a human pressing an assigned button
+        """Heard means shown (v0.6.6): a human pressing an assigned button
         is Sniffer activity like any other press. The v0.4.0 suppression
         is gone; the row lands / bumps regardless of assignment. (The
         house's OWN sends stay out via the echo claim, covered in

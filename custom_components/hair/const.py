@@ -95,9 +95,9 @@ SIGNAL_RAW_FINGERPRINT_LEN = 64
 # Triggers
 # ---------------------------------------------------------------------------
 # min_hits accumulation window, anchored at the FIRST press of a chain
-# (v0.6.3): all min_hits presses must land within this many seconds of the
+# (v0.6.6): all min_hits presses must land within this many seconds of the
 # first one, exactly as the trigger dialog's "within 5s" copy states. A
-# press arriving after the window closes starts a fresh chain. (Pre-0.6.3
+# press arriving after the window closes starts a fresh chain. (Pre-0.6.6
 # the window slid on every press, letting slow chains accumulate across an
 # unbounded total span.) Distinct from MULTI_RECEIVER_DEDUP_WINDOW_S below,
 # which collapses one physical press seen by several receivers.
@@ -174,7 +174,7 @@ PLUCK_TIMEOUT_S = 5
 # it).
 TWEEZER_OBSERVER_ATTR = "hair_observer"
 
-# --- The Mirror (v0.6.3) ----------------------------------------------------
+# --- The Mirror (v0.6.6) ----------------------------------------------------
 # Synthetic Sniffer-store device that logs every HA-originated IR
 # transmission (send-time rows; echoes enrich with heard_by). Rendered by
 # the Mirror tab; the Sniffer filters it out of its own feed.

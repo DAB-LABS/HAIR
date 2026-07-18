@@ -4,7 +4,7 @@
  * Renders nothing for count < 1 and a numbered 10px badge for count >= 1
  * (stretching to a pill for double digits). Every count shows its number,
  * including 1 -- a bare dot next to numbered siblings read as a different,
- * lesser indicator (owner ruling, v0.6.3 bench). Colour is the only
+ * lesser indicator (owner ruling, v0.6.6 bench). Colour is the only
  * difference between the green Assign dot and the yellow Trigger dot.
  *
  * The calling button is responsible for positioning: it sets
@@ -50,7 +50,7 @@ export class IrCountDot extends LitElement {
         }
         /* Numbered 10px badge for count 1..9. Anchored at -5 so the box
            centres on the button's top-right corner point. (A bare unnumbered
-           dot for count 1 existed through v0.6.1; retired on the v0.6.3
+           dot for count 1 existed through v0.6.1; retired on the v0.6.6
            bench -- every count shows its number now.) */
         .dot.badge {
             top: -5px;

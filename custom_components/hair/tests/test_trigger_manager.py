@@ -285,7 +285,7 @@ class TestTriggerManagerHitCounting:
         manager.on_signal_captured("fp1", "pronto", "0000 0001")
 
         # Simulate 6 seconds passing since the chain STARTED (the window
-        # anchors at the first press as of v0.6.3).
+        # anchors at the first press as of v0.6.6).
         state = manager._hit_states[t.id]
         state.first_hit = clock.monotonic() - 6
         clock.advance(1.0)
@@ -296,8 +296,8 @@ class TestTriggerManagerHitCounting:
         assert state.count == 1
 
     def test_window_anchors_at_first_press(self, manager, mock_store, clock):
-        """The owner's bench case (v0.6.3): 2 presses, a pause that keeps
-        every GAP under 5s, 2 more presses. Under the pre-0.6.3 sliding
+        """The owner's bench case (v0.6.6): 2 presses, a pause that keeps
+        every GAP under 5s, 2 more presses. Under the pre-0.6.6 sliding
         window this fired; anchored at the first press, the chain expires
         and the late presses start a fresh one."""
         t = _make_trigger(min_hits=4)

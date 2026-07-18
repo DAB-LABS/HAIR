@@ -897,9 +897,9 @@ def _assignment_index(
     A catalog signal is "assigned" when a HAIR device command re-encodes to
     the same identity. ``IRCommand`` carries no stored fingerprint, so it is
     computed here exactly as ``storage._rebuild_command_index`` does. The
-    payload is structured (v0.6.3, assigned popover): ``device_id`` and
+    payload is structured (v0.6.6, assigned popover): ``device_id`` and
     ``command_id`` give the frontend a click-through navigation target,
-    ``device_name`` / ``command_name`` render the popover rows. (Pre-0.6.3
+    ``device_name`` / ``command_name`` render the popover rows. (Pre-0.6.6
     this was a bare ``"<device>.<command>"`` tooltip string.)
 
     Tiered identity (v0.5.8 unified identity): matching is the exact
@@ -943,7 +943,7 @@ def _augment_signals_with_assignments(
 
     Mutates ``device_dict['signals']`` in place, adding ``assignment_count``
     and ``assigned_to`` (dots polish, v0.5.7; structured payloads for the
-    assigned popover as of v0.6.3). Matching is the tiered
+    assigned popover as of v0.6.6). Matching is the tiered
     identity rule (v0.5.8 unified identity, ``SignalIdentity.same_as``):
     assigning one sub-threshold button (Sony et al) lights the green dot
     on that row only, and the dot survives the row's coarse fingerprint
@@ -989,7 +989,7 @@ def _unknown_device_summary(device) -> dict[str, Any]:
     vol.Required("type"): f"{WS_PREFIX}/unknown/devices",
     vol.Optional("include_dismissed", default=False): bool,
     vol.Optional("min_hits"): vol.Any(int, None),
-    # "echo" serves the Mirror tab its synthetic device (v0.6.3). The
+    # "echo" serves the Mirror tab its synthetic device (v0.6.6). The
     # clear and reorder commands deliberately do NOT accept "echo": the
     # Mirror is a log -- it has no clear-all and no manual order.
     vol.Optional("source"): vol.Any(

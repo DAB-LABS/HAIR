@@ -60,9 +60,9 @@ class _HitState:
     """Per-trigger hit accumulator.
 
     The reset window is anchored at the FIRST press of the chain
-    (v0.6.3, owner bench ruling): all min_hits presses must land within
+    (v0.6.6, owner bench ruling): all min_hits presses must land within
     ``TRIGGER_HIT_RESET_WINDOW_S`` of the first one, which is what the
-    trigger dialog's "within 5s" copy always promised. Before v0.6.3
+    trigger dialog's "within 5s" copy always promised. Before v0.6.6
     the window slid on every press, so a chain of slow presses with
     sub-5s gaps could accumulate to the threshold across an arbitrary
     total span (two presses, a long thoughtful pause, two more = fire).

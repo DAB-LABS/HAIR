@@ -658,7 +658,7 @@ class UnknownSignal:
     # the new IRCommand at assign time via _apply_signal_provenance.
     repeat_count: int = DEFAULT_REPEAT_COUNT  # NEC ditto count
     send_count: int = 1  # whole-frame TX count
-    # Mirror provenance (v0.6.3). Only ever set on rows of the synthetic
+    # Mirror provenance (v0.6.6). Only ever set on rows of the synthetic
     # Mirror device: a human-readable line describing the most recent send
     # ("Test AC / Temp 22 -- via Living Room Broadlink"), and the receiver
     # entity ids whose echoes matched that send's window (empty list =

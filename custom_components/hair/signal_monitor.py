@@ -252,7 +252,7 @@ class SignalMonitor:
         # core's own InfraredReceiverConsumerEntity, which drops its
         # subscription on unavailable and resubscribes on available.
         self._receiver_watch_unsub: CALLBACK_TYPE | None = None
-        # --- The Mirror (v0.6.3): send expectations + emitter beacons ---
+        # --- The Mirror (v0.6.6): send expectations + emitter beacons ---
         # Expectations for HAIR's OWN sends: full identity known.
         # Each: {"decoded_fp", "sig_fp", "row_key", "expires", "cancel"}.
         self._echo_expectations: list[dict[str, Any]] = []
@@ -361,7 +361,7 @@ class SignalMonitor:
         if not self._signal_store.loaded:
             await self._signal_store.async_load()
 
-        # The Mirror (v0.6.3): every platform send flips its emitter's
+        # The Mirror (v0.6.6): every platform send flips its emitter's
         # state to the send timestamp (core's @final bookkeeping), so a
         # state_changed on an infrared emitter is a send beacon -- which
         # emitter, exactly when -- for ANY integration's transmissions.
@@ -685,7 +685,7 @@ class SignalMonitor:
 
 
     # -----------------------------------------------------------------
-    # The Mirror (v0.6.3): send audit + echo attribution
+    # The Mirror (v0.6.6): send audit + echo attribution
     # -----------------------------------------------------------------
 
     def record_send(
@@ -1070,7 +1070,7 @@ class SignalMonitor:
 
         Steps:
         1. Compute fingerprints
-        2. Echo claim (the Mirror, v0.6.3): a capture matching a known
+        2. Echo claim (the Mirror, v0.6.6): a capture matching a known
            send's expectation or a foreign beacon window is the house
            hearing itself -- routed to the Mirror, never to triggers or
            the catalog.
@@ -1101,7 +1101,7 @@ class SignalMonitor:
         decoded_fingerprint = n.decoded_fingerprint
         decoded_extras = n.decoded_extras
 
-        # Step 2: Echo claim (v0.6.3). BEFORE triggers, so the house's
+        # Step 2: Echo claim (v0.6.6). BEFORE triggers, so the house's
         # own transmissions never fire them (the feedback-loop class) and
         # never pollute the human-press catalog. Claimed captures enrich
         # the Mirror's heard_by instead.
@@ -1118,7 +1118,7 @@ class SignalMonitor:
                 receiver_entity_id, byte_hash, decoded_fingerprint,
             )
 
-        # The v0.4.0 known-command suppression is GONE (v0.6.3, "heard
+        # The v0.4.0 known-command suppression is GONE (v0.6.6, "heard
         # means shown"): a human pressing an assigned button is Sniffer
         # activity like any other press -- the row flashes, counts, and
         # persists forever. Deleted rows resurrect on re-hearing; DISMISS
@@ -1808,7 +1808,7 @@ class SignalMonitor:
         # with SEND_REPEAT_GAP between so the receiver registers them as
         # distinct presses. send_count defaults to 1.
         send_count = max(1, signal.send_count or 1)
-        # The Mirror (v0.6.3): a catalog test is a send; audit it and arm
+        # The Mirror (v0.6.6): a catalog test is a send; audit it and arm
         # echo attribution BEFORE transmitting so the emitter's state
         # beacon and the loopback capture both attribute here.
         # Provenance label for the Mirror row. "Manual test send" per the

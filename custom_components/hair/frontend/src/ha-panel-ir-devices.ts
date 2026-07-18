@@ -19,7 +19,7 @@ import type { DeviceSummary, IRDevice } from "./types.js";
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "0.6.3";
+const HAIR_VERSION = "0.6.6";
 
 type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror";
 
@@ -115,7 +115,7 @@ export class HaPanelIrDevices extends LitElement {
         this._switchTab("plucker");
     }
 
-    /** Assigned-popover click-through (v0.6.3): switch to Devices and
+    /** Assigned-popover click-through (v0.6.6): switch to Devices and
      * expand the assignment's device card. Set the expansion AFTER the
      * tab switch, which clears it. */
     private _onNavigateDevice(e: CustomEvent<string>): void {
@@ -412,7 +412,7 @@ export class HaPanelIrDevices extends LitElement {
             color: var(--primary-color);
             border-bottom-color: var(--primary-color);
         }
-        /* The Mirror wears silver (v0.6.3), matching its tab accent. */
+        /* The Mirror wears silver (v0.6.6), matching its tab accent. */
         .tab.mirror-tab.active {
             color: #607d8b;
             border-bottom-color: #607d8b;

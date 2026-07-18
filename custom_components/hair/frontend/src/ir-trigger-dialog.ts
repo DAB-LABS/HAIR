@@ -39,7 +39,7 @@ export class IrTriggerDialog extends LitElement {
     /** For edit mode: pass the existing trigger. */
     @property({ attribute: false }) public trigger: IRTrigger | null = null;
 
-    // Set when opened from a Mirror row (v0.6.3): renders a one-line note
+    // Set when opened from a Mirror row (v0.6.6): renders a one-line note
     // that the echo gate keeps the house's own sends from firing triggers.
     @property({ type: Boolean }) public mirrorContext = false;
 

@@ -72,7 +72,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
         }
         /* Numbered 10px badge for count 1..9. Anchored at -5 so the box
            centres on the button's top-right corner point. (A bare unnumbered
-           dot for count 1 existed through v0.6.1; retired on the v0.6.3
+           dot for count 1 existed through v0.6.1; retired on the v0.6.6
            bench -- every count shows its number now.) */
         .dot.badge {
             top: -5px;
@@ -7085,7 +7085,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                       ></ir-add-device-dialog>
                   `:""}
 
-            <div class="version-footer">v${"0.6.3"}</div>
+            <div class="version-footer">v${"0.6.6"}</div>
             </ha-top-app-bar-fixed>
         `:B`<div class="loading">Loading…</div>`}};Ds.styles=r`
         :host {
@@ -7183,7 +7183,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             color: var(--primary-color);
             border-bottom-color: var(--primary-color);
         }
-        /* The Mirror wears silver (v0.6.3), matching its tab accent. */
+        /* The Mirror wears silver (v0.6.6), matching its tab accent. */
         .tab.mirror-tab.active {
             color: #607d8b;
             border-bottom-color: #607d8b;

@@ -57,7 +57,7 @@ Key components:
   2026.6+, where the infrared platform exports InfraredEmitterEntity. Plucked
   signals share the same catalog as sniffed and clipped ones, distinguished by the
   source field.
-- Mirror: a send-audit surface (a fifth panel tab, v0.6.3) logging every
+- Mirror: a send-audit surface (a fifth panel tab, v0.6.6) logging every
   HA-originated IR transmission at send time, heard back or not. HAIR's own sends
   (device commands and catalog tests) are recorded with full identity and
   provenance; foreign sends from any integration on the infrared platform are
@@ -76,7 +76,7 @@ Key components:
   (decoded identity or fingerprint, 2.5s TTL) is routed to the Mirror and never
   reaches the trigger or catalog pipeline, so triggers fire only on signals from
   outside Home Assistant and cannot feed back on HAIR's own output. The v0.4.0
-  known-command suppression is removed (v0.6.3, "heard means shown"): assigned
+  known-command suppression is removed (v0.6.6, "heard means shown"): assigned
   buttons keep flashing in the Sniffer and deleted rows resurrect on re-hearing;
   dismiss is the only hiding tool.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,

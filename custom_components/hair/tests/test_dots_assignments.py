@@ -55,7 +55,7 @@ def _labels(entries):
 class TestAssignmentIndex:
     """The index is a list of (SignalIdentity, payload) entries: identity
     since the v0.5.8 unified-identity work, structured payloads (device_id
-    / command_id for the assigned popover's click-through) since v0.6.3;
+    / command_id for the assigned popover's click-through) since v0.6.6;
     matching is the exact pairwise tiered rule applied in
     _augment_signals_with_assignments."""
 

@@ -144,7 +144,7 @@ export class IrSignalMonitor extends LitElement {
         top: number;
         left: number;
     } | null = null;
-    // Assigned-commands popover (v0.6.3): shown when 1+ HAIR commands
+    // Assigned-commands popover (v0.6.6): shown when 1+ HAIR commands
     // already carry a signal's identity; zero-assignment click opens the
     // Assign dialog directly. Mirrors the trigger popover's flow.
     @state() private _assignedPopover: {
@@ -569,7 +569,7 @@ export class IrSignalMonitor extends LitElement {
         };
     }
 
-    /** Assign-button click router (v0.6.3, mirrors the Trigger flow):
+    /** Assign-button click router (v0.6.6, mirrors the Trigger flow):
      * zero assignments opens the Assign dialog directly; 1+ shows the
      * assigned popover with "+ new assignment" and click-through rows. */
     private _onAssignClick(
@@ -888,7 +888,7 @@ export class IrSignalMonitor extends LitElement {
     }
 
     private _onLiveSignal(ev: UnknownSignalEvent): void {
-        // Mirror pushes (v0.6.3) are the house's own sends; the Mirror tab
+        // Mirror pushes (v0.6.6) are the house's own sends; the Mirror tab
         // renders them. Without this guard every HAIR send would look like
         // an unknown device and trigger a full list reload.
         if (ev.device_fingerprint === MIRROR_DEVICE_FP) return;

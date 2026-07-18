@@ -102,7 +102,7 @@ export class IrPluck extends LitElement {
         top: number;
         left: number;
     } | null = null;
-    // Assigned-commands popover (v0.6.3); mirrors the trigger popover flow.
+    // Assigned-commands popover (v0.6.6); mirrors the trigger popover flow.
     @state() private _assignedPopover: {
         deviceId: string;
         signal: UnknownSignal;
@@ -461,7 +461,7 @@ export class IrPluck extends LitElement {
         this._assignSignal = { deviceId, signal, label: label ?? null };
     }
 
-    /** Assign-button click router (v0.6.3, mirrors the Trigger flow):
+    /** Assign-button click router (v0.6.6, mirrors the Trigger flow):
      * zero assignments opens the Assign dialog directly; 1+ shows the
      * assigned popover with "+ new assignment" and click-through rows. */
     private _onAssignClick(

@@ -1,5 +1,5 @@
 /**
- * The Mirror tab (v0.6.3) -- what your house transmits.
+ * The Mirror tab (v0.6.6) -- what your house transmits.
  *
  * Renders the synthetic Mirror catalog device (source "echo",
  * fingerprint "hair-mirror") the SignalMonitor maintains: one row per
@@ -313,7 +313,7 @@ export class IrMirror extends LitElement {
         // "Manual test send[: <alias>]" is the current label for a
         // catalog-tab Test press; "Catalog test[: <alias>]" is its
         // pre-rename form, still present on rows persisted before the
-        // v0.6.3 bench rename. Either way the chip is the provenance and
+        // v0.6.6 bench rename. Either way the chip is the provenance and
         // the title falls through to the identity chain below.
         const testPrefix = ["Manual test send", "Catalog test"].find((p) =>
             label.startsWith(p),
