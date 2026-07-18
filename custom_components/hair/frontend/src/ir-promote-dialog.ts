@@ -8,6 +8,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 import type { DeviceTypeId } from "./types.js";
@@ -139,14 +140,14 @@ export class IrPromoteDialog extends LitElement {
 
                 <div class="dialog-actions">
                     <button
-                        class="action-btn cancel-btn"
+                        class="action-btn wide cancel-btn"
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
                         Cancel
                     </button>
                     <button
-                        class="action-btn create-btn"
+                        class="action-btn wide create-btn"
                         @click=${this._create}
                         ?disabled=${this._busy}
                     >
@@ -157,19 +158,10 @@ export class IrPromoteDialog extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [
+        dialogStyles,
+        css`
         ha-textfield,
-        .field {
-            display: block;
-            margin: 12px 0;
-            width: 100%;
-        }
-        .field label {
-            display: block;
-            font-size: 0.85rem;
-            color: var(--secondary-text-color);
-            margin-bottom: 6px;
-        }
         select {
             width: 100%;
             padding: 8px;
@@ -187,35 +179,6 @@ export class IrPromoteDialog extends LitElement {
             color: var(--secondary-text-color);
             margin: 0 0 8px;
         }
-        .dialog-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            margin-top: 20px;
-            padding-top: 16px;
-            border-top: 1px solid var(--divider-color);
-        }
-        .action-btn {
-            padding: 8px 20px;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            border: none;
-            transition: background 150ms ease, opacity 150ms ease;
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .cancel-btn {
-            background: transparent;
-            color: var(--secondary-text-color);
-        }
-        .cancel-btn:hover:not(:disabled) {
-            background: var(--secondary-background-color);
-        }
         .create-btn {
             background: #2e7d32;
             color: #fff;
@@ -223,7 +186,8 @@ export class IrPromoteDialog extends LitElement {
         .create-btn:hover:not(:disabled) {
             opacity: 0.9;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

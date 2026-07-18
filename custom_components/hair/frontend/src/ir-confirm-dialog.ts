@@ -13,6 +13,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 
 @customElement("ir-confirm-dialog")
 export class IrConfirmDialog extends LitElement {
@@ -57,29 +58,12 @@ export class IrConfirmDialog extends LitElement {
         `;
     }
 
-    static styles = css`
-        .overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-        }
-        .dialog {
-            background: var(--card-background-color, #fff);
-            border-radius: 12px;
-            padding: 24px;
-            max-width: 400px;
-            width: 90%;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
+    static styles = [
+        dialogStyles,
+        css`
+        /* Tighter heading than the shared 16px; ships this way. */
         .heading {
             margin: 0 0 12px;
-            font-size: 1.1rem;
-            font-weight: 500;
-            color: var(--primary-text-color);
         }
         .message {
             margin: 0 0 20px;
@@ -121,7 +105,8 @@ export class IrConfirmDialog extends LitElement {
             background: #e65100;
             border-color: #e65100;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

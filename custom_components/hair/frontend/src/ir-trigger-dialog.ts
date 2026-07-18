@@ -10,6 +10,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-receiver-picker.js";
 import type { HairApi } from "./api.js";
 import type { IRTrigger } from "./types.js";
@@ -295,30 +296,9 @@ export class IrTriggerDialog extends LitElement {
         `;
     }
 
-    static styles = css`
-        .overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-        }
-        .dialog {
-            background: var(--card-background-color, #fff);
-            border-radius: 12px;
-            padding: 24px;
-            max-width: 400px;
-            width: 90%;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
-        .heading {
-            margin: 0 0 16px;
-            font-size: 1.1rem;
-            font-weight: 500;
-            color: var(--primary-text-color);
-        }
+    static styles = [
+        dialogStyles,
+        css`
         .signal-info {
             padding: 8px 12px;
             background: var(--secondary-background-color);
@@ -456,7 +436,8 @@ export class IrTriggerDialog extends LitElement {
         .delete-btn:hover {
             background: rgba(230, 81, 0, 0.08);
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

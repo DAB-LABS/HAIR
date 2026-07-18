@@ -9,6 +9,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-alias.js";
 import type { HairApi } from "./api.js";
@@ -372,14 +373,14 @@ export class IrAssignSignalDialog extends LitElement {
 
                 <div class="dialog-actions">
                     <button
-                        class="action-btn cancel-btn"
+                        class="action-btn wide cancel-btn"
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
                         Cancel
                     </button>
                     <button
-                        class="action-btn assign-btn"
+                        class="action-btn wide assign-btn"
                         @click=${this._assign}
                         ?disabled=${this._busy}
                     >
@@ -528,35 +529,9 @@ export class IrAssignSignalDialog extends LitElement {
         `;
     }
 
-    static styles = css`
-        .field {
-            display: block;
-            margin: 12px 0;
-            width: 100%;
-        }
-        .field label {
-            display: block;
-            font-size: 0.85rem;
-            color: var(--secondary-text-color);
-            margin-bottom: 6px;
-        }
-        input[type="text"],
-        select {
-            width: 100%;
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-            font-size: 0.95rem;
-            font-family: inherit;
-            box-sizing: border-box;
-        }
-        input[type="text"]:focus,
-        select:focus {
-            outline: none;
-            border-color: var(--primary-color);
-        }
+    static styles = [
+        dialogStyles,
+        css`
         input.send-count {
             width: 80px;
             padding: 8px;
@@ -650,35 +625,6 @@ export class IrAssignSignalDialog extends LitElement {
             border-bottom-color: var(--primary-color);
         }
 
-        .dialog-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            margin-top: 20px;
-            padding-top: 16px;
-            border-top: 1px solid var(--divider-color);
-        }
-        .action-btn {
-            padding: 8px 20px;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            border: none;
-            transition: background 150ms ease, opacity 150ms ease;
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .cancel-btn {
-            background: transparent;
-            color: var(--secondary-text-color);
-        }
-        .cancel-btn:hover:not(:disabled) {
-            background: var(--secondary-background-color);
-        }
         .assign-btn {
             background: var(--primary-color);
             color: var(--text-primary-color, #fff);
@@ -720,7 +666,8 @@ export class IrAssignSignalDialog extends LitElement {
         .back-link:hover {
             text-decoration: underline;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

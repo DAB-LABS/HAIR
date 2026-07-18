@@ -10,6 +10,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { IRDevice } from "./types.js";
 
@@ -123,7 +124,9 @@ export class IrDuplicateDeviceDialog extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [
+        dialogStyles,
+        css`
         .hint {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
@@ -155,32 +158,19 @@ export class IrDuplicateDeviceDialog extends LitElement {
             outline: none;
             border-color: var(--primary-color);
         }
+        /* Slimmer actions row than the shared one; ships this way. */
         .dialog-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
             margin-top: 16px;
+            padding-top: 0;
+            border-top: none;
         }
+        /* Opacity in the transition so the Create hover fades, not snaps. */
         .action-btn {
-            background: none;
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 8px 16px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
             transition: background 150ms ease, opacity 150ms ease;
         }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
+        /* Brighter cancel than the shared secondary; ships this way. */
         .cancel-btn {
             color: var(--primary-text-color);
-        }
-        .cancel-btn:hover:not(:disabled) {
-            background: var(--secondary-background-color);
         }
         .create-btn {
             background: #2e7d32;
@@ -190,7 +180,8 @@ export class IrDuplicateDeviceDialog extends LitElement {
         .create-btn:hover:not(:disabled) {
             opacity: 0.9;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

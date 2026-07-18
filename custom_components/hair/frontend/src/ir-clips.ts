@@ -744,7 +744,7 @@ export class IrClips extends LitElement {
                 </span>
                 <div class="toolbar-actions">
                     <button
-                        class="create-btn"
+                        class="action-btn create-btn"
                         @click=${() => (this._createRemoteOpen = true)}
                     >
                         + Add Remote
@@ -1209,26 +1209,13 @@ export class IrClips extends LitElement {
         }
         /* Header "+ Create" -- sized to match the Hide Dismissed (action-btn)
            button beside it: same padding/font, copper colors. */
-        .create-btn {
-            background: none;
+        /* Toolbar "+ Add Remote": shared chip anatomy, copper accent. */
+        .action-btn.create-btn {
             color: #b87333;
-            border: 1px solid #b87333;
-            border-radius: 4px;
-            padding: 4px 10px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            transition: background 150ms ease;
+            border-color: #b87333;
         }
-        .create-btn:hover:not(:disabled) {
+        .action-btn.create-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
-        }
-        .create-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
         }
         /* Card-internal "+ Add Signal" -- borderless copper text action
            sitting just right of the "Signals (N)" label, so it reads as a
