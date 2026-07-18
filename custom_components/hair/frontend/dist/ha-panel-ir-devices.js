@@ -70,13 +70,16 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             pointer-events: none;
             box-shadow: 0 0 0 1.5px var(--card-background-color);
         }
-        /* Bare 8px dot for count === 1, centered on the button's top-right
-           corner: top/right -4 with an 8px box puts the centre on the corner. */
+        /* Bare dot for count === 1. Same 10px box and -5 anchor as the
+           numbered badge, so a count of one and a count of two read as the
+           same object at the same size -- the number is the only
+           difference. (Was 8px/-4 before v0.6.3; the size step read as a
+           different, lesser indicator.) */
         .dot.bare {
-            top: -4px;
-            right: -4px;
-            width: 8px;
-            height: 8px;
+            top: -5px;
+            right: -5px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
         }
         /* Numbered 10px badge for count 2..9. Anchored at -5 (not -4) so the
