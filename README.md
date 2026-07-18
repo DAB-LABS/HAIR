@@ -231,6 +231,8 @@ When you don't have the physical remote to hand, build the command in the Clippe
 
 When the code already lives in a vendor blaster (such as Tuya Local), use the Plucker tab to pull it into HAIR by name without re-learning it at a receiver. Register the blaster with "+ Add Blaster", then "+ Pluck Signal" with the command name you used in the vendor's app, and the resulting signal is interchangeable with sniffed and clipped ones for assignment, alias, trigger, and promote.
 
+And when the send happens anyway, let the Mirror catch it: press the button in the vendor's own app, and if a receiver hears the blaster fire, the code lands on the Mirror tab with an Assign button on it. See [The Mirror Tab](#the-mirror-tab).
+
 You can also start from a device. A device's detail view has add-command buttons that take you to the appropriate capture surface (Sniffer, Clipper, or Plucker depending on what you have configured) so you can capture, paste, or pluck the signal and assign it back to the device.
 
 ### Action Mapping
@@ -301,7 +303,7 @@ S/L fingerprinting covers all major consumer IR protocols including NEC, Samsung
 
 ### Architecture
 
-Three signal sources feed one catalog: live capture (Sniffer), manual Pronto paste (Clipper), and vendor code import (Plucker).
+Four signal sources feed one catalog: live capture (Sniffer), manual Pronto paste (Clipper), vendor code import (Plucker), and the send audit (Mirror). The Mirror also closes the loop on the TX side: every outgoing send is logged with its provenance, and echoes of the house's own transmissions are attributed back to their send instead of re-entering the capture pipeline.
 
 ```
   Remote Control                              Pasted Pronto hex
@@ -314,22 +316,25 @@ Three signal sources feed one catalog: live capture (Sniffer), manual Pronto pas
   | async_subscribe_receiver | esphome.remote_received   |
   +--------------------------+---------------------------+
         |                                            |
-  HAIR Sniffer (RX capture)      Clipper (paste)      Plucker (vendor pluck)
-        |                             |                         |
-        +--------------+--------------+-------------+-----------+
+        |<-- echo attribution: captures matching a pending send
+        |    route to the Mirror, never to triggers or the Sniffer
+        |                                            |
+  HAIR Sniffer (RX capture)   Clipper (paste)   Plucker (vendor pluck)   Mirror (send audit)
+        |                          |                      |                    |
+        +--------------+-----------+----------+-----------+--------------------+
                               |
-   Signal Store  (S/L fingerprint + dedup; tracks sniffed / manual / plucked)
+   Signal Store  (S/L fingerprint + dedup; tracks sniffed / manual / plucked / echo)
                               |
                   Trigger Manager --> Event Entities (HA automations)
                               |
-   HAIR Admin Panel  (Sniffer tab + Clipper tab + Plucker tab)
+   HAIR Admin Panel  (Sniffer + Clipper + Plucker + Mirror tabs)
                               |
    Assign signal / Promote remote --> Device Manager --> Entity Factory
                               |
    HA Entities (media_player, climate, fan, light, switch, cover, remote, button)
                               |
    HA infrared Platform (infrared.send_command)  <-- TX path: any platform integration
-                              |
+                              |                       (every send logged on the Mirror)
    IR Emitter Hardware (ESPHome, Tuya Local, Broadlink, SMLIGHT, etc.)
 ```
 
