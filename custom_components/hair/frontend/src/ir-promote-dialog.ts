@@ -161,6 +161,15 @@ export class IrPromoteDialog extends LitElement {
     static styles = [
         dialogStyles,
         css`
+        /* ha-textfield is a custom element (display: inline by default).
+           It used to ride in the same selector group as the local .field
+           rule; when the shared module took .field over, ha-textfield
+           lost display/margin/width and collapsed to a stub (shampoo
+           bench catch). Restored here -- this dialog is its only user. */
+        ha-textfield {
+            display: block;
+            margin: 12px 0;
+        }
         ha-textfield,
         select {
             width: 100%;
