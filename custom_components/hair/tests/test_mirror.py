@@ -12,7 +12,7 @@ dead (assigned buttons flash forever, deleted rows resurrect).
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -20,6 +20,8 @@ from custom_components.hair.const import (
     MIRROR_DEVICE_FP,
     MIRROR_UNKNOWN_SEND_FP_PREFIX,
 )
+from custom_components.hair.models import IRTrigger
+from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.signal_monitor import SignalMonitor
 from custom_components.hair.signal_store import SignalStore
 
@@ -277,3 +279,64 @@ class TestHeardMeansShown:
         await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
         device = store.get_all_devices()[0]
         assert len(device.signals) == 1  # resurrected
+
+
+class TestBadgeOrphanRetired:
+    """The v0.6.1 known issue, retired.
+
+    The heal merge (or a user delete) could leave a trigger with no
+    catalog row to hang its yellow badge on, and the v0.4.0
+    known-command suppression kept the row from ever coming back once
+    the same identity was assigned to a device command. Every matcher
+    in the chain was already tiered decoded-first (v0.5.8); the badge
+    was orphaned purely because the ROW was gone. Heard-means-shown
+    closes it: the next physical press recreates the row carrying the
+    same identity triple the trigger path saw, so the badge and the
+    firing path can never disagree about a live button again.
+    """
+
+    @pytest.mark.asyncio
+    async def test_press_recreates_row_that_reattaches_the_trigger(self):
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        hair_store = _make_hair_store()
+        # The identity is assigned to a device command ("Mode: Cool" in
+        # the bench case) -- pre-v0.6.3 this suppressed the row.
+        hair_store.match_command.return_value = ("dev-1", "cmd-1")
+        trigger_manager = MagicMock()
+        trigger_manager.on_signal_captured = MagicMock(return_value=[])
+        monitor = SignalMonitor(hass, store, hair_store, trigger_manager)
+
+        identity = DecodedIdentity(
+            protocol="SAMSUNG32", address=0x0007, command=0x04,
+            fingerprint="SAMSUNG32:0x0007:0x04", extras=None, source="local",
+        )
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=identity,
+        ):
+            await monitor._on_ir_event(_make_event(_nec_event("0x1234")))
+
+        # Firing path saw the decoded identity (7th positional arg)...
+        args = trigger_manager.on_signal_captured.call_args[0]
+        assert args[6] == "SAMSUNG32:0x0007:0x04"
+
+        # ...and the row exists despite the assigned-command match,
+        # carrying that same identity.
+        device = store.get_all_devices()[0]
+        row = device.signals[0]
+        assert row.decoded_fingerprint == "SAMSUNG32:0x0007:0x04"
+
+        # A trigger created from the DEAD row (stale S/L fingerprint and
+        # byte_hash) re-attaches to the resurrected row via the decoded
+        # tier -- this comparison is exactly the frontend's yellow-badge
+        # check (triggerMatchesSignal) and the backend's firing match.
+        orphaned = IRTrigger(
+            name="Button 1",
+            signal_fingerprint="dead-row-fp",
+            byte_hash="dead-row-hash",
+            decoded_fingerprint="SAMSUNG32:0x0007:0x04",
+        )
+        assert orphaned.matches_signal(
+            row.fingerprint, row.byte_hash, row.decoded_fingerprint
+        )
