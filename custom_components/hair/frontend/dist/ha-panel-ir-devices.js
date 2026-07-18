@@ -4634,7 +4634,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                 <div class="signal-header">
                     <span>Signals (${e.signals.length})</span>
                     <button
-                        class="create-btn create-signal-btn"
+                        class="create-signal-btn"
                         title="Add a signal to this remote"
                         @click=${t=>this._openCreateSignal(e.id,t)}
                     >
@@ -4890,16 +4890,20 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
         .action-btn.create-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
         }
-        /* Card-internal "+ Add Signal" -- borderless copper text action
-           sitting just right of the "Signals (N)" label, so it reads as a
-           lighter sibling of the bordered "Add Remote" / "Add Device"
-           top-right buttons. No pill, no stroke; slightly larger than the
-           old pill label. */
+        /* Card-internal "+ Add Signal": borderless copper text action
+           (no chip, no stroke -- owner ruling), one pixel up from its
+           old size, font color matching the Add Remote accent. */
         .create-signal-btn {
             border: none;
             background: none;
             padding: 0;
-            font-size: 0.64rem;
+            font-size: 11px;
+            font-weight: 500;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #b87333;
+            cursor: pointer;
             position: relative;
             top: 1px;
         }
@@ -5592,7 +5596,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                 <div class="signal-header">
                     <span>Signals (${e.signals.length})</span>
                     <button
-                        class="create-btn create-signal-btn"
+                        class="create-signal-btn"
                         title="Pluck a code off this blaster"
                         @click=${t=>this._openPluckSignal(e,t)}
                     >
@@ -5858,16 +5862,22 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
         .action-btn.create-btn:hover:not(:disabled) {
             background: rgba(120, 144, 156, 0.12);
         }
-        /* Borderless text action, consistent with the Clipper's "+ Add
-           Signal". Lighter slate to match the Add Blaster button. */
+        /* Card-internal "+ Pluck Signal": borderless slate text action
+           (no chip, no stroke -- owner ruling), one pixel up from its
+           old size, font color matching the Add Blaster accent. */
         .create-signal-btn {
             border: none;
             background: none;
             padding: 0;
-            font-size: 0.64rem;
+            font-size: 11px;
+            font-weight: 500;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #78909c;
+            cursor: pointer;
             position: relative;
             top: 1px;
-            color: #78909c;
         }
         .create-signal-btn:hover:not(:disabled) {
             background: none;
@@ -6522,20 +6532,28 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             .mrow:hover {
                 background: var(--secondary-background-color);
             }
-            /* The silver bloom a send makes while you watch. */
+            /* The silver bloom a send makes while you watch: the WHOLE
+               card rings and fades (owner bench note -- the old left-edge
+               chip read as a sliver), same ring-bloom language as the
+               Sniffer's mint hit glow, in the Mirror's silver. */
             .mrow.bloom {
                 animation: mirror-bloom 1.4s ease-out;
             }
             @keyframes mirror-bloom {
                 0% {
+                    border-color: #90a4ae;
                     box-shadow:
-                        inset 3px 0 0 #90a4ae,
-                        0 0 10px rgba(144, 164, 174, 0.55);
+                        0 0 0 1px rgba(144, 164, 174, 0.9),
+                        0 0 16px 2px rgba(144, 164, 174, 0.55);
+                }
+                60% {
+                    border-color: #90a4ae;
                 }
                 100% {
+                    border-color: var(--divider-color);
                     box-shadow:
-                        inset 3px 0 0 rgba(144, 164, 174, 0),
-                        0 0 0 rgba(144, 164, 174, 0);
+                        0 0 0 1px rgba(144, 164, 174, 0),
+                        0 0 0 0 rgba(144, 164, 174, 0);
                 }
             }
             .mrow-main {

@@ -1200,20 +1200,28 @@ export class IrMirror extends LitElement {
             .mrow:hover {
                 background: var(--secondary-background-color);
             }
-            /* The silver bloom a send makes while you watch. */
+            /* The silver bloom a send makes while you watch: the WHOLE
+               card rings and fades (owner bench note -- the old left-edge
+               chip read as a sliver), same ring-bloom language as the
+               Sniffer's mint hit glow, in the Mirror's silver. */
             .mrow.bloom {
                 animation: mirror-bloom 1.4s ease-out;
             }
             @keyframes mirror-bloom {
                 0% {
+                    border-color: #90a4ae;
                     box-shadow:
-                        inset 3px 0 0 #90a4ae,
-                        0 0 10px rgba(144, 164, 174, 0.55);
+                        0 0 0 1px rgba(144, 164, 174, 0.9),
+                        0 0 16px 2px rgba(144, 164, 174, 0.55);
+                }
+                60% {
+                    border-color: #90a4ae;
                 }
                 100% {
+                    border-color: var(--divider-color);
                     box-shadow:
-                        inset 3px 0 0 rgba(144, 164, 174, 0),
-                        0 0 0 rgba(144, 164, 174, 0);
+                        0 0 0 1px rgba(144, 164, 174, 0),
+                        0 0 0 0 rgba(144, 164, 174, 0);
                 }
             }
             .mrow-main {

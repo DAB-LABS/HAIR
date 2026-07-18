@@ -870,7 +870,7 @@ export class IrClips extends LitElement {
                 <div class="signal-header">
                     <span>Signals (${device.signals.length})</span>
                     <button
-                        class="create-btn create-signal-btn"
+                        class="create-signal-btn"
                         title="Add a signal to this remote"
                         @click=${(e: Event) => this._openCreateSignal(device.id, e)}
                     >
@@ -1217,16 +1217,20 @@ export class IrClips extends LitElement {
         .action-btn.create-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
         }
-        /* Card-internal "+ Add Signal" -- borderless copper text action
-           sitting just right of the "Signals (N)" label, so it reads as a
-           lighter sibling of the bordered "Add Remote" / "Add Device"
-           top-right buttons. No pill, no stroke; slightly larger than the
-           old pill label. */
+        /* Card-internal "+ Add Signal": borderless copper text action
+           (no chip, no stroke -- owner ruling), one pixel up from its
+           old size, font color matching the Add Remote accent. */
         .create-signal-btn {
             border: none;
             background: none;
             padding: 0;
-            font-size: 0.64rem;
+            font-size: 11px;
+            font-weight: 500;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #b87333;
+            cursor: pointer;
             position: relative;
             top: 1px;
         }

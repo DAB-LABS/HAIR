@@ -896,7 +896,7 @@ export class IrPluck extends LitElement {
                 <div class="signal-header">
                     <span>Signals (${device.signals.length})</span>
                     <button
-                        class="create-btn create-signal-btn"
+                        class="create-signal-btn"
                         title="Pluck a code off this blaster"
                         @click=${(e: Event) => this._openPluckSignal(device, e)}
                     >
@@ -1247,16 +1247,22 @@ export class IrPluck extends LitElement {
         .action-btn.create-btn:hover:not(:disabled) {
             background: rgba(120, 144, 156, 0.12);
         }
-        /* Borderless text action, consistent with the Clipper's "+ Add
-           Signal". Lighter slate to match the Add Blaster button. */
+        /* Card-internal "+ Pluck Signal": borderless slate text action
+           (no chip, no stroke -- owner ruling), one pixel up from its
+           old size, font color matching the Add Blaster accent. */
         .create-signal-btn {
             border: none;
             background: none;
             padding: 0;
-            font-size: 0.64rem;
+            font-size: 11px;
+            font-weight: 500;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #78909c;
+            cursor: pointer;
             position: relative;
             top: 1px;
-            color: #78909c;
         }
         .create-signal-btn:hover:not(:disabled) {
             background: none;
