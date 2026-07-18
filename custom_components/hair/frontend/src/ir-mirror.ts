@@ -400,7 +400,14 @@ export class IrMirror extends LitElement {
     }
 
     private _rows(): MirrorRowView[] {
-        return (this._device?.signals ?? []).map((s) => this._rowView(s));
+        // Latest observed emission on top, always. A re-sent identity bumps
+        // its existing row back to the top rather than flashing somewhere
+        // mid-list (owner bench note). The Mirror has no manual order --
+        // recency IS its order.
+        const signals = [...(this._device?.signals ?? [])].sort((a, b) =>
+            (b.last_seen ?? "").localeCompare(a.last_seen ?? ""),
+        );
+        return signals.map((s) => this._rowView(s));
     }
 
     private _filteredRows(rows: MirrorRowView[]): MirrorRowView[] {
