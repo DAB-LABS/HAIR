@@ -12,6 +12,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
+from homeassistant.const import UnitOfTemperature
 
 from custom_components.hair.climate import (
     HAIRClimateEntity,
@@ -989,3 +990,56 @@ class TestHAIRCoverEntity:
         entity.update_device(new_device)
         assert entity._device.name == "Updated Screen"
         entity.async_write_ha_state.assert_called()
+
+
+class TestClimateTargetSeedingAndUnits:
+    """v0.6.1 bench finds: dial handle seeding + installation units."""
+
+    def _make(self, temperature_presets=None):
+        config = EntityConfig(
+            platform="climate",
+            command_mapping={},
+            temperature_presets=temperature_presets,
+        )
+        device = _device(
+            device_type=DeviceType.AC, commands=[], entity_config=config
+        )
+        mgr = _manager()
+        entity = HAIRClimateEntity(device, mgr)
+        _patch_write_state(entity)
+        return entity, mgr
+
+    def test_presets_seed_median_target_at_init(self):
+        entity, mgr = self._make(temperature_presets=[22, 24, 26])
+        assert entity.target_temperature == 24.0
+        mgr.async_send_command.assert_not_awaited()  # seeding never transmits
+
+    def test_no_presets_no_seed(self):
+        entity, _ = self._make()
+        assert entity.target_temperature is None
+
+    def test_presets_arriving_later_seed_via_update_device(self):
+        entity, mgr = self._make()
+        assert entity.target_temperature is None
+        device = entity._device
+        device.entity_config.temperature_presets = [16, 22, 30]
+        entity.update_device(device)
+        assert entity.target_temperature == 22.0
+        mgr.async_send_command.assert_not_awaited()
+
+    def test_seed_does_not_clobber_user_target(self):
+        entity, _ = self._make(temperature_presets=[22, 24, 26])
+        entity._target_temperature = 26.0
+        entity.update_device(entity._device)
+        assert entity.target_temperature == 26.0
+
+    def test_temperature_unit_follows_installation(self):
+        entity, _ = self._make(temperature_presets=[16, 22, 30])
+        # Without hass: conservative fallback (previous behavior).
+        entity.hass = None
+        assert entity.temperature_unit == UnitOfTemperature.FAHRENHEIT
+        # With hass: the installation's unit system wins (B3 / GH #45).
+        hass = MagicMock()
+        hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        entity.hass = hass
+        assert entity.temperature_unit == UnitOfTemperature.CELSIUS

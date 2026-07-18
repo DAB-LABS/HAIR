@@ -87,7 +87,6 @@ class HAIRClimateEntity(ClimateEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_assumed_state = True
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _enable_turn_on_off_backwards_compatibility = False
 
     def __init__(self, device: IRDevice, device_manager) -> None:
@@ -98,6 +97,37 @@ class HAIRClimateEntity(ClimateEntity):
         self._hvac_mode = HVACMode.OFF
         self._target_temperature: float | None = None
         self._fan_mode: str | None = None
+        self._seed_target_temperature()
+
+    @property
+    def temperature_unit(self) -> str:
+        """The installation's unit system, not a hardcoded scale.
+
+        Presets are unit-agnostic integers (a "Temp 22" command is 22
+        in whatever unit the user's HA runs), so the entity must
+        declare the installation's unit. Hardcoding Fahrenheit made a
+        metric user's 16..30C presets display as -9C to -3C (the
+        third-party review's B3, surfaced for real by GH #45).
+        """
+        if self.hass is not None:
+            return self.hass.config.units.temperature_unit
+        return UnitOfTemperature.FAHRENHEIT
+
+    def _seed_target_temperature(self) -> None:
+        """Give the thermostat dial a handle to grab.
+
+        The dial renders no draggable target while the target
+        temperature is None, and nothing else can set the first
+        target, so a preset-equipped entity would be stuck read-only
+        (v0.6.1 bench find). Seed the median preset; purely local
+        state, nothing transmits until the user actually drags.
+        """
+        if self._target_temperature is not None:
+            return
+        presets = self._device.entity_config.temperature_presets
+        if presets:
+            ordered = sorted(presets)
+            self._target_temperature = float(ordered[len(ordered) // 2])
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -218,6 +248,9 @@ class HAIRClimateEntity(ClimateEntity):
     @callback
     def update_device(self, device: IRDevice) -> None:
         self._device = device
+        # Presets can appear after entity creation (the assign path adds
+        # "Temp N" commands to a live device); seed the dial then too.
+        self._seed_target_temperature()
         if self.hass is None:
             # Race: entity instantiated and tracked in the platform's local
             # dict but not yet registered with HA via async_add_entities.
