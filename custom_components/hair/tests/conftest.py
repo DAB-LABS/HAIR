@@ -102,3 +102,15 @@ def fake_hass():
         side_effect=lambda func, *args: func(*args)
     )
     return hass
+
+
+@pytest.fixture(autouse=True)
+def _reset_tx_gate():
+    """The transmit gate keeps module-level last-emitter state so it can
+    stagger across independent send calls; reset it per test so one
+    test's sends don't leak stagger sleeps into the next."""
+    from custom_components.hair import tx_gate
+
+    tx_gate.reset_for_test()
+    yield
+    tx_gate.reset_for_test()

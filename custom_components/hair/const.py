@@ -25,6 +25,17 @@ DEFAULT_REPEAT_COUNT = 1
 MAX_SEND_COUNT = 10
 SEND_REPEAT_GAP = 0.1
 
+# Minimum quiet time (seconds) between HAIR-originated transmissions on
+# DIFFERENT emitters. Two blasters keying up at once superimpose their
+# marks and spaces at any receiver in range of both; the hybrid arrives
+# as a valid pulse train that decodes as nothing, fails the echo claim,
+# and mints a junk Sniffer row (owner bench 2026-07-18: dual-emitter
+# test of a SAMSUNG32 signal). Enforced by tx_gate.gated_send. Measured
+# from the previous send's service ack, so it also absorbs the blaster's
+# own post-ack transmit time. Same-emitter pacing (SEND_REPEAT_GAP)
+# is untouched -- devices queue their own back-to-back sends.
+EMITTER_STAGGER_GAP_S = 0.3
+
 # Maximum delay (seconds) between a captured main frame and any NEC ditto from
 # the same source device for the ditto to attribute to that frame. NEC dittos
 # arrive every ~110ms; this 1.0s window covers up to ~9 consecutive dittos,

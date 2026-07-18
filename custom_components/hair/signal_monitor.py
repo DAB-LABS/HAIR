@@ -1844,12 +1844,20 @@ class SignalMonitor:
             ir_cmd, label, [emitter_entity_id],
             decoded_fingerprint=signal.decoded_fingerprint,
         )
+        # Route through the transmit gate: the frontend fires one test
+        # call per selected emitter concurrently, and without the gate
+        # both blasters key up at once -- the superimposed hybrid fails
+        # the echo claim and mints a junk Sniffer row (see tx_gate).
+        from .tx_gate import gated_send
+
         try:
             for i in range(send_count):
                 if i:
                     await asyncio.sleep(SEND_REPEAT_GAP)
                 await asyncio.wait_for(
-                    ir_send(self._hass, emitter_entity_id, ir_cmd),
+                    gated_send(
+                        self._hass, emitter_entity_id, ir_cmd, ir_send
+                    ),
                     timeout=ASSIGN_SERVICE_TIMEOUT_S,
                 )
         except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):  # noqa: UP041
