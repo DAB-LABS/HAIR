@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -29,6 +30,14 @@ _LOGGER = logging.getLogger(__name__)
 # Maps a captured command name (lowercased) → a feature key on the entity.
 # The key space is platform-specific; the entity reads
 # ``entity_config.command_mapping[<feature key>]`` to find the command name.
+# Temp N naming convention for AC target temperatures (v0.6.1, GH #45).
+# Matches "Temp 24", "Temp: 24", "Temperature 24" (case-insensitive,
+# 1-3 digits). The degree value is unit-agnostic; HA interprets it in
+# the installation's unit system.
+_TEMP_COMMAND_PATTERN = re.compile(
+    r"temp(?:erature)?\s*:?\s*(\d{1,3})", re.IGNORECASE
+)
+
 AUTO_MAP_RULES: dict[str, str] = {
     "power": "power_toggle",
     "power on": "turn_on",
@@ -467,6 +476,28 @@ class DeviceManager:
     def _auto_map_command(self, device: IRDevice, command: IRCommand) -> None:
         feature = AUTO_MAP_RULES.get(command.name.casefold())
         if feature is None:
+            # Pattern rule (v0.6.1, GH #45): "Temp 24" / "Temp: 24" /
+            # "Temperature 24" on an AC device maps to the temp_24
+            # feature the climate entity already dispatches to, and
+            # registers 24 as a temperature preset so the thermostat
+            # card gains the step. Unit-agnostic: presets are plain
+            # integers interpreted in the installation's unit system,
+            # so 16..30 behaves as Celsius on a metric install.
+            if device.device_type == DeviceType.AC:
+                match = _TEMP_COMMAND_PATTERN.fullmatch(command.name.strip())
+                if match is not None:
+                    degrees = int(match.group(1))
+                    device.entity_config.command_mapping[
+                        f"temp_{degrees}"
+                    ] = command.name
+                    presets = list(
+                        device.entity_config.temperature_presets or []
+                    )
+                    if degrees not in presets:
+                        presets.append(degrees)
+                        device.entity_config.temperature_presets = sorted(
+                            presets
+                        )
             return
         device.entity_config.command_mapping[feature] = command.name
 
@@ -498,6 +529,18 @@ class DeviceManager:
         for key, value in list(mapping.items()):
             if value.casefold() == command.name.casefold():
                 mapping.pop(key, None)
+                # Deleting a temp command retires its preset too, so the
+                # thermostat's min/max and snap targets track reality.
+                if key.startswith("temp_") and key[5:].isdigit():
+                    degrees = int(key[5:])
+                    presets = list(
+                        device.entity_config.temperature_presets or []
+                    )
+                    if degrees in presets:
+                        presets.remove(degrees)
+                        device.entity_config.temperature_presets = (
+                            sorted(presets) or None
+                        )
 
     def get_device(self, device_id: str) -> IRDevice | None:
         return self._store.get_device(device_id)
