@@ -60,6 +60,7 @@ def _clean_nec_timings(address: int = 0xC7EA, command: int = 0x34) -> list[int]:
 
 
 def test_blalor_clean_capture_decodes_strictly() -> None:
+    pytest.importorskip("infrared_protocols.commands.nec")
     identity = try_decode_identity(pronto_pairs_to_timings(BLALOR_CLEAN))
     assert identity is not None
     assert identity.protocol == "NEC"
@@ -68,6 +69,7 @@ def test_blalor_clean_capture_decodes_strictly() -> None:
 
 def test_blalor_jittered_capture_salvages_to_same_identity() -> None:
     """One dead-zone pulse must no longer split a button into two rows."""
+    pytest.importorskip("infrared_protocols.commands.nec")
     identity = try_decode_identity(pronto_pairs_to_timings(BLALOR_JITTERED))
     assert identity is not None
     assert identity.protocol == "NEC"
@@ -76,6 +78,7 @@ def test_blalor_jittered_capture_salvages_to_same_identity() -> None:
 
 
 def test_both_blalor_captures_unify() -> None:
+    pytest.importorskip("infrared_protocols.commands.nec")
     first = try_decode_identity(pronto_pairs_to_timings(BLALOR_JITTERED))
     second = try_decode_identity(pronto_pairs_to_timings(BLALOR_CLEAN))
     assert first is not None and second is not None
