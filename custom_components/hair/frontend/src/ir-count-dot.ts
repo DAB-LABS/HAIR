@@ -1,11 +1,11 @@
 /**
  * Shared count-aware corner dot for action buttons.
  *
- * Renders nothing for count < 1, a bare 10px dot for count === 1, and a
- * numbered 10px badge for count >= 2 (stretching to a pill for double
- * digits) -- one dot and many dots are the same size; the number is the
- * only difference. Colour is the only difference between the green Assign
- * dot and the yellow Trigger dot.
+ * Renders nothing for count < 1 and a numbered 10px badge for count >= 1
+ * (stretching to a pill for double digits). Every count shows its number,
+ * including 1 -- a bare dot next to numbered siblings read as a different,
+ * lesser indicator (owner ruling, v0.6.3 bench). Colour is the only
+ * difference between the green Assign dot and the yellow Trigger dot.
  *
  * The calling button is responsible for positioning: it sets
  * ``position: relative`` and places the dot in its top-right corner via its
@@ -28,9 +28,6 @@ export class IrCountDot extends LitElement {
 
     render() {
         if (this.count < 1) return html``;
-        if (this.count === 1) {
-            return html`<span class="dot bare ${this.color}"></span>`;
-        }
         const isMulti = this.count >= 10;
         return html`<span
             class="dot badge ${this.color} ${isMulti ? "multi-digit" : ""}"
@@ -51,21 +48,10 @@ export class IrCountDot extends LitElement {
             pointer-events: none;
             box-shadow: 0 0 0 1.5px var(--card-background-color);
         }
-        /* Bare dot for count === 1. Same 10px box and -5 anchor as the
-           numbered badge, so a count of one and a count of two read as the
-           same object at the same size -- the number is the only
-           difference. (Was 8px/-4 before v0.6.3; the size step read as a
-           different, lesser indicator.) */
-        .dot.bare {
-            top: -5px;
-            right: -5px;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-        }
-        /* Numbered 10px badge for count 2..9. Anchored at -5 (not -4) so the
-           larger box stays centered on the same corner point as the bare dot
-           instead of reading as sunk toward the label. */
+        /* Numbered 10px badge for count 1..9. Anchored at -5 so the box
+           centres on the button's top-right corner point. (A bare unnumbered
+           dot for count 1 existed through v0.6.1; retired on the v0.6.3
+           bench -- every count shows its number now.) */
         .dot.badge {
             top: -5px;
             right: -5px;
