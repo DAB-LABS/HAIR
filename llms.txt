@@ -57,6 +57,28 @@ Key components:
   2026.6+, where the infrared platform exports InfraredEmitterEntity. Plucked
   signals share the same catalog as sniffed and clipped ones, distinguished by the
   source field.
+- Mirror: a send-audit surface (a fifth panel tab, v0.6.3) logging every
+  HA-originated IR transmission at send time, heard back or not. HAIR's own sends
+  (device commands and catalog tests) are recorded with full identity and
+  provenance; foreign sends from any integration on the infrared platform are
+  caught via emitter state beacons (core writes the emitter's state on every
+  platform send) and identified by their echo when a receiver hears one, or
+  logged as a per-emitter "Unknown send" row when nothing does. Rows live in the
+  shared signal catalog under a synthetic device (source "echo", fingerprint
+  "hair-mirror") that the Sniffer filters out; they show the assignment or
+  decoded identity, the emitter (friendly names), heard-by resolved to HA areas,
+  a provenance chip (HAIR device / Catalog test / automation send / integration
+  send), and send counts, and carry the standard Assign / Test / Trigger actions
+  plus the code editor -- making the Mirror a universal TX tap: any vendor app
+  send heard by a receiver is one Assign away from living in HAIR. Deliberately
+  a log: no delete, no reorder, no clear-all, never auto-evicted. Echo
+  attribution also gates triggers: a capture matching a pending send expectation
+  (decoded identity or fingerprint, 2.5s TTL) is routed to the Mirror and never
+  reaches the trigger or catalog pipeline, so triggers fire only on signals from
+  outside Home Assistant and cannot feed back on HAIR's own output. The v0.4.0
+  known-command suppression is removed (v0.6.3, "heard means shown"): assigned
+  buttons keep flashing in the Sniffer and deleted rows resurrect on re-hearing;
+  dismiss is the only hiding tool.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a

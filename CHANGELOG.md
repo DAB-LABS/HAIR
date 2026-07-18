@@ -5,6 +5,23 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-07-18 -- Mirror
+
+### Added
+
+- The Mirror tab: see what your house transmits. Every IR command sent through Home Assistant now appears as a row in a new panel tab, whether anything heard it or not -- HAIR device commands, catalog tests, automations, and even other integrations sending through the native infrared platform, caught the moment their emitter fires. Each row shows the send's identity (the assigned command name when there is one, else the decoded protocol identity), which emitter carried it, whether a receiver heard it back and in which room (resolved through the receiver's Home Assistant area), how it originated, and the running send count. A send that lands while you are watching blooms the row silver. Rows carry the same Assign, Test, and Trigger actions as everywhere else, plus the code viewer, so the Mirror doubles as a third way of importing codes: press a button in any vendor app whose blaster transmits through the infrared platform, and if a receiver hears it, the code lands in the Mirror one Assign away from living in HAIR. There is deliberately no delete: the Mirror is a log, and logs do not forget. Homes with no receiver at all simply see their sends without heard-back detail, and "not heard" reads as neutral information rather than an alarm, because plenty of setups are transmit-only on purpose.
+- Triggers never fire on the house's own transmissions. When HAIR sends a command and a receiver hears the echo, that capture is attributed to the send and routed to the Mirror instead of the trigger and Sniffer pipeline. A trigger bound to a signal now means "when this arrives from the outside world", a physical remote or another app, and cannot feed back on HAIR's own output. The trigger dialog says so when you create one from a Mirror row.
+- Clicking the Assign button on a signal that already has assignments opens a small picker: add another assignment, or click an existing one to jump straight to that device's card on the Devices tab. Exactly the flow the Trigger button has had since v0.5.7. The hover tooltip still summarizes the assignments for a quick glance.
+
+### Changed
+
+- Assigned signals stay visible in the Sniffer. Since v0.4.0, once a signal was assigned to a device command, re-pressing that button on the physical remote was silently swallowed, which made the Sniffer look broken exactly when everything was working: you assign a button, press it to celebrate, and nothing flashes. That suppression existed to keep HAIR's own transmissions out of the feed, and the Mirror's echo attribution now does that properly, so the suppression is gone. An assigned button flashes in the Sniffer forever, and a deleted signal row comes back the next time the button is pressed, the same way any signal appears when heard. Dismissing the remote remains the one way to hide activity you do not want to see.
+- The row action buttons (Assign, Test, Trigger, Delete, Dismiss) now share one style module across every tab, so the chip anatomy and colors cannot drift apart again.
+
+### Fixed
+
+- The v0.6.1 known issue is retired: a trigger no longer loses its yellow badge when the startup heal merges duplicate rows. The identity matching was already in place end to end; the badge was orphaned because the merged-away row was gone from the Sniffer and the old suppression kept it from returning. With assigned signals staying visible, the next press of the button recreates its row and the badge re-attaches through the decoded identity, which also survives any future heal.
+
 ## [0.6.1] - 2026-07-18 -- Hot Towel Finish
 
 ### Fixed
