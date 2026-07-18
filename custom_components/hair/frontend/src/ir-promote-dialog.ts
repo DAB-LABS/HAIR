@@ -100,13 +100,22 @@ export class IrPromoteDialog extends LitElement {
                     signals to it as commands.
                 </p>
 
-                <ha-textfield
-                    label="Device name"
-                    .value=${this._name}
-                    required
-                    @input=${(e: Event) =>
-                        (this._name = (e.target as HTMLInputElement).value)}
-                ></ha-textfield>
+                <div class="field">
+                    <label>Device name</label>
+                    <input
+                        type="text"
+                        .value=${this._name}
+                        placeholder="e.g. Living Room TV"
+                        required
+                        autofocus
+                        @input=${(e: Event) =>
+                            (this._name = (e.target as HTMLInputElement)
+                                .value)}
+                        @keydown=${(e: KeyboardEvent) => {
+                            if (e.key === "Enter") void this._create();
+                        }}
+                    />
+                </div>
 
                 <div class="field">
                     <label>Device type</label>
@@ -161,24 +170,12 @@ export class IrPromoteDialog extends LitElement {
     static styles = [
         dialogStyles,
         css`
-        /* ha-textfield is a custom element (display: inline by default).
-           It used to ride in the same selector group as the local .field
-           rule; when the shared module took .field over, ha-textfield
-           lost display/margin/width and collapsed to a stub (shampoo
-           bench catch). Restored here -- this dialog is its only user. */
-        ha-textfield {
-            display: block;
-            margin: 12px 0;
-        }
-        ha-textfield,
-        select {
-            width: 100%;
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-        }
+        /* NOTE: no ha-textfield here anymore. This dialog was the
+           panel's last ha-textfield user; the element is lazy-loaded by
+           the HA frontend and is not reliably defined inside a custom
+           panel, so it rendered as an empty, unfocusable shell (shampoo
+           bench). The name box is now the shared .field + plain input,
+           the same proven pattern as every other dialog. */
         ha-alert {
             display: block;
             margin: 8px 0;
