@@ -10,8 +10,12 @@
  * beacons -- with its provenance and its journey (via which emitter,
  * heard in which areas).
  *
- * Deliberately a log: no delete, no dismiss, no reorder, no clear-all.
- * Rows carry the Sniffer's exact action chips (Assign / Test / Trigger
+ * A log with a wipe rag: no dismiss, no reorder, no clear-all, but a
+ * per-row Delete that clears the ledger entry -- the row returns on
+ * the next send of the same identity, the same resurrection semantics
+ * the Sniffer has, so removal cannot damage the audit (owner ruling,
+ * v0.6.6 bench, reversing the earlier no-delete stance). Rows carry
+ * the Sniffer's exact action chips (Assign / Test / Trigger / Delete
  * via the shared actionChipStyles -- this is the first tab to never
  * own a private copy) with the v0.5.7 corner count-dots. Triggers
  * created here are legitimate: they fire when the identity arrives
@@ -135,6 +139,7 @@ export class IrMirror extends LitElement {
         left: number;
     } | null = null;
     @state() private _confirmDeleteTriggerId: string | null = null;
+    @state() private _deleteSignal: UnknownSignal | null = null;
     @state() private _editSignal: UnknownSignal | null = null;
     @state() private _testDialog: UnknownSignal | null = null;
     @state() private _testEmitters: string[] = [];
@@ -617,6 +622,24 @@ export class IrMirror extends LitElement {
         await this._refreshDevice();
     }
 
+    /** Delete clears the ledger entry; the row returns on the next send
+     * of the same identity (uniform with the Sniffer's resurrection
+     * semantics -- delete is "clear this entry", never "never again").
+     * Added on the v0.6.6 bench, reversing the earlier no-delete ruling:
+     * stale test entries needed a way out, and resurrection makes
+     * removal harmless to the audit. */
+    private async _confirmDeleteSignal(): Promise<void> {
+        const sig = this._deleteSignal;
+        this._deleteSignal = null;
+        if (!sig || !this._device) return;
+        try {
+            await this.api.deleteSignal(this._device.id, sig.id);
+            await this._refreshDevice();
+        } catch (err) {
+            this._error = `Delete failed: ${(err as Error).message}`;
+        }
+    }
+
     // -----------------------------------------------------------------
     // Render
     // -----------------------------------------------------------------
@@ -879,6 +902,14 @@ export class IrMirror extends LitElement {
                             color="yellow"
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
+                    <button
+                        class="action-btn delete-btn"
+                        title="Clear this entry (it returns on the next send)"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._deleteSignal = sig;
+                        }}
+                    >Delete</button>
                 </div>
             </div>
         `;
@@ -958,6 +989,16 @@ export class IrMirror extends LitElement {
                       .destructive=${true}
                       @confirmed=${this._confirmDeleteTrigger}
                       @closed=${() => (this._confirmDeleteTriggerId = null)}
+                  ></ir-confirm-dialog>`
+                : ""}
+            ${this._deleteSignal
+                ? html`<ir-confirm-dialog
+                      title="Clear Mirror Entry"
+                      message="Remove this entry from the Mirror? It will come back the next time this signal is sent."
+                      confirmLabel="Delete"
+                      .destructive=${true}
+                      @confirmed=${this._confirmDeleteSignal}
+                      @closed=${() => (this._deleteSignal = null)}
                   ></ir-confirm-dialog>`
                 : ""}
             ${this._assignSignal && this._device

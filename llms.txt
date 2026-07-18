@@ -71,7 +71,7 @@ Key components:
   send), and send counts, and carry the standard Assign / Test / Trigger actions
   plus the code editor -- making the Mirror a universal TX tap: any vendor app
   send heard by a receiver is one Assign away from living in HAIR. Deliberately
-  a log: no delete, no reorder, no clear-all, never auto-evicted. Echo
+  a log: no reorder, no clear-all, never auto-evicted; per-row delete clears an entry and the row resurrects on the next send of that identity. Echo
   attribution also gates triggers: a capture matching a pending send expectation
   (decoded identity or fingerprint, 2.5s TTL) is routed to the Mirror and never
   reaches the trigger or catalog pipeline, so triggers fire only on signals from

@@ -205,7 +205,7 @@ The heard-back column is the part that earns the tab its place: a command that t
 
 Every row carries the same Assign, Test, and Trigger buttons as the rest of the panel, plus the code viewer. That makes the Mirror the third road for importing codes, next to the Clipper (paste) and the Plucker (pull by name): press a button in any vendor app whose blaster transmits through the infrared platform, and if a receiver hears the transmission, the decoded code appears in the Mirror ready to assign to a HAIR device. No pasting, no vendor support file, no re-learning.
 
-Two things the Mirror deliberately does not do. There is no delete, because it is a log and logs do not forget; repeat sends of the same command bump one row's count rather than piling up. And triggers never fire on anything the Mirror records: when Home Assistant sends a command and a receiver hears the echo, that capture is attributed to the send rather than treated as a new signal, so a trigger means "this arrived from the outside world" and can never feed back on the house's own output.
+Repeat sends of the same command bump one row's count rather than piling up, and deleting a row just clears the entry -- it returns the next time that signal is sent, so tidying up old experiments never damages the audit. One rule the Mirror never bends: triggers do not fire on anything it records. When Home Assistant sends a command and a receiver hears the echo, that capture is attributed to the send rather than treated as a new signal, so a trigger means "this arrived from the outside world" and can never feed back on the house's own output.
 
 ### Adding a Device
 
