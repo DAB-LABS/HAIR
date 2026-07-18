@@ -855,7 +855,17 @@ class SignalMonitor:
         for entity_id, pending in list(self._foreign_pending.items()):
             if now > pending["expires"]:
                 continue
+            # One identity-minting claim per beacon. Without this, a
+            # pending window kept eating every capture for its full TTL,
+            # one Mirror row each -- and a send whose echo arrives as
+            # several mangled fragments minted a junk row per fragment
+            # (bench find, v0.6.6). The first arrival is the send's
+            # identity; later fragments fall through to the Sniffer as
+            # ordinary capture noise, exactly as they did pre-Mirror.
             pending["echoed"] = True
+            if pending.get("cancel") is not None:
+                pending["cancel"].cancel()
+            self._foreign_pending.pop(entity_id, None)
             label = (
                 f"{pending['label']} -- via {self._friendly_name(entity_id)}"
             )

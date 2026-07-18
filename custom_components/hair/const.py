@@ -186,7 +186,12 @@ MIRROR_DEVICE_LABEL = "Mirror"
 MIRROR_ECHO_TTL_S = 2.5
 # A state beacon on an emitter within this window of HAIR's own recorded
 # send on that emitter is HAIR's own beacon, not a foreign integration's.
-MIRROR_OWN_BEACON_WINDOW_S = 1.0
+# 3.0s, not 1.0: the mark is set BEFORE the send loop, and a queued
+# Broadlink can take over a second to actually transmit and write its
+# state -- at 1.0s the bench caught HAIR mistaking its own send for a
+# foreign integration's (which then claimed stray captures as echoes).
+# Matches the echo TTL's generosity for slow emitters.
+MIRROR_OWN_BEACON_WINDOW_S = 3.0
 # Synthetic per-emitter fingerprint prefix for foreign sends that no
 # receiver heard (identity unknown, send still audited).
 MIRROR_UNKNOWN_SEND_FP_PREFIX = "mirror-unknown::"

@@ -255,6 +255,41 @@ class TestForeignBeacons:
         monitor._on_emitter_beacon(self._beacon_event(state="unavailable"))
         assert monitor._foreign_pending == {}
 
+    @pytest.mark.asyncio
+    async def test_foreign_pending_claims_only_once(self):
+        """A beacon window mints at most ONE Mirror row. Later captures
+        within what was the TTL fall through to the normal pipeline --
+        a fragmented echo must not mint a junk row per fragment."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        trigger_manager = MagicMock()
+        monitor = SignalMonitor(hass, store, _make_hair_store(), trigger_manager)
+        monitor._on_emitter_beacon(self._beacon_event())
+
+        from custom_components.hair import signal_monitor as sm
+
+        first = sm.EventParser.parse(_make_event(_nec_event("0x1234")).data)
+        await monitor._process_parsed_signal(first, receiver_entity_id="infrared.athom_rx")
+        assert monitor._foreign_pending == {}  # consumed by the claim
+
+        second = sm.EventParser.parse(_make_event(_nec_event("0x9999")).data)
+        await monitor._process_parsed_signal(second, receiver_entity_id="infrared.athom_rx")
+        # Second capture was NOT claimed: it reached the catalog+triggers.
+        trigger_manager.on_signal_captured.assert_called_once()
+        mirror = _mirror_device(store)
+        assert len(mirror.signals) == 1
+
+    def test_own_window_covers_slow_emitter(self):
+        """The own-send mark suppresses the beacon even when the emitter
+        takes a couple of seconds to actually transmit (queued Broadlink,
+        bench find: at 1.0s HAIR mistook its own send for a foreign one)."""
+        from time import monotonic
+
+        monitor = _monitor()
+        monitor._own_send_marks["infrared.tuya_blaster"] = monotonic() - 2.0
+        monitor._on_emitter_beacon(self._beacon_event())
+        assert "infrared.tuya_blaster" not in monitor._foreign_pending
+
     def test_reconnect_restore_ignored(self):
         """unavailable -> timestamp is the entity coming back (reconnect
         blip, integration reload, startup restore) and the write is the
