@@ -6530,23 +6530,44 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
             }
             /* The silver bloom a send makes while you watch: the WHOLE
                card rings and fades (owner bench note -- the old left-edge
-               chip read as a sliver), same ring-bloom language as the
-               Sniffer's mint hit glow, in the Mirror's silver. */
+               chip read as a sliver). Timing follows the trigger fire's
+               double-pulse (owner: "ba-boom") -- bright, breathe, second
+               bloom, then the long fade, at the trigger's 2.4s length. */
             .mrow.bloom {
-                animation: mirror-bloom 1.4s ease-out;
+                animation: mirror-bloom 2.4s ease-out;
             }
             @keyframes mirror-bloom {
                 0% {
                     border-color: #90a4ae;
+                    background: rgba(144, 164, 174, 0.12);
                     box-shadow:
                         0 0 0 1px rgba(144, 164, 174, 0.9),
-                        0 0 16px 2px rgba(144, 164, 174, 0.55);
+                        0 0 16px 3px rgba(144, 164, 174, 0.6);
+                }
+                15% {
+                    border-color: #90a4ae;
+                    background: rgba(144, 164, 174, 0.05);
+                    box-shadow:
+                        0 0 0 1px rgba(144, 164, 174, 0.4),
+                        0 0 8px 1px rgba(144, 164, 174, 0.25);
+                }
+                30% {
+                    border-color: #90a4ae;
+                    background: rgba(144, 164, 174, 0.09);
+                    box-shadow:
+                        0 0 0 1px rgba(144, 164, 174, 0.85),
+                        0 0 14px 3px rgba(144, 164, 174, 0.5);
                 }
                 60% {
                     border-color: #90a4ae;
+                    background: rgba(144, 164, 174, 0.04);
+                    box-shadow:
+                        0 0 0 1px rgba(144, 164, 174, 0.3),
+                        0 0 6px 1px rgba(144, 164, 174, 0.18);
                 }
                 100% {
                     border-color: var(--divider-color);
+                    background: var(--card-background-color);
                     box-shadow:
                         0 0 0 1px rgba(144, 164, 174, 0),
                         0 0 0 0 rgba(144, 164, 174, 0);
