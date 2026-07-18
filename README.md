@@ -21,7 +21,7 @@ HAIR works with any integration that exposes HA's native `infrared` entity platf
 | [ESPHome](https://esphome.io/) | Core | Yes | Yes | No | Since 2026.4 (TX), 2026.6 (native RX) |
 | [Tuya Local](https://github.com/make-all/tuya-local) | HACS | Yes | No | Yes | TX since 2026.4, Pluck since 2026.6.2 |
 | [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Core | Yes | No | No | Since 2026.5 |
-| [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Core | Yes | No | No | Since 2026.5 |
+| [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Core | Yes | Yes | No | TX since 2026.5, native RX (Ultima) since 2026.7 |
 
 On HA 2026.6+, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. Any integration that implements the receiver entity works as a HAIR receiver automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) below).
 
@@ -51,7 +51,7 @@ When HAIR can read a captured signal as a known protocol (NEC today), it also st
 
 - Home Assistant **2026.4** or later
 - Python 3.12+
-- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) for the YAML stub).
+- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, SMLIGHT Ultima receivers work natively since HA 2026.7, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) for the YAML stub).
 - **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, SMLIGHT SLZB devices, etc.)
 
 ## Installation

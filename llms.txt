@@ -161,9 +161,9 @@ Signal fingerprinting details:
   observation does not auto-set the TX Ditto count; the user acts on it.
 
 Supported capture providers (auto-discovered):
-- Native InfraredReceiverEntity instances (HA 2026.6+, hardware-agnostic)
+- Native InfraredReceiverEntity instances (HA 2026.6+, hardware-agnostic;
+  ESPHome receivers and SMLIGHT Ultima receivers ship this today)
 - ESPHome devices with the remote_receiver component (legacy bridge)
-- Broadlink RM series devices
 
 Supported transmit hardware: any IR emitter exposed to HA's infrared platform,
 including ESPHome IR LEDs, Tuya Local IR blasters, Broadlink RM series, and
