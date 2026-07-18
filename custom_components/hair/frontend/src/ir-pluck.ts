@@ -11,6 +11,7 @@
  * delete-and-recreate, so there is no Show Dismissed / Promote machinery.
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
+import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
@@ -1129,7 +1130,7 @@ export class IrPluck extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [actionChipStyles, css`
         :host {
             display: block;
         }
@@ -1440,54 +1441,7 @@ export class IrPluck extends LitElement {
             gap: 4px;
             flex-shrink: 0;
         }
-        .action-btn {
-            background: none;
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 4px 10px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            font-family: inherit;
-            color: var(--primary-color);
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
-        }
-        .action-btn:hover {
-            background: var(--secondary-background-color);
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        .action-btn.assign-btn {
-            color: #2e7d32;
-            border-color: rgba(46, 125, 50, 0.3);
-            position: relative;
-        }
-        .action-btn.assign-btn:hover {
-            background: rgba(46, 125, 50, 0.08);
-        }
-        .action-btn.test-btn {
-            color: var(--primary-color);
-        }
-        .action-btn.trigger-btn {
-            color: #b89930;
-            border-color: rgba(184, 153, 48, 0.3);
-            position: relative;
-        }
-        .action-btn.trigger-btn:hover {
-            background: rgba(184, 153, 48, 0.08);
-        }
-        .action-btn.delete-btn {
-            color: #e65100;
-            border-color: rgba(230, 81, 0, 0.25);
-        }
-        .action-btn.delete-btn:hover {
-            background: rgba(230, 81, 0, 0.08);
-        }
-    `;
+    `];
 }
 
 declare global {
