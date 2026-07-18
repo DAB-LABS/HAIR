@@ -95,12 +95,13 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                Reset it so the digit centres on its own advance. */
             letter-spacing: normal;
         }
-        /* A digit glyph has no descender, so flex-centring the line box leaves
-           the number riding ~0.5px above the badge's true centre. Nudge just
-           the digit down half a pixel so it sits dead-centre in the circle. */
+        /* Optical centring for the digit. Flex centring alone left the number
+           reading slightly left and low in the circle on the bench (owner
+           screenshot, v0.6.6 shampoo pass): one pixel right and one up from
+           the earlier +0.5px vertical nudge lands it dead-centre to the eye. */
         .dot.badge .digit {
             display: block;
-            transform: translateY(0.5px);
+            transform: translate(1px, -0.5px);
         }
         /* Double-digit stretch for count >= 10 (wider pill, pulled out a touch
            further so it clears the corner). */
