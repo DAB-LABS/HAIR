@@ -255,6 +255,18 @@ class TestForeignBeacons:
         monitor._on_emitter_beacon(self._beacon_event(state="unavailable"))
         assert monitor._foreign_pending == {}
 
+    def test_reconnect_restore_ignored(self):
+        """unavailable -> timestamp is the entity coming back (reconnect
+        blip, integration reload, startup restore) and the write is the
+        RESTORED last-send timestamp, not a new send. Without the
+        old-state guard every Broadlink reconnect would mint a phantom
+        unknown-send row (v0.6.6 bench find)."""
+        monitor = _monitor()
+        monitor._on_emitter_beacon(self._beacon_event(old="unavailable"))
+        assert monitor._foreign_pending == {}
+        monitor._on_emitter_beacon(self._beacon_event(old="unknown"))
+        assert monitor._foreign_pending == {}
+
 
 class TestHeardMeansShown:
 

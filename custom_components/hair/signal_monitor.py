@@ -782,6 +782,17 @@ class SignalMonitor:
             return  # the Tweezer observes; it does not transmit
         if new_state.state in (None, "unknown", "unavailable"):
             return
+        # A transition FROM unavailable/unknown is the entity coming back
+        # (integration reload, device reconnect, startup restore) -- the
+        # state write is the restored last-send timestamp, not a new send.
+        # Without this guard every Broadlink reconnect blip would mint a
+        # phantom "unknown send" row (found chasing a bench artifact:
+        # the integration reasserting its real state over a Dev Tools
+        # override fires the same shape of not-a-send transition).
+        if getattr(old_state, "state", None) in (
+            None, "unknown", "unavailable",
+        ):
+            return
         if new_state.state == getattr(old_state, "state", None):
             return
         now = monotonic()
