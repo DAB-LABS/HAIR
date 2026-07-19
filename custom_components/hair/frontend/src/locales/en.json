@@ -135,7 +135,6 @@
     "assign.select_device": "Select device...",
     "assign.command_name": "Command name",
     "assign.command_placeholder": "Enter command name",
-    "assign.templates": "Templates",
     "assign.select_command": "Select command...",
     "assign.custom": "Custom...",
     "assign.command_required": "Command name is required.",

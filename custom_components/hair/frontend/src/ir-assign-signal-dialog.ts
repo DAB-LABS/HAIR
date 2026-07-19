@@ -496,7 +496,7 @@ export class IrAssignSignalDialog extends LitElement {
                         <button
                             class="back-link"
                             @click=${() => { this._customCommand = false; this._commandName = ""; }}
-                        >${t("assign.templates")}</button>
+                        >${t("common.cancel")}</button>
                     </div>
                 </div>
             `;
