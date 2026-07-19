@@ -35,7 +35,9 @@ import de from "./locales/de.json";
 import en from "./locales/en.json";
 import es from "./locales/es.json";
 import fr from "./locales/fr.json";
+import it from "./locales/it.json";
 import ja from "./locales/ja.json";
+import nl from "./locales/nl.json";
 import pl from "./locales/pl.json";
 import pt from "./locales/pt.json";
 
@@ -50,7 +52,9 @@ const DICTIONARIES: Record<string, Dictionary> = {
     en: en as Dictionary,
     es: es as Dictionary,
     fr: fr as Dictionary,
+    it: it as Dictionary,
     ja: ja as Dictionary,
+    nl: nl as Dictionary,
     pl: pl as Dictionary,
     // One Brazilian-leaning Portuguese dictionary serves both HA
     // language choices; pt-BR resolves here via the base-language rule.
