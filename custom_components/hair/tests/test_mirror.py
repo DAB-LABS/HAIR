@@ -387,3 +387,163 @@ class TestBadgeOrphanRetired:
         assert orphaned.matches_signal(
             row.fingerprint, row.byte_hash, row.decoded_fingerprint
         )
+
+
+class TestGarbledEchoSwallow:
+    """The garbled-echo swallow (owner design, shampoo): HAIR's own send
+    coming back damaged misses both identity claims but still resembles
+    what went out. Similar + undecodable + inside the window -> mark the
+    send heard and swallow; everything else walks through untouched."""
+
+    # A clean 16-symbol frame: pairs of (mark, space) where ~900us reads
+    # short and ~1800us reads long against the S/L threshold.
+    CLEAN = [900, -900, 1800, -1800, 900, -900, 900, -900,
+             900, -900, 1800, -900, 900, -1800, 900, -900]
+    # The bench's truncated-head shape: leading pair lost. A perfect
+    # substring of CLEAN -> fuzzy ratio 0.0.
+    TRUNCATED = CLEAN[2:]
+    # Nothing like CLEAN: a long run of shorts.
+    FOREIGN = [400, -400] * 12
+
+    def _armed_monitor(self, timings):
+        """Monitor with a Mirror row + live expectation for ``timings``,
+        exactly as record_send arms them (decode patched off: the sent
+        signal itself is S/L-only, the RC-5-replay bench shape)."""
+        from custom_components.hair import signal_monitor as sm
+
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        trigger_manager = MagicMock()
+        monitor = SignalMonitor(hass, store, _make_hair_store(), trigger_manager)
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=None,
+        ):
+            parsed = sm.EventParser.parse_received_signal(
+                SimpleNamespace(timings=list(timings), modulation=38000)
+            )
+            n = sm.normalize(parsed)
+        return monitor, store, trigger_manager, n
+
+    async def _arm(self, monitor, n):
+        from custom_components.hair import signal_monitor as sm
+
+        await monitor._mirror_upsert(
+            n, decoded_fp=None,
+            echo_source="Manual test send -- via Office Broadlink",
+            reset_heard=True,
+        )
+        monitor._echo_expectations.append({
+            "decoded_fp": None,
+            "sig_fp": n.sig_fp,
+            "row_key": n.sig_fp,
+            "expires": 10**12,
+            "sl": sm.EventParser._pronto_sl_pattern(n.code),
+            "garble_expires": 10**12,
+            "cancel": None,
+        })
+
+    @pytest.mark.asyncio
+    async def test_garbled_similar_swallowed_and_marks_heard(self):
+        from custom_components.hair import signal_monitor as sm
+
+        monitor, store, trigger_manager, n = self._armed_monitor(self.CLEAN)
+        await self._arm(monitor, n)
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=None,
+        ):
+            garbled = sm.EventParser.parse_received_signal(
+                SimpleNamespace(timings=list(self.TRUNCATED), modulation=38000)
+            )
+            await monitor._process_parsed_signal(
+                garbled, receiver_entity_id="infrared.office_rx"
+            )
+        trigger_manager.on_signal_captured.assert_not_called()
+        assert store.device_count == 1  # only the Mirror; no junk remote
+        row = _mirror_device(store).signals[0]
+        assert row.heard_by == ["infrared.office_rx"]
+
+    @pytest.mark.asyncio
+    async def test_dissimilar_undecodable_walks_through(self):
+        from custom_components.hair import signal_monitor as sm
+
+        monitor, store, trigger_manager, n = self._armed_monitor(self.CLEAN)
+        await self._arm(monitor, n)
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=None,
+        ):
+            foreign = sm.EventParser.parse_received_signal(
+                SimpleNamespace(timings=list(self.FOREIGN), modulation=38000)
+            )
+            await monitor._process_parsed_signal(
+                foreign, receiver_entity_id="infrared.office_rx"
+            )
+        # A real stranger during the window: catalog row minted, trigger
+        # path consulted, Mirror row still unheard.
+        trigger_manager.on_signal_captured.assert_called_once()
+        assert store.device_count == 2
+        assert _mirror_device(store).signals[0].heard_by == []
+
+    @pytest.mark.asyncio
+    async def test_decoded_capture_never_swallowed(self):
+        """A clean decode with a non-matching fingerprint is a real,
+        different signal (candles-off pressed right after testing
+        candles-on) -- similarity must not eat it."""
+        from custom_components.hair import signal_monitor as sm
+
+        monitor, store, trigger_manager, n = self._armed_monitor(self.CLEAN)
+        await self._arm(monitor, n)
+        identity = DecodedIdentity(
+            protocol="RC5", address=0x1F, command=0x02,
+            fingerprint="RC5:0x001f:0x02", extras=None, source="local",
+        )
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=identity,
+        ):
+            # The SAME shape we transmitted -- maximally similar -- but
+            # it decodes, so it must walk through to the catalog.
+            twin = sm.EventParser.parse_received_signal(
+                SimpleNamespace(timings=list(self.TRUNCATED), modulation=38000)
+            )
+            await monitor._process_parsed_signal(
+                twin, receiver_entity_id="infrared.office_rx"
+            )
+        trigger_manager.on_signal_captured.assert_called_once()
+        assert store.device_count == 2
+
+    @pytest.mark.asyncio
+    async def test_expired_garble_window_walks_through(self):
+        from custom_components.hair import signal_monitor as sm
+
+        monitor, store, trigger_manager, n = self._armed_monitor(self.CLEAN)
+        await self._arm(monitor, n)
+        monitor._echo_expectations[-1]["expires"] = 0.0
+        monitor._echo_expectations[-1]["garble_expires"] = 0.0
+        with patch(
+            "custom_components.hair.signal_monitor.try_decode_identity",
+            return_value=None,
+        ):
+            garbled = sm.EventParser.parse_received_signal(
+                SimpleNamespace(timings=list(self.TRUNCATED), modulation=38000)
+            )
+            await monitor._process_parsed_signal(
+                garbled, receiver_entity_id="infrared.office_rx"
+            )
+        trigger_manager.on_signal_captured.assert_called_once()
+        assert store.device_count == 2
+
+    def test_fuzzy_ratio_shapes(self):
+        """The metric itself: substring free alignment, shard matching,
+        and true strangers scoring high."""
+        from custom_components.hair.signal_monitor import (
+            _sl_fuzzy_substring_ratio as ratio,
+        )
+        clean = "SSLLSSSSSSSSLSSSSSSSSLSL"
+        assert ratio(clean, clean) == 0.0
+        assert ratio(clean[2:], clean) == 0.0          # truncated head
+        assert ratio(clean[:-3] + "LLL", clean) <= 0.35  # merged tail
+        assert ratio("SLLSSSSL", clean) <= 0.35        # shard inside frame
+        assert ratio("S" * 40, clean) > 0.35           # true stranger

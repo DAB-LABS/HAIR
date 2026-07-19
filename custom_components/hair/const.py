@@ -25,6 +25,18 @@ DEFAULT_REPEAT_COUNT = 1
 MAX_SEND_COUNT = 10
 SEND_REPEAT_GAP = 0.1
 
+# Garbled-echo swallow (shampoo, owner design 2026-07-18). When HAIR's
+# own send comes back damaged -- merged tail, truncated head, shard --
+# it decodes as nothing, misses the identity claim, and would mint a
+# junk Sniffer row. An unclaimed, UNDECODABLE capture arriving inside
+# the send window is swallowed as a garbled echo when its S/L pattern
+# fuzzy-matches a live expectation's transmitted pattern within this
+# edit-distance ratio (edits / capture length). Captures that decode
+# cleanly are NEVER swallowed regardless of similarity: a clean decode
+# with a non-matching fingerprint is a real, different signal (e.g. the
+# user pressing candles-off two seconds after testing candles-on).
+ECHO_GARBLE_SIMILARITY = 0.35
+
 # Minimum quiet time (seconds) between HAIR-originated transmissions on
 # DIFFERENT emitters. Two blasters keying up at once superimpose their
 # marks and spaces at any receiver in range of both; the hybrid arrives
