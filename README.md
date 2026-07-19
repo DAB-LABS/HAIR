@@ -8,6 +8,9 @@
 
 No vendor cloud, no code-file downloads, no YAML -- just point, press, use. Prefer a head start? An optional manufacturer and model picker in the Clipper can pre-fill a remote from your installed code library.
 
+> [!IMPORTANT]
+> **HAIR now speaks nine languages, and eight of them need your help.** The Spanish, French, Japanese, German, Polish, Portuguese, Dutch, and Italian translations are AI drafts marked "reviewer wanted" inside each dictionary file. If you use Home Assistant in one of these languages, a native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. A language we don't have yet is a two-file PR. Start here: [Adding a language](CONTRIBUTING.md#adding-a-language).
+
 ## Platform state
 
 Home Assistant's native `infrared` platform shipped transmit (TX) support in HA 2026.4 and receive (RX) support via `InfraredReceiverEntity` in HA 2026.6.
@@ -23,7 +26,7 @@ HAIR works with any integration that exposes HA's native `infrared` entity platf
 | [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Core | Yes | No | No | Since 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Core | Yes | Yes | No | TX since 2026.5, native RX (Ultima) since 2026.7 |
 
-On HA 2026.6+, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. Any integration that implements the receiver entity works as a HAIR receiver automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) below).
+On HA 2026.6+, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. Any integration that implements the receiver entity works as a HAIR receiver automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event bus bridge (see [ESPHome Setup](#esphome-setup) below).
 
 As more integrations adopt the `infrared` platform, HAIR picks them up with no changes needed on HAIR's side.
 
@@ -51,7 +54,7 @@ When HAIR can read a captured signal as a known protocol (NEC today), it also st
 
 - Home Assistant **2026.4** or later
 - Python 3.12+
-- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, SMLIGHT Ultima receivers work natively since HA 2026.7, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) for the YAML stub).
+- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, SMLIGHT Ultima receivers work natively since HA 2026.7, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Setup](#esphome-setup) for the YAML stub).
 - **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, SMLIGHT SLZB devices, etc.)
 
 ## Installation
@@ -77,11 +80,19 @@ When HAIR can read a captured signal as a known protocol (NEC today), it also st
 3. The config flow auto-detects your IR hardware (emitters and receivers)
 4. Once added, find **HAIR** in the sidebar
 
-### ESPHome Receiver Setup
+### ESPHome Setup
 
-On HA 2026.6+ your ESPHome receiver registers on the native `infrared` platform, and HAIR discovers and subscribes to it automatically. Point your `remote_receiver` at an `infrared` platform entry:
+On HA 2026.6+ your ESPHome device registers its transmitter and receiver on the native `infrared` platform, and HAIR discovers both automatically. A complete minimal setup, TX and RX together:
 
 ```yaml
+# --- IR Transmitter (TX) ---
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO9        # your IR LED pin
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+# --- IR Receiver (RX) ---
 remote_receiver:
   id: ir_rx
   pin:
@@ -94,7 +105,12 @@ remote_receiver:
   tolerance: 25%
   idle: 10ms
 
+# --- Register both on HA's native infrared platform ---
 infrared:
+  - platform: ir_rf_proxy
+    name: IR Emitter
+    id: ir_proxy_tx
+    remote_transmitter_id: ir_tx
   - platform: ir_rf_proxy
     name: IR Receiver
     id: ir_proxy_rx
@@ -102,7 +118,7 @@ infrared:
     remote_receiver_id: ir_rx
 ```
 
-Reflash, and the Devices tab shows an `RX-NATIVE` badge on the receiver card. That's it.
+Reflash, and the Devices tab shows the emitter with a `TX-NATIVE` badge and the receiver with `RX-NATIVE`. That's it.
 
 For ready-made, HAIR-tested configurations for common ESP32 boards and IR devices (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s), see [`esphome/`](esphome/) in this repo. Each device has two tiers: minimal (just the IR pieces) and full (preserves device-specific features like touch pads and status LEDs). Copying one of those is the fastest road to a working setup.
 
@@ -317,7 +333,7 @@ HAIR sits between you and HA's IR platform. It does not replace your IR hardware
 
 ### Capture (RX)
 
-HAIR uses a dual-path receive architecture. On HA 2026.6 and later, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. This is hardware-agnostic: any integration that exposes a receiver entity on the `infrared` platform works automatically, no per-vendor code in HAIR. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Receiver Setup](#esphome-receiver-setup) above for the YAML stub). Both paths feed the same signal-processing pipeline so fingerprinting, deduplication, and trigger matching behave identically regardless of which path is active. The Devices tab surfaces which path each receiver is using via `RX-NATIVE` and `RX-BRIDGE` badges.
+HAIR uses a dual-path receive architecture. On HA 2026.6 and later, HAIR subscribes to native `InfraredReceiverEntity` instances via `infrared.async_subscribe_receiver()`. This is hardware-agnostic: any integration that exposes a receiver entity on the `infrared` platform works automatically, no per-vendor code in HAIR. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Setup](#esphome-setup) above for the YAML stub). Both paths feed the same signal-processing pipeline so fingerprinting, deduplication, and trigger matching behave identically regardless of which path is active. The Devices tab surfaces which path each receiver is using via `RX-NATIVE` and `RX-BRIDGE` badges.
 
 ### Transmit (TX)
 
