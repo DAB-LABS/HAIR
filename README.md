@@ -9,7 +9,7 @@
 No vendor cloud, no code-file downloads, no YAML -- just point, press, use. Prefer a head start? An optional manufacturer and model picker in the Clipper can pre-fill a remote from your installed code library.
 
 > [!IMPORTANT]
-> **HAIR now speaks nine languages, and eight of them need your help.** The Spanish, French, Japanese, German, Polish, Portuguese, Dutch, and Italian translations are AI drafts marked "reviewer wanted" inside each dictionary file. If you use Home Assistant in one of these languages, a native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. A language we don't have yet is a two-file PR. Start here: [Adding a language](CONTRIBUTING.md#adding-a-language).
+> **HAIR now speaks ten languages, and nine of them need your help.** The Spanish, French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian translations are AI drafts marked "reviewer wanted" inside each dictionary file. If you use Home Assistant in one of these languages, a native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. A language we don't have yet is a two-file PR. Start here: [Adding a language](CONTRIBUTING.md#adding-a-language).
 
 ## Platform state
 
@@ -181,7 +181,7 @@ When you upgrade to 2026.6+, add the `infrared` platform receiver entry shown ab
 
 **Signal Aliases** - Give any signal a nickname by clicking its S/L diamond pattern and typing. The alias replaces the diamonds in the list so you can tell your signals apart at a glance, in both the Sniffer and Clipper. Click an existing alias to rename it, or clear the field to remove the alias and bring the diamonds back. An alias is a label on the signal, not a command name, so the same signal can still become differently-named commands on different devices.
 
-**Nine Languages** - The panel and the setup wizard speak English, Spanish, French, Japanese, German, Polish, Portuguese, Dutch, and Italian. HAIR follows your Home Assistant profile language automatically and falls back to English for anything it does not know. Honest disclosure: every language except English is currently an AI-drafted translation, clearly marked as such inside each dictionary file, waiting for a native speaker to give it a proper haircut. See [Adding a language](CONTRIBUTING.md#adding-a-language).
+**Ten Languages** - The panel and the setup wizard speak English, Spanish, French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian. HAIR follows your Home Assistant profile language automatically and falls back to English for anything it does not know. Honest disclosure: every language except English is currently an AI-drafted translation, clearly marked as such inside each dictionary file, waiting for a native speaker to give it a proper haircut. See [Adding a language](CONTRIBUTING.md#adding-a-language).
 
 **Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Assigning a signal copies it into the device and leaves the original in place, so the same signal can be assigned to more than one device or as more than one command. Each device gets native HA entities automatically based on its type. One-click duplicate clones an existing device with all its commands, action mappings, and emitter assignments preserved, useful when you have several remotes of the same model or a stack of similar AC units.
 

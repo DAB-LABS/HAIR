@@ -40,6 +40,7 @@ import ja from "./locales/ja.json";
 import nl from "./locales/nl.json";
 import pl from "./locales/pl.json";
 import pt from "./locales/pt.json";
+import ru from "./locales/ru.json";
 
 type Dictionary = Record<string, string>;
 
@@ -59,6 +60,7 @@ const DICTIONARIES: Record<string, Dictionary> = {
     // One Brazilian-leaning Portuguese dictionary serves both HA
     // language choices; pt-BR resolves here via the base-language rule.
     pt: pt as Dictionary,
+    ru: ru as Dictionary,
 };
 
 let _lang = "en";
