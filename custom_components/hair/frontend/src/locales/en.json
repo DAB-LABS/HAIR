@@ -102,5 +102,20 @@
     "cmdrow.edit_trigger": "Edit trigger",
     "cmdrow.create_trigger": "Create trigger",
     "cmdrow.delete": "Delete",
-    "cmdrow.learn": "Learn"
+    "cmdrow.learn": "Learn",
+    "trigger.alias_tag": "alias",
+    "trigger.event": "Trigger Event",
+    "trigger.edit_heading": "Edit Trigger",
+    "trigger.create_heading": "Create Trigger",
+    "trigger.mirror_hint": "Fires when this signal arrives from outside Home Assistant (a physical remote or another app), never on the house's own sends.",
+    "trigger.name_label": "Trigger Name",
+    "trigger.name_placeholder": "e.g. TV Power",
+    "trigger.min_hits": "Min Hits",
+    "trigger.min_hits_hint": "Number of presses within 5s to fire",
+    "trigger.scope_hint": "Fires once per press, regardless of how many scoped receivers observe the signal.",
+    "trigger.save_failed": "Save failed",
+    "common.saving": "Saving...",
+    "common.update": "Update",
+    "common.create": "Create",
+    "common.delete": "Delete"
 }
