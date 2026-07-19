@@ -109,6 +109,11 @@ interface MirrorRowView {
     chip: string;
     heard: string | null; // null = suppress clause (zero-receiver home)
     heardOk: boolean;
+    // Foreign send that was never heard: no code, no identity, dead
+    // action buttons. These rows swap the whole sub-line for a plain
+    // explanation (owner wording, shampoo bench) -- the row was
+    // mistaken for a bug twice because it looked broken, not honest.
+    unknownSend: boolean;
 }
 
 @customElement("ir-mirror")
@@ -347,8 +352,8 @@ export class IrMirror extends LitElement {
 
         // Title chain: alias > send label > decoded identity > the S/L
         // diamonds (the panel's established unnamed-signal identity) >
-        // "Unknown send" (foreign, never heard, nothing known).
-        const title =
+        // the unknown-send title (foreign, never heard, nothing known).
+        const chainTitle =
             sig.alias ||
             labelTitle ||
             this._decodedDisplay(sig) ||
@@ -356,8 +361,9 @@ export class IrMirror extends LitElement {
                 ? [...sig.sl_pattern]
                       .map((ch) => (ch === "L" ? "◆" : "◇"))
                       .join("")
-                : null) ||
-            "Unknown send";
+                : null);
+        const unknownSend = !chainTitle;
+        const title = chainTitle || "Unknown IR signal sent";
 
         const pill = sig.decoded_protocol ?? sig.protocol;
         const pillRaw = !sig.decoded_protocol;
@@ -404,6 +410,7 @@ export class IrMirror extends LitElement {
             chip,
             heard,
             heardOk,
+            unknownSend,
         };
     }
 
@@ -828,23 +835,38 @@ export class IrMirror extends LitElement {
                               >`
                             : ""}
                     </div>
-                    <div class="mrow-sub">
-                        ${r.via
-                            ? html`<span title=${r.viaFull}>${r.via}</span>`
-                            : ""}
-                        ${r.heard !== null
-                            ? html`
-                                  <span class="arrow">&#10142;</span>
-                                  <span
-                                      class=${r.heardOk
-                                          ? "heard"
-                                          : "not-heard"}
-                                      >${r.heard}</span
-                                  >
-                              `
-                            : ""}
-                        <span class="src-chip">${r.chip}</span>
-                    </div>
+                    ${r.unknownSend
+                        ? html`
+                              <div class="mrow-hint">
+                                  ${r.emitters[0] ?? "The blaster"} fired,
+                                  but nothing was close enough to hear what
+                                  it said. Place a receiver in earshot to
+                                  catch the next send.
+                              </div>
+                          `
+                        : html`
+                              <div class="mrow-sub">
+                                  ${r.via
+                                      ? html`<span title=${r.viaFull}
+                                            >${r.via}</span
+                                        >`
+                                      : ""}
+                                  ${r.heard !== null
+                                      ? html`
+                                            <span class="arrow"
+                                                >&#10142;</span
+                                            >
+                                            <span
+                                                class=${r.heardOk
+                                                    ? "heard"
+                                                    : "not-heard"}
+                                                >${r.heard}</span
+                                            >
+                                        `
+                                      : ""}
+                                  <span class="src-chip">${r.chip}</span>
+                              </div>
+                          `}
                 </div>
                 <div class="mrow-meta">
                     <span class="counts"
@@ -1299,6 +1321,16 @@ export class IrMirror extends LitElement {
                 align-items: center;
                 gap: 6px;
                 flex-wrap: wrap;
+            }
+            /* Unknown-send explanation: replaces the whole sub-line on
+               foreign never-heard rows (owner wording). Plain prose, so
+               it wraps like a sentence rather than flexing like chips. */
+            .mrow-hint {
+                margin-top: 4px;
+                font-size: 12px;
+                color: var(--secondary-text-color);
+                line-height: 1.45;
+                max-width: 46em;
             }
             .arrow {
                 color: #b0bec5;
