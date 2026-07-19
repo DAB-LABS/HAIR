@@ -208,7 +208,7 @@ SMLIGHT SLZB devices.
 Supported device types and resulting HA entities:
 - Media Player -> media_player (power, volume, mute, source, channels, navigation, transport)
 - AC -> climate (HVAC modes, temperature presets, fan modes)
-- Fan -> fan (power, speed stepping, oscillate)
+- Fan -> fan (power, speed stepping or direct speed levels 1-10, oscillate)
 - Light -> light (on/off, brightness stepping)
 - Switch -> switch (on/off)
 - Screen -> cover (open, close, stop)
