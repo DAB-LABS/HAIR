@@ -8,6 +8,7 @@
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { HairApi } from "./api.js";
+import { setPanelLanguage, t } from "./localize.js";
 import "./ir-device-list.js";
 import "./ir-add-device-dialog.js";
 import "./ir-signal-monitor.js";
@@ -49,8 +50,14 @@ export class HaPanelIrDevices extends LitElement {
     }
 
     protected updated(changed: PropertyValues): void {
-        if (changed.has("hass") && this.hass && !this._api) {
-            this._init();
+        if (changed.has("hass") && this.hass) {
+            // Follow the USER's profile language (server language can
+            // differ). Cheap no-op when unchanged; a language change
+            // takes effect on reload per the i18n plan.
+            setPanelLanguage(this.hass.language);
+            if (!this._api) {
+                this._init();
+            }
         }
     }
 
@@ -76,14 +83,7 @@ export class HaPanelIrDevices extends LitElement {
     }
 
     private _tagline(): string {
-        const taglines: Record<PanelTab, string> = {
-            devices: "Manage your IR devices and the hardware that drives them.",
-            sniffer: "Capture IR codes live from the air.",
-            clips: "Build remotes by pasting known IR codes.",
-            plucker: "Pluck IR codes from existing blasters.",
-            mirror: "See your live Home Assistant infrared transmissions.",
-        };
-        return taglines[this._activeTab];
+        return t(`panel.tagline.${this._activeTab}`);
     }
 
     private async _refreshDevices(): Promise<void> {
@@ -93,7 +93,7 @@ export class HaPanelIrDevices extends LitElement {
             this._devices = await this._api.listDevices();
             this._error = null;
         } catch (err) {
-            this._error = `Failed to load devices: ${(err as Error).message}`;
+            this._error = t("panel.load_failed", { message: (err as Error).message });
         } finally {
             this._loading = false;
         }
@@ -175,7 +175,7 @@ export class HaPanelIrDevices extends LitElement {
 
     render() {
         if (!this._api) {
-            return html`<div class="loading">Loading…</div>`;
+            return html`<div class="loading">${t("panel.loading")}</div>`;
         }
 
         return html`
@@ -188,8 +188,8 @@ export class HaPanelIrDevices extends LitElement {
             <div class="mobile-nav-row">
                 <button
                     class="mobile-nav-button"
-                    title="Open menu"
-                    aria-label="Open menu"
+                    title=${t("panel.open_menu")}
+                    aria-label=${t("panel.open_menu")}
                     @click=${this._openHaSidebar}
                 >
                     <ha-svg-icon
@@ -211,7 +211,7 @@ export class HaPanelIrDevices extends LitElement {
                     class="tab ${this._activeTab === "devices" ? "active" : ""}"
                     @click=${() => this._switchTab("devices")}
                 >
-                    Devices
+                    ${t("panel.tab.devices")}
                 </button>
                 <button
                     class="tab ${this._activeTab === "sniffer" ? "active" : ""}"

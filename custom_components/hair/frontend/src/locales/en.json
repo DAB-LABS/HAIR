@@ -1,0 +1,11 @@
+{
+    "panel.loading": "Loading…",
+    "panel.load_failed": "Failed to load devices: {message}",
+    "panel.open_menu": "Open menu",
+    "panel.tab.devices": "Devices",
+    "panel.tagline.devices": "Manage your IR devices and the hardware that drives them.",
+    "panel.tagline.sniffer": "Capture IR codes live from the air.",
+    "panel.tagline.clips": "Build remotes by pasting known IR codes.",
+    "panel.tagline.plucker": "Pluck IR codes from existing blasters.",
+    "panel.tagline.mirror": "See your live Home Assistant infrared transmissions."
+}

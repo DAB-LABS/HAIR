@@ -1,0 +1,110 @@
+/**
+ * Panel localization (v0.6.8 "French Braid", i18n Phase 0).
+ *
+ * A deliberately tiny module: flat JSON dictionaries compiled into the
+ * single Rollup bundle, a module-level current language, and two
+ * functions. No runtime fetches, no dependencies, no framework.
+ *
+ * - ``t(key, subs)`` returns the localized string for a flat namespaced
+ *   key ("mirror.not_heard"), with ``{name}``-style substitutions.
+ *   Fallback chain: active locale -> en -> the key itself (a visible
+ *   key in the UI is a bug you can read).
+ * - ``tp(key, count, subs)`` is the plural form: it appends the
+ *   ``Intl.PluralRules`` category for the active locale to the key
+ *   ("mirror.sends" -> "mirror.sends.one" / "mirror.sends.other" /
+ *   "mirror.sends.few" ...), so three-form languages (pl, ru, cs) work
+ *   without English-shaped if/else pluralization. The count is also
+ *   provided as the ``{count}`` substitution.
+ *
+ * The top-level panel calls ``setPanelLanguage(hass.language)`` when
+ * hass arrives or changes; everything else just imports ``t``.
+ * Language resolution: exact tag -> base language -> en.
+ *
+ * BRAND NAMES ARE NEVER TRANSLATED (owner ruling, 2026-07-19): HAIR,
+ * Sniffer, Clipper, Plucker, Mirror, Tweezer, and the wigs to come are
+ * proper nouns and stay out of the dictionaries wherever they stand
+ * alone. Taglines and sentences AROUND them translate; a brand name
+ * inside a sentence rides as a substitution or literal.
+ *
+ * Adding a language: copy ``locales/en.json`` to ``locales/<lang>.json``,
+ * translate the VALUES only, import it below, and add it to
+ * ``DICTIONARIES``. The parity test (tests/test_locales.py) fails CI on
+ * any missing or extra key, so a stale translation cannot ship blanks.
+ */
+import en from "./locales/en.json";
+
+type Dictionary = Record<string, string>;
+
+const DICTIONARIES: Record<string, Dictionary> = {
+    en: en as Dictionary,
+};
+
+let _lang = "en";
+let _plurals = new Intl.PluralRules("en");
+
+/** Resolve and set the active panel language (exact -> base -> en). */
+export function setPanelLanguage(language: string | undefined): void {
+    const requested = (language || "en").toLowerCase();
+    let resolved = "en";
+    if (DICTIONARIES[requested]) {
+        resolved = requested;
+    } else {
+        const base = requested.split("-")[0];
+        if (DICTIONARIES[base]) resolved = base;
+    }
+    if (resolved === _lang) return;
+    _lang = resolved;
+    try {
+        // The requested tag (not the resolved dictionary key) drives
+        // plural category selection, so pt-BR pluralizes as pt-BR even
+        // while reading the pt dictionary.
+        _plurals = new Intl.PluralRules(language || "en");
+    } catch {
+        _plurals = new Intl.PluralRules("en");
+    }
+}
+
+/** Current resolved language (exposed for date/number formatting). */
+export function panelLanguage(): string {
+    return _lang;
+}
+
+/** Localize a flat key with optional {name}-style substitutions. */
+export function t(
+    key: string,
+    subs?: Record<string, string | number>,
+): string {
+    const dict = DICTIONARIES[_lang];
+    let s = dict?.[key] ?? (en as Dictionary)[key] ?? key;
+    if (subs) {
+        for (const [k, v] of Object.entries(subs)) {
+            s = s.split(`{${k}}`).join(String(v));
+        }
+    }
+    return s;
+}
+
+/** Localize a pluralized key: ``key.<pluralCategory>`` with {count}. */
+export function tp(
+    key: string,
+    count: number,
+    subs?: Record<string, string | number>,
+): string {
+    const category = _plurals.select(count);
+    const dict = DICTIONARIES[_lang];
+    const exact = `${key}.${category}`;
+    const other = `${key}.other`;
+    let s =
+        dict?.[exact] ??
+        dict?.[other] ??
+        (en as Dictionary)[exact] ??
+        (en as Dictionary)[other] ??
+        key;
+    s = s.split("{count}").join(String(count));
+    if (subs) {
+        for (const [k, v] of Object.entries(subs)) {
+            s = s.split(`{${k}}`).join(String(v));
+        }
+    }
+    return s;
+}
