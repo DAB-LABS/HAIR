@@ -11,6 +11,7 @@
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
+import { t, tp } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -543,9 +544,9 @@ export class IrClips extends LitElement {
             ).length;
             const total = emitters.length;
             if (sent === total) {
-                this._testResult = total === 1 ? "Sent!" : `Sent! (${sent}/${total})`;
+                this._testResult = total === 1 ? t("mirror.sent") : t("mirror.sent_all_n", { sent, total });
             } else if (sent === 0) {
-                this._testResult = "Failed";
+                this._testResult = t("mirror.failed");
             } else {
                 this._testResult = `Sent (${sent}/${total})`;
             }
@@ -735,10 +736,10 @@ export class IrClips extends LitElement {
             <div class="toolbar">
                 <span class="title">
                     <ha-svg-icon .path=${ICON_CLIPPER}></ha-svg-icon>
-                    HAIR Clipper
+                    ${t("clips.title")}
                     ${!this._loading
                         ? html`<span class="count"
-                              >(${count} ${count === 1 ? "remote" : "remotes"})</span
+                              >(${tp("sniffer.remotes", count)})</span
                           >`
                         : ""}
                 </span>
@@ -747,7 +748,7 @@ export class IrClips extends LitElement {
                         class="action-btn create-btn"
                         @click=${() => (this._createRemoteOpen = true)}
                     >
-                        + Add Remote
+                        ${t("clips.add_remote")}
                     </button>
                 </div>
             </div>
@@ -757,19 +758,14 @@ export class IrClips extends LitElement {
                 : ""}
 
             ${this._loading
-                ? html`<div class="loading">Loading...</div>`
+                ? html`<div class="loading">${t("common.loading_plain")}</div>`
                 : count === 0
                   ? html`
                         <ha-card class="empty">
                             <ha-svg-icon class="empty-icon" .path=${ICON_CLIPPER}></ha-svg-icon>
-                            <h3>No virtual remotes yet</h3>
-                            <p>
-                                Clipper lets you build remotes by pasting Pronto codes.
-                                Create a remote, then add a signal for each button.
-                            </p>
-                            <p class="hint">
-                                Click "+ Add Remote" above to start a clipped remote.
-                            </p>
+                            <h3>${t("clips.empty_title")}</h3>
+                            <p>${t("clips.empty_body")}</p>
+                            <p class="hint">${t("clips.empty_hint")}</p>
                         </ha-card>
                     `
                   : html`
@@ -790,10 +786,10 @@ export class IrClips extends LitElement {
                       <div class="clear-all-row">
                           <button
                               class="action-btn delete-btn"
-                              title="Delete all clipped remotes and their signals. Sniffed signals are untouched."
+                              title=${t("clips.clear_all_title")}
                               @click=${() => (this._confirmClearAll = true)}
                           >
-                              Clear All
+                              ${t("sniffer.clear_all")}
                           </button>
                       </div>
                   `
@@ -825,29 +821,29 @@ export class IrClips extends LitElement {
                                 : html`<ha-svg-icon
                                           class="remote-grip"
                                           .path=${ICON_GRIP}
-                                          title="Drag to reorder"
+                                          title=${t("devdetail.drag")}
                                           @click=${(e: Event) => e.stopPropagation()}
                                       ></ha-svg-icon>
                                       <span
                                           class="protocol"
-                                          title="Click to rename"
+                                          title=${t("cmdrow.rename")}
                                           @click=${(e: Event) => this._startRename(d, e)}
-                                          >${d.label ?? "Remote"}</span
+                                          >${d.label ?? t("clips.remote_fallback")}</span
                                       >`}
                             <span class="stat"
                                 ><strong>${d.signal_count}</strong>
-                                ${d.signal_count === 1 ? "signal" : "signals"}</span
+                                ${tp("sniffer.signal_word", d.signal_count)}</span
                             >
                             ${d.label && this._matchesHairDevice(d.label)
                                 ? html`<span
                                       class="status-badge hair-device"
                                       @click=${(e: Event) => e.stopPropagation()}
-                                  >HAIR Device</span>`
+                                  >${t("sniffer.hair_device")}</span>`
                                 : d.label
                                     ? html`<span
                                           class="status-badge promote-badge"
                                           @click=${(e: Event) => this._promoteDevice(d, e)}
-                                      >Promote</span>`
+                                      >${t("sniffer.promote")}</span>`
                                     : ""}
                         </div>
                     </div>
@@ -868,20 +864,19 @@ export class IrClips extends LitElement {
         return html`
             <div class="expanded">
                 <div class="signal-header">
-                    <span>Signals (${device.signals.length})</span>
+                    <span>${t("sniffer.signals_head", { count: device.signals.length })}</span>
                     <button
                         class="create-signal-btn"
-                        title="Add a signal to this remote"
+                        title=${t("clips.add_signal_title")}
                         @click=${(e: Event) => this._openCreateSignal(device.id, e)}
                     >
-                        + Add Signal
+                        ${t("clips.add_signal")}
                     </button>
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
                           <span class="no-signals"
-                              >No signals yet. Click "+ Add Signal" to paste a
-                              Pronto code.</span
+                              >${t("clips.no_signals")}</span
                           >
                       </div>`
                     : html`
@@ -904,12 +899,12 @@ export class IrClips extends LitElement {
                 <div class="remote-footer">
                     <button
                         class="action-btn delete-btn"
-                        title="Delete this remote and all its signals"
+                        title=${t("clips.delete_remote_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDeleteRemote(device);
                         }}
-                    >Delete remote</button>
+                    >${t("clips.delete_remote")}</button>
                 </div>
             </div>
         `;
@@ -926,7 +921,7 @@ export class IrClips extends LitElement {
                 <ha-svg-icon
                     class="signal-grip"
                     .path=${ICON_GRIP}
-                    title="Drag to reorder"
+                    title=${t("devdetail.drag")}
                 ></ha-svg-icon>
                 <div class="signal-info">
                     <ir-signal-alias
@@ -944,7 +939,7 @@ export class IrClips extends LitElement {
                 </div>
                 ${sig.code
                     ? html`<button
-                          title="View or edit code"
+                          title=${t("cmdrow.edit_code")}
                           @click=${(e: Event) =>
                               this._openEditSignal(deviceId, sig, e)}
                           style="background:none;border:none;cursor:pointer;color:var(--secondary-text-color);padding:2px;display:inline-flex;align-items:center"
@@ -962,34 +957,34 @@ export class IrClips extends LitElement {
                             ? (sig.assignment_count === 1
                                 ? `Assigned to ${sig.assigned_to[0].device_name} / ${sig.assigned_to[0].command_name}`
                                 : `Assigned to ${sig.assignment_count} commands:\n- ${sig.assigned_to.map((a) => `${a.device_name} / ${a.command_name}`).join("\n- ")}`)
-                            : "Assign this signal to a HAIR device"}
+                            : t("mirror.assign_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._onAssignClick(deviceId, sig, label, e);
                         }}
-                    >Assign<ir-count-dot
+                    >${t("assign.assign")}<ir-count-dot
                             color="green"
                             .count=${sig.assignment_count ?? 0}
                         ></ir-count-dot></button>
                     <button
                         class="action-btn test-btn"
                         ?disabled=${isTesting}
-                        title="Send this signal through an emitter"
+                        title=${t("clips.test_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openTestDialog(sig);
                         }}
-                    >${isTesting ? "Sending..." : "Test"}</button>
+                    >${isTesting ? (this._testResult ?? t("mirror.sending")) : t("mirror.test")}</button>
                     <button
                         class="action-btn trigger-btn"
                         title=${this._hasTrigger(sig)
-                            ? "Edit trigger(s) for this signal"
-                            : "Create an HA event entity that fires on this signal"}
+                            ? t("mirror.trigger_edit")
+                            : t("sniffer.trigger_create")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openTriggerDialog(deviceId, sig, e);
                         }}
-                    >Trigger<ir-count-dot
+                    >${t("cmdrow.trigger")}<ir-count-dot
                             color="yellow"
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
@@ -999,7 +994,7 @@ export class IrClips extends LitElement {
                             e.stopPropagation();
                             this._openDelete(deviceId, sig);
                         }}
-                    >Delete</button>
+                    >${t("common.delete")}</button>
                 </div>
             </div>
         `;
@@ -1066,8 +1061,8 @@ export class IrClips extends LitElement {
 
             ${this._deleteSignal
                 ? html`<ir-confirm-dialog
-                      title="Delete Signal"
-                      message="Remove this signal permanently? This cannot be undone."
+                      title=${t("sniffer.del_signal_title")}
+                      message=${t("sniffer.del_signal_msg")}
                       confirmLabel="Delete"
                       .destructive=${true}
                       @confirmed=${this._confirmDelete}
@@ -1077,9 +1072,9 @@ export class IrClips extends LitElement {
 
             ${this._confirmClearAll
                 ? html`<ir-confirm-dialog
-                      title="Clear All Clips"
-                      message="Remove all clipped remotes and their signals? This cannot be undone. Sniffed signals are not affected."
-                      confirmLabel="Clear All"
+                      title=${t("clips.clear_all_confirm_title")}
+                      message=${t("clips.clear_all_confirm_msg")}
+                      confirmLabel=${t("sniffer.clear_all")}
                       .destructive=${true}
                       @confirmed=${this._doClearAll}
                       @closed=${() => (this._confirmClearAll = false)}
@@ -1088,10 +1083,10 @@ export class IrClips extends LitElement {
 
             ${this._deleteRemoteId
                 ? html`<ir-confirm-dialog
-                      title="Delete Remote"
+                      title=${t("clips.del_remote_confirm_title")}
                       message=${this._deleteRemoteCount > 0
-                          ? `Remove "${this._deleteRemoteLabel}" and its ${this._deleteRemoteCount} ${this._deleteRemoteCount === 1 ? "signal" : "signals"}? This cannot be undone.`
-                          : `Remove "${this._deleteRemoteLabel}"? This cannot be undone.`}
+                          ? tp("clips.del_remote_msg_n", this._deleteRemoteCount, { name: this._deleteRemoteLabel ?? "" })
+                          : t("clips.del_remote_msg", { name: this._deleteRemoteLabel ?? "" })}
                       confirmLabel="Delete"
                       .destructive=${true}
                       @confirmed=${this._confirmDeleteRemote}
@@ -1150,8 +1145,8 @@ export class IrClips extends LitElement {
 
             ${this._confirmDeleteTriggerId
                 ? html`<ir-confirm-dialog
-                      title="Delete Trigger"
-                      message="Remove this trigger? The associated HA event entity will also be removed."
+                      title=${t("mirror.del_trigger_title")}
+                      message=${t("devdetail.del_trigger_msg")}
                       confirmLabel="Delete"
                       .destructive=${true}
                       @confirmed=${this._doDeleteTrigger}
