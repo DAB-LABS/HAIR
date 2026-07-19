@@ -214,11 +214,11 @@ Supported device types and resulting HA entities:
 - Screen -> cover (open, close, stop)
 - Other -> remote (generic IR command sender)
 
-Localization (v0.6.8): the panel and the config flow ship in six languages
-(en, es, fr, ja, de, pl). The panel follows the HA user's profile language
-with English fallback. Non-English locales are AI drafts, marked
-"reviewer wanted" inside each dictionary file; native-speaker reviews and
-new languages are welcome as small PRs guarded by parity tests (see
+Localization (v0.6.8): the panel and the config flow ship in nine languages
+(en, es, fr, ja, de, pl, pt/pt-BR, nl, it). The panel follows the HA user's
+profile language with English fallback. Non-English locales are AI drafts,
+marked "reviewer wanted" inside each dictionary file; native-speaker reviews
+and new languages are welcome as small PRs guarded by parity tests (see
 CONTRIBUTING.md, "Adding a language").
 
 Every device also gets a remote entity for raw Pronto hex codes and a button entity

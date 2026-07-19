@@ -5,6 +5,24 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-07-19 -- French Braid
+
+### Added
+
+- HAIR speaks nine languages. The panel and the setup wizard ship in English, Spanish, French, Japanese, German, Polish, Portuguese (pt and pt-BR), Dutch, and Italian, following your Home Assistant profile language automatically with English fallback. Every non-English locale is an AI-drafted translation marked "reviewer wanted" inside its dictionary file; native-speaker reviews are one-file PRs, and the reviewer's name goes in the file. See "Adding a language" in CONTRIBUTING.
+- Command vocabulary localizes end to end. Template names and action labels render in your language, an accepted template stores the localized name (your data, your language), and assign-time auto-mapping recognizes the vocabulary of every shipped language at once, so a command named "Allumer", "Einschalten", or "電源オン" wires itself the same way "Power On" always has.
+- Plural grammar done properly. Polish counts render as 1 sygnał / 2 sygnały / 5 sygnałów via CLDR plural rules, not English-shaped if/else. Dates and timestamps follow the panel language too.
+- The Map action popover gains a Custom... entry: type any action key (temp_30, and the like) directly, no re-import needed to fix a mistyped mapping.
+- A parity test suite makes translations safe to contribute: key parity, placeholder parity, brand-name preservation, and vocabulary coverage all fail CI before a stale or broken translation can ship blanks.
+
+### Fixed
+
+- The stray "Templates" button in the Assign dialog's custom-name mode is now a Cancel button, which is what it always did.
+
+### Changed
+
+- Every string in the panel now lives in one dictionary file per language instead of being scattered through the components; 428 strings extracted at pixel parity.
+
 ## [0.6.7] - 2026-07-19 -- Shampoo
 
 ### Added

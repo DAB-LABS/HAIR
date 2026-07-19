@@ -121,7 +121,7 @@ For ready-made, HAIR-tested configurations for common ESP32 boards and IR device
 
 **Signal Aliases** - Give any signal a nickname by clicking its S/L diamond pattern and typing. The alias replaces the diamonds in the list so you can tell your signals apart at a glance, in both the Sniffer and Clipper. Click an existing alias to rename it, or clear the field to remove the alias and bring the diamonds back. An alias is a label on the signal, not a command name, so the same signal can still become differently-named commands on different devices.
 
-**Six Languages** - The panel and the setup wizard speak English, Spanish, French, Japanese, German, and Polish. HAIR follows your Home Assistant profile language automatically and falls back to English for anything it does not know. Honest disclosure: every language except English is currently an AI-drafted translation, clearly marked as such inside each dictionary file, waiting for a native speaker to give it a proper haircut. If that is you, a review is a one-file PR and your name goes in the file. See [Adding a language](CONTRIBUTING.md#adding-a-language).
+**Nine Languages** - The panel and the setup wizard speak English, Spanish, French, Japanese, German, Polish, Portuguese, Dutch, and Italian. HAIR follows your Home Assistant profile language automatically and falls back to English for anything it does not know. Honest disclosure: every language except English is currently an AI-drafted translation, clearly marked as such inside each dictionary file, waiting for a native speaker to give it a proper haircut. If that is you, a review is a one-file PR and your name goes in the file. See [Adding a language](CONTRIBUTING.md#adding-a-language).
 
 **Device Management** - Create profiles for your IR-controlled devices (TVs, ACs, fans, lights, switches, screens). Assign captured signals as named commands from a device-type-aware template list, or enter custom names. Assigning a signal copies it into the device and leaves the original in place, so the same signal can be assigned to more than one device or as more than one command. Each device gets native HA entities automatically based on its type. One-click duplicate clones an existing device with all its commands, action mappings, and emitter assignments preserved, useful when you have several remotes of the same model or a stack of similar AC units.
 
@@ -344,7 +344,7 @@ Four signal sources feed one catalog: live capture (Sniffer), manual Pronto past
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-**Translators especially wanted.** The Spanish, French, Japanese, German, and Polish translations are machine drafts marked "reviewer wanted." If you use Home Assistant in one of those languages, a native-speaker pass over one file would make a real difference, and adding a whole new language is a two-file PR with a test suite that tells you when you are done. Details in [Adding a language](CONTRIBUTING.md#adding-a-language).
+**Translators especially wanted.** The Spanish, French, Japanese, German, Polish, Portuguese, Dutch, and Italian translations are machine drafts marked "reviewer wanted." If you use Home Assistant in one of those languages, a native-speaker pass over one file would make a real difference, and adding a whole new language is a two-file PR with a test suite that tells you when you are done. Your name goes in the dictionary as its reviewer. Details in [Adding a language](CONTRIBUTING.md#adding-a-language).
 
 ## License
 
