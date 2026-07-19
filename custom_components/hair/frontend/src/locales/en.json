@@ -1,4 +1,5 @@
 {
+    "_meta.review": "source",
     "panel.loading": "Loading…",
     "panel.load_failed": "Failed to load devices: {message}",
     "panel.open_menu": "Open menu",

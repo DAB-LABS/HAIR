@@ -103,7 +103,17 @@ HAIR ships curated ESPHome IR configurations in [`esphome/`](esphome/). If you h
 
 The HAIR panel is fully localizable. Adding a language is a two-file PR, and the test suite tells you when you are done.
 
-1. Copy `custom_components/hair/frontend/src/locales/en.json` to `locales/<lang>.json` (for example `de.json`) and translate the values only. Never change the keys.
+### Translation status
+
+| Language | Panel (`locales/`) | Config flow (`translations/`) | Status |
+|---|---|---|---|
+| English (en) | yes | yes | source |
+| Spanish (es) | wanted | yes | config flow reviewed (thanks @Waterbrain); panel dictionary wanted |
+| French (fr) | yes | yes | AI draft, native reviewer wanted |
+
+AI-drafted locales ship live on purpose: imperfect French beats English for a French user, and visible strings are the best way to find the person who will polish them. If that person is you, open a PR that corrects the values and flips the file's `_meta.review` marker to `reviewed by @yourhandle, <date>`. That marker is a real key in every panel dictionary (never rendered), so the parity tests force each locale to declare where it stands.
+
+1. Copy `custom_components/hair/frontend/src/locales/en.json` to `locales/<lang>.json` (for example `de.json`) and translate the values only. Never change the keys. Set the `_meta.review` key to your status: `reviewed by @yourhandle, <date>` if you are a native speaker, or `AI draft (<date>), not yet reviewed by a native speaker` if machine-assisted.
 2. Copy `custom_components/hair/translations/en.json` to `translations/<lang>.json` and translate it the same way. This file covers the config flow and follows Home Assistant's nested format.
 3. Wire the panel dictionary into `custom_components/hair/frontend/src/localize.ts`: add an import and a `DICTIONARIES` entry (two lines, the file header shows where).
 4. Run `pytest custom_components/hair/tests/test_locales.py`. It checks key parity, `{placeholder}` parity, and brand names.

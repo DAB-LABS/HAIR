@@ -32,11 +32,17 @@
  * any missing or extra key, so a stale translation cannot ship blanks.
  */
 import en from "./locales/en.json";
+import fr from "./locales/fr.json";
 
 type Dictionary = Record<string, string>;
 
+// Locales whose "_meta.review" key says "AI draft" ship live on purpose
+// (owner ruling, 2026-07-19): imperfect-but-present beats English for
+// that user, and visible strings recruit native reviewers. The marker
+// key never renders; reviewers flip it in their review PR.
 const DICTIONARIES: Record<string, Dictionary> = {
     en: en as Dictionary,
+    fr: fr as Dictionary,
 };
 
 let _lang = "en";

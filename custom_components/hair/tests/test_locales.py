@@ -86,6 +86,31 @@ def _nested_paths(data: dict, prefix: str = "") -> set[str]:
 EN = _load(LOCALES_DIR / "en.json")
 
 
+class TestReviewMarker:
+    """Every panel locale declares its review status in-file.
+
+    The reserved "_meta.review" key never renders; it tells the next
+    person opening the file (or browsing GitHub) whether these strings
+    are source, an AI draft awaiting a native speaker, or reviewed.
+    Parity already forces the key into every locale because en carries
+    it; these tests pin the semantics.
+    """
+
+    def test_en_declares_source(self):
+        assert EN.get("_meta.review") == "source"
+
+    @pytest.mark.parametrize(
+        "path", _frontend_locales(), ids=lambda p: p.stem
+    )
+    def test_translations_declare_their_status(self, path):
+        status = _load(path).get("_meta.review", "")
+        assert status, f"{path.name} is missing the _meta.review marker"
+        assert status != "source", (
+            f"{path.name} claims to be the source dictionary; expected "
+            "an 'AI draft ...' or 'reviewed by ...' status"
+        )
+
+
 class TestEnglishDictionary:
     def test_flat_string_values(self):
         for key, value in EN.items():
