@@ -360,5 +360,22 @@
     "clips.del_remote_confirm_title": "Delete Remote",
     "clips.del_remote_msg_n.one": "Remove \"{name}\" and its {count} signal? This cannot be undone.",
     "clips.del_remote_msg_n.other": "Remove \"{name}\" and its {count} signals? This cannot be undone.",
-    "clips.del_remote_msg": "Remove \"{name}\"? This cannot be undone."
+    "clips.del_remote_msg": "Remove \"{name}\"? This cannot be undone.",
+    "pluck.vendor_unavailable": "This blaster's integration is not available right now. Make sure the vendor integration is loaded.",
+    "pluck.title": "HAIR Plucker",
+    "pluck.add_blaster": "+ Add Blaster",
+    "pluck.empty_title": "No plucked blasters yet",
+    "pluck.empty_body": "The Plucker imports IR codes from your existing blasters so you can use them in HAIR without re-learning each one.",
+    "pluck.empty_hint": "Click \"+ Add Blaster\" above to mirror a blaster.",
+    "pluck.clear_all_title": "Delete all plucked blasters and their signals. Sniffed and clipped signals are untouched.",
+    "pluck.blaster_fallback": "Blaster",
+    "pluck.promote_title": "Create a HAIR device from this blaster",
+    "pluck.pluck_signal_title": "Pluck a code off this blaster",
+    "pluck.pluck_signal": "+ Pluck Signal",
+    "pluck.no_signals": "No signals yet. Click \"+ Pluck Signal\" to pull a code off this blaster.",
+    "pluck.delete_blaster_title": "Delete this blaster and all its signals",
+    "pluck.delete_blaster": "Delete blaster",
+    "pluck.clear_all_confirm_title": "Clear All Plucked",
+    "pluck.clear_all_confirm_msg": "Remove all plucked blasters and their signals? This cannot be undone. Sniffed and clipped signals are not affected.",
+    "pluck.del_blaster_confirm_title": "Delete Blaster"
 }
