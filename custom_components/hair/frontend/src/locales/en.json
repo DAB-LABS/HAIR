@@ -86,5 +86,21 @@
     "popover.triggers": "Triggers",
     "popover.new_trigger": "+ new trigger",
     "popover.any_receiver": "Any receiver",
-    "popover.n_more": "{name} + {count} more"
+    "popover.n_more": "{name} + {count} more",
+    "cmdrow.rename": "Click to rename",
+    "cmdrow.tx_raw_on": "Replaying the captured Pronto. Click to transmit clean decoded packet timings instead.",
+    "cmdrow.tx_raw_off": "Transmitting clean decoded packet timings. Click to replay the captured Pronto instead.",
+    "cmdrow.sends_times": "Sends this command {count} times",
+    "cmdrow.dittos": "Appends {count} NEC dittos",
+    "cmdrow.raw_timings": "RAW: {count} timings",
+    "cmdrow.not_learned": "Not yet learned",
+    "cmdrow.edit_code": "View or edit code",
+    "cmdrow.map_action": "Assign action mapping",
+    "cmdrow.actions": "ACTIONS",
+    "cmdrow.test": "Test",
+    "cmdrow.trigger": "Trigger",
+    "cmdrow.edit_trigger": "Edit trigger",
+    "cmdrow.create_trigger": "Create trigger",
+    "cmdrow.delete": "Delete",
+    "cmdrow.learn": "Learn"
 }
