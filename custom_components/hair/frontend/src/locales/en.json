@@ -376,5 +376,8 @@
     "pluck.delete_blaster": "Delete blaster",
     "pluck.clear_all_confirm_title": "Clear All Plucked",
     "pluck.clear_all_confirm_msg": "Remove all plucked blasters and their signals? This cannot be undone. Sniffed and clipped signals are not affected.",
-    "pluck.del_blaster_confirm_title": "Delete Blaster"
+    "pluck.del_blaster_confirm_title": "Delete Blaster",
+    "devdetail.custom_action": "Custom...",
+    "devdetail.custom_action_placeholder": "e.g. temp_30",
+    "devdetail.set": "Set"
 }

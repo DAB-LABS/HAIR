@@ -62,6 +62,14 @@ export class IrDeviceDetail extends LitElement {
     @state() private _mappingCommandName: string | null = null;
     @state() private _popoverTop = 0;
     @state() private _popoverLeft = 0;
+    // Custom action entry (owner ruling, GH bench 2026-07-19): free-form
+    // action key typed into the popover -- the update-mapping endpoint
+    // accepts any string, and the thermostat consumes any temp_N key, so
+    // changing "temp_28" to "temp_30" no longer requires delete+reimport.
+    // A key outside the known vocabulary stores but drives no entity;
+    // the ACTIONS badge renders it as typed, so a typo stays visible.
+    @state() private _customActionOpen = false;
+    @state() private _customActionValue = "";
     private _dismissHandler: ((e: MouseEvent) => void) | null = null;
 
     // Inline name editing
@@ -491,6 +499,8 @@ export class IrDeviceDetail extends LitElement {
 
     private _closePopover() {
         this._mappingCommandName = null;
+        this._customActionOpen = false;
+        this._customActionValue = "";
         if (this._dismissHandler) {
             document.removeEventListener("click", this._dismissHandler, true);
             this._dismissHandler = null;
@@ -1009,6 +1019,63 @@ export class IrDeviceDetail extends LitElement {
                                           </button>
                                       `;
                                   })}
+                                  ${this._customActionOpen
+                                      ? html`
+                                            <div class="custom-action-row">
+                                                <input
+                                                    class="custom-action-input"
+                                                    type="text"
+                                                    placeholder=${t("devdetail.custom_action_placeholder")}
+                                                    .value=${this._customActionValue}
+                                                    @input=${(e: Event) =>
+                                                        (this._customActionValue = (
+                                                            e.target as HTMLInputElement
+                                                        ).value)}
+                                                    @keydown=${(e: KeyboardEvent) => {
+                                                        if (
+                                                            e.key === "Enter" &&
+                                                            this._customActionValue.trim()
+                                                        ) {
+                                                            void this._selectAction(
+                                                                this._mappingCommandName!,
+                                                                this._customActionValue.trim(),
+                                                            );
+                                                        }
+                                                    }}
+                                                />
+                                                <button
+                                                    class="custom-action-set"
+                                                    ?disabled=${!this._customActionValue.trim()}
+                                                    @click=${() =>
+                                                        this._selectAction(
+                                                            this._mappingCommandName!,
+                                                            this._customActionValue.trim(),
+                                                        )}
+                                                >
+                                                    ${t("devdetail.set")}
+                                                </button>
+                                            </div>
+                                        `
+                                      : html`
+                                            <button
+                                                class="popover-item custom-action-open"
+                                                @click=${(e: Event) => {
+                                                    e.stopPropagation();
+                                                    this._customActionOpen = true;
+                                                    this.updateComplete.then(() => {
+                                                        this.shadowRoot
+                                                            ?.querySelector<HTMLInputElement>(
+                                                                ".custom-action-input",
+                                                            )
+                                                            ?.focus();
+                                                    });
+                                                }}
+                                            >
+                                                <span class="popover-label"
+                                                    >${t("devdetail.custom_action")}</span
+                                                >
+                                            </button>
+                                        `}
                               </div>
                           `
                         : ""}
@@ -1335,6 +1402,49 @@ export class IrDeviceDetail extends LitElement {
             border-radius: 6px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             z-index: 100;
+        }
+
+        /* Custom action entry (free-form key) inside the Map action
+           popover. Input + Set on one row, matching popover chrome. */
+        .custom-action-row {
+            display: flex;
+            gap: 6px;
+            padding: 6px 10px 8px;
+            align-items: center;
+        }
+        .custom-action-input {
+            flex: 1;
+            min-width: 0;
+            padding: 5px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
+            background: var(--card-background-color);
+            color: var(--primary-text-color);
+            font-size: 0.8rem;
+            font-family: var(--code-font-family, monospace);
+            box-sizing: border-box;
+        }
+        .custom-action-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+        .custom-action-set {
+            border: 1px solid var(--divider-color);
+            background: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            color: var(--primary-text-color);
+        }
+        .custom-action-set:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+        .custom-action-set:hover:not(:disabled) {
+            background: var(--secondary-background-color);
         }
     `,
     ];
