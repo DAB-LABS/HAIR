@@ -79,5 +79,12 @@
     "createremote.blank": "Blank remote",
     "createremote.from_library": "From code library",
     "createremote.model": "Model",
-    "createremote.select_model": "Select a model"
+    "createremote.select_model": "Select a model",
+    "popover.assigned_to": "Assigned to",
+    "popover.new_assignment": "+ new assignment",
+    "popover.open_in_devices": "Open {name} in Devices",
+    "popover.triggers": "Triggers",
+    "popover.new_trigger": "+ new trigger",
+    "popover.any_receiver": "Any receiver",
+    "popover.n_more": "{name} + {count} more"
 }

@@ -16,6 +16,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "./decorators.js";
+import { t } from "./localize.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import type { SignalAssignment } from "./types.js";
 
@@ -33,19 +34,19 @@ export class IrAssignedPopover extends LitElement {
                 class="action-popover"
                 style="top:${this.top}px; left:${this.left}px"
             >
-                <div class="popover-header">Assigned to</div>
+                <div class="popover-header">${t("popover.assigned_to")}</div>
                 <button
                     class="popover-item accent"
                     @click=${() => this._emit("create-new")}
                 >
-                    <span>+ new assignment</span>
+                    <span>${t("popover.new_assignment")}</span>
                 </button>
                 <div class="popover-divider"></div>
                 ${this.assignments.map(
                     (a) => html`
                         <button
                             class="popover-item"
-                            title="Open ${a.device_name} in Devices"
+                            title=${t("popover.open_in_devices", { name: a.device_name })}
                             @click=${() => this._emit("open-assignment", a)}
                         >
                             <span class="popover-name"
