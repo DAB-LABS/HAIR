@@ -7,5 +7,21 @@
     "panel.tagline.sniffer": "Capture IR codes live from the air.",
     "panel.tagline.clips": "Build remotes by pasting known IR codes.",
     "panel.tagline.plucker": "Pluck IR codes from existing blasters.",
-    "panel.tagline.mirror": "See your live Home Assistant infrared transmissions."
+    "panel.tagline.mirror": "See your live Home Assistant infrared transmissions.",
+    "common.confirm": "Confirm",
+    "common.cancel": "Cancel",
+    "common.are_you_sure": "Are you sure?",
+    "common.remove": "Remove",
+    "alias.placeholder": "Alias for this signal",
+    "alias.clear": "Clear alias",
+    "alias.edit": "Click to edit alias",
+    "alias.name": "Click to name this signal",
+    "picker.emitters_label": "IR emitters",
+    "picker.add_emitter": "+ Add emitter...",
+    "picker.no_emitters": "No IR emitters found.",
+    "picker.all_emitters_selected": "All emitters selected.",
+    "picker.receivers_label": "Via receiver(s):",
+    "picker.add_receiver": "+ Add receiver...",
+    "picker.no_receivers": "No IR receivers found.",
+    "picker.all_receivers_selected": "All receivers selected."
 }

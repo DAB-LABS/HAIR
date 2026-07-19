@@ -14,13 +14,17 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { t } from "./localize.js";
 
 @customElement("ir-confirm-dialog")
 export class IrConfirmDialog extends LitElement {
-    @property() public title = "Confirm";
-    @property() public message = "Are you sure?";
-    @property() public confirmLabel = "Confirm";
-    @property() public cancelLabel = "Cancel";
+    // Empty-string defaults resolve through t() at render time, so
+    // the fallbacks localize (class-body defaults would freeze English
+    // before the panel language is known).
+    @property() public title = "";
+    @property() public message = "";
+    @property() public confirmLabel = "";
+    @property() public cancelLabel = "";
     @property({ type: Boolean }) public destructive = false;
     @state() private _busy = false;
 
@@ -40,17 +44,17 @@ export class IrConfirmDialog extends LitElement {
         return html`
             <div class="overlay" @click=${this._close}>
                 <div class="dialog" @click=${(e: Event) => e.stopPropagation()}>
-                    <h3 class="heading">${this.title}</h3>
-                    <p class="message">${this.message}</p>
+                    <h3 class="heading">${this.title || t("common.confirm")}</h3>
+                    <p class="message">${this.message || t("common.are_you_sure")}</p>
                     <div class="actions">
                         <button class="btn cancel" @click=${this._close}>
-                            ${this.cancelLabel}
+                            ${this.cancelLabel || t("common.cancel")}
                         </button>
                         <button
                             class="btn confirm ${this.destructive ? "destructive" : ""}"
                             @click=${this._confirm}
                         >
-                            ${this.confirmLabel}
+                            ${this.confirmLabel || t("common.confirm")}
                         </button>
                     </div>
                 </div>
