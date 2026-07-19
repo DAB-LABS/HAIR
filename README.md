@@ -79,11 +79,37 @@ When HAIR can read a captured signal as a known protocol (NEC today), it also st
 
 ### ESPHome Receiver Setup
 
-This setup is only needed if you are on HA 2026.4 or 2026.5 (before native `InfraredReceiverEntity` shipped), or if you are on 2026.6+ but have not yet migrated your ESPHome YAML to register the receiver entity on the `infrared` platform. In both cases, HAIR uses the legacy event-bus bridge below to receive signals from your ESPHome IR receiver.
+On HA 2026.6+ your ESPHome receiver registers on the native `infrared` platform, and HAIR discovers and subscribes to it automatically. Point your `remote_receiver` at an `infrared` platform entry:
 
-If you are on HA 2026.6+ and your ESPHome YAML registers the receiver via the `infrared` platform, HAIR subscribes to it directly through `infrared.async_subscribe_receiver()` and this bridge is not needed. The Devices tab will show a `RX-NATIVE` badge on the receiver card when that path is active, or `RX-BRIDGE` when this legacy bridge is in use.
+```yaml
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO8   # your IR receiver data pin
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  dump: all
+  tolerance: 25%
+  idle: 10ms
 
-Add this to your ESPHome device's `remote_receiver` block to wire up the bridge:
+infrared:
+  - platform: ir_rf_proxy
+    name: IR Receiver
+    id: ir_proxy_rx
+    receiver_frequency: 38kHz
+    remote_receiver_id: ir_rx
+```
+
+Reflash, and the Devices tab shows an `RX-NATIVE` badge on the receiver card. That's it.
+
+For ready-made, HAIR-tested configurations for common ESP32 boards and IR devices (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s), see [`esphome/`](esphome/) in this repo. Each device has two tiers: minimal (just the IR pieces) and full (preserves device-specific features like touch pads and status LEDs). Copying one of those is the fastest road to a working setup.
+
+<details>
+<summary>Legacy bridge for HA 2026.4-2026.5 (only if you cannot upgrade)</summary>
+
+Before native `InfraredReceiverEntity` shipped in HA 2026.6, HAIR received signals over an event-bus bridge. If you are stuck on 2026.4 or 2026.5, add this to your ESPHome device's `remote_receiver` block:
 
 ```yaml
 remote_receiver:
@@ -101,11 +127,11 @@ remote_receiver:
             code: !lambda 'return x.data;'
 ```
 
-The `on_pronto` trigger catches every IR signal regardless of protocol (NEC, Samsung, Sony, RC-5, etc.) and fires it as a `homeassistant.event` on the HA bus. The HAIR Sniffer subscribes to these events automatically.
+The `on_pronto` trigger catches every IR signal regardless of protocol and fires it as a `homeassistant.event` on the HA bus; the HAIR Sniffer subscribes automatically. The panel shows `RX-BRIDGE` on the receiver card while this path is in use.
 
-When you are ready to migrate to the native receiver path on HA 2026.6+, add the `infrared` platform receiver entry to your ESPHome YAML (canonical examples in [`esphome/`](esphome/)) and reflash. HAIR will detect the native receiver and switch over automatically. You can keep the legacy `on_pronto` bridge in place during the transition: HAIR will not double-process signals, and the panel will show both `RX-NATIVE` and `RX-BRIDGE` badges until you remove the bridge from your YAML.
+When you upgrade to 2026.6+, add the `infrared` platform receiver entry shown above and reflash. HAIR detects the native receiver and switches over automatically. You can keep the bridge in place during the transition, signals are not double-processed and the card shows both badges, then remove the `on_pronto:` block once `RX-NATIVE` appears.
 
-For ready-made, HAIR-tested configurations for common ESP32 boards and IR devices (XIAO Smart IR Mate, Athom RF IR Remote, generic ESP32s), see [`esphome/`](esphome/) in this repo. Each device has two tiers: minimal (just the IR pieces) and full (preserves device-specific features like touch pads and status LEDs).
+</details>
 
 ## Features
 
