@@ -224,7 +224,10 @@ class TestForeignBeacons:
         assert row.fingerprint == (
             f"{MIRROR_UNKNOWN_SEND_FP_PREFIX}infrared.tuya_blaster"
         )
-        assert row.alias == "Unknown send"
+        # No backend-stamped alias (shampoo): the frontend titles these
+        # rows by their fingerprint prefix; a stamped alias would win the
+        # title chain and defeat the unknown-send hint.
+        assert not row.alias
         assert row.heard_by == []
 
     def test_own_beacon_window_suppresses(self):
@@ -396,14 +399,16 @@ class TestGarbledEchoSwallow:
     send heard and swallow; everything else walks through untouched."""
 
     # A clean 16-symbol frame: pairs of (mark, space) where ~900us reads
-    # short and ~1800us reads long against the S/L threshold.
-    CLEAN = [900, -900, 1800, -1800, 900, -900, 900, -900,
-             900, -900, 1800, -900, 900, -1800, 900, -900]
+    # short and ~1800us reads long against the S/L threshold. Tuples:
+    # every consumer copies via list(...), and ruff (RUF012) is right
+    # that mutable class attributes are a trap.
+    CLEAN = (900, -900, 1800, -1800, 900, -900, 900, -900,
+             900, -900, 1800, -900, 900, -1800, 900, -900)
     # The bench's truncated-head shape: leading pair lost. A perfect
     # substring of CLEAN -> fuzzy ratio 0.0.
     TRUNCATED = CLEAN[2:]
     # Nothing like CLEAN: a long run of shorts.
-    FOREIGN = [400, -400] * 12
+    FOREIGN = (400, -400) * 12
 
     def _armed_monitor(self, timings):
         """Monitor with a Mirror row + live expectation for ``timings``,
