@@ -159,7 +159,10 @@ class TestFrontendLocaleParity:
         locale = _load(path)
         for key, en_value in EN.items():
             for brand in BRAND_NAMES:
-                pattern = rf"\b{brand}\b"
+                # ASCII lookarounds, not \b: in "HAIRデバイス" the kana
+                # is a \w character, so \b would miss the brand even
+                # though it rides through verbatim.
+                pattern = rf"(?<![A-Za-z0-9]){brand}(?![A-Za-z0-9])"
                 if re.search(pattern, en_value):
                     assert re.search(pattern, locale.get(key, "")), (
                         f"{path.name}:{key} lost brand name {brand!r}"

@@ -33,6 +33,7 @@
  */
 import en from "./locales/en.json";
 import fr from "./locales/fr.json";
+import ja from "./locales/ja.json";
 
 type Dictionary = Record<string, string>;
 
@@ -43,6 +44,7 @@ type Dictionary = Record<string, string>;
 const DICTIONARIES: Record<string, Dictionary> = {
     en: en as Dictionary,
     fr: fr as Dictionary,
+    ja: ja as Dictionary,
 };
 
 let _lang = "en";
