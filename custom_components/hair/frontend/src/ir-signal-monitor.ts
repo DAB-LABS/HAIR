@@ -6,7 +6,7 @@
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
-import { t, tp } from "./localize.js";
+import { formatLanguage, t, tp } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -39,7 +39,7 @@ import type {
 function fmtTime(iso: string): string {
     try {
         const d = new Date(iso);
-        return d.toLocaleString(undefined, {
+        return d.toLocaleString(formatLanguage(), {
             month: "short",
             day: "numeric",
             hour: "2-digit",

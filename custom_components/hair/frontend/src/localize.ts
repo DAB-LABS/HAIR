@@ -40,11 +40,25 @@ const DICTIONARIES: Record<string, Dictionary> = {
 };
 
 let _lang = "en";
+let _requested = "en";
 let _plurals = new Intl.PluralRules("en");
 
 /** Resolve and set the active panel language (exact -> base -> en). */
 export function setPanelLanguage(language: string | undefined): void {
-    const requested = (language || "en").toLowerCase();
+    const tag = language || "en";
+    if (tag !== _requested) {
+        _requested = tag;
+        try {
+            // The requested tag (not the resolved dictionary key)
+            // drives plural category selection and date formatting,
+            // so pt-BR pluralizes and formats as pt-BR even while
+            // reading the pt dictionary -- or the en one.
+            _plurals = new Intl.PluralRules(tag);
+        } catch {
+            _plurals = new Intl.PluralRules("en");
+        }
+    }
+    const requested = tag.toLowerCase();
     let resolved = "en";
     if (DICTIONARIES[requested]) {
         resolved = requested;
@@ -52,21 +66,18 @@ export function setPanelLanguage(language: string | undefined): void {
         const base = requested.split("-")[0];
         if (DICTIONARIES[base]) resolved = base;
     }
-    if (resolved === _lang) return;
     _lang = resolved;
-    try {
-        // The requested tag (not the resolved dictionary key) drives
-        // plural category selection, so pt-BR pluralizes as pt-BR even
-        // while reading the pt dictionary.
-        _plurals = new Intl.PluralRules(language || "en");
-    } catch {
-        _plurals = new Intl.PluralRules("en");
-    }
 }
 
-/** Current resolved language (exposed for date/number formatting). */
+/** Current resolved dictionary language. */
 export function panelLanguage(): string {
     return _lang;
+}
+
+/** BCP-47 tag for Intl date/number formatting: the user's requested
+ *  language, honored even when the dictionary fell back to en. */
+export function formatLanguage(): string {
+    return _requested;
 }
 
 /** Localize a flat key with optional {name}-style substitutions. */

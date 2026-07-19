@@ -9,7 +9,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
-import { t, tv } from "./localize.js";
+import { formatLanguage, t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-alias.js";
@@ -265,7 +265,7 @@ export class IrAssignSignalDialog extends LitElement {
     private _fmtTime(iso: string): string {
         try {
             const d = new Date(iso);
-            return d.toLocaleString(undefined, {
+            return d.toLocaleString(formatLanguage(), {
                 month: "short",
                 day: "numeric",
                 hour: "2-digit",

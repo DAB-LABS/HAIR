@@ -11,7 +11,7 @@
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
-import { t, tp } from "./localize.js";
+import { formatLanguage, t, tp } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -41,7 +41,7 @@ import type {
 
 function fmtTime(iso: string): string {
     try {
-        return new Date(iso).toLocaleString(undefined, {
+        return new Date(iso).toLocaleString(formatLanguage(), {
             month: "short",
             day: "numeric",
             hour: "2-digit",
