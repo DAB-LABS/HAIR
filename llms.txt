@@ -261,7 +261,12 @@ Receiver architecture:
 
 - [README](https://github.com/DAB-LABS/HAIR/blob/main/README.md): Full feature
   overview, why-HAIR rationale, entity platform reference, Devices tab and Sniffer
-  tab walkthroughs, installation and setup, and architecture diagram.
+  tab walkthroughs, installation and setup, and architecture diagram. Truncated
+  translated READMEs (README.es.md, README.fr.md, README.ja.md, README.de.md,
+  README.pl.md, README.pt.md, README.nl.md, README.it.md, README.ru.md) sit at the
+  repo root, each carrying the pitch, install steps, and a pointer back to the full
+  English documentation; they are drafted by a programming assistant, refreshed
+  each release, and open for native-speaker ownership.
 - [info.md](https://github.com/DAB-LABS/HAIR/blob/main/info.md): HACS short-form
   summary shown in the HACS UI during install.
 - [Making your integration pluckable](https://github.com/DAB-LABS/HAIR/blob/main/docs/making-your-integration-pluckable.md):
