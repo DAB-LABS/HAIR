@@ -9,8 +9,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.percentage import (
-    percentage_to_ordered_list_item,
     ordered_list_item_to_percentage,
+    percentage_to_ordered_list_item,
 )
 
 from .const import DOMAIN, DeviceType
