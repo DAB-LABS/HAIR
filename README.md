@@ -82,7 +82,25 @@ When HAIR can read a captured signal as a known protocol (NEC today), it also st
 
 ### ESPHome Setup
 
-On HA 2026.6+ your ESPHome device registers its transmitter and receiver on the native `infrared` platform, and HAIR discovers both automatically. A complete minimal setup, TX and RX together:
+If your ESPHome device already has `remote_transmitter` and `remote_receiver` blocks, one addition registers them both on HA's native `infrared` platform, and HAIR discovers them automatically:
+
+```yaml
+infrared:
+  - platform: ir_rf_proxy
+    name: IR Emitter
+    id: ir_proxy_tx
+    remote_transmitter_id: ir_tx     # your remote_transmitter id
+  - platform: ir_rf_proxy
+    name: IR Receiver
+    id: ir_proxy_rx
+    receiver_frequency: 38kHz
+    remote_receiver_id: ir_rx        # your remote_receiver id
+```
+
+Reflash, and the Devices tab shows the emitter with a `TX-NATIVE` badge and the receiver with `RX-NATIVE`. That's it.
+
+<details>
+<summary><b>Starting from scratch? The complete minimal YAML (TX + RX + registration)</b></summary>
 
 ```yaml
 # --- IR Transmitter (TX) ---
@@ -118,7 +136,7 @@ infrared:
     remote_receiver_id: ir_rx
 ```
 
-Reflash, and the Devices tab shows the emitter with a `TX-NATIVE` badge and the receiver with `RX-NATIVE`. That's it.
+</details>
 
 For ready-made, HAIR-tested configurations for common ESP32 boards and IR devices (XIAO Smart IR Mate, Athom RF IR Remote, M5Stack IR Unit, generic ESP32s), see [`esphome/`](esphome/) in this repo. Each device has two tiers: minimal (just the IR pieces) and full (preserves device-specific features like touch pads and status LEDs). Copying one of those is the fastest road to a working setup.
 
