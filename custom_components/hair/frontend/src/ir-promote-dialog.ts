@@ -96,10 +96,7 @@ export class IrPromoteDialog extends LitElement {
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
 
-                <p class="description">
-                    Create a new HAIR device. You can then assign captured
-                    signals to it as commands.
-                </p>
+                <p class="description">${t("promote.description")}</p>
 
                 <div class="field">
                     <label>${t("promote.device_name")}</label>
