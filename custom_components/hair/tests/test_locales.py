@@ -234,6 +234,43 @@ class TestVocabularyCoverage:
                 )
 
 
+class TestTranslatedReadmes:
+    """Every shipped panel locale has a truncated README at the repo
+    root, and its version stamp matches the manifest.
+
+    The stamp is the drift guard: refreshing the translated READMEs is
+    a release-protocol step, and this test makes shipping a release
+    without the refresh a CI failure instead of a silent staleness.
+    """
+
+    REPO_ROOT = COMPONENT_DIR.parent.parent
+    MANIFEST = COMPONENT_DIR / "manifest.json"
+
+    def _version(self) -> str:
+        return json.loads(self.MANIFEST.read_text(encoding="utf-8"))[
+            "version"
+        ]
+
+    @pytest.mark.parametrize(
+        "path", _frontend_locales(), ids=lambda p: p.stem
+    )
+    def test_readme_exists_and_stamp_is_current(self, path):
+        readme = self.REPO_ROOT / f"README.{path.stem}.md"
+        assert readme.is_file(), (
+            f"README.{path.stem}.md missing at repo root; every shipped "
+            "locale carries a truncated translated README"
+        )
+        text = readme.read_text(encoding="utf-8")
+        stamp = f"v{self._version()}"
+        assert stamp in text, (
+            f"README.{path.stem}.md is stale: expected the {stamp} "
+            "version stamp; refresh the translated READMEs for this "
+            "release"
+        )
+        # The ownership invitation must survive every refresh.
+        assert "CONTRIBUTING.md#adding-a-language" in text
+
+
 class TestBackendTranslationParity:
     @pytest.mark.parametrize("path", _backend_locales(), ids=lambda p: p.stem)
     def test_key_path_parity(self, path):
