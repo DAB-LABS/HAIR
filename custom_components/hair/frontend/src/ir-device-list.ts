@@ -10,6 +10,7 @@
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -37,14 +38,16 @@ const DEVICE_TYPE_ICONS: Record<DeviceTypeId, string> = {
     other: "M11,2A2,2 0 0,0 9,4V8H4A2,2 0 0,0 2,10V13A2,2 0 0,0 4,15H5V21A2,2 0 0,0 7,23H17A2,2 0 0,0 19,21V15H20A2,2 0 0,0 22,13V10A2,2 0 0,0 20,8H15V4A2,2 0 0,0 13,2H11Z",
 };
 
-const DEVICE_TYPE_LABELS: Record<DeviceTypeId, string> = {
-    media_player: "Media Player",
-    ac: "Air Conditioner",
-    fan: "Fan",
-    light: "Light",
-    switch: "Switch",
-    screen: "Screen / Shade",
-    other: "IR Device",
+// Dictionary keys, resolved through t() at render time. "other" maps
+// to the card-specific label ("IR Device"), not the dialogs' "Other".
+const DEVICE_TYPE_LABEL_KEYS: Record<DeviceTypeId, string> = {
+    media_player: "device_type.media_player",
+    ac: "device_type.ac",
+    fan: "device_type.fan",
+    light: "device_type.light",
+    switch: "device_type.switch",
+    screen: "device_type.screen",
+    other: "device_type.other_card",
 };
 
 // Remote control (SVG Repo, scaled to a 24x24 box).
@@ -652,21 +655,21 @@ export class IrDeviceList extends LitElement {
             ${entry.has_native
                 ? html`<span
                       class="badge rx-native"
-                      title="Receives via HA's native infrared platform"
+                      title=${t("devlist.rx_native_title")}
                   >RX-NATIVE</span>`
                 : nothing}
             ${entry.has_bridge
                 ? html`<span
                       class="badge rx-bridge"
                       title=${entry.has_native
-                          ? "Legacy bridge still active. Native receiver supersedes it -- you can remove the on_pronto: block from your ESPHome config."
-                          : "Receives via legacy ESPHome event-bus bridge"}
+                          ? t("devlist.rx_bridge_active")
+                          : t("devlist.rx_bridge_title")}
                   >RX-BRIDGE</span>`
                 : nothing}
             ${showGrayedNative
                 ? html`<span
                       class="badge rx-native-disabled"
-                      title="Upgrade to HA 2026.6+ for native receiver support"
+                      title=${t("devlist.rx_upgrade_title")}
                   >RX-NATIVE</span>`
                 : nothing}
         `;
@@ -674,7 +677,7 @@ export class IrDeviceList extends LitElement {
 
     render() {
         if (this.loading) {
-            return html`<div class="loading">Loading IR devices...</div>`;
+            return html`<div class="loading">${t("devlist.loading")}</div>`;
         }
 
         const devices = this._localDevices ?? this.devices;
@@ -689,9 +692,9 @@ export class IrDeviceList extends LitElement {
         if (hasNothing) {
             return html`
                 <ha-card class="empty">
-                    <h2>No IR devices yet</h2>
-                    <p>Add your first device to get started.</p>
-                    <mwc-button raised @click=${this._add}>+ Add Device</mwc-button>
+                    <h2>${t("devlist.empty_title")}</h2>
+                    <p>${t("devlist.empty_sub")}</p>
+                    <mwc-button raised @click=${this._add}>${t("devlist.add_device_plus")}</mwc-button>
                 </ha-card>
             `;
         }
@@ -701,14 +704,14 @@ export class IrDeviceList extends LitElement {
             <div class="toolbar">
                 <span class="toolbar-title">
                     <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
-                    HAIR Devices
+                    ${t("devlist.title")}
                     <span class="toolbar-count">(${this.devices.length})</span>
                 </span>
                 <button class="add-btn" @click=${this._add}>
                     <ha-svg-icon
                         .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
                     ></ha-svg-icon>
-                    Add Device
+                    ${t("devlist.add_device")}
                 </button>
             </div>
             ${hasDevices
@@ -734,7 +737,7 @@ export class IrDeviceList extends LitElement {
                                   >
                                       <button
                                           class="card-action duplicate-action"
-                                          title="Duplicate device"
+                                          title=${t("dup.heading")}
                                           @click=${(e: Event) =>
                                               this._openDuplicateDialog(device, e)}
                                       >
@@ -742,7 +745,7 @@ export class IrDeviceList extends LitElement {
                                       </button>
                                       <button
                                           class="card-action delete-action"
-                                          title="Delete device"
+                                          title=${t("devlist.delete_device")}
                                           @click=${(e: Event) =>
                                               this._requestDeleteDevice(device, e)}
                                       >
@@ -761,20 +764,22 @@ export class IrDeviceList extends LitElement {
                                       <div class="card-meta">
                                           ${[
                                               device.manufacturer,
-                                              DEVICE_TYPE_LABELS[
-                                                  device.device_type
-                                              ],
+                                              t(
+                                                  DEVICE_TYPE_LABEL_KEYS[
+                                                      device.device_type
+                                                  ],
+                                              ),
                                           ]
                                               .filter(Boolean)
                                               .join(" • ")}
                                       </div>
                                       <div class="card-footer">
                                           <span class="badge cmd-badge">
-                                              CMD: ${device.command_count}
+                                              ${t("devlist.cmd_badge", { count: device.command_count })}
                                           </span>
                                           ${device.emitter_entity_ids.length > 0
-                                              ? html`<span class="badge tx-badge">TX: ${device.emitter_entity_ids.length}</span>`
-                                              : html`<span class="badge no-tx-badge">No TX</span>`}
+                                              ? html`<span class="badge tx-badge">${t("devlist.tx_badge", { count: device.emitter_entity_ids.length })}</span>`
+                                              : html`<span class="badge no-tx-badge">${t("devlist.no_tx")}</span>`}
                                       </div>
                                   </div>
                                   ${device.id === this.expandedDeviceId && this._expandedDevice
@@ -808,43 +813,43 @@ export class IrDeviceList extends LitElement {
             ${hasTriggers
                 ? html`
                       <div class="section-header">
-                          <h2>Triggers</h2>
+                          <h2>${t("popover.triggers")}</h2>
                           <span class="section-count">${this._triggers.length}</span>
                       </div>
                       <div class="grid">
                           ${this._triggers.map(
-                              (t) => html`
+                              (trig) => html`
                                   <div
-                                      class="card trigger-card ${this._glowTriggerIds.has(t.id) ? "trigger-glow" : ""} ${!t.enabled ? "trigger-disabled" : ""}"
+                                      class="card trigger-card ${this._glowTriggerIds.has(trig.id) ? "trigger-glow" : ""} ${!trig.enabled ? "trigger-disabled" : ""}"
                                       tabindex="0"
-                                      @click=${(e: Event) => this._openEditTrigger(t, e)}
+                                      @click=${(e: Event) => this._openEditTrigger(trig, e)}
                                       @keydown=${(e: KeyboardEvent) => {
                                           if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
-                                              this._openEditTrigger(t, e);
+                                              this._openEditTrigger(trig, e);
                                           }
                                       }}
                                   >
                                       <div class="card-header">
                                           <ha-svg-icon class="trigger-icon" .path=${ICON_TRIGGER}></ha-svg-icon>
-                                          <div class="card-name">${t.name}</div>
+                                          <div class="card-name">${trig.name}</div>
                                       </div>
-                                      <div class="card-meta">Trigger Event</div>
+                                      <div class="card-meta">${t("trigger.event")}</div>
                                       <div class="card-footer">
-                                          ${t.min_hits > 1
+                                          ${trig.min_hits > 1
                                               ? html`<span class="badge trigger-hits-badge">
-                                                    ${t.min_hits}x hits
+                                                    ${t("devlist.hits_badge", { count: trig.min_hits })}
                                                 </span>`
                                               : nothing}
                                           <span
-                                              class="badge trigger-toggle ${t.enabled ? "trigger-enabled" : "trigger-off"}"
-                                              @click=${(e: Event) => this._toggleTriggerEnabled(t, e)}
-                                          >${t.enabled ? "ON" : "OFF"}</span>
+                                              class="badge trigger-toggle ${trig.enabled ? "trigger-enabled" : "trigger-off"}"
+                                              @click=${(e: Event) => this._toggleTriggerEnabled(trig, e)}
+                                          >${trig.enabled ? t("devlist.on") : t("devlist.off")}</span>
                                           <ha-svg-icon
                                               class="trigger-trash"
                                               .path=${ICON_TRASH}
-                                              title="Delete trigger"
-                                              @click=${(e: Event) => this._requestDeleteTrigger(t, e)}
+                                              title=${t("devlist.delete_trigger")}
+                                              @click=${(e: Event) => this._requestDeleteTrigger(trig, e)}
                                           ></ha-svg-icon>
                                       </div>
                                   </div>
@@ -858,7 +863,7 @@ export class IrDeviceList extends LitElement {
             ${this._pluckBlasters.length > 0
                 ? html`
                       <div class="section-header">
-                          <h2>Blasters (Pluckable)</h2>
+                          <h2>${t("devlist.blasters")}</h2>
                           <span class="section-count"
                               >${this._pluckBlasters.length}</span
                           >
@@ -869,7 +874,7 @@ export class IrDeviceList extends LitElement {
                                   <div
                                       class="card hw-card"
                                       tabindex="0"
-                                      title="Open in the Plucker"
+                                      title=${t("devlist.open_plucker_title")}
                                       @click=${() => this._openInPlucker(b.entity_id)}
                                       @keydown=${(e: KeyboardEvent) => {
                                           if (e.key === "Enter" || e.key === " ") {
@@ -887,7 +892,7 @@ export class IrDeviceList extends LitElement {
                                       <div class="card-meta">${b.entity_id}</div>
                                       <div class="card-footer">
                                           <span class="badge pluck-badge"
-                                              >Open in Plucker</span
+                                              >${t("devlist.open_plucker")}</span
                                           >
                                       </div>
                                   </div>
@@ -901,7 +906,7 @@ export class IrDeviceList extends LitElement {
             ${hasEmitters
                 ? html`
                       <div class="section-header">
-                          <h2>Emitters</h2>
+                          <h2>${t("devlist.emitters")}</h2>
                           <span class="section-count">${this._emitters.length}</span>
                       </div>
                       <div class="grid">
@@ -931,7 +936,7 @@ export class IrDeviceList extends LitElement {
                                       <div class="card-footer">
                                           <span
                                               class="badge tx-native"
-                                              title="Sends via HA's native infrared platform"
+                                              title=${t("devlist.tx_native_title")}
                                           >TX-NATIVE</span>
                                       </div>
                                   </div>
@@ -945,7 +950,7 @@ export class IrDeviceList extends LitElement {
             ${hasReceivers
                 ? html`
                       <div class="section-header">
-                          <h2>Receivers</h2>
+                          <h2>${t("devlist.receivers")}</h2>
                           <span class="section-count">${receivers.length}</span>
                       </div>
                       <div class="grid">
@@ -981,7 +986,7 @@ export class IrDeviceList extends LitElement {
             ${hasProxies
                 ? html`
                       <div class="section-header">
-                          <h2>Proxies</h2>
+                          <h2>${t("devlist.proxies")}</h2>
                           <span class="section-count">${proxies.length}</span>
                       </div>
                       <div class="grid">
@@ -1009,7 +1014,7 @@ export class IrDeviceList extends LitElement {
                                       <div class="card-footer">
                                           <span
                                               class="badge tx-native"
-                                              title="Sends via HA's native infrared platform"
+                                              title=${t("devlist.tx_native_title")}
                                           >TX-NATIVE</span>
                                           ${this._renderRxBadges(entry)}
                                       </div>
@@ -1034,8 +1039,8 @@ export class IrDeviceList extends LitElement {
             ${this._confirmDeleteTrigger
                 ? html`
                       <ir-confirm-dialog
-                          title="Delete Trigger"
-                          message="Remove &quot;${this._confirmDeleteTrigger.name}&quot;? The associated HA event entity will also be removed."
+                          title=${t("mirror.del_trigger_title")}
+                          message=${t("devlist.del_trigger_msg", { name: this._confirmDeleteTrigger.name })}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._doDeleteTrigger}
@@ -1059,8 +1064,8 @@ export class IrDeviceList extends LitElement {
             ${this._confirmDeleteDevice
                 ? html`
                       <ir-confirm-dialog
-                          title="Delete Device"
-                          message="Remove &quot;${this._confirmDeleteDevice.name}&quot;? Commands, action mappings, and emitter assignments will be deleted. Triggers are unaffected."
+                          title=${t("devlist.del_device_title")}
+                          message=${t("devlist.del_device_msg", { name: this._confirmDeleteDevice.name })}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._doDeleteDevice}
