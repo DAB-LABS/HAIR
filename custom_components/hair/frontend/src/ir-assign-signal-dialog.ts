@@ -9,7 +9,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
-import { t } from "./localize.js";
+import { t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-alias.js";
@@ -514,10 +514,10 @@ export class IrAssignSignalDialog extends LitElement {
                     ${this._templates.map(
                         (tpl) => html`
                             <option
-                                value=${tpl.name}
-                                ?selected=${this._commandName === tpl.name}
+                                value=${tv(tpl.name)}
+                                ?selected=${this._commandName === tv(tpl.name)}
                             >
-                                ${tpl.name}
+                                ${tv(tpl.name)}
                             </option>
                         `,
                     )}

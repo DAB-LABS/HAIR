@@ -21,6 +21,7 @@ from .const import (
 from .entity_factory import EntityFactory
 from .models import IRCommand, IRDevice
 from .storage import HAIRStore
+from .vocabulary import localized_auto_map
 
 if TYPE_CHECKING:
     from .trigger_manager import TriggerManager
@@ -512,6 +513,15 @@ class DeviceManager:
     def _auto_map_command(self, device: IRDevice, command: IRCommand) -> None:
         feature = AUTO_MAP_RULES.get(command.name.casefold())
         if feature is None:
+            # Localized template names (v0.6.8 "French Braid"): accepting
+            # a localized template stores the localized string as the
+            # command name, so the English rules above miss it. The
+            # synonyms table recognizes the same vocabulary across every
+            # shipped locale at once (see vocabulary.py).
+            feature = localized_auto_map(AUTO_MAP_RULES).get(
+                command.name.casefold()
+            )
+        if feature is None:
             # Pattern rule (v0.6.1, GH #45): "Temp 24" / "Temp: 24" /
             # "Temperature 24" on an AC device maps to the temp_24
             # feature the climate entity already dispatches to, and
@@ -583,6 +593,15 @@ class DeviceManager:
 
     def get_all_devices(self) -> list[IRDevice]:
         return self._store.get_all_devices()
+
+
+def prime_localized_auto_map() -> None:
+    """Build the localized name->action table (blocking file I/O).
+
+    Called once from ``async_setup_entry`` via the executor so the
+    first assign-time auto-map never reads files on the event loop.
+    """
+    localized_auto_map(AUTO_MAP_RULES)
 
 
 def _human_device_type(device_type: DeviceType) -> str:

@@ -84,6 +84,31 @@ export function t(
     return s;
 }
 
+/** Slug an English vocabulary label to its dictionary key suffix.
+ *  MUST stay in sync with the slug rule in tests/test_locales.py and
+ *  the vocab-key generator ("Mode: Cool" -> "mode_cool"). */
+function vocabSlug(label: string): string {
+    return label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Localize a backend-served vocabulary label (command template or
+ * action label). The backend always speaks canonical English; the
+ * panel renders the localized label, and whatever the user accepts
+ * becomes the stored command name (command names are user data).
+ * Unknown labels pass through unchanged, so a new backend label can
+ * never render as a raw key.
+ */
+export function tv(label: string): string {
+    const key = `vocab.${vocabSlug(label)}`;
+    const dict = DICTIONARIES[_lang];
+    return dict?.[key] ?? (en as Dictionary)[key] ?? label;
+}
+
 /** Localize a pluralized key: ``key.<pluralCategory>`` with {count}. */
 export function tp(
     key: string,

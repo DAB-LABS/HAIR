@@ -5,7 +5,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
-import { t } from "./localize.js";
+import { t, tv } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -464,7 +464,7 @@ export class IrDeviceDetail extends LitElement {
         for (const [key, val] of Object.entries(mapping)) {
             if (val.toLowerCase() === commandName.toLowerCase()) {
                 const opt = this._actionOptions.find((o) => o.key === key);
-                return opt?.label ?? key;
+                return opt ? tv(opt.label) : key;
             }
         }
         return null;
@@ -1010,7 +1010,7 @@ export class IrDeviceDetail extends LitElement {
                                               class="popover-item ${isCurrent ? "active" : ""}"
                                               @click=${() => this._selectAction(this._mappingCommandName!, opt.key)}
                                           >
-                                              <span class="popover-label">${opt.label}</span>
+                                              <span class="popover-label">${tv(opt.label)}</span>
                                               ${isCurrent
                                                   ? html`<span class="popover-check">&#10003;</span>`
                                                   : isOther
