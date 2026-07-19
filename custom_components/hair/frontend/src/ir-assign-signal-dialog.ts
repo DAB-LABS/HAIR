@@ -512,12 +512,12 @@ export class IrAssignSignalDialog extends LitElement {
                         ${t("assign.select_command")}
                     </option>
                     ${this._templates.map(
-                        (t) => html`
+                        (tpl) => html`
                             <option
-                                value=${t.name}
-                                ?selected=${this._commandName === t.name}
+                                value=${tpl.name}
+                                ?selected=${this._commandName === tpl.name}
                             >
-                                ${t.name}
+                                ${tpl.name}
                             </option>
                         `,
                     )}
