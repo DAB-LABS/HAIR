@@ -185,6 +185,27 @@ def _construct_sharp(cls: type, label: str, address: int, command: int,
     return cls(address=address, command=command, extension=extension & 1)
 
 
+def _extract_nokia32(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # device/subdevice pack into the 16-bit box address; function is the
+    # command; X (system/OEM) is identity and rides in the suffix; toggle
+    # is press state, carried for TX but kept out of the fingerprint.
+    address = (int(cmd.device) << 8) | int(cmd.subdevice)
+    return ("NOKIA32", address, int(cmd.function),
+            {"extension": int(cmd.extension), "toggle": int(cmd.toggle)})
+
+
+def _construct_nokia32(cls: type, label: str, address: int, command: int,
+                       extras: Any) -> Any:
+    bag = extras or {}
+    return cls(
+        device=(address >> 8) & 0xFF,
+        subdevice=address & 0xFF,
+        function=command,
+        extension=int(bag.get("extension", 0)) & 0x7F,
+        toggle=int(bag.get("toggle", 0)) & 1,
+    )
+
+
 def _extract_marantz(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
     return ("MARANTZ", int(cmd.address), int(cmd.command),
             {"extension": int(cmd.extension), "toggle": int(cmd.toggle)})
@@ -260,6 +281,9 @@ def _identity_suffix(protocol: str, extras: Mapping[str, int] | None) -> str:
         return ":x1"
     if protocol == "MARANTZ":
         return f":x{int(extras.get('extension', 0)):02x}"
+    if protocol == "NOKIA32":
+        # X (system/OEM) separates Foxtel/Sky/Mediamaster on one protocol.
+        return f":x{int(extras.get('extension', 0)):02x}"
     return ""
 
 
@@ -283,6 +307,12 @@ _REGISTRATIONS: tuple[tuple, ...] = (
     ("sharp", "infrared_protocols.commands.sharp", "SharpCommand",
      "custom_components.hair.decoders.sharp", True,
      _extract_sharp, _construct_sharp, ("SHARP",)),
+    # Upstream ships no Nokia32 yet, so this resolves to the local decoder;
+    # if the library ever adds Nokia32Command with from_raw_timings, HAIR
+    # defers to it automatically (rohrsh's branch, discussion #70).
+    ("nokia32", "infrared_protocols.commands.nokia32", "Nokia32Command",
+     "custom_components.hair.decoders.nokia32", True,
+     _extract_nokia32, _construct_nokia32, ("NOKIA32",)),
     ("marantz", "infrared_protocols.commands.marantz_extended",
      "MarantzExtendedCommand",
      "custom_components.hair.decoders.marantz_extended", True,
