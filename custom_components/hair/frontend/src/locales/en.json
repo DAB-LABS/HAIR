@@ -14,6 +14,7 @@
     "common.are_you_sure": "Are you sure?",
     "common.remove": "Remove",
     "alias.placeholder": "Alias for this signal",
+    "alias.tag": "alias",
     "alias.clear": "Clear alias",
     "alias.edit": "Click to edit alias",
     "alias.name": "Click to name this signal",

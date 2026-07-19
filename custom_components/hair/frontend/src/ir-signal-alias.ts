@@ -118,7 +118,7 @@ export class IrSignalAlias extends LitElement {
                     title=${this.disabled ? "" : t("alias.edit")}
                     @click=${(e: Event) => this._startEdit(e)}
                 >
-                    <span class="alias-label">alias</span>
+                    <span class="alias-label">${t("alias.tag")}</span>
                     <span class="alias-name">${sig.alias}</span>
                 </span>
             `;

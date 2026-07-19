@@ -14,6 +14,7 @@
     "common.are_you_sure": "Êtes-vous sûr ?",
     "common.remove": "Retirer",
     "alias.placeholder": "Alias pour ce signal",
+    "alias.tag": "alias",
     "alias.clear": "Effacer l'alias",
     "alias.edit": "Cliquez pour modifier l'alias",
     "alias.name": "Cliquez pour nommer ce signal",

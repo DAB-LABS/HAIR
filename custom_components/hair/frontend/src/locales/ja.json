@@ -14,6 +14,7 @@
     "common.are_you_sure": "よろしいですか？",
     "common.remove": "削除",
     "alias.placeholder": "この信号のエイリアス",
+    "alias.tag": "エイリアス",
     "alias.clear": "エイリアスをクリア",
     "alias.edit": "クリックしてエイリアスを編集",
     "alias.name": "クリックしてこの信号に名前を付ける",
