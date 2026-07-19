@@ -32,6 +32,7 @@
  * any missing or extra key, so a stale translation cannot ship blanks.
  */
 import en from "./locales/en.json";
+import es from "./locales/es.json";
 import fr from "./locales/fr.json";
 import ja from "./locales/ja.json";
 
@@ -43,6 +44,7 @@ type Dictionary = Record<string, string>;
 // key never renders; reviewers flip it in their review PR.
 const DICTIONARIES: Record<string, Dictionary> = {
     en: en as Dictionary,
+    es: es as Dictionary,
     fr: fr as Dictionary,
     ja: ja as Dictionary,
 };
