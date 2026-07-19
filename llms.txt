@@ -216,8 +216,9 @@ Supported device types and resulting HA entities:
 
 Localization (v0.6.8): the panel and the config flow ship in ten languages
 (en, es, fr, ja, de, pl, pt/pt-BR, nl, it, ru). The panel follows the HA user's
-profile language with English fallback. Non-English locales are AI drafts,
-marked "reviewer wanted" inside each dictionary file; native-speaker reviews
+profile language with English fallback. Non-English locales are
+programming-assistant drafts, marked "reviewer wanted" inside each
+dictionary file; native-speaker reviews
 and new languages are welcome as small PRs guarded by parity tests (see
 CONTRIBUTING.md, "Adding a language").
 

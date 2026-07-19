@@ -97,7 +97,7 @@ class TestReviewMarker:
 
     The reserved "_meta.review" key never renders; it tells the next
     person opening the file (or browsing GitHub) whether these strings
-    are source, an AI draft awaiting a native speaker, or reviewed.
+    are source, an assistant draft awaiting a native speaker, or reviewed.
     Parity already forces the key into every locale because en carries
     it; these tests pin the semantics.
     """
@@ -113,7 +113,7 @@ class TestReviewMarker:
         assert status, f"{path.name} is missing the _meta.review marker"
         assert status != "source", (
             f"{path.name} claims to be the source dictionary; expected "
-            "an 'AI draft ...' or 'reviewed by ...' status"
+            "a 'Programming-assistant draft ...' or 'reviewed by ...' status"
         )
 
 

@@ -1,5 +1,5 @@
 {
-    "_meta.review": "AI draft (2026-07-19), not yet reviewed by a native speaker -- help wanted, see CONTRIBUTING 'Adding a language'. Config flow (translations/es.json) was contributed separately by @Waterbrain, who would be a natural reviewer here too.",
+    "_meta.review": "Programming-assistant draft (2026-07-19), not yet reviewed by a native speaker -- help wanted, see CONTRIBUTING 'Adding a language'. Config flow (translations/es.json) was contributed separately by @Waterbrain, who would be a natural reviewer here too.",
     "panel.loading": "Cargando…",
     "panel.load_failed": "Error al cargar los dispositivos: {message}",
     "panel.open_menu": "Abrir menú",

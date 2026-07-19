@@ -44,7 +44,8 @@ import ru from "./locales/ru.json";
 
 type Dictionary = Record<string, string>;
 
-// Locales whose "_meta.review" key says "AI draft" ship live on purpose
+// Locales whose "_meta.review" key marks a programming-assistant
+// draft ship live on purpose
 // (owner ruling, 2026-07-19): imperfect-but-present beats English for
 // that user, and visible strings recruit native reviewers. The marker
 // key never renders; reviewers flip it in their review PR.
