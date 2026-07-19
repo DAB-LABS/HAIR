@@ -55,3 +55,6 @@ docs/internal/
 # Working files
 trash/
 .mypy_cache/
+
+# Release notes: drafted here, published as GitHub release bodies, never committed
+/release-notes/
