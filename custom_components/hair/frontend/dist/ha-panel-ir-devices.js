@@ -6851,7 +6851,7 @@ function e(e,t,i,s){var o,a=arguments.length,r=a<3?t:null===s?s=Object.getOwnPro
                       ></ir-add-device-dialog>
                   `:""}
 
-            <div class="version-footer">v${"0.6.6"}</div>
+            <div class="version-footer">v${"0.6.7"}</div>
             </ha-top-app-bar-fixed>
         `:B`<div class="loading">Loading…</div>`}};Ss.styles=r`
         :host {

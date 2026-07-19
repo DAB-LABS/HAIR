@@ -19,7 +19,7 @@ import type { DeviceSummary, IRDevice } from "./types.js";
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "0.6.6";
+const HAIR_VERSION = "0.6.7";
 
 type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror";
 
