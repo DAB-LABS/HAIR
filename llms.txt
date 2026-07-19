@@ -128,10 +128,11 @@ Key components:
   precondition the trigger then randomly misses its own button. The dedup window
   slides and is keyed per trigger, so protocols that transmit several full frames
   per press (Sony sends 4-5) count as one press even when frames flip fingerprints.
-  Local-first decoders (v0.6.0): HAIR ships its own decoders for seven
+  Local-first decoders (v0.6.0): HAIR ships its own decoders for eight
   protocols -- Sony SIRC 12/15/20, Symphony (8/12/16-bit rc_switch family),
   Philips RC-5 (incl. RC5X), Samsung32, Sharp, Kaseikyo (Panasonic family),
-  and Marantz Extended -- in custom_components/hair/decoders/, each shaped
+  Marantz Extended, and Nokia32 (Philips RC-MM, the Foxtel/Sky/Mediamaster
+  set-top box family) -- in custom_components/hair/decoders/, each shaped
   exactly like an infrared_protocols module so it can be donated upstream as
   a near-file-copy. A registry in protocol_decode.py feature-detects per
   protocol: when the user's bundled infrared-protocols ships a decoder
