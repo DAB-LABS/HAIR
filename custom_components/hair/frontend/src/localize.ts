@@ -31,10 +31,12 @@
  * ``DICTIONARIES``. The parity test (tests/test_locales.py) fails CI on
  * any missing or extra key, so a stale translation cannot ship blanks.
  */
+import de from "./locales/de.json";
 import en from "./locales/en.json";
 import es from "./locales/es.json";
 import fr from "./locales/fr.json";
 import ja from "./locales/ja.json";
+import pl from "./locales/pl.json";
 
 type Dictionary = Record<string, string>;
 
@@ -43,10 +45,12 @@ type Dictionary = Record<string, string>;
 // that user, and visible strings recruit native reviewers. The marker
 // key never renders; reviewers flip it in their review PR.
 const DICTIONARIES: Record<string, Dictionary> = {
+    de: de as Dictionary,
     en: en as Dictionary,
     es: es as Dictionary,
     fr: fr as Dictionary,
     ja: ja as Dictionary,
+    pl: pl as Dictionary,
 };
 
 let _lang = "en";

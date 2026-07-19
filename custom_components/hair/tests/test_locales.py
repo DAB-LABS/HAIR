@@ -60,6 +60,12 @@ def _slug(label: str) -> str:
     )
 
 
+def _is_added_plural_variant(key: str) -> bool:
+    """True if ``key`` is a plural-category variant of an en family."""
+    base, _, suffix = key.rpartition(".")
+    return suffix in PLURAL_CATEGORIES and f"{base}.other" in EN
+
+
 def _frontend_locales() -> list[Path]:
     return sorted(
         p
@@ -136,7 +142,14 @@ class TestFrontendLocaleParity:
     def test_key_parity(self, path):
         locale = _load(path)
         missing = sorted(set(EN) - set(locale))
-        extra = sorted(set(locale) - set(EN))
+        # Extra keys are allowed ONLY as added plural categories of an
+        # English plural family: Polish needs mirror.signals.few and
+        # .many that English never has. Anything else extra is a typo.
+        extra = sorted(
+            key
+            for key in set(locale) - set(EN)
+            if not _is_added_plural_variant(key)
+        )
         assert not missing, f"{path.name} missing keys: {missing[:8]}"
         assert not extra, f"{path.name} extra keys: {extra[:8]}"
 
@@ -151,6 +164,16 @@ class TestFrontendLocaleParity:
             assert got == want, (
                 f"{path.name}:{key} placeholders {got} != {want}"
             )
+        # Added plural variants (.few/.many) must match the placeholder
+        # set of the family's English .other form.
+        for key in set(locale) - set(EN):
+            if _is_added_plural_variant(key):
+                base, _, _ = key.rpartition(".")
+                want = _placeholders(EN[f"{base}.other"])
+                got = _placeholders(locale[key])
+                assert got == want, (
+                    f"{path.name}:{key} placeholders {got} != {want}"
+                )
 
     @pytest.mark.parametrize(
         "path", _frontend_locales(), ids=lambda p: p.stem
