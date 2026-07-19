@@ -13,6 +13,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { ProntoValidation, UnknownSignal } from "./types.js";
 
@@ -566,7 +567,9 @@ export class IrSignalEditor extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [
+        dialogStyles,
+        css`
         .field {
             display: block;
             margin: 12px 0;
@@ -799,38 +802,19 @@ export class IrSignalEditor extends LitElement {
             color: var(--secondary-text-color);
             background: var(--secondary-background-color);
         }
+        /* Left-aligned actions row (a spacer pushes the main buttons
+           right so Delete can sit flush left); ships this way. */
         .dialog-actions {
-            display: flex;
             align-items: center;
-            gap: 8px;
-            margin-top: 20px;
-            padding-top: 16px;
-            border-top: 1px solid var(--divider-color);
+            justify-content: flex-start;
         }
         .spacer {
             flex: 1;
         }
-        .action-btn {
-            background: none;
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 8px 16px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            transition: background 150ms ease;
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        .cancel-btn,
         .copy-btn {
             background: transparent;
             color: var(--secondary-text-color);
         }
-        .cancel-btn:hover:not(:disabled),
         .copy-btn:hover:not(:disabled) {
             background: var(--secondary-background-color);
         }
@@ -842,7 +826,8 @@ export class IrSignalEditor extends LitElement {
         .create-btn:hover:not(:disabled) {
             opacity: 0.9;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

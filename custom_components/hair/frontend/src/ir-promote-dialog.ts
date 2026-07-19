@@ -8,6 +8,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
 import type { DeviceTypeId } from "./types.js";
@@ -99,13 +100,22 @@ export class IrPromoteDialog extends LitElement {
                     signals to it as commands.
                 </p>
 
-                <ha-textfield
-                    label="Device name"
-                    .value=${this._name}
-                    required
-                    @input=${(e: Event) =>
-                        (this._name = (e.target as HTMLInputElement).value)}
-                ></ha-textfield>
+                <div class="field">
+                    <label>Device name</label>
+                    <input
+                        type="text"
+                        .value=${this._name}
+                        placeholder="e.g. Living Room TV"
+                        required
+                        autofocus
+                        @input=${(e: Event) =>
+                            (this._name = (e.target as HTMLInputElement)
+                                .value)}
+                        @keydown=${(e: KeyboardEvent) => {
+                            if (e.key === "Enter") void this._create();
+                        }}
+                    />
+                </div>
 
                 <div class="field">
                     <label>Device type</label>
@@ -139,14 +149,14 @@ export class IrPromoteDialog extends LitElement {
 
                 <div class="dialog-actions">
                     <button
-                        class="action-btn cancel-btn"
+                        class="action-btn wide cancel-btn"
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
                         Cancel
                     </button>
                     <button
-                        class="action-btn create-btn"
+                        class="action-btn wide create-btn"
                         @click=${this._create}
                         ?disabled=${this._busy}
                     >
@@ -157,27 +167,15 @@ export class IrPromoteDialog extends LitElement {
         `;
     }
 
-    static styles = css`
-        ha-textfield,
-        .field {
-            display: block;
-            margin: 12px 0;
-            width: 100%;
-        }
-        .field label {
-            display: block;
-            font-size: 0.85rem;
-            color: var(--secondary-text-color);
-            margin-bottom: 6px;
-        }
-        select {
-            width: 100%;
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-        }
+    static styles = [
+        dialogStyles,
+        css`
+        /* NOTE: no ha-textfield here anymore. This dialog was the
+           panel's last ha-textfield user; the element is lazy-loaded by
+           the HA frontend and is not reliably defined inside a custom
+           panel, so it rendered as an empty, unfocusable shell (shampoo
+           bench). The name box is now the shared .field + plain input,
+           the same proven pattern as every other dialog. */
         ha-alert {
             display: block;
             margin: 8px 0;
@@ -187,35 +185,6 @@ export class IrPromoteDialog extends LitElement {
             color: var(--secondary-text-color);
             margin: 0 0 8px;
         }
-        .dialog-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            margin-top: 20px;
-            padding-top: 16px;
-            border-top: 1px solid var(--divider-color);
-        }
-        .action-btn {
-            padding: 8px 20px;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            border: none;
-            transition: background 150ms ease, opacity 150ms ease;
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .cancel-btn {
-            background: transparent;
-            color: var(--secondary-text-color);
-        }
-        .cancel-btn:hover:not(:disabled) {
-            background: var(--secondary-background-color);
-        }
         .create-btn {
             background: #2e7d32;
             color: #fff;
@@ -223,7 +192,8 @@ export class IrPromoteDialog extends LitElement {
         .create-btn:hover:not(:disabled) {
             opacity: 0.9;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

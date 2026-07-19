@@ -72,13 +72,19 @@ export class IrCountDot extends LitElement {
                box then centres [digit + that space], shoving the digit left.
                Reset it so the digit centres on its own advance. */
             letter-spacing: normal;
+            /* Every numeral on the same uniform advance width, so 1, 2,
+               and 9 all land at the identical spot in the circle. Without
+               this, each digit centres on its own advance and the dots
+               visibly disagree with each other (owner bench, shampoo). */
+            font-variant-numeric: tabular-nums;
         }
-        /* A digit glyph has no descender, so flex-centring the line box leaves
-           the number riding ~0.5px above the badge's true centre. Nudge just
-           the digit down half a pixel so it sits dead-centre in the circle. */
+        /* Optical centring for the digit's shared bias: half a pixel right
+           and half down from true flex centre (subpixel transforms render
+           antialiased -- dialled on the bench across three passes). With
+           tabular-nums above, this one value holds for every digit. */
         .dot.badge .digit {
             display: block;
-            transform: translateY(0.5px);
+            transform: translate(0.5px, 0.5px);
         }
         /* Double-digit stretch for count >= 10 (wider pill, pulled out a touch
            further so it clears the corner). */

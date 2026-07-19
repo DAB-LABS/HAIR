@@ -179,6 +179,12 @@ export type SignalSourceId = "sniffed" | "manual" | "plucked" | "echo";
 // filtered out of the Sniffer's live feed.
 export const MIRROR_DEVICE_FP = "hair-mirror";
 
+// Fingerprint prefix of the Mirror's unknown-send rows (foreign send,
+// never heard, no code). Mirrors MIRROR_UNKNOWN_SEND_FP_PREFIX in
+// const.py; the Mirror tab detects these rows by prefix to render the
+// explanatory hint in place of the normal sub-line.
+export const MIRROR_UNKNOWN_FP_PREFIX = "mirror-unknown::";
+
 export interface UnknownSignal {
     // Stable per-signal identity. The fingerprint is NOT unique on a remote
     // (two distinct commands can share an S/L pattern), so all per-signal

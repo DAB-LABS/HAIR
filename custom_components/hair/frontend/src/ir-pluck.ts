@@ -756,7 +756,7 @@ export class IrPluck extends LitElement {
                 </span>
                 <div class="toolbar-actions">
                     <button
-                        class="create-btn"
+                        class="action-btn create-btn"
                         @click=${() => (this._createRemoteOpen = true)}
                     >
                         + Add Blaster
@@ -896,7 +896,7 @@ export class IrPluck extends LitElement {
                 <div class="signal-header">
                     <span>Signals (${device.signals.length})</span>
                     <button
-                        class="create-btn create-signal-btn"
+                        class="create-signal-btn"
                         title="Pluck a code off this blaster"
                         @click=${(e: Event) => this._openPluckSignal(device, e)}
                     >
@@ -1239,37 +1239,28 @@ export class IrPluck extends LitElement {
             color: var(--secondary-text-color);
             font-size: 0.9rem;
         }
-        .create-btn {
-            background: none;
+        /* Toolbar "+ Add Blaster": shared chip anatomy, slate accent. */
+        .action-btn.create-btn {
             color: #78909c;
-            border: 1px solid #78909c;
-            border-radius: 4px;
-            padding: 4px 10px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            transition: background 150ms ease;
+            border-color: #78909c;
         }
-        .create-btn:hover:not(:disabled) {
+        .action-btn.create-btn:hover:not(:disabled) {
             background: rgba(120, 144, 156, 0.12);
         }
-        .create-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        /* Borderless text action, consistent with the Clipper's "+ Add
-           Signal". Lighter slate to match the Add Blaster button. */
+        /* Card-internal "+ Pluck Signal": borderless slate text action
+           (no chip, no stroke -- owner ruling), one pixel up from its
+           old size, font color matching the Add Blaster accent. */
         .create-signal-btn {
             border: none;
             background: none;
             padding: 0;
-            font-size: 0.64rem;
-            position: relative;
-            top: 1px;
+            font-size: 10px;
+            font-weight: 500;
+            font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             color: #78909c;
+            cursor: pointer;
         }
         .create-signal-btn:hover:not(:disabled) {
             background: none;

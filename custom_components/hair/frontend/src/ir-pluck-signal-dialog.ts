@@ -14,6 +14,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type {
     PluckedSignalPreview,
@@ -267,34 +268,15 @@ export class IrPluckSignalDialog extends LitElement {
         `;
     }
 
-    static styles = css`
-        .field {
-            display: block;
-            margin: 12px 0;
-            width: 100%;
-        }
-        .field label {
-            display: block;
-            font-size: 0.85rem;
-            color: var(--secondary-text-color);
-            margin-bottom: 6px;
-        }
+    static styles = [
+        dialogStyles,
+        css`
         .help {
             font-size: 0.78rem;
             color: var(--secondary-text-color);
             margin-top: 4px;
         }
-        input[type="text"] {
-            width: 100%;
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-            font-size: 0.95rem;
-            font-family: inherit;
-            box-sizing: border-box;
-        }
+        /* Tab-accent focus, overriding the shared primary-blue. */
         input[type="text"]:focus {
             outline: none;
             border-color: #455a64;
@@ -380,36 +362,6 @@ export class IrPluckSignalDialog extends LitElement {
             color: var(--secondary-text-color);
             margin-top: 4px;
         }
-        .dialog-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-            margin-top: 20px;
-            padding-top: 16px;
-            border-top: 1px solid var(--divider-color);
-        }
-        .action-btn {
-            background: none;
-            border: 1px solid var(--divider-color);
-            border-radius: 4px;
-            padding: 8px 16px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            transition: background 150ms ease;
-        }
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        .cancel-btn {
-            background: transparent;
-            color: var(--secondary-text-color);
-        }
-        .cancel-btn:hover:not(:disabled) {
-            background: var(--secondary-background-color);
-        }
         .pluck-btn,
         .create-btn {
             background: #455a64;
@@ -420,7 +372,8 @@ export class IrPluckSignalDialog extends LitElement {
         .create-btn:hover:not(:disabled) {
             opacity: 0.9;
         }
-    `;
+    `,
+    ];
 }
 
 declare global {

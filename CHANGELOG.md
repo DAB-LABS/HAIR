@@ -5,6 +5,25 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-07-19 -- Shampoo
+
+### Added
+
+- Multi-emitter sends are staggered. Two blasters keying up at the same instant superimpose in the air, and any receiver in range of both hears a hybrid pulse train that decodes as nothing. HAIR now serializes every transmission it originates and inserts a short quiet gap whenever the transmitting emitter changes, so multi-emitter device commands and multi-emitter tests each come out clean. Same-emitter bursts are unaffected, and sends from other integrations remain outside HAIR's control.
+- Garbled echoes are recognized as the house's own voice. A HAIR send that comes back damaged (reflections, marginal range, protocol timing quirks) used to miss the echo claim and mint a junk Sniffer row per mangle. Send expectations now carry the transmitted frame's shape; an unclaimed, undecodable capture arriving inside the send window that resembles what just went out is claimed as a garbled echo, marks the Mirror row heard, and never reaches the Sniffer. Captures that decode cleanly are never swallowed, so pressing a real button moments after a test is safe.
+- "+ Mirrored Signal" joins Sniffed and Clipped in the device footer. The third road for getting codes into a device gets its road sign.
+- Unknown-send rows explain themselves. A foreign send that no receiver heard now reads "Unknown IR signal sent" with a plain sentence naming the blaster and what to do about it, in place of a mysterious grey row with disabled buttons.
+
+### Fixed
+
+- The Promote dialog's name field could render as an empty, unfocusable shell. It was the panel's last dialog built on a lazily-loaded Home Assistant element; rebuilt on the same plain input every other dialog uses. The suggested name pre-fills and Enter creates.
+- The Mirror's silver bloom now follows the trigger glow's exact lifecycle: bright, fade, one last pass, gentle exit.
+
+### Changed
+
+- Eleven dialogs now draw from one shared style module, the third extraction after the popovers and the action chips. Roughly 700 lines lighter at pixel parity, and groundwork for translations: every shared style and string now lives in exactly one place.
+- Mirror rows are individual rounded cards, and a send that lands while you watch blooms the whole card. Count dots render digits on tabular figures so every number sits identically in its circle. Heard-back wording says "last heard", describing the most recent send. Add-signal actions in the Clipper and Plucker are quiet accent-colored text buttons matching each tab's color.
+
 ## [0.6.6] - 2026-07-18 -- Mirror
 
 ### Added

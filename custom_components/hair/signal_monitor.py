@@ -43,6 +43,7 @@ from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
     DEFAULT_CARRIER_FREQUENCY,
     DITTO_INTER_FRAME_MAX_S,
+    ECHO_GARBLE_SIMILARITY,
     EVENT_DISMISS_ACTIVITY,
     EVENT_SIGNAL_DETECTED,
     EVENT_SIGNAL_REMOVED,
@@ -165,6 +166,35 @@ def normalize_command(command: Any) -> NormalizedSignal:
         frequency=frequency,
     )
     return normalize(parsed)
+
+
+def _sl_fuzzy_substring_ratio(needle: str, haystack: str) -> float:
+    """Edit-distance ratio of ``needle`` against the best-aligned
+    substring of ``haystack``, normalized by ``len(needle)``.
+
+    Standard fuzzy-substring DP: the match may start and end anywhere in
+    ``haystack`` for free, so one metric covers every mangle shape the
+    bench produced -- a truncated head (capture aligns mid-haystack), a
+    merged tail (few substitutions), and short shards (small needle
+    matching inside the full frame). 0.0 is a perfect substring; 1.0
+    means every needle symbol had to be edited.
+    """
+    n, m = len(needle), len(haystack)
+    if n == 0 or m == 0:
+        return 1.0
+    # prev[j] = min edits to match needle[:i] ending anywhere at haystack[:j].
+    prev = [0] * (m + 1)  # free start: matching zero needle costs nothing
+    for i in range(1, n + 1):
+        cur = [i] + [0] * m
+        for j in range(1, m + 1):
+            cost = 0 if needle[i - 1] == haystack[j - 1] else 1
+            cur[j] = min(
+                prev[j - 1] + cost,  # sub / match
+                prev[j] + 1,         # delete from needle
+                cur[j - 1] + 1,      # insert from haystack
+            )
+        prev = cur
+    return min(prev) / n  # free end
 
 
 def _apply_signal_provenance(
@@ -735,6 +765,14 @@ class SignalMonitor:
             "sig_fp": n.sig_fp,
             "row_key": row_key,
             "expires": now + MIRROR_ECHO_TTL_S,
+            # The transmitted frame's S/L pattern, for the garbled-echo
+            # swallow: a damaged echo misses both identity claims, but
+            # its shape still resembles what we just sent. Lives a bit
+            # longer than the identity claim (the beacon window clock --
+            # a queued Broadlink can blast later than the echo TTL, and
+            # the bench proved it).
+            "sl": EventParser._pronto_sl_pattern(n.code),
+            "garble_expires": now + MIRROR_OWN_BEACON_WINDOW_S,
             "cancel": None,
         }
         self._echo_expectations.append(expectation)
@@ -744,7 +782,7 @@ class SignalMonitor:
                 self._echo_expectations.remove(expectation)
 
         expectation["cancel"] = self._hass.loop.call_later(
-            MIRROR_ECHO_TTL_S, _expire
+            max(MIRROR_ECHO_TTL_S, MIRROR_OWN_BEACON_WINDOW_S), _expire
         )
 
     def _friendly_name(self, entity_id: str) -> str:
@@ -877,6 +915,40 @@ class SignalMonitor:
                 heard=receiver_entity_id,
             )
             return True
+
+        # Last resort: the garbled-echo swallow (owner design, shampoo).
+        # HAIR's own send coming back damaged -- merged tail, truncated
+        # head, shard -- misses both identity claims above and used to
+        # mint a junk Sniffer row per mangle (bench: dual-emitter and
+        # RC-5 replay cases). If the capture is UNDECODABLE and its S/L
+        # shape fuzzy-matches something we transmitted inside the window,
+        # it is our own voice bouncing back: mark the send heard (a
+        # mangled echo still proves the LED fired) and swallow it.
+        # Captures that decode cleanly NEVER land here -- a clean decode
+        # with a non-matching fingerprint is a real, different signal,
+        # so pressing candles-off right after testing candles-on is safe.
+        # Residual, accepted: an undecodable FOREIGN press that both
+        # lands in the ~3s window and resembles our transmission is
+        # swallowed too; it reappears on the next press.
+        if n.decoded_fingerprint is None:
+            cap_sl = EventParser._pronto_sl_pattern(n.code)
+            if cap_sl:
+                for exp in list(self._echo_expectations):
+                    exp_sl = exp.get("sl")
+                    if not exp_sl or now > exp["garble_expires"]:
+                        continue
+                    ratio = _sl_fuzzy_substring_ratio(cap_sl, exp_sl)
+                    if ratio <= ECHO_GARBLE_SIMILARITY:
+                        _LOGGER.debug(
+                            "Mirror: swallowed garbled echo (ratio %.2f)"
+                            " for send %s",
+                            ratio,
+                            exp["row_key"],
+                        )
+                        await self._mirror_mark_heard(
+                            exp["row_key"], receiver_entity_id
+                        )
+                        return True
         return False
 
     async def _mirror_device(self) -> UnknownDevice:
@@ -983,11 +1055,19 @@ class SignalMonitor:
             device = await self._mirror_device()
             signal = device.get_signal(sig_fp)
             if signal is None:
+                # No alias: the frontend recognizes these rows by their
+                # fingerprint prefix and titles them itself ("Unknown IR
+                # signal sent" + the place-a-receiver hint). The old
+                # backend-stamped alias "Unknown send" defeated that
+                # detection -- the title chain honors alias first, so the
+                # row kept rendering the pre-hint way (bench catch,
+                # shampoo: served bundle was current, row still looked
+                # old). Rows persisted with the legacy alias are mapped
+                # by the frontend.
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     source="echo",
                     heard_by=[],
-                    alias="Unknown send",
                 )
                 device.signals.insert(0, signal)
             signal.hit_count += 1
@@ -1844,12 +1924,20 @@ class SignalMonitor:
             ir_cmd, label, [emitter_entity_id],
             decoded_fingerprint=signal.decoded_fingerprint,
         )
+        # Route through the transmit gate: the frontend fires one test
+        # call per selected emitter concurrently, and without the gate
+        # both blasters key up at once -- the superimposed hybrid fails
+        # the echo claim and mints a junk Sniffer row (see tx_gate).
+        from .tx_gate import gated_send
+
         try:
             for i in range(send_count):
                 if i:
                     await asyncio.sleep(SEND_REPEAT_GAP)
                 await asyncio.wait_for(
-                    ir_send(self._hass, emitter_entity_id, ir_cmd),
+                    gated_send(
+                        self._hass, emitter_entity_id, ir_cmd, ir_send
+                    ),
                     timeout=ASSIGN_SERVICE_TIMEOUT_S,
                 )
         except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):  # noqa: UP041

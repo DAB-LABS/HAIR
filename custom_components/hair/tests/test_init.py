@@ -340,3 +340,71 @@ class TestPlatformsList:
         # "infrared" domain string, so match on the value, not enum identity.
         assert any(str(p) == "infrared" for p in PLATFORMS_LIST)
         assert len(PLATFORMS_LIST) == 10
+
+
+class TestReloadRehashesPanel:
+    """Regression pin for the roadmap's 'cache-buster on reload' item.
+
+    Verdict from re-reading the path (2026-07-19): a config-entry RELOAD
+    already re-hashes. async_unload_entry removes the panel and clears
+    the _panel_registered guard when the last entry unloads, so the next
+    setup re-reads the bundle and registers a fresh ?v= hash. The v0.6.6
+    bench staleness that spawned the roadmap item was the untracked-SVG
+    pull collision (bundle never changed on disk), not a reload defect.
+    This test pins the reload cycle so the behavior cannot regress into
+    the bug the roadmap described."""
+
+    @staticmethod
+    def _patch_bundle(mock_path_cls, content: bytes):
+        # Self-returning node: every `/` yields the node itself, so the
+        # three-hop `parent / "frontend" / "dist" / PANEL_FILENAME` chain
+        # lands on a mock whose exists/read_bytes serve the bundle.
+        node = MagicMock()
+        node.__truediv__ = MagicMock(return_value=node)
+        node.exists.return_value = True
+        node.read_bytes.return_value = content
+        mock_path_cls.return_value = MagicMock()
+        mock_path_cls.return_value.parent = node
+
+    @pytest.mark.asyncio
+    async def test_reload_cycle_registers_new_bundle_hash(self):
+        import hashlib as _hashlib
+
+        hass = _fake_hass()
+        entry = _fake_entry()
+        hass.data[DOMAIN] = {}
+
+        # First setup: bundle A registers with A's hash.
+        with patch("custom_components.hair.panel_custom") as mock_pc, \
+             patch("custom_components.hair.Path") as mock_path_cls:
+            mock_pc.async_register_panel = AsyncMock()
+            self._patch_bundle(mock_path_cls, b"bundle-edition-A")
+            await _async_register_panel(hass, entry)
+            url_a = mock_pc.async_register_panel.await_args.kwargs["module_url"]
+        assert url_a.endswith(
+            "?v=" + _hashlib.md5(b"bundle-edition-A").hexdigest()[:8]
+        )
+
+        # Unload (single entry): panel removed, guard cleared.
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.is_capturing = False
+        hass.data[DOMAIN][entry.entry_id] = {
+            "device_manager": MagicMock(),
+            "orchestrator": mock_orchestrator,
+        }
+        with patch("custom_components.hair.frontend") as mock_frontend:
+            assert await async_unload_entry(hass, entry) is True
+            mock_frontend.async_remove_panel.assert_called_once()
+        assert "_panel_registered" not in hass.data[DOMAIN]
+
+        # Second setup (the reload): bundle B registers with B's hash.
+        with patch("custom_components.hair.panel_custom") as mock_pc, \
+             patch("custom_components.hair.Path") as mock_path_cls:
+            mock_pc.async_register_panel = AsyncMock()
+            self._patch_bundle(mock_path_cls, b"bundle-edition-B")
+            await _async_register_panel(hass, entry)
+            url_b = mock_pc.async_register_panel.await_args.kwargs["module_url"]
+        assert url_b.endswith(
+            "?v=" + _hashlib.md5(b"bundle-edition-B").hexdigest()[:8]
+        )
+        assert url_a != url_b

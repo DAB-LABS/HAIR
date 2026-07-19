@@ -42,7 +42,11 @@ import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
-import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
+import {
+    MIRROR_DEVICE_FP,
+    MIRROR_UNKNOWN_FP_PREFIX,
+    triggerMatchesSignal,
+} from "./types.js";
 import type {
     AssignResult,
     IRTrigger,
@@ -88,7 +92,12 @@ const ICON_DITTO =
 const VIA_SEP = " -- via ";
 
 /** Bloom duration must match the CSS animation. */
-const BLOOM_MS = 1400;
+// Held 100ms past the 2.4s animation on purpose: when the animation
+// ends, the static .bloom styles snap back for one last silver pass,
+// then the class drops and the row's transitions fade it out. This is
+// the trigger card's exact glow lifecycle (see ir-device-list.ts,
+// trigger-glow at 2.4s animation / 2500ms class hold).
+const BLOOM_MS = 2500;
 
 /** Debounce between a live push and the full device re-fetch. */
 const REFRESH_DEBOUNCE_MS = 300;
@@ -104,6 +113,11 @@ interface MirrorRowView {
     chip: string;
     heard: string | null; // null = suppress clause (zero-receiver home)
     heardOk: boolean;
+    // Foreign send that was never heard: no code, no identity, dead
+    // action buttons. These rows swap the whole sub-line for a plain
+    // explanation (owner wording, shampoo bench) -- the row was
+    // mistaken for a bug twice because it looked broken, not honest.
+    unknownSend: boolean;
 }
 
 @customElement("ir-mirror")
@@ -340,19 +354,32 @@ export class IrMirror extends LitElement {
             chip = "Send";
         }
 
+        // Unknown-send rows are detected by fingerprint prefix, NOT by
+        // the title chain bottoming out: rows persisted before shampoo
+        // carry a backend-stamped alias "Unknown send" that would win
+        // the chain and defeat the detection (bench catch -- the served
+        // bundle was current and the row still rendered the old way).
+        // That legacy alias is treated as absent; a user-renamed row
+        // keeps its custom alias as the title, hint intact.
+        const unknownSend = (sig.fingerprint ?? "").startsWith(
+            MIRROR_UNKNOWN_FP_PREFIX,
+        );
+        const alias =
+            unknownSend && sig.alias === "Unknown send" ? "" : sig.alias;
+
         // Title chain: alias > send label > decoded identity > the S/L
         // diamonds (the panel's established unnamed-signal identity) >
-        // "Unknown send" (foreign, never heard, nothing known).
-        const title =
-            sig.alias ||
+        // the unknown-send title (foreign, never heard, nothing known).
+        const chainTitle =
+            alias ||
             labelTitle ||
             this._decodedDisplay(sig) ||
             (sig.sl_pattern
                 ? [...sig.sl_pattern]
                       .map((ch) => (ch === "L" ? "◆" : "◇"))
                       .join("")
-                : null) ||
-            "Unknown send";
+                : null);
+        const title = chainTitle || "Unknown IR signal sent";
 
         const pill = sig.decoded_protocol ?? sig.protocol;
         const pillRaw = !sig.decoded_protocol;
@@ -365,7 +392,10 @@ export class IrMirror extends LitElement {
                   : "";
 
         // Zero-receiver homes suppress the clause entirely: amber (or even
-        // grey) everywhere would be alarm without information.
+        // grey) everywhere would be alarm without information. The clause
+        // says LAST heard (owner bench note): heard_by resets on every
+        // send and describes only the most recent one, while the row
+        // aggregates many sends -- "heard in Office" over-claimed.
         let heard: string | null = null;
         let heardOk = false;
         if (this._hasReceivers) {
@@ -377,10 +407,10 @@ export class IrMirror extends LitElement {
                 const areas = by.map((r) => this._receiverArea(r));
                 if (areas.every((a) => a !== null)) {
                     const unique = [...new Set(areas as string[])];
-                    heard = `heard in ${unique.join(", ")}`;
+                    heard = `last heard in ${unique.join(", ")}`;
                 } else {
                     const names = by.map((r) => this._friendlyReceiver(r));
-                    heard = `heard by ${names.join(", ")}`;
+                    heard = `last heard by ${names.join(", ")}`;
                 }
             }
         }
@@ -396,6 +426,7 @@ export class IrMirror extends LitElement {
             chip,
             heard,
             heardOk,
+            unknownSend,
         };
     }
 
@@ -820,23 +851,40 @@ export class IrMirror extends LitElement {
                               >`
                             : ""}
                     </div>
-                    <div class="mrow-sub">
-                        ${r.via
-                            ? html`<span title=${r.viaFull}>${r.via}</span>`
-                            : ""}
-                        ${r.heard !== null
-                            ? html`
-                                  <span class="arrow">&#10142;</span>
-                                  <span
-                                      class=${r.heardOk
-                                          ? "heard"
-                                          : "not-heard"}
-                                      >${r.heard}</span
+                    ${r.unknownSend
+                        ? html`
+                              <div class="mrow-hint">
+                                  <em class="hint-emitter"
+                                      >${r.emitters[0] ?? "The blaster"}</em
                                   >
-                              `
-                            : ""}
-                        <span class="src-chip">${r.chip}</span>
-                    </div>
+                                  fired, but nothing was close enough to
+                                  hear what it said. Place a receiver in
+                                  earshot to catch the next send.
+                              </div>
+                          `
+                        : html`
+                              <div class="mrow-sub">
+                                  ${r.via
+                                      ? html`<span title=${r.viaFull}
+                                            >${r.via}</span
+                                        >`
+                                      : ""}
+                                  ${r.heard !== null
+                                      ? html`
+                                            <span class="arrow"
+                                                >&#10142;</span
+                                            >
+                                            <span
+                                                class=${r.heardOk
+                                                    ? "heard"
+                                                    : "not-heard"}
+                                                >${r.heard}</span
+                                            >
+                                        `
+                                      : ""}
+                                  <span class="src-chip">${r.chip}</span>
+                              </div>
+                          `}
                 </div>
                 <div class="mrow-meta">
                     <span class="counts"
@@ -1177,40 +1225,61 @@ export class IrMirror extends LitElement {
                 border-color: #607d8b;
             }
 
-            /* Rows */
+            /* Rows: each send is its own rounded card (owner bench note),
+               matching the card language of the Devices, Sniffer, and
+               Clipper surfaces instead of a welded table. */
             .rows {
-                border: 1px solid var(--divider-color);
-                border-radius: 10px;
-                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
             }
             .mrow {
                 display: flex;
                 align-items: center;
                 gap: 12px;
                 padding: 10px 16px;
-                border-bottom: 1px solid var(--divider-color);
+                border: 1px solid var(--divider-color);
+                border-radius: 10px;
                 background: var(--card-background-color);
-            }
-            .mrow:last-child {
-                border-bottom: none;
+                /* Carries the soft exit after the bloom class drops --
+                   same durations as the trigger card. */
+                transition: box-shadow 300ms ease, border-color 300ms ease,
+                            background 400ms ease;
             }
             .mrow:hover {
                 background: var(--secondary-background-color);
             }
-            /* The silver bloom a send makes while you watch. */
+            /* The silver bloom a send makes while you watch: the WHOLE
+               card glows and fades (owner bench note -- the old left-edge
+               chip read as a sliver). Lifecycle is the trigger card's,
+               verbatim, in silver: the animation fades to nothing over
+               2.4s, the class's static styles snap back for one last
+               pass (class held to 2500ms, see BLOOM_MS), then the class
+               drops and the row's transitions carry the soft exit. */
             .mrow.bloom {
-                animation: mirror-bloom 1.4s ease-out;
+                border-color: #90a4ae;
+                background: rgba(144, 164, 174, 0.08);
+                animation: mirror-bloom 2.4s ease-out;
             }
             @keyframes mirror-bloom {
                 0% {
-                    box-shadow:
-                        inset 3px 0 0 #90a4ae,
-                        0 0 10px rgba(144, 164, 174, 0.55);
+                    background: rgba(144, 164, 174, 0.18);
+                    border-color: #b0bec5;
+                    box-shadow: 0 0 16px 4px rgba(144, 164, 174, 0.4);
+                }
+                30% {
+                    background: rgba(144, 164, 174, 0.1);
+                    border-color: #90a4ae;
+                    box-shadow: 0 0 8px 2px rgba(144, 164, 174, 0.2);
+                }
+                60% {
+                    background: rgba(144, 164, 174, 0.06);
+                    box-shadow: 0 0 4px 1px rgba(144, 164, 174, 0.1);
                 }
                 100% {
-                    box-shadow:
-                        inset 3px 0 0 rgba(144, 164, 174, 0),
-                        0 0 0 rgba(144, 164, 174, 0);
+                    background: transparent;
+                    border-color: var(--divider-color);
+                    box-shadow: none;
                 }
             }
             .mrow-main {
@@ -1270,6 +1339,22 @@ export class IrMirror extends LitElement {
                 align-items: center;
                 gap: 6px;
                 flex-wrap: wrap;
+            }
+            /* Unknown-send explanation: replaces the whole sub-line on
+               foreign never-heard rows (owner wording). Plain prose, so
+               it wraps like a sentence rather than flexing like chips. */
+            .mrow-hint {
+                margin-top: 4px;
+                font-size: 12px;
+                color: var(--secondary-text-color);
+                line-height: 1.45;
+                max-width: 46em;
+            }
+            /* The emitter's name reads as part of the sentence without
+               a marker (owner bench note); italic says "this is YOUR
+               device's name, not our words." */
+            .mrow-hint .hint-emitter {
+                font-style: italic;
             }
             .arrow {
                 color: #b0bec5;

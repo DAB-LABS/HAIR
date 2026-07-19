@@ -451,12 +451,17 @@ class DeviceManager:
         # Whole-frame repetition: transmit the built Command send_count times
         # to every emitter, with a short pause between frames so the receiver
         # registers them as distinct presses. send_count defaults to 1.
+        # Sends route through the transmit gate, which staggers emitter
+        # CHANGES so a multi-emitter broadcast doesn't superimpose in the
+        # air at a receiver that hears both blasters (see tx_gate).
+        from .tx_gate import gated_send
+
         send_count = max(1, command.send_count or 1)
         for i in range(send_count):
             if i:
                 await asyncio.sleep(SEND_REPEAT_GAP)
             for emitter_id in device.emitter_entity_ids:
-                await ir_send(self._hass, emitter_id, ir_cmd)
+                await gated_send(self._hass, emitter_id, ir_cmd, ir_send)
 
         # RC-5-family toggle state (v0.6.0): one send-command call is one
         # logical press, so flip once after the full emitter loop completes

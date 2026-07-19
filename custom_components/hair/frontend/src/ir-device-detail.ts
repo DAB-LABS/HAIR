@@ -821,6 +821,15 @@ export class IrDeviceDetail extends LitElement {
         );
     }
 
+    private _goToMirror() {
+        this.dispatchEvent(
+            new CustomEvent("navigate-mirror", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     private async _deleteDevice() {
         this._busy = true;
         try {
@@ -1019,6 +1028,12 @@ export class IrDeviceDetail extends LitElement {
                         @click=${this._goToClips}
                         ?disabled=${this._busy}
                     >+ Clipped Signal</button>
+                    <button
+                        class="action-btn"
+                        title="Overhear a send in the Mirror"
+                        @click=${this._goToMirror}
+                        ?disabled=${this._busy}
+                    >+ Mirrored Signal</button>
                 </div>
                 <button
                     class="action-btn delete-btn"

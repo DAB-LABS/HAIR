@@ -7,6 +7,7 @@ import homeassistant.components.infrared as _infrared_mod
 import pytest
 
 from custom_components.hair.const import (
+    SEND_REPEAT_GAP,
     CommandCategory,
     DeviceType,
 )
@@ -134,7 +135,14 @@ async def test_send_command_repeats_whole_frame(manager):
         await manager.async_send_command(dev.id, "c1")
     # 3 repeats x 2 emitters; a gap between each repeat (not after the last).
     assert ir_send.await_count == 6
-    assert sleep.await_count == 2
+    # Sleeps: 2 inter-frame SEND_REPEAT_GAP pauses, plus 5 transmit-gate
+    # staggers -- the send order alternates a,b | a,b | a,b, so every one
+    # of the 5 emitter CHANGES inserts a quiet gap (see tx_gate). The
+    # patch on device_manager.asyncio.sleep is the shared asyncio module,
+    # so the gate's sleeps land in the same mock.
+    gaps = [c.args[0] for c in sleep.await_args_list]
+    assert gaps.count(SEND_REPEAT_GAP) == 2
+    assert len(gaps) == 7
 
 
 @pytest.mark.asyncio
