@@ -73,5 +73,11 @@
     "capture.learning": "Learning: \"{name}\"",
     "test_emitter.heading": "Send from",
     "test_emitter.sending": "Sending...",
-    "test_emitter.send": "Send"
+    "test_emitter.send": "Send",
+    "createremote.heading": "Create Remote",
+    "createremote.type": "Type",
+    "createremote.blank": "Blank remote",
+    "createremote.from_library": "From code library",
+    "createremote.model": "Model",
+    "createremote.select_model": "Select a model"
 }
