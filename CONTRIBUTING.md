@@ -113,6 +113,7 @@ The HAIR panel is fully localizable. Adding a language is a two-file PR, and the
 | Japanese (ja) | yes | yes | AI draft, native reviewer wanted |
 | German (de) | yes | yes | AI draft, native reviewer wanted |
 | Polish (pl) | yes | yes | AI draft, native reviewer wanted |
+| Portuguese (pt, pt-BR) | yes | yes | AI draft (Brazilian-leaning), native reviewer wanted |
 
 AI-drafted locales ship live on purpose: imperfect French beats English for a French user, and visible strings are the best way to find the person who will polish them. If that person is you, open a PR that corrects the values and flips the file's `_meta.review` marker to `reviewed by @yourhandle, <date>`. That marker is a real key in every panel dictionary (never rendered), so the parity tests force each locale to declare where it stands.
 
