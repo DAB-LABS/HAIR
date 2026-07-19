@@ -1055,11 +1055,19 @@ class SignalMonitor:
             device = await self._mirror_device()
             signal = device.get_signal(sig_fp)
             if signal is None:
+                # No alias: the frontend recognizes these rows by their
+                # fingerprint prefix and titles them itself ("Unknown IR
+                # signal sent" + the place-a-receiver hint). The old
+                # backend-stamped alias "Unknown send" defeated that
+                # detection -- the title chain honors alias first, so the
+                # row kept rendering the pre-hint way (bench catch,
+                # shampoo: served bundle was current, row still looked
+                # old). Rows persisted with the legacy alias are mapped
+                # by the frontend.
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     source="echo",
                     heard_by=[],
-                    alias="Unknown send",
                 )
                 device.signals.insert(0, signal)
             signal.hit_count += 1

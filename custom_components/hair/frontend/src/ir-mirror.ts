@@ -42,7 +42,11 @@ import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
-import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
+import {
+    MIRROR_DEVICE_FP,
+    MIRROR_UNKNOWN_FP_PREFIX,
+    triggerMatchesSignal,
+} from "./types.js";
 import type {
     AssignResult,
     IRTrigger,
@@ -350,11 +354,24 @@ export class IrMirror extends LitElement {
             chip = "Send";
         }
 
+        // Unknown-send rows are detected by fingerprint prefix, NOT by
+        // the title chain bottoming out: rows persisted before shampoo
+        // carry a backend-stamped alias "Unknown send" that would win
+        // the chain and defeat the detection (bench catch -- the served
+        // bundle was current and the row still rendered the old way).
+        // That legacy alias is treated as absent; a user-renamed row
+        // keeps its custom alias as the title, hint intact.
+        const unknownSend = (sig.fingerprint ?? "").startsWith(
+            MIRROR_UNKNOWN_FP_PREFIX,
+        );
+        const alias =
+            unknownSend && sig.alias === "Unknown send" ? "" : sig.alias;
+
         // Title chain: alias > send label > decoded identity > the S/L
         // diamonds (the panel's established unnamed-signal identity) >
         // the unknown-send title (foreign, never heard, nothing known).
         const chainTitle =
-            sig.alias ||
+            alias ||
             labelTitle ||
             this._decodedDisplay(sig) ||
             (sig.sl_pattern
@@ -362,7 +379,6 @@ export class IrMirror extends LitElement {
                       .map((ch) => (ch === "L" ? "◆" : "◇"))
                       .join("")
                 : null);
-        const unknownSend = !chainTitle;
         const title = chainTitle || "Unknown IR signal sent";
 
         const pill = sig.decoded_protocol ?? sig.protocol;
