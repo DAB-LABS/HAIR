@@ -854,10 +854,12 @@ export class IrMirror extends LitElement {
                     ${r.unknownSend
                         ? html`
                               <div class="mrow-hint">
-                                  ${r.emitters[0] ?? "The blaster"} fired,
-                                  but nothing was close enough to hear what
-                                  it said. Place a receiver in earshot to
-                                  catch the next send.
+                                  <em class="hint-emitter"
+                                      >${r.emitters[0] ?? "The blaster"}</em
+                                  >
+                                  fired, but nothing was close enough to
+                                  hear what it said. Place a receiver in
+                                  earshot to catch the next send.
                               </div>
                           `
                         : html`
@@ -1347,6 +1349,12 @@ export class IrMirror extends LitElement {
                 color: var(--secondary-text-color);
                 line-height: 1.45;
                 max-width: 46em;
+            }
+            /* The emitter's name reads as part of the sentence without
+               a marker (owner bench note); italic says "this is YOUR
+               device's name, not our words." */
+            .mrow-hint .hint-emitter {
+                font-style: italic;
             }
             .arrow {
                 color: #b0bec5;
