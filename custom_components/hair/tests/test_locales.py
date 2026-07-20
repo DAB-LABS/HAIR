@@ -271,6 +271,46 @@ class TestTranslatedReadmes:
         assert "CONTRIBUTING.md#adding-a-language" in text
 
 
+class TestPanelVersionStamp:
+    """The panel footer version constant tracks manifest.json.
+
+    v0.6.8 shipped with the footer still reading 0.6.7 because the
+    constant was a comment-enforced convention ("bump alongside
+    manifest.json"). Conventions drift; tests do not. The bundle check
+    catches the other half of the mistake: bumping the source constant
+    but forgetting to rebuild the shipped JS.
+    """
+
+    PANEL_TS = (
+        COMPONENT_DIR / "frontend" / "src" / "ha-panel-ir-devices.ts"
+    )
+    PANEL_BUNDLE = (
+        COMPONENT_DIR / "frontend" / "dist" / "ha-panel-ir-devices.js"
+    )
+    MANIFEST = COMPONENT_DIR / "manifest.json"
+
+    def _version(self) -> str:
+        return json.loads(self.MANIFEST.read_text(encoding="utf-8"))[
+            "version"
+        ]
+
+    def test_footer_constant_matches_manifest(self):
+        version = self._version()
+        text = self.PANEL_TS.read_text(encoding="utf-8")
+        assert f'const HAIR_VERSION = "{version}";' in text, (
+            "ha-panel-ir-devices.ts HAIR_VERSION is stale; bump it to "
+            f"{version} to match manifest.json"
+        )
+
+    def test_shipped_bundle_carries_current_version(self):
+        version = self._version()
+        bundle = self.PANEL_BUNDLE.read_text(encoding="utf-8")
+        assert f'"{version}"' in bundle, (
+            f"frontend/dist bundle does not contain {version}; run "
+            "'npm run build' in frontend/ after bumping HAIR_VERSION"
+        )
+
+
 class TestBackendTranslationParity:
     @pytest.mark.parametrize("path", _backend_locales(), ids=lambda p: p.stem)
     def test_key_path_parity(self, path):
