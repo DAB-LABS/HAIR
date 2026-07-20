@@ -8,12 +8,13 @@
 
 Pointez n'importe quelle télécommande vers un récepteur IR, appuyez sur un bouton, et HAIR transforme ce signal en quelque chose que Home Assistant sait vraiment utiliser : un bouton sur n'importe quel tableau de bord, un déclencheur pour vos automatisations, une commande à envoyer par n'importe quel blaster de la plateforme infrarouge native de HA. Pas de YAML, pas d'applications de fabricants, pas de fichiers de codes à télécharger.
 
-## Quatre façons de faire entrer vos codes
+## Cinq façons de faire entrer vos codes
 
 - **Sniffez-le.** Appuyez sur un bouton d'une vraie télécommande : HAIR le capture en direct dans l'air, relève son empreinte et le regroupe par télécommande.
 - **Convertissez-le.** Collez des codes IR connus, ou préremplissez une télécommande entière depuis la bibliothèque de codes installée en choisissant un fabricant et un modèle.
 - **Cueillez-le.** Récupérez les codes déjà appris dans un blaster de fabricant (comme Tuya Local) sans en réapprendre un seul au récepteur.
 - **Surprenez-le.** Chaque commande IR envoyée via Home Assistant apparaît dans le Mirror, entendue ou non, à un clic de devenir une commande à vous.
+- **Enfilez-la.** Déposez un fichier de codes dans la Penderie -- une perruque partagée, un JSON SmartIR, un `.ir` de Flipper Zero, une configuration LIRC ou un export Girr d'IrScrutinizer -- et elle rejoint votre collection, à un clic de devenir une télécommande fonctionnelle.
 
 ## Ce que vous en faites
 
@@ -42,4 +43,4 @@ Le README complet, avec le YAML d'installation, le matériel pris en charge, les
 
 ---
 
-*Traduit du README anglais, version v0.6.9. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traduit du README anglais, version v0.7.0. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*

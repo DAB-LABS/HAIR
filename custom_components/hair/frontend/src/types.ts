@@ -84,12 +84,40 @@ export interface CodeCodebook {
     id: string;
     label: string;
     functions: CodeFunction[];
+    // "library" = installed infrared-protocols codebook; "local" = a wig
+    // from /config/hair/wigs/. Absent on pre-0.7.0 payloads -> library.
+    source?: "library" | "local";
 }
 
 export interface CodeBrand {
     brand: string;
     label: string;
     codebooks: CodeCodebook[];
+}
+
+// Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
+export interface WigInfo {
+    filename: string;
+    name: string;
+    brand: string | null;
+    model: string | null;
+    notes: string | null;
+    origin: string | null;
+    signal_count: number;
+    // Signal aliases for the count-click peek popover (v0.7.0).
+    signals?: string[];
+}
+
+export interface WigInvalid {
+    filename: string;
+    errors: string[];
+}
+
+export interface WigsList {
+    wigs: WigInfo[];
+    invalid: WigInvalid[];
+    library: CodeBrand[];
+    library_version: string | null;
 }
 
 export interface EntityConfig {
@@ -256,6 +284,9 @@ export interface UnknownDeviceSummary {
     order?: number;
     vendor_entity_id?: string | null;
     appliance?: string | null;
+    // The HAIR devices this remote feeds (v0.7.0): stored promote link
+    // plus per-signal assignment targets, resolved live by id.
+    linked_devices?: { device_id: string; device_name: string }[];
 }
 
 export interface UnknownDevice {

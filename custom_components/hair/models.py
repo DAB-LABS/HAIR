@@ -764,6 +764,11 @@ class UnknownDevice:
     # that maps to the vendor service's device parameter.
     vendor_entity_id: str | None = None
     appliance: str | None = None
+    # Identity-based promote linkage (v0.7.0, the GH promote-rename
+    # anomaly): the HAIR device id this remote was promoted into. The
+    # Sniffer's linked-device chip resolves it live by id, so renaming
+    # either side never breaks the link. None = never promoted.
+    promoted_to: str | None = None
 
     def get_signal(
         self,
@@ -874,6 +879,7 @@ class UnknownDevice:
             "order": self.order,
             "vendor_entity_id": self.vendor_entity_id,
             "appliance": self.appliance,
+            "promoted_to": self.promoted_to,
         }
 
     @classmethod
@@ -896,4 +902,5 @@ class UnknownDevice:
             order=int(data.get("order", 0)),
             vendor_entity_id=data.get("vendor_entity_id"),
             appliance=data.get("appliance"),
+            promoted_to=data.get("promoted_to"),
         )

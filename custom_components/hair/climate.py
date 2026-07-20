@@ -163,6 +163,17 @@ class HAIRClimateEntity(ClimateEntity):
                 continue
             if mode not in modes:
                 modes.append(mode)
+        if len(modes) == 1:
+            # GH #58: an AC with power mapped but no discrete mode
+            # commands (the common remote that cycles modes on the unit)
+            # otherwise offers OFF as its only state, leaving the climate
+            # card with no way to turn the unit on. Advertise AUTO as the
+            # synthetic on-state: async_set_hvac_mode already falls back
+            # to turn_on/power_toggle for an unmapped mode, and
+            # async_turn_on already wakes into AUTO.
+            mapping = self._device.entity_config.command_mapping
+            if "turn_on" in mapping or "power_toggle" in mapping:
+                modes.append(HVACMode.AUTO)
         return modes
 
     @property

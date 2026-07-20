@@ -8,12 +8,13 @@
 
 Punta un telecomando qualsiasi verso un ricevitore IR, premi un tasto, e HAIR trasforma quel segnale in qualcosa che Home Assistant sa davvero usare: un pulsante su qualsiasi dashboard, un trigger per le tue automazioni, un comando da inviare attraverso qualsiasi trasmettitore della piattaforma a infrarossi nativa di HA. Niente YAML, niente app dei produttori, niente file di codici da scaricare.
 
-## Quattro modi per far entrare i tuoi codici
+## Cinque modi per far entrare i tuoi codici
 
 - **Annusalo.** Premi un tasto di un telecomando vero e HAIR lo cattura dal vivo nell'aria, ne prende l'impronta e lo raggruppa per telecomando.
 - **Convertilo.** Incolla codici IR conosciuti, oppure precompila un telecomando intero dalla libreria di codici installata scegliendo produttore e modello.
 - **Estrailo.** Recupera i codici già appresi in un trasmettitore di un produttore (come Tuya Local) senza riapprenderne nemmeno uno al ricevitore.
 - **Origlialo.** Ogni comando IR inviato attraverso Home Assistant appare nel Mirror, sentito di ritorno o no, a un clic dal diventare un comando tuo.
+- **Indossala.** Trascina un file di codici nell'Armadio -- una parrucca condivisa, un JSON SmartIR, un `.ir` di Flipper Zero, una configurazione LIRC o un export Girr di IrScrutinizer -- e resta appesa nella tua collezione, a un clic dal diventare un telecomando funzionante.
 
 ## Cosa ci fai
 
@@ -42,4 +43,4 @@ Il README completo, con YAML di configurazione, hardware supportato, guide alle 
 
 ---
 
-*Tradotto dal README inglese, versione v0.6.9. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Tradotto dal README inglese, versione v0.7.0. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*

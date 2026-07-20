@@ -188,7 +188,12 @@ export class IrCreateRemoteDialog extends LitElement {
                                             ${t("createremote.select_model")}
                                         </option>
                                         ${brand.codebooks.map(
-                                            (c) => html`<option value=${c.id}>
+                                            (c) => html`<option
+                                                value=${c.id}
+                                                title=${c.source === "local"
+                                                    ? t("wigs.picker.local")
+                                                    : ""}
+                                            >
                                                 ${c.label}
                                                 (${c.functions.length})
                                             </option>`,

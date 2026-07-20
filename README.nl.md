@@ -8,12 +8,13 @@
 
 Richt een willekeurige afstandsbediening op een IR-ontvanger, druk op een knop, en HAIR maakt van dat signaal iets waar Home Assistant echt mee kan werken: een knop op elk dashboard, een trigger voor je automatiseringen, een commando dat je door elke blaster op HA's native infraroodplatform kunt sturen. Geen YAML, geen fabrikanten-apps, geen codebestanden downloaden.
 
-## Vier manieren om je codes binnen te krijgen
+## Vijf manieren om je codes binnen te krijgen
 
 - **Snuif hem op.** Druk op een knop van een echte afstandsbediening en HAIR vangt hem live uit de lucht, neemt zijn vingerafdruk en groepeert hem per afstandsbediening.
 - **Converteer hem.** Plak bekende IR-codes, of vul een hele afstandsbediening vooraf in vanuit de geïnstalleerde codebibliotheek door fabrikant en model te kiezen.
 - **Pluk hem.** Haal codes op die al in een fabrikanten-blaster zijn geleerd (zoals Tuya Local) zonder er ook maar één opnieuw te leren bij de ontvanger.
 - **Luister hem af.** Elk IR-commando dat via Home Assistant wordt verzonden verschijnt in de Mirror, teruggehoord of niet, één klik verwijderd van een eigen commando worden.
+- **Zet hem op.** Sleep een codebestand naar de Kast -- een gedeelde pruik, een SmartIR-JSON, een Flipper Zero-`.ir`, een LIRC-configuratie of een Girr-export uit IrScrutinizer -- en hij hangt bij je collectie, één klik verwijderd van een werkende afstandsbediening.
 
 ## Wat je ermee doet
 
@@ -42,4 +43,4 @@ De complete README, met setup-YAML, ondersteunde hardware, functiegidsen en scre
 
 ---
 
-*Vertaald uit de Engelse README, stand v0.6.9. Dit bestand is opgesteld door een programmeerassistent en wordt bij elke release ververst. Moedertaalsprekers zijn welkom om het over te nemen; zie [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Vertaald uit de Engelse README, stand v0.7.0. Dit bestand is opgesteld door een programmeerassistent en wordt bij elke release ververst. Moedertaalsprekers zijn welkom om het over te nemen; zie [Adding a language](CONTRIBUTING.md#adding-a-language).*

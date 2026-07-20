@@ -122,9 +122,9 @@ def get_tree() -> list[dict[str, Any]]:
     """Return the brand -> codebook -> function tree for the picker.
 
     Each brand: ``{brand, label, codebooks: [...]}``. Each codebook:
-    ``{id, label, functions: [{id, name}]}``. Ids are stable
-    ``module:Class`` / ``module:Class:MEMBER`` strings the import endpoints
-    resolve back to library objects.
+    ``{id, label, functions: [{id, name}], source: "library"}``. Ids are
+    stable ``module:Class`` / ``module:Class:MEMBER`` strings the import
+    endpoints resolve back to library objects.
     """
     brands: dict[str, dict[str, Any]] = {}
     for module, cls in _iter_codebooks():
@@ -145,12 +145,160 @@ def get_tree() -> list[dict[str, Any]]:
                 "id": f"{module}:{cls.__name__}",
                 "label": _humanize_codebook(cls.__name__),
                 "functions": functions,
+                "source": SOURCE_LIBRARY,
             }
         )
     result = sorted(brands.values(), key=lambda b: b["label"].lower())
     for brand in result:
         brand["codebooks"].sort(key=lambda c: c["label"].lower())
     return result
+
+
+# --- Local wigs as a second enumeration source (v0.7.0 Big Wig) ---
+#
+# The closet (/config/hair/wigs/) surfaces through the SAME tree shape as
+# the library, tagged source "local", so the picker renders one intermixed
+# alphabet with a provenance dot instead of a second list (wigs.md
+# section 6). Wig ids use a reserved "wig:" prefix that can never collide
+# with library ids (module paths contain dots, never start with "wig:").
+
+SOURCE_LIBRARY = "library"
+SOURCE_LOCAL = "local"
+
+_WIG_ID_PREFIX = "wig:"
+_UNBRANDED_KEY = "_unbranded"
+_UNBRANDED_LABEL = "Unbranded"
+
+
+def _wig_brand_key(brand: str | None) -> str:
+    """Merge key so a wig's brand folds into the library's brand row.
+
+    Library brand keys are lowercase path segments ("lg", "sony"); a wig
+    carrying brand "LG" or "Sony" must land in the same bucket, so the
+    key is the casefolded, underscored brand name. Missing brand goes to
+    the pinned Unbranded bucket.
+    """
+    if not brand or not brand.strip():
+        return _UNBRANDED_KEY
+    return re.sub(r"\s+", "_", brand.strip().casefold())
+
+
+def wig_codebook_id(filename: str) -> str:
+    return f"{_WIG_ID_PREFIX}{filename}"
+
+
+def parse_wig_id(codebook_id: str) -> str | None:
+    """Return the wig filename from a ``wig:`` codebook id, else None."""
+    if not codebook_id.startswith(_WIG_ID_PREFIX):
+        return None
+    return codebook_id[len(_WIG_ID_PREFIX):]
+
+
+def get_combined_tree(config_dir: str) -> list[dict[str, Any]]:
+    """Library tree merged with the local wig closet, one alphabet.
+
+    Local wigs appear as codebooks with ``source: "local"`` under their
+    brand row (created if the library has no such brand). Function ids
+    are ``wig:<filename>:<index>``. Invalid wig files are omitted here;
+    the Wigs tab is where they surface with reasons.
+    """
+    from .wig_store import scan_wigs
+
+    tree = get_tree()
+    scan = scan_wigs(config_dir)
+    if not scan.wigs:
+        return tree
+
+    by_key: dict[str, dict[str, Any]] = {}
+    for brand in tree:
+        by_key[brand["brand"]] = brand
+
+    for loaded in scan.wigs:
+        wig = loaded.wig
+        key = _wig_brand_key(wig.brand)
+        brand = by_key.get(key)
+        if brand is None:
+            label = (
+                _UNBRANDED_LABEL if key == _UNBRANDED_KEY
+                else wig.brand.strip()
+            )
+            brand = {"brand": key, "label": label, "codebooks": []}
+            by_key[key] = brand
+        cb_id = wig_codebook_id(loaded.path.name)
+        brand["codebooks"].append({
+            "id": cb_id,
+            "label": wig.name,
+            "functions": [
+                {"id": f"{cb_id}:{i}", "name": sig.alias}
+                for i, sig in enumerate(wig.signals)
+            ],
+            "source": SOURCE_LOCAL,
+        })
+
+    result = sorted(by_key.values(), key=lambda b: b["label"].lower())
+    for brand in result:
+        brand["codebooks"].sort(key=lambda c: c["label"].lower())
+    return result
+
+
+def materialize_wig(
+    config_dir: str,
+    codebook_id: str,
+    function_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Materialize a local wig into Clipper-ready entries.
+
+    Raw-first contract (wigs.md section 3): the wig carries only Pronto,
+    so every signal is decoded FRESH here -- same posture as the paste
+    path -- against whatever decoders this install has. Entries carry
+    ``send_count`` (already clamped by the parser); signals whose Pronto
+    fails validation are skipped, mirroring the library materializer's
+    one-bad-code-never-breaks-the-import rule.
+    """
+    from .ir_command import ProntoCommand
+    from .pronto_validator import validate_pronto
+    from .protocol_decode import try_decode_identity
+    from .wig_store import load_wig
+
+    filename = parse_wig_id(codebook_id)
+    if filename is None:
+        return []
+    wig = load_wig(config_dir, filename)
+    if wig is None:
+        return []
+    wanted: set[int] | None = None
+    if function_ids:
+        wanted = set()
+        for fid in function_ids:
+            index = fid.rsplit(":", 1)[-1]
+            if index.isdigit():
+                wanted.add(int(index))
+    entries: list[dict[str, Any]] = []
+    for i, sig in enumerate(wig.signals):
+        if wanted is not None and i not in wanted:
+            continue
+        result = validate_pronto(sig.pronto)
+        if not result.valid:
+            continue
+        code = result.normalized
+        try:
+            decode_raw = ProntoCommand(code).get_raw_timings()
+        except Exception:
+            decode_raw = None
+        identity = try_decode_identity(decode_raw)
+        entries.append({
+            "name": sig.alias,
+            "code": code,
+            "send_count": sig.send_count,
+            "decoded_protocol": identity.protocol if identity else None,
+            "decoded_address": identity.address if identity else None,
+            "decoded_command": identity.command if identity else None,
+            "decoded_fingerprint": identity.fingerprint if identity else None,
+            "decoded_extras": (
+                dict(identity.extras) if identity and identity.extras else None
+            ),
+        })
+    return entries
 
 
 def codebook_label(codebook_id: str) -> str | None:

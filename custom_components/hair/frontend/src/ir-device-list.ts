@@ -708,10 +708,7 @@ export class IrDeviceList extends LitElement {
                     <span class="toolbar-count">(${this.devices.length})</span>
                 </span>
                 <button class="add-btn" @click=${this._add}>
-                    <ha-svg-icon
-                        .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                    ></ha-svg-icon>
-                    ${t("devlist.add_device")}
+                    ${t("devlist.add_device_plus")}
                 </button>
             </div>
             ${hasDevices
@@ -1118,28 +1115,35 @@ export class IrDeviceList extends LitElement {
         }
         .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
-            color: var(--primary-color);
+            /* Devices wears the device green: the same #2e7d32 as the
+               expanded-card stroke and the Assign chip (owner ruling,
+               2026-07-20 -- green = device-ward, everywhere). */
+            color: #2e7d32;
         }
         .add-btn {
             display: inline-flex;
             align-items: center;
             gap: 4px;
             background: none;
-            color: var(--primary-color);
-            border: 1px solid var(--primary-color);
+            color: #2e7d32;
+            border: 1px solid #2e7d32;
             border-radius: 4px;
-            padding: 4px 12px;
-            font-size: 0.85rem;
+            /* Chip metrics, matching the Clipper's Add Remote exactly
+               (owner bench find: this one ran a size larger). */
+            padding: 4px 10px;
+            font-size: 0.75rem;
             font-weight: 500;
             font-family: inherit;
             cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             transition: background 150ms ease;
         }
         .add-btn ha-svg-icon {
             --mdc-icon-size: 18px;
         }
         .add-btn:hover {
-            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.08);
+            background: rgba(46, 125, 50, 0.08);
         }
         .toolbar-count {
             font-weight: 400;
@@ -1215,6 +1219,11 @@ export class IrDeviceList extends LitElement {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            /* Ellipsize ~2 characters earlier so a full-width name never
+               runs under the corner glyph (owner catch, 2026-07-20: the
+               duplicate glyph zone reaches 27px in from the card edge,
+               the card's own padding only 12px). */
+            padding-right: 16px;
         }
         .card-meta {
             margin-top: 6px;

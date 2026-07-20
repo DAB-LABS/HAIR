@@ -18,6 +18,7 @@ import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-save-wig-dialog.js";
 import "./ir-create-remote-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
@@ -77,6 +78,8 @@ export class IrClips extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
+    @state() private _saveWigDevice: UnknownDevice | null = null;
+    @state() private _wigDragOver = false;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
@@ -97,6 +100,8 @@ export class IrClips extends LitElement {
         signal: UnknownSignal;
     } | null = null;
     @state() private _promoteTarget: UnknownDeviceSummary | null = null;
+    @state() private _linkedPopoverId: string | null = null;
+    private _linkedPopoverPos = { top: 0, left: 0 };
     @state() private _assignSignal: {
         deviceId: string;
         signal: UnknownSignal;
@@ -278,6 +283,45 @@ export class IrClips extends LitElement {
         }, REORDER_DEBOUNCE_MS);
     }
 
+
+    /**
+     * Drop-through (owner idea, 2026-07-20): dropping a .wig.json on the
+     * Clipper saves it to the closet AND tries it on in one gesture --
+     * the casual path that skips the Wigs tab entirely. The file still
+     * lands in /config/hair/wigs/, so the closet stays truthful.
+     */
+    private async _onWigDrop(e: DragEvent): Promise<void> {
+        e.preventDefault();
+        this._wigDragOver = false;
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+        for (const file of Array.from(files)) {
+            try {
+                const upload = await this.api.wigsUpload(
+                    await file.text(), file.name,
+                );
+                if (!upload.success) {
+                    this._error = t("wigs.upload_failed", {
+                        reason: (upload.errors ?? []).join("; "),
+                    });
+                    continue;
+                }
+                const names =
+                    upload.filenames ?? [upload.filename ?? ""];
+                for (const name of names) {
+                    if (name) {
+                        await this.api.importCodeRemote(`wig:${name}`);
+                    }
+                }
+            } catch (err) {
+                this._error = t("wigs.upload_failed", {
+                    reason: (err as Error).message,
+                });
+            }
+        }
+        await this._load();
+    }
+
     private async _load(): Promise<void> {
         this._loading = true;
         try {
@@ -307,12 +351,6 @@ export class IrClips extends LitElement {
         } finally {
             this._loading = false;
         }
-    }
-
-    private _matchesHairDevice(label: string | null): boolean {
-        if (!label) return false;
-        const lower = label.toLowerCase();
-        return this._hairDevices.some((d) => d.name.toLowerCase() === lower);
     }
 
     private async _refreshExpanded(): Promise<void> {
@@ -436,6 +474,73 @@ export class IrClips extends LitElement {
     }
 
     // --- Promote / Assign / Delete / Test / Trigger (reuse Sniffer dialogs) ---
+
+    /**
+     * Linked-devices chip (v0.7.0), same anatomy as the Sniffer's:
+     * always the count form, always a dropdown, fixed-positioned
+     * popover with a scrim so collapsed cards cannot clip it.
+     */
+    private _renderLinkedChip(d: UnknownDeviceSummary) {
+        const linked = d.linked_devices ?? [];
+        if (linked.length === 0) return "";
+        return html`<span
+            class="status-badge hair-device"
+            @click=${(e: Event) => this._toggleLinkedPopover(d.id, e)}
+        >${tp("sniffer.linked", linked.length)}</span>`;
+    }
+
+    private _toggleLinkedPopover(deviceId: string, e: Event): void {
+        e.stopPropagation();
+        if (this._linkedPopoverId === deviceId) {
+            this._linkedPopoverId = null;
+            return;
+        }
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        this._linkedPopoverPos = {
+            top: rect.bottom + 6,
+            left: rect.left,
+        };
+        this._linkedPopoverId = deviceId;
+    }
+
+    private _renderLinkedPopover() {
+        if (!this._linkedPopoverId) return "";
+        const d = this._devices.find(
+            (dev) => dev.id === this._linkedPopoverId,
+        );
+        const linked = d?.linked_devices ?? [];
+        if (!d || linked.length === 0) return "";
+        return html`<div
+                class="linked-scrim"
+                @click=${() => (this._linkedPopoverId = null)}
+            ></div>
+            <div
+                class="linked-popover"
+                style="top: ${this._linkedPopoverPos.top}px; left: ${this
+                    ._linkedPopoverPos.left}px;"
+            >
+                ${linked.map(
+                    (entry) => html`<button
+                        class="linked-entry"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._linkedPopoverId = null;
+                            this._navigateToDevice(entry.device_id);
+                        }}
+                    >${entry.device_name}</button>`,
+                )}
+            </div>`;
+    }
+
+    private _navigateToDevice(deviceId: string): void {
+        this.dispatchEvent(
+            new CustomEvent("navigate-device", {
+                detail: deviceId,
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
 
     private _promoteDevice(d: UnknownDeviceSummary, e: Event): void {
         e.stopPropagation();
@@ -733,6 +838,15 @@ export class IrClips extends LitElement {
     render() {
         const count = this._devices.length;
         return html`
+            <div
+                class="clips-root ${this._wigDragOver ? "wig-drag" : ""}"
+                @dragover=${(e: DragEvent) => {
+                    e.preventDefault();
+                    this._wigDragOver = true;
+                }}
+                @dragleave=${() => (this._wigDragOver = false)}
+                @drop=${this._onWigDrop}
+            >
             <div class="toolbar">
                 <span class="title">
                     <ha-svg-icon .path=${ICON_CLIPPER}></ha-svg-icon>
@@ -834,17 +948,13 @@ export class IrClips extends LitElement {
                                 ><strong>${d.signal_count}</strong>
                                 ${tp("sniffer.signal_word", d.signal_count)}</span
                             >
-                            ${d.label && this._matchesHairDevice(d.label)
+                            ${d.label
                                 ? html`<span
-                                      class="status-badge hair-device"
-                                      @click=${(e: Event) => e.stopPropagation()}
-                                  >${t("sniffer.hair_device")}</span>`
-                                : d.label
-                                    ? html`<span
-                                          class="status-badge promote-badge"
-                                          @click=${(e: Event) => this._promoteDevice(d, e)}
-                                      >${t("sniffer.promote")}</span>`
-                                    : ""}
+                                      class="status-badge promote-badge"
+                                      @click=${(e: Event) => this._promoteDevice(d, e)}
+                                  >${t("sniffer.promote")}</span>`
+                                : ""}
+                            ${this._renderLinkedChip(d)}
                         </div>
                     </div>
                     <ha-svg-icon
@@ -897,6 +1007,13 @@ export class IrClips extends LitElement {
                           </div>
                       `}
                 <div class="remote-footer">
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = device;
+                        }}
+                    >${t("wigs.save_as_wig")}</button>
                     <button
                         class="action-btn delete-btn"
                         title=${t("clips.delete_remote_title")}
@@ -1002,6 +1119,16 @@ export class IrClips extends LitElement {
 
     private _renderDialogs() {
         return html`
+            ${this._renderLinkedPopover()}
+            ${this._saveWigDevice
+                ? html`<ir-save-wig-dialog
+                      .api=${this.api}
+                      source="catalog"
+                      sourceId=${this._saveWigDevice.id}
+                      sourceName=${this._saveWigDevice.label ?? ""}
+                      @closed=${() => (this._saveWigDevice = null)}
+                  ></ir-save-wig-dialog>`
+                : ""}
             ${this._createRemoteOpen
                 ? html`<ir-create-remote-dialog
                       .api=${this.api}
@@ -1054,6 +1181,7 @@ export class IrClips extends LitElement {
                       .api=${this.api}
                       .hass=${this.hass}
                       .suggestedName=${this._promoteTarget.label ?? ""}
+                      .sourceUnknownId=${this._promoteTarget.id}
                       @device-created=${this._onDevicePromoted}
                       @closed=${() => (this._promoteTarget = null)}
                   ></ir-promote-dialog>`
@@ -1165,10 +1293,57 @@ export class IrClips extends LitElement {
                       @closed=${() => (this._testDialog = null)}
                   ></ir-test-emitter-dialog>`
                 : ""}
+        </div>
         `;
     }
 
     static styles = [actionChipStyles, css`
+        .linked-scrim {
+            position: fixed;
+            inset: 0;
+            z-index: 39;
+        }
+        .linked-popover {
+            position: fixed;
+            z-index: 40;
+            min-width: 160px;
+            background: var(--card-background-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+            padding: 4px;
+            display: flex;
+            flex-direction: column;
+        }
+        .linked-entry {
+            background: none;
+            border: none;
+            text-align: left;
+            padding: 7px 10px;
+            font-size: 12.5px;
+            color: var(--primary-text-color);
+            cursor: pointer;
+            border-radius: 6px;
+        }
+        .linked-entry:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .save-wig-btn {
+            color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
+            margin-right: auto;
+            margin-left: 8px;
+        }
+        .save-wig-btn:hover:not(:disabled) {
+            background: rgba(142, 59, 59, 0.12);
+        }
+        .clips-root.wig-drag {
+            outline: 2px dashed #8e3b3b;
+            outline-offset: -2px;
+            border-radius: 12px;
+        }
+
         :host {
             display: block;
         }

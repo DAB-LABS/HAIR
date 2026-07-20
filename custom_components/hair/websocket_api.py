@@ -99,10 +99,19 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_unknown_signal_snap_preview)
     websocket_api.async_register_command(hass, ws_clip_validate_pronto)
     websocket_api.async_register_command(hass, ws_clip_delete_remote)
+    websocket_api.async_register_command(hass, ws_delete_sniffed_remote)
 
     # Code database picker (Add Remote)
     websocket_api.async_register_command(hass, ws_codes_get_brands)
     websocket_api.async_register_command(hass, ws_codes_import_remote)
+
+    # Wigs (the closet)
+    websocket_api.async_register_command(hass, ws_wigs_list)
+    websocket_api.async_register_command(hass, ws_wigs_upload)
+    websocket_api.async_register_command(hass, ws_wigs_delete)
+    websocket_api.async_register_command(hass, ws_wigs_get)
+    websocket_api.async_register_command(hass, ws_wigs_update)
+    websocket_api.async_register_command(hass, ws_wigs_export)
 
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
@@ -202,6 +211,7 @@ async def ws_get_device(
     vol.Optional("model"): vol.Any(str, None),
     vol.Optional("capture_device_id"): vol.Any(str, None),
     vol.Optional("capture_provider_type"): str,
+    vol.Optional("promoted_from_unknown_id"): vol.Any(str, None),
 })
 @websocket_api.async_response
 async def ws_create_device(
@@ -240,6 +250,24 @@ async def ws_create_device(
         capture_provider_type=provider_type,
     )
     await manager.async_create_device(device)
+
+    # Make HAIR Device (v0.7.0): the whole remote becomes the device.
+    # Copy every catalog signal in as a command (owner ruling -- promote
+    # no longer creates an empty shell), auto-map the lot so entity
+    # features light up, and stamp the identity link so the linked chip
+    # survives renames on either side.
+    source_unknown = msg.get("promoted_from_unknown_id")
+    if source_unknown:
+        monitor: SignalMonitor = data["signal_monitor"]
+        copy = await monitor.copy_signals_to_device(
+            source_unknown, device.id
+        )
+        if copy.get("success") and copy.get("copied"):
+            for command in device.commands:
+                manager._auto_map_command(device, command)
+            await manager.async_update_device(device)
+        await monitor.mark_promoted(source_unknown, device.id)
+
     connection.send_result(msg["id"], _device_full(device))
 
 
@@ -833,14 +861,17 @@ async def ws_codes_get_brands(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return the picker tree (brand -> codebook -> function) from the
-    installed infrared-protocols codebooks. Empty when the library is
-    missing or exposes no codebooks."""
-    from .code_library import get_tree
+    """Return the picker tree (brand -> codebook -> function): installed
+    infrared-protocols codebooks intermixed with local wigs from the
+    closet, each codebook tagged ``source: "library" | "local"`` so the
+    picker can dot provenance without splitting the alphabet."""
+    from .code_library import get_combined_tree
 
-    # get_tree walks the codebook package on disk and imports modules, so it
-    # is offloaded to the executor rather than run on the event loop.
-    tree = await hass.async_add_executor_job(get_tree)
+    # Walks the codebook package on disk, imports modules, and scans the
+    # wig folder, so it is offloaded to the executor.
+    tree = await hass.async_add_executor_job(
+        get_combined_tree, hass.config.config_dir
+    )
     connection.send_result(msg["id"], tree)
 
 
@@ -857,32 +888,57 @@ async def ws_codes_import_remote(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Materialize a codebook into a new clipped remote, one signal per
-    function, each aliased to its function name and pre-populated with its
-    decoded protocol identity for canonical transmit."""
+    """Materialize a codebook OR a local wig into a clipped remote, one
+    signal per function, each aliased to its function name and (when the
+    code decodes) pre-populated with its protocol identity for canonical
+    transmit. Wig imports decode FRESH here (raw-first contract) and
+    collapse onto an existing same-named clipped remote instead of
+    minting a twin (wigs.md section 6)."""
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
-    from .code_library import codebook_label, materialize_codebook
-
-    # materialize_codebook imports library modules from disk; keep it off the
-    # event loop.
-    entries = await hass.async_add_executor_job(
-        materialize_codebook, msg["codebook_id"], msg.get("function_ids")
+    from .code_library import (
+        codebook_label,
+        materialize_codebook,
+        materialize_wig,
+        parse_wig_id,
     )
+
+    wig_filename = parse_wig_id(msg["codebook_id"])
+    if wig_filename is not None:
+        from .wig_store import load_wig
+
+        # Both calls do file I/O and fresh decode; off the event loop.
+        entries = await hass.async_add_executor_job(
+            materialize_wig,
+            hass.config.config_dir,
+            msg["codebook_id"],
+            msg.get("function_ids"),
+        )
+        wig = await hass.async_add_executor_job(
+            load_wig, hass.config.config_dir, wig_filename
+        )
+        default_name = wig.name if wig else "Imported Remote"
+        merge = True
+    else:
+        # materialize_codebook imports library modules from disk; keep it
+        # off the event loop.
+        entries = await hass.async_add_executor_job(
+            materialize_codebook, msg["codebook_id"], msg.get("function_ids")
+        )
+        default_name = codebook_label(msg["codebook_id"]) or "Imported Remote"
+        merge = False
     if not entries:
         connection.send_error(
             msg["id"], "no_codes", "No usable codes for that selection"
         )
         return
     monitor: SignalMonitor = data["signal_monitor"]
-    name = (
-        msg.get("name")
-        or codebook_label(msg["codebook_id"])
-        or "Imported Remote"
+    name = msg.get("name") or default_name
+    result = await monitor.import_manual_remote(
+        name, entries, merge_existing=merge
     )
-    result = await monitor.import_manual_remote(name, entries)
     connection.send_result(msg["id"], result)
 
 
@@ -967,6 +1023,38 @@ def _augment_signals_with_assignments(
         sig["assigned_to"] = assigned
 
 
+def _linked_hair_devices(
+    device,
+    assignment_index: list[tuple[SignalIdentity, dict[str, str]]],
+    hair_by_id: dict[str, Any],
+) -> list[dict[str, str]]:
+    """The HAIR devices this catalog remote feeds, by identity.
+
+    Union of the stored promote link (resolved live by id, so renames
+    on either side never break it -- the GH promote-rename anomaly) and
+    every device any of the remote's signals is assigned into (the
+    many-to-many truth: one universal remote can feed several HAIR
+    devices). Deleted devices drop out naturally because resolution
+    fails.
+    """
+    linked: dict[str, str] = {}
+    if device.promoted_to:
+        target = hair_by_id.get(device.promoted_to)
+        if target is not None:
+            linked[target.id] = target.name
+    for sig in device.signals:
+        identity = SignalIdentity(
+            sig.decoded_fingerprint, sig.byte_hash, sig.fingerprint
+        )
+        for entry_identity, payload in assignment_index:
+            if identity.same_as(entry_identity):
+                linked[payload["device_id"]] = payload["device_name"]
+    return [
+        {"device_id": did, "device_name": name}
+        for did, name in linked.items()
+    ]
+
+
 def _unknown_device_summary(device) -> dict[str, Any]:
     """Build a summary dict for an unknown device."""
     return {
@@ -1013,9 +1101,18 @@ async def ws_get_unknown_devices(
         min_hits=msg.get("min_hits"),
         source=msg.get("source"),
     )
-    connection.send_result(
-        msg["id"], [_unknown_device_summary(d) for d in devices]
-    )
+    store = data.get("store")
+    hair_devices = store.get_all_devices() if store else []
+    index = _assignment_index(hair_devices)
+    hair_by_id = {d.id: d for d in hair_devices}
+    summaries = []
+    for d in devices:
+        summary = _unknown_device_summary(d)
+        summary["linked_devices"] = _linked_hair_devices(
+            d, index, hair_by_id
+        )
+        summaries.append(summary)
+    connection.send_result(msg["id"], summaries)
 
 
 @websocket_api.require_admin
@@ -1884,6 +1981,35 @@ async def ws_clip_delete_remote(
     connection.send_result(msg["id"], {"deleted": True})
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/delete-remote",
+    vol.Required("device_id"): str,
+})
+@websocket_api.async_response
+async def ws_delete_sniffed_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete a sniffed remote and all its signals (resurrects on
+    re-hearing, same semantics as per-row delete)."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    result = await monitor.delete_sniffed_remote(msg["device_id"])
+    if not result["success"]:
+        connection.send_error(
+            msg["id"],
+            result.get("code", "delete_failed"),
+            result.get("error", "Failed to delete remote"),
+        )
+        return
+    connection.send_result(msg["id"], {"deleted": True})
+
+
 # --- Action Mapping ---
 
 
@@ -2236,3 +2362,352 @@ async def ws_subscribe_triggers(
 
     connection.subscriptions[msg["id"]] = _on_disconnect
     connection.send_result(msg["id"], {"subscribed": True})
+
+
+# --- Wigs (v0.7.0 Big Wig): the closet over WebSocket ---
+#
+# All closet I/O is blocking file work and runs in the executor. Filename
+# inputs are guarded by safe_wig_filename inside wig_store; upload text is
+# schema-validated BEFORE anything touches disk (wigs.md section 4).
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/list",
+})
+@websocket_api.async_response
+async def ws_wigs_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The Wigs tab payload: local wigs with metadata, invalid files
+    with their validation reasons, library codebooks for the brand rows,
+    and the library version stamp for the toolbar."""
+
+    def _scan() -> dict[str, Any]:
+        from .code_library import get_tree, library_available
+        from .wig_store import scan_wigs
+
+        scan = scan_wigs(hass.config.config_dir)
+        library = get_tree() if library_available() else []
+        try:
+            from importlib.metadata import version
+
+            lib_version = version("infrared-protocols")
+        except Exception:
+            lib_version = None
+        return {
+            "wigs": [
+                {
+                    "filename": loaded.path.name,
+                    "name": loaded.wig.name,
+                    "brand": loaded.wig.brand,
+                    "model": loaded.wig.model,
+                    "notes": loaded.wig.notes,
+                    "origin": loaded.wig.origin,
+                    "signal_count": len(loaded.wig.signals),
+                    "signals": [
+                        sig.alias for sig in loaded.wig.signals
+                    ],
+                }
+                for loaded in scan.wigs
+            ],
+            "invalid": [
+                {"filename": bad.path.name, "errors": bad.errors}
+                for bad in scan.invalid
+            ],
+            "library": library,
+            "library_version": lib_version,
+        }
+
+    connection.send_result(
+        msg["id"], await hass.async_add_executor_job(_scan)
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/upload",
+    vol.Required("text"): vol.All(str, vol.Length(min=2, max=1_000_000)),
+    vol.Optional("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_wigs_upload(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The import funnel (wigs.md section 8): a native wig writes
+    straight to the closet; a recognized foreign format (SmartIR,
+    Flipper .ir, LIRC) converts to wigs first, stamped
+    ``converted:<format>``. Either way, validation happens BEFORE
+    anything touches disk, and per-signal conversion skips come back
+    as reasons instead of vanishing."""
+
+    def _upload() -> dict[str, Any]:
+        from .wig_adapters import convert, sniff_format
+        from .wig_format import (
+            parse_wig,
+            serialize_wig,
+            signals_content_hash,
+        )
+        from .wig_store import scan_wigs, write_wig_text
+
+        text = msg["text"]
+
+        # Content hashes of everything already hanging, so a re-dropped
+        # file gets a duplicate receipt (yellow, owner ruling) instead
+        # of silently minting -2, -3, ... twins. The file still writes:
+        # keeping it is the user's call, the receipt just tells them.
+        existing: dict[str, list[dict[str, Any]]] = {}
+        for loaded in scan_wigs(hass.config.config_dir).wigs:
+            existing.setdefault(
+                signals_content_hash(loaded.wig.signals), []
+            ).append({
+                "filename": loaded.path.name,
+                "brand": loaded.wig.brand,
+            })
+
+        def _entry(wig, filename: str) -> dict[str, Any]:
+            matches = existing.get(
+                signals_content_hash(wig.signals), []
+            )
+            return {
+                "filename": filename,
+                "name": wig.name,
+                "brand": wig.brand,
+                "duplicate_of": (
+                    matches[0]["filename"] if matches else None
+                ),
+                "duplicates": matches,
+            }
+
+        result = parse_wig(text)
+        if result.ok:
+            filename = write_wig_text(
+                hass.config.config_dir, text, result.wig.name
+            )
+            if filename is None:
+                return {"success": False, "errors": ["could not write file"]}
+            return {
+                "success": True,
+                "filename": filename,
+                "filenames": [filename],
+                "files": [_entry(result.wig, filename)],
+                "format": "wig",
+                "skipped": [],
+            }
+
+        # Not a wig: sniff for a foreign format before reporting the
+        # wig-schema errors (a SmartIR file failing wig validation is
+        # noise; the real answer is "convert it").
+        if sniff_format(text) is None:
+            return {"success": False, "errors": result.errors}
+        converted = convert(text, msg.get("filename", ""))
+        if converted.error and not converted.wigs:
+            return {"success": False, "errors": [converted.error]}
+        # The flash promises "see the wig notes" for skipped signals, so
+        # the reasons genuinely go into the notes (owner catch: the
+        # pointer used to point at nothing).
+        if converted.skipped:
+            summary = "; ".join(converted.skipped[:8])
+            if len(converted.skipped) > 8:
+                summary += f"; and {len(converted.skipped) - 8} more"
+            for wig in converted.wigs:
+                base = (wig.notes or "").rstrip(". ")
+                wig.notes = f"{base}. Import notes: {summary}"[:1900]
+        filenames: list[str] = []
+        files: list[dict[str, Any]] = []
+        for wig in converted.wigs:
+            filename = write_wig_text(
+                hass.config.config_dir, serialize_wig(wig), wig.name
+            )
+            if filename is not None:
+                filenames.append(filename)
+                files.append(_entry(wig, filename))
+        if not filenames:
+            return {"success": False, "errors": ["could not write files"]}
+        return {
+            "success": True,
+            "filename": filenames[0],
+            "filenames": filenames,
+            "files": files,
+            "format": converted.format,
+            "skipped": converted.skipped,
+        }
+
+    connection.send_result(
+        msg["id"], await hass.async_add_executor_job(_upload)
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/delete",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_wigs_delete(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete a local wig file (user wigs only by construction; library
+    codebooks are not files in the closet)."""
+    from .wig_store import delete_wig
+
+    deleted = await hass.async_add_executor_job(
+        delete_wig, hass.config.config_dir, msg["filename"]
+    )
+    connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/get",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_wigs_get(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Raw file text for the editor popover's download / copy-JSON."""
+    from .wig_store import read_wig_text
+
+    text = await hass.async_add_executor_job(
+        read_wig_text, hass.config.config_dir, msg["filename"]
+    )
+    if text is None:
+        connection.send_error(msg["id"], "not_found", "Wig not found")
+        return
+    connection.send_result(
+        msg["id"], {"filename": msg["filename"], "text": text}
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/update",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Optional("name"): vol.All(str, vol.Length(min=1, max=200)),
+    vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("model"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
+})
+@websocket_api.async_response
+async def ws_wigs_update(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Editor popover SAVE: update name/brand/model/notes in place.
+
+    The file keeps its filename (renaming on every name edit would break
+    anything the user points at the path); signals and unknown keys ride
+    through untouched via the parser's preservation contract. An empty
+    string clears an optional field."""
+
+    def _update() -> dict[str, Any]:
+        from .wig_format import serialize_wig
+        from .wig_store import (
+            load_wig,
+            safe_wig_filename,
+            wigs_dir,
+        )
+
+        filename = msg["filename"]
+        wig = load_wig(hass.config.config_dir, filename)
+        if wig is None or not safe_wig_filename(filename):
+            return {"success": False, "errors": ["wig not found"]}
+        if "name" in msg:
+            wig.name = msg["name"].strip() or wig.name
+        for key in ("brand", "model", "notes"):
+            if key in msg:
+                setattr(wig, key, msg[key].strip() or None)
+        path = wigs_dir(hass.config.config_dir) / filename
+        path.write_text(serialize_wig(wig), encoding="utf-8")
+        return {"success": True, "filename": filename}
+
+    connection.send_result(
+        msg["id"], await hass.async_add_executor_job(_update)
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/export",
+    vol.Required("source"): vol.In(["catalog", "device"]),
+    vol.Required("source_id"): vol.All(str, vol.Length(max=100)),
+    vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("model"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
+})
+@websocket_api.async_response
+async def ws_wigs_export(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Save as wig: serialize a catalog remote or a HAIR device into the
+    closet and confirm with the filename. The export dialog's brand ask
+    exists to keep the Unbranded bucket small (wigs.md section 5)."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+
+    from .wig_export import build_wig_from_catalog, build_wig_from_device
+
+    if msg["source"] == "catalog":
+        signal_store = data["signal_store"]
+        device = signal_store.get_device(msg["source_id"])
+        if device is None:
+            connection.send_error(
+                msg["id"], "not_found", "Catalog remote not found"
+            )
+            return
+        build = build_wig_from_catalog(device)
+    else:
+        store = data["store"]
+        device = store.get_device(msg["source_id"])
+        if device is None:
+            connection.send_error(
+                msg["id"], "not_found", "HAIR device not found"
+            )
+            return
+        build = build_wig_from_device(device)
+
+    if build.wig is None:
+        connection.send_error(
+            msg["id"], "no_signals",
+            "No exportable signals on that remote",
+        )
+        return
+    for key in ("brand", "model", "notes"):
+        if key in msg and msg[key].strip():
+            setattr(build.wig, key, msg[key].strip())
+
+    def _write() -> str | None:
+        from .wig_format import serialize_wig
+        from .wig_store import write_wig_text
+
+        return write_wig_text(
+            hass.config.config_dir,
+            serialize_wig(build.wig),
+            build.wig.name,
+        )
+
+    filename = await hass.async_add_executor_job(_write)
+    if filename is None:
+        connection.send_error(
+            msg["id"], "write_failed", "Could not write the wig file"
+        )
+        return
+    connection.send_result(msg["id"], {
+        "filename": filename,
+        "signal_count": len(build.wig.signals),
+        "skipped": build.skipped,
+    })

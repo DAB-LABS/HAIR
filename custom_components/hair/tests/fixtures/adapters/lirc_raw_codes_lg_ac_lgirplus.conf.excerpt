@@ -1,0 +1,36 @@
+# EXCERPT: first two of 27 raw_codes entries from mad-ady/lg-ac-remote-lirc lircd.conf
+# (transcribed via web fetch; full file has 27 name entries: power, temperature 18-30C,
+# ionizer, jet, swing, fan controls)
+
+begin remote
+  name  lgirplus.conf
+  flags RAW_CODES
+  eps            30
+  aeps          100
+  gap          16777215
+
+      begin raw_codes
+
+          name power-off
+             8556    4094     543    1509     569     506     571     515
+              541     533     544    1508     570     505     543     506
+              534     543     541    1513     542    1509     544     530
+              569     506     544     537     543     534     542     533
+              543     560     572     508     542     534     544     514
+              561     509     569     511     545    1504     547     528
+              544    1509     544     532     517     559     545     531
+              544    1515     568
+
+          name power-on-hot-30
+             8540    4143     539    1508     544     521     596     503
+              552     520     544    1497     600     500     542     543
+              559     511     545     529     547     530     569     511
+              540     534     534     557     544    1484     522     553
+              547     528     547    1506     548    1506     541    1486
+              592    1483     544     520     582    1485     541     536
+              541     533     544     533     545    1508     543    1510
+              544    1512     553
+
+      end raw_codes
+
+end remote

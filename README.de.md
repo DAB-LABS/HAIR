@@ -8,12 +8,13 @@
 
 Richte irgendeine Fernbedienung auf einen IR-Empfänger, drücke eine Taste, und HAIR macht aus diesem Signal etwas, womit Home Assistant wirklich arbeiten kann: eine Taste auf jedem Dashboard, einen Auslöser für deine Automationen, einen Befehl, den du über jeden Blaster auf HAs nativer Infrarot-Plattform senden kannst. Kein YAML, keine Hersteller-Apps, keine Code-Downloads.
 
-## Vier Wege, deine Codes hineinzubekommen
+## Fünf Wege, deine Codes hineinzubekommen
 
 - **Schnüffle ihn.** Drücke eine Taste auf einer echten Fernbedienung und HAIR fängt sie live aus der Luft ein, nimmt ihren Fingerabdruck und gruppiert sie nach Fernbedienung.
 - **Konvertiere ihn.** Füge bekannte IR-Codes ein, oder fülle eine ganze Fernbedienung aus der installierten Code-Bibliothek vor, indem du Hersteller und Modell wählst.
 - **Zieh ihn.** Hole Codes, die bereits in einem Hersteller-Blaster gelernt sind (etwa Tuya Local), ohne einen einzigen am Empfänger neu zu lernen.
 - **Belausche ihn.** Jeder über Home Assistant gesendete IR-Befehl erscheint im Mirror, gehört oder nicht, einen Klick davon entfernt, dein eigener Befehl zu werden.
+- **Setz sie auf.** Lege eine Code-Datei im Schrank ab -- eine geteilte Perücke, ein SmartIR-JSON, eine Flipper-Zero-`.ir`, eine LIRC-Konfiguration oder ein Girr-Export aus IrScrutinizer -- und sie hängt bei deiner Sammlung, einen Klick von einer funktionierenden Fernbedienung entfernt.
 
 ## Was du damit machst
 
@@ -42,4 +43,4 @@ Das komplette README, mit Setup-YAML, unterstützter Hardware, Funktionsanleitun
 
 ---
 
-*Übersetzt aus dem englischen README, Stand v0.6.9. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Übersetzt aus dem englischen README, Stand v0.7.0. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*

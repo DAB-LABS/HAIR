@@ -31,6 +31,7 @@ export class IrPromoteDialog extends LitElement {
 
     /** Pre-filled device name from the unknown device label. */
     @property() public suggestedName = "";
+    @property() public sourceUnknownId = "";
 
     @state() private _name = "";
     @state() private _type: DeviceTypeId = "other";
@@ -70,6 +71,7 @@ export class IrPromoteDialog extends LitElement {
                 name,
                 device_type: this._type,
                 emitter_entity_ids: this._emitterIds,
+                promoted_from_unknown_id: this.sourceUnknownId || null,
             });
             this.dispatchEvent(
                 new CustomEvent("device-created", {

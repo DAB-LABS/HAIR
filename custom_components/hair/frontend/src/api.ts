@@ -34,6 +34,7 @@ import type {
     UnknownDeviceSummary,
     UnknownSignal,
     UnknownSignalEvent,
+    WigsList,
 } from "./types.js";
 
 interface HaConnection {
@@ -76,6 +77,7 @@ export class HairApi {
         model?: string | null;
         capture_device_id?: string | null;
         capture_provider_type?: string;
+        promoted_from_unknown_id?: string | null;
     }): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
             type: "hair/device/create",
@@ -206,13 +208,92 @@ export class HairApi {
     importCodeRemote(
         codebookId: string,
         name?: string,
-    ): Promise<{ device: UnknownDevice; imported: number; skipped: number }> {
+    ): Promise<{
+        device: UnknownDevice;
+        imported: number;
+        skipped: number;
+        merged?: boolean;
+    }> {
         const msg: Record<string, unknown> = {
             type: "hair/codes/import-remote",
             codebook_id: codebookId,
         };
         if (name) msg.name = name;
         return this.hass.connection.sendMessagePromise(msg);
+    }
+
+    // --- Wigs (v0.7.0 Big Wig) ---
+
+    wigsList(): Promise<WigsList> {
+        return this.hass.connection.sendMessagePromise<WigsList>({
+            type: "hair/wigs/list",
+        });
+    }
+
+    wigsUpload(
+        text: string,
+        filename?: string,
+    ): Promise<{
+        success: boolean;
+        filename?: string;
+        filenames?: string[];
+        files?: {
+            filename: string;
+            name: string;
+            brand: string | null;
+            duplicate_of: string | null;
+            // Every closet wig holding an identical device (owner ask,
+            // 2026-07-20): the receipt lists all of them, clickably.
+            duplicates?: { filename: string; brand: string | null }[];
+        }[];
+        format?: string;
+        skipped?: string[];
+        errors?: string[];
+    }> {
+        const msg: Record<string, unknown> = {
+            type: "hair/wigs/upload",
+            text,
+        };
+        if (filename) msg.filename = filename;
+        return this.hass.connection.sendMessagePromise(msg);
+    }
+
+    wigsDelete(filename: string): Promise<{ deleted: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
+            type: "hair/wigs/delete",
+            filename,
+        });
+    }
+
+    wigsGet(filename: string): Promise<{ filename: string; text: string }> {
+        return this.hass.connection.sendMessagePromise<{
+            filename: string;
+            text: string;
+        }>({ type: "hair/wigs/get", filename });
+    }
+
+    wigsUpdate(
+        filename: string,
+        patch: Partial<{ name: string; brand: string; model: string; notes: string }>,
+    ): Promise<{ success: boolean; filename?: string; errors?: string[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/update",
+            filename,
+            ...patch,
+        });
+    }
+
+    wigsExport(
+        source: "catalog" | "device",
+        sourceId: string,
+        extras?: Partial<{ brand: string; model: string; notes: string }>,
+    ): Promise<{ filename: string; signal_count: number; skipped: number }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/export",
+            source,
+            source_id: sourceId,
+            ...(extras ?? {}),
+        });
     }
 
     /**
@@ -526,6 +607,13 @@ export class HairApi {
     deleteRemote(deviceId: string): Promise<{ deleted: boolean }> {
         return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
             type: "hair/clip/delete-remote",
+            device_id: deviceId,
+        });
+    }
+
+    deleteSniffedRemote(deviceId: string): Promise<{ deleted: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
+            type: "hair/unknown/delete-remote",
             device_id: deviceId,
         });
     }

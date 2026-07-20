@@ -2373,30 +2373,55 @@ class SignalMonitor:
         return {"success": True, "signal": signal.to_dict(), "triggers": rewire}
 
     async def import_manual_remote(
-        self, name: str, entries: list[dict[str, Any]]
+        self,
+        name: str,
+        entries: list[dict[str, Any]],
+        merge_existing: bool = False,
     ) -> dict[str, Any]:
         """Create a clipped remote pre-filled from materialized codebook entries.
 
         ``entries`` are the Clipper-ready dicts from ``code_library``: each
         ``{name, code, decoded_protocol, decoded_address, decoded_command,
-        decoded_fingerprint}``. Signals are validated, deduplicated within
-        the batch, and appended in order under a single lock and save.
-        Invalid or duplicate codes are skipped; returns the new device plus
-        imported/skipped counts so the UI can report partial imports.
+        decoded_fingerprint}`` plus an optional ``send_count`` (wig imports
+        carry it; library entries do not). Signals are validated,
+        deduplicated within the batch, and appended in order under a single
+        lock and save. Invalid or duplicate codes are skipped; returns the
+        device plus imported/skipped counts so the UI can report partial
+        imports.
+
+        ``merge_existing`` (wig imports): when a clipped remote with the
+        same label already exists, its rows absorb the batch instead of a
+        twin remote appearing -- re-materializing a wig you already
+        imported collapses onto existing rows via the tiered duplicate
+        guard (wigs.md section 6). Library imports keep their historical
+        new-remote-every-time behavior.
         """
         label = (name or "").strip() or "Imported Remote"
         now_iso = datetime.now(UTC).isoformat()
         imported = 0
         skipped = 0
         async with self._lock:
-            device = UnknownDevice(
-                label=label,
-                source="manual",
-                first_seen=now_iso,
-                last_seen=now_iso,
-                hit_count=0,
-            )
-            device.fingerprint = f"manual:{device.id}"
+            device = None
+            if merge_existing:
+                device = next(
+                    (
+                        d for d in self._signal_store.get_all_devices()
+                        if d.source == "manual"
+                        and (d.label or "").strip().casefold()
+                        == label.casefold()
+                    ),
+                    None,
+                )
+            created = device is None
+            if device is None:
+                device = UnknownDevice(
+                    label=label,
+                    source="manual",
+                    first_seen=now_iso,
+                    last_seen=now_iso,
+                    hit_count=0,
+                )
+                device.fingerprint = f"manual:{device.id}"
             for entry in entries:
                 result = validate_pronto(entry.get("code") or "")
                 if not result.valid:
@@ -2418,6 +2443,11 @@ class SignalMonitor:
                     if result.frequency_khz
                     else DEFAULT_CARRIER_FREQUENCY
                 )
+                send_count = entry.get("send_count", 1)
+                if not isinstance(send_count, int) or isinstance(
+                    send_count, bool
+                ):
+                    send_count = 1
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     byte_hash=byte_hash,
@@ -2435,15 +2465,20 @@ class SignalMonitor:
                     last_seen=now_iso,
                     source="manual",
                     alias=(entry.get("name") or "").strip(),
+                    send_count=max(1, min(send_count, MAX_SEND_COUNT)),
                 )
                 device.signals.append(signal)
                 imported += 1
-            self._signal_store.add_device(device)
+            if created:
+                self._signal_store.add_device(device)
+            else:
+                device.last_seen = now_iso
             await self._signal_store.async_save()
         return {
             "device": device.to_dict(),
             "imported": imported,
             "skipped": skipped,
+            "merged": not created,
         }
 
     async def set_signal_alias(
@@ -2467,6 +2502,83 @@ class SignalMonitor:
             signal.alias = (alias or "").strip()
             await self._signal_store.async_save()
         return {"success": True, "alias": signal.alias}
+
+    async def copy_signals_to_device(
+        self, device_id: str, hair_device_id: str
+    ) -> dict[str, Any]:
+        """Copy EVERY signal on a catalog remote into a HAIR device as
+        commands (Make HAIR Device, v0.7.0 owner ruling: the remote
+        becomes a device as a whole -- promote no longer creates an
+        empty shell the user hand-assigns into). Signals are COPIED and
+        left in the catalog, same one-way semantics as assign. Command
+        names follow the row title chain: alias, plucked name, decoded
+        identity, positional fallback.
+        """
+        from .models import CaptureResult, CommandCategory
+
+        async with self._lock:
+            unknown = self._signal_store.get_device(device_id)
+            if unknown is None or unknown.source == "echo":
+                return {"success": False, "code": "device_not_found",
+                        "error": "Catalog remote not found"}
+            hair_device = self._hair_store.get_device(hair_device_id)
+            if hair_device is None:
+                return {"success": False, "code": "target_not_found",
+                        "error": "Target HAIR device not found"}
+            copied = 0
+            for i, signal in enumerate(unknown.signals, start=1):
+                name = (
+                    (signal.alias or "").strip()
+                    or (signal.plucked_command_name or "").strip()
+                    or (signal.decoded_fingerprint or "").strip()
+                    or f"Signal {i}"
+                )
+                capture = CaptureResult(
+                    protocol=signal.protocol,
+                    code=signal.code,
+                    raw_timings=list(signal.raw_timings),
+                    frequency=signal.frequency,
+                )
+                ir_command = capture.to_command(
+                    name, CommandCategory.CUSTOM
+                )
+                _apply_signal_provenance(ir_command, signal)
+                hair_device.add_command(ir_command)
+                copied += 1
+            if copied:
+                await self._hair_store.async_save()
+        return {"success": True, "copied": copied}
+
+    async def mark_promoted(self, device_id: str, hair_device_id: str) -> None:
+        """Stamp a catalog remote with the HAIR device it was promoted
+        into (identity link; survives renames on both sides)."""
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return
+            device.promoted_to = hair_device_id
+            await self._signal_store.async_save()
+
+    async def delete_sniffed_remote(self, device_id: str) -> dict[str, Any]:
+        """Delete a sniffed remote and all its signals (owner ask, v0.7.0).
+
+        Sniffer resurrection semantics apply, same as per-row delete: the
+        remote returns on the next hearing of any of its signals, so
+        removal cannot lose the airwaves' truth. Restricted to sniffed
+        devices; clipped/plucked remotes have their own delete paths and
+        the Mirror's synthetic device must never be removable here.
+        """
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Remote not found"}
+            if device.source != "sniffed":
+                return {"success": False, "code": "not_sniffed",
+                        "error": "Only sniffed remotes can be deleted here"}
+            self._signal_store.remove_device(device_id)
+            await self._signal_store.async_save()
+        return {"success": True}
 
     async def delete_manual_remote(self, device_id: str) -> dict[str, Any]:
         """Delete a clipped (manual) remote and any signals it holds.

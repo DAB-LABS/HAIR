@@ -239,6 +239,76 @@ async def test_import_manual_remote_creates_remote_with_signals():
     assert sig.decoded_fingerprint == "NEC:0xfb04:0x08"
 
 
+@pytest.mark.asyncio
+async def test_import_manual_remote_merge_collapses_reimport():
+    """Wig re-imports collapse onto the same-named clipped remote (tiered
+    duplicate guard) instead of minting a twin; new signals still land.
+    Library-style imports (merge_existing=False) keep minting."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    code_a = (
+        "0000 006D 0006 0000 00E0 0070 0014 000D 0014 002E "
+        "0014 000D 0014 000D 0014 0400"
+    )
+    # Differ well beyond byte-hash quantization so the tiered guard sees
+    # a genuinely distinct signal, not a jittered copy.
+    code_b = code_a.replace("002E", "0060").replace("00E0 0070", "00A0 0050")
+    first = await monitor.import_manual_remote(
+        "Foxtel IQ", [{"name": "Power", "code": code_a, "send_count": 3}],
+        merge_existing=True,
+    )
+    assert first["merged"] is False
+    assert store.get_all_devices()[0].signals[0].send_count == 3
+
+    again = await monitor.import_manual_remote(
+        "Foxtel IQ",
+        [
+            {"name": "Power", "code": code_a},
+            {"name": "Mute", "code": code_b},
+        ],
+        merge_existing=True,
+    )
+    assert again["merged"] is True
+    assert again["imported"] == 1  # only Mute is new
+    assert again["skipped"] == 1
+    devices = store.get_all_devices()
+    assert len(devices) == 1
+    assert len(devices[0].signals) == 2
+
+    twin = await monitor.import_manual_remote(
+        "Foxtel IQ", [{"name": "Power", "code": code_a}],
+        merge_existing=False,
+    )
+    assert twin["merged"] is False
+    assert len(store.get_all_devices()) == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_sniffed_remote_source_guard():
+    """The Sniffer's delete-remote removes sniffed devices only; clipped
+    remotes (and by extension the Mirror's echo device) are refused."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    sniffed = UnknownDevice(label="Remote 1", source="sniffed")
+    store.add_device(sniffed)
+    manual = UnknownDevice(label="Clipped", source="manual")
+    store.add_device(manual)
+
+    result = await monitor.delete_sniffed_remote(sniffed.id)
+    assert result["success"] is True
+    assert store.get_device(sniffed.id) is None
+
+    refused = await monitor.delete_sniffed_remote(manual.id)
+    assert refused["success"] is False
+    assert refused["code"] == "not_sniffed"
+    assert store.get_device(manual.id) is not None
+
+    missing = await monitor.delete_sniffed_remote("nope")
+    assert missing["success"] is False
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle tests
 # ---------------------------------------------------------------------------
@@ -1934,3 +2004,55 @@ class TestEditSignalPronto:
             )
         assert res["success"] is False
         assert res["code"] == "invalid_pronto"
+
+
+@pytest.mark.asyncio
+async def test_mark_promoted_stamps_and_survives_missing():
+    """The identity promote link (v0.7.0): stamped on promote, no-op on
+    an unknown remote id."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    remote = UnknownDevice(label="Remote 1", source="sniffed")
+    store.add_device(remote)
+    await monitor.mark_promoted(remote.id, "hd42")
+    assert store.get_device(remote.id).promoted_to == "hd42"
+    await monitor.mark_promoted("nope", "hd42")
+
+
+@pytest.mark.asyncio
+async def test_copy_signals_to_device_names_and_provenance():
+    """Make HAIR Device copies every catalog signal in as a command,
+    named by the row title chain, leaving the catalog untouched."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    hair_store = _make_hair_store()
+    monitor = SignalMonitor(hass, store, hair_store)
+    remote = UnknownDevice(label="LG TV", source="manual")
+    remote.signals.append(UnknownSignal(
+        fingerprint="S1L2", protocol="PRONTO",
+        code="0000 006D 0001 0000 00E0 0070", frequency=38000,
+        alias="Power", send_count=3,
+    ))
+    remote.signals.append(UnknownSignal(
+        fingerprint="S3L4", protocol="PRONTO",
+        code="0000 006D 0001 0000 00A0 0050", frequency=38000,
+        alias="",
+    ))
+    store.add_device(remote)
+
+    from custom_components.hair.models import DeviceType, IRDevice
+    device = IRDevice(name="LG TV", device_type=DeviceType.MEDIA_PLAYER)
+    hair_store.get_device = MagicMock(return_value=device)
+
+    result = await monitor.copy_signals_to_device(remote.id, device.id)
+    assert result["success"] is True
+    assert result["copied"] == 2
+    names = [c.name for c in device.commands]
+    assert names == ["Power", "Signal 2"]
+    assert device.commands[0].send_count == 3
+    # Catalog untouched: signals are copied, never moved.
+    assert len(store.get_device(remote.id).signals) == 2
+
+    missing = await monitor.copy_signals_to_device("nope", device.id)
+    assert missing["success"] is False

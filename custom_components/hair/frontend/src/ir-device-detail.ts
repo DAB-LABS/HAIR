@@ -12,6 +12,7 @@ import Sortable from "sortablejs";
 import "./ir-command-row.js";
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-save-wig-dialog.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
@@ -54,6 +55,7 @@ export class IrDeviceDetail extends LitElement {
     @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
     @state() private _confirmDelete = false;
+    @state() private _saveWigOpen = false;
     @state() private _commandToDelete: IRCommand | null = null;
     @state() private _editCommand: IRCommand | null = null;
 
@@ -1103,14 +1105,30 @@ export class IrDeviceDetail extends LitElement {
                         ?disabled=${this._busy}
                     >${t("devdetail.mirrored")}</button>
                 </div>
-                <button
-                    class="action-btn delete-btn"
-                    @click=${() => (this._confirmDelete = true)}
-                    ?disabled=${this._busy}
-                >${t("devlist.del_device_title")}</button>
+                <div class="delete-row">
+                    <button
+                        class="action-btn delete-btn"
+                        @click=${() => (this._confirmDelete = true)}
+                        ?disabled=${this._busy}
+                    >${t("devlist.del_device_title")}</button>
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${() => (this._saveWigOpen = true)}
+                        ?disabled=${this._busy}
+                    >${t("wigs.save_as_wig")}</button>
+                </div>
             </div>
 
             <!-- Dialogs -->
+            ${this._saveWigOpen
+                ? html`<ir-save-wig-dialog
+                      .api=${this.api}
+                      source="device"
+                      sourceId=${this.device.id}
+                      sourceName=${this.device.name}
+                      @closed=${() => (this._saveWigOpen = false)}
+                  ></ir-save-wig-dialog>`
+                : ""}
             ${this._captureName
                 ? html`
                       <ir-capture-dialog
@@ -1229,6 +1247,25 @@ export class IrDeviceDetail extends LitElement {
         actionChipStyles,
         popoverStyles,
         css`
+        .save-wig-btn {
+            color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
+        }
+        .save-wig-btn:hover:not(:disabled) {
+            background: rgba(142, 59, 59, 0.12);
+        }
+        .delete-row {
+            /* Right-edge column (owner layout, bench round four): the
+               left side was busy, so Delete Device sits hard right with
+               Add to Closet stacked directly beneath it. */
+            flex-basis: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            margin-top: 2px;
+        }
+
         :host {
             display: block;
         }
@@ -1384,6 +1421,11 @@ export class IrDeviceDetail extends LitElement {
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
+            /* Align with the command NAME column above: 10px row
+               padding + 32px grip column + 12px grid gap (owner
+               layout, 2026-07-20 -- the eye line runs straight down
+               from the signal names into these buttons). */
+            margin-left: 54px;
         }
         .add-label {
             font-size: 0.8rem;

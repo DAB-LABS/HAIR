@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<remotes xmlns="http://www.harctoolbox.org/Girr"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         girrVersion="1.2" title="Exported by IrScrutinizer"
+         xsi:schemaLocation="http://www.harctoolbox.org/Girr http://www.harctoolbox.org/schemas/girr_ns-1.2.xsd">
+    <adminData>
+        <creationData creatingUser="bench" source="IrScrutinizer" tool="IrScrutinizer" toolVersion="2.4.2"/>
+    </adminData>
+    <remote name="onkyo_tx_nr616" displayName="Onkyo TX-NR616" manufacturer="Onkyo" model="TX-NR616" deviceClass="av_receiver">
+        <commandSet name="commandSet">
+            <command name="power_toggle" master="ccf">
+                <ccf>0000 006C 0022 0002 015B 00AD 0016 0016 0016 0041 0016 0016 0016 0041
+                     0016 0041 0016 0041 0016 0041 0016 0016 0016 0041 0016 0016 0016 0041
+                     0016 0016 0016 0016 0016 0016 0016 0041 0016 0041 0016 0016 0016 0041
+                     0016 0016 0016 0016 0016 0016 0016 0016 0016 0016 0016 0016 0016 0041
+                     0016 0016 0016 0041 0016 0041 0016 0041 0016 0041 0016 0041 0016 0041
+                     0016 06A4 015B 0057 0016 0E6C</ccf>
+            </command>
+            <command name="volumeUp" master="ccf">
+                <ccf>0000 006C 0022 0002 015B 00AD 0016 0016 0016 0041 0016 0016 0016 0041
+                     0016 0041 0016 0041 0016 0041 0016 0016 0016 0041 0016 0016 0016 0041
+                     0016 0016 0016 0016 0016 0016 0016 0016 0016 0041 0016 0016 0016 0041
+                     0016 0016 0016 0016 0016 0016 0016 0016 0016 0016 0016 0041 0016 0041
+                     0016 0016 0016 0041 0016 0041 0016 0041 0016 0041 0016 0041 0016 0041
+                     0016 06A4 015B 0057 0016 0E6C</ccf>
+            </command>
+            <command name="input_dvd" master="raw">
+                <raw frequency="38400">
+                    <intro>+9024 -4512 +564 -564 +564 -1692 +564 -564 +564 -1692
+                        +564 -1692 +564 -1692 +564 -1692 +564 -564 +564 -1692
+                        +564 -564 +564 -1692 +564 -564 +564 -564 +564 -564
+                        +564 -564 +564 -1692 +564 -564 +564 -1692 +564 -564
+                        +564 -1692 +564 -564 +564 -564 +564 -564 +564 -564
+                        +564 -1692 +564 -564 +564 -1692 +564 -564 +564 -1692
+                        +564 -1692 +564 -1692 +564 -1692 +564 -39756</intro>
+                    <repeat>+9024 -2256 +564 -96156</repeat>
+                </raw>
+            </command>
+            <command name="setup" master="parameters">
+                <parameters protocol="nec1">
+                    <parameter name="D" value="210"/>
+                    <parameter name="S" value="109"/>
+                    <parameter name="F" value="2"/>
+                </parameters>
+            </command>
+        </commandSet>
+    </remote>
+    <remote name="philips_rc5_tv" manufacturer="Philips">
+        <commandSet name="commandSet">
+            <command name="mute" master="raw">
+                <raw frequency="36000">
+                    <repeat>
+                        <flash>889</flash>
+                        <gap>889</gap>
+                        <flash>1778</flash>
+                        <gap>889</gap>
+                        <flash>889</flash>
+                        <gap>889</gap>
+                        <flash>889</flash>
+                        <gap>1778</gap>
+                        <flash>1778</flash>
+                        <gap>1778</gap>
+                        <flash>1778</flash>
+                        <gap>889</gap>
+                        <flash>889</flash>
+                        <gap>889</gap>
+                        <flash>889</flash>
+                        <gap>89997</gap>
+                    </repeat>
+                </raw>
+            </command>
+            <command name="empty_one">
+            </command>
+        </commandSet>
+    </remote>
+</remotes>

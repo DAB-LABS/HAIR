@@ -15,14 +15,15 @@ import "./ir-signal-monitor.js";
 import "./ir-clips.js";
 import "./ir-pluck.js";
 import "./ir-mirror.js";
+import "./ir-wigs.js";
 import type { DeviceSummary, IRDevice } from "./types.js";
 
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "0.6.9";
+const HAIR_VERSION = "0.7.0";
 
-type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror";
+type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror" | "wigs";
 
 @customElement("ha-panel-ir-devices")
 export class HaPanelIrDevices extends LitElement {
@@ -208,7 +209,7 @@ export class HaPanelIrDevices extends LitElement {
 
             <div class="tab-bar">
                 <button
-                    class="tab ${this._activeTab === "devices" ? "active" : ""}"
+                    class="tab devices-tab ${this._activeTab === "devices" ? "active" : ""}"
                     @click=${() => this._switchTab("devices")}
                 >
                     ${t("panel.tab.devices")}
@@ -220,7 +221,7 @@ export class HaPanelIrDevices extends LitElement {
                     Sniffer
                 </button>
                 <button
-                    class="tab ${this._activeTab === "clips" ? "active" : ""}"
+                    class="tab clipper-tab ${this._activeTab === "clips" ? "active" : ""}"
                     @click=${() => this._switchTab("clips")}
                 >
                     Clipper
@@ -233,6 +234,12 @@ export class HaPanelIrDevices extends LitElement {
                           Plucker
                       </button>`
                     : ""}
+                <button
+                    class="tab wigs-tab ${this._activeTab === "wigs" ? "active" : ""}"
+                    @click=${() => this._switchTab("wigs")}
+                >
+                    ${t("panel.tab.wigs")}
+                </button>
                 <button
                     class="tab mirror-tab ${this._activeTab === "mirror" ? "active" : ""}"
                     @click=${() => this._switchTab("mirror")}
@@ -292,13 +299,21 @@ export class HaPanelIrDevices extends LitElement {
                                     @navigate-device=${this._onNavigateDevice}
                                 ></ir-pluck>
                             `
-                          : html`
-                                <ir-mirror
-                                    .api=${this._api}
-                                    .hass=${this.hass}
-                                    @navigate-device=${this._onNavigateDevice}
-                                ></ir-mirror>
-                            `}
+                          : this._activeTab === "mirror"
+                            ? html`
+                                  <ir-mirror
+                                      .api=${this._api}
+                                      .hass=${this.hass}
+                                      @navigate-device=${this._onNavigateDevice}
+                                  ></ir-mirror>
+                              `
+                            : html`
+                                  <ir-wigs
+                                      .api=${this._api}
+                                      .hass=${this.hass}
+                                      @wig-tried-on=${() => this._switchTab("clips")}
+                                  ></ir-wigs>
+                              `}
             </div>
 
             ${this._addDialogOpen
@@ -354,6 +369,7 @@ export class HaPanelIrDevices extends LitElement {
             letter-spacing: 0.08em;
             text-align: center;
             color: var(--secondary-text-color);
+            margin-top: 14px;
         }
         .tab-bar {
             display: flex;
@@ -405,6 +421,8 @@ export class HaPanelIrDevices extends LitElement {
             cursor: pointer;
             transition: color 150ms ease, border-color 150ms ease;
             font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .tab:hover {
             color: var(--primary-text-color);
@@ -413,10 +431,28 @@ export class HaPanelIrDevices extends LitElement {
             color: var(--primary-color);
             border-bottom-color: var(--primary-color);
         }
+        /* Devices wears the device green (#2e7d32 -- the expanded-card
+           stroke and the Assign chip; owner ruling 2026-07-20). */
+        .tab.devices-tab.active {
+            color: #2e7d32;
+            border-bottom-color: #2e7d32;
+        }
+        /* The Clipper wears its copper in the tab bar too (owner bench
+           find, 2026-07-20: the active tab was default-blue while the
+           whole tab's content is copper). */
+        .tab.clipper-tab.active {
+            color: #b87333;
+            border-bottom-color: #b87333;
+        }
         /* The Mirror wears silver (v0.6.6), matching its tab accent. */
         .tab.mirror-tab.active {
             color: #607d8b;
             border-bottom-color: #607d8b;
+        }
+        /* The closet wears oxblood leather (v0.7.0, owner ruling). */
+        .tab.wigs-tab.active {
+            color: #8e3b3b;
+            border-bottom-color: #8e3b3b;
         }
         .content {
             padding: 16px;
