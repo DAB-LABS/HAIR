@@ -1,7 +1,7 @@
 {
     "domain": "hair",
     "name": "HAIR",
-    "version": "0.6.8",
+    "version": "0.6.9",
     "documentation": "https://github.com/DAB-LABS/HAIR",
     "issue_tracker": "https://github.com/DAB-LABS/HAIR/issues",
     "dependencies": ["infrared"],

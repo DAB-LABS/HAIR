@@ -42,4 +42,4 @@ Das komplette README, mit Setup-YAML, unterstützter Hardware, Funktionsanleitun
 
 ---
 
-*Übersetzt aus dem englischen README, Stand v0.6.8. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Übersetzt aus dem englischen README, Stand v0.6.9. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*
