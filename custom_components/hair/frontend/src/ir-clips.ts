@@ -79,6 +79,7 @@ export class IrClips extends LitElement {
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
     @state() private _saveWigDevice: UnknownDevice | null = null;
+    @state() private _wigDragOver = false;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
@@ -278,6 +279,37 @@ export class IrClips extends LitElement {
                 await this._refreshExpanded();
             }
         }, REORDER_DEBOUNCE_MS);
+    }
+
+
+    /**
+     * Drop-through (owner idea, 2026-07-20): dropping a .wig.json on the
+     * Clipper saves it to the closet AND tries it on in one gesture --
+     * the casual path that skips the Wigs tab entirely. The file still
+     * lands in /config/hair/wigs/, so the closet stays truthful.
+     */
+    private async _onWigDrop(e: DragEvent): Promise<void> {
+        e.preventDefault();
+        this._wigDragOver = false;
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+        for (const file of Array.from(files)) {
+            try {
+                const upload = await this.api.wigsUpload(await file.text());
+                if (!upload.success || !upload.filename) {
+                    this._error = t("wigs.upload_failed", {
+                        reason: (upload.errors ?? []).join("; "),
+                    });
+                    continue;
+                }
+                await this.api.importCodeRemote(`wig:${upload.filename}`);
+            } catch (err) {
+                this._error = t("wigs.upload_failed", {
+                    reason: (err as Error).message,
+                });
+            }
+        }
+        await this._load();
     }
 
     private async _load(): Promise<void> {
@@ -735,6 +767,15 @@ export class IrClips extends LitElement {
     render() {
         const count = this._devices.length;
         return html`
+            <div
+                class="clips-root ${this._wigDragOver ? "wig-drag" : ""}"
+                @dragover=${(e: DragEvent) => {
+                    e.preventDefault();
+                    this._wigDragOver = true;
+                }}
+                @dragleave=${() => (this._wigDragOver = false)}
+                @drop=${this._onWigDrop}
+            >
             <div class="toolbar">
                 <span class="title">
                     <ha-svg-icon .path=${ICON_CLIPPER}></ha-svg-icon>
@@ -1185,10 +1226,17 @@ export class IrClips extends LitElement {
                       @closed=${() => (this._testDialog = null)}
                   ></ir-test-emitter-dialog>`
                 : ""}
+        </div>
         `;
     }
 
     static styles = [actionChipStyles, css`
+        .clips-root.wig-drag {
+            outline: 2px dashed #8e3b3b;
+            outline-offset: -2px;
+            border-radius: 12px;
+        }
+
         :host {
             display: block;
         }
