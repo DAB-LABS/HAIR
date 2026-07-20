@@ -79,6 +79,26 @@ Key components:
   known-command suppression is removed (v0.6.6, "heard means shown"): assigned
   buttons keep flashing in the Sniffer and deleted rows resurrect on re-hearing;
   dismiss is the only hiding tool.
+- Wigs: portable code sets (a sixth panel tab, v0.7.0). A wig is one JSON file
+  (format "hair-wig/1", suffix .wig.json, documented in docs/wig-format.md):
+  name, optional brand/model/notes/origin, and a non-empty signals list of
+  alias + raw Pronto (+ optional send_count). Raw Pronto is the whole payload
+  by design -- no decoded fields ship in the file, so importing decodes fresh
+  against the installed decoders and a wig can never carry a stale identity.
+  Files live in /config/hair/wigs/ (created at setup, outside the HACS-managed
+  tree, scanned on demand); invalid files surface on the tab with field-level
+  reasons instead of disappearing. The tab shelves library codebooks and local
+  wigs together by brand (slate dot = library, oxblood = yours); TRY ON
+  materializes a wig into a Clipper remote through the same import path as the
+  code-library picker, and re-trying collapses onto the existing remote. Save
+  as Wig serializes any Sniffer/Clipper/Plucker remote or HAIR device into the
+  closet with an origin stamp (captured / clipped / plucked / device /
+  converted:*) that the wig editor renders as a plain-English provenance
+  sentence. The Add Remote picker intermixes local wigs into the library
+  alphabet. HAIR ships zero codes: wigs are the landing spot for codes that
+  cannot or have not yet gone upstream, and adapters (SmartIR, Broadlink
+  .storage, CSV, Flipper, LIRC) convert INTO the format in later 0.7.x
+  releases -- one funnel, one-way doors.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a
