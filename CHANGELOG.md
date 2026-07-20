@@ -5,6 +5,26 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-20 -- Big Wig
+
+### Added
+
+- The Closet: a new panel tab for portable code sets, called wigs -- one JSON file per remote, raw Pronto as the payload, in a small documented format anyone can write (`docs/wig-format.md`). Library codebooks and your own wig files hang on one shelf, organized by brand, searchable, with signal-name peek on every entry.
+- An import funnel on the Closet's drop bar: SmartIR JSON (all four encodings; climate files refused with an explanation), Flipper Zero `.ir` (raw and parsed), LIRC `lircd.conf` (raw codes and space-encoded remotes), and Girr exports from IrScrutinizer all convert into wigs on drop. Anything a conversion skips is written into the wig's notes with a reason.
+- Add to Closet on every Sniffer, Clipper, and Plucker remote and on HAIR devices; CLIP on every closet entry to materialize it as a working Clipper remote. Re-clipping updates the existing remote instead of duplicating it.
+- Make HAIR Device (formerly Promote) now carries the whole remote: every signal arrives as a named command, recognizable names auto-map to entity actions, and the new device stays linked to its source remote with a live device chip on all three catalog tabs.
+- Direct fan speed levels: map Speed 1 through Speed 10 commands and the fan entity gets a real percentage slider that fires the matching level in one send. Contributed by @feiming (#54).
+- Per-remote delete on the Sniffer, with confirmation; a deleted sniffed remote returns if a receiver hears it again.
+
+### Fixed
+
+- Climate devices with only a power command mapped now expose a synthetic AUTO mode so they can be turned on from the climate card; the mode retires itself once a real HVAC mode is mapped. Reported by @Mesmer88 (GH #58).
+
+### Changed
+
+- Tab order is now Devices, Sniffer, Clipper, Plucker, Closet, Mirror, with uppercase tab labels and a per-tab accent color (Devices green, Clipper copper, Closet oxblood, Mirror silver).
+- Device cards on the Devices tab truncate long names before they reach the corner actions.
+
 ## [0.6.9] - 2026-07-20 -- Trim
 
 ### Fixed

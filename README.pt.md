@@ -8,12 +8,13 @@
 
 Aponte qualquer controle remoto para um receptor IR, pressione um botão, e o HAIR transforma esse sinal em algo que o Home Assistant realmente sabe usar: um botão em qualquer painel, um gatilho para suas automações, um comando que você pode enviar por qualquer emissor da plataforma infravermelha nativa do HA. Sem YAML, sem aplicativos de fabricantes, sem baixar arquivos de códigos.
 
-## Quatro jeitos de colocar seus códigos
+## Cinco jeitos de colocar seus códigos
 
 - **Fareje.** Pressione um botão de um controle de verdade e o HAIR o captura ao vivo do ar, tira sua impressão digital e o agrupa por controle.
 - **Converta.** Cole códigos IR conhecidos, ou preencha um controle inteiro a partir da biblioteca de códigos instalada escolhendo fabricante e modelo.
 - **Extraia.** Puxe códigos já aprendidos em um emissor de fabricante (como o Tuya Local) sem reaprender nenhum no receptor.
 - **Escute.** Cada comando IR enviado pelo Home Assistant aparece no Mirror, ouvido de volta ou não, a um clique de virar um comando seu.
+- **Vista-a.** Solte um arquivo de códigos no Armário -- uma peruca compartilhada, um JSON do SmartIR, um `.ir` do Flipper Zero, uma configuração LIRC ou uma exportação Girr do IrScrutinizer -- e ela fica pendurada na sua coleção, a um clique de virar um controle funcional.
 
 ## O que você faz com eles
 
@@ -42,4 +43,4 @@ O README completo, com YAML de configuração, hardware compatível, guias de fu
 
 ---
 
-*Traduzido do README em inglês, versão v0.6.9. Este arquivo foi redigido por um assistente de programação e é atualizado a cada versão. Falantes nativos são bem-vindos para assumir a responsabilidade por ele; veja [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traduzido do README em inglês, versão v0.7.0. Este arquivo foi redigido por um assistente de programação e é atualizado a cada versão. Falantes nativos são bem-vindos para assumir a responsabilidade por ele; veja [Adding a language](CONTRIBUTING.md#adding-a-language).*

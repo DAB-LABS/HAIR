@@ -8,12 +8,13 @@
 
 Skieruj dowolnego pilota na odbiornik IR, naciśnij przycisk, a HAIR zamieni ten sygnał w coś, czego Home Assistant naprawdę potrafi użyć: przycisk na dowolnym dashboardzie, wyzwalacz dla Twoich automatyzacji, polecenie do wysłania przez dowolny nadajnik na natywnej platformie podczerwieni HA. Bez YAML, bez aplikacji producentów, bez pobierania plików z kodami.
 
-## Cztery sposoby na wprowadzenie kodów
+## Pięć sposobów na wprowadzenie kodów
 
 - **Przechwyć go.** Naciśnij przycisk prawdziwego pilota, a HAIR złapie go na żywo z powietrza, pobierze odcisk i pogrupuje według pilota.
 - **Skonwertuj go.** Wklej znane kody IR albo wypełnij całego pilota z zainstalowanej biblioteki kodów, wybierając producenta i model.
 - **Wyciągnij go.** Pobierz kody nauczone już w nadajniku producenta (np. Tuya Local) bez ponownego uczenia choćby jednego na odbiorniku.
 - **Podsłuchaj go.** Każde polecenie IR wysłane przez Home Assistant pojawia się w Mirror, usłyszane czy nie, o jedno kliknięcie od stania się Twoim poleceniem.
+- **Załóż ją.** Upuść plik z kodami do Szafy -- udostępnioną perukę, JSON ze SmartIR, plik `.ir` z Flipper Zero, konfigurację LIRC albo eksport Girr z IrScrutinizer -- a zawiśnie w Twojej kolekcji, o jedno kliknięcie od stania się działającym pilotem.
 
 ## Co z nimi zrobisz
 
@@ -42,4 +43,4 @@ Kompletny README, z YAML-em konfiguracji, obsługiwanym sprzętem, przewodnikami
 
 ---
 
-*Przetłumaczone z angielskiego README, stan na v0.6.9. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Przetłumaczone z angielskiego README, stan na v0.7.0. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*

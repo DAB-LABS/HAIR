@@ -8,12 +8,13 @@
 
 Apunta cualquier mando a un receptor IR, pulsa un botón, y HAIR convierte esa señal en algo que Home Assistant puede usar de verdad: un botón en cualquier panel, un disparador para tus automatizaciones, un comando que puedes enviar por cualquier emisor de la plataforma infrarroja nativa de HA. Sin YAML, sin apps de fabricantes, sin descargar archivos de códigos.
 
-## Cuatro formas de meter tus códigos
+## Cinco formas de meter tus códigos
 
 - **Olfatéalo.** Pulsa un botón de un mando real y HAIR lo captura en vivo desde el aire, le toma la huella y lo agrupa por mando.
 - **Conviértelo.** Pega códigos IR conocidos, o rellena un mando completo desde la biblioteca de códigos instalada eligiendo fabricante y modelo.
 - **Extráelo.** Saca los códigos ya aprendidos en un emisor de fabricante (como Tuya Local) sin reaprender ninguno en el receptor.
 - **Escúchalo.** Cada comando IR enviado a través de Home Assistant aparece en el Mirror, se haya oído de vuelta o no, a un clic de convertirse en un comando tuyo.
+- **Póntelo.** Suelta un archivo de códigos en el Armario -- una peluca compartida, un JSON de SmartIR, un `.ir` de Flipper Zero, una configuración LIRC o una exportación Girr de IrScrutinizer -- y se cuelga con tu colección, a un clic de convertirse en un mando funcional.
 
 ## Qué haces con ellos
 
@@ -42,4 +43,4 @@ El README completo, con el YAML de configuración, el hardware compatible, las g
 
 ---
 
-*Traducido del README en inglés, versión v0.6.9. Este archivo fue redactado por un asistente de programación y se actualiza con cada versión. Los hablantes nativos son bienvenidos a hacerse cargo de él; ver [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traducido del README en inglés, versión v0.7.0. Este archivo fue redactado por un asistente de programación y se actualiza con cada versión. Los hablantes nativos son bienvenidos a hacerse cargo de él; ver [Adding a language](CONTRIBUTING.md#adding-a-language).*
