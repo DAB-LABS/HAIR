@@ -251,12 +251,21 @@ async def ws_create_device(
     )
     await manager.async_create_device(device)
 
-    # Identity-based promote linkage (v0.7.0): stamp the source sniffed
-    # remote with the new device's id so the Sniffer's linked chip and
-    # the promote state survive renames on either side.
+    # Make HAIR Device (v0.7.0): the whole remote becomes the device.
+    # Copy every catalog signal in as a command (owner ruling -- promote
+    # no longer creates an empty shell), auto-map the lot so entity
+    # features light up, and stamp the identity link so the linked chip
+    # survives renames on either side.
     source_unknown = msg.get("promoted_from_unknown_id")
     if source_unknown:
         monitor: SignalMonitor = data["signal_monitor"]
+        copy = await monitor.copy_signals_to_device(
+            source_unknown, device.id
+        )
+        if copy.get("success") and copy.get("copied"):
+            for command in device.commands:
+                manager._auto_map_command(device, command)
+            await manager.async_update_device(device)
         await monitor.mark_promoted(source_unknown, device.id)
 
     connection.send_result(msg["id"], _device_full(device))

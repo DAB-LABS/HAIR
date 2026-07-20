@@ -2503,6 +2503,52 @@ class SignalMonitor:
             await self._signal_store.async_save()
         return {"success": True, "alias": signal.alias}
 
+    async def copy_signals_to_device(
+        self, device_id: str, hair_device_id: str
+    ) -> dict[str, Any]:
+        """Copy EVERY signal on a catalog remote into a HAIR device as
+        commands (Make HAIR Device, v0.7.0 owner ruling: the remote
+        becomes a device as a whole -- promote no longer creates an
+        empty shell the user hand-assigns into). Signals are COPIED and
+        left in the catalog, same one-way semantics as assign. Command
+        names follow the row title chain: alias, plucked name, decoded
+        identity, positional fallback.
+        """
+        from .models import CaptureResult, CommandCategory
+
+        async with self._lock:
+            unknown = self._signal_store.get_device(device_id)
+            if unknown is None or unknown.source == "echo":
+                return {"success": False, "code": "device_not_found",
+                        "error": "Catalog remote not found"}
+            hair_device = self._hair_store.get_device(hair_device_id)
+            if hair_device is None:
+                return {"success": False, "code": "target_not_found",
+                        "error": "Target HAIR device not found"}
+            copied = 0
+            for i, signal in enumerate(unknown.signals, start=1):
+                name = (
+                    (signal.alias or "").strip()
+                    or (signal.plucked_command_name or "").strip()
+                    or (signal.decoded_fingerprint or "").strip()
+                    or f"Signal {i}"
+                )
+                capture = CaptureResult(
+                    protocol=signal.protocol,
+                    code=signal.code,
+                    raw_timings=list(signal.raw_timings),
+                    frequency=signal.frequency,
+                )
+                ir_command = capture.to_command(
+                    name, CommandCategory.CUSTOM
+                )
+                _apply_signal_provenance(ir_command, signal)
+                hair_device.add_command(ir_command)
+                copied += 1
+            if copied:
+                await self._hair_store.async_save()
+        return {"success": True, "copied": copied}
+
     async def mark_promoted(self, device_id: str, hair_device_id: str) -> None:
         """Stamp a catalog remote with the HAIR device it was promoted
         into (identity link; survives renames on both sides)."""

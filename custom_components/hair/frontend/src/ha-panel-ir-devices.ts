@@ -369,6 +369,7 @@ export class HaPanelIrDevices extends LitElement {
             letter-spacing: 0.08em;
             text-align: center;
             color: var(--secondary-text-color);
+            margin-top: 14px;
         }
         .tab-bar {
             display: flex;

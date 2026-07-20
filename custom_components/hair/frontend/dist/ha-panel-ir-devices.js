@@ -7862,6 +7862,7 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
             letter-spacing: 0.08em;
             text-align: center;
             color: var(--secondary-text-color);
+            margin-top: 14px;
         }
         .tab-bar {
             display: flex;

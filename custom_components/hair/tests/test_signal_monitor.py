@@ -2018,3 +2018,41 @@ async def test_mark_promoted_stamps_and_survives_missing():
     await monitor.mark_promoted(remote.id, "hd42")
     assert store.get_device(remote.id).promoted_to == "hd42"
     await monitor.mark_promoted("nope", "hd42")
+
+
+@pytest.mark.asyncio
+async def test_copy_signals_to_device_names_and_provenance():
+    """Make HAIR Device copies every catalog signal in as a command,
+    named by the row title chain, leaving the catalog untouched."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    hair_store = _make_hair_store()
+    monitor = SignalMonitor(hass, store, hair_store)
+    remote = UnknownDevice(label="LG TV", source="manual")
+    remote.signals.append(UnknownSignal(
+        fingerprint="S1L2", protocol="PRONTO",
+        code="0000 006D 0001 0000 00E0 0070", frequency=38000,
+        alias="Power", send_count=3,
+    ))
+    remote.signals.append(UnknownSignal(
+        fingerprint="S3L4", protocol="PRONTO",
+        code="0000 006D 0001 0000 00A0 0050", frequency=38000,
+        alias="",
+    ))
+    store.add_device(remote)
+
+    from custom_components.hair.models import DeviceType, IRDevice
+    device = IRDevice(name="LG TV", device_type=DeviceType.MEDIA_PLAYER)
+    hair_store.get_device = MagicMock(return_value=device)
+
+    result = await monitor.copy_signals_to_device(remote.id, device.id)
+    assert result["success"] is True
+    assert result["copied"] == 2
+    names = [c.name for c in device.commands]
+    assert names == ["Power", "Signal 2"]
+    assert device.commands[0].send_count == 3
+    # Catalog untouched: signals are copied, never moved.
+    assert len(store.get_device(remote.id).signals) == 2
+
+    missing = await monitor.copy_signals_to_device("nope", device.id)
+    assert missing["success"] is False
