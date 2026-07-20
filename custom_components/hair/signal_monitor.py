@@ -1951,15 +1951,24 @@ class SignalMonitor:
         # device_manager.async_send_command -- one Test is one logical
         # press, flipped once after a fully successful send. Fingerprint
         # excludes toggle, so the catalog row's identity is unchanged.
-        if (
-            decoded_tx
-            and signal.decoded_extras
-            and "toggle" in signal.decoded_extras
-        ):
-            signal.decoded_extras["toggle"] = (
-                int(signal.decoded_extras["toggle"]) ^ 1
-            )
-            await self._signal_store.async_save()
+        # Per-press protocol state advances on catalog Test too, so a
+        # bench test press behaves like a real press (RC-5 toggles flip;
+        # the Dyson mod-4 counter increments so consecutive tests never
+        # reuse a counter the fan already saw -- GH #33).
+        if decoded_tx and signal.decoded_extras:
+            advanced = False
+            if "toggle" in signal.decoded_extras:
+                signal.decoded_extras["toggle"] = (
+                    int(signal.decoded_extras["toggle"]) ^ 1
+                )
+                advanced = True
+            if "counter" in signal.decoded_extras:
+                signal.decoded_extras["counter"] = (
+                    int(signal.decoded_extras["counter"]) + 1
+                ) & 0x3
+                advanced = True
+            if advanced:
+                await self._signal_store.async_save()
 
         return {"success": True}
 

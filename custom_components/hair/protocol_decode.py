@@ -258,6 +258,20 @@ def _construct_symphony(cls: type, label: str, address: int, command: int,
     return cls(data=command, nbits=nbits)
 
 
+def _extract_dyson(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # Identity = device + function; the mod-4 rolling counter is press
+    # state (the fan rejects a reused value), carried for TX and
+    # advanced after every send like an RC-5 toggle.
+    return ("DYSON", int(cmd.device), int(cmd.function),
+            {"counter": int(cmd.counter)})
+
+
+def _construct_dyson(cls: type, label: str, address: int, command: int,
+                     extras: Any) -> Any:
+    counter = int((extras or {}).get("counter", 0))
+    return cls(device=address, function=command, counter=counter & 0x3)
+
+
 def _extract_geac(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
     return ("GEAC", int(cmd.address), int(cmd.command), None)
 
@@ -325,6 +339,16 @@ _REGISTRATIONS: tuple[tuple, ...] = (
      _extract_kaseikyo, _construct_kaseikyo, ("KASEIKYO",)),
     ("geac", "infrared_protocols.commands.general_electric", "GEACCommand",
      None, False, _extract_geac, _construct_geac, ("GEAC",)),
+    # Upstream's DysonCoolCommand (7.3.0+) is encode-only with the
+    # rolling counter frozen into enum constants, so no upstream
+    # fallback is registered -- the local class serves both directions
+    # (revisit if upstream ever grows a real decoder). Checksum-free
+    # 15-bit protocol, so it probes in the checksum-free
+    # tail -- ahead of Symphony only because Symphony's short frames
+    # are the loosest match in the registry and must stay last.
+    ("dyson", None, "DysonCommand",
+     "custom_components.hair.decoders.dyson", True,
+     _extract_dyson, _construct_dyson, ("DYSON",)),
     ("symphony", None, "SymphonyCommand",
      "custom_components.hair.decoders.symphony", True,
      _extract_symphony, _construct_symphony, ("SYMPHONY",)),

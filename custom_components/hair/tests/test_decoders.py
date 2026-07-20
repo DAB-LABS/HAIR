@@ -24,6 +24,7 @@ import itertools
 
 import pytest
 
+from custom_components.hair.decoders.dyson import DysonCommand
 from custom_components.hair.decoders.kaseikyo import KaseikyoCommand
 from custom_components.hair.decoders.marantz_extended import MarantzExtendedCommand
 from custom_components.hair.decoders.nokia32 import Nokia32Command
@@ -588,11 +589,100 @@ class TestDirtyCaptures:
         assert (decoded.device, decoded.subdevice, decoded.function) == (33, 160, 12)
 
 
+class TestDyson:
+    """Dyson "Dysan" protocol: 15 checksum-free bits with a mod-4
+    rolling counter in the low two bits of F (GH #33)."""
+
+    @pytest.mark.parametrize(
+        ("device", "function", "counter"),
+        [
+            (9, 0, 0),    # AM04/07/09 power, first counter value
+            (9, 0, 3),
+            (5, 0x15, 2),  # AM02/03 family
+            (0, 0, 0),
+            (0x7F, 0x3F, 3),
+        ],
+    )
+    def test_round_trip(self, device, function, counter):
+        encoded = DysonCommand(
+            device=device, function=function, counter=counter
+        ).get_raw_timings()
+        decoded = DysonCommand.from_raw_timings(encoded)
+        assert decoded is not None
+        assert (decoded.device, decoded.function, decoded.counter) == (
+            device, function, counter,
+        )
+
+    def test_wire_format_pinned(self):
+        """The exact frame for device=9, function=0, counter=0: IRP
+        {780,38k}<1,-1|1,-2>(3,-1,D:7,F:8,1,-104m), LSB-first, so
+        D=9 = 0b0001001 goes out 1,0,0,1,0,0,0 and F=0 is all zeros."""
+        timings = DysonCommand(
+            device=9, function=0, counter=0
+        ).get_raw_timings()
+        d_bits = [1, 0, 0, 1, 0, 0, 0]
+        expected = [2340, -780]
+        for bit in d_bits + [0] * 8:
+            expected.append(780)
+            expected.append(-1560 if bit else -780)
+        expected.append(780)
+        assert timings == expected
+
+    def test_counter_lives_in_f_low_bits(self):
+        """counter=1 must flip exactly the FIRST F bit on the wire
+        (F is sent LSB-first), matching upstream's 0x4800/01/02 enum
+        packing where the same button differs only in F & 0x3."""
+        base = DysonCommand(device=9, function=0, counter=0).get_raw_timings()
+        bumped = DysonCommand(device=9, function=0, counter=1).get_raw_timings()
+        diffs = [i for i, (a, b) in enumerate(zip(base, bumped, strict=True)) if a != b]
+        # F bit 0 is the 8th data bit: index 2 (header) + 7*2 (D bits) + 1.
+        assert diffs == [2 + 7 * 2 + 1]
+
+    def test_rolling_presses_share_identity(self):
+        """Three captures of one button at counters 0/1/2 -- the GH #33
+        situation -- decode to the same device+function with only the
+        counter differing. This is the collapse that heals the Sniffer
+        card and the trigger matching."""
+        seen = set()
+        counters = []
+        for counter in (0, 1, 2):
+            decoded = DysonCommand.from_raw_timings(
+                DysonCommand(
+                    device=9, function=0x0B, counter=counter
+                ).get_raw_timings()
+            )
+            assert decoded is not None
+            seen.add((decoded.device, decoded.function))
+            counters.append(decoded.counter)
+        assert seen == {(9, 0x0B)}
+        assert counters == [0, 1, 2]
+
+    def test_held_button_counter_advances_mid_capture(self):
+        """A hold re-sends frames with the counter advancing every
+        second frame; identity must stay unanimous and the majority
+        vote must still land on ONE decode."""
+        f0 = DysonCommand(device=9, function=5, counter=2).get_raw_timings()
+        f1 = DysonCommand(device=9, function=5, counter=3).get_raw_timings()
+        held = [*f0, -100_000, *f0, -100_000, *f1]
+        decoded = DysonCommand.from_raw_timings(held)
+        assert decoded is not None
+        assert (decoded.device, decoded.function) == (9, 5)
+        assert decoded.counter == 2  # majority of the capture
+
+    @pytest.mark.parametrize("stretch", [-150, -80, 80, 150])
+    def test_jitter(self, stretch):
+        clean = DysonCommand(device=9, function=0x0B, counter=1).get_raw_timings()
+        decoded = DysonCommand.from_raw_timings(_jitter(clean, stretch, -stretch))
+        assert decoded is not None
+        assert (decoded.device, decoded.function, decoded.counter) == (9, 0x0B, 1)
+
+
 # ---------------------------------------------------------------------------
 # 4. Rejection matrix
 # ---------------------------------------------------------------------------
 
 _DECODERS = {
+    "dyson": DysonCommand,
     "sony": SonyCommand,
     "rc5": RC5Command,
     "samsung": Samsung32Command,
@@ -627,6 +717,9 @@ def _samples() -> dict[str, list[int]]:
         ).get_raw_timings(),
         "symphony": SymphonyCommand(
             data=0xC00, nbits=12, repeat_count=3
+        ).get_raw_timings(),
+        "dyson": DysonCommand(
+            device=9, function=0, counter=1
         ).get_raw_timings(),
     }
 

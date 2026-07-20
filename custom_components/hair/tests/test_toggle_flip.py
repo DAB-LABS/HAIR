@@ -75,6 +75,21 @@ def _rc5_command(toggle: int = 0) -> IRCommand:
     )
 
 
+def _dyson_command(counter: int = 0) -> IRCommand:
+    return IRCommand(
+        id="c-dy",
+        name="Power",
+        protocol="PRONTO",
+        code=_PRONTO,
+        frequency=38000,
+        decoded_protocol="DYSON",
+        decoded_address=9,
+        decoded_command=0,
+        decoded_fingerprint="DYSON:0x0009:0x00",
+        decoded_extras={"counter": counter},
+    )
+
+
 def _rc5_device(command: IRCommand) -> IRDevice:
     return IRDevice(
         id="d1",
@@ -237,3 +252,29 @@ def test_models_serialize_decoded_extras_round_trip():
     )
     plain = UnknownSignal(id="s2", fingerprint="s2")
     assert UnknownSignal.from_dict(plain.to_dict()).decoded_extras is None
+
+
+@pytest.mark.asyncio
+async def test_send_advances_dyson_counter_mod_4(fake_hass):
+    """The Dyson rolling counter is the toggle machinery's sibling
+    (v0.7.1, GH #33): advance once per logical press, after the full
+    emitter loop, wrapping 3 -> 0."""
+    manager = _make_device_manager(fake_hass)
+    command = _dyson_command(counter=3)
+    manager._store.add_device(_rc5_device(command))
+    manager._store.async_save = AsyncMock()
+
+    with patch.object(_infrared_mod, "async_send_command", AsyncMock()) as ir_send:
+        await manager.async_send_command("d1", "c-dy")
+
+    assert ir_send.await_count == 2
+    # Transmitted with the PRE-advance counter; wrapped 3 -> 0 after.
+    sent = ir_send.call_args[0][2]
+    assert getattr(sent, "counter", None) == 3
+    assert command.decoded_extras["counter"] == 0
+    manager._store.async_save.assert_awaited_once()
+
+    with patch.object(_infrared_mod, "async_send_command", AsyncMock()) as ir_send2:
+        await manager.async_send_command("d1", "c-dy")
+    assert getattr(ir_send2.call_args[0][2], "counter", None) == 0
+    assert command.decoded_extras["counter"] == 1

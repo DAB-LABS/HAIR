@@ -5,6 +5,17 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-20 -- Blow Dry
+
+### Added
+
+- A Dyson protocol decoder (beta, hardware verification in progress). Dyson fans rotate a mod-4 counter in every IR frame and reject a replayed value, which is why stored captures only worked about a third of the time (reported by @Esp32-zapper, GH #33). HAIR now decodes the frame, treats device+button as the signal's identity so rotating presses collapse to one signal, and advances the counter on every send so consecutive commands are always accepted. Applies to sends from HAIR devices and to catalog Test presses.
+
+### Fixed
+
+- Girr import accepts all four root elements the spec allows; a file whose root is a bare commandSet or command now imports as one remote named from the file.
+- Girr files that hoist protocol parameters to the commandSet level now skip with the accurate "re-export with Pronto included" message instead of "no usable representation".
+
 ## [0.7.0] - 2026-07-20 -- Big Wig
 
 ### Added

@@ -87,8 +87,9 @@ class TestRegistryContents:
 
     def test_probe_order_strict_before_checksum_free(self):
         keys = [row["protocol"] for row in registered_protocols()]
-        # Symphony has no checksum; it must probe last.
-        assert keys[-1] == "symphony"
+        # The checksum-free tail: Dyson (15 strict-timed bits) then
+        # Symphony (the loosest match in the registry) dead last.
+        assert keys[-2:] == ["dyson", "symphony"]
         # Marantz (specific) probes before RC-5 (its generic parent).
         assert keys.index("marantz") < keys.index("rc5")
 
