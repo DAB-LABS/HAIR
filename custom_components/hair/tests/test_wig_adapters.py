@@ -292,4 +292,40 @@ class TestGirr:
             " girrVersion='1.2'></girr>"
         )
         result = convert(text)
-        assert result.error == "no <remote> elements in this Girr file"
+        assert result.error == "no remotes or commands in this Girr file"
+
+    def test_commandset_root_imports(self):
+        # The spec allows commandSet (and command) as the root element;
+        # this real file (found in the wild, 2026-07-20) is 25 ccf
+        # commands with no <remote> wrapper.
+        result = convert(
+            _fixture("girr_commandset_root_sony.girr"),
+            name_hint="commandset_sony_pronto.girr",
+        )
+        assert result.error is None
+        assert len(result.wigs) == 1
+        wig = result.wigs[0]
+        # Anonymous root -> named from the file, not "commandSet".
+        assert wig.name == "Commandset Sony Pronto"
+        aliases = [s.alias for s in wig.signals]
+        assert "Volume Up" in aliases and "Power Toggle" in aliases
+        assert len(wig.signals) == 25
+        for sig in wig.signals:
+            assert validate_pronto(sig.pronto).valid, sig.alias
+
+    def test_inherited_parameters_skip_reason(self):
+        # Parametric files hoist <parameters> to the commandSet level;
+        # the skip reason must still say parameters, not the vague
+        # "no usable representation" (real Apple Remote file).
+        result = convert(
+            _fixture("girr_parameters_only_apple.girr"),
+            name_hint="apple_remote.girr",
+        )
+        assert result.wigs == []
+        param_skips = [
+            r for r in result.skipped if "protocol-parameter" in r
+        ]
+        assert len(param_skips) == 6  # every command, correctly labeled
+        assert not any(
+            "no usable representation" in r for r in result.skipped
+        )

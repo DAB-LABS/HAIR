@@ -711,6 +711,26 @@ def _girr_raw_pronto(command) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _girr_scope_has_parameters(remote) -> set[int]:
+    """ids of <command> elements whose SCOPE carries <parameters>.
+
+    Parametric Girr commonly hoists one <parameters> block to the
+    commandSet (or remote) level and gives each command only its
+    function number, so a per-command check misses the common shape
+    and mislabels the skip. A command inherits parameters from any
+    enclosing commandSet/remote that has a direct <parameters> child.
+    """
+    covered: set[int] = set()
+    for scope in [remote, *_girr_children(remote, "commandSet")]:
+        has_params = any(
+            _girr_local(child.tag) == "parameters" for child in scope
+        )
+        if has_params:
+            for cmd in _girr_children(scope, "command"):
+                covered.add(id(cmd))
+    return covered
+
+
 def _convert_girr(text: str, name_hint: str) -> AdapterResult:
     import xml.etree.ElementTree as ET
 
@@ -723,15 +743,25 @@ def _convert_girr(text: str, name_hint: str) -> AdapterResult:
 
     remotes = _girr_children(root, "remote")
     if not remotes:
-        result.error = "no <remote> elements in this Girr file"
-        return result
+        # The spec allows four root elements: remotes, remote,
+        # commandSet, and command. A bare commandSet/command root has
+        # no remote wrapper, so treat the whole document as one
+        # anonymous remote named from the file.
+        if _girr_children(root, "command"):
+            remotes = [root]
+        else:
+            result.error = "no remotes or commands in this Girr file"
+            return result
 
     for remote in remotes:
         remote_name = (
             remote.get("displayName") or remote.get("name") or ""
-        ).strip() or _stem(name_hint) or "Girr Import"
+        ).strip()
+        if _girr_local(remote.tag) != "remote" or not remote_name:
+            remote_name = _stem(name_hint) or remote_name or "Girr Import"
         manufacturer = (remote.get("manufacturer") or "").strip()
         model = (remote.get("model") or "").strip()
+        inherited = _girr_scope_has_parameters(remote)
         signals: list[WigSignal] = []
         for command in _girr_children(remote, "command"):
             cmd_name = (command.get("name") or "").strip()
@@ -745,7 +775,10 @@ def _convert_girr(text: str, name_hint: str) -> AdapterResult:
                         f"{remote_name}/{alias}: {caveat}"
                     )
             if pronto is None:
-                if _girr_children(command, "parameters"):
+                if (
+                    _girr_children(command, "parameters")
+                    or id(command) in inherited
+                ):
                     result.skipped.append(
                         f"{remote_name}/{alias}: protocol-parameter "
                         "command with no ccf or raw timings -- "
