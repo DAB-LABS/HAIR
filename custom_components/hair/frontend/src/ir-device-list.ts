@@ -708,10 +708,7 @@ export class IrDeviceList extends LitElement {
                     <span class="toolbar-count">(${this.devices.length})</span>
                 </span>
                 <button class="add-btn" @click=${this._add}>
-                    <ha-svg-icon
-                        .path=${"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"}
-                    ></ha-svg-icon>
-                    ${t("devlist.add_device")}
+                    ${t("devlist.add_device_plus")}
                 </button>
             </div>
             ${hasDevices
