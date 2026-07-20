@@ -2447,10 +2447,36 @@ async def ws_wigs_upload(
 
     def _upload() -> dict[str, Any]:
         from .wig_adapters import convert, sniff_format
-        from .wig_format import parse_wig, serialize_wig
-        from .wig_store import write_wig_text
+        from .wig_format import (
+            parse_wig,
+            serialize_wig,
+            signals_content_hash,
+        )
+        from .wig_store import scan_wigs, write_wig_text
 
         text = msg["text"]
+
+        # Content hashes of everything already hanging, so a re-dropped
+        # file gets a duplicate receipt (yellow, owner ruling) instead
+        # of silently minting -2, -3, ... twins. The file still writes:
+        # keeping it is the user's call, the receipt just tells them.
+        existing: dict[str, str] = {}
+        for loaded in scan_wigs(hass.config.config_dir).wigs:
+            existing.setdefault(
+                signals_content_hash(loaded.wig.signals),
+                loaded.path.name,
+            )
+
+        def _entry(wig, filename: str) -> dict[str, Any]:
+            return {
+                "filename": filename,
+                "name": wig.name,
+                "brand": wig.brand,
+                "duplicate_of": existing.get(
+                    signals_content_hash(wig.signals)
+                ),
+            }
+
         result = parse_wig(text)
         if result.ok:
             filename = write_wig_text(
@@ -2462,6 +2488,7 @@ async def ws_wigs_upload(
                 "success": True,
                 "filename": filename,
                 "filenames": [filename],
+                "files": [_entry(result.wig, filename)],
                 "format": "wig",
                 "skipped": [],
             }
@@ -2474,19 +2501,32 @@ async def ws_wigs_upload(
         converted = convert(text, msg.get("filename", ""))
         if converted.error and not converted.wigs:
             return {"success": False, "errors": [converted.error]}
+        # The flash promises "see the wig notes" for skipped signals, so
+        # the reasons genuinely go into the notes (owner catch: the
+        # pointer used to point at nothing).
+        if converted.skipped:
+            summary = "; ".join(converted.skipped[:8])
+            if len(converted.skipped) > 8:
+                summary += f"; and {len(converted.skipped) - 8} more"
+            for wig in converted.wigs:
+                base = (wig.notes or "").rstrip(". ")
+                wig.notes = f"{base}. Import notes: {summary}"[:1900]
         filenames: list[str] = []
+        files: list[dict[str, Any]] = []
         for wig in converted.wigs:
             filename = write_wig_text(
                 hass.config.config_dir, serialize_wig(wig), wig.name
             )
             if filename is not None:
                 filenames.append(filename)
+                files.append(_entry(wig, filename))
         if not filenames:
             return {"success": False, "errors": ["could not write files"]}
         return {
             "success": True,
             "filename": filenames[0],
             "filenames": filenames,
+            "files": files,
             "format": converted.format,
             "skipped": converted.skipped,
         }

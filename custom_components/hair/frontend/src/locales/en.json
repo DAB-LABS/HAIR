@@ -472,5 +472,7 @@
     "sniffer.del_remote_msg": "Delete \"{name}\" and its signals? The remote returns if it is heard again.",
     "sniffer.linked.one": "{count} HAIR device",
     "sniffer.linked.other": "{count} HAIR devices",
-    "wigs.upload_partial": "{count} signals could not convert (see the wig notes)"
+    "wigs.upload_partial": "{count} signals could not convert (see the wig notes)",
+    "wigs.receipt.hung": "{name} hung under {brand}",
+    "wigs.receipt.duplicate": "{name} hung under {brand} -- an identical wig was already here"
 }

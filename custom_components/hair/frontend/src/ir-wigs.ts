@@ -64,6 +64,11 @@ interface BrandRow {
 
 const UNBRANDED_KEY = "_unbranded";
 
+// Shared expand chevrons -- the same mdi paths the Sniffer/Clipper
+// cards use, so every disclosure arrow in the panel is one glyph.
+const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
+const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
+
 @customElement("ir-wigs")
 export class IrWigs extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -81,6 +86,12 @@ export class IrWigs extends LitElement {
     @state() private _dragOver = false;
     @state() private _notice: string | null = null;
     @state() private _noticeKind: "ok" | "warn" = "ok";
+    // The drop bar's receipt: persists until the NEXT drop (owner
+    // ruling) so "where did it go" stays answered.
+    @state() private _receipt: string | null = null;
+    @state() private _receiptKind: "ok" | "dup" | "warn" = "ok";
+    @state() private _bloomId: string | null = null;
+    private _pendingScrollId: string | null = null;
     @state() private _busyId: string | null = null;
     @state() private _peekId: string | null = null;
     private _peekPos = { top: 0, left: 0 };
@@ -302,31 +313,69 @@ export class IrWigs extends LitElement {
     ): Promise<void> {
         try {
             const result = await this.api.wigsUpload(text, filename);
-            if (result.success) {
-                const names = result.filenames ?? [result.filename ?? ""];
-                let message = names
-                    .map((name) => t("wigs.upload_ok", { filename: name }))
-                    .join(" \u00b7 ");
-                if ((result.skipped ?? []).length > 0) {
-                    message += ` \u00b7 ${t("wigs.upload_partial", {
-                        count: String(result.skipped!.length),
-                    })}`;
-                }
-                this._flash(message);
-                await this._refresh();
-            } else {
-                this._flash(
-                    t("wigs.upload_failed", {
-                        reason: (result.errors ?? []).join("; "),
-                    }),
-                    "warn",
-                );
+            if (!result.success) {
+                this._receiptKind = "warn";
+                this._receipt = t("wigs.upload_failed", {
+                    reason: (result.errors ?? []).join("; "),
+                });
+                return;
+            }
+            const files = result.files ?? [];
+            const anyDup = files.some((f) => f.duplicate_of);
+            const parts = files.map((f) =>
+                t(
+                    f.duplicate_of
+                        ? "wigs.receipt.duplicate"
+                        : "wigs.receipt.hung",
+                    {
+                        name: f.name,
+                        brand: f.brand?.trim() || t("wigs.unbranded"),
+                    },
+                ),
+            );
+            let message = parts.join(" \u00b7 ");
+            if ((result.skipped ?? []).length > 0) {
+                message += ` \u00b7 ${t("wigs.upload_partial", {
+                    count: String(result.skipped!.length),
+                })}`;
+            }
+            this._receiptKind = anyDup ? "dup" : "ok";
+            this._receipt = message;
+
+            // Open the drawer: expand the receiving brands, drop the
+            // filter if it would hide the arrivals, and scroll the
+            // first new row into view with a bloom.
+            if (this._filter === "library") this._filter = "all";
+            await this._refresh();
+            const open = new Set(this._openBrands);
+            for (const f of files) {
+                open.add(this._brandKeyFor(f.brand));
+            }
+            this._openBrands = open;
+            if (files.length > 0) {
+                const id = `wig:${files[0].filename}`;
+                this._pendingScrollId = id;
+                this._bloomId = id;
+                window.setTimeout(() => {
+                    this._bloomId = null;
+                }, 2600);
             }
         } catch (err) {
-            this._flash(
-                t("wigs.upload_failed", { reason: (err as Error).message }),
-                "warn",
-            );
+            this._receiptKind = "warn";
+            this._receipt = t("wigs.upload_failed", {
+                reason: (err as Error).message,
+            });
+        }
+    }
+
+    updated(): void {
+        if (!this._pendingScrollId) return;
+        const row = this.shadowRoot?.querySelector(
+            `[data-row-id="${CSS.escape(this._pendingScrollId)}"]`,
+        );
+        if (row) {
+            row.scrollIntoView({ behavior: "smooth", block: "center" });
+            this._pendingScrollId = null;
         }
     }
 
@@ -465,7 +514,10 @@ export class IrWigs extends LitElement {
         const brands = this._brandRows();
         return html`
             <div
-                class="drop-bar ${this._dragOver ? "over" : ""}"
+                class="drop-bar ${this._dragOver ? "over" : ""} ${this
+                    ._receipt
+                    ? `receipt-${this._receiptKind}`
+                    : ""}"
                 @dragover=${(e: DragEvent) => {
                     e.preventDefault();
                     this._dragOver = true;
@@ -473,10 +525,19 @@ export class IrWigs extends LitElement {
                 @dragleave=${() => (this._dragOver = false)}
                 @drop=${this._onDrop}
             >
-                <span class="drop-icon">&#8853;</span>
+                <span class="drop-icon"
+                    >${this._receipt
+                        ? this._receiptKind === "warn"
+                            ? html`&#9888;`
+                            : html`&#10003;`
+                        : html`&#8853;`}</span
+                >
                 <div>
-                    <div class="t1">${t("wigs.drop.title")}</div>
-                    <div class="t2">${t("wigs.drop.hint")}</div>
+                    ${this._receipt
+                        ? html`<div class="t1">${this._receipt}</div>
+                              <div class="t2">${t("wigs.drop.title")}</div>`
+                        : html`<div class="t1">${t("wigs.drop.title")}</div>
+                              <div class="t2">${t("wigs.drop.hint")}</div>`}
                 </div>
                 <button class="browse" @click=${this._browse}>
                     ${t("wigs.drop.browse")}
@@ -582,7 +643,10 @@ export class IrWigs extends LitElement {
                               >`
                             : ""}
                     </span>
-                    <span class="chev">&#9660;</span>
+                    <ha-svg-icon
+                        class="chev"
+                        .path=${open ? ICON_COLLAPSE : ICON_EXPAND}
+                    ></ha-svg-icon>
                 </div>
                 ${open
                     ? html`<div class="wigs-list">
@@ -595,7 +659,10 @@ export class IrWigs extends LitElement {
 
     private _renderRow(row: ClosetRow) {
         return html`
-            <div class="wig-row">
+            <div
+                class="wig-row ${this._bloomId === row.id ? "bloom" : ""}"
+                data-row-id=${row.id}
+            >
                 <span class="wdot ${row.source === "local" ? "mine" : "lib"}"
                 ></span>
                 <span class="wig-name">${row.label}</span>
@@ -835,6 +902,33 @@ export class IrWigs extends LitElement {
         .drop-bar.over {
             background: rgba(142, 59, 59, 0.28);
         }
+        /* The bar IS the receipt after a drop (owner ruling): green for
+           hung, yellow for a duplicate, warning tint for a failure;
+           persists until the next drop replaces it. */
+        .drop-bar.receipt-ok {
+            background: rgba(46, 125, 50, 0.14);
+            border-color: rgba(46, 125, 50, 0.55);
+            color: #66bb6a;
+            transition: background 0.4s ease, border-color 0.4s ease;
+        }
+        .drop-bar.receipt-dup {
+            background: rgba(245, 166, 35, 0.12);
+            border-color: rgba(245, 166, 35, 0.55);
+            color: #f5a623;
+            transition: background 0.4s ease, border-color 0.4s ease;
+        }
+        .drop-bar.receipt-warn {
+            background: rgba(230, 81, 0, 0.1);
+            border-color: rgba(230, 81, 0, 0.55);
+            color: #e65100;
+            transition: background 0.4s ease, border-color 0.4s ease;
+        }
+        .drop-bar.receipt-ok .browse,
+        .drop-bar.receipt-dup .browse,
+        .drop-bar.receipt-warn .browse {
+            border-color: currentColor;
+            color: inherit;
+        }
         .drop-icon {
             font-size: 19px;
         }
@@ -978,12 +1072,10 @@ export class IrWigs extends LitElement {
         }
         .chev {
             color: var(--secondary-text-color);
-            font-size: 13px;
-            transition: transform 0.15s;
+            --mdc-icon-size: 20px;
             margin-left: 4px;
         }
         .brand.open .chev {
-            transform: rotate(180deg);
             color: var(--wigs-accent);
         }
         .wigs-list {
@@ -1000,6 +1092,20 @@ export class IrWigs extends LitElement {
         }
         .wig-row:last-child {
             border-bottom: none;
+        }
+        /* Landing bloom: the freshly-hung wig glows briefly so the eye
+           finds where the drop went (same cue language as the Mirror's
+           live-send bloom). */
+        .wig-row.bloom {
+            animation: wig-bloom 2.4s ease-out;
+        }
+        @keyframes wig-bloom {
+            0% {
+                background: rgba(46, 125, 50, 0.35);
+            }
+            100% {
+                background: transparent;
+            }
         }
         .wdot {
             width: 7px;

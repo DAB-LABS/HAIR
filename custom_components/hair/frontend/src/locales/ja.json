@@ -472,5 +472,7 @@
     "sniffer.del_remote_msg": "\"{name}\" とその信号を削除しますか? リモコンは再び受信されると戻ってきます。",
     "sniffer.linked.one": "{count} 台のHAIRデバイス",
     "sniffer.linked.other": "{count} 台のHAIRデバイス",
-    "wigs.upload_partial": "{count} 件の信号は変換できませんでした"
+    "wigs.upload_partial": "{count} 件の信号は変換できませんでした",
+    "wigs.receipt.hung": "{name} を {brand} に掛けました",
+    "wigs.receipt.duplicate": "{name} を {brand} に掛けました(同じウィッグが既にあります)"
 }

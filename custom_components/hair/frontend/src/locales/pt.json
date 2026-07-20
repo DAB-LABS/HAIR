@@ -472,5 +472,7 @@
     "sniffer.del_remote_msg": "Excluir \"{name}\" e seus sinais? O controle volta se for ouvido novamente.",
     "sniffer.linked.one": "{count} dispositivo HAIR",
     "sniffer.linked.other": "{count} dispositivos HAIR",
-    "wigs.upload_partial": "{count} sinais não puderam ser convertidos"
+    "wigs.upload_partial": "{count} sinais não puderam ser convertidos",
+    "wigs.receipt.hung": "{name} pendurado em {brand}",
+    "wigs.receipt.duplicate": "{name} pendurado em {brand} (já havia uma peruca idêntica)"
 }

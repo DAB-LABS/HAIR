@@ -490,5 +490,7 @@
     "sniffer.linked.few": "{count} urządzenia HAIR",
     "sniffer.linked.many": "{count} urządzeń HAIR",
     "sniffer.linked.other": "{count} urządzenia HAIR",
-    "wigs.upload_partial": "{count} sygnałów nie udało się przekonwertować"
+    "wigs.upload_partial": "{count} sygnałów nie udało się przekonwertować",
+    "wigs.receipt.hung": "{name} zawieszono pod {brand}",
+    "wigs.receipt.duplicate": "{name} zawieszono pod {brand} (identyczna peruka już tu była)"
 }

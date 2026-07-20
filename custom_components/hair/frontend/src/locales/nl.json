@@ -472,5 +472,7 @@
     "sniffer.del_remote_msg": "\"{name}\" en de bijbehorende signalen verwijderen? De afstandsbediening keert terug zodra deze weer wordt gehoord.",
     "sniffer.linked.one": "{count} HAIR-apparaat",
     "sniffer.linked.other": "{count} HAIR-apparaten",
-    "wigs.upload_partial": "{count} signalen konden niet worden geconverteerd"
+    "wigs.upload_partial": "{count} signalen konden niet worden geconverteerd",
+    "wigs.receipt.hung": "{name} hangt nu onder {brand}",
+    "wigs.receipt.duplicate": "{name} hangt nu onder {brand} (er hing al een identieke pruik)"
 }

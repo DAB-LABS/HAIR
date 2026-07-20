@@ -472,5 +472,7 @@
     "sniffer.del_remote_msg": "¿Eliminar \"{name}\" y sus señales? El mando vuelve si se escucha de nuevo.",
     "sniffer.linked.one": "{count} dispositivo HAIR",
     "sniffer.linked.other": "{count} dispositivos HAIR",
-    "wigs.upload_partial": "{count} señales no se pudieron convertir"
+    "wigs.upload_partial": "{count} señales no se pudieron convertir",
+    "wigs.receipt.hung": "{name} colgado bajo {brand}",
+    "wigs.receipt.duplicate": "{name} colgado bajo {brand}: ya había una peluca idéntica"
 }

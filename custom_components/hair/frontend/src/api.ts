@@ -237,6 +237,12 @@ export class HairApi {
         success: boolean;
         filename?: string;
         filenames?: string[];
+        files?: {
+            filename: string;
+            name: string;
+            brand: string | null;
+            duplicate_of: string | null;
+        }[];
         format?: string;
         skipped?: string[];
         errors?: string[];

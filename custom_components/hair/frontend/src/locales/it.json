@@ -472,5 +472,7 @@
     "sniffer.del_remote_msg": "Eliminare \"{name}\" e i suoi segnali? Il telecomando torna se viene sentito di nuovo.",
     "sniffer.linked.one": "{count} dispositivo HAIR",
     "sniffer.linked.other": "{count} dispositivi HAIR",
-    "wigs.upload_partial": "{count} segnali non sono stati convertiti"
+    "wigs.upload_partial": "{count} segnali non sono stati convertiti",
+    "wigs.receipt.hung": "{name} appeso sotto {brand}",
+    "wigs.receipt.duplicate": "{name} appeso sotto {brand} (c'era già una parrucca identica)"
 }
