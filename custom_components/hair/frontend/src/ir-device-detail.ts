@@ -1107,15 +1107,15 @@ export class IrDeviceDetail extends LitElement {
                 </div>
                 <div class="delete-row">
                     <button
-                        class="action-btn save-wig-btn"
-                        @click=${() => (this._saveWigOpen = true)}
-                        ?disabled=${this._busy}
-                    >${t("wigs.save_as_wig")}</button>
-                    <button
                         class="action-btn delete-btn"
                         @click=${() => (this._confirmDelete = true)}
                         ?disabled=${this._busy}
                     >${t("devlist.del_device_title")}</button>
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${() => (this._saveWigOpen = true)}
+                        ?disabled=${this._busy}
+                    >${t("wigs.save_as_wig")}</button>
                 </div>
             </div>
 
@@ -1255,13 +1255,14 @@ export class IrDeviceDetail extends LitElement {
             background: rgba(142, 59, 59, 0.12);
         }
         .delete-row {
-            /* Full-width second line of footer-actions: Add to Closet
-               hard left (under the add-signal buttons), Delete Device
-               hard right (owner layout, bench round three). */
+            /* Right-edge column (owner layout, bench round four): the
+               left side was busy, so Delete Device sits hard right with
+               Add to Closet stacked directly beneath it. */
             flex-basis: 100%;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
             margin-top: 2px;
         }
 

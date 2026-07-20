@@ -571,19 +571,33 @@ export class IrWigs extends LitElement {
                         ?disabled=${this._busyId === row.id}
                         @click=${() => this._tryOn(row)}
                     >
-                        ${t("wigs.clip_it").toUpperCase()}
+                        ${t("wigs.clip_it")}
                     </button>
+                    <span class="glyph-slot">
+                        ${row.wig
+                            ? html`<button
+                                  class="copy-glyph del-glyph"
+                                  title=${t("common.delete")}
+                                  @click=${() =>
+                                      (this._confirmDelete = row.wig!)}
+                              >
+                                  <ha-svg-icon
+                                      class="dl-icon"
+                                      .path=${"M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"}
+                                  ></ha-svg-icon>
+                              </button>`
+                            : ""}
+                    </span>
                 </span>
             </div>
         `;
     }
 
     private _renderEditor() {
-        const wig = this._editing;
-        if (!wig) return "";
-        // The delete confirmation renders INSIDE this dialog: a second
-        // stacked ha-dialog lands behind the first (owner bench find,
-        // 2026-07-20), so the editor swaps its own content instead.
+        // One dialog at a time (the stacked-dialog z-order bug, owner
+        // bench find 2026-07-20): while a delete confirmation is up --
+        // opened from the editor OR straight from a row's delete glyph
+        // -- it replaces the editor; Cancel restores whatever was open.
         if (this._confirmDelete) {
             return html`
                 <ha-dialog
@@ -615,6 +629,8 @@ export class IrWigs extends LitElement {
                 </ha-dialog>
             `;
         }
+        const wig = this._editing;
+        if (!wig) return "";
         return html`
             <ha-dialog
                 open
@@ -958,18 +974,23 @@ export class IrWigs extends LitElement {
         .copy-glyph:hover {
             color: var(--wigs-accent);
         }
-        /* CLIP IT wears the Clipper's copper: the action's destination,
-           not the closet's own color (owner ruling, 2026-07-20 bench). */
+        /* CLIP mirrors the Clipper's "+ Add Remote" chip: same anatomy,
+           same copper, because it does the same kind of thing -- puts a
+           remote on the Clipper (owner ruling, bench round four). */
         .try-btn {
             font-size: 12px;
             font-weight: 500;
             color: #b87333;
+            border: 1px solid #b87333;
+            border-radius: 6px;
             background: none;
-            border: none;
+            padding: 5px 12px;
             letter-spacing: 0.4px;
             cursor: pointer;
-            min-width: 54px;
-            text-align: right;
+            font-family: inherit;
+        }
+        .try-btn:hover:not(:disabled) {
+            background: rgba(184, 115, 51, 0.08);
         }
         .try-btn:disabled {
             opacity: 0.5;
@@ -1048,6 +1069,9 @@ export class IrWigs extends LitElement {
         .wig-actions .delete-btn {
             color: var(--error-color, #c62828);
             border-color: var(--error-color, #c62828);
+        }
+        .del-glyph:hover {
+            color: var(--error-color, #c62828);
         }
         .dl-icon {
             --mdc-icon-size: 15px;

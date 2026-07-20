@@ -440,7 +440,7 @@
     "wigs.unbranded": "Unbranded",
     "wigs.signals.one": "{count} signal",
     "wigs.signals.other": "{count} signals",
-    "wigs.clip_it": "Clip it",
+    "wigs.clip_it": "Clip",
     "wigs.tried_on": "Now on the Clipper as {name}",
     "wigs.try_on_failed": "Could not try on this wig: {message}",
     "wigs.edit": "Edit wig",
