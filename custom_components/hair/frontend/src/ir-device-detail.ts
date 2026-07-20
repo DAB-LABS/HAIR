@@ -1255,10 +1255,14 @@ export class IrDeviceDetail extends LitElement {
             background: rgba(142, 59, 59, 0.12);
         }
         .delete-row {
+            /* Full-width second line of footer-actions: Add to Closet
+               hard left (under the add-signal buttons), Delete Device
+               hard right (owner layout, bench round three). */
+            flex-basis: 100%;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 10px;
+            margin-top: 2px;
         }
 
         :host {

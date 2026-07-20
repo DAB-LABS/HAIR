@@ -33,6 +33,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { HairApi } from "./api.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
 import type {
     CodeBrand,
     CodeCodebook,
@@ -344,11 +345,11 @@ export class IrWigs extends LitElement {
         }
     }
 
-    private async _download(): Promise<void> {
-        if (!this._editing) return;
+    private async _download(wig: WigInfo | null): Promise<void> {
+        if (!wig) return;
         try {
             const { filename, text } = await this.api.wigsGet(
-                this._editing.filename,
+                wig.filename,
             );
             try {
                 const blob = new Blob([text], { type: "application/json" });
@@ -365,7 +366,7 @@ export class IrWigs extends LitElement {
                 this._flash(t("wigs.editor.copied"));
             }
         } catch (err) {
-            this._editError = (err as Error).message;
+            this._flash((err as Error).message);
         }
     }
 
@@ -550,6 +551,21 @@ export class IrWigs extends LitElement {
                               </button>`
                             : ""}
                     </span>
+                    <span class="glyph-slot">
+                        ${row.wig
+                            ? html`<button
+                                  class="copy-glyph"
+                                  title=${t("wigs.editor.download")}
+                                  @click=${() =>
+                                      void this._download(row.wig!)}
+                              >
+                                  <ha-svg-icon
+                                      class="dl-icon"
+                                      .path=${"M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"}
+                                  ></ha-svg-icon>
+                              </button>`
+                            : ""}
+                    </span>
                     <button
                         class="try-btn"
                         ?disabled=${this._busyId === row.id}
@@ -581,16 +597,16 @@ export class IrWigs extends LitElement {
                             filename: this._confirmDelete.filename,
                         })}
                     </div>
-                    <div class="editor-actions">
+                    <div class="dialog-actions wig-actions">
                         <span class="spacer"></span>
                         <button
-                            class="pop-btn"
+                            class="action-btn cancel-btn"
                             @click=${() => (this._confirmDelete = null)}
                         >
                             ${t("common.cancel")}
                         </button>
                         <button
-                            class="pop-btn del confirm-del"
+                            class="action-btn delete-btn"
                             @click=${this._confirmDeleteWig}
                         >
                             ${t("common.delete")}
@@ -659,25 +675,28 @@ export class IrWigs extends LitElement {
                             ).value)}
                     ></textarea>
                 </div>
-                <div class="editor-actions">
+                <div class="dialog-actions wig-actions">
                     <button
-                        class="pop-btn del"
+                        class="action-btn delete-btn"
                         @click=${() => (this._confirmDelete = wig)}
                     >
                         ${t("common.delete")}
                     </button>
-                    <button class="pop-btn" @click=${this._download}>
+                    <button
+                        class="action-btn"
+                        @click=${() => void this._download(this._editing)}
+                    >
                         ${t("wigs.editor.download")}
                     </button>
                     <span class="spacer"></span>
                     <button
-                        class="pop-btn"
+                        class="action-btn cancel-btn"
                         @click=${() => (this._editing = null)}
                     >
                         ${t("common.cancel")}
                     </button>
                     <button
-                        class="pop-btn save"
+                        class="action-btn save-btn"
                         ?disabled=${this._editBusy}
                         @click=${this._saveEdit}
                     >
@@ -690,7 +709,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [dialogStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -1016,20 +1035,24 @@ export class IrWigs extends LitElement {
             padding-top: 10px;
             border-top: 1px solid var(--divider-color);
         }
-        .pop-btn {
-            font-size: 12.5px;
-            font-weight: 500;
-            background: none;
-            border: none;
-            cursor: pointer;
-            letter-spacing: 0.3px;
-            color: var(--secondary-text-color);
+        .wig-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
         }
-        .pop-btn.save {
-            color: var(--wigs-accent);
+        .wig-actions .save-btn {
+            background: var(--wigs-accent);
+            border-color: var(--wigs-accent);
+            color: #fff;
         }
-        .pop-btn.del {
+        .wig-actions .delete-btn {
             color: var(--error-color, #c62828);
+            border-color: var(--error-color, #c62828);
+        }
+        .dl-icon {
+            --mdc-icon-size: 15px;
+            width: 15px;
+            height: 15px;
         }
         .spacer {
             flex: 1;
@@ -1039,7 +1062,7 @@ export class IrWigs extends LitElement {
             font-size: 13.5px;
             line-height: 1.5;
         }
-    `;
+    `];
 }
 
 declare global {
