@@ -297,14 +297,22 @@ export class IrClips extends LitElement {
         if (!files || files.length === 0) return;
         for (const file of Array.from(files)) {
             try {
-                const upload = await this.api.wigsUpload(await file.text());
-                if (!upload.success || !upload.filename) {
+                const upload = await this.api.wigsUpload(
+                    await file.text(), file.name,
+                );
+                if (!upload.success) {
                     this._error = t("wigs.upload_failed", {
                         reason: (upload.errors ?? []).join("; "),
                     });
                     continue;
                 }
-                await this.api.importCodeRemote(`wig:${upload.filename}`);
+                const names =
+                    upload.filenames ?? [upload.filename ?? ""];
+                for (const name of names) {
+                    if (name) {
+                        await this.api.importCodeRemote(`wig:${name}`);
+                    }
+                }
             } catch (err) {
                 this._error = t("wigs.upload_failed", {
                     reason: (err as Error).message,

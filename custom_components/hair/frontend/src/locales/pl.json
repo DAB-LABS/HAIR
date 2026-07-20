@@ -443,7 +443,7 @@
     "vocab.volume_up": "Głośność +",
     "panel.tab.wigs": "Szafa",
     "panel.tagline.wigs": "Twoja szafa przenośnych zestawów kodów. Przymierz którąś, podziel się swoimi.",
-    "wigs.drop.title": "Upuść plik .wig.json w dowolnym miejscu tej karty",
+    "wigs.drop.title": "Upuść plik peruki, SmartIR, Flipper lub LIRC w dowolnym miejscu tej karty",
     "wigs.drop.hint": "Pliki trafiają do /config/hair/wigs/ i pojawiają się poniżej",
     "wigs.drop.browse": "Przeglądaj...",
     "wigs.search": "Szukaj marek i pilotów...",
@@ -489,5 +489,6 @@
     "sniffer.linked.one": "{count} urządzenie HAIR",
     "sniffer.linked.few": "{count} urządzenia HAIR",
     "sniffer.linked.many": "{count} urządzeń HAIR",
-    "sniffer.linked.other": "{count} urządzenia HAIR"
+    "sniffer.linked.other": "{count} urządzenia HAIR",
+    "wigs.upload_partial": "{count} sygnałów nie udało się przekonwertować"
 }

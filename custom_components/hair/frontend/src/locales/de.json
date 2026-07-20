@@ -429,7 +429,7 @@
     "vocab.volume_up": "Lautstärke +",
     "panel.tab.wigs": "Schrank",
     "panel.tagline.wigs": "Dein Schrank für portable Code-Sets. Probiere eine an, teile deine eigenen.",
-    "wigs.drop.title": "Eine .wig.json irgendwo auf diesem Tab ablegen",
+    "wigs.drop.title": "Eine Perücken-, SmartIR-, Flipper- oder LIRC-Datei irgendwo auf diesem Tab ablegen",
     "wigs.drop.hint": "Dateien landen in /config/hair/wigs/ und erscheinen unten",
     "wigs.drop.browse": "Durchsuchen...",
     "wigs.search": "Marken und Fernbedienungen suchen...",
@@ -471,5 +471,6 @@
     "wigs.picker.local": "deine Perücke",
     "sniffer.del_remote_msg": "\"{name}\" und seine Signale löschen? Die Fernbedienung kehrt zurück, wenn sie wieder gehört wird.",
     "sniffer.linked.one": "{count} HAIR-Gerät",
-    "sniffer.linked.other": "{count} HAIR-Geräte"
+    "sniffer.linked.other": "{count} HAIR-Geräte",
+    "wigs.upload_partial": "{count} Signale konnten nicht konvertiert werden"
 }

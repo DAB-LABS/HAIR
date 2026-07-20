@@ -429,7 +429,7 @@
     "vocab.volume_up": "Volume +",
     "panel.tab.wigs": "Armadio",
     "panel.tagline.wigs": "Il tuo armadio di set di codici portatili. Provane una, condividi le tue.",
-    "wigs.drop.title": "Trascina un .wig.json ovunque in questa scheda",
+    "wigs.drop.title": "Trascina un file parrucca, SmartIR, Flipper o LIRC ovunque in questa scheda",
     "wigs.drop.hint": "I file finiscono in /config/hair/wigs/ e compaiono qui sotto",
     "wigs.drop.browse": "Sfoglia...",
     "wigs.search": "Cerca marche e telecomandi...",
@@ -471,5 +471,6 @@
     "wigs.picker.local": "la tua parrucca",
     "sniffer.del_remote_msg": "Eliminare \"{name}\" e i suoi segnali? Il telecomando torna se viene sentito di nuovo.",
     "sniffer.linked.one": "{count} dispositivo HAIR",
-    "sniffer.linked.other": "{count} dispositivi HAIR"
+    "sniffer.linked.other": "{count} dispositivi HAIR",
+    "wigs.upload_partial": "{count} segnali non sono stati convertiti"
 }

@@ -2427,6 +2427,7 @@ async def ws_wigs_list(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/upload",
     vol.Required("text"): vol.All(str, vol.Length(min=2, max=1_000_000)),
+    vol.Optional("filename"): vol.All(str, vol.Length(max=300)),
 })
 @websocket_api.async_response
 async def ws_wigs_upload(
@@ -2434,23 +2435,58 @@ async def ws_wigs_upload(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Validate wig JSON and write it into the closet (drop zone / file
-    picker). Rejects with every schema reason found; never writes a
-    half-valid file."""
+    """The import funnel (wigs.md section 8): a native wig writes
+    straight to the closet; a recognized foreign format (SmartIR,
+    Flipper .ir, LIRC) converts to wigs first, stamped
+    ``converted:<format>``. Either way, validation happens BEFORE
+    anything touches disk, and per-signal conversion skips come back
+    as reasons instead of vanishing."""
 
     def _upload() -> dict[str, Any]:
-        from .wig_format import parse_wig
+        from .wig_adapters import convert, sniff_format
+        from .wig_format import parse_wig, serialize_wig
         from .wig_store import write_wig_text
 
-        result = parse_wig(msg["text"])
-        if not result.ok:
+        text = msg["text"]
+        result = parse_wig(text)
+        if result.ok:
+            filename = write_wig_text(
+                hass.config.config_dir, text, result.wig.name
+            )
+            if filename is None:
+                return {"success": False, "errors": ["could not write file"]}
+            return {
+                "success": True,
+                "filename": filename,
+                "filenames": [filename],
+                "format": "wig",
+                "skipped": [],
+            }
+
+        # Not a wig: sniff for a foreign format before reporting the
+        # wig-schema errors (a SmartIR file failing wig validation is
+        # noise; the real answer is "convert it").
+        if sniff_format(text) is None:
             return {"success": False, "errors": result.errors}
-        filename = write_wig_text(
-            hass.config.config_dir, msg["text"], result.wig.name
-        )
-        if filename is None:
-            return {"success": False, "errors": ["could not write file"]}
-        return {"success": True, "filename": filename}
+        converted = convert(text, msg.get("filename", ""))
+        if converted.error and not converted.wigs:
+            return {"success": False, "errors": [converted.error]}
+        filenames: list[str] = []
+        for wig in converted.wigs:
+            filename = write_wig_text(
+                hass.config.config_dir, serialize_wig(wig), wig.name
+            )
+            if filename is not None:
+                filenames.append(filename)
+        if not filenames:
+            return {"success": False, "errors": ["could not write files"]}
+        return {
+            "success": True,
+            "filename": filenames[0],
+            "filenames": filenames,
+            "format": converted.format,
+            "skipped": converted.skipped,
+        }
 
     connection.send_result(
         msg["id"], await hass.async_add_executor_job(_upload)

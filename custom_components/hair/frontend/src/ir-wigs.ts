@@ -251,11 +251,22 @@ export class IrWigs extends LitElement {
 
     // --- Upload (drop bar + browse) ---
 
-    private async _uploadText(text: string): Promise<void> {
+    private async _uploadText(
+        text: string, filename = "",
+    ): Promise<void> {
         try {
-            const result = await this.api.wigsUpload(text);
-            if (result.success && result.filename) {
-                this._flash(t("wigs.upload_ok", { filename: result.filename }));
+            const result = await this.api.wigsUpload(text, filename);
+            if (result.success) {
+                const names = result.filenames ?? [result.filename ?? ""];
+                let message = names
+                    .map((name) => t("wigs.upload_ok", { filename: name }))
+                    .join(" \u00b7 ");
+                if ((result.skipped ?? []).length > 0) {
+                    message += ` \u00b7 ${t("wigs.upload_partial", {
+                        count: String(result.skipped!.length),
+                    })}`;
+                }
+                this._flash(message);
                 await this._refresh();
             } else {
                 this._flash(
@@ -277,18 +288,18 @@ export class IrWigs extends LitElement {
         const files = e.dataTransfer?.files;
         if (!files) return;
         for (const file of Array.from(files)) {
-            await this._uploadText(await file.text());
+            await this._uploadText(await file.text(), file.name);
         }
     }
 
     private _browse(): void {
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = ".json,application/json";
+        input.accept = ".json,.ir,.conf,application/json,text/plain";
         input.multiple = true;
         input.onchange = async () => {
             for (const file of Array.from(input.files ?? [])) {
-                await this._uploadText(await file.text());
+                await this._uploadText(await file.text(), file.name);
             }
         };
         input.click();

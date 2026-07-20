@@ -429,7 +429,7 @@
     "vocab.volume_up": "Volumen +",
     "panel.tab.wigs": "Armario",
     "panel.tagline.wigs": "Tu armario de juegos de códigos portátiles. Pruébate uno, comparte los tuyos.",
-    "wigs.drop.title": "Suelta un .wig.json en cualquier parte de esta pestaña",
+    "wigs.drop.title": "Suelta un archivo de peluca, SmartIR, Flipper o LIRC en cualquier parte de esta pestaña",
     "wigs.drop.hint": "Los archivos van a /config/hair/wigs/ y aparecen abajo",
     "wigs.drop.browse": "Examinar...",
     "wigs.search": "Buscar marcas y mandos...",
@@ -471,5 +471,6 @@
     "wigs.picker.local": "tu peluca",
     "sniffer.del_remote_msg": "¿Eliminar \"{name}\" y sus señales? El mando vuelve si se escucha de nuevo.",
     "sniffer.linked.one": "{count} dispositivo HAIR",
-    "sniffer.linked.other": "{count} dispositivos HAIR"
+    "sniffer.linked.other": "{count} dispositivos HAIR",
+    "wigs.upload_partial": "{count} señales no se pudieron convertir"
 }

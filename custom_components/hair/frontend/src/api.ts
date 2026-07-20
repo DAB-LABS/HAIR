@@ -232,11 +232,21 @@ export class HairApi {
 
     wigsUpload(
         text: string,
-    ): Promise<{ success: boolean; filename?: string; errors?: string[] }> {
-        return this.hass.connection.sendMessagePromise({
+        filename?: string,
+    ): Promise<{
+        success: boolean;
+        filename?: string;
+        filenames?: string[];
+        format?: string;
+        skipped?: string[];
+        errors?: string[];
+    }> {
+        const msg: Record<string, unknown> = {
             type: "hair/wigs/upload",
             text,
-        });
+        };
+        if (filename) msg.filename = filename;
+        return this.hass.connection.sendMessagePromise(msg);
     }
 
     wigsDelete(filename: string): Promise<{ deleted: boolean }> {

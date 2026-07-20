@@ -429,7 +429,7 @@
     "vocab.volume_up": "Volume +",
     "panel.tab.wigs": "Penderie",
     "panel.tagline.wigs": "Votre penderie de jeux de codes portables. Essayez-en une, partagez les vôtres.",
-    "wigs.drop.title": "Déposez un .wig.json n'importe où sur cet onglet",
+    "wigs.drop.title": "Déposez un fichier perruque, SmartIR, Flipper ou LIRC n'importe où sur cet onglet",
     "wigs.drop.hint": "Les fichiers vont dans /config/hair/wigs/ et apparaissent ci-dessous",
     "wigs.drop.browse": "Parcourir...",
     "wigs.search": "Rechercher marques et télécommandes...",
@@ -471,5 +471,6 @@
     "wigs.picker.local": "votre perruque",
     "sniffer.del_remote_msg": "Supprimer \"{name}\" et ses signaux ? La télécommande revient si elle est entendue à nouveau.",
     "sniffer.linked.one": "{count} appareil HAIR",
-    "sniffer.linked.other": "{count} appareils HAIR"
+    "sniffer.linked.other": "{count} appareils HAIR",
+    "wigs.upload_partial": "{count} signaux n'ont pas pu être convertis"
 }
