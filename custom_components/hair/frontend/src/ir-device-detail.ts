@@ -1104,13 +1104,13 @@ export class IrDeviceDetail extends LitElement {
                         @click=${this._goToMirror}
                         ?disabled=${this._busy}
                     >${t("devdetail.mirrored")}</button>
+                </div>
+                <div class="delete-row">
                     <button
                         class="action-btn save-wig-btn"
                         @click=${() => (this._saveWigOpen = true)}
                         ?disabled=${this._busy}
                     >${t("wigs.save_as_wig")}</button>
-                </div>
-                <div class="delete-row">
                     <button
                         class="action-btn delete-btn"
                         @click=${() => (this._confirmDelete = true)}
@@ -1250,12 +1250,14 @@ export class IrDeviceDetail extends LitElement {
         .save-wig-btn {
             color: #8e3b3b;
             border-color: #8e3b3b;
-            margin-left: auto;
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
         }
         .delete-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-top: 10px;
         }
 

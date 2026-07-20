@@ -1988,13 +1988,13 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
                         @click=${this._goToMirror}
                         ?disabled=${this._busy}
                     >${ke("devdetail.mirrored")}</button>
+                </div>
+                <div class="delete-row">
                     <button
                         class="action-btn save-wig-btn"
                         @click=${()=>this._saveWigOpen=!0}
                         ?disabled=${this._busy}
                     >${ke("wigs.save_as_wig")}</button>
-                </div>
-                <div class="delete-row">
                     <button
                         class="action-btn delete-btn"
                         @click=${()=>this._confirmDelete=!0}
@@ -2104,12 +2104,14 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
         .save-wig-btn {
             color: #8e3b3b;
             border-color: #8e3b3b;
-            margin-left: auto;
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
         }
         .delete-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-top: 10px;
         }
 
@@ -4178,11 +4180,10 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
         `}};xa.DISMISS_GLOW_HOLD_MS=3800,xa.styles=[Lt,s`
         .remote-footer {
             display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
+            justify-content: space-between;
+            align-items: center;
             margin-top: 10px;
-            padding-right: 8px;
+            padding: 0 8px;
         }
         .save-wig-btn {
             color: #8e3b3b;
@@ -5071,14 +5072,11 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
                   ></ir-test-emitter-dialog>`:""}
         </div>
         `}};za.styles=[Lt,s`
-        .remote-footer {
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
-        }
         .save-wig-btn {
             color: #8e3b3b;
             border-color: #8e3b3b;
+            margin-right: auto;
+            margin-left: 8px;
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
@@ -6062,14 +6060,11 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
                       @closed=${()=>this._saveWigDevice=null}
                   ></ir-save-wig-dialog>`:""}
         `}};function Ra(e){if(!e)return"";try{const i=Date.now()-new Date(e).getTime();return i<6e4?ke("rel.just_now"):i<36e5?`${Math.floor(i/6e4)}m`:i<864e5?`${Math.floor(i/36e5)}h`:`${Math.floor(i/864e5)}d`}catch{return""}}Ta.styles=[Lt,s`
-        .remote-footer {
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
-        }
         .save-wig-btn {
             color: #8e3b3b;
             border-color: #8e3b3b;
+            margin-right: auto;
+            margin-left: 8px;
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);

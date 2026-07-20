@@ -1572,11 +1572,10 @@ export class IrSignalMonitor extends LitElement {
     static styles = [actionChipStyles, css`
         .remote-footer {
             display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
+            justify-content: space-between;
+            align-items: center;
             margin-top: 10px;
-            padding-right: 8px;
+            padding: 0 8px;
         }
         .save-wig-btn {
             color: #8e3b3b;
