@@ -7123,7 +7123,7 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
                 style="top: ${this._peekPos.top}px; left: ${this._peekPos.left}px;"
             >
                 ${this._peekNames.map(e=>B`<div class="peek-entry">${e}</div>`)}
-            </div>`:""}async _tryOn(e){this._busyId=e.id;try{const i=await this.api.importCodeRemote(e.id);this._flash(ke("wigs.tried_on",{name:i.device.label??e.label})),this.dispatchEvent(new CustomEvent("wig-tried-on",{detail:i.device,bubbles:!0,composed:!0}))}catch(e){this._flash(ke("wigs.try_on_failed",{message:e.message}),"warn")}finally{this._busyId=null}}async _uploadText(e,i=""){try{const t=await this.api.wigsUpload(e,i);if(!t.success)return this._receiptKind="warn",this._receiptFiles=[],void(this._receipt=ke("wigs.upload_failed",{reason:(t.errors??[]).join("; ")}));const a=t.files??[],r=a.some(e=>e.duplicate_of);this._receiptFiles=a,this._receiptSuffix=(t.skipped??[]).length>0?ke("wigs.upload_partial",{count:String(t.skipped.length)}):"",this._receiptKind=r?"dup":"ok",this._receipt="files","library"===this._filter&&(this._filter="all"),await this._refresh();const o=new Set(this._openBrands);for(const e of a)o.add(this._brandKeyFor(e.brand));if(this._openBrands=o,a.length>0){const e=`wig:${a[0].filename}`;this._pendingScrollId=e,this._bloomId=e,window.setTimeout(()=>{this._bloomId=null},2600)}}catch(e){this._receiptKind="warn",this._receiptFiles=[],this._receipt=ke("wigs.upload_failed",{reason:e.message})}}_renderReceiptLine(){if(0===this._receiptFiles.length)return B`${this._receipt}`;const e=this._receiptFiles.map(e=>{const i=e.brand?.trim()||ke("wigs.unbranded"),t=ke(e.duplicate_of?"wigs.receipt.duplicate":"wigs.receipt.hung",{name:"",brand:""}).split(/([\u0001\u0002])/);return B`${t.map(t=>""===t?B`<button
+            </div>`:""}async _tryOn(e){this._busyId=e.id;try{const i=await this.api.importCodeRemote(e.id);this._flash(ke("wigs.tried_on",{name:i.device.label??e.label})),this.dispatchEvent(new CustomEvent("wig-tried-on",{detail:i.device,bubbles:!0,composed:!0}))}catch(e){this._flash(ke("wigs.try_on_failed",{message:e.message}),"warn")}finally{this._busyId=null}}async _uploadText(e,i=""){try{const t=await this.api.wigsUpload(e,i);if(!t.success)return this._receiptKind="warn",this._receiptFiles=[],void(this._receipt=ke("wigs.upload_failed",{reason:(t.errors??[]).join("; ")}));const a=t.files??[],r=a.some(e=>e.duplicate_of);this._receiptFiles=a,this._receiptSuffix=(t.skipped??[]).length>0?ke("wigs.upload_partial",{count:String(t.skipped.length)}):"",this._receiptKind=r?"dup":"ok",this._receipt="files","library"===this._filter&&(this._filter="all"),await this._refresh()}catch(e){this._receiptKind="warn",this._receiptFiles=[],this._receipt=ke("wigs.upload_failed",{reason:e.message})}}_renderReceiptLine(){if(0===this._receiptFiles.length)return B`${this._receipt}`;const e=this._receiptFiles.map(e=>{const i=e.brand?.trim()||ke("wigs.unbranded"),t=ke(e.duplicate_of?"wigs.receipt.duplicate":"wigs.receipt.hung",{name:"",brand:""}).split(/([\u0001\u0002])/);return B`${t.map(t=>""===t?B`<button
                           class="receipt-link"
                           @click=${()=>this._jumpToWig(e)}
                       >${e.name}</button>`:""===t?B`<button
@@ -7413,14 +7413,17 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             border: 1px solid rgba(230, 81, 0, 0.45);
         }
         .drop-bar {
+            /* Idle: quiet gray furniture with the closet's oxblood as
+               a dashed accent stroke only (owner ruling: a full red
+               field reads as danger, not invitation). */
             border: 2px dashed var(--wigs-accent-border);
             border-radius: 10px;
-            background: var(--wigs-accent-soft);
+            background: rgba(120, 144, 156, 0.08);
             display: flex;
             align-items: center;
             gap: 12px;
             padding: 11px 16px;
-            color: var(--wigs-accent);
+            color: var(--secondary-text-color);
             margin-bottom: 14px;
         }
         .drop-bar.over {
@@ -7479,12 +7482,16 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             margin-left: auto;
             font-size: 12px;
             font-weight: 500;
-            border: 1px solid var(--wigs-accent);
-            color: var(--wigs-accent);
+            border: 1px solid var(--divider-color);
+            color: var(--secondary-text-color);
             background: var(--card-background-color, #fff);
             border-radius: 6px;
             padding: 5px 12px;
             cursor: pointer;
+        }
+        .drop-bar .browse:hover {
+            border-color: var(--wigs-accent);
+            color: var(--wigs-accent);
         }
         .toolbar {
             display: flex;

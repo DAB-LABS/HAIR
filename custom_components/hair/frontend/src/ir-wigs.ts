@@ -340,24 +340,12 @@ export class IrWigs extends LitElement {
             this._receiptKind = anyDup ? "dup" : "ok";
             this._receipt = "files";
 
-            // Open the drawer: expand the receiving brands, drop the
-            // filter if it would hide the arrivals, and scroll the
-            // first new row into view with a bloom.
+            // No auto-jump (owner ruling): the receipt's name/brand
+            // links are the invitation; the user pulls, we don't
+            // shove. Just make sure a Library filter cannot hide the
+            // arrival if they DO click.
             if (this._filter === "library") this._filter = "all";
             await this._refresh();
-            const open = new Set(this._openBrands);
-            for (const f of files) {
-                open.add(this._brandKeyFor(f.brand));
-            }
-            this._openBrands = open;
-            if (files.length > 0) {
-                const id = `wig:${files[0].filename}`;
-                this._pendingScrollId = id;
-                this._bloomId = id;
-                window.setTimeout(() => {
-                    this._bloomId = null;
-                }, 2600);
-            }
         } catch (err) {
             this._receiptKind = "warn";
             this._receiptFiles = [];
@@ -952,14 +940,17 @@ export class IrWigs extends LitElement {
             border: 1px solid rgba(230, 81, 0, 0.45);
         }
         .drop-bar {
+            /* Idle: quiet gray furniture with the closet's oxblood as
+               a dashed accent stroke only (owner ruling: a full red
+               field reads as danger, not invitation). */
             border: 2px dashed var(--wigs-accent-border);
             border-radius: 10px;
-            background: var(--wigs-accent-soft);
+            background: rgba(120, 144, 156, 0.08);
             display: flex;
             align-items: center;
             gap: 12px;
             padding: 11px 16px;
-            color: var(--wigs-accent);
+            color: var(--secondary-text-color);
             margin-bottom: 14px;
         }
         .drop-bar.over {
@@ -1018,12 +1009,16 @@ export class IrWigs extends LitElement {
             margin-left: auto;
             font-size: 12px;
             font-weight: 500;
-            border: 1px solid var(--wigs-accent);
-            color: var(--wigs-accent);
+            border: 1px solid var(--divider-color);
+            color: var(--secondary-text-color);
             background: var(--card-background-color, #fff);
             border-radius: 6px;
             padding: 5px 12px;
             cursor: pointer;
+        }
+        .drop-bar .browse:hover {
+            border-color: var(--wigs-accent);
+            color: var(--wigs-accent);
         }
         .toolbar {
             display: flex;
