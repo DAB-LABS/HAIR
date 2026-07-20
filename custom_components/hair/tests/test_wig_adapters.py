@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from custom_components.hair.pronto_validator import validate_pronto
 from custom_components.hair.wig_adapters import (
     broadlink_packet_to_pronto,
@@ -132,6 +134,9 @@ class TestSmartIR:
 
 class TestFlipper:
     def test_parsed_necext(self):
+        # Parsed Flipper entries re-encode through the code library; on
+        # the no-library CI leg (py3.12) they skip with a reason instead.
+        pytest.importorskip("infrared_protocols")
         result = convert(
             _fixture("flipper_parsed_Apple_TV_Gen3_v2.ir"),
             name_hint="Apple_TV_Gen3_v2.ir",
@@ -244,22 +249,22 @@ class TestGirr:
         # only normalizes whitespace, never re-times it.
         assert power.pronto.startswith("0000 006C 0022 0002 015B 00AD")
         assert power.pronto.endswith("0016 06A4 015B 0057 0016 0E6C")
-        assert validate_pronto(power.pronto)
+        assert validate_pronto(power.pronto).valid
         volume = next(s for s in onkyo.signals if s.alias == "Volume Up")
-        assert validate_pronto(volume.pronto)
+        assert validate_pronto(volume.pronto).valid
 
     def test_raw_intro_synthesized(self):
         result = convert(_fixture("girr_irscrutinizer_export.girr"))
         onkyo = result.wigs[0]
         dvd = next(s for s in onkyo.signals if s.alias == "Input Dvd")
         assert dvd.pronto.startswith("0000")
-        assert validate_pronto(dvd.pronto)
+        assert validate_pronto(dvd.pronto).valid
 
     def test_raw_flash_gap_repeat_only(self):
         result = convert(_fixture("girr_irscrutinizer_export.girr"))
         philips = result.wigs[1]
         mute = next(s for s in philips.signals if s.alias == "Mute")
-        assert validate_pronto(mute.pronto)
+        assert validate_pronto(mute.pronto).valid
 
     def test_parameters_only_skips_with_reason(self):
         result = convert(_fixture("girr_irscrutinizer_export.girr"))
