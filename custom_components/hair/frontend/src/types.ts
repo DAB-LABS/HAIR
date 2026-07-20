@@ -104,6 +104,8 @@ export interface WigInfo {
     notes: string | null;
     origin: string | null;
     signal_count: number;
+    // Signal aliases for the count-click peek popover (v0.7.0).
+    signals?: string[];
 }
 
 export interface WigInvalid {

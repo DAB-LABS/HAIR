@@ -51,6 +51,7 @@ interface ClosetRow {
     id: string; // codebook id ("module:Class" or "wig:<filename>")
     label: string;
     signalCount: number;
+    signalNames: string[];
     wig?: WigInfo;
 }
 
@@ -79,7 +80,11 @@ export class IrWigs extends LitElement {
     @state() private _openBrands: Set<string> = new Set();
     @state() private _dragOver = false;
     @state() private _notice: string | null = null;
+    @state() private _noticeKind: "ok" | "warn" = "ok";
     @state() private _busyId: string | null = null;
+    @state() private _peekId: string | null = null;
+    private _peekPos = { top: 0, left: 0 };
+    private _peekNames: string[] = [];
 
     // Editor dialog state.
     @state() private _editing: WigInfo | null = null;
@@ -121,7 +126,8 @@ export class IrWigs extends LitElement {
         }
     }
 
-    private _flash(message: string): void {
+    private _flash(message: string, kind: "ok" | "warn" = "ok"): void {
+        this._noticeKind = kind;
         this._notice = message;
         if (this._noticeTimer) window.clearTimeout(this._noticeTimer);
         this._noticeTimer = window.setTimeout(() => {
@@ -150,6 +156,7 @@ export class IrWigs extends LitElement {
                         id: c.id,
                         label: c.label,
                         signalCount: c.functions.length,
+                        signalNames: c.functions.map((f) => f.name),
                     })),
             });
         }
@@ -173,6 +180,7 @@ export class IrWigs extends LitElement {
                 id: `wig:${wig.filename}`,
                 label: wig.name,
                 signalCount: wig.signal_count,
+                signalNames: wig.signals ?? [],
                 wig,
             });
         }
@@ -222,6 +230,43 @@ export class IrWigs extends LitElement {
         this._openBrands = open;
     }
 
+    /**
+     * The signal peek (owner ask, 2026-07-20): clicking a row's signal
+     * count opens a read-only list of the signal names -- the shop
+     * window, not the workbench; the Clipper stays the real signal
+     * viewer (c6 two-level ruling intact: this is a popover, not a
+     * third hierarchy level). Same fixed-position anatomy as the
+     * linked-devices popover so the gesture is already familiar.
+     */
+    private _togglePeek(row: ClosetRow, e: Event): void {
+        e.stopPropagation();
+        if (this._peekId === row.id) {
+            this._peekId = null;
+            return;
+        }
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        this._peekPos = { top: rect.bottom + 6, left: rect.left };
+        this._peekNames = row.signalNames;
+        this._peekId = row.id;
+    }
+
+    private _renderPeek() {
+        if (!this._peekId || this._peekNames.length === 0) return "";
+        return html`<div
+                class="linked-scrim"
+                @click=${() => (this._peekId = null)}
+            ></div>
+            <div
+                class="peek-popover"
+                style="top: ${this._peekPos.top}px; left: ${this._peekPos
+                    .left}px;"
+            >
+                ${this._peekNames.map(
+                    (name) => html`<div class="peek-entry">${name}</div>`,
+                )}
+            </div>`;
+    }
+
     // --- Try on ---
 
     private async _tryOn(row: ClosetRow): Promise<void> {
@@ -243,6 +288,7 @@ export class IrWigs extends LitElement {
         } catch (err) {
             this._flash(
                 t("wigs.try_on_failed", { message: (err as Error).message }),
+                "warn",
             );
         } finally {
             this._busyId = null;
@@ -273,11 +319,13 @@ export class IrWigs extends LitElement {
                     t("wigs.upload_failed", {
                         reason: (result.errors ?? []).join("; "),
                     }),
+                    "warn",
                 );
             }
         } catch (err) {
             this._flash(
                 t("wigs.upload_failed", { reason: (err as Error).message }),
+                "warn",
             );
         }
     }
@@ -391,7 +439,7 @@ export class IrWigs extends LitElement {
             this._editing = null;
             await this._refresh();
         } catch (err) {
-            this._flash((err as Error).message);
+            this._flash((err as Error).message, "warn");
         }
     }
 
@@ -439,7 +487,9 @@ export class IrWigs extends LitElement {
                 ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                 : ""}
             ${this._notice
-                ? html`<div class="notice">${this._notice}</div>`
+                ? html`<div class="notice ${this._noticeKind}">
+                      ${this._notice}
+                  </div>`
                 : ""}
 
             <div class="toolbar">
@@ -493,6 +543,7 @@ export class IrWigs extends LitElement {
                     })}
                 </div>`,
             )}
+            ${this._renderPeek()}
             ${this._renderEditor()}
         `;
     }
@@ -548,9 +599,12 @@ export class IrWigs extends LitElement {
                 <span class="wdot ${row.source === "local" ? "mine" : "lib"}"
                 ></span>
                 <span class="wig-name">${row.label}</span>
-                <span class="wig-count"
-                    >${tp("wigs.signals", row.signalCount)}</span
+                <button
+                    class="wig-count"
+                    @click=${(e: Event) => this._togglePeek(row, e)}
                 >
+                    ${tp("wigs.signals", row.signalCount)}
+                </button>
                 <span class="row-actions">
                     <span class="glyph-slot">
                         ${row.wig
@@ -754,10 +808,18 @@ export class IrWigs extends LitElement {
             margin-bottom: 12px;
             padding: 8px 14px;
             border-radius: 8px;
-            background: var(--wigs-accent-soft);
-            border: 1px solid var(--wigs-accent-border);
             color: var(--primary-text-color);
             font-size: 13px;
+        }
+        /* Success wears green (positive outcome, owner ruling); only a
+           failure gets the warning tint. */
+        .notice.ok {
+            background: rgba(46, 125, 50, 0.12);
+            border: 1px solid rgba(46, 125, 50, 0.45);
+        }
+        .notice.warn {
+            background: rgba(230, 81, 0, 0.1);
+            border: 1px solid rgba(230, 81, 0, 0.45);
         }
         .drop-bar {
             border: 2px dashed var(--wigs-accent-border);
@@ -958,6 +1020,38 @@ export class IrWigs extends LitElement {
         .wig-count {
             font-size: 12px;
             color: var(--secondary-text-color);
+            background: none;
+            border: none;
+            padding: 0;
+            font-family: inherit;
+            cursor: pointer;
+            text-decoration: underline dotted transparent;
+        }
+        .wig-count:hover {
+            color: var(--primary-text-color);
+            text-decoration-color: var(--secondary-text-color);
+        }
+        .linked-scrim {
+            position: fixed;
+            inset: 0;
+            z-index: 39;
+        }
+        .peek-popover {
+            position: fixed;
+            z-index: 40;
+            min-width: 180px;
+            max-height: 260px;
+            overflow-y: auto;
+            background: var(--card-background-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+            padding: 6px 4px;
+        }
+        .peek-entry {
+            padding: 5px 12px;
+            font-size: 12.5px;
+            color: var(--primary-text-color);
         }
         .row-actions {
             margin-left: auto;

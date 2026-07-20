@@ -235,16 +235,16 @@ export class HaPanelIrDevices extends LitElement {
                       </button>`
                     : ""}
                 <button
-                    class="tab mirror-tab ${this._activeTab === "mirror" ? "active" : ""}"
-                    @click=${() => this._switchTab("mirror")}
-                >
-                    Mirror
-                </button>
-                <button
                     class="tab wigs-tab ${this._activeTab === "wigs" ? "active" : ""}"
                     @click=${() => this._switchTab("wigs")}
                 >
                     ${t("panel.tab.wigs")}
+                </button>
+                <button
+                    class="tab mirror-tab ${this._activeTab === "mirror" ? "active" : ""}"
+                    @click=${() => this._switchTab("mirror")}
+                >
+                    Mirror
                 </button>
             </div>
 

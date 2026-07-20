@@ -1249,7 +1249,7 @@ export class IrDeviceDetail extends LitElement {
         css`
         .save-wig-btn {
             color: #8e3b3b;
-            border-color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
@@ -1421,6 +1421,10 @@ export class IrDeviceDetail extends LitElement {
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
+            /* Align with the command rows' content column (10px row
+               padding + 32px grip column), i.e. the right edge of the
+               drag dots above (owner layout, 2026-07-20). */
+            margin-left: 42px;
         }
         .add-label {
             font-size: 0.8rem;

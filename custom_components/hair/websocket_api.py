@@ -2407,6 +2407,9 @@ async def ws_wigs_list(
                     "notes": loaded.wig.notes,
                     "origin": loaded.wig.origin,
                     "signal_count": len(loaded.wig.signals),
+                    "signals": [
+                        sig.alias for sig in loaded.wig.signals
+                    ],
                 }
                 for loaded in scan.wigs
             ],

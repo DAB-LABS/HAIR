@@ -2103,7 +2103,7 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
         `}};ia.styles=[Lt,Jt,n`
         .save-wig-btn {
             color: #8e3b3b;
-            border-color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
@@ -2275,6 +2275,10 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
+            /* Align with the command rows' content column (10px row
+               padding + 32px grip column), i.e. the right edge of the
+               drag dots above (owner layout, 2026-07-20). */
+            margin-left: 42px;
         }
         .add-label {
             font-size: 0.8rem;
@@ -4242,7 +4246,7 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
         }
         .save-wig-btn {
             color: #8e3b3b;
-            border-color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
@@ -5175,7 +5179,7 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
 
         .save-wig-btn {
             color: #8e3b3b;
-            border-color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
             margin-right: auto;
             margin-left: 8px;
         }
@@ -6208,7 +6212,7 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
 
         .save-wig-btn {
             color: #8e3b3b;
-            border-color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
             margin-right: auto;
             margin-left: 8px;
         }
@@ -7109,7 +7113,16 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
                 margin-right: auto;
                 line-height: 1.5;
             }
-        `],e([pe({attribute:!1})],Ha.prototype,"api",void 0),e([pe({attribute:!1})],Ha.prototype,"hass",void 0),e([ge()],Ha.prototype,"_device",void 0),e([ge()],Ha.prototype,"_loading",void 0),e([ge()],Ha.prototype,"_error",void 0),e([ge()],Ha.prototype,"_triggers",void 0),e([ge()],Ha.prototype,"_receivers",void 0),e([ge()],Ha.prototype,"_hasReceivers",void 0),e([ge()],Ha.prototype,"_filter",void 0),e([ge()],Ha.prototype,"_search",void 0),e([ge()],Ha.prototype,"_bloomIds",void 0),e([ge()],Ha.prototype,"_assignSignal",void 0),e([ge()],Ha.prototype,"_assignedPopover",void 0),e([ge()],Ha.prototype,"_triggerDialog",void 0),e([ge()],Ha.prototype,"_triggerEditDialog",void 0),e([ge()],Ha.prototype,"_triggerPopover",void 0),e([ge()],Ha.prototype,"_confirmDeleteTriggerId",void 0),e([ge()],Ha.prototype,"_deleteSignal",void 0),e([ge()],Ha.prototype,"_editSignal",void 0),e([ge()],Ha.prototype,"_testDialog",void 0),e([ge()],Ha.prototype,"_testEmitters",void 0),e([ge()],Ha.prototype,"_testingSignalId",void 0),e([ge()],Ha.prototype,"_testResult",void 0),Ha=e([ue("ir-mirror")],Ha);const Na="_unbranded";let Ma=class extends se{constructor(){super(...arguments),this._loading=!0,this._error=null,this._wigs=[],this._invalid=[],this._library=[],this._libraryVersion=null,this._search="",this._filter="all",this._openBrands=new Set,this._dragOver=!1,this._notice=null,this._busyId=null,this._editing=null,this._editName="",this._editBrand="",this._editModel="",this._editNotes="",this._editBusy=!1,this._editError=null,this._confirmDelete=null}connectedCallback(){super.connectedCallback(),this._refresh()}disconnectedCallback(){super.disconnectedCallback(),this._noticeTimer&&window.clearTimeout(this._noticeTimer)}async _refresh(){this._loading=!0;try{const e=await this.api.wigsList();this._wigs=e.wigs,this._invalid=e.invalid,this._library=e.library,this._libraryVersion=e.library_version,this._error=null}catch(e){this._error=ke("wigs.load_failed",{message:e.message})}finally{this._loading=!1}}_flash(e){this._notice=e,this._noticeTimer&&window.clearTimeout(this._noticeTimer),this._noticeTimer=window.setTimeout(()=>{this._notice=null},5e3)}_brandKeyFor(e){return e&&e.trim()?e.trim().toLowerCase().replace(/\s+/g,"_"):Na}_brandRows(){const e=new Map;for(const i of this._library)e.set(i.brand,{key:i.brand,label:i.label,unbranded:i.brand===Na,rows:i.codebooks.filter(e=>"local"!==e.source).map(e=>({source:"library",id:e.id,label:e.label,signalCount:e.functions.length}))});for(const i of this._wigs){const t=this._brandKeyFor(i.brand);let a=e.get(t);a||(a={key:t,label:t===Na?ke("wigs.unbranded"):(i.brand??"").trim(),unbranded:t===Na,rows:[]},e.set(t,a)),a.rows.push({source:"local",id:`wig:${i.filename}`,label:i.name,signalCount:i.signal_count,wig:i})}const i=[...e.values()].filter(e=>e.rows.length>0);for(const e of i)e.rows.sort((e,i)=>e.label.toLowerCase().localeCompare(i.label.toLowerCase()));return i.sort((e,i)=>e.unbranded!==i.unbranded?e.unbranded?-1:1:e.label.toLowerCase().localeCompare(i.label.toLowerCase())),i}_visibleRows(e){let i=e.rows;"library"===this._filter?i=i.filter(e=>"library"===e.source):"yours"===this._filter&&(i=i.filter(e=>"local"===e.source));const t=this._search.trim().toLowerCase();return t&&!e.label.toLowerCase().includes(t)&&(i=i.filter(e=>e.label.toLowerCase().includes(t))),i}_isOpen(e,i){return this._search.trim().toLowerCase()?i.length>0:this._openBrands.has(e.key)}_toggleBrand(e){const i=new Set(this._openBrands);i.has(e)?i.delete(e):i.add(e),this._openBrands=i}async _tryOn(e){this._busyId=e.id;try{const i=await this.api.importCodeRemote(e.id);this._flash(ke("wigs.tried_on",{name:i.device.label??e.label})),this.dispatchEvent(new CustomEvent("wig-tried-on",{detail:i.device,bubbles:!0,composed:!0}))}catch(e){this._flash(ke("wigs.try_on_failed",{message:e.message}))}finally{this._busyId=null}}async _uploadText(e,i=""){try{const t=await this.api.wigsUpload(e,i);if(t.success){let e=(t.filenames??[t.filename??""]).map(e=>ke("wigs.upload_ok",{filename:e})).join(" · ");(t.skipped??[]).length>0&&(e+=` · ${ke("wigs.upload_partial",{count:String(t.skipped.length)})}`),this._flash(e),await this._refresh()}else this._flash(ke("wigs.upload_failed",{reason:(t.errors??[]).join("; ")}))}catch(e){this._flash(ke("wigs.upload_failed",{reason:e.message}))}}async _onDrop(e){e.preventDefault(),this._dragOver=!1;const i=e.dataTransfer?.files;if(i)for(const e of Array.from(i))await this._uploadText(await e.text(),e.name)}_browse(){const e=document.createElement("input");e.type="file",e.accept=".json,.ir,.conf,application/json,text/plain",e.multiple=!0,e.onchange=async()=>{for(const i of Array.from(e.files??[]))await this._uploadText(await i.text(),i.name)},e.click()}_openEditor(e){this._editing=e,this._editName=e.name,this._editBrand=e.brand??"",this._editModel=e.model??"",this._editNotes=e.notes??"",this._editError=null}_originSentence(e){return e?e.startsWith("converted")?ke("wigs.origin.converted",{format:e.split(":")[1]??"another format"}):e.startsWith("plucked")?ke("wigs.origin.plucked"):{captured:ke("wigs.origin.captured"),clipped:ke("wigs.origin.clipped"),device:ke("wigs.origin.device")}[e]??ke("wigs.origin.unknown"):ke("wigs.origin.unknown")}async _saveEdit(){if(this._editing){this._editBusy=!0,this._editError=null;try{const e=await this.api.wigsUpdate(this._editing.filename,{name:this._editName.trim()||this._editing.name,brand:this._editBrand.trim(),model:this._editModel.trim(),notes:this._editNotes.trim()});if(!e.success)return void(this._editError=(e.errors??[]).join("; "));this._editing=null,await this._refresh()}catch(e){this._editError=e.message}finally{this._editBusy=!1}}}async _download(e){if(e)try{const{filename:i,text:t}=await this.api.wigsGet(e.filename);try{const e=new Blob([t],{type:"application/json"}),a=URL.createObjectURL(e),r=document.createElement("a");r.href=a,r.download=i,r.click(),URL.revokeObjectURL(a)}catch{await navigator.clipboard.writeText(t),this._flash(ke("wigs.editor.copied"))}}catch(e){this._flash(e.message)}}async _confirmDeleteWig(){const e=this._confirmDelete;if(this._confirmDelete=null,e)try{await this.api.wigsDelete(e.filename),this._editing=null,await this._refresh()}catch(e){this._flash(e.message)}}_counts(){const e=this._library.reduce((e,i)=>e+i.codebooks.filter(e=>"local"!==e.source).length,0),i=this._wigs.length;return{all:e+i,library:e,yours:i}}render(){if(this._loading)return B`<div class="loading">${ke("common.loading_plain")}</div>`;const e=this._counts(),i=this._brandRows();return B`
+        `],e([pe({attribute:!1})],Ha.prototype,"api",void 0),e([pe({attribute:!1})],Ha.prototype,"hass",void 0),e([ge()],Ha.prototype,"_device",void 0),e([ge()],Ha.prototype,"_loading",void 0),e([ge()],Ha.prototype,"_error",void 0),e([ge()],Ha.prototype,"_triggers",void 0),e([ge()],Ha.prototype,"_receivers",void 0),e([ge()],Ha.prototype,"_hasReceivers",void 0),e([ge()],Ha.prototype,"_filter",void 0),e([ge()],Ha.prototype,"_search",void 0),e([ge()],Ha.prototype,"_bloomIds",void 0),e([ge()],Ha.prototype,"_assignSignal",void 0),e([ge()],Ha.prototype,"_assignedPopover",void 0),e([ge()],Ha.prototype,"_triggerDialog",void 0),e([ge()],Ha.prototype,"_triggerEditDialog",void 0),e([ge()],Ha.prototype,"_triggerPopover",void 0),e([ge()],Ha.prototype,"_confirmDeleteTriggerId",void 0),e([ge()],Ha.prototype,"_deleteSignal",void 0),e([ge()],Ha.prototype,"_editSignal",void 0),e([ge()],Ha.prototype,"_testDialog",void 0),e([ge()],Ha.prototype,"_testEmitters",void 0),e([ge()],Ha.prototype,"_testingSignalId",void 0),e([ge()],Ha.prototype,"_testResult",void 0),Ha=e([ue("ir-mirror")],Ha);const Na="_unbranded";let Ma=class extends se{constructor(){super(...arguments),this._loading=!0,this._error=null,this._wigs=[],this._invalid=[],this._library=[],this._libraryVersion=null,this._search="",this._filter="all",this._openBrands=new Set,this._dragOver=!1,this._notice=null,this._noticeKind="ok",this._busyId=null,this._peekId=null,this._peekPos={top:0,left:0},this._peekNames=[],this._editing=null,this._editName="",this._editBrand="",this._editModel="",this._editNotes="",this._editBusy=!1,this._editError=null,this._confirmDelete=null}connectedCallback(){super.connectedCallback(),this._refresh()}disconnectedCallback(){super.disconnectedCallback(),this._noticeTimer&&window.clearTimeout(this._noticeTimer)}async _refresh(){this._loading=!0;try{const e=await this.api.wigsList();this._wigs=e.wigs,this._invalid=e.invalid,this._library=e.library,this._libraryVersion=e.library_version,this._error=null}catch(e){this._error=ke("wigs.load_failed",{message:e.message})}finally{this._loading=!1}}_flash(e,i="ok"){this._noticeKind=i,this._notice=e,this._noticeTimer&&window.clearTimeout(this._noticeTimer),this._noticeTimer=window.setTimeout(()=>{this._notice=null},5e3)}_brandKeyFor(e){return e&&e.trim()?e.trim().toLowerCase().replace(/\s+/g,"_"):Na}_brandRows(){const e=new Map;for(const i of this._library)e.set(i.brand,{key:i.brand,label:i.label,unbranded:i.brand===Na,rows:i.codebooks.filter(e=>"local"!==e.source).map(e=>({source:"library",id:e.id,label:e.label,signalCount:e.functions.length,signalNames:e.functions.map(e=>e.name)}))});for(const i of this._wigs){const t=this._brandKeyFor(i.brand);let a=e.get(t);a||(a={key:t,label:t===Na?ke("wigs.unbranded"):(i.brand??"").trim(),unbranded:t===Na,rows:[]},e.set(t,a)),a.rows.push({source:"local",id:`wig:${i.filename}`,label:i.name,signalCount:i.signal_count,signalNames:i.signals??[],wig:i})}const i=[...e.values()].filter(e=>e.rows.length>0);for(const e of i)e.rows.sort((e,i)=>e.label.toLowerCase().localeCompare(i.label.toLowerCase()));return i.sort((e,i)=>e.unbranded!==i.unbranded?e.unbranded?-1:1:e.label.toLowerCase().localeCompare(i.label.toLowerCase())),i}_visibleRows(e){let i=e.rows;"library"===this._filter?i=i.filter(e=>"library"===e.source):"yours"===this._filter&&(i=i.filter(e=>"local"===e.source));const t=this._search.trim().toLowerCase();return t&&!e.label.toLowerCase().includes(t)&&(i=i.filter(e=>e.label.toLowerCase().includes(t))),i}_isOpen(e,i){return this._search.trim().toLowerCase()?i.length>0:this._openBrands.has(e.key)}_toggleBrand(e){const i=new Set(this._openBrands);i.has(e)?i.delete(e):i.add(e),this._openBrands=i}_togglePeek(e,i){if(i.stopPropagation(),this._peekId===e.id)return void(this._peekId=null);const t=i.currentTarget.getBoundingClientRect();this._peekPos={top:t.bottom+6,left:t.left},this._peekNames=e.signalNames,this._peekId=e.id}_renderPeek(){return this._peekId&&0!==this._peekNames.length?B`<div
+                class="linked-scrim"
+                @click=${()=>this._peekId=null}
+            ></div>
+            <div
+                class="peek-popover"
+                style="top: ${this._peekPos.top}px; left: ${this._peekPos.left}px;"
+            >
+                ${this._peekNames.map(e=>B`<div class="peek-entry">${e}</div>`)}
+            </div>`:""}async _tryOn(e){this._busyId=e.id;try{const i=await this.api.importCodeRemote(e.id);this._flash(ke("wigs.tried_on",{name:i.device.label??e.label})),this.dispatchEvent(new CustomEvent("wig-tried-on",{detail:i.device,bubbles:!0,composed:!0}))}catch(e){this._flash(ke("wigs.try_on_failed",{message:e.message}),"warn")}finally{this._busyId=null}}async _uploadText(e,i=""){try{const t=await this.api.wigsUpload(e,i);if(t.success){let e=(t.filenames??[t.filename??""]).map(e=>ke("wigs.upload_ok",{filename:e})).join(" · ");(t.skipped??[]).length>0&&(e+=` · ${ke("wigs.upload_partial",{count:String(t.skipped.length)})}`),this._flash(e),await this._refresh()}else this._flash(ke("wigs.upload_failed",{reason:(t.errors??[]).join("; ")}),"warn")}catch(e){this._flash(ke("wigs.upload_failed",{reason:e.message}),"warn")}}async _onDrop(e){e.preventDefault(),this._dragOver=!1;const i=e.dataTransfer?.files;if(i)for(const e of Array.from(i))await this._uploadText(await e.text(),e.name)}_browse(){const e=document.createElement("input");e.type="file",e.accept=".json,.ir,.conf,application/json,text/plain",e.multiple=!0,e.onchange=async()=>{for(const i of Array.from(e.files??[]))await this._uploadText(await i.text(),i.name)},e.click()}_openEditor(e){this._editing=e,this._editName=e.name,this._editBrand=e.brand??"",this._editModel=e.model??"",this._editNotes=e.notes??"",this._editError=null}_originSentence(e){return e?e.startsWith("converted")?ke("wigs.origin.converted",{format:e.split(":")[1]??"another format"}):e.startsWith("plucked")?ke("wigs.origin.plucked"):{captured:ke("wigs.origin.captured"),clipped:ke("wigs.origin.clipped"),device:ke("wigs.origin.device")}[e]??ke("wigs.origin.unknown"):ke("wigs.origin.unknown")}async _saveEdit(){if(this._editing){this._editBusy=!0,this._editError=null;try{const e=await this.api.wigsUpdate(this._editing.filename,{name:this._editName.trim()||this._editing.name,brand:this._editBrand.trim(),model:this._editModel.trim(),notes:this._editNotes.trim()});if(!e.success)return void(this._editError=(e.errors??[]).join("; "));this._editing=null,await this._refresh()}catch(e){this._editError=e.message}finally{this._editBusy=!1}}}async _download(e){if(e)try{const{filename:i,text:t}=await this.api.wigsGet(e.filename);try{const e=new Blob([t],{type:"application/json"}),a=URL.createObjectURL(e),r=document.createElement("a");r.href=a,r.download=i,r.click(),URL.revokeObjectURL(a)}catch{await navigator.clipboard.writeText(t),this._flash(ke("wigs.editor.copied"))}}catch(e){this._flash(e.message)}}async _confirmDeleteWig(){const e=this._confirmDelete;if(this._confirmDelete=null,e)try{await this.api.wigsDelete(e.filename),this._editing=null,await this._refresh()}catch(e){this._flash(e.message,"warn")}}_counts(){const e=this._library.reduce((e,i)=>e+i.codebooks.filter(e=>"local"!==e.source).length,0),i=this._wigs.length;return{all:e+i,library:e,yours:i}}render(){if(this._loading)return B`<div class="loading">${ke("common.loading_plain")}</div>`;const e=this._counts(),i=this._brandRows();return B`
             <div
                 class="drop-bar ${this._dragOver?"over":""}"
                 @dragover=${e=>{e.preventDefault(),this._dragOver=!0}}
@@ -7127,7 +7140,9 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             </div>
 
             ${this._error?B`<ha-alert alert-type="error">${this._error}</ha-alert>`:""}
-            ${this._notice?B`<div class="notice">${this._notice}</div>`:""}
+            ${this._notice?B`<div class="notice ${this._noticeKind}">
+                      ${this._notice}
+                  </div>`:""}
 
             <div class="toolbar">
                 <input
@@ -7168,6 +7183,7 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             ${this._invalid.map(e=>B`<div class="invalid-row">
                     &#9888;&nbsp;${ke("wigs.invalid_file",{filename:e.filename,reason:`${e.errors[0]??""}.`})}
                 </div>`)}
+            ${this._renderPeek()}
             ${this._renderEditor()}
         `}_renderBrand(e){const i=this._visibleRows(e);if(0===i.length&&this._search.trim())return"";if(0===i.length&&"all"!==this._filter)return"";const t=this._isOpen(e,i),a=e.rows.filter(e=>"library"===e.source).length,r=e.rows.filter(e=>"local"===e.source).length;return B`
             <div
@@ -7197,9 +7213,12 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
                 <span class="wdot ${"local"===e.source?"mine":"lib"}"
                 ></span>
                 <span class="wig-name">${e.label}</span>
-                <span class="wig-count"
-                    >${$e("wigs.signals",e.signalCount)}</span
+                <button
+                    class="wig-count"
+                    @click=${i=>this._togglePeek(e,i)}
                 >
+                    ${$e("wigs.signals",e.signalCount)}
+                </button>
                 <span class="row-actions">
                     <span class="glyph-slot">
                         ${e.wig?B`<button
@@ -7361,10 +7380,18 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             margin-bottom: 12px;
             padding: 8px 14px;
             border-radius: 8px;
-            background: var(--wigs-accent-soft);
-            border: 1px solid var(--wigs-accent-border);
             color: var(--primary-text-color);
             font-size: 13px;
+        }
+        /* Success wears green (positive outcome, owner ruling); only a
+           failure gets the warning tint. */
+        .notice.ok {
+            background: rgba(46, 125, 50, 0.12);
+            border: 1px solid rgba(46, 125, 50, 0.45);
+        }
+        .notice.warn {
+            background: rgba(230, 81, 0, 0.1);
+            border: 1px solid rgba(230, 81, 0, 0.45);
         }
         .drop-bar {
             border: 2px dashed var(--wigs-accent-border);
@@ -7565,6 +7592,38 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
         .wig-count {
             font-size: 12px;
             color: var(--secondary-text-color);
+            background: none;
+            border: none;
+            padding: 0;
+            font-family: inherit;
+            cursor: pointer;
+            text-decoration: underline dotted transparent;
+        }
+        .wig-count:hover {
+            color: var(--primary-text-color);
+            text-decoration-color: var(--secondary-text-color);
+        }
+        .linked-scrim {
+            position: fixed;
+            inset: 0;
+            z-index: 39;
+        }
+        .peek-popover {
+            position: fixed;
+            z-index: 40;
+            min-width: 180px;
+            max-height: 260px;
+            overflow-y: auto;
+            background: var(--card-background-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+            padding: 6px 4px;
+        }
+        .peek-entry {
+            padding: 5px 12px;
+            font-size: 12.5px;
+            color: var(--primary-text-color);
         }
         .row-actions {
             margin-left: auto;
@@ -7692,7 +7751,7 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             font-size: 13.5px;
             line-height: 1.5;
         }
-    `],e([pe({attribute:!1})],Ma.prototype,"api",void 0),e([pe({attribute:!1})],Ma.prototype,"hass",void 0),e([ge()],Ma.prototype,"_loading",void 0),e([ge()],Ma.prototype,"_error",void 0),e([ge()],Ma.prototype,"_wigs",void 0),e([ge()],Ma.prototype,"_invalid",void 0),e([ge()],Ma.prototype,"_library",void 0),e([ge()],Ma.prototype,"_libraryVersion",void 0),e([ge()],Ma.prototype,"_search",void 0),e([ge()],Ma.prototype,"_filter",void 0),e([ge()],Ma.prototype,"_openBrands",void 0),e([ge()],Ma.prototype,"_dragOver",void 0),e([ge()],Ma.prototype,"_notice",void 0),e([ge()],Ma.prototype,"_busyId",void 0),e([ge()],Ma.prototype,"_editing",void 0),e([ge()],Ma.prototype,"_editName",void 0),e([ge()],Ma.prototype,"_editBrand",void 0),e([ge()],Ma.prototype,"_editModel",void 0),e([ge()],Ma.prototype,"_editNotes",void 0),e([ge()],Ma.prototype,"_editBusy",void 0),e([ge()],Ma.prototype,"_editError",void 0),e([ge()],Ma.prototype,"_confirmDelete",void 0),Ma=e([ue("ir-wigs")],Ma);let ja=class extends se{constructor(){super(...arguments),this.narrow=!1,this._activeTab="devices",this._devices=[],this._expandedDeviceId=null,this._loading=!0,this._error=null,this._addDialogOpen=!1,this._pluckersAvailable=!1,this._pendingPluckEntity="",this._api=null}connectedCallback(){super.connectedCallback(),this.hass&&this._init()}updated(e){e.has("hass")&&this.hass&&(function(e){const i=e||"en";if(i!==fe){fe=i;try{ye=new Intl.PluralRules(i)}catch{ye=new Intl.PluralRules("en")}}const t=i.toLowerCase();let a="en";if(ve[t])a=t;else{const e=t.split("-")[0];ve[e]&&(a=e)}be=a}(this.hass.language),this._api||this._init())}_init(){this._api=new he(this.hass),this._refreshDevices(),this._checkPluckers()}async _checkPluckers(){if(this._api){try{const{vendors:e}=await this._api.listPluckVendors();this._pluckersAvailable=e.length>0}catch{this._pluckersAvailable=!1}"plucker"!==this._activeTab||this._pluckersAvailable||this._switchTab("devices")}}_tagline(){return ke(`panel.tagline.${this._activeTab}`)}async _refreshDevices(){if(this._api){this._loading=!0;try{this._devices=await this._api.listDevices(),this._error=null}catch(e){this._error=ke("panel.load_failed",{message:e.message})}finally{this._loading=!1}}}_toggleDevice(e){this._expandedDeviceId=this._expandedDeviceId===e?null:e}_openAddDialog(){this._addDialogOpen=!0}_onNavigatePlucker(e){this._pendingPluckEntity=e.detail?.vendor_entity_id??"",this._switchTab("plucker")}_onNavigateDevice(e){this._switchTab("devices"),this._expandedDeviceId=e.detail}_closeAddDialog(){this._addDialogOpen=!1}async _onDeviceCreated(e){this._addDialogOpen=!1,await this._refreshDevices(),this._expandedDeviceId=e.detail.id}async _onDeviceChanged(){await this._refreshDevices()}async _onDeviceDeleted(){this._expandedDeviceId=null,await this._refreshDevices()}_switchTab(e){this._expandedDeviceId=null,this._activeTab=e,"devices"===e&&this._refreshDevices()}_openHaSidebar(){this.dispatchEvent(new Event("hass-toggle-menu",{bubbles:!0,composed:!0}))}render(){return this._api?B`
+    `],e([pe({attribute:!1})],Ma.prototype,"api",void 0),e([pe({attribute:!1})],Ma.prototype,"hass",void 0),e([ge()],Ma.prototype,"_loading",void 0),e([ge()],Ma.prototype,"_error",void 0),e([ge()],Ma.prototype,"_wigs",void 0),e([ge()],Ma.prototype,"_invalid",void 0),e([ge()],Ma.prototype,"_library",void 0),e([ge()],Ma.prototype,"_libraryVersion",void 0),e([ge()],Ma.prototype,"_search",void 0),e([ge()],Ma.prototype,"_filter",void 0),e([ge()],Ma.prototype,"_openBrands",void 0),e([ge()],Ma.prototype,"_dragOver",void 0),e([ge()],Ma.prototype,"_notice",void 0),e([ge()],Ma.prototype,"_noticeKind",void 0),e([ge()],Ma.prototype,"_busyId",void 0),e([ge()],Ma.prototype,"_peekId",void 0),e([ge()],Ma.prototype,"_editing",void 0),e([ge()],Ma.prototype,"_editName",void 0),e([ge()],Ma.prototype,"_editBrand",void 0),e([ge()],Ma.prototype,"_editModel",void 0),e([ge()],Ma.prototype,"_editNotes",void 0),e([ge()],Ma.prototype,"_editBusy",void 0),e([ge()],Ma.prototype,"_editError",void 0),e([ge()],Ma.prototype,"_confirmDelete",void 0),Ma=e([ue("ir-wigs")],Ma);let ja=class extends se{constructor(){super(...arguments),this.narrow=!1,this._activeTab="devices",this._devices=[],this._expandedDeviceId=null,this._loading=!0,this._error=null,this._addDialogOpen=!1,this._pluckersAvailable=!1,this._pendingPluckEntity="",this._api=null}connectedCallback(){super.connectedCallback(),this.hass&&this._init()}updated(e){e.has("hass")&&this.hass&&(function(e){const i=e||"en";if(i!==fe){fe=i;try{ye=new Intl.PluralRules(i)}catch{ye=new Intl.PluralRules("en")}}const t=i.toLowerCase();let a="en";if(ve[t])a=t;else{const e=t.split("-")[0];ve[e]&&(a=e)}be=a}(this.hass.language),this._api||this._init())}_init(){this._api=new he(this.hass),this._refreshDevices(),this._checkPluckers()}async _checkPluckers(){if(this._api){try{const{vendors:e}=await this._api.listPluckVendors();this._pluckersAvailable=e.length>0}catch{this._pluckersAvailable=!1}"plucker"!==this._activeTab||this._pluckersAvailable||this._switchTab("devices")}}_tagline(){return ke(`panel.tagline.${this._activeTab}`)}async _refreshDevices(){if(this._api){this._loading=!0;try{this._devices=await this._api.listDevices(),this._error=null}catch(e){this._error=ke("panel.load_failed",{message:e.message})}finally{this._loading=!1}}}_toggleDevice(e){this._expandedDeviceId=this._expandedDeviceId===e?null:e}_openAddDialog(){this._addDialogOpen=!0}_onNavigatePlucker(e){this._pendingPluckEntity=e.detail?.vendor_entity_id??"",this._switchTab("plucker")}_onNavigateDevice(e){this._switchTab("devices"),this._expandedDeviceId=e.detail}_closeAddDialog(){this._addDialogOpen=!1}async _onDeviceCreated(e){this._addDialogOpen=!1,await this._refreshDevices(),this._expandedDeviceId=e.detail.id}async _onDeviceChanged(){await this._refreshDevices()}async _onDeviceDeleted(){this._expandedDeviceId=null,await this._refreshDevices()}_switchTab(e){this._expandedDeviceId=null,this._activeTab=e,"devices"===e&&this._refreshDevices()}_openHaSidebar(){this.dispatchEvent(new Event("hass-toggle-menu",{bubbles:!0,composed:!0}))}render(){return this._api?B`
             <ha-top-app-bar-fixed>
                 <ha-menu-button
                     slot="navigationIcon"
@@ -7746,16 +7805,16 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
                           Plucker
                       </button>`:""}
                 <button
-                    class="tab mirror-tab ${"mirror"===this._activeTab?"active":""}"
-                    @click=${()=>this._switchTab("mirror")}
-                >
-                    Mirror
-                </button>
-                <button
                     class="tab wigs-tab ${"wigs"===this._activeTab?"active":""}"
                     @click=${()=>this._switchTab("wigs")}
                 >
                     ${ke("panel.tab.wigs")}
+                </button>
+                <button
+                    class="tab mirror-tab ${"mirror"===this._activeTab?"active":""}"
+                    @click=${()=>this._switchTab("mirror")}
+                >
+                    Mirror
                 </button>
             </div>
 

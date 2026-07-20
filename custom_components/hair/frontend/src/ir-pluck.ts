@@ -1309,7 +1309,7 @@ export class IrPluck extends LitElement {
 
         .save-wig-btn {
             color: #8e3b3b;
-            border-color: #8e3b3b;
+            border-color: rgba(142, 59, 59, 0.3);
             margin-right: auto;
             margin-left: 8px;
         }
