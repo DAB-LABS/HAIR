@@ -84,12 +84,38 @@ export interface CodeCodebook {
     id: string;
     label: string;
     functions: CodeFunction[];
+    // "library" = installed infrared-protocols codebook; "local" = a wig
+    // from /config/hair/wigs/. Absent on pre-0.7.0 payloads -> library.
+    source?: "library" | "local";
 }
 
 export interface CodeBrand {
     brand: string;
     label: string;
     codebooks: CodeCodebook[];
+}
+
+// Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
+export interface WigInfo {
+    filename: string;
+    name: string;
+    brand: string | null;
+    model: string | null;
+    notes: string | null;
+    origin: string | null;
+    signal_count: number;
+}
+
+export interface WigInvalid {
+    filename: string;
+    errors: string[];
+}
+
+export interface WigsList {
+    wigs: WigInfo[];
+    invalid: WigInvalid[];
+    library: CodeBrand[];
+    library_version: string | null;
 }
 
 export interface EntityConfig {

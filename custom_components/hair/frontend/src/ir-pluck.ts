@@ -20,6 +20,7 @@ import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-save-wig-dialog.js";
 import "./ir-pluck-add-remote-dialog.js";
 import "./ir-pluck-signal-dialog.js";
 import "./ir-promote-dialog.js";
@@ -65,6 +66,7 @@ export class IrPluck extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
+    @state() private _saveWigDevice: UnknownDevice | null = null;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
@@ -896,6 +898,15 @@ export class IrPluck extends LitElement {
                     >
                         ${t("pluck.pluck_signal")}
                     </button>
+                    <button
+                        class="create-signal-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = device;
+                        }}
+                    >
+                        ${t("wigs.save_as_wig")}
+                    </button>
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
@@ -1194,6 +1205,15 @@ export class IrPluck extends LitElement {
                       @send=${this._sendTest}
                       @closed=${() => (this._testDialog = null)}
                   ></ir-test-emitter-dialog>`
+                : ""}
+            ${this._saveWigDevice
+                ? html`<ir-save-wig-dialog
+                      .api=${this.api}
+                      source="catalog"
+                      sourceId=${this._saveWigDevice.id}
+                      sourceName=${this._saveWigDevice.label ?? ""}
+                      @closed=${() => (this._saveWigDevice = null)}
+                  ></ir-save-wig-dialog>`
                 : ""}
         `;
     }

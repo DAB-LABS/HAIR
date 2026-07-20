@@ -170,7 +170,11 @@ export class IrCreateRemoteDialog extends LitElement {
                                   <optgroup label=${t("createremote.from_library")}>
                                       ${this._brands.map(
                                           (b) => html`<option value=${b.brand}>
-                                              ${b.label}
+                                              ${b.codebooks.some(
+                                                  (c) => c.source === "local",
+                                              )
+                                                  ? "\u25cf "
+                                                  : ""}${b.label}
                                           </option>`,
                                       )}
                                   </optgroup>
@@ -188,8 +192,15 @@ export class IrCreateRemoteDialog extends LitElement {
                                             ${t("createremote.select_model")}
                                         </option>
                                         ${brand.codebooks.map(
-                                            (c) => html`<option value=${c.id}>
-                                                ${c.label}
+                                            (c) => html`<option
+                                                value=${c.id}
+                                                title=${c.source === "local"
+                                                    ? t("wigs.picker.local")
+                                                    : ""}
+                                            >
+                                                ${c.source === "local"
+                                                    ? "\u25cf "
+                                                    : ""}${c.label}
                                                 (${c.functions.length})
                                             </option>`,
                                         )}

@@ -18,6 +18,7 @@ import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-save-wig-dialog.js";
 import "./ir-create-remote-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
@@ -77,6 +78,7 @@ export class IrClips extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
+    @state() private _saveWigDevice: UnknownDevice | null = null;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
@@ -872,6 +874,15 @@ export class IrClips extends LitElement {
                     >
                         ${t("clips.add_signal")}
                     </button>
+                    <button
+                        class="create-signal-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = device;
+                        }}
+                    >
+                        ${t("wigs.save_as_wig")}
+                    </button>
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
@@ -1002,6 +1013,15 @@ export class IrClips extends LitElement {
 
     private _renderDialogs() {
         return html`
+            ${this._saveWigDevice
+                ? html`<ir-save-wig-dialog
+                      .api=${this.api}
+                      source="catalog"
+                      sourceId=${this._saveWigDevice.id}
+                      sourceName=${this._saveWigDevice.label ?? ""}
+                      @closed=${() => (this._saveWigDevice = null)}
+                  ></ir-save-wig-dialog>`
+                : ""}
             ${this._createRemoteOpen
                 ? html`<ir-create-remote-dialog
                       .api=${this.api}

@@ -15,6 +15,7 @@ import "./ir-signal-monitor.js";
 import "./ir-clips.js";
 import "./ir-pluck.js";
 import "./ir-mirror.js";
+import "./ir-wigs.js";
 import type { DeviceSummary, IRDevice } from "./types.js";
 
 // Bump alongside manifest.json on every release. Surfaced as a quiet
@@ -22,7 +23,7 @@ import type { DeviceSummary, IRDevice } from "./types.js";
 // can identify the installed HAIR version without opening Settings.
 const HAIR_VERSION = "0.6.9";
 
-type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror";
+type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror" | "wigs";
 
 @customElement("ha-panel-ir-devices")
 export class HaPanelIrDevices extends LitElement {
@@ -239,6 +240,12 @@ export class HaPanelIrDevices extends LitElement {
                 >
                     Mirror
                 </button>
+                <button
+                    class="tab wigs-tab ${this._activeTab === "wigs" ? "active" : ""}"
+                    @click=${() => this._switchTab("wigs")}
+                >
+                    ${t("panel.tab.wigs")}
+                </button>
             </div>
 
             <div class="tab-tagline">${this._tagline()}</div>
@@ -292,13 +299,21 @@ export class HaPanelIrDevices extends LitElement {
                                     @navigate-device=${this._onNavigateDevice}
                                 ></ir-pluck>
                             `
-                          : html`
-                                <ir-mirror
-                                    .api=${this._api}
-                                    .hass=${this.hass}
-                                    @navigate-device=${this._onNavigateDevice}
-                                ></ir-mirror>
-                            `}
+                          : this._activeTab === "mirror"
+                            ? html`
+                                  <ir-mirror
+                                      .api=${this._api}
+                                      .hass=${this.hass}
+                                      @navigate-device=${this._onNavigateDevice}
+                                  ></ir-mirror>
+                              `
+                            : html`
+                                  <ir-wigs
+                                      .api=${this._api}
+                                      .hass=${this.hass}
+                                      @wig-tried-on=${() => this._switchTab("clips")}
+                                  ></ir-wigs>
+                              `}
             </div>
 
             ${this._addDialogOpen
@@ -417,6 +432,11 @@ export class HaPanelIrDevices extends LitElement {
         .tab.mirror-tab.active {
             color: #607d8b;
             border-bottom-color: #607d8b;
+        }
+        /* The closet wears oxblood leather (v0.7.0, owner ruling). */
+        .tab.wigs-tab.active {
+            color: #8e3b3b;
+            border-bottom-color: #8e3b3b;
         }
         .content {
             padding: 16px;

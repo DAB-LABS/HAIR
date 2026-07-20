@@ -12,6 +12,7 @@ import Sortable from "sortablejs";
 import "./ir-command-row.js";
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-save-wig-dialog.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
@@ -54,6 +55,7 @@ export class IrDeviceDetail extends LitElement {
     @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
     @state() private _confirmDelete = false;
+    @state() private _saveWigOpen = false;
     @state() private _commandToDelete: IRCommand | null = null;
     @state() private _editCommand: IRCommand | null = null;
 
@@ -1104,6 +1106,11 @@ export class IrDeviceDetail extends LitElement {
                     >${t("devdetail.mirrored")}</button>
                 </div>
                 <button
+                    class="action-btn"
+                    @click=${() => (this._saveWigOpen = true)}
+                    ?disabled=${this._busy}
+                >${t("wigs.save_as_wig")}</button>
+                <button
                     class="action-btn delete-btn"
                     @click=${() => (this._confirmDelete = true)}
                     ?disabled=${this._busy}
@@ -1111,6 +1118,15 @@ export class IrDeviceDetail extends LitElement {
             </div>
 
             <!-- Dialogs -->
+            ${this._saveWigOpen
+                ? html`<ir-save-wig-dialog
+                      .api=${this.api}
+                      source="device"
+                      sourceId=${this.device.id}
+                      sourceName=${this.device.name}
+                      @closed=${() => (this._saveWigOpen = false)}
+                  ></ir-save-wig-dialog>`
+                : ""}
             ${this._captureName
                 ? html`
                       <ir-capture-dialog

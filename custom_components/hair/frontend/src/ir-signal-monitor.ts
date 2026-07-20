@@ -13,6 +13,7 @@ import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
+import "./ir-save-wig-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
@@ -110,6 +111,7 @@ export class IrSignalMonitor extends LitElement {
     @state() private _devices: UnknownDeviceSummary[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
+    @state() private _saveWigDevice: UnknownDevice | null = null;
     @state() private _error: string | null = null;
     // False when no receiver is configured (no native receiver, no bridge
     // events this session). Distinguishes "no receiver" from "no signals
@@ -1161,6 +1163,15 @@ export class IrSignalMonitor extends LitElement {
                       ></ir-promote-dialog>
                   `
                 : ""}
+            ${this._saveWigDevice
+                ? html`<ir-save-wig-dialog
+                      .api=${this.api}
+                      source="catalog"
+                      sourceId=${this._saveWigDevice.id}
+                      sourceName=${this._saveWigDevice.label ?? ""}
+                      @closed=${() => (this._saveWigDevice = null)}
+                  ></ir-save-wig-dialog>`
+                : ""}
 
             ${this._deleteSignal
                 ? html`
@@ -1390,6 +1401,15 @@ export class IrSignalMonitor extends LitElement {
             <div class="expanded">
                 <div class="signal-header">
                     <span>${t("sniffer.signals_head", { count: device.signals.length })}</span>
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = device;
+                        }}
+                    >
+                        ${t("wigs.save_as_wig")}
+                    </button>
                     <span class="first-seen">${t("sniffer.first_seen", { time: fmtTime(device.first_seen) })}</span>
                 </div>
                 <div class="signal-list">
