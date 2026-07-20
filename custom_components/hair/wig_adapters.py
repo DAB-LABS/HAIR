@@ -212,13 +212,23 @@ def _convert_smartir(text: str) -> AdapterResult:
 
     signals: list[WigSignal] = []
     for alias, value in _flatten_smartir_commands(data.get("commands", {})):
+        send_count = 1
         if isinstance(value, list):
-            # A sequence entry sends several codes per press; wigs carry
-            # one signal per button, so only the first code imports.
-            result.skipped.append(
-                f"{alias}: multi-code sequence, imported first code only"
-            )
-            value = value[0] if value else None
+            unique = {v for v in value if isinstance(v, str)}
+            if len(unique) == 1 and len(value) > 1:
+                # The sequence repeats ONE code N times -- that is
+                # exactly wig send_count, so the semantic survives
+                # intact (e.g. SmartIR "Channel 11" = digit 1 twice).
+                send_count = len(value)
+                value = value[0]
+            else:
+                # Genuinely different codes per press; wigs carry one
+                # signal per button, so only the first code imports.
+                result.skipped.append(
+                    f"{alias}: multi-code sequence, imported first "
+                    "code only"
+                )
+                value = value[0] if value else None
         if not isinstance(value, str) or not value.strip():
             result.skipped.append(f"{alias}: empty code")
             continue
@@ -226,7 +236,9 @@ def _convert_smartir(text: str) -> AdapterResult:
         if pronto is None:
             result.skipped.append(f"{alias}: {reason}")
             continue
-        signals.append(WigSignal(alias=alias, pronto=pronto))
+        signals.append(WigSignal(
+            alias=alias, pronto=pronto, send_count=send_count
+        ))
     if not signals:
         result.error = "no convertible codes in this SmartIR file"
         return result

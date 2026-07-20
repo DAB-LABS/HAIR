@@ -90,6 +90,13 @@ export class IrWigs extends LitElement {
     // ruling) so "where did it go" stays answered.
     @state() private _receipt: string | null = null;
     @state() private _receiptKind: "ok" | "dup" | "warn" = "ok";
+    @state() private _receiptFiles: {
+        filename: string;
+        name: string;
+        brand: string | null;
+        duplicate_of: string | null;
+    }[] = [];
+    @state() private _receiptSuffix = "";
     @state() private _bloomId: string | null = null;
     private _pendingScrollId: string | null = null;
     @state() private _busyId: string | null = null;
@@ -315,6 +322,7 @@ export class IrWigs extends LitElement {
             const result = await this.api.wigsUpload(text, filename);
             if (!result.success) {
                 this._receiptKind = "warn";
+                this._receiptFiles = [];
                 this._receipt = t("wigs.upload_failed", {
                     reason: (result.errors ?? []).join("; "),
                 });
@@ -322,25 +330,15 @@ export class IrWigs extends LitElement {
             }
             const files = result.files ?? [];
             const anyDup = files.some((f) => f.duplicate_of);
-            const parts = files.map((f) =>
-                t(
-                    f.duplicate_of
-                        ? "wigs.receipt.duplicate"
-                        : "wigs.receipt.hung",
-                    {
-                        name: f.name,
-                        brand: f.brand?.trim() || t("wigs.unbranded"),
-                    },
-                ),
-            );
-            let message = parts.join(" \u00b7 ");
-            if ((result.skipped ?? []).length > 0) {
-                message += ` \u00b7 ${t("wigs.upload_partial", {
-                    count: String(result.skipped!.length),
-                })}`;
-            }
+            this._receiptFiles = files;
+            this._receiptSuffix =
+                (result.skipped ?? []).length > 0
+                    ? t("wigs.upload_partial", {
+                          count: String(result.skipped!.length),
+                      })
+                    : "";
             this._receiptKind = anyDup ? "dup" : "ok";
-            this._receipt = message;
+            this._receipt = "files";
 
             // Open the drawer: expand the receiving brands, drop the
             // filter if it would hide the arrivals, and scroll the
@@ -362,16 +360,78 @@ export class IrWigs extends LitElement {
             }
         } catch (err) {
             this._receiptKind = "warn";
+            this._receiptFiles = [];
             this._receipt = t("wigs.upload_failed", {
                 reason: (err as Error).message,
             });
         }
     }
 
+    /**
+     * Receipt line with the wig name and brand as links (owner ask):
+     * the localized template is formatted with sentinel characters and
+     * split, so the links land wherever the language puts the
+     * placeholders.
+     */
+    private _renderReceiptLine() {
+        if (this._receiptFiles.length === 0) {
+            return html`${this._receipt}`;
+        }
+        const parts = this._receiptFiles.map((f) => {
+            const brandLabel = f.brand?.trim() || t("wigs.unbranded");
+            const template = t(
+                f.duplicate_of
+                    ? "wigs.receipt.duplicate"
+                    : "wigs.receipt.hung",
+                { name: "\u0001", brand: "\u0002" },
+            );
+            const segments = template.split(/([\u0001\u0002])/);
+            return html`${segments.map((seg) =>
+                seg === "\u0001"
+                    ? html`<button
+                          class="receipt-link"
+                          @click=${() => this._jumpToWig(f)}
+                      >${f.name}</button>`
+                    : seg === "\u0002"
+                      ? html`<button
+                            class="receipt-link"
+                            @click=${() => this._jumpToBrand(f)}
+                        >${brandLabel}</button>`
+                      : html`${seg}`,
+            )}`;
+        });
+        return html`${parts.map(
+            (part, i) => html`${i > 0 ? html` \u00b7 ` : ""}${part}`,
+        )}${this._receiptSuffix
+            ? html` \u00b7 ${this._receiptSuffix}`
+            : ""}`;
+    }
+
+    private _jumpToWig(f: { filename: string; brand: string | null }): void {
+        const open = new Set(this._openBrands);
+        open.add(this._brandKeyFor(f.brand));
+        this._openBrands = open;
+        const id = `wig:${f.filename}`;
+        this._pendingScrollId = id;
+        this._bloomId = id;
+        window.setTimeout(() => {
+            this._bloomId = null;
+        }, 2600);
+    }
+
+    private _jumpToBrand(f: { brand: string | null }): void {
+        const key = this._brandKeyFor(f.brand);
+        const open = new Set(this._openBrands);
+        open.add(key);
+        this._openBrands = open;
+        this._pendingScrollId = `brand:${key}`;
+    }
+
     updated(): void {
         if (!this._pendingScrollId) return;
         const row = this.shadowRoot?.querySelector(
-            `[data-row-id="${CSS.escape(this._pendingScrollId)}"]`,
+            `[data-row-id="${CSS.escape(this._pendingScrollId)}"], ` +
+                `[data-brand-id="${CSS.escape(this._pendingScrollId)}"]`,
         );
         if (row) {
             row.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -534,7 +594,9 @@ export class IrWigs extends LitElement {
                 >
                 <div>
                     ${this._receipt
-                        ? html`<div class="t1">${this._receipt}</div>
+                        ? html`<div class="t1">
+                                  ${this._renderReceiptLine()}
+                              </div>
                               <div class="t2">${t("wigs.drop.title")}</div>`
                         : html`<div class="t1">${t("wigs.drop.title")}</div>
                               <div class="t2">${t("wigs.drop.hint")}</div>`}
@@ -625,6 +687,7 @@ export class IrWigs extends LitElement {
                 class="brand ${open ? "open" : ""} ${brand.unbranded
                     ? "unbranded"
                     : ""}"
+                data-brand-id="brand:${brand.key}"
             >
                 <div
                     class="brand-head"
@@ -633,13 +696,13 @@ export class IrWigs extends LitElement {
                     <span class="brand-name">${brand.label}</span>
                     <span class="dots">
                         ${libCount > 0
-                            ? html`<span class="cdot lib"
-                                  >${libCount > 1 ? libCount : ""}</span
+                            ? html`<span class="count-chip lib"
+                                  >${tp("wigs.count", libCount)}</span
                               >`
                             : ""}
                         ${mineCount > 0
-                            ? html`<span class="cdot mine"
-                                  >${mineCount > 1 ? mineCount : ""}</span
+                            ? html`<span class="count-chip mine"
+                                  >${tp("wigs.count", mineCount)}</span
                               >`
                             : ""}
                     </span>
@@ -906,7 +969,7 @@ export class IrWigs extends LitElement {
            hung, yellow for a duplicate, warning tint for a failure;
            persists until the next drop replaces it. */
         .drop-bar.receipt-ok {
-            background: rgba(46, 125, 50, 0.14);
+            background: rgba(46, 125, 50, 0.07);
             border-color: rgba(46, 125, 50, 0.55);
             color: #66bb6a;
             transition: background 0.4s ease, border-color 0.4s ease;
@@ -922,6 +985,17 @@ export class IrWigs extends LitElement {
             border-color: rgba(230, 81, 0, 0.55);
             color: #e65100;
             transition: background 0.4s ease, border-color 0.4s ease;
+        }
+        .receipt-link {
+            background: none;
+            border: none;
+            padding: 0;
+            font: inherit;
+            color: inherit;
+            font-weight: 600;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            cursor: pointer;
         }
         .drop-bar.receipt-ok .browse,
         .drop-bar.receipt-dup .browse,
@@ -1050,25 +1124,29 @@ export class IrWigs extends LitElement {
             align-items: center;
             gap: 6px;
         }
-        /* Uniform 14px, deliberately off the ir-count-dot size ramp:
-           bare = 1 inside, numbered = more (owner ruling, c6). */
-        .cdot {
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            flex: none;
-            color: #fff;
-            font-size: 9.5px;
+        /* Count chips (owner re-ruling 2026-07-20, supersedes the c6
+           14px dots): same anatomy as the linked-devices chip, worded
+           counts, slate = library / oxblood = yours. */
+        .count-chip {
+            font-size: 0.7rem;
             font-weight: 500;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            font-family: inherit;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
-        .cdot.lib {
-            background: var(--wigs-lib);
+        .count-chip.lib {
+            background: rgba(120, 144, 156, 0.15);
+            color: var(--wigs-lib);
+            border: 1px solid rgba(120, 144, 156, 0.3);
         }
-        .cdot.mine {
-            background: var(--wigs-accent);
+        .count-chip.mine {
+            background: rgba(142, 59, 59, 0.15);
+            color: #b06a6a;
+            border: 1px solid rgba(142, 59, 59, 0.35);
         }
         .chev {
             color: var(--secondary-text-color);

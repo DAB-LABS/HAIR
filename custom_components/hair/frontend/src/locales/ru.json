@@ -492,5 +492,9 @@
     "sniffer.linked.other": "{count} устройства HAIR",
     "wigs.upload_partial": "Не удалось преобразовать сигналов: {count}",
     "wigs.receipt.hung": "{name} повешен под {brand}",
-    "wigs.receipt.duplicate": "{name} повешен под {brand} (такой парик уже есть)"
+    "wigs.receipt.duplicate": "{name} повешен под {brand} (такой парик уже есть)",
+    "wigs.count.one": "{count} парик",
+    "wigs.count.few": "{count} парика",
+    "wigs.count.many": "{count} париков",
+    "wigs.count.other": "{count} парика"
 }

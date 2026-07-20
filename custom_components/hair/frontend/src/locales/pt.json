@@ -474,5 +474,7 @@
     "sniffer.linked.other": "{count} dispositivos HAIR",
     "wigs.upload_partial": "{count} sinais não puderam ser convertidos",
     "wigs.receipt.hung": "{name} pendurado em {brand}",
-    "wigs.receipt.duplicate": "{name} pendurado em {brand} (já havia uma peruca idêntica)"
+    "wigs.receipt.duplicate": "{name} pendurado em {brand} (já havia uma peruca idêntica)",
+    "wigs.count.one": "{count} peruca",
+    "wigs.count.other": "{count} perucas"
 }

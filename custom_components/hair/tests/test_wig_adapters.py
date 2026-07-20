@@ -84,8 +84,13 @@ class TestSmartIR:
         aliases = [s.alias for s in wig.signals]
         assert "Volume Up" in aliases
         assert "Sources Hdmi" in aliases
-        # The Channel 11 sequence imports its first code with a reason.
-        assert any("sequence" in reason for reason in result.skipped)
+        # Channel 11 is the SAME code twice -- that is send_count, not a
+        # skip (the sequence semantic survives intact).
+        ch11 = next(
+            s for s in wig.signals if s.alias == "Sources Channel 11"
+        )
+        assert ch11.send_count == 2
+        assert not any("sequence" in reason for reason in result.skipped)
         # Every pronto validates.
         for sig in wig.signals:
             assert validate_pronto(sig.pronto).valid, sig.alias
@@ -107,6 +112,17 @@ class TestSmartIR:
         result = convert(minimal)
         assert result.wigs == []
         assert "climate" in (result.error or "")
+
+    def test_differing_sequence_imports_first_with_reason(self):
+        text = (
+            '{"manufacturer": "X", "commandsEncoding": "Pronto",'
+            ' "commands": {"combo": ['
+            '"0000 006D 0001 0000 00E0 0070",'
+            ' "0000 006D 0001 0000 00A0 0050"]}}'
+        )
+        result = convert(text)
+        assert any("sequence" in r for r in result.skipped)
+        assert result.wigs[0].signals[0].send_count == 1
 
     def test_result_round_trips_as_wig(self):
         result = convert(_fixture("smartir_media_player_1000.json"))
