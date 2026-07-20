@@ -2275,10 +2275,11 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
-            /* Align with the command rows' content column (10px row
-               padding + 32px grip column), i.e. the right edge of the
-               drag dots above (owner layout, 2026-07-20). */
-            margin-left: 42px;
+            /* Align with the command NAME column above: 10px row
+               padding + 32px grip column + 12px grid gap (owner
+               layout, 2026-07-20 -- the eye line runs straight down
+               from the signal names into these buttons). */
+            margin-left: 54px;
         }
         .add-label {
             font-size: 0.8rem;
