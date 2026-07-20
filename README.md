@@ -58,7 +58,7 @@ When HAIR can read a captured signal as a known protocol (NEC today), it also st
 |:---:|
 | ![The same device detail rendered in Japanese, with translated action badges and buttons while the Sniffer, Clipper, and Mirror tab names stay put](images/screenshots/device-detail-ja.png) |
 
-That is the same device as the Device Detail shot above, after nothing but a profile-language change. Set your Home Assistant language and the whole panel follows; ten languages ship in the box.
+Same device as the Device Detail shot above, but after a profile-language change. The complete HAIR UI is multilingual.
 
 | The Mirror |
 |:---:|
