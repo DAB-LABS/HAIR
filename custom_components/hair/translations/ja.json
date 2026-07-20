@@ -1,0 +1,31 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "HAIRのセットアップ",
+                "description": "HAIRはIRデバイスを1つのパネルから管理します。\n\n検出されたハードウェア：\n\n{hardware_summary}",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIRはすでに設定されています。",
+            "no_ir_hardware": "IRハードウェアが検出されません。キャプチャにはremote_receiverコンポーネントを備えたESPHomeデバイスが必要です。送信にはHAのネイティブ赤外線プラットフォーム上の統合（Broadlink、ESPHomeなど）が必要です。詳細は[セットアップガイド]({setup_url})をご覧ください。"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "HAIRオプション",
+                "description": "IRデバイス管理のグローバル設定を行います。",
+                "data": {
+                    "capture_timeout": "キャプチャタイムアウト（秒）",
+                    "default_repeat_count": "デフォルトのIRリピート回数"
+                },
+                "data_description": {
+                    "capture_timeout": "キャプチャ中にIR信号を待つ時間（5〜60秒）。",
+                    "default_repeat_count": "各IRコマンド送信のリピート回数（1〜10）。"
+                }
+            }
+        }
+    }
+}

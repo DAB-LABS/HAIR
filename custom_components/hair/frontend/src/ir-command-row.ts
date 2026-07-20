@@ -5,6 +5,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
 
@@ -50,7 +51,7 @@ export class IrCommandRow extends LitElement {
             return `${cmd.protocol}: ${cmd.code}`;
         }
         if (cmd.raw_timings?.length) {
-            return `RAW: ${cmd.raw_timings.length} timings`;
+            return t("cmdrow.raw_timings", { count: cmd.raw_timings.length });
         }
         return cmd.protocol ?? "IR";
     }
@@ -167,7 +168,7 @@ export class IrCommandRow extends LitElement {
                                   />`
                                 : html`<span
                                       class="editable-name"
-                                      title="Click to rename"
+                                      title=${t("cmdrow.rename")}
                                       @click=${this._startRename}
                                       >${this.templateName}<span class="rename-pencil"
                                           >&#9998;</span
@@ -180,8 +181,8 @@ export class IrCommandRow extends LitElement {
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("toggle-tx-raw")}
                                   title=${this.command.tx_force_raw
-                                      ? "Replaying the captured Pronto. Click to transmit clean decoded packet timings instead."
-                                      : "Transmitting clean decoded packet timings. Click to replay the captured Pronto instead."}
+                                      ? t("cmdrow.tx_raw_on")
+                                      : t("cmdrow.tx_raw_off")}
                               >${this.command.tx_force_raw
                                       ? "PRONTO"
                                       : this.command.decoded_protocol ?? "AUTO"}</button>`
@@ -189,8 +190,7 @@ export class IrCommandRow extends LitElement {
                         ${learned && this.command && this.command.send_count > 1
                             ? html`<span
                                   class="repeat-indicator"
-                                  title="Sends this command ${this.command
-                                      .send_count} times"
+                                  title=${t("cmdrow.sends_times", { count: this.command.send_count })}
                                   ><ha-svg-icon
                                       .path=${ICON_REPEAT}
                                   ></ha-svg-icon
@@ -209,8 +209,7 @@ export class IrCommandRow extends LitElement {
                             !this.command.tx_force_raw
                             ? html`<span
                                   class="ditto-indicator"
-                                  title="Appends ${this.command
-                                      .repeat_count} NEC dittos"
+                                  title=${t("cmdrow.dittos", { count: this.command.repeat_count })}
                                   ><ha-svg-icon
                                       .path=${ICON_DITTO}
                                   ></ha-svg-icon
@@ -223,7 +222,7 @@ export class IrCommandRow extends LitElement {
                             ? diamonds
                             : learned
                               ? html`${this._commandLabel()}`
-                              : html`<span class="muted">Not yet learned</span>`}
+                              : html`<span class="muted">${t("cmdrow.not_learned")}</span>`}
                     </div>
                 </div>
                 <div class="actions">
@@ -233,7 +232,7 @@ export class IrCommandRow extends LitElement {
                                   class="icon-btn edit-btn"
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("edit-command")}
-                                  title="View or edit code"
+                                  title=${t("cmdrow.edit_code")}
                               ><ha-svg-icon
                                       class="edit-glyph"
                                       .path=${ICON_COPY}
@@ -244,20 +243,20 @@ export class IrCommandRow extends LitElement {
                                   ?data-mapped=${!!this.actionLabel}
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("map-action")}
-                                  title="Assign action mapping"
-                              >${this.actionLabel || "ACTIONS"}</button>`
+                                  title=${t("cmdrow.map_action")}
+                              >${this.actionLabel || t("cmdrow.actions")}</button>`
                                   : ""}
                               <button
                                   class="action-btn test-btn"
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("test")}
-                              >Test</button>
+                              >${t("cmdrow.test")}</button>
                               <button
                                   class="action-btn trigger-btn"
                                   ?disabled=${this.busy}
                                   @click=${(e: Event) => this._emit("toggle-trigger", e)}
-                                  title=${this.hasTrigger ? "Edit trigger" : "Create trigger"}
-                              >Trigger<ir-count-dot
+                                  title=${this.hasTrigger ? t("cmdrow.edit_trigger") : t("cmdrow.create_trigger")}
+                              >${t("cmdrow.trigger")}<ir-count-dot
                                       color="yellow"
                                       .count=${this.triggerCount ||
                                       (this.hasTrigger ? 1 : 0)}
@@ -266,14 +265,14 @@ export class IrCommandRow extends LitElement {
                                   class="action-btn delete-btn"
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("delete")}
-                              >Delete</button>
+                              >${t("cmdrow.delete")}</button>
                           `
                         : html`
                               <button
                                   class="action-btn learn-btn"
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("learn")}
-                              >Learn</button>
+                              >${t("cmdrow.learn")}</button>
                           `}
                 </div>
             </div>

@@ -13,6 +13,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { ProntoValidation, UnknownSignal } from "./types.js";
@@ -128,9 +129,9 @@ export class IrSignalEditor extends LitElement {
             this.initialDecodedProtocol &&
             this.initialTxForceRaw
         ) {
-            return "Ditto count applies when the command transmits as NEC. Toggle the pill to NEC to enable.";
+            return t("editor.ditto_disabled_cmd");
         }
-        return "Ditto count applies to decoded signals (NEC today). Raw Pronto codes transmit as captured.";
+        return t("editor.ditto_disabled");
     }
 
     firstUpdated(): void {
@@ -312,7 +313,7 @@ export class IrSignalEditor extends LitElement {
         } catch {
             copied = false;
         }
-        this._copyHint = copied ? "Copied" : "Press Cmd/Ctrl+C";
+        this._copyHint = copied ? t("editor.copied") : t("editor.press_copy");
         setTimeout(() => {
             this._copyHint = null;
         }, 2000);
@@ -326,7 +327,7 @@ export class IrSignalEditor extends LitElement {
             <div class="feedback">
                 <div class="status ${v.valid ? "ok" : "bad"}">
                     <span class="mark">${v.valid ? "✓" : "✗"}</span>
-                    ${v.valid ? "Valid Pronto code" : "Not valid yet"}
+                    ${v.valid ? t("editor.valid") : t("editor.not_valid")}
                 </div>
                 ${v.valid
                     ? html`
@@ -336,13 +337,12 @@ export class IrSignalEditor extends LitElement {
                                   : ""}
                               ${v.burst_pair_count !== null
                                   ? html`<span
-                                        >${v.burst_pair_count} burst
-                                        ${v.burst_pair_count === 1 ? "pair" : "pairs"}</span
+                                        >${tp("editor.burst_pair", v.burst_pair_count)}</span
                                     >`
                                   : ""}
                               ${v.recognized_protocol
                                   ? html`<span class="recognized"
-                                        >Recognized as ${v.recognized_protocol}</span
+                                        >${t("editor.recognized_as", { protocol: v.recognized_protocol })}</span
                                     >`
                                   : ""}
                           </div>
@@ -408,15 +408,14 @@ export class IrSignalEditor extends LitElement {
         return html`
             <div class="snap-notice">
                 <div class="snap-text">
-                    Carrier is ${curKhz} kHz, off the IR standards. Some
-                    receivers reject it.
+                    ${t("editor.snap_notice", { khz: curKhz })}
                 </div>
                 <button
                     class="snap-btn"
                     ?disabled=${this._snapping}
                     @click=${() => this._snap(target)}
                 >
-                    ${this._snapping ? "Snapping..." : `Snap to ${tgtKhz} kHz`}
+                    ${this._snapping ? t("editor.snapping") : t("editor.snap_to", { khz: tgtKhz })}
                 </button>
             </div>
         `;
@@ -424,25 +423,27 @@ export class IrSignalEditor extends LitElement {
 
     render() {
         const heading = this._isCommand
-            ? "Edit command"
+            ? t("editor.edit_command")
             : this._isEdit
-              ? "Edit signal"
-              : "Create signal";
+              ? t("editor.edit_signal")
+              : t("editor.create_signal");
         const primaryLabel = this._isEdit
             ? this._busy
-                ? "Saving..."
-                : "Save"
+                ? t("common.saving")
+                : t("common.save")
             : this._busy
-              ? "Creating..."
-              : "Create";
+              ? t("common.creating")
+              : t("common.create");
         const showTriggerNote =
             this._isEdit && this.hasTrigger && this._dirty;
         const triggerNoteText = this._isCommand
-            ? "This command has a trigger that will automatically re-point."
-            : "This signal has a trigger that will automatically re-point.";
+            ? t("editor.trigger_note_cmd")
+            : t("editor.trigger_note_sig");
         const nameLabel = this._isCommand
-            ? "Command name"
-            : `Alias${this._isEdit ? "" : " (optional)"}`;
+            ? t("assign.command_name")
+            : this._isEdit
+              ? t("editor.alias_label")
+              : t("editor.alias_optional");
         return html`
             <ha-dialog
                 open
@@ -455,7 +456,7 @@ export class IrSignalEditor extends LitElement {
                     : ""}
 
                 <div class="field">
-                    <label>Pronto code</label>
+                    <label>${t("editor.pronto_code")}</label>
                     <div class="code-wrap">
                         <textarea
                             class=${this._snapFlash ? "snap-flash" : ""}
@@ -476,7 +477,7 @@ export class IrSignalEditor extends LitElement {
                                       : ""}
                                   <button
                                       class="copy-icon"
-                                      title="Select all (then Cmd/Ctrl+C)"
+                                      title=${t("editor.select_all")}
                                       @click=${this._selectCode}
                                   >
                                       <ha-svg-icon
@@ -495,7 +496,7 @@ export class IrSignalEditor extends LitElement {
                     <input
                         type="text"
                         .value=${this._alias}
-                        placeholder="e.g. Power"
+                        placeholder=${t("editor.alias_placeholder")}
                         @input=${(e: Event) =>
                             (this._alias = (e.target as HTMLInputElement).value)}
                         @keydown=${this._onKeydown}
@@ -504,14 +505,14 @@ export class IrSignalEditor extends LitElement {
 
                 <div class="field tx-knobs">
                     <div class="knob">
-                        <label>Send times</label>
+                        <label>${t("assign.send_times")}</label>
                         <input
                             class="num-input"
                             type="number"
                             min="1"
                             max="10"
                             .value=${String(this._sendCount)}
-                            title="Transmit the whole command this many times as independent presses, for devices that need a repeat to register."
+                            title=${t("editor.send_times_title")}
                             @input=${this._onSendCountInput}
                             @keydown=${this._onKeydown}
                         />
@@ -519,14 +520,14 @@ export class IrSignalEditor extends LitElement {
                     ${this._dittoCountDisabled
                         ? ""
                         : html`<div class="knob">
-                              <label>Ditto count</label>
+                              <label>${t("assign.ditto_count")}</label>
                               <input
                                   class="num-input"
                                   type="number"
                                   min="0"
                                   max="20"
                                   .value=${String(this._ditto)}
-                                  title='Append repeat frames after the main frame. Some strict receivers, notably commercial audio gear, need at least one to register the command.'
+                                  title=${t("editor.ditto_title")}
                                   @input=${this._onDittoInput}
                                   @keydown=${this._onKeydown}
                               />
@@ -534,11 +535,7 @@ export class IrSignalEditor extends LitElement {
                 </div>
                 ${this.initialObservedRepeatCount > 0
                     ? html`<div class="observed-hint">
-                          Observed at capture:
-                          ${this.initialObservedRepeatCount}
-                          ${this.initialObservedRepeatCount === 1
-                              ? "ditto"
-                              : "dittos"}
+                          ${tp("editor.observed", this.initialObservedRepeatCount)}
                       </div>`
                     : ""}
 
@@ -553,7 +550,7 @@ export class IrSignalEditor extends LitElement {
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
-                        Cancel
+                        ${t("common.cancel")}
                     </button>
                     <button
                         class="action-btn create-btn"

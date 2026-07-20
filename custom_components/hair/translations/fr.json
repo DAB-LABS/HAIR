@@ -1,0 +1,31 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Configurer HAIR",
+                "description": "HAIR gère vos appareils IR depuis un panneau unique.\n\nMatériel détecté :\n\n{hardware_summary}",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIR est déjà configuré.",
+            "no_ir_hardware": "Aucun matériel IR détecté. Pour la capture, il vous faut un appareil ESPHome avec le composant remote_receiver. Pour l'envoi, il vous faut une intégration sur la plateforme infrarouge native de HA (Broadlink, ESPHome, etc.). Consultez le [guide d'installation]({setup_url}) pour plus de détails."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Options HAIR",
+                "description": "Configurez les paramètres globaux de la gestion des appareils IR.",
+                "data": {
+                    "capture_timeout": "Délai de capture (secondes)",
+                    "default_repeat_count": "Nombre de répétitions IR par défaut"
+                },
+                "data_description": {
+                    "capture_timeout": "Durée d'attente d'un signal IR pendant la capture (5-60 secondes).",
+                    "default_repeat_count": "Nombre de fois où chaque commande IR est retransmise (1-10)."
+                }
+            }
+        }
+    }
+}

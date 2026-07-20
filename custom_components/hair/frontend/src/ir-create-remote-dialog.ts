@@ -11,6 +11,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { CodeBrand, UnknownDevice } from "./types.js";
@@ -92,7 +93,7 @@ export class IrCreateRemoteDialog extends LitElement {
 
     private async _create(): Promise<void> {
         if (!this._name.trim()) {
-            this._error = "Name is required.";
+            this._error = t("common.name_required");
             return;
         }
         this._busy = true;
@@ -133,7 +134,7 @@ export class IrCreateRemoteDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading="Create Remote"
+                heading=${t("createremote.heading")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
@@ -142,11 +143,11 @@ export class IrCreateRemoteDialog extends LitElement {
                     : ""}
 
                 <div class="field">
-                    <label>Name</label>
+                    <label>${t("common.name")}</label>
                     <input
                         type="text"
                         .value=${this._name}
-                        placeholder="e.g. Living Room TV"
+                        placeholder=${t("common.device_name_placeholder")}
                         required
                         autofocus
                         @input=${(e: Event) => {
@@ -160,13 +161,13 @@ export class IrCreateRemoteDialog extends LitElement {
                 ${this._brands.length > 0
                     ? html`
                           <div class="field">
-                              <label>Type</label>
+                              <label>${t("createremote.type")}</label>
                               <select
                                   .value=${this._selectedBrand}
                                   @change=${this._onBrandChange}
                               >
-                                  <option value="">Blank remote</option>
-                                  <optgroup label="From code library">
+                                  <option value="">${t("createremote.blank")}</option>
+                                  <optgroup label=${t("createremote.from_library")}>
                                       ${this._brands.map(
                                           (b) => html`<option value=${b.brand}>
                                               ${b.label}
@@ -178,13 +179,13 @@ export class IrCreateRemoteDialog extends LitElement {
 
                           ${brand
                               ? html`<div class="field">
-                                    <label>Model</label>
+                                    <label>${t("createremote.model")}</label>
                                     <select
                                         .value=${this._selectedCodebook}
                                         @change=${this._onCodebookChange}
                                     >
                                         <option value="">
-                                            Select a model
+                                            ${t("createremote.select_model")}
                                         </option>
                                         ${brand.codebooks.map(
                                             (c) => html`<option value=${c.id}>
@@ -204,14 +205,14 @@ export class IrCreateRemoteDialog extends LitElement {
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
-                        Cancel
+                        ${t("common.cancel")}
                     </button>
                     <button
                         class="action-btn create-btn"
                         @click=${this._create}
                         ?disabled=${this._busy}
                     >
-                        ${this._busy ? "Creating..." : "Create"}
+                        ${this._busy ? t("common.creating") : t("adddev.create")}
                     </button>
                 </div>
             </ha-dialog>

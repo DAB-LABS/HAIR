@@ -5,6 +5,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
+import { t, tv } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -61,6 +62,14 @@ export class IrDeviceDetail extends LitElement {
     @state() private _mappingCommandName: string | null = null;
     @state() private _popoverTop = 0;
     @state() private _popoverLeft = 0;
+    // Custom action entry (owner ruling, GH bench 2026-07-19): free-form
+    // action key typed into the popover -- the update-mapping endpoint
+    // accepts any string, and the thermostat consumes any temp_N key, so
+    // changing "temp_28" to "temp_30" no longer requires delete+reimport.
+    // A key outside the known vocabulary stores but drives no entity;
+    // the ACTIONS badge renders it as typed, so a typo stays visible.
+    @state() private _customActionOpen = false;
+    @state() private _customActionValue = "";
     private _dismissHandler: ((e: MouseEvent) => void) | null = null;
 
     // Inline name editing
@@ -191,7 +200,7 @@ export class IrDeviceDetail extends LitElement {
         this._busy = true;
         try {
             this.device = await this.api.updateDevice(this.device.id, { name });
-            this._flash("Name updated");
+            this._flash(t("devdetail.name_updated"));
             this.dispatchEvent(
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
@@ -224,7 +233,7 @@ export class IrDeviceDetail extends LitElement {
             this.device = await this.api.updateDevice(this.device.id, {
                 device_type: newType,
             });
-            this._flash("Device type updated");
+            this._flash(t("devdetail.type_updated"));
             this.dispatchEvent(
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
@@ -250,7 +259,7 @@ export class IrDeviceDetail extends LitElement {
             this.device = await this.api.updateDevice(this.device.id, {
                 emitter_entity_ids: newIds,
             });
-            this._flash("Emitters updated");
+            this._flash(t("devdetail.emitters_updated"));
             this.dispatchEvent(
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
@@ -455,7 +464,7 @@ export class IrDeviceDetail extends LitElement {
         for (const [key, val] of Object.entries(mapping)) {
             if (val.toLowerCase() === commandName.toLowerCase()) {
                 const opt = this._actionOptions.find((o) => o.key === key);
-                return opt?.label ?? key;
+                return opt ? tv(opt.label) : key;
             }
         }
         return null;
@@ -490,6 +499,8 @@ export class IrDeviceDetail extends LitElement {
 
     private _closePopover() {
         this._mappingCommandName = null;
+        this._customActionOpen = false;
+        this._customActionValue = "";
         if (this._dismissHandler) {
             document.removeEventListener("click", this._dismissHandler, true);
             this._dismissHandler = null;
@@ -611,7 +622,7 @@ export class IrDeviceDetail extends LitElement {
             } catch (err) {
                 // Backend rejected (eg. stale command set after a parallel
                 // add/delete). Surface the error and resync from server.
-                this._flash(`Reorder failed: ${(err as Error).message}`);
+                this._flash(t("devdetail.reorder_failed", { message: (err as Error).message }));
                 await this._refresh();
             }
         }, REORDER_DEBOUNCE_MS);
@@ -647,12 +658,12 @@ export class IrDeviceDetail extends LitElement {
                     command_mapping: result.mapping,
                 },
             };
-            this._flash(actionKey ? `Mapped to ${actionKey}` : "Mapping cleared");
+            this._flash(actionKey ? t("devdetail.mapped_to", { action: actionKey }) : t("devdetail.mapping_cleared"));
             this.dispatchEvent(
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
         } catch (err) {
-            this._flash(`Mapping failed: ${(err as Error).message}`);
+            this._flash(t("devdetail.mapping_failed", { message: (err as Error).message }));
         } finally {
             this._busy = false;
         }
@@ -679,9 +690,9 @@ export class IrDeviceDetail extends LitElement {
         this._busy = true;
         try {
             await this.api.sendCommand(this.device.id, command.id);
-            this._flash(`Sent "${command.name}"`);
+            this._flash(t("devdetail.sent_cmd", { name: command.name }));
         } catch (err) {
-            this._flash(`Send failed: ${(err as Error).message}`);
+            this._flash(t("devdetail.send_failed", { message: (err as Error).message }));
         } finally {
             this._busy = false;
         }
@@ -729,9 +740,9 @@ export class IrDeviceDetail extends LitElement {
         const rewired = detail.triggers?.rewired ?? [];
         if (rewired.length) {
             const names = rewired.map((n) => `"${n}"`).join(", ");
-            this._flash(`Command updated. Re-pointed trigger ${names}.`);
+            this._flash(t("devdetail.cmd_updated_repointed", { names }));
         } else {
-            this._flash("Command updated");
+            this._flash(t("devdetail.cmd_updated"));
         }
         // A code edit can change the trigger's identity; refresh the panel's
         // trigger list too.
@@ -760,7 +771,7 @@ export class IrDeviceDetail extends LitElement {
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
         } catch (err) {
-            this._flash(`Rename failed: ${(err as Error).message}`);
+            this._flash(t("devdetail.rename_failed", { message: (err as Error).message }));
         } finally {
             this._busy = false;
         }
@@ -775,7 +786,7 @@ export class IrDeviceDetail extends LitElement {
         try {
             await this.api.deleteCommand(this.device.id, command.id);
             await this._refresh();
-            this._flash(`Removed "${command.name}"`);
+            this._flash(t("devdetail.removed", { name: command.name }));
         } catch (err) {
             this._flash(`Delete failed: ${(err as Error).message}`);
         } finally {
@@ -795,7 +806,7 @@ export class IrDeviceDetail extends LitElement {
         const { commandName } = e.detail as { commandName: string };
         this._cancelPendingReorderSave();
         await this._refresh();
-        this._flash(`Saved "${commandName}"`);
+        this._flash(t("devdetail.saved", { name: commandName }));
         this._captureName = null;
     }
 
@@ -883,7 +894,7 @@ export class IrDeviceDetail extends LitElement {
                               <h1
                                   class="editable-name"
                                   @click=${this._startEditName}
-                                  title="Click to rename"
+                                  title=${t("cmdrow.rename")}
                               >
                                   ${this.device.name}
                                   <span class="edit-icon">&#9998;</span>
@@ -893,13 +904,13 @@ export class IrDeviceDetail extends LitElement {
                 <button
                     class="action-btn collapse-btn"
                     @click=${() => this.dispatchEvent(new CustomEvent("collapse", { bubbles: true, composed: true }))}
-                    title="Close"
+                    title=${t("common.close")}
                 >&#x2715;</button>
             </section>
 
             <!-- Device metadata grid -->
             <div class="device-meta">
-                <span class="meta-label">Type</span>
+                <span class="meta-label">${t("devdetail.type")}</span>
                 <div class="meta-value">
                     <select
                         .value=${this.device.device_type}
@@ -907,18 +918,18 @@ export class IrDeviceDetail extends LitElement {
                         ?disabled=${this._busy}
                     >
                         ${DEVICE_TYPES.map(
-                            (t) => html`
+                            (dt) => html`
                                 <option
-                                    value=${t.value}
-                                    ?selected=${this.device.device_type === t.value}
+                                    value=${dt.value}
+                                    ?selected=${this.device.device_type === dt.value}
                                 >
-                                    ${t.label}
+                                    ${t(`device_type.${dt.value}`)}
                                 </option>
                             `,
                         )}
                     </select>
                 </div>
-                <span class="meta-label">Emitters</span>
+                <span class="meta-label">${t("devlist.emitters")}</span>
                 <div class="meta-value">
                     <ir-emitter-picker
                         .hass=${this.hass}
@@ -933,7 +944,7 @@ export class IrDeviceDetail extends LitElement {
             <!-- Commands -->
             <div class="commands-section">
                 <div class="commands-header">
-                    <span>Commands (${count})</span>
+                    <span>${t("devdetail.commands", { count })}</span>
                 </div>
                 <div class="commands-list">
                     ${keyed(
@@ -964,12 +975,12 @@ export class IrDeviceDetail extends LitElement {
                                               slot="status"
                                               class="grip-handle"
                                               .path=${ICON_GRIP}
-                                              title="Drag to reorder"
+                                              title=${t("devdetail.drag")}
                                           ></ha-svg-icon>
                                       </ir-command-row>
                                   `,
                               )
-                            : html`<div class="empty">No commands yet. Add one below.</div>`,
+                            : html`<div class="empty">${t("devdetail.no_commands")}</div>`,
                     )}
 
                     ${this._mappingCommandName
@@ -978,14 +989,14 @@ export class IrDeviceDetail extends LitElement {
                                   class="action-popover"
                                   style="top:${this._popoverTop}px; left:${this._popoverLeft}px"
                               >
-                                  <div class="popover-header">Map action</div>
+                                  <div class="popover-header">${t("devdetail.map_action")}</div>
                                   ${this._getCurrentActionKey(this._mappingCommandName)
                                       ? html`
                                             <button
                                                 class="popover-item clear"
                                                 @click=${() => this._selectAction(this._mappingCommandName!, null)}
                                             >
-                                                <span class="popover-label">None (clear)</span>
+                                                <span class="popover-label">${t("devdetail.none_clear")}</span>
                                             </button>
                                         `
                                       : ""}
@@ -999,7 +1010,7 @@ export class IrDeviceDetail extends LitElement {
                                               class="popover-item ${isCurrent ? "active" : ""}"
                                               @click=${() => this._selectAction(this._mappingCommandName!, opt.key)}
                                           >
-                                              <span class="popover-label">${opt.label}</span>
+                                              <span class="popover-label">${tv(opt.label)}</span>
                                               ${isCurrent
                                                   ? html`<span class="popover-check">&#10003;</span>`
                                                   : isOther
@@ -1008,6 +1019,63 @@ export class IrDeviceDetail extends LitElement {
                                           </button>
                                       `;
                                   })}
+                                  ${this._customActionOpen
+                                      ? html`
+                                            <div class="custom-action-row">
+                                                <input
+                                                    class="custom-action-input"
+                                                    type="text"
+                                                    placeholder=${t("devdetail.custom_action_placeholder")}
+                                                    .value=${this._customActionValue}
+                                                    @input=${(e: Event) =>
+                                                        (this._customActionValue = (
+                                                            e.target as HTMLInputElement
+                                                        ).value)}
+                                                    @keydown=${(e: KeyboardEvent) => {
+                                                        if (
+                                                            e.key === "Enter" &&
+                                                            this._customActionValue.trim()
+                                                        ) {
+                                                            void this._selectAction(
+                                                                this._mappingCommandName!,
+                                                                this._customActionValue.trim(),
+                                                            );
+                                                        }
+                                                    }}
+                                                />
+                                                <button
+                                                    class="custom-action-set"
+                                                    ?disabled=${!this._customActionValue.trim()}
+                                                    @click=${() =>
+                                                        this._selectAction(
+                                                            this._mappingCommandName!,
+                                                            this._customActionValue.trim(),
+                                                        )}
+                                                >
+                                                    ${t("devdetail.set")}
+                                                </button>
+                                            </div>
+                                        `
+                                      : html`
+                                            <button
+                                                class="popover-item custom-action-open"
+                                                @click=${(e: Event) => {
+                                                    e.stopPropagation();
+                                                    this._customActionOpen = true;
+                                                    this.updateComplete.then(() => {
+                                                        this.shadowRoot
+                                                            ?.querySelector<HTMLInputElement>(
+                                                                ".custom-action-input",
+                                                            )
+                                                            ?.focus();
+                                                    });
+                                                }}
+                                            >
+                                                <span class="popover-label"
+                                                    >${t("devdetail.custom_action")}</span
+                                                >
+                                            </button>
+                                        `}
                               </div>
                           `
                         : ""}
@@ -1018,28 +1086,28 @@ export class IrDeviceDetail extends LitElement {
                 <div class="add-group">
                     <button
                         class="action-btn"
-                        title="Capture a new signal in the Sniffer"
+                        title=${t("devdetail.sniff_title")}
                         @click=${this._goToSniffer}
                         ?disabled=${this._busy}
-                    >+ Sniffed Signal</button>
+                    >${t("devdetail.sniffed")}</button>
                     <button
                         class="action-btn"
-                        title="Paste a new signal in Clips"
+                        title=${t("devdetail.clip_title")}
                         @click=${this._goToClips}
                         ?disabled=${this._busy}
-                    >+ Clipped Signal</button>
+                    >${t("devdetail.clipped")}</button>
                     <button
                         class="action-btn"
-                        title="Overhear a send in the Mirror"
+                        title=${t("devdetail.mirror_title")}
                         @click=${this._goToMirror}
                         ?disabled=${this._busy}
-                    >+ Mirrored Signal</button>
+                    >${t("devdetail.mirrored")}</button>
                 </div>
                 <button
                     class="action-btn delete-btn"
                     @click=${() => (this._confirmDelete = true)}
                     ?disabled=${this._busy}
-                >Delete Device</button>
+                >${t("devlist.del_device_title")}</button>
             </div>
 
             <!-- Dialogs -->
@@ -1058,8 +1126,8 @@ export class IrDeviceDetail extends LitElement {
             ${this._confirmDelete
                 ? html`
                       <ir-confirm-dialog
-                          title="Delete ${this.device.name}?"
-                          message="This removes all captured commands and the auto-created entity. The action cannot be undone."
+                          title=${t("devdetail.del_device_title", { name: this.device.name })}
+                          message=${t("devdetail.del_device_msg")}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._deleteDevice}
@@ -1070,8 +1138,8 @@ export class IrDeviceDetail extends LitElement {
             ${this._commandToDelete
                 ? html`
                       <ir-confirm-dialog
-                          title="Delete command?"
-                          message="Remove &quot;${this._commandToDelete.name}&quot;? This cannot be undone."
+                          title=${t("devdetail.del_cmd_title")}
+                          message=${t("devdetail.del_cmd_msg", { name: this._commandToDelete.name })}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._confirmCommandDelete}
@@ -1142,8 +1210,8 @@ export class IrDeviceDetail extends LitElement {
             ${this._confirmDeleteTriggerId
                 ? html`
                       <ir-confirm-dialog
-                          title="Delete Trigger"
-                          message="Remove this trigger? The associated HA event entity will also be removed."
+                          title=${t("mirror.del_trigger_title")}
+                          message=${t("devdetail.del_trigger_msg")}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._doDeleteTrigger}
@@ -1334,6 +1402,49 @@ export class IrDeviceDetail extends LitElement {
             border-radius: 6px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             z-index: 100;
+        }
+
+        /* Custom action entry (free-form key) inside the Map action
+           popover. Input + Set on one row, matching popover chrome. */
+        .custom-action-row {
+            display: flex;
+            gap: 6px;
+            padding: 6px 10px 8px;
+            align-items: center;
+        }
+        .custom-action-input {
+            flex: 1;
+            min-width: 0;
+            padding: 5px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
+            background: var(--card-background-color);
+            color: var(--primary-text-color);
+            font-size: 0.8rem;
+            font-family: var(--code-font-family, monospace);
+            box-sizing: border-box;
+        }
+        .custom-action-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+        .custom-action-set {
+            border: 1px solid var(--divider-color);
+            background: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            color: var(--primary-text-color);
+        }
+        .custom-action-set:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+        .custom-action-set:hover:not(:disabled) {
+            background: var(--secondary-background-color);
         }
     `,
     ];

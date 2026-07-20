@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 
 from .capture_orchestrator import CaptureOrchestrator
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
-from .device_manager import DeviceManager
+from .device_manager import DeviceManager, prime_localized_auto_map
 from .entity_factory import EntityFactory
 from .pluckable_loader import load_pluckables
 from .signal_monitor import SignalMonitor
@@ -77,6 +77,10 @@ async def async_setup_entry(
     pluckable_registry = await hass.async_add_executor_job(
         load_pluckables, Path(__file__).parent / PLUCKABLE_DIRNAME
     )
+
+    # Prime the localized auto-map synonyms table off the event loop
+    # (reads the panel locale files once, cached for the process).
+    await hass.async_add_executor_job(prime_localized_auto_map)
 
     entity_factory = EntityFactory(hass)
     orchestrator = CaptureOrchestrator(hass)

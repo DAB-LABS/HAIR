@@ -19,6 +19,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 import type { ReceiverInfo } from "./types.js";
 
@@ -89,7 +90,7 @@ export class IrReceiverPicker extends LitElement {
         );
 
         return html`
-            <label>Via receiver(s):</label>
+            <label>${t("picker.receivers_label")}</label>
 
             ${this.value.length > 0
                 ? html`
@@ -104,7 +105,7 @@ export class IrReceiverPicker extends LitElement {
                                           ? html`<button
                                                 class="chip-remove"
                                                 @click=${() => this._onRemove(id)}
-                                                title="Remove"
+                                                title=${t("common.remove")}
                                             >
                                                 &times;
                                             </button>`
@@ -117,11 +118,11 @@ export class IrReceiverPicker extends LitElement {
                 : ""}
 
             ${this._receivers.length === 0
-                ? html`<div class="no-receivers">No IR receivers found.</div>`
+                ? html`<div class="no-receivers">${t("picker.no_receivers")}</div>`
                 : available.length > 0
                   ? html`
                         <select @change=${this._onAdd} ?disabled=${this.disabled}>
-                            <option value="">+ Add receiver...</option>
+                            <option value="">${t("picker.add_receiver")}</option>
                             ${available.map(
                                 (r) => html`
                                     <option value=${r.entity_id}>
@@ -131,7 +132,7 @@ export class IrReceiverPicker extends LitElement {
                             )}
                         </select>
                     `
-                  : html`<div class="all-selected">All receivers selected.</div>`}
+                  : html`<div class="all-selected">${t("picker.all_receivers_selected")}</div>`}
         `;
     }
 

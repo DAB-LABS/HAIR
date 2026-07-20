@@ -33,6 +33,7 @@
 import { LitElement, html, css } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
+import { t, tp } from "./localize.js";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
@@ -62,7 +63,7 @@ function relShort(iso: string | undefined): string {
     if (!iso) return "";
     try {
         const diff = Date.now() - new Date(iso).getTime();
-        if (diff < 60_000) return "just now";
+        if (diff < 60_000) return t("rel.just_now");
         if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
         if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
         return `${Math.floor(diff / 86_400_000)}d`;
@@ -339,19 +340,19 @@ export class IrMirror extends LitElement {
             label.startsWith(p),
         );
         if (label === "automation send") {
-            chip = "Automation Send";
+            chip = t("mirror.chip_automation");
         } else if (label === "integration send") {
-            chip = "Integration Send";
+            chip = t("mirror.chip_integration");
         } else if (testPrefix) {
-            chip = "Manual Test Send";
+            chip = t("mirror.chip_test");
             labelTitle =
                 label.slice(testPrefix.length).replace(/^:\s*/, "").trim() ||
                 null;
         } else if (label) {
-            chip = "HAIR Device";
+            chip = t("mirror.chip_device");
             labelTitle = label;
         } else {
-            chip = "Send";
+            chip = t("mirror.chip_send");
         }
 
         // Unknown-send rows are detected by fingerprint prefix, NOT by
@@ -379,16 +380,16 @@ export class IrMirror extends LitElement {
                       .map((ch) => (ch === "L" ? "◆" : "◇"))
                       .join("")
                 : null);
-        const title = chainTitle || "Unknown IR signal sent";
+        const title = chainTitle || t("mirror.unknown_title");
 
         const pill = sig.decoded_protocol ?? sig.protocol;
         const pillRaw = !sig.decoded_protocol;
 
         const via =
             emitters.length > 2
-                ? `via ${emitters.length} emitters`
+                ? t("mirror.via_n", { count: emitters.length })
                 : viaFull
-                  ? `via ${viaFull}`
+                  ? t("mirror.via", { name: viaFull })
                   : "";
 
         // Zero-receiver homes suppress the clause entirely: amber (or even
@@ -401,16 +402,16 @@ export class IrMirror extends LitElement {
         if (this._hasReceivers) {
             const by = sig.heard_by ?? [];
             if (by.length === 0) {
-                heard = "not heard";
+                heard = t("mirror.not_heard");
             } else {
                 heardOk = true;
                 const areas = by.map((r) => this._receiverArea(r));
                 if (areas.every((a) => a !== null)) {
                     const unique = [...new Set(areas as string[])];
-                    heard = `last heard in ${unique.join(", ")}`;
+                    heard = t("mirror.heard_in", { areas: unique.join(", ") });
                 } else {
                     const names = by.map((r) => this._friendlyReceiver(r));
-                    heard = `last heard by ${names.join(", ")}`;
+                    heard = t("mirror.heard_by", { names: names.join(", ") });
                 }
             }
         }
@@ -590,7 +591,7 @@ export class IrMirror extends LitElement {
             await this.api.deleteTrigger(id);
             this._triggers = await this.api.listTriggers();
         } catch (err) {
-            this._error = `Delete failed: ${(err as Error).message}`;
+            this._error = t("common.delete_failed", { message: (err as Error).message });
         }
     }
 
@@ -640,14 +641,16 @@ export class IrMirror extends LitElement {
             const total = emitters.length;
             if (sent === total) {
                 this._testResult =
-                    total === 1 ? "Sent!" : `Sent! (${sent}/${total})`;
+                    total === 1
+                        ? t("mirror.sent")
+                        : t("mirror.sent_all_n", { sent, total });
             } else if (sent === 0) {
-                this._testResult = "Failed";
+                this._testResult = t("mirror.failed");
             } else {
-                this._testResult = `Sent (${sent}/${total})`;
+                this._testResult = t("mirror.sent_partial", { sent, total });
             }
         } catch {
-            this._testResult = "Error";
+            this._testResult = t("mirror.error");
         }
         setTimeout(() => {
             this._testResult = null;
@@ -674,7 +677,7 @@ export class IrMirror extends LitElement {
             await this.api.deleteSignal(this._device.id, sig.id);
             await this._refreshDevice();
         } catch (err) {
-            this._error = `Delete failed: ${(err as Error).message}`;
+            this._error = t("common.delete_failed", { message: (err as Error).message });
         }
     }
 
@@ -693,8 +696,7 @@ export class IrMirror extends LitElement {
                     HAIR Mirror
                     ${!this._loading
                         ? html`<span class="count"
-                              >(${rows.length}
-                              ${rows.length === 1 ? "signal" : "signals"})</span
+                              >(${tp("mirror.signals", rows.length)})</span
                           >`
                         : ""}
                 </span>
@@ -703,7 +705,7 @@ export class IrMirror extends LitElement {
                 ? html`<div class="error">${this._error}</div>`
                 : ""}
             ${this._loading && !this._device
-                ? html`<div class="loading">Loading…</div>`
+                ? html`<div class="loading">${t("panel.loading")}</div>`
                 : rows.length === 0
                   ? this._renderEmpty()
                   : html`
@@ -712,7 +714,7 @@ export class IrMirror extends LitElement {
                         <div class="rows">
                             ${filtered.length === 0
                                 ? html`<div class="no-match">
-                                      No sends match.
+                                      ${t("mirror.no_match")}
                                   </div>`
                                 : filtered.map((r) => this._renderRow(r))}
                         </div>
@@ -732,7 +734,7 @@ export class IrMirror extends LitElement {
             <div class="stats">
                 <div class="stat">
                     <div class="v">${this._device?.hit_count ?? 0}</div>
-                    <div class="l">SENDS</div>
+                    <div class="l">${t("mirror.stat_sends")}</div>
                 </div>
                 ${this._hasReceivers
                     ? html`
@@ -740,24 +742,26 @@ export class IrMirror extends LitElement {
                               <div class="v ${notHeard ? "warn" : ""}">
                                   ${notHeard}
                               </div>
-                              <div class="l">NOT HEARD</div>
+                              <div class="l">${t("mirror.stat_not_heard")}</div>
                           </div>
                       `
                     : ""}
                 <div class="stat">
                     <div class="v">${emitters.size}</div>
-                    <div class="l">EMITTERS</div>
+                    <div class="l">${t("mirror.stat_emitters")}</div>
                 </div>
                 <div class="stat">
                     <div class="v">${rows.length}</div>
-                    <div class="l">SIGNALS</div>
+                    <div class="l">${t("mirror.stat_signals")}</div>
                 </div>
                 <span class="updated">
                     ${this._hasReceivers
                         ? last
-                            ? `last send ${relShort(last)}${relShort(last) === "just now" ? "" : " ago"}`
+                            ? relShort(last) === t("rel.just_now")
+                                ? t("mirror.last_send_just")
+                                : t("mirror.last_send_ago", { rel: relShort(last) })
                             : ""
-                        : "no receivers"}
+                        : t("mirror.no_receivers")}
                 </span>
             </div>
         `;
@@ -779,7 +783,7 @@ export class IrMirror extends LitElement {
                     class="fchip ${this._filter === "all" ? "on" : ""}"
                     @click=${() => (this._filter = "all")}
                 >
-                    All (${rows.length})
+                    ${t("mirror.filter_all", { count: rows.length })}
                 </button>
                 ${this._hasReceivers
                     ? html`
@@ -787,7 +791,7 @@ export class IrMirror extends LitElement {
                               class="fchip warnc ${this._filter === "notheard" ? "on" : ""}"
                               @click=${() => (this._filter = "notheard")}
                           >
-                              Not heard (${notHeard})
+                              ${t("mirror.filter_not_heard", { count: notHeard })}
                           </button>
                       `
                     : ""}
@@ -804,7 +808,7 @@ export class IrMirror extends LitElement {
                 <input
                     class="search"
                     type="text"
-                    placeholder="Search sends..."
+                    placeholder=${t("mirror.search")}
                     .value=${this._search}
                     @input=${(e: Event) => {
                         this._search = (e.target as HTMLInputElement).value;
@@ -833,7 +837,7 @@ export class IrMirror extends LitElement {
                         ${(sig.send_count ?? 1) > 1
                             ? html`<span
                                   class="repeat-indicator"
-                                  title="Sends this signal ${sig.send_count} times"
+                                  title=${t("mirror.sends_times", { count: sig.send_count })}
                                   ><ha-svg-icon
                                       .path=${ICON_REPEAT}
                                   ></ha-svg-icon
@@ -843,7 +847,7 @@ export class IrMirror extends LitElement {
                         ${(sig.repeat_count ?? 1) > 1 && sig.decoded_protocol
                             ? html`<span
                                   class="ditto-indicator"
-                                  title="Appends ${sig.repeat_count} NEC dittos"
+                                  title=${t("cmdrow.dittos", { count: sig.repeat_count })}
                                   ><ha-svg-icon
                                       .path=${ICON_DITTO}
                                   ></ha-svg-icon
@@ -854,12 +858,10 @@ export class IrMirror extends LitElement {
                     ${r.unknownSend
                         ? html`
                               <div class="mrow-hint">
-                                  <em class="hint-emitter"
-                                      >${r.emitters[0] ?? "The blaster"}</em
-                                  >
-                                  fired, but nothing was close enough to
-                                  hear what it said. Place a receiver in
-                                  earshot to catch the next send.
+                                  ${t("mirror.unknown_hint").split("{name}")[0]}<em
+                                      class="hint-emitter"
+                                      >${r.emitters[0] ?? t("mirror.the_blaster")}</em
+                                  >${t("mirror.unknown_hint").split("{name}")[1] ?? ""}
                               </div>
                           `
                         : html`
@@ -897,7 +899,7 @@ export class IrMirror extends LitElement {
                         ? html`
                               <button
                                   class="code-btn"
-                                  title="View or edit code"
+                                  title=${t("cmdrow.edit_code")}
                                   @click=${(e: Event) => {
                                       e.stopPropagation();
                                       this._editSignal = sig;
@@ -914,17 +916,20 @@ export class IrMirror extends LitElement {
                         class="action-btn assign-btn"
                         ?disabled=${!actionable}
                         title=${!actionable
-                            ? "Identity unknown -- nothing was heard back to assign"
+                            ? t("mirror.assign_disabled")
                             : sig.assignment_count && sig.assigned_to?.length
                               ? sig.assignment_count === 1
-                                  ? `Assigned to ${sig.assigned_to[0].device_name} / ${sig.assigned_to[0].command_name}`
-                                  : `Assigned to ${sig.assignment_count} commands:\n- ${sig.assigned_to.map((a) => `${a.device_name} / ${a.command_name}`).join("\n- ")}`
-                              : "Assign this signal to a HAIR device"}
+                                  ? t("mirror.assigned_one", {
+                                        device: sig.assigned_to[0].device_name,
+                                        command: sig.assigned_to[0].command_name,
+                                    })
+                                  : t("mirror.assigned_n", { count: sig.assignment_count }) + `\n- ${sig.assigned_to.map((a) => `${a.device_name} / ${a.command_name}`).join("\n- ")}`
+                              : t("mirror.assign_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._onAssignClick(sig, e);
                         }}
-                    >Assign<ir-count-dot
+                    >${t("assign.assign")}<ir-count-dot
                             color="green"
                             .count=${sig.assignment_count ?? 0}
                         ></ir-count-dot></button>
@@ -932,39 +937,39 @@ export class IrMirror extends LitElement {
                         class="action-btn test-btn"
                         ?disabled=${!actionable || isTesting}
                         title=${actionable
-                            ? "Send this signal through an emitter to test it"
-                            : "Identity unknown -- nothing to send"}
+                            ? t("mirror.test_title")
+                            : t("mirror.test_disabled")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._testDialog = sig;
                         }}
                     >${isTesting
-                        ? (this._testResult ?? "Sending...")
-                        : "Test"}</button>
+                        ? (this._testResult ?? t("mirror.sending"))
+                        : t("mirror.test")}</button>
                     <button
                         class="action-btn trigger-btn"
                         ?disabled=${!actionable}
                         title=${!actionable
-                            ? "Identity unknown -- nothing to bind"
+                            ? t("mirror.trigger_disabled")
                             : this._triggerCountFor(sig) > 0
-                              ? "Edit trigger(s) for this signal"
-                              : "Fires when this signal arrives from outside Home Assistant"}
+                              ? t("mirror.trigger_edit")
+                              : t("mirror.trigger_create")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openTriggerDialog(sig, e);
                         }}
-                    >Trigger<ir-count-dot
+                    >${t("cmdrow.trigger")}<ir-count-dot
                             color="yellow"
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
                     <button
                         class="action-btn delete-btn"
-                        title="Clear this entry (it returns on the next send)"
+                        title=${t("mirror.delete_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._deleteSignal = sig;
                         }}
-                    >Delete</button>
+                    >${t("common.delete")}</button>
                 </div>
             </div>
         `;
@@ -977,11 +982,9 @@ export class IrMirror extends LitElement {
                     class="empty-icon"
                     .path=${ICON_MIRROR}
                 ></ha-svg-icon>
-                <div class="empty-title">Nothing sent yet</div>
+                <div class="empty-title">${t("mirror.empty_title")}</div>
                 <div class="empty-sub">
-                    Commands sent by HAIR devices, automations, or any
-                    integration on the infrared platform will appear here,
-                    with where they went and who heard them.
+                    ${t("mirror.empty_sub")}
                 </div>
             </div>
         `;
@@ -1038,9 +1041,9 @@ export class IrMirror extends LitElement {
                 : ""}
             ${this._confirmDeleteTriggerId
                 ? html`<ir-confirm-dialog
-                      title="Delete Trigger"
-                      message="Remove this trigger permanently? Automations using it will stop firing."
-                      confirmLabel="Delete"
+                      title=${t("mirror.del_trigger_title")}
+                      message=${t("mirror.del_trigger_msg")}
+                      confirmLabel=${t("common.delete")}
                       .destructive=${true}
                       @confirmed=${this._confirmDeleteTrigger}
                       @closed=${() => (this._confirmDeleteTriggerId = null)}
@@ -1048,9 +1051,9 @@ export class IrMirror extends LitElement {
                 : ""}
             ${this._deleteSignal
                 ? html`<ir-confirm-dialog
-                      title="Clear Mirror Entry"
-                      message="Remove this entry from the Mirror? It will come back the next time this signal is sent."
-                      confirmLabel="Delete"
+                      title=${t("mirror.clear_title")}
+                      message=${t("mirror.clear_msg")}
+                      confirmLabel=${t("common.delete")}
                       .destructive=${true}
                       @confirmed=${this._confirmDeleteSignal}
                       @closed=${() => (this._deleteSignal = null)}

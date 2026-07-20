@@ -12,6 +12,7 @@
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 import type { UnknownSignal } from "./types.js";
 
@@ -94,7 +95,7 @@ export class IrSignalAlias extends LitElement {
                         class="alias-input"
                         type="text"
                         .value=${this._draft}
-                        placeholder="Alias for this signal"
+                        placeholder=${t("alias.placeholder")}
                         @input=${(e: Event) => {
                             this._draft = (e.target as HTMLInputElement).value;
                         }}
@@ -103,7 +104,7 @@ export class IrSignalAlias extends LitElement {
                     />
                     <button
                         class="alias-clear"
-                        title="Clear alias"
+                        title=${t("alias.clear")}
                         @mousedown=${(e: Event) => e.preventDefault()}
                         @click=${() => void this._clear()}
                     >✕</button>
@@ -114,10 +115,10 @@ export class IrSignalAlias extends LitElement {
             return html`
                 <span
                     class="alias-display ${this.disabled ? "locked" : ""}"
-                    title=${this.disabled ? "" : "Click to edit alias"}
+                    title=${this.disabled ? "" : t("alias.edit")}
                     @click=${(e: Event) => this._startEdit(e)}
                 >
-                    <span class="alias-label">alias</span>
+                    <span class="alias-label">${t("alias.tag")}</span>
                     <span class="alias-name">${sig.alias}</span>
                 </span>
             `;
@@ -125,7 +126,7 @@ export class IrSignalAlias extends LitElement {
         return html`
             <span
                 class="diamonds-wrap ${this.disabled ? "locked" : ""}"
-                title=${this.disabled ? "" : "Click to name this signal"}
+                title=${this.disabled ? "" : t("alias.name")}
                 @click=${(e: Event) => this._startEdit(e)}
             >
                 ${sig.sl_pattern

@@ -8,6 +8,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
@@ -60,11 +61,11 @@ export class IrAddDeviceDialog extends LitElement {
 
     private async _create() {
         if (!this._name.trim()) {
-            this._error = "Name is required.";
+            this._error = t("common.name_required");
             return;
         }
         if (this._emitterIds.length === 0) {
-            this._error = "Pick at least one IR emitter.";
+            this._error = t("adddev.emitter_required");
             return;
         }
 
@@ -98,7 +99,7 @@ export class IrAddDeviceDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading="Add Device"
+                heading=${t("adddev.heading")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
@@ -107,11 +108,11 @@ export class IrAddDeviceDialog extends LitElement {
                     : ""}
 
                 <div class="field">
-                    <label>Name</label>
+                    <label>${t("common.name")}</label>
                     <input
                         type="text"
                         .value=${this._name}
-                        placeholder="e.g. Living Room TV"
+                        placeholder=${t("common.device_name_placeholder")}
                         required
                         autofocus
                         @input=${(e: Event) =>
@@ -120,7 +121,7 @@ export class IrAddDeviceDialog extends LitElement {
                 </div>
 
                 <div class="field">
-                    <label>Device type</label>
+                    <label>${t("common.device_type")}</label>
                     <select
                         .value=${this._deviceType}
                         @change=${(e: Event) =>
@@ -128,12 +129,12 @@ export class IrAddDeviceDialog extends LitElement {
                                 .value as DeviceTypeId)}
                     >
                         ${DEVICE_TYPES.map(
-                            (t) => html`
+                            (dt) => html`
                                 <option
-                                    value=${t.value}
-                                    ?selected=${this._deviceType === t.value}
+                                    value=${dt.value}
+                                    ?selected=${this._deviceType === dt.value}
                                 >
-                                    ${t.label}
+                                    ${t(`device_type.${dt.value}`)}
                                 </option>
                             `,
                         )}
@@ -155,14 +156,14 @@ export class IrAddDeviceDialog extends LitElement {
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
-                        Cancel
+                        ${t("common.cancel")}
                     </button>
                     <button
                         class="action-btn create-btn"
                         @click=${this._create}
                         ?disabled=${this._busy}
                     >
-                        ${this._busy ? "Creating..." : "Create"}
+                        ${this._busy ? t("common.creating") : t("adddev.create")}
                     </button>
                 </div>
             </ha-dialog>

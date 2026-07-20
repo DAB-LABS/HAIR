@@ -10,6 +10,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-receiver-picker.js";
 import type { HairApi } from "./api.js";
@@ -68,7 +69,7 @@ export class IrTriggerDialog extends LitElement {
     private async _save(): Promise<void> {
         const name = this._name.trim();
         if (!name) {
-            this._error = "Name is required.";
+            this._error = t("common.name_required");
             return;
         }
         this._busy = true;
@@ -113,7 +114,7 @@ export class IrTriggerDialog extends LitElement {
                 }),
             );
         } catch (err) {
-            this._error = (err as Error).message ?? "Save failed";
+            this._error = (err as Error).message ?? t("trigger.save_failed");
         } finally {
             this._busy = false;
         }
@@ -155,7 +156,7 @@ export class IrTriggerDialog extends LitElement {
         // user recognizes which signal this trigger is for.
         if (!isEdit && this.alias) {
             return html`<span class="alias-inline"
-                ><span class="alias-tag">alias</span
+                ><span class="alias-tag">${t("trigger.alias_tag")}</span
                 ><span class="alias-name">${this.alias}</span></span
             >`;
         }
@@ -185,7 +186,7 @@ export class IrTriggerDialog extends LitElement {
         }
 
         // Fallback.
-        return html`<span class="proto">Trigger Event</span>`;
+        return html`<span class="proto">${t("trigger.event")}</span>`;
     }
 
     render() {
@@ -195,7 +196,7 @@ export class IrTriggerDialog extends LitElement {
             <div class="overlay" @click=${this._close}>
                 <div class="dialog" @click=${(e: Event) => e.stopPropagation()}>
                     <h3 class="heading">
-                        ${isEdit ? "Edit Trigger" : "Create Trigger"}
+                        ${isEdit ? t("trigger.edit_heading") : t("trigger.create_heading")}
                     </h3>
 
                     <!-- Signal info (read-only) -->
@@ -205,18 +206,16 @@ export class IrTriggerDialog extends LitElement {
 
                     ${this.mirrorContext
                         ? html`<p class="field-hint scope-hint">
-                              Fires when this signal arrives from outside
-                              Home Assistant (a physical remote or another
-                              app), never on the house's own sends.
+                              ${t("trigger.mirror_hint")}
                           </p>`
                         : ""}
 
                     <!-- Name -->
-                    <label class="field-label">Trigger Name</label>
+                    <label class="field-label">${t("trigger.name_label")}</label>
                     <input
                         class="field-input"
                         type="text"
-                        placeholder="e.g. TV Power"
+                        placeholder=${t("trigger.name_placeholder")}
                         .value=${this._name}
                         @input=${(e: Event) => {
                             this._name = (e.target as HTMLInputElement).value;
@@ -226,9 +225,9 @@ export class IrTriggerDialog extends LitElement {
 
                     <!-- Min Hits -->
                     <label class="field-label">
-                        Min Hits
+                        ${t("trigger.min_hits")}
                         <span class="field-hint">
-                            Number of presses within 5s to fire
+                            ${t("trigger.min_hits_hint")}
                         </span>
                     </label>
                     <input
@@ -258,8 +257,7 @@ export class IrTriggerDialog extends LitElement {
                             }}
                         ></ir-receiver-picker>
                         <p class="field-hint scope-hint">
-                            Fires once per press, regardless of how many scoped
-                            receivers observe the signal.
+                            ${t("trigger.scope_hint")}
                         </p>
                     </div>
 
@@ -273,23 +271,23 @@ export class IrTriggerDialog extends LitElement {
                                   class="btn delete-btn"
                                   @click=${this._emitDelete}
                                   ?disabled=${this._busy}
-                              >Delete</button>`
+                              >${t("common.delete")}</button>`
                             : ""}
                         <span class="actions-spacer"></span>
                         <button
                             class="btn cancel"
                             @click=${this._close}
                             ?disabled=${this._busy}
-                        >Cancel</button>
+                        >${t("common.cancel")}</button>
                         <button
                             class="btn save"
                             @click=${this._save}
                             ?disabled=${this._busy || !this._name.trim()}
                         >${this._busy
-                            ? "Saving..."
+                            ? t("common.saving")
                             : isEdit
-                              ? "Update"
-                              : "Create"}</button>
+                              ? t("common.update")
+                              : t("common.create")}</button>
                     </div>
                 </div>
             </div>

@@ -14,6 +14,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "./decorators.js";
+import { t } from "./localize.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import type { IRTrigger, ReceiverInfo } from "./types.js";
 
@@ -30,24 +31,24 @@ export class IrTriggerPopover extends LitElement {
                 class="action-popover"
                 style="top:${this.top}px; left:${this.left}px"
             >
-                <div class="popover-header">Triggers</div>
+                <div class="popover-header">${t("popover.triggers")}</div>
                 <button
                     class="popover-item accent"
                     @click=${() => this._emit("create-new")}
                 >
-                    <span>+ new trigger</span>
+                    <span>${t("popover.new_trigger")}</span>
                 </button>
                 <div class="popover-divider"></div>
                 ${this.triggers.map(
-                    (t) => html`
+                    (trig) => html`
                         <button
                             class="popover-item"
-                            @click=${() => this._emit("edit-trigger", t)}
+                            @click=${() => this._emit("edit-trigger", trig)}
                         >
                             <span class="popover-row">
-                                <span class="popover-name">${t.name}</span>
+                                <span class="popover-name">${trig.name}</span>
                                 <span class="popover-scope"
-                                    >${this._renderScope(t)}</span
+                                    >${this._renderScope(trig)}</span
                                 >
                             </span>
                         </button>
@@ -57,11 +58,14 @@ export class IrTriggerPopover extends LitElement {
         `;
     }
 
-    private _renderScope(t: IRTrigger): string {
-        const ids = t.receiver_entity_ids ?? [];
-        if (ids.length === 0) return "Any receiver";
+    private _renderScope(trig: IRTrigger): string {
+        const ids = trig.receiver_entity_ids ?? [];
+        if (ids.length === 0) return t("popover.any_receiver");
         if (ids.length === 1) return this._friendly(ids[0]);
-        return `${this._friendly(ids[0])} + ${ids.length - 1} more`;
+        return t("popover.n_more", {
+            name: this._friendly(ids[0]),
+            count: ids.length - 1,
+        });
     }
 
     private _friendly(entityId: string): string {

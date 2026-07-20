@@ -1,0 +1,31 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Konfiguracja HAIR",
+                "description": "HAIR zarządza urządzeniami IR z jednego panelu.\n\nWykryty sprzęt:\n\n{hardware_summary}",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIR jest już skonfigurowany.",
+            "no_ir_hardware": "Nie wykryto sprzętu IR. Do przechwytywania potrzebujesz urządzenia ESPHome z komponentem remote_receiver. Do wysyłania potrzebujesz integracji na natywnej platformie podczerwieni HA (Broadlink, ESPHome itd.). Szczegóły w [przewodniku konfiguracji]({setup_url})."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Opcje HAIR",
+                "description": "Skonfiguruj globalne ustawienia zarządzania urządzeniami IR.",
+                "data": {
+                    "capture_timeout": "Limit czasu przechwytywania (sekundy)",
+                    "default_repeat_count": "Domyślna liczba powtórzeń IR"
+                },
+                "data_description": {
+                    "capture_timeout": "Jak długo czekać na sygnał IR podczas przechwytywania (5-60 sekund).",
+                    "default_repeat_count": "Liczba powtórzeń każdej transmisji polecenia IR (1-10)."
+                }
+            }
+        }
+    }
+}
