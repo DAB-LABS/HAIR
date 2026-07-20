@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- As far as I am aware of, there are 256 different "remotes", -->
+<!-- distinguished by our device number -->
+
+<!-- See also http://support.apple.com/kb/HT1619 for "pairing" a remote with -->
+<!-- a Mac. -->
+<remotes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.harctoolbox.org/Girr"
+         title="Translated by harc2girr" girrVersion="1.0"
+         xsi:schemaLocation="http://www.harctoolbox.org/Girr http://www.harctoolbox.org/schemas/girr_ns.xsd">
+    <remote deviceClass="misc_audio" manufacturer="apple" model="remote" name="Apple Remote">
+
+        <commandSet xmlns:girr="http://www.harctoolbox.org/schemas/girr.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="apple_212">
+            <parameters protocol="Apple">
+                <parameter name="D" value="238"/>
+                <parameter name="PairID" value="212"/>
+            </parameters>
+            <command master="parameters" name="play_pause" F="2"/>
+            <command master="parameters" name="previous" F="4"/>
+            <command master="parameters" name="next" F="3"/>
+            <command master="parameters" name="menu" F="1"/>
+            <command master="parameters" name="up" F="5"/>
+            <command master="parameters" name="down" F="6"/>
+        </commandSet>
+    </remote>
+</remotes>
