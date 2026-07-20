@@ -1118,28 +1118,33 @@ export class IrDeviceList extends LitElement {
         }
         .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
-            color: var(--primary-color);
+            /* Devices wears the device green: the same #2e7d32 as the
+               expanded-card stroke and the Assign chip (owner ruling,
+               2026-07-20 -- green = device-ward, everywhere). */
+            color: #2e7d32;
         }
         .add-btn {
             display: inline-flex;
             align-items: center;
             gap: 4px;
             background: none;
-            color: var(--primary-color);
-            border: 1px solid var(--primary-color);
+            color: #2e7d32;
+            border: 1px solid #2e7d32;
             border-radius: 4px;
             padding: 4px 12px;
             font-size: 0.85rem;
             font-weight: 500;
             font-family: inherit;
             cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             transition: background 150ms ease;
         }
         .add-btn ha-svg-icon {
             --mdc-icon-size: 18px;
         }
         .add-btn:hover {
-            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.08);
+            background: rgba(46, 125, 50, 0.08);
         }
         .toolbar-count {
             font-weight: 400;

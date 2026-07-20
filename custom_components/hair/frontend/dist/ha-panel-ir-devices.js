@@ -2779,28 +2779,33 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
         }
         .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
-            color: var(--primary-color);
+            /* Devices wears the device green: the same #2e7d32 as the
+               expanded-card stroke and the Assign chip (owner ruling,
+               2026-07-20 -- green = device-ward, everywhere). */
+            color: #2e7d32;
         }
         .add-btn {
             display: inline-flex;
             align-items: center;
             gap: 4px;
             background: none;
-            color: var(--primary-color);
-            border: 1px solid var(--primary-color);
+            color: #2e7d32;
+            border: 1px solid #2e7d32;
             border-radius: 4px;
             padding: 4px 12px;
             font-size: 0.85rem;
             font-weight: 500;
             font-family: inherit;
             cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
             transition: background 150ms ease;
         }
         .add-btn ha-svg-icon {
             --mdc-icon-size: 18px;
         }
         .add-btn:hover {
-            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.08);
+            background: rgba(46, 125, 50, 0.08);
         }
         .toolbar-count {
             font-weight: 400;
@@ -7673,7 +7678,7 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
 
             <div class="tab-bar">
                 <button
-                    class="tab ${"devices"===this._activeTab?"active":""}"
+                    class="tab devices-tab ${"devices"===this._activeTab?"active":""}"
                     @click=${()=>this._switchTab("devices")}
                 >
                     ${ke("panel.tab.devices")}
@@ -7864,6 +7869,8 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
             cursor: pointer;
             transition: color 150ms ease, border-color 150ms ease;
             font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .tab:hover {
             color: var(--primary-text-color);
@@ -7871,6 +7878,12 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
         .tab.active {
             color: var(--primary-color);
             border-bottom-color: var(--primary-color);
+        }
+        /* Devices wears the device green (#2e7d32 -- the expanded-card
+           stroke and the Assign chip; owner ruling 2026-07-20). */
+        .tab.devices-tab.active {
+            color: #2e7d32;
+            border-bottom-color: #2e7d32;
         }
         /* The Clipper wears its copper in the tab bar too (owner bench
            find, 2026-07-20: the active tab was default-blue while the

@@ -209,7 +209,7 @@ export class HaPanelIrDevices extends LitElement {
 
             <div class="tab-bar">
                 <button
-                    class="tab ${this._activeTab === "devices" ? "active" : ""}"
+                    class="tab devices-tab ${this._activeTab === "devices" ? "active" : ""}"
                     @click=${() => this._switchTab("devices")}
                 >
                     ${t("panel.tab.devices")}
@@ -420,6 +420,8 @@ export class HaPanelIrDevices extends LitElement {
             cursor: pointer;
             transition: color 150ms ease, border-color 150ms ease;
             font-family: inherit;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .tab:hover {
             color: var(--primary-text-color);
@@ -427,6 +429,12 @@ export class HaPanelIrDevices extends LitElement {
         .tab.active {
             color: var(--primary-color);
             border-bottom-color: var(--primary-color);
+        }
+        /* Devices wears the device green (#2e7d32 -- the expanded-card
+           stroke and the Assign chip; owner ruling 2026-07-20). */
+        .tab.devices-tab.active {
+            color: #2e7d32;
+            border-bottom-color: #2e7d32;
         }
         /* The Clipper wears its copper in the tab bar too (owner bench
            find, 2026-07-20: the active tab was default-blue while the
