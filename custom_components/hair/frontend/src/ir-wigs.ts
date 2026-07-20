@@ -64,6 +64,11 @@ interface BrandRow {
 
 const UNBRANDED_KEY = "_unbranded";
 
+// Wig (SVG Repo, owner-supplied images/wig.svg), scaled to the 24x24
+// tool-icon box like the clippers, mirror, and tweezers before it.
+const ICON_WIG =
+    "M 2.45,21.37 C 1.74,20.36 1.30,18.28 0.95,18.06 C 0.59,17.83 0.40,15.85 0.57,15.36 C 0.74,14.87 0.11,13.99 0.01,13.26 C -0.08,12.53 0.44,11.84 0.42,11.52 C 0.41,11.20 0.22,9.08 1.02,7.47 C 1.45,6.62 2.67,5.28 3.93,4.70 C 5.05,4.18 6.23,4.38 6.31,4.25 C 6.46,3.98 7.34,2.27 7.95,2.45 C 7.11,3.28 7.24,4.21 7.24,4.21 C 7.24,4.21 10.07,2.34 12.34,2.45 C 14.61,2.56 19.16,5.47 19.31,5.56 C 19.46,5.66 18.97,4.63 18.11,3.50 C 18.97,3.54 20.34,6.20 20.51,6.35 C 20.68,6.50 20.79,6.37 20.51,5.23 C 21.09,5.30 21.33,6.87 21.63,7.44 C 21.93,8.00 22.79,8.02 22.72,10.13 C 24.03,10.21 24.22,14.05 23.80,14.78 C 23.63,17.29 23.21,18.34 22.79,19.31 C 22.37,20.29 21.82,21.56 21.82,21.56 C 21.82,21.56 21.95,17.42 21.24,14.39 C 20.74,12.26 19.60,10.98 18.71,10.79 C 16.55,10.34 12.30,10.70 11.81,11.30 C 10.72,11.69 5.38,9.87 4.28,10.73 C 3.64,11.24 2.89,13.16 2.90,14.67 C 2.91,15.73 3.57,15.53 3.61,16.58 C 3.63,17.16 3.06,17.54 2.75,18.45 C 2.50,19.18 2.50,20.39 2.45,21.37";
+
 // Shared expand chevrons -- the same mdi paths the Sniffer/Clipper
 // cards use, so every disclosure arrow in the panel is one glyph.
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
@@ -578,6 +583,13 @@ export class IrWigs extends LitElement {
         const counts = this._counts();
         const brands = this._brandRows();
         return html`
+            <div class="page-title">
+                <ha-svg-icon .path=${ICON_WIG}></ha-svg-icon>
+                ${t("wigs.title")}
+                <span class="page-count"
+                    >(${tp("wigs.count", counts.all)})</span
+                >
+            </div>
             <div
                 class="drop-bar ${this._dragOver ? "over" : ""} ${this
                     ._receipt
@@ -1218,6 +1230,28 @@ export class IrWigs extends LitElement {
         }
         .wdot.mine {
             background: var(--wigs-accent);
+        }
+        /* Page title -- same anatomy as the Clipper/Sniffer/Plucker
+           toolbars (24px tool icon in the tab accent, 1.1rem title,
+           gray count), so the Closet introduces itself like every
+           other station in the shop. */
+        .page-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--primary-text-color);
+            margin-bottom: 16px;
+        }
+        .page-title ha-svg-icon {
+            --mdc-icon-size: 24px;
+            color: var(--wigs-accent);
+        }
+        .page-count {
+            font-weight: 400;
+            color: var(--secondary-text-color);
+            font-size: 0.9rem;
         }
         .wig-name {
             font-weight: 500;

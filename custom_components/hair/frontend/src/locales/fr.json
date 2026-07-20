@@ -437,6 +437,7 @@
     "wigs.chip.library": "Bibliothèque ({count})",
     "wigs.chip.yours": "Les vôtres ({count})",
     "wigs.library_version": "Bibliothèque : infrared-protocols {version}",
+    "wigs.title": "Penderie HAIR",
     "wigs.unbranded": "Sans marque",
     "wigs.signals.one": "{count} signal",
     "wigs.signals.other": "{count} signaux",

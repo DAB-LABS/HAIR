@@ -437,6 +437,7 @@
     "wigs.chip.library": "Libreria ({count})",
     "wigs.chip.yours": "Tue ({count})",
     "wigs.library_version": "Libreria: infrared-protocols {version}",
+    "wigs.title": "Armadio HAIR",
     "wigs.unbranded": "Senza marca",
     "wigs.signals.one": "{count} segnale",
     "wigs.signals.other": "{count} segnali",

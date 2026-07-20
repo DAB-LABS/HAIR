@@ -437,6 +437,7 @@
     "wigs.chip.library": "Biblioteca ({count})",
     "wigs.chip.yours": "Suas ({count})",
     "wigs.library_version": "Biblioteca: infrared-protocols {version}",
+    "wigs.title": "Armário HAIR",
     "wigs.unbranded": "Sem marca",
     "wigs.signals.one": "{count} sinal",
     "wigs.signals.other": "{count} sinais",

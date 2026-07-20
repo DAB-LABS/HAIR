@@ -437,6 +437,7 @@
     "wigs.chip.library": "ライブラリ ({count})",
     "wigs.chip.yours": "自分の ({count})",
     "wigs.library_version": "ライブラリ: infrared-protocols {version}",
+    "wigs.title": "HAIRクローゼット",
     "wigs.unbranded": "ブランドなし",
     "wigs.signals.one": "{count} 件の信号",
     "wigs.signals.other": "{count} 件の信号",

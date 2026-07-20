@@ -451,6 +451,7 @@
     "wigs.chip.library": "Biblioteka ({count})",
     "wigs.chip.yours": "Twoje ({count})",
     "wigs.library_version": "Biblioteka: infrared-protocols {version}",
+    "wigs.title": "Szafa HAIR",
     "wigs.unbranded": "Bez marki",
     "wigs.signals.one": "{count} sygnał",
     "wigs.signals.few": "{count} sygnały",

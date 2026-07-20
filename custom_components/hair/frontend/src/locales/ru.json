@@ -451,6 +451,7 @@
     "wigs.chip.library": "Библиотека ({count})",
     "wigs.chip.yours": "Ваши ({count})",
     "wigs.library_version": "Библиотека: infrared-protocols {version}",
+    "wigs.title": "Шкаф HAIR",
     "wigs.unbranded": "Без бренда",
     "wigs.signals.one": "{count} сигнал",
     "wigs.signals.few": "{count} сигнала",

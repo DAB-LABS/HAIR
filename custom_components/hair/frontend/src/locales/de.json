@@ -437,6 +437,7 @@
     "wigs.chip.library": "Bibliothek ({count})",
     "wigs.chip.yours": "Deine ({count})",
     "wigs.library_version": "Bibliothek: infrared-protocols {version}",
+    "wigs.title": "HAIR-Schrank",
     "wigs.unbranded": "Ohne Marke",
     "wigs.signals.one": "{count} Signal",
     "wigs.signals.other": "{count} Signale",
