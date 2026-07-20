@@ -8,11 +8,18 @@ from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util.percentage import (
+    ordered_list_item_to_percentage,
+    percentage_to_ordered_list_item,
+)
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
 
 _LOGGER = logging.getLogger(__name__)
+
+SPEED_COUNT = 10
+SPEED_KEYS = [f"speed_{i}" for i in range(1, SPEED_COUNT + 1)]
 
 
 async def async_setup_entry(
@@ -86,11 +93,20 @@ class HAIRFanEntity(FanEntity):
     def supported_features(self) -> FanEntityFeature:
         features = FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
         mapping = self._device.entity_config.command_mapping
-        if "speed_up" in mapping or "speed_down" in mapping:
+        if "speed_up" in mapping or "speed_down" in mapping or self._mapped_speed_steps(mapping):
             features |= FanEntityFeature.SET_SPEED
         if "oscillate" in mapping:
             features |= FanEntityFeature.OSCILLATE
         return features
+
+    @property
+    def speed_count(self) -> int:
+        mapping = self._device.entity_config.command_mapping
+        return len(self._mapped_speed_steps(mapping)) or SPEED_COUNT
+
+    @staticmethod
+    def _mapped_speed_steps(mapping: dict[str, str]) -> list[str]:
+        return [key for key in SPEED_KEYS if key in mapping]
 
     @property
     def is_on(self) -> bool:
@@ -122,6 +138,18 @@ class HAIRFanEntity(FanEntity):
         self.async_write_ha_state()
 
     async def async_set_percentage(self, percentage: int) -> None:
+        mapping = self._device.entity_config.command_mapping
+        speed_steps = self._mapped_speed_steps(mapping)
+        if speed_steps:
+            if percentage == 0:
+                await self.async_turn_off()
+                return
+            step = percentage_to_ordered_list_item(speed_steps, percentage)
+            await self._send(step)
+            self._percentage = ordered_list_item_to_percentage(speed_steps, step)
+            self.async_write_ha_state()
+            return
+
         target = percentage
         current = self._percentage or 0
         # Step toward target using speed_up / speed_down.

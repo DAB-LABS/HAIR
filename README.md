@@ -359,7 +359,7 @@ Devices automatically get native HA entities based on their type:
 |------|-----------|----------|
 | Media Player | `media_player` | Power, volume, mute, source, channels, navigation, transport |
 | AC | `climate` | HVAC modes, temperature presets, fan modes |
-| Fan | `fan` | Power, speed stepping, oscillate |
+| Fan | `fan` | Power, speed stepping or direct speed levels (1-10), oscillate |
 | Light | `light` | On/off, brightness stepping |
 | Switch | `switch` | On/off |
 | Screen | `cover` | Open, close, stop |
