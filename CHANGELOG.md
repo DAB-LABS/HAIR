@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Command vocabulary localizes end to end. Template names and action labels render in your language, an accepted template stores the localized name (your data, your language), and assign-time auto-mapping recognizes the vocabulary of every shipped language at once, so a command named "Allumer", "Einschalten", or "電源オン" wires itself the same way "Power On" always has.
 - Plural grammar done properly. Polish and Russian counts render through CLDR plural rules (1 sygnał / 2 sygnały / 5 sygnałów), not English-shaped if/else. Dates and timestamps follow the panel language too.
 - The Map action popover gains a Custom... entry: type any action key (temp_30, and the like) directly, no re-import needed to fix a mistyped mapping.
+- Nokia32 (RC-MM) decoding, the first guest decoder in the registry, contributed by @rohrsh with identity support for Foxtel boxes. Captured Nokia32 signals now carry decoded identities like the other seven local protocols.
 - A parity test suite makes translations safe to contribute: key parity, placeholder parity, brand-name preservation, and vocabulary coverage all fail CI before a stale or broken translation can ship blanks.
 
 ### Fixed
