@@ -2885,6 +2885,11 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            /* Ellipsize ~2 characters earlier so a full-width name never
+               runs under the corner glyph (owner catch, 2026-07-20: the
+               duplicate glyph zone reaches 27px in from the card edge,
+               the card's own padding only 12px). */
+            padding-right: 16px;
         }
         .card-meta {
             margin-top: 6px;
