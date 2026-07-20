@@ -112,6 +112,7 @@ export class IrSignalMonitor extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
     @state() private _saveWigDevice: UnknownDevice | null = null;
+    @state() private _deleteRemote: UnknownDevice | null = null;
     @state() private _error: string | null = null;
     // False when no receiver is configured (no native receiver, no bridge
     // events this session). Distinguishes "no receiver" from "no signals
@@ -1021,6 +1022,20 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
+
+    private async _confirmDeleteRemote(): Promise<void> {
+        const device = this._deleteRemote;
+        this._deleteRemote = null;
+        if (!device) return;
+        try {
+            await this.api.deleteSniffedRemote(device.id);
+            this._expandedId = null;
+        } catch (err) {
+            this._error = (err as Error).message;
+        }
+        await this._load();
+    }
+
     private async _dismiss(deviceId: string): Promise<void> {
         try {
             await this.api.dismissUnknown(deviceId);
@@ -1162,6 +1177,18 @@ export class IrSignalMonitor extends LitElement {
                           @closed=${this._closePromote}
                       ></ir-promote-dialog>
                   `
+                : ""}
+            ${this._deleteRemote
+                ? html`<ir-confirm-dialog
+                      title=${t("clips.del_remote_confirm_title")}
+                      message=${t("sniffer.del_remote_msg", {
+                          name: this._deleteRemote.label ?? "this remote",
+                      })}
+                      confirmLabel=${t("common.delete")}
+                      .destructive=${true}
+                      @confirmed=${this._confirmDeleteRemote}
+                      @closed=${() => (this._deleteRemote = null)}
+                  ></ir-confirm-dialog>`
                 : ""}
             ${this._saveWigDevice
                 ? html`<ir-save-wig-dialog
@@ -1401,15 +1428,6 @@ export class IrSignalMonitor extends LitElement {
             <div class="expanded">
                 <div class="signal-header">
                     <span>${t("sniffer.signals_head", { count: device.signals.length })}</span>
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = device;
-                        }}
-                    >
-                        ${t("wigs.save_as_wig")}
-                    </button>
                     <span class="first-seen">${t("sniffer.first_seen", { time: fmtTime(device.first_seen) })}</span>
                 </div>
                 <div class="signal-list">
@@ -1531,11 +1549,43 @@ export class IrSignalMonitor extends LitElement {
                         ),
                     )}
                 </div>
+            <div class="remote-footer">
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = device;
+                        }}
+                    >${t("wigs.save_as_wig")}</button>
+                    <button
+                        class="action-btn delete-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._deleteRemote = device;
+                        }}
+                    >${t("clips.delete_remote")}</button>
+                </div>
             </div>
         `;
     }
 
     static styles = [actionChipStyles, css`
+        .remote-footer {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            margin-top: 10px;
+            padding-right: 8px;
+        }
+        .save-wig-btn {
+            color: #8e3b3b;
+            border-color: #8e3b3b;
+        }
+        .save-wig-btn:hover:not(:disabled) {
+            background: rgba(142, 59, 59, 0.12);
+        }
+
         :host {
             display: block;
         }

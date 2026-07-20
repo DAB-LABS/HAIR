@@ -125,6 +125,9 @@ export class IrSaveWigDialog extends LitElement {
                         placeholder=${t("wigs.editor.notes_placeholder")}
                         @input=${(e: Event) =>
                             (this._notes = (e.target as HTMLInputElement).value)}
+                        @keydown=${(e: KeyboardEvent) => {
+                            if (e.key === "Enter") void this._save();
+                        }}
                     />
                 </div>
                 <div class="dialog-actions">

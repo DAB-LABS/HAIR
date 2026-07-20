@@ -441,7 +441,7 @@
     "vocab.up": "Góra",
     "vocab.volume_down": "Głośność -",
     "vocab.volume_up": "Głośność +",
-    "panel.tab.wigs": "Peruki",
+    "panel.tab.wigs": "Szafa",
     "panel.tagline.wigs": "Twoja szafa przenośnych zestawów kodów. Przymierz którąś, podziel się swoimi.",
     "wigs.drop.title": "Upuść plik .wig.json w dowolnym miejscu tej karty",
     "wigs.drop.hint": "Pliki trafiają do /config/hair/wigs/ i pojawiają się poniżej",
@@ -456,7 +456,7 @@
     "wigs.signals.few": "{count} sygnały",
     "wigs.signals.many": "{count} sygnałów",
     "wigs.signals.other": "{count} sygnału",
-    "wigs.try_on": "Przymierz",
+    "wigs.clip_it": "Przytnij",
     "wigs.tried_on": "Teraz na karcie Clipper jako {name}",
     "wigs.try_on_failed": "Nie udało się przymierzyć tej peruki: {message}",
     "wigs.edit": "Edytuj perukę",
@@ -484,5 +484,6 @@
     "wigs.saved_skipped": "Zapisano jako {filename} ({skipped} sygnałów bez kodu pominięto)",
     "wigs.export.heading": "Zapisz jako perukę",
     "wigs.export.brand_hint": "Marka utrzymuje porządek w szafie (opcjonalnie)",
-    "wigs.picker.local": "twoja peruka"
+    "wigs.picker.local": "twoja peruka",
+    "sniffer.del_remote_msg": "Usunąć \"{name}\" i jego sygnały? Pilot wróci, gdy znów zostanie usłyszany."
 }

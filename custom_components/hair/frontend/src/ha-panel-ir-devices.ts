@@ -221,7 +221,7 @@ export class HaPanelIrDevices extends LitElement {
                     Sniffer
                 </button>
                 <button
-                    class="tab ${this._activeTab === "clips" ? "active" : ""}"
+                    class="tab clipper-tab ${this._activeTab === "clips" ? "active" : ""}"
                     @click=${() => this._switchTab("clips")}
                 >
                     Clipper
@@ -427,6 +427,13 @@ export class HaPanelIrDevices extends LitElement {
         .tab.active {
             color: var(--primary-color);
             border-bottom-color: var(--primary-color);
+        }
+        /* The Clipper wears its copper in the tab bar too (owner bench
+           find, 2026-07-20: the active tab was default-blue while the
+           whole tab's content is copper). */
+        .tab.clipper-tab.active {
+            color: #b87333;
+            border-bottom-color: #b87333;
         }
         /* The Mirror wears silver (v0.6.6), matching its tab accent. */
         .tab.mirror-tab.active {

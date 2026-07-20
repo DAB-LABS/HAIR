@@ -427,7 +427,7 @@
     "vocab.up": "Haut",
     "vocab.volume_down": "Volume -",
     "vocab.volume_up": "Volume +",
-    "panel.tab.wigs": "Perruques",
+    "panel.tab.wigs": "Penderie",
     "panel.tagline.wigs": "Votre penderie de jeux de codes portables. Essayez-en une, partagez les vôtres.",
     "wigs.drop.title": "Déposez un .wig.json n'importe où sur cet onglet",
     "wigs.drop.hint": "Les fichiers vont dans /config/hair/wigs/ et apparaissent ci-dessous",
@@ -440,7 +440,7 @@
     "wigs.unbranded": "Sans marque",
     "wigs.signals.one": "{count} signal",
     "wigs.signals.other": "{count} signaux",
-    "wigs.try_on": "Essayer",
+    "wigs.clip_it": "Clipper",
     "wigs.tried_on": "Maintenant sur le Clipper sous le nom {name}",
     "wigs.try_on_failed": "Impossible d'essayer cette perruque : {message}",
     "wigs.edit": "Modifier la perruque",
@@ -468,5 +468,6 @@
     "wigs.saved_skipped": "Enregistré sous {filename} ({skipped} signaux sans code ont été laissés de côté)",
     "wigs.export.heading": "Enregistrer comme perruque",
     "wigs.export.brand_hint": "La marque garde la penderie organisée (facultatif)",
-    "wigs.picker.local": "votre perruque"
+    "wigs.picker.local": "votre perruque",
+    "sniffer.del_remote_msg": "Supprimer \"{name}\" et ses signaux ? La télécommande revient si elle est entendue à nouveau."
 }

@@ -427,7 +427,7 @@
     "vocab.up": "Arriba",
     "vocab.volume_down": "Volumen -",
     "vocab.volume_up": "Volumen +",
-    "panel.tab.wigs": "Pelucas",
+    "panel.tab.wigs": "Armario",
     "panel.tagline.wigs": "Tu armario de juegos de códigos portátiles. Pruébate uno, comparte los tuyos.",
     "wigs.drop.title": "Suelta un .wig.json en cualquier parte de esta pestaña",
     "wigs.drop.hint": "Los archivos van a /config/hair/wigs/ y aparecen abajo",
@@ -440,7 +440,7 @@
     "wigs.unbranded": "Sin marca",
     "wigs.signals.one": "{count} señal",
     "wigs.signals.other": "{count} señales",
-    "wigs.try_on": "Probar",
+    "wigs.clip_it": "Recortar",
     "wigs.tried_on": "Ahora en el Clipper como {name}",
     "wigs.try_on_failed": "No se pudo probar esta peluca: {message}",
     "wigs.edit": "Editar peluca",
@@ -468,5 +468,6 @@
     "wigs.saved_skipped": "Guardado como {filename} ({skipped} señales no tenían código y se omitieron)",
     "wigs.export.heading": "Guardar como peluca",
     "wigs.export.brand_hint": "La marca mantiene el armario organizado (opcional)",
-    "wigs.picker.local": "tu peluca"
+    "wigs.picker.local": "tu peluca",
+    "sniffer.del_remote_msg": "¿Eliminar \"{name}\" y sus señales? El mando vuelve si se escucha de nuevo."
 }

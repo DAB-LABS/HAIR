@@ -427,7 +427,7 @@
     "vocab.up": "Hoch",
     "vocab.volume_down": "Lautstärke -",
     "vocab.volume_up": "Lautstärke +",
-    "panel.tab.wigs": "Perücken",
+    "panel.tab.wigs": "Schrank",
     "panel.tagline.wigs": "Dein Schrank für portable Code-Sets. Probiere eine an, teile deine eigenen.",
     "wigs.drop.title": "Eine .wig.json irgendwo auf diesem Tab ablegen",
     "wigs.drop.hint": "Dateien landen in /config/hair/wigs/ und erscheinen unten",
@@ -440,7 +440,7 @@
     "wigs.unbranded": "Ohne Marke",
     "wigs.signals.one": "{count} Signal",
     "wigs.signals.other": "{count} Signale",
-    "wigs.try_on": "Anprobieren",
+    "wigs.clip_it": "Clippen",
     "wigs.tried_on": "Jetzt im Clipper als {name}",
     "wigs.try_on_failed": "Diese Perücke konnte nicht anprobiert werden: {message}",
     "wigs.edit": "Perücke bearbeiten",
@@ -468,5 +468,6 @@
     "wigs.saved_skipped": "Gespeichert als {filename} ({skipped} Signale ohne Code wurden ausgelassen)",
     "wigs.export.heading": "Als Perücke speichern",
     "wigs.export.brand_hint": "Die Marke hält den Schrank ordentlich (optional)",
-    "wigs.picker.local": "deine Perücke"
+    "wigs.picker.local": "deine Perücke",
+    "sniffer.del_remote_msg": "\"{name}\" und seine Signale löschen? Die Fernbedienung kehrt zurück, wenn sie wieder gehört wird."
 }

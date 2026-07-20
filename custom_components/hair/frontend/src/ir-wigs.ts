@@ -33,7 +33,6 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { HairApi } from "./api.js";
-import "./ir-confirm-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
@@ -482,18 +481,6 @@ export class IrWigs extends LitElement {
                 </div>`,
             )}
             ${this._renderEditor()}
-            ${this._confirmDelete
-                ? html`<ir-confirm-dialog
-                      title=${t("common.are_you_sure")}
-                      message=${t("wigs.delete_confirm", {
-                          filename: this._confirmDelete.filename,
-                      })}
-                      confirmLabel=${t("common.delete")}
-                      .destructive=${true}
-                      @confirmed=${this._confirmDeleteWig}
-                      @closed=${() => (this._confirmDelete = null)}
-                  ></ir-confirm-dialog>`
-                : ""}
         `;
     }
 
@@ -568,7 +555,7 @@ export class IrWigs extends LitElement {
                         ?disabled=${this._busyId === row.id}
                         @click=${() => this._tryOn(row)}
                     >
-                        ${t("wigs.try_on").toUpperCase()}
+                        ${t("wigs.clip_it").toUpperCase()}
                     </button>
                 </span>
             </div>
@@ -578,6 +565,40 @@ export class IrWigs extends LitElement {
     private _renderEditor() {
         const wig = this._editing;
         if (!wig) return "";
+        // The delete confirmation renders INSIDE this dialog: a second
+        // stacked ha-dialog lands behind the first (owner bench find,
+        // 2026-07-20), so the editor swaps its own content instead.
+        if (this._confirmDelete) {
+            return html`
+                <ha-dialog
+                    open
+                    heading=${t("common.are_you_sure")}
+                    scrimClickAction=""
+                    @closed=${() => (this._confirmDelete = null)}
+                >
+                    <div class="confirm-msg">
+                        ${t("wigs.delete_confirm", {
+                            filename: this._confirmDelete.filename,
+                        })}
+                    </div>
+                    <div class="editor-actions">
+                        <span class="spacer"></span>
+                        <button
+                            class="pop-btn"
+                            @click=${() => (this._confirmDelete = null)}
+                        >
+                            ${t("common.cancel")}
+                        </button>
+                        <button
+                            class="pop-btn del confirm-del"
+                            @click=${this._confirmDeleteWig}
+                        >
+                            ${t("common.delete")}
+                        </button>
+                    </div>
+                </ha-dialog>
+            `;
+        }
         return html`
             <ha-dialog
                 open
@@ -640,6 +661,22 @@ export class IrWigs extends LitElement {
                 </div>
                 <div class="editor-actions">
                     <button
+                        class="pop-btn del"
+                        @click=${() => (this._confirmDelete = wig)}
+                    >
+                        ${t("common.delete")}
+                    </button>
+                    <button class="pop-btn" @click=${this._download}>
+                        ${t("wigs.editor.download")}
+                    </button>
+                    <span class="spacer"></span>
+                    <button
+                        class="pop-btn"
+                        @click=${() => (this._editing = null)}
+                    >
+                        ${t("common.cancel")}
+                    </button>
+                    <button
                         class="pop-btn save"
                         ?disabled=${this._editBusy}
                         @click=${this._saveEdit}
@@ -647,15 +684,6 @@ export class IrWigs extends LitElement {
                         ${this._editBusy
                             ? t("common.saving")
                             : t("common.save")}
-                    </button>
-                    <button class="pop-btn" @click=${this._download}>
-                        ${t("wigs.editor.download")}
-                    </button>
-                    <button
-                        class="pop-btn del"
-                        @click=${() => (this._confirmDelete = wig)}
-                    >
-                        ${t("common.delete")}
                     </button>
                 </div>
             </ha-dialog>
@@ -911,10 +939,12 @@ export class IrWigs extends LitElement {
         .copy-glyph:hover {
             color: var(--wigs-accent);
         }
+        /* CLIP IT wears the Clipper's copper: the action's destination,
+           not the closet's own color (owner ruling, 2026-07-20 bench). */
         .try-btn {
             font-size: 12px;
             font-weight: 500;
-            color: var(--wigs-accent);
+            color: #b87333;
             background: none;
             border: none;
             letter-spacing: 0.4px;
@@ -1000,7 +1030,14 @@ export class IrWigs extends LitElement {
         }
         .pop-btn.del {
             color: var(--error-color, #c62828);
-            margin-left: auto;
+        }
+        .spacer {
+            flex: 1;
+        }
+        .confirm-msg {
+            padding: 4px 0 10px;
+            font-size: 13.5px;
+            line-height: 1.5;
         }
     `;
 }

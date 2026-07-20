@@ -915,15 +915,6 @@ export class IrClips extends LitElement {
                     >
                         ${t("clips.add_signal")}
                     </button>
-                    <button
-                        class="create-signal-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = device;
-                        }}
-                    >
-                        ${t("wigs.save_as_wig")}
-                    </button>
                 </div>
                 ${device.signals.length === 0
                     ? html`<div class="no-signals-row">
@@ -949,6 +940,13 @@ export class IrClips extends LitElement {
                           </div>
                       `}
                 <div class="remote-footer">
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = device;
+                        }}
+                    >${t("wigs.save_as_wig")}</button>
                     <button
                         class="action-btn delete-btn"
                         title=${t("clips.delete_remote_title")}
@@ -1231,6 +1229,18 @@ export class IrClips extends LitElement {
     }
 
     static styles = [actionChipStyles, css`
+        .remote-footer {
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+        .save-wig-btn {
+            color: #8e3b3b;
+            border-color: #8e3b3b;
+        }
+        .save-wig-btn:hover:not(:disabled) {
+            background: rgba(142, 59, 59, 0.12);
+        }
         .clips-root.wig-drag {
             outline: 2px dashed #8e3b3b;
             outline-offset: -2px;

@@ -427,7 +427,7 @@
     "vocab.up": "Omhoog",
     "vocab.volume_down": "Volume -",
     "vocab.volume_up": "Volume +",
-    "panel.tab.wigs": "Pruiken",
+    "panel.tab.wigs": "Kast",
     "panel.tagline.wigs": "Je kast met draagbare codesets. Pas er een, deel je eigen sets.",
     "wigs.drop.title": "Sleep een .wig.json ergens op dit tabblad",
     "wigs.drop.hint": "Bestanden komen in /config/hair/wigs/ en verschijnen hieronder",
@@ -440,7 +440,7 @@
     "wigs.unbranded": "Zonder merk",
     "wigs.signals.one": "{count} signaal",
     "wigs.signals.other": "{count} signalen",
-    "wigs.try_on": "Passen",
+    "wigs.clip_it": "Knippen",
     "wigs.tried_on": "Nu op de Clipper als {name}",
     "wigs.try_on_failed": "Kon deze pruik niet passen: {message}",
     "wigs.edit": "Pruik bewerken",
@@ -468,5 +468,6 @@
     "wigs.saved_skipped": "Opgeslagen als {filename} ({skipped} signalen zonder code zijn weggelaten)",
     "wigs.export.heading": "Opslaan als pruik",
     "wigs.export.brand_hint": "Een merk houdt de kast overzichtelijk (optioneel)",
-    "wigs.picker.local": "jouw pruik"
+    "wigs.picker.local": "jouw pruik",
+    "sniffer.del_remote_msg": "\"{name}\" en de bijbehorende signalen verwijderen? De afstandsbediening keert terug zodra deze weer wordt gehoord."
 }

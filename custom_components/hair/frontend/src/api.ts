@@ -591,6 +591,13 @@ export class HairApi {
         });
     }
 
+    deleteSniffedRemote(deviceId: string): Promise<{ deleted: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ deleted: boolean }>({
+            type: "hair/unknown/delete-remote",
+            device_id: deviceId,
+        });
+    }
+
     // --- Plucker (vendor code import) ---
 
     listPluckVendors(): Promise<{ vendors: PluckVendor[] }> {

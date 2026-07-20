@@ -427,7 +427,7 @@
     "vocab.up": "Su",
     "vocab.volume_down": "Volume -",
     "vocab.volume_up": "Volume +",
-    "panel.tab.wigs": "Parrucche",
+    "panel.tab.wigs": "Armadio",
     "panel.tagline.wigs": "Il tuo armadio di set di codici portatili. Provane una, condividi le tue.",
     "wigs.drop.title": "Trascina un .wig.json ovunque in questa scheda",
     "wigs.drop.hint": "I file finiscono in /config/hair/wigs/ e compaiono qui sotto",
@@ -440,7 +440,7 @@
     "wigs.unbranded": "Senza marca",
     "wigs.signals.one": "{count} segnale",
     "wigs.signals.other": "{count} segnali",
-    "wigs.try_on": "Prova",
+    "wigs.clip_it": "Ritaglia",
     "wigs.tried_on": "Ora nel Clipper come {name}",
     "wigs.try_on_failed": "Impossibile provare questa parrucca: {message}",
     "wigs.edit": "Modifica parrucca",
@@ -468,5 +468,6 @@
     "wigs.saved_skipped": "Salvato come {filename} ({skipped} segnali senza codice sono stati esclusi)",
     "wigs.export.heading": "Salva come parrucca",
     "wigs.export.brand_hint": "La marca tiene in ordine l'armadio (facoltativo)",
-    "wigs.picker.local": "la tua parrucca"
+    "wigs.picker.local": "la tua parrucca",
+    "sniffer.del_remote_msg": "Eliminare \"{name}\" e i suoi segnali? Il telecomando torna se viene sentito di nuovo."
 }

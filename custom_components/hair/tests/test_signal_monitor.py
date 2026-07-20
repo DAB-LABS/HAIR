@@ -284,6 +284,31 @@ async def test_import_manual_remote_merge_collapses_reimport():
     assert len(store.get_all_devices()) == 2
 
 
+@pytest.mark.asyncio
+async def test_delete_sniffed_remote_source_guard():
+    """The Sniffer's delete-remote removes sniffed devices only; clipped
+    remotes (and by extension the Mirror's echo device) are refused."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    sniffed = UnknownDevice(label="Remote 1", source="sniffed")
+    store.add_device(sniffed)
+    manual = UnknownDevice(label="Clipped", source="manual")
+    store.add_device(manual)
+
+    result = await monitor.delete_sniffed_remote(sniffed.id)
+    assert result["success"] is True
+    assert store.get_device(sniffed.id) is None
+
+    refused = await monitor.delete_sniffed_remote(manual.id)
+    assert refused["success"] is False
+    assert refused["code"] == "not_sniffed"
+    assert store.get_device(manual.id) is not None
+
+    missing = await monitor.delete_sniffed_remote("nope")
+    assert missing["success"] is False
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle tests
 # ---------------------------------------------------------------------------

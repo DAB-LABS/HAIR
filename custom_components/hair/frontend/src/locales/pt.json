@@ -427,7 +427,7 @@
     "vocab.up": "Cima",
     "vocab.volume_down": "Volume -",
     "vocab.volume_up": "Volume +",
-    "panel.tab.wigs": "Perucas",
+    "panel.tab.wigs": "Armário",
     "panel.tagline.wigs": "Seu armário de conjuntos de códigos portáteis. Experimente uma, compartilhe as suas.",
     "wigs.drop.title": "Solte um .wig.json em qualquer lugar desta aba",
     "wigs.drop.hint": "Os arquivos vão para /config/hair/wigs/ e aparecem abaixo",
@@ -440,7 +440,7 @@
     "wigs.unbranded": "Sem marca",
     "wigs.signals.one": "{count} sinal",
     "wigs.signals.other": "{count} sinais",
-    "wigs.try_on": "Experimentar",
+    "wigs.clip_it": "Recortar",
     "wigs.tried_on": "Agora no Clipper como {name}",
     "wigs.try_on_failed": "Não foi possível experimentar esta peruca: {message}",
     "wigs.edit": "Editar peruca",
@@ -468,5 +468,6 @@
     "wigs.saved_skipped": "Salvo como {filename} ({skipped} sinais sem código foram deixados de fora)",
     "wigs.export.heading": "Salvar como peruca",
     "wigs.export.brand_hint": "A marca mantém o armário organizado (opcional)",
-    "wigs.picker.local": "sua peruca"
+    "wigs.picker.local": "sua peruca",
+    "sniffer.del_remote_msg": "Excluir \"{name}\" e seus sinais? O controle volta se for ouvido novamente."
 }

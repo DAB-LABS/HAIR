@@ -441,7 +441,7 @@
     "vocab.up": "Вверх",
     "vocab.volume_down": "Громкость -",
     "vocab.volume_up": "Громкость +",
-    "panel.tab.wigs": "Парики",
+    "panel.tab.wigs": "Шкаф",
     "panel.tagline.wigs": "Ваш шкаф переносных наборов кодов. Примерьте один, поделитесь своими.",
     "wigs.drop.title": "Перетащите .wig.json в любое место этой вкладки",
     "wigs.drop.hint": "Файлы попадают в /config/hair/wigs/ и появляются ниже",
@@ -456,7 +456,7 @@
     "wigs.signals.few": "{count} сигнала",
     "wigs.signals.many": "{count} сигналов",
     "wigs.signals.other": "{count} сигнала",
-    "wigs.try_on": "Примерить",
+    "wigs.clip_it": "В Clipper",
     "wigs.tried_on": "Теперь в Clipper под именем {name}",
     "wigs.try_on_failed": "Не удалось примерить этот парик: {message}",
     "wigs.edit": "Редактировать парик",
@@ -484,5 +484,6 @@
     "wigs.saved_skipped": "Сохранено как {filename} (сигналы без кода пропущены: {skipped})",
     "wigs.export.heading": "Сохранить как парик",
     "wigs.export.brand_hint": "Бренд помогает держать шкаф в порядке (необязательно)",
-    "wigs.picker.local": "ваш парик"
+    "wigs.picker.local": "ваш парик",
+    "sniffer.del_remote_msg": "Удалить \"{name}\" и его сигналы? Пульт вернётся, если снова будет услышан."
 }

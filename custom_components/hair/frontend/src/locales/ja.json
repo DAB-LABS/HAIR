@@ -427,7 +427,7 @@
     "vocab.up": "上",
     "vocab.volume_down": "音量－",
     "vocab.volume_up": "音量＋",
-    "panel.tab.wigs": "ウィッグ",
+    "panel.tab.wigs": "クローゼット",
     "panel.tagline.wigs": "持ち運べるコードセットのクローゼット。試着したり、自分のものを共有したり。",
     "wigs.drop.title": ".wig.json をこのタブのどこにでもドロップ",
     "wigs.drop.hint": "ファイルは /config/hair/wigs/ に入り、下に表示されます",
@@ -440,7 +440,7 @@
     "wigs.unbranded": "ブランドなし",
     "wigs.signals.one": "{count} 件の信号",
     "wigs.signals.other": "{count} 件の信号",
-    "wigs.try_on": "試着",
+    "wigs.clip_it": "クリップ",
     "wigs.tried_on": "Clipper に {name} として追加されました",
     "wigs.try_on_failed": "このウィッグを試着できませんでした: {message}",
     "wigs.edit": "ウィッグを編集",
@@ -468,5 +468,6 @@
     "wigs.saved_skipped": "{filename} として保存しました (コードのない {skipped} 件の信号は除外)",
     "wigs.export.heading": "ウィッグとして保存",
     "wigs.export.brand_hint": "ブランドを入れるとクローゼットが整理されます (任意)",
-    "wigs.picker.local": "自分のウィッグ"
+    "wigs.picker.local": "自分のウィッグ",
+    "sniffer.del_remote_msg": "\"{name}\" とその信号を削除しますか? リモコンは再び受信されると戻ってきます。"
 }

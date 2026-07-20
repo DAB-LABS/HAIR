@@ -2503,6 +2503,27 @@ class SignalMonitor:
             await self._signal_store.async_save()
         return {"success": True, "alias": signal.alias}
 
+    async def delete_sniffed_remote(self, device_id: str) -> dict[str, Any]:
+        """Delete a sniffed remote and all its signals (owner ask, v0.7.0).
+
+        Sniffer resurrection semantics apply, same as per-row delete: the
+        remote returns on the next hearing of any of its signals, so
+        removal cannot lose the airwaves' truth. Restricted to sniffed
+        devices; clipped/plucked remotes have their own delete paths and
+        the Mirror's synthetic device must never be removable here.
+        """
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return {"success": False, "code": "device_not_found",
+                        "error": "Remote not found"}
+            if device.source != "sniffed":
+                return {"success": False, "code": "not_sniffed",
+                        "error": "Only sniffed remotes can be deleted here"}
+            self._signal_store.remove_device(device_id)
+            await self._signal_store.async_save()
+        return {"success": True}
+
     async def delete_manual_remote(self, device_id: str) -> dict[str, Any]:
         """Delete a clipped (manual) remote and any signals it holds.
 
