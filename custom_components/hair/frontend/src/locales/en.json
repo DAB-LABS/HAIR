@@ -38,7 +38,7 @@
     "common.name_required": "Name is required.",
     "common.creating": "Creating...",
     "common.device_name_placeholder": "e.g. Living Room TV",
-    "promote.heading": "Promote to Device",
+    "promote.heading": "Make HAIR Device",
     "promote.device_name": "Device name",
     "promote.device_name_required": "Device name is required.",
     "promote.emitter_required": "Select at least one IR emitter.",
@@ -328,7 +328,7 @@
     "sniffer.clear_all_confirm_title": "Clear All Signals",
     "sniffer.clear_all_confirm_msg": "Remove all unknown signals and devices? This cannot be undone.",
     "sniffer.hair_device": "HAIR Device",
-    "sniffer.promote": "Promote",
+    "sniffer.promote": "Make HAIR Device",
     "sniffer.dismissed": "dismissed",
     "sniffer.restore": "Restore",
     "sniffer.dismiss": "Dismiss",
@@ -469,5 +469,7 @@
     "wigs.export.heading": "Save as wig",
     "wigs.export.brand_hint": "Brand keeps the closet organized (optional)",
     "wigs.picker.local": "your wig",
-    "sniffer.del_remote_msg": "Delete \"{name}\" and its signals? The remote returns if it is heard again."
+    "sniffer.del_remote_msg": "Delete \"{name}\" and its signals? The remote returns if it is heard again.",
+    "sniffer.linked.one": "{count} HAIR device",
+    "sniffer.linked.other": "{count} HAIR devices"
 }

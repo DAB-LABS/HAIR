@@ -2004,3 +2004,17 @@ class TestEditSignalPronto:
             )
         assert res["success"] is False
         assert res["code"] == "invalid_pronto"
+
+
+@pytest.mark.asyncio
+async def test_mark_promoted_stamps_and_survives_missing():
+    """The identity promote link (v0.7.0): stamped on promote, no-op on
+    an unknown remote id."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    remote = UnknownDevice(label="Remote 1", source="sniffed")
+    store.add_device(remote)
+    await monitor.mark_promoted(remote.id, "hd42")
+    assert store.get_device(remote.id).promoted_to == "hd42"
+    await monitor.mark_promoted("nope", "hd42")

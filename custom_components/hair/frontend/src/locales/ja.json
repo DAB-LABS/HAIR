@@ -38,7 +38,7 @@
     "common.name_required": "名前は必須です。",
     "common.creating": "作成中...",
     "common.device_name_placeholder": "例：リビングのテレビ",
-    "promote.heading": "デバイスに昇格",
+    "promote.heading": "HAIRデバイスを作成",
     "promote.device_name": "デバイス名",
     "promote.device_name_required": "デバイス名は必須です。",
     "promote.emitter_required": "IRエミッターを1つ以上選択してください。",
@@ -328,7 +328,7 @@
     "sniffer.clear_all_confirm_title": "すべての信号をクリア",
     "sniffer.clear_all_confirm_msg": "すべての不明な信号とデバイスを削除しますか？元に戻せません。",
     "sniffer.hair_device": "HAIRデバイス",
-    "sniffer.promote": "昇格",
+    "sniffer.promote": "HAIRデバイスを作成",
     "sniffer.dismissed": "非表示",
     "sniffer.restore": "復元",
     "sniffer.dismiss": "非表示にする",
@@ -469,5 +469,7 @@
     "wigs.export.heading": "ウィッグとして保存",
     "wigs.export.brand_hint": "ブランドを入れるとクローゼットが整理されます (任意)",
     "wigs.picker.local": "自分のウィッグ",
-    "sniffer.del_remote_msg": "\"{name}\" とその信号を削除しますか? リモコンは再び受信されると戻ってきます。"
+    "sniffer.del_remote_msg": "\"{name}\" とその信号を削除しますか? リモコンは再び受信されると戻ってきます。",
+    "sniffer.linked.one": "{count} 台のHAIRデバイス",
+    "sniffer.linked.other": "{count} 台のHAIRデバイス"
 }

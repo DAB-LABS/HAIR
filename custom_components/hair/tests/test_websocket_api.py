@@ -1927,3 +1927,65 @@ async def test_reorder_unknown_signals_device_not_found(fake_hass):
     )
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "not_found"
+
+
+class TestLinkedHairDevices:
+    """The v0.7.0 identity-based promote linkage (promote-rename fix)."""
+
+    def _remote(self, **kw):
+        from custom_components.hair.models import UnknownDevice
+
+        return UnknownDevice(label="Remote 1", source="sniffed", **kw)
+
+    def test_promoted_to_resolves_live_name(self):
+        from custom_components.hair.websocket_api import _linked_hair_devices
+
+        target = MagicMock()
+        target.id = "hd1"
+        target.name = "Renamed Later"
+        remote = self._remote(promoted_to="hd1")
+        linked = _linked_hair_devices(remote, [], {"hd1": target})
+        assert linked == [
+            {"device_id": "hd1", "device_name": "Renamed Later"}
+        ]
+
+    def test_deleted_target_drops_out(self):
+        from custom_components.hair.websocket_api import _linked_hair_devices
+
+        remote = self._remote(promoted_to="gone")
+        assert _linked_hair_devices(remote, [], {}) == []
+
+    def test_assignment_targets_union_and_dedupe(self):
+        from custom_components.hair.identity import SignalIdentity
+        from custom_components.hair.models import UnknownSignal
+        from custom_components.hair.websocket_api import _linked_hair_devices
+
+        target = MagicMock()
+        target.id = "hd1"
+        target.name = "TV"
+        remote = self._remote(promoted_to="hd1")
+        remote.signals.append(UnknownSignal(fingerprint="S1L2"))
+        index = [
+            (
+                SignalIdentity(None, None, "S1L2"),
+                {
+                    "device_id": "hd2",
+                    "device_name": "Soundbar",
+                    "command_id": "c",
+                    "command_name": "Vol Up",
+                },
+            ),
+            (
+                SignalIdentity(None, None, "S1L2"),
+                {
+                    "device_id": "hd1",
+                    "device_name": "TV (stale name ok)",
+                    "command_id": "c2",
+                    "command_name": "Power",
+                },
+            ),
+        ]
+        linked = _linked_hair_devices(remote, index, {"hd1": target})
+        ids = {entry["device_id"] for entry in linked}
+        assert ids == {"hd1", "hd2"}
+

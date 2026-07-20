@@ -38,7 +38,7 @@
     "common.name_required": "Naam is verplicht.",
     "common.creating": "Aanmaken...",
     "common.device_name_placeholder": "bijv. Woonkamer-tv",
-    "promote.heading": "Promoveren tot apparaat",
+    "promote.heading": "HAIR-apparaat maken",
     "promote.device_name": "Apparaatnaam",
     "promote.device_name_required": "Apparaatnaam is verplicht.",
     "promote.emitter_required": "Selecteer minstens één IR-zender.",
@@ -328,7 +328,7 @@
     "sniffer.clear_all_confirm_title": "Alle signalen wissen",
     "sniffer.clear_all_confirm_msg": "Alle onbekende signalen en apparaten verwijderen? Dit kan niet ongedaan worden gemaakt.",
     "sniffer.hair_device": "HAIR-apparaat",
-    "sniffer.promote": "Promoveren",
+    "sniffer.promote": "HAIR-apparaat maken",
     "sniffer.dismissed": "verworpen",
     "sniffer.restore": "Herstellen",
     "sniffer.dismiss": "Verwerpen",
@@ -469,5 +469,7 @@
     "wigs.export.heading": "Opslaan als pruik",
     "wigs.export.brand_hint": "Een merk houdt de kast overzichtelijk (optioneel)",
     "wigs.picker.local": "jouw pruik",
-    "sniffer.del_remote_msg": "\"{name}\" en de bijbehorende signalen verwijderen? De afstandsbediening keert terug zodra deze weer wordt gehoord."
+    "sniffer.del_remote_msg": "\"{name}\" en de bijbehorende signalen verwijderen? De afstandsbediening keert terug zodra deze weer wordt gehoord.",
+    "sniffer.linked.one": "{count} HAIR-apparaat",
+    "sniffer.linked.other": "{count} HAIR-apparaten"
 }

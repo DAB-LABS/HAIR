@@ -211,6 +211,7 @@ async def ws_get_device(
     vol.Optional("model"): vol.Any(str, None),
     vol.Optional("capture_device_id"): vol.Any(str, None),
     vol.Optional("capture_provider_type"): str,
+    vol.Optional("promoted_from_unknown_id"): vol.Any(str, None),
 })
 @websocket_api.async_response
 async def ws_create_device(
@@ -249,6 +250,15 @@ async def ws_create_device(
         capture_provider_type=provider_type,
     )
     await manager.async_create_device(device)
+
+    # Identity-based promote linkage (v0.7.0): stamp the source sniffed
+    # remote with the new device's id so the Sniffer's linked chip and
+    # the promote state survive renames on either side.
+    source_unknown = msg.get("promoted_from_unknown_id")
+    if source_unknown:
+        monitor: SignalMonitor = data["signal_monitor"]
+        await monitor.mark_promoted(source_unknown, device.id)
+
     connection.send_result(msg["id"], _device_full(device))
 
 
@@ -1004,6 +1014,38 @@ def _augment_signals_with_assignments(
         sig["assigned_to"] = assigned
 
 
+def _linked_hair_devices(
+    device,
+    assignment_index: list[tuple[SignalIdentity, dict[str, str]]],
+    hair_by_id: dict[str, Any],
+) -> list[dict[str, str]]:
+    """The HAIR devices this catalog remote feeds, by identity.
+
+    Union of the stored promote link (resolved live by id, so renames
+    on either side never break it -- the GH promote-rename anomaly) and
+    every device any of the remote's signals is assigned into (the
+    many-to-many truth: one universal remote can feed several HAIR
+    devices). Deleted devices drop out naturally because resolution
+    fails.
+    """
+    linked: dict[str, str] = {}
+    if device.promoted_to:
+        target = hair_by_id.get(device.promoted_to)
+        if target is not None:
+            linked[target.id] = target.name
+    for sig in device.signals:
+        identity = SignalIdentity(
+            sig.decoded_fingerprint, sig.byte_hash, sig.fingerprint
+        )
+        for entry_identity, payload in assignment_index:
+            if identity.same_as(entry_identity):
+                linked[payload["device_id"]] = payload["device_name"]
+    return [
+        {"device_id": did, "device_name": name}
+        for did, name in linked.items()
+    ]
+
+
 def _unknown_device_summary(device) -> dict[str, Any]:
     """Build a summary dict for an unknown device."""
     return {
@@ -1050,9 +1092,18 @@ async def ws_get_unknown_devices(
         min_hits=msg.get("min_hits"),
         source=msg.get("source"),
     )
-    connection.send_result(
-        msg["id"], [_unknown_device_summary(d) for d in devices]
-    )
+    store = data.get("store")
+    hair_devices = store.get_all_devices() if store else []
+    index = _assignment_index(hair_devices)
+    hair_by_id = {d.id: d for d in hair_devices}
+    summaries = []
+    for d in devices:
+        summary = _unknown_device_summary(d)
+        summary["linked_devices"] = _linked_hair_devices(
+            d, index, hair_by_id
+        )
+        summaries.append(summary)
+    connection.send_result(msg["id"], summaries)
 
 
 @websocket_api.require_admin

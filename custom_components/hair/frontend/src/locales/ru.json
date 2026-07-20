@@ -38,7 +38,7 @@
     "common.name_required": "Название обязательно.",
     "common.creating": "Создание...",
     "common.device_name_placeholder": "напр. Телевизор в гостиной",
-    "promote.heading": "Повысить до устройства",
+    "promote.heading": "Создать устройство HAIR",
     "promote.device_name": "Название устройства",
     "promote.device_name_required": "Название устройства обязательно.",
     "promote.emitter_required": "Выберите хотя бы один ИК-передатчик.",
@@ -336,7 +336,7 @@
     "sniffer.clear_all_confirm_title": "Очистить все сигналы",
     "sniffer.clear_all_confirm_msg": "Убрать все неизвестные сигналы и устройства? Это нельзя отменить.",
     "sniffer.hair_device": "Устройство HAIR",
-    "sniffer.promote": "Повысить",
+    "sniffer.promote": "Создать устройство HAIR",
     "sniffer.dismissed": "скрыт",
     "sniffer.restore": "Восстановить",
     "sniffer.dismiss": "Скрыть",
@@ -485,5 +485,9 @@
     "wigs.export.heading": "Сохранить как парик",
     "wigs.export.brand_hint": "Бренд помогает держать шкаф в порядке (необязательно)",
     "wigs.picker.local": "ваш парик",
-    "sniffer.del_remote_msg": "Удалить \"{name}\" и его сигналы? Пульт вернётся, если снова будет услышан."
+    "sniffer.del_remote_msg": "Удалить \"{name}\" и его сигналы? Пульт вернётся, если снова будет услышан.",
+    "sniffer.linked.one": "{count} устройство HAIR",
+    "sniffer.linked.few": "{count} устройства HAIR",
+    "sniffer.linked.many": "{count} устройств HAIR",
+    "sniffer.linked.other": "{count} устройства HAIR"
 }

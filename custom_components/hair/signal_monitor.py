@@ -2503,6 +2503,16 @@ class SignalMonitor:
             await self._signal_store.async_save()
         return {"success": True, "alias": signal.alias}
 
+    async def mark_promoted(self, device_id: str, hair_device_id: str) -> None:
+        """Stamp a catalog remote with the HAIR device it was promoted
+        into (identity link; survives renames on both sides)."""
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return
+            device.promoted_to = hair_device_id
+            await self._signal_store.async_save()
+
     async def delete_sniffed_remote(self, device_id: str) -> dict[str, Any]:
         """Delete a sniffed remote and all its signals (owner ask, v0.7.0).
 

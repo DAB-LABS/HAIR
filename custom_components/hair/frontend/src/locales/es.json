@@ -38,7 +38,7 @@
     "common.name_required": "El nombre es obligatorio.",
     "common.creating": "Creando...",
     "common.device_name_placeholder": "ej. TV del salón",
-    "promote.heading": "Promover a dispositivo",
+    "promote.heading": "Crear dispositivo HAIR",
     "promote.device_name": "Nombre del dispositivo",
     "promote.device_name_required": "El nombre del dispositivo es obligatorio.",
     "promote.emitter_required": "Selecciona al menos un emisor IR.",
@@ -328,7 +328,7 @@
     "sniffer.clear_all_confirm_title": "Borrar todas las señales",
     "sniffer.clear_all_confirm_msg": "¿Quitar todas las señales y dispositivos desconocidos? No se puede deshacer.",
     "sniffer.hair_device": "Dispositivo HAIR",
-    "sniffer.promote": "Promover",
+    "sniffer.promote": "Crear dispositivo HAIR",
     "sniffer.dismissed": "descartado",
     "sniffer.restore": "Restaurar",
     "sniffer.dismiss": "Descartar",
@@ -469,5 +469,7 @@
     "wigs.export.heading": "Guardar como peluca",
     "wigs.export.brand_hint": "La marca mantiene el armario organizado (opcional)",
     "wigs.picker.local": "tu peluca",
-    "sniffer.del_remote_msg": "¿Eliminar \"{name}\" y sus señales? El mando vuelve si se escucha de nuevo."
+    "sniffer.del_remote_msg": "¿Eliminar \"{name}\" y sus señales? El mando vuelve si se escucha de nuevo.",
+    "sniffer.linked.one": "{count} dispositivo HAIR",
+    "sniffer.linked.other": "{count} dispositivos HAIR"
 }

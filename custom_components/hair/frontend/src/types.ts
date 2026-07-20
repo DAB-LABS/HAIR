@@ -282,6 +282,9 @@ export interface UnknownDeviceSummary {
     order?: number;
     vendor_entity_id?: string | null;
     appliance?: string | null;
+    // The HAIR devices this remote feeds (v0.7.0): stored promote link
+    // plus per-signal assignment targets, resolved live by id.
+    linked_devices?: { device_id: string; device_name: string }[];
 }
 
 export interface UnknownDevice {

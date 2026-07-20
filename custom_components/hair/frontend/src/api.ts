@@ -77,6 +77,7 @@ export class HairApi {
         model?: string | null;
         capture_device_id?: string | null;
         capture_provider_type?: string;
+        promoted_from_unknown_id?: string | null;
     }): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
             type: "hair/device/create",

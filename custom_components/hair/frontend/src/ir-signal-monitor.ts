@@ -113,6 +113,7 @@ export class IrSignalMonitor extends LitElement {
     @state() private _loading = true;
     @state() private _saveWigDevice: UnknownDevice | null = null;
     @state() private _deleteRemote: UnknownDevice | null = null;
+    @state() private _linkedPopoverId: string | null = null;
     @state() private _error: string | null = null;
     // False when no receiver is configured (no native receiver, no bridge
     // events this session). Distinguishes "no receiver" from "no signals
@@ -404,13 +405,6 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    /** Check if a label matches an existing HAIR device name (case-insensitive). */
-    private _matchesHairDevice(label: string | null): boolean {
-        if (!label) return false;
-        const lower = label.toLowerCase();
-        return this._hairDevices.some((d) => d.name.toLowerCase() === lower);
-    }
-
     private async _subscribeLive(): Promise<void> {
         try {
             this._unsubLive = await this.api.subscribeUnknownSignals((ev) => {
@@ -543,6 +537,65 @@ export class IrSignalMonitor extends LitElement {
     }
 
     /** Open promote dialog to create a HAIR device from this unknown device. */
+    /**
+     * The linked-devices chip (v0.7.0): identity truth instead of the
+     * old name-match badge. One linked device renders its live name and
+     * navigates on click; several render a count chip opening a small
+     * popover listing each with click-through. Computed server-side
+     * from the stored promote link plus per-signal assignment targets,
+     * so renames on either side never break it (the promote-rename
+     * anomaly, owner bench find).
+     */
+    private _renderLinkedChip(d: UnknownDeviceSummary) {
+        const linked = d.linked_devices ?? [];
+        if (linked.length === 0) return "";
+        if (linked.length === 1) {
+            const only = linked[0];
+            return html`<span
+                class="status-badge hair-device"
+                title=${only.device_name}
+                @click=${(e: Event) => {
+                    e.stopPropagation();
+                    this._navigateToDevice(only.device_id);
+                }}
+            >${only.device_name}</span>`;
+        }
+        return html`<span class="linked-wrap">
+            <span
+                class="status-badge hair-device"
+                @click=${(e: Event) => {
+                    e.stopPropagation();
+                    this._linkedPopoverId =
+                        this._linkedPopoverId === d.id ? null : d.id;
+                }}
+            >${tp("sniffer.linked", linked.length)}</span>
+            ${this._linkedPopoverId === d.id
+                ? html`<div class="linked-popover">
+                      ${linked.map(
+                          (entry) => html`<button
+                              class="linked-entry"
+                              @click=${(e: Event) => {
+                                  e.stopPropagation();
+                                  this._linkedPopoverId = null;
+                                  this._navigateToDevice(entry.device_id);
+                              }}
+                          >${entry.device_name}</button>`,
+                      )}
+                  </div>`
+                : ""}
+        </span>`;
+    }
+
+    private _navigateToDevice(deviceId: string): void {
+        this.dispatchEvent(
+            new CustomEvent("navigate-device", {
+                detail: deviceId,
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     private _promoteDevice(d: UnknownDeviceSummary, e: Event): void {
         e.stopPropagation();
         this._promoteTarget = d;
@@ -1173,6 +1226,7 @@ export class IrSignalMonitor extends LitElement {
                           .api=${this.api}
                           .hass=${this.hass}
                           .suggestedName=${this._promoteTarget.label ?? ""}
+                          .sourceUnknownId=${this._promoteTarget.id}
                           @device-created=${this._onDevicePromoted}
                           @closed=${this._closePromote}
                       ></ir-promote-dialog>
@@ -1376,17 +1430,13 @@ export class IrSignalMonitor extends LitElement {
                                 >
                                 <span class="stat last-seen" title=${fmtTime(d.last_seen)}>${relTime(d.last_seen)}</span>
                             </span>
-                            ${d.label && this._matchesHairDevice(d.label)
+                            ${this._renderLinkedChip(d)}
+                            ${d.label && !d.dismissed
                                 ? html`<span
-                                      class="status-badge hair-device"
-                                      @click=${(e: Event) => e.stopPropagation()}
-                                  >${t("sniffer.hair_device")}</span>`
-                                : d.label && !d.dismissed
-                                    ? html`<span
-                                          class="status-badge promote-badge"
-                                          @click=${(e: Event) => this._promoteDevice(d, e)}
-                                      >${t("sniffer.promote")}</span>`
-                                    : ""}
+                                      class="status-badge promote-badge"
+                                      @click=${(e: Event) => this._promoteDevice(d, e)}
+                                  >${t("sniffer.promote")}</span>`
+                                : ""}
                             ${d.device_address
                                 ? html`<span class="address">${t("sniffer.addr", { address: d.device_address })}</span>`
                                 : ""}
@@ -1570,6 +1620,38 @@ export class IrSignalMonitor extends LitElement {
     }
 
     static styles = [actionChipStyles, css`
+        .linked-wrap {
+            position: relative;
+            display: inline-flex;
+        }
+        .linked-popover {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            z-index: 30;
+            min-width: 160px;
+            background: var(--card-background-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+            padding: 4px;
+            display: flex;
+            flex-direction: column;
+        }
+        .linked-entry {
+            background: none;
+            border: none;
+            text-align: left;
+            padding: 7px 10px;
+            font-size: 12.5px;
+            color: var(--primary-text-color);
+            cursor: pointer;
+            border-radius: 6px;
+        }
+        .linked-entry:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
         .remote-footer {
             display: flex;
             justify-content: space-between;

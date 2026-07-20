@@ -38,7 +38,7 @@
     "common.name_required": "Nazwa jest wymagana.",
     "common.creating": "Tworzenie...",
     "common.device_name_placeholder": "np. Telewizor w salonie",
-    "promote.heading": "Awansuj na urządzenie",
+    "promote.heading": "Utwórz urządzenie HAIR",
     "promote.device_name": "Nazwa urządzenia",
     "promote.device_name_required": "Nazwa urządzenia jest wymagana.",
     "promote.emitter_required": "Wybierz co najmniej jeden nadajnik IR.",
@@ -336,7 +336,7 @@
     "sniffer.clear_all_confirm_title": "Wyczyść wszystkie sygnały",
     "sniffer.clear_all_confirm_msg": "Usunąć wszystkie nieznane sygnały i urządzenia? Nie można tego cofnąć.",
     "sniffer.hair_device": "Urządzenie HAIR",
-    "sniffer.promote": "Awansuj",
+    "sniffer.promote": "Utwórz urządzenie HAIR",
     "sniffer.dismissed": "odrzucony",
     "sniffer.restore": "Przywróć",
     "sniffer.dismiss": "Odrzuć",
@@ -485,5 +485,9 @@
     "wigs.export.heading": "Zapisz jako perukę",
     "wigs.export.brand_hint": "Marka utrzymuje porządek w szafie (opcjonalnie)",
     "wigs.picker.local": "twoja peruka",
-    "sniffer.del_remote_msg": "Usunąć \"{name}\" i jego sygnały? Pilot wróci, gdy znów zostanie usłyszany."
+    "sniffer.del_remote_msg": "Usunąć \"{name}\" i jego sygnały? Pilot wróci, gdy znów zostanie usłyszany.",
+    "sniffer.linked.one": "{count} urządzenie HAIR",
+    "sniffer.linked.few": "{count} urządzenia HAIR",
+    "sniffer.linked.many": "{count} urządzeń HAIR",
+    "sniffer.linked.other": "{count} urządzenia HAIR"
 }

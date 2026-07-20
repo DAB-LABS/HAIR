@@ -38,7 +38,7 @@
     "common.name_required": "Name ist erforderlich.",
     "common.creating": "Wird erstellt...",
     "common.device_name_placeholder": "z. B. Wohnzimmer-TV",
-    "promote.heading": "Zum Gerät befördern",
+    "promote.heading": "HAIR-Gerät erstellen",
     "promote.device_name": "Gerätename",
     "promote.device_name_required": "Gerätename ist erforderlich.",
     "promote.emitter_required": "Wähle mindestens einen IR-Sender.",
@@ -328,7 +328,7 @@
     "sniffer.clear_all_confirm_title": "Alle Signale löschen",
     "sniffer.clear_all_confirm_msg": "Alle unbekannten Signale und Geräte entfernen? Das kann nicht rückgängig gemacht werden.",
     "sniffer.hair_device": "HAIR-Gerät",
-    "sniffer.promote": "Befördern",
+    "sniffer.promote": "HAIR-Gerät erstellen",
     "sniffer.dismissed": "verworfen",
     "sniffer.restore": "Wiederherstellen",
     "sniffer.dismiss": "Verwerfen",
@@ -469,5 +469,7 @@
     "wigs.export.heading": "Als Perücke speichern",
     "wigs.export.brand_hint": "Die Marke hält den Schrank ordentlich (optional)",
     "wigs.picker.local": "deine Perücke",
-    "sniffer.del_remote_msg": "\"{name}\" und seine Signale löschen? Die Fernbedienung kehrt zurück, wenn sie wieder gehört wird."
+    "sniffer.del_remote_msg": "\"{name}\" und seine Signale löschen? Die Fernbedienung kehrt zurück, wenn sie wieder gehört wird.",
+    "sniffer.linked.one": "{count} HAIR-Gerät",
+    "sniffer.linked.other": "{count} HAIR-Geräte"
 }

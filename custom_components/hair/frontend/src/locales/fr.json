@@ -38,7 +38,7 @@
     "common.name_required": "Le nom est requis.",
     "common.creating": "Création...",
     "common.device_name_placeholder": "ex. TV du salon",
-    "promote.heading": "Promouvoir en appareil",
+    "promote.heading": "Créer un appareil HAIR",
     "promote.device_name": "Nom de l'appareil",
     "promote.device_name_required": "Le nom de l'appareil est requis.",
     "promote.emitter_required": "Sélectionnez au moins un émetteur IR.",
@@ -328,7 +328,7 @@
     "sniffer.clear_all_confirm_title": "Effacer tous les signaux",
     "sniffer.clear_all_confirm_msg": "Supprimer tous les signaux et appareils inconnus ? Cette action est irréversible.",
     "sniffer.hair_device": "Appareil HAIR",
-    "sniffer.promote": "Promouvoir",
+    "sniffer.promote": "Créer un appareil HAIR",
     "sniffer.dismissed": "ignorée",
     "sniffer.restore": "Restaurer",
     "sniffer.dismiss": "Ignorer",
@@ -469,5 +469,7 @@
     "wigs.export.heading": "Enregistrer comme perruque",
     "wigs.export.brand_hint": "La marque garde la penderie organisée (facultatif)",
     "wigs.picker.local": "votre perruque",
-    "sniffer.del_remote_msg": "Supprimer \"{name}\" et ses signaux ? La télécommande revient si elle est entendue à nouveau."
+    "sniffer.del_remote_msg": "Supprimer \"{name}\" et ses signaux ? La télécommande revient si elle est entendue à nouveau.",
+    "sniffer.linked.one": "{count} appareil HAIR",
+    "sniffer.linked.other": "{count} appareils HAIR"
 }
