@@ -217,3 +217,74 @@ class TestLirc:
         result = convert(text)
         assert result.wigs == []
         assert any("zero" in r or "missing" in r for r in result.skipped)
+
+
+class TestGirr:
+    def test_sniffed(self):
+        assert sniff_format(
+            _fixture("girr_irscrutinizer_export.girr")
+        ) == "girr"
+
+    def test_two_remotes_two_wigs(self):
+        result = convert(_fixture("girr_irscrutinizer_export.girr"))
+        assert result.format == "girr"
+        assert result.error is None
+        assert [w.name for w in result.wigs] == [
+            "Onkyo TX-NR616", "philips_rc5_tv",
+        ]
+
+    def test_ccf_is_verbatim_pronto(self):
+        result = convert(_fixture("girr_irscrutinizer_export.girr"))
+        onkyo = result.wigs[0]
+        assert onkyo.brand == "Onkyo"
+        assert onkyo.model == "TX-NR616"
+        assert onkyo.origin == "converted:girr"
+        power = next(s for s in onkyo.signals if s.alias == "Power Toggle")
+        # The <ccf> text is learned-format Pronto already; the adapter
+        # only normalizes whitespace, never re-times it.
+        assert power.pronto.startswith("0000 006C 0022 0002 015B 00AD")
+        assert power.pronto.endswith("0016 06A4 015B 0057 0016 0E6C")
+        assert validate_pronto(power.pronto)
+        volume = next(s for s in onkyo.signals if s.alias == "Volume Up")
+        assert validate_pronto(volume.pronto)
+
+    def test_raw_intro_synthesized(self):
+        result = convert(_fixture("girr_irscrutinizer_export.girr"))
+        onkyo = result.wigs[0]
+        dvd = next(s for s in onkyo.signals if s.alias == "Input Dvd")
+        assert dvd.pronto.startswith("0000")
+        assert validate_pronto(dvd.pronto)
+
+    def test_raw_flash_gap_repeat_only(self):
+        result = convert(_fixture("girr_irscrutinizer_export.girr"))
+        philips = result.wigs[1]
+        mute = next(s for s in philips.signals if s.alias == "Mute")
+        assert validate_pronto(mute.pronto)
+
+    def test_parameters_only_skips_with_reason(self):
+        result = convert(_fixture("girr_irscrutinizer_export.girr"))
+        assert any(
+            "Setup" in reason and "re-export" in reason
+            for reason in result.skipped
+        )
+        assert any("Empty One" in reason for reason in result.skipped)
+
+    def test_result_round_trips_as_wig(self):
+        result = convert(_fixture("girr_irscrutinizer_export.girr"))
+        for wig in result.wigs:
+            assert parse_wig(serialize_wig(wig)).ok
+
+    def test_malformed_xml_errors(self):
+        broken = "<remotes girrVersion='1.2'><remote name='x'"
+        assert sniff_format(broken) == "girr"
+        result = convert(broken)
+        assert result.error is not None
+        assert "XML" in result.error
+
+    def test_no_remotes_errors(self):
+        text = (
+            "<girr xmlns='http://www.harctoolbox.org/Girr'"
+            " girrVersion='1.2'></girr>"
+        )
+        result = convert(text)
+        assert result.error == "no <remote> elements in this Girr file"

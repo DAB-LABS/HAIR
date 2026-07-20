@@ -429,7 +429,7 @@
     "vocab.volume_up": "Volume +",
     "panel.tab.wigs": "Armário",
     "panel.tagline.wigs": "Seu armário de conjuntos de códigos portáteis. Experimente uma, compartilhe as suas.",
-    "wigs.drop.title": "Solte um arquivo de peruca, SmartIR, Flipper ou LIRC em qualquer lugar desta aba",
+    "wigs.drop.title": "Solte um arquivo de peruca, SmartIR, Flipper, LIRC ou Girr em qualquer lugar desta aba",
     "wigs.drop.hint": "Os arquivos vão para /config/hair/wigs/ e aparecem abaixo",
     "wigs.drop.browse": "Procurar...",
     "wigs.search": "Buscar marcas e controles...",

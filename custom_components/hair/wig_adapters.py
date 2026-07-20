@@ -6,11 +6,14 @@ a list of Wig objects stamped ``origin: "converted:<format>"`` so a
 database conversion never masquerades as hardware-proven codes.
 
 v0.7.0 ships the drop-file adapters whose formats were verified against
-real files: SmartIR (media_player/fan), Flipper Zero ``.ir``, and LIRC
-``lircd.conf``. SmartIR climate files are rejected with a clear reason
-(state matrices, not buttons -- plan section 8). The Broadlink scan and
-CSV wizard follow in 0.7.x (they need their own UI); RMBridge waits for
-a genuine sample export to exist.
+real files: SmartIR (media_player/fan), Flipper Zero ``.ir``, LIRC
+``lircd.conf``, and Girr (IrScrutinizer's XML interchange -- one door
+that buys the whole harctoolbox funnel, since IrScrutinizer normalizes
+IRDB, Pronto CCF, CML, JP1, and more into Girr-with-Pronto). SmartIR
+climate files are rejected with a clear reason (state matrices, not
+buttons -- plan section 8). The Broadlink scan and CSV wizard follow in
+0.7.x (they need their own UI); RMBridge waits for a genuine sample
+export to exist.
 
 Nothing here does I/O; the WS layer owns files. Conversion is
 defensive: a signal that cannot convert is skipped WITH A REASON, and
@@ -52,9 +55,14 @@ class AdapterResult:
 
 def sniff_format(text: str) -> str | None:
     """Identify a dropped file: "smartir" | "smartir_climate" |
-    "flipper" | "lirc" | None (wig files are handled before this by
-    ``parse_wig``; None means nothing recognized)."""
+    "flipper" | "lirc" | "girr" | None (wig files are handled before
+    this by ``parse_wig``; None means nothing recognized)."""
     stripped = text.lstrip()
+    if stripped.startswith("<") and (
+        "harctoolbox.org/Girr" in text
+        or "girrVersion" in text
+    ):
+        return "girr"
     if stripped.startswith("{"):
         try:
             data = json.loads(text)
@@ -97,6 +105,8 @@ def convert(text: str, name_hint: str = "") -> AdapterResult:
         return _convert_flipper(text, name_hint)
     if fmt == "lirc":
         return _convert_lirc(text, name_hint)
+    if fmt == "girr":
+        return _convert_girr(text, name_hint)
     return AdapterResult(format="unknown", error="not a recognized format")
 
 
@@ -618,8 +628,157 @@ class _LircSpaceEnc:
         return out
 
 
+# --- Girr (IrScrutinizer / harctoolbox XML interchange) ---
+
+# Each <command> carries up to three representations (parameters | raw
+# | ccf); <ccf> is VERBATIM learned-format Pronto, which is exactly
+# what wigs store, so the happy path is a straight copy. raw is
+# synthesized mechanically; parameters-only commands would need IRP
+# rendering and are skipped with a pointer at IrScrutinizer's own
+# Pronto export (research/irscrutinizer.md).
+
+_PRONTO_WORD = re.compile(r"^[0-9A-Fa-f]{4}$")
+
+
+def _girr_local(tag: object) -> str:
+    """Namespace-blind local tag name."""
+    return str(tag).rpartition("}")[2]
+
+
+def _girr_children(element, name: str):
+    return [c for c in element.iter() if _girr_local(c.tag) == name]
+
+
+def _girr_ccf(command) -> str | None:
+    """First <ccf> normalized to one-line uppercase Pronto, or None."""
+    for ccf in _girr_children(command, "ccf"):
+        words = (ccf.text or "").split()
+        if len(words) >= 6 and all(_PRONTO_WORD.match(w) for w in words):
+            return " ".join(w.upper() for w in words)
+    return None
+
+
+def _girr_sequence_timings(sequence) -> list[int]:
+    """One <intro>/<repeat> to signed microseconds. Handles both the
+    flat text form (``+9024 -4512 ...``) and <flash>/<gap> children."""
+    timings: list[int] = []
+    flat = "".join(sequence.itertext())
+    for child in sequence:
+        local = _girr_local(child.tag)
+        if local == "flash":
+            timings.append(abs(int(float(child.text or "0"))))
+        elif local == "gap":
+            timings.append(-abs(int(float(child.text or "0"))))
+    if timings:
+        return timings
+    values = re.findall(r"[+-]?\d+", flat)
+    return [
+        abs(int(v)) if i % 2 == 0 else -abs(int(v))
+        for i, v in enumerate(values)
+    ]
+
+
+def _girr_raw_pronto(command) -> tuple[str | None, str | None]:
+    """(pronto, caveat) from a <raw> element, or (None, None)."""
+    for raw in _girr_children(command, "raw"):
+        try:
+            frequency = int(float(raw.get("frequency") or 38000))
+        except ValueError:
+            frequency = 38000
+        intro = repeat = None
+        has_ending = False
+        for child in raw:
+            local = _girr_local(child.tag)
+            if local == "intro":
+                intro = child
+            elif local == "repeat":
+                repeat = child
+            elif local == "ending":
+                has_ending = True
+        # The intro is the complete one-shot frame for nearly every
+        # protocol; repeat-only remotes (RC5 style) fall back to one
+        # repeat frame. Endings are inexpressible in Pronto.
+        timings = _girr_sequence_timings(intro) if intro is not None else []
+        if not timings and repeat is not None:
+            timings = _girr_sequence_timings(repeat)
+        if len(timings) < 2:
+            continue
+        caveat = (
+            "'ending' sequence dropped (inexpressible in Pronto)"
+            if has_ending else None
+        )
+        return raw_to_pronto(timings, frequency=frequency), caveat
+    return None, None
+
+
+def _convert_girr(text: str, name_hint: str) -> AdapterResult:
+    import xml.etree.ElementTree as ET
+
+    result = AdapterResult(format="girr")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as err:
+        result.error = f"not well-formed XML ({err})"
+        return result
+
+    remotes = _girr_children(root, "remote")
+    if not remotes:
+        result.error = "no <remote> elements in this Girr file"
+        return result
+
+    for remote in remotes:
+        remote_name = (
+            remote.get("displayName") or remote.get("name") or ""
+        ).strip() or _stem(name_hint) or "Girr Import"
+        manufacturer = (remote.get("manufacturer") or "").strip()
+        model = (remote.get("model") or "").strip()
+        signals: list[WigSignal] = []
+        for command in _girr_children(remote, "command"):
+            cmd_name = (command.get("name") or "").strip()
+            alias = _humanize_key(cmd_name) if cmd_name \
+                else f"Signal {len(signals) + 1}"
+            pronto = _girr_ccf(command)
+            if pronto is None:
+                pronto, caveat = _girr_raw_pronto(command)
+                if pronto is not None and caveat:
+                    result.skipped.append(
+                        f"{remote_name}/{alias}: {caveat}"
+                    )
+            if pronto is None:
+                if _girr_children(command, "parameters"):
+                    result.skipped.append(
+                        f"{remote_name}/{alias}: protocol-parameter "
+                        "command with no ccf or raw timings -- "
+                        "re-export from IrScrutinizer with Pronto "
+                        "included"
+                    )
+                else:
+                    result.skipped.append(
+                        f"{remote_name}/{alias}: no usable "
+                        "representation"
+                    )
+                continue
+            signals.append(WigSignal(alias=alias, pronto=pronto))
+        if not signals:
+            result.skipped.append(f"{remote_name}: nothing convertible")
+            continue
+        result.wigs.append(Wig(
+            name=remote_name,
+            signals=signals,
+            brand=manufacturer or None,
+            model=model or None,
+            notes="Imported from a Girr file (IrScrutinizer)",
+            origin="converted:girr",
+        ))
+    if not result.wigs:
+        result.error = result.error or (
+            "no convertible remotes in this Girr file"
+        )
+    return result
+
+
 def _stem(name_hint: str) -> str:
-    stem = re.sub(r"\.(ir|json|conf|txt)$", "", name_hint.strip(),
+    stem = re.sub(r"\.(ir|json|conf|txt|girr|xml)$", "", name_hint.strip(),
                   flags=re.IGNORECASE)
     stem = stem.replace("_", " ").replace("-", " ").strip()
     return stem.title() if stem else ""

@@ -462,7 +462,8 @@ export class IrWigs extends LitElement {
     private _browse(): void {
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = ".json,.ir,.conf,application/json,text/plain";
+        input.accept =
+            ".json,.ir,.conf,.girr,.xml,application/json,text/plain";
         input.multiple = true;
         input.onchange = async () => {
             for (const file of Array.from(input.files ?? [])) {

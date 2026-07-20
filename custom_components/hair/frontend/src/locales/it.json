@@ -429,7 +429,7 @@
     "vocab.volume_up": "Volume +",
     "panel.tab.wigs": "Armadio",
     "panel.tagline.wigs": "Il tuo armadio di set di codici portatili. Provane una, condividi le tue.",
-    "wigs.drop.title": "Trascina un file parrucca, SmartIR, Flipper o LIRC ovunque in questa scheda",
+    "wigs.drop.title": "Trascina un file parrucca, SmartIR, Flipper, LIRC o Girr ovunque in questa scheda",
     "wigs.drop.hint": "I file finiscono in /config/hair/wigs/ e compaiono qui sotto",
     "wigs.drop.browse": "Sfoglia...",
     "wigs.search": "Cerca marche e telecomandi...",

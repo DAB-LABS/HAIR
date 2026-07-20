@@ -429,7 +429,7 @@
     "vocab.volume_up": "Volume Up",
     "panel.tab.wigs": "Closet",
     "panel.tagline.wigs": "Your closet of portable code sets. Try one on, share your own.",
-    "wigs.drop.title": "Drop a wig, SmartIR, Flipper, or LIRC file anywhere on this tab",
+    "wigs.drop.title": "Drop a wig, SmartIR, Flipper, LIRC, or Girr file anywhere on this tab",
     "wigs.drop.hint": "Files land in /config/hair/wigs/ and appear below",
     "wigs.drop.browse": "Browse...",
     "wigs.search": "Search brands and remotes...",

@@ -443,7 +443,7 @@
     "vocab.volume_up": "Громкость +",
     "panel.tab.wigs": "Шкаф",
     "panel.tagline.wigs": "Ваш шкаф переносных наборов кодов. Примерьте один, поделитесь своими.",
-    "wigs.drop.title": "Перетащите файл парика, SmartIR, Flipper или LIRC в любое место этой вкладки",
+    "wigs.drop.title": "Перетащите файл парика, SmartIR, Flipper, LIRC или Girr в любое место этой вкладки",
     "wigs.drop.hint": "Файлы попадают в /config/hair/wigs/ и появляются ниже",
     "wigs.drop.browse": "Обзор...",
     "wigs.search": "Поиск брендов и пультов...",

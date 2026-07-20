@@ -429,7 +429,7 @@
     "vocab.volume_up": "Volume +",
     "panel.tab.wigs": "Kast",
     "panel.tagline.wigs": "Je kast met draagbare codesets. Pas er een, deel je eigen sets.",
-    "wigs.drop.title": "Sleep een pruik-, SmartIR-, Flipper- of LIRC-bestand ergens op dit tabblad",
+    "wigs.drop.title": "Sleep een pruik-, SmartIR-, Flipper-, LIRC- of Girr-bestand ergens op dit tabblad",
     "wigs.drop.hint": "Bestanden komen in /config/hair/wigs/ en verschijnen hieronder",
     "wigs.drop.browse": "Bladeren...",
     "wigs.search": "Zoek merken en afstandsbedieningen...",

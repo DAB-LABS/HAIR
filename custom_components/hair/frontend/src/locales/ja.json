@@ -429,7 +429,7 @@
     "vocab.volume_up": "音量＋",
     "panel.tab.wigs": "クローゼット",
     "panel.tagline.wigs": "持ち運べるコードセットのクローゼット。試着したり、自分のものを共有したり。",
-    "wigs.drop.title": "ウィッグ、SmartIR、Flipper、LIRC のファイルをこのタブのどこにでもドロップ",
+    "wigs.drop.title": "ウィッグ、SmartIR、Flipper、LIRC、Girr のファイルをこのタブのどこにでもドロップ",
     "wigs.drop.hint": "ファイルは /config/hair/wigs/ に入り、下に表示されます",
     "wigs.drop.browse": "参照...",
     "wigs.search": "ブランドとリモコンを検索...",
