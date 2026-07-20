@@ -52,11 +52,25 @@ When HAIR can read a captured signal as a known protocol (NEC today), it also st
 
 | Devices Overview | Device Detail |
 |:---:|:---:|
-| ![Devices overview showing HAIR Devices, Triggers, Emitters, Receivers, and Proxies](images/screenshots/devices-overview.png) | ![Device detail with learned commands, S/L fingerprints, and trigger buttons](images/screenshots/device-detail.png) |
+| ![Devices overview showing HAIR Devices, Triggers, Emitters, Receivers, and Proxies](images/screenshots/devices-overview.png) | ![Device detail with learned commands, S/L fingerprints, localized action badges, and trigger buttons](images/screenshots/device-detail.png) |
+
+| Same shop, your language |
+|:---:|
+| ![The same device detail rendered in Japanese, with translated action badges and buttons while the Sniffer, Clipper, and Mirror tab names stay put](images/screenshots/device-detail-ja.png) |
+
+That is the same device as the Device Detail shot above, after nothing but a profile-language change. Set your Home Assistant language and the whole panel follows; ten languages ship in the box.
+
+| The Mirror |
+|:---:|
+| ![Mirror tab logging every HA-originated IR send with provenance chips, heard-by areas, and send counts](images/screenshots/mirror-tab.png) |
 
 | Action Mapping | Sniffer |
 |:---:|:---:|
-| ![Action mapping popover for binding commands to HA entity features](images/screenshots/action-mapping.png) | ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png) |
+| ![Action mapping popover with mode and fan options plus the free-form custom action entry](images/screenshots/action-mapping.png) | ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png) |
+
+| Assigned Popover | Trigger Popover |
+|:---:|:---:|
+| ![Assigned popover listing every device command a signal is bound to, with click-through navigation](images/screenshots/assigned-popover.png) | ![Trigger popover listing the automations a signal fires, with a new trigger shortcut](images/screenshots/trigger-popover.png) |
 
 | Assign Signal | Create Trigger | Promote Device |
 |:---:|:---:|:---:|

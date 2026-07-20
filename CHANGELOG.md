@@ -5,6 +5,16 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] - 2026-07-20 -- Trim
+
+### Fixed
+
+- The panel footer reported v0.6.7 on v0.6.8 installs. The version constant in the panel source missed the release bump; it now reads the shipped version, and a new test pins the footer constant and the compiled bundle to manifest.json so the footer can never drift from the real version again.
+
+### Changed
+
+- Fresh README screenshots: the device detail and action mapping shots now show the current UI (including the Custom... action entry), the Mirror tab appears in the README for the first time, the assigned and trigger popovers get a row, and a Japanese panel screenshot shows the ten-language support doing its job.
+
 ## [0.6.8] - 2026-07-19 -- French Braid
 
 ### Added
