@@ -43,4 +43,4 @@ Kompletny README, z YAML-em konfiguracji, obsługiwanym sprzętem, przewodnikami
 
 ---
 
-*Przetłumaczone z angielskiego README, stan na v0.7.0. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Przetłumaczone z angielskiego README, stan na v0.7.1. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*

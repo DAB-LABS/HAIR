@@ -474,21 +474,32 @@ class DeviceManager:
             for emitter_id in device.emitter_entity_ids:
                 await gated_send(self._hass, emitter_id, ir_cmd, ir_send)
 
-        # RC-5-family toggle state (v0.6.0): one send-command call is one
-        # logical press, so flip once after the full emitter loop completes
-        # without raising -- send_count > 1 deliberately re-sends the same
-        # toggle. The decoded fingerprint excludes toggle, so the reverse
+        # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
+        # one send-command call is one logical press, so advance once
+        # after the full emitter loop completes without raising --
+        # send_count > 1 deliberately re-sends the same state. The
+        # decoded fingerprint excludes both fields, so the reverse
         # index is unaffected and a bare save is safe.
-        if (
-            decoded_tx
-            and command.decoded_extras
-            and "toggle" in command.decoded_extras
-        ):
-            command.decoded_extras["toggle"] = (
-                int(command.decoded_extras["toggle"]) ^ 1
-            )
-            self._store.update_device(device)
-            await self._store.async_save()
+        # - RC-5-family toggle: flips 0/1 per press.
+        # - Dyson rolling counter: increments mod 4 per press. The fan
+        #   rejects a frame reusing its last-seen counter (GH #33), so
+        #   advancing AFTER each send guarantees consecutive HAIR
+        #   presses always differ.
+        if decoded_tx and command.decoded_extras:
+            advanced = False
+            if "toggle" in command.decoded_extras:
+                command.decoded_extras["toggle"] = (
+                    int(command.decoded_extras["toggle"]) ^ 1
+                )
+                advanced = True
+            if "counter" in command.decoded_extras:
+                command.decoded_extras["counter"] = (
+                    int(command.decoded_extras["counter"]) + 1
+                ) & 0x3
+                advanced = True
+            if advanced:
+                self._store.update_device(device)
+                await self._store.async_save()
 
     async def async_set_command_tx_force_raw(
         self, device_id: str, command_id: str, tx_force_raw: bool
