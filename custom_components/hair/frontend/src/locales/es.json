@@ -475,6 +475,6 @@
     "wigs.upload_partial": "{count} señales no se pudieron convertir",
     "wigs.receipt.hung": "{name} colgado bajo {brand}",
     "wigs.receipt.duplicate": "{name} colgado bajo {brand}: ya había una peluca idéntica",
-    "wigs.count.one": "{count} peluca",
-    "wigs.count.other": "{count} pelucas"
+    "wigs.count.one": "{count} dispositivo",
+    "wigs.count.other": "{count} dispositivos"
 }

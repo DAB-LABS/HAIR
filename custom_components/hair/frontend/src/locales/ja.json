@@ -475,6 +475,6 @@
     "wigs.upload_partial": "{count} 件の信号は変換できませんでした",
     "wigs.receipt.hung": "{name} を {brand} に掛けました",
     "wigs.receipt.duplicate": "{name} を {brand} に掛けました(同じウィッグが既にあります)",
-    "wigs.count.one": "{count} 個のウィッグ",
-    "wigs.count.other": "{count} 個のウィッグ"
+    "wigs.count.one": "{count} 台のデバイス",
+    "wigs.count.other": "{count} 台のデバイス"
 }

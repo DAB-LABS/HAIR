@@ -475,6 +475,6 @@
     "wigs.upload_partial": "{count} Signale konnten nicht konvertiert werden",
     "wigs.receipt.hung": "{name} hängt jetzt unter {brand}",
     "wigs.receipt.duplicate": "{name} hängt jetzt unter {brand} (eine identische Perücke war schon da)",
-    "wigs.count.one": "{count} Perücke",
-    "wigs.count.other": "{count} Perücken"
+    "wigs.count.one": "{count} Gerät",
+    "wigs.count.other": "{count} Geräte"
 }

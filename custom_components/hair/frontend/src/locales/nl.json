@@ -475,6 +475,6 @@
     "wigs.upload_partial": "{count} signalen konden niet worden geconverteerd",
     "wigs.receipt.hung": "{name} hangt nu onder {brand}",
     "wigs.receipt.duplicate": "{name} hangt nu onder {brand} (er hing al een identieke pruik)",
-    "wigs.count.one": "{count} pruik",
-    "wigs.count.other": "{count} pruiken"
+    "wigs.count.one": "{count} apparaat",
+    "wigs.count.other": "{count} apparaten"
 }

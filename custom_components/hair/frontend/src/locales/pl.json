@@ -493,8 +493,8 @@
     "wigs.upload_partial": "{count} sygnałów nie udało się przekonwertować",
     "wigs.receipt.hung": "{name} zawieszono pod {brand}",
     "wigs.receipt.duplicate": "{name} zawieszono pod {brand} (identyczna peruka już tu była)",
-    "wigs.count.one": "{count} peruka",
-    "wigs.count.few": "{count} peruki",
-    "wigs.count.many": "{count} peruk",
-    "wigs.count.other": "{count} peruki"
+    "wigs.count.one": "{count} urządzenie",
+    "wigs.count.few": "{count} urządzenia",
+    "wigs.count.many": "{count} urządzeń",
+    "wigs.count.other": "{count} urządzenia"
 }

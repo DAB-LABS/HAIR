@@ -1137,6 +1137,11 @@ export class IrWigs extends LitElement {
             letter-spacing: 0.03em;
             white-space: nowrap;
             flex-shrink: 0;
+            /* One width for every chip, sized for "99 devices", so the
+               column of chips reads as a column (owner ruling). */
+            min-width: 92px;
+            box-sizing: border-box;
+            text-align: center;
         }
         .count-chip.lib {
             background: rgba(120, 144, 156, 0.15);

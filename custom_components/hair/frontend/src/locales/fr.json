@@ -475,6 +475,6 @@
     "wigs.upload_partial": "{count} signaux n'ont pas pu être convertis",
     "wigs.receipt.hung": "{name} accroché sous {brand}",
     "wigs.receipt.duplicate": "{name} accroché sous {brand} : une perruque identique était déjà là",
-    "wigs.count.one": "{count} perruque",
-    "wigs.count.other": "{count} perruques"
+    "wigs.count.one": "{count} appareil",
+    "wigs.count.other": "{count} appareils"
 }

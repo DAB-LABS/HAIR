@@ -475,6 +475,6 @@
     "wigs.upload_partial": "{count} signals could not convert (see the wig notes)",
     "wigs.receipt.hung": "{name} hung under {brand}",
     "wigs.receipt.duplicate": "{name} hung under {brand} -- an identical wig was already here",
-    "wigs.count.one": "{count} wig",
-    "wigs.count.other": "{count} wigs"
+    "wigs.count.one": "{count} device",
+    "wigs.count.other": "{count} devices"
 }
