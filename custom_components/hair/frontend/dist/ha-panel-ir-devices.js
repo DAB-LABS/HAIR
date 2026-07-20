@@ -2792,8 +2792,10 @@ function e(e,i,t,a){var r,o=arguments.length,s=o<3?i:null===a?a=Object.getOwnPro
             color: #2e7d32;
             border: 1px solid #2e7d32;
             border-radius: 4px;
-            padding: 4px 12px;
-            font-size: 0.85rem;
+            /* Chip metrics, matching the Clipper's Add Remote exactly
+               (owner bench find: this one ran a size larger). */
+            padding: 4px 10px;
+            font-size: 0.75rem;
             font-weight: 500;
             font-family: inherit;
             cursor: pointer;
