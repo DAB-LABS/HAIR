@@ -34,6 +34,7 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { actionChipStyles } from "./ir-action-chip-styles.js";
 import type {
     CodeBrand,
     CodeCodebook,
@@ -567,27 +568,21 @@ export class IrWigs extends LitElement {
                             : ""}
                     </span>
                     <button
-                        class="try-btn"
+                        class="action-btn clip-btn"
                         ?disabled=${this._busyId === row.id}
                         @click=${() => this._tryOn(row)}
                     >
                         ${t("wigs.clip_it")}
                     </button>
-                    <span class="glyph-slot">
-                        ${row.wig
-                            ? html`<button
-                                  class="copy-glyph del-glyph"
-                                  title=${t("common.delete")}
-                                  @click=${() =>
-                                      (this._confirmDelete = row.wig!)}
-                              >
-                                  <ha-svg-icon
-                                      class="dl-icon"
-                                      .path=${"M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"}
-                                  ></ha-svg-icon>
-                              </button>`
-                            : ""}
-                    </span>
+                    ${row.wig
+                        ? html`<button
+                              class="action-btn delete-btn row-del"
+                              @click=${() =>
+                                  (this._confirmDelete = row.wig!)}
+                          >
+                              ${t("common.delete")}
+                          </button>`
+                        : ""}
                 </span>
             </div>
         `;
@@ -725,7 +720,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = [dialogStyles, css`
+    static styles = [dialogStyles, actionChipStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -974,23 +969,19 @@ export class IrWigs extends LitElement {
         .copy-glyph:hover {
             color: var(--wigs-accent);
         }
-        /* CLIP mirrors the Clipper's "+ Add Remote" chip: same anatomy,
-           same copper, because it does the same kind of thing -- puts a
-           remote on the Clipper (owner ruling, bench round four). */
-        .try-btn {
-            font-size: 12px;
-            font-weight: 500;
+        /* CLIP is the shared action-chip anatomy (same radius, padding,
+           and uppercase as every other button) in the Clipper's copper,
+           because it does the same kind of thing as Add Remote. Delete
+           is the stock shared delete chip, untouched. */
+        .action-btn.clip-btn {
             color: #b87333;
-            border: 1px solid #b87333;
-            border-radius: 6px;
-            background: none;
-            padding: 5px 12px;
-            letter-spacing: 0.4px;
-            cursor: pointer;
-            font-family: inherit;
+            border-color: rgba(184, 115, 51, 0.35);
         }
-        .try-btn:hover:not(:disabled) {
+        .action-btn.clip-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
+        }
+        .row-del {
+            margin-left: 8px;
         }
         .try-btn:disabled {
             opacity: 0.5;
@@ -1069,9 +1060,6 @@ export class IrWigs extends LitElement {
         .wig-actions .delete-btn {
             color: var(--error-color, #c62828);
             border-color: var(--error-color, #c62828);
-        }
-        .del-glyph:hover {
-            color: var(--error-color, #c62828);
         }
         .dl-icon {
             --mdc-icon-size: 15px;
