@@ -514,6 +514,17 @@ class TestApplyAutoMap:
         assert "auto" in (refreshed.entity_config.fan_modes or [])
 
     @pytest.mark.asyncio
+    async def test_maps_speed_level(self, manager):
+        manager._entity_factory.async_update_entities = AsyncMock()
+        dev = IRDevice(name="Fan", device_type=DeviceType.FAN)
+        dev.add_command(IRCommand(id="c1", name="Speed 3"))
+        manager._store.add_device(dev)
+
+        await manager.async_apply_auto_map(dev.id, "c1")
+        mapping = manager._store.get_device(dev.id).entity_config.command_mapping
+        assert mapping.get("speed_3") == "Speed 3"
+
+    @pytest.mark.asyncio
     async def test_noop_for_custom_name(self, manager):
         manager._entity_factory.async_update_entities = AsyncMock()
         dev = IRDevice(name="TV", device_type=DeviceType.MEDIA_PLAYER)

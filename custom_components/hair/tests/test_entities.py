@@ -798,6 +798,43 @@ class TestHAIRFanEntity:
         assert entity._device.name == "Updated Fan"
         entity.async_write_ha_state.assert_called()
 
+    def test_supported_features_speed_from_speed_levels(self):
+        entity, _ = self._make(command_mapping={"speed_3": "Speed 3"})
+        f = int(entity.supported_features)
+        assert f & FanEntityFeature.SET_SPEED
+
+    def test_speed_count_matches_mapped_levels(self):
+        entity, _ = self._make(
+            command_mapping={"speed_1": "S1", "speed_2": "S2", "speed_3": "S3"}
+        )
+        assert entity.speed_count == 3
+
+    def test_speed_count_defaults_to_ten(self):
+        entity, _ = self._make()
+        assert entity.speed_count == 10
+
+    @pytest.mark.asyncio
+    async def test_set_percentage_uses_direct_speed_level(self):
+        speed_cmds = [_cmd(f"c{i}", f"S{i}") for i in range(1, 11)]
+        mapping = {f"speed_{i}": f"S{i}" for i in range(1, 11)}
+        entity, mgr = self._make(command_mapping=mapping, commands=speed_cmds)
+        await entity.async_set_percentage(100)
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c10")
+        assert entity._percentage == 100
+
+    @pytest.mark.asyncio
+    async def test_set_percentage_zero_turns_off_with_direct_levels(self):
+        off_cmd = _cmd("c0", "Power Off")
+        speed_cmds = [_cmd(f"c{i}", f"S{i}") for i in range(1, 11)]
+        mapping = {f"speed_{i}": f"S{i}" for i in range(1, 11)}
+        mapping["turn_off"] = "Power Off"
+        entity, mgr = self._make(
+            command_mapping=mapping, commands=[off_cmd, *speed_cmds]
+        )
+        await entity.async_set_percentage(0)
+        mgr.async_send_command.assert_awaited_once_with("dev-1", "c0")
+        assert entity._is_on is False
+
 
 # ===========================================================================
 # Light entity tests

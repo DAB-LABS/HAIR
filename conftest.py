@@ -274,6 +274,30 @@ _stub("homeassistant.components.fan", {
     "FanEntityFeature": _FanEntityFeature,
 })
 
+# --- homeassistant.util.percentage ---
+
+
+def _percentage_to_ordered_list_item(ordered_list, percentage):
+    list_len = len(ordered_list)
+    for offset, speed in enumerate(ordered_list):
+        list_position = offset + 1
+        upper_bound = (list_position * 100) / list_len
+        if percentage <= upper_bound:
+            return speed
+    return ordered_list[-1]
+
+
+def _ordered_list_item_to_percentage(ordered_list, item):
+    list_len = len(ordered_list)
+    list_position = ordered_list.index(item) + 1
+    return (list_position * 100) // list_len
+
+
+_stub("homeassistant.util.percentage", {
+    "percentage_to_ordered_list_item": _percentage_to_ordered_list_item,
+    "ordered_list_item_to_percentage": _ordered_list_item_to_percentage,
+})
+
 # --- Light ---
 
 class _ColorMode(StrEnum):
