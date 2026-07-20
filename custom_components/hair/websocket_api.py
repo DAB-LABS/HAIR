@@ -2460,21 +2460,27 @@ async def ws_wigs_upload(
         # file gets a duplicate receipt (yellow, owner ruling) instead
         # of silently minting -2, -3, ... twins. The file still writes:
         # keeping it is the user's call, the receipt just tells them.
-        existing: dict[str, str] = {}
+        existing: dict[str, list[dict[str, Any]]] = {}
         for loaded in scan_wigs(hass.config.config_dir).wigs:
             existing.setdefault(
-                signals_content_hash(loaded.wig.signals),
-                loaded.path.name,
-            )
+                signals_content_hash(loaded.wig.signals), []
+            ).append({
+                "filename": loaded.path.name,
+                "brand": loaded.wig.brand,
+            })
 
         def _entry(wig, filename: str) -> dict[str, Any]:
+            matches = existing.get(
+                signals_content_hash(wig.signals), []
+            )
             return {
                 "filename": filename,
                 "name": wig.name,
                 "brand": wig.brand,
-                "duplicate_of": existing.get(
-                    signals_content_hash(wig.signals)
+                "duplicate_of": (
+                    matches[0]["filename"] if matches else None
                 ),
+                "duplicates": matches,
             }
 
         result = parse_wig(text)

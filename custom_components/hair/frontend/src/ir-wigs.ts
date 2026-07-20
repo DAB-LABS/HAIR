@@ -95,6 +95,7 @@ export class IrWigs extends LitElement {
         name: string;
         brand: string | null;
         duplicate_of: string | null;
+        duplicates?: { filename: string; brand: string | null }[];
     }[] = [];
     @state() private _receiptSuffix = "";
     @state() private _bloomId: string | null = null;
@@ -367,13 +368,27 @@ export class IrWigs extends LitElement {
         }
         const parts = this._receiptFiles.map((f) => {
             const brandLabel = f.brand?.trim() || t("wigs.unbranded");
+            const dups = f.duplicates ?? [];
             const template = t(
                 f.duplicate_of
                     ? "wigs.receipt.duplicate"
                     : "wigs.receipt.hung",
-                { name: "\u0001", brand: "\u0002" },
+                { name: "\u0001", brand: "\u0002", brands: "\u0003" },
             );
-            const segments = template.split(/([\u0001\u0002])/);
+            // The {brands} sentinel becomes one clickable link per
+            // closet location already holding this device (owner ask,
+            // 2026-07-20) -- each jumps to THAT duplicate's row.
+            const brandsList = dups.map(
+                (dup, i) => html`${i > 0 ? ", " : ""}<button
+                        class="receipt-link"
+                        @click=${() =>
+                            this._jumpToWig({
+                                filename: dup.filename,
+                                brand: dup.brand,
+                            })}
+                    >${dup.brand?.trim() || t("wigs.unbranded")}</button>`,
+            );
+            const segments = template.split(/([\u0001\u0002\u0003])/);
             return html`${segments.map((seg) =>
                 seg === "\u0001"
                     ? html`<button
@@ -385,7 +400,9 @@ export class IrWigs extends LitElement {
                             class="receipt-link"
                             @click=${() => this._jumpToBrand(f)}
                         >${brandLabel}</button>`
-                      : html`${seg}`,
+                      : seg === "\u0003"
+                        ? html`${brandsList}`
+                        : html`${seg}`,
             )}`;
         });
         return html`${parts.map(
@@ -717,6 +734,11 @@ export class IrWigs extends LitElement {
                 <span class="wdot ${row.source === "local" ? "mine" : "lib"}"
                 ></span>
                 <span class="wig-name">${row.label}</span>
+                ${row.wig?.model?.trim()
+                    ? html`<span class="wig-model"
+                          >&ndash; ${row.wig.model.trim()}</span
+                      >`
+                    : ""}
                 <button
                     class="wig-count"
                     @click=${(e: Event) => this._togglePeek(row, e)}
@@ -1200,6 +1222,16 @@ export class IrWigs extends LitElement {
         .wig-name {
             font-weight: 500;
             color: var(--primary-text-color);
+        }
+        /* Model rides inline after the name in secondary gray (owner
+           ask, 2026-07-20): keeps the 46px row and reads as a detail,
+           not a second name. */
+        .wig-model {
+            color: var(--secondary-text-color);
+            font-size: 12.5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .wig-count {
             font-size: 12px;

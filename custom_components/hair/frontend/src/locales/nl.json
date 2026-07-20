@@ -474,7 +474,7 @@
     "sniffer.linked.other": "{count} HAIR-apparaten",
     "wigs.upload_partial": "{count} signalen konden niet worden geconverteerd",
     "wigs.receipt.hung": "{name} hangt nu onder {brand}",
-    "wigs.receipt.duplicate": "{name} hangt nu onder {brand} (er hing al een identieke pruik)",
+    "wigs.receipt.duplicate": "{name} hangt nu onder {brand} (er was al een identiek apparaat in {brands})",
     "wigs.count.one": "{count} apparaat",
     "wigs.count.other": "{count} apparaten"
 }

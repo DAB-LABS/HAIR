@@ -242,6 +242,9 @@ export class HairApi {
             name: string;
             brand: string | null;
             duplicate_of: string | null;
+            // Every closet wig holding an identical device (owner ask,
+            // 2026-07-20): the receipt lists all of them, clickably.
+            duplicates?: { filename: string; brand: string | null }[];
         }[];
         format?: string;
         skipped?: string[];
