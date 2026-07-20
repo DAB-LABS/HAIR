@@ -14,6 +14,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type {
@@ -51,7 +52,7 @@ export class IrPluckSignalDialog extends LitElement {
     private async _pluck(): Promise<void> {
         const command = this._commandName.trim();
         if (!command) {
-            this._error = "Command name is required.";
+            this._error = t("assign.command_required");
             return;
         }
         this._busy = true;
@@ -64,7 +65,7 @@ export class IrPluckSignalDialog extends LitElement {
                 command_name: command,
             });
             if (result.error) {
-                this._error = result.message ?? "Pluck failed.";
+                this._error = result.message ?? t("pluckdlg.pluck_failed");
             } else if (result.signals && result.signals.length > 0) {
                 this._captures = result.signals;
                 this._aliases = result.signals.map((s) => s.suggested_alias);
@@ -74,7 +75,7 @@ export class IrPluckSignalDialog extends LitElement {
                     ),
                 );
             } else {
-                this._error = "No response from blaster. Try again.";
+                this._error = t("pluckdlg.no_response");
             }
         } catch (err) {
             this._error = (err as Error).message;
@@ -137,8 +138,8 @@ export class IrPluckSignalDialog extends LitElement {
                 <div class="valid-head">
                     <ha-svg-icon .path=${ICON_CHECK}></ha-svg-icon>
                     ${recognized
-                        ? `Recognized as ${recognized}`
-                        : "Valid Pronto code"}
+                        ? t("pluckdlg.recognized_as", { protocol: recognized })
+                        : t("pluckdlg.valid_pronto")}
                 </div>
                 <div class="valid-sub">
                     ${khz} kHz${pairs != null ? ` · ${pairs} burst pairs` : ""}
@@ -160,11 +161,11 @@ export class IrPluckSignalDialog extends LitElement {
     private _renderCommandState() {
         return html`
             <div class="field">
-                <label>Command name</label>
+                <label>${t("assign.command_name")}</label>
                 <input
                     type="text"
                     .value=${this._commandName}
-                    placeholder="e.g. pwr_on"
+                    placeholder=${t("pluckdlg.command_placeholder")}
                     autofocus
                     @input=${(e: Event) =>
                         (this._commandName = (e.target as HTMLInputElement).value)}
@@ -173,8 +174,7 @@ export class IrPluckSignalDialog extends LitElement {
                     }}
                 />
                 <div class="help">
-                    The name you gave this code when you learned it in the
-                    vendor app.
+                    ${t("pluckdlg.command_help")}
                 </div>
             </div>
             ${this._renderError()}
@@ -184,14 +184,14 @@ export class IrPluckSignalDialog extends LitElement {
                     @click=${this._close}
                     ?disabled=${this._busy}
                 >
-                    Cancel
+                    ${t("common.cancel")}
                 </button>
                 <button
                     class="action-btn pluck-btn"
                     @click=${this._pluck}
                     ?disabled=${this._busy}
                 >
-                    ${this._busy ? "Plucking..." : "Pluck"}
+                    ${this._busy ? t("pluckdlg.plucking") : t("pluckdlg.pluck")}
                 </button>
             </div>
         `;
@@ -202,7 +202,7 @@ export class IrPluckSignalDialog extends LitElement {
         return html`
             ${this._renderError()}
             <div class="captured-label">
-                Captured ${multi ? `(${captures.length})` : ""}
+                ${t("pluckdlg.captured")} ${multi ? `(${captures.length})` : ""}
             </div>
             ${captures.map(
                 (cap, i) => html`
@@ -210,7 +210,7 @@ export class IrPluckSignalDialog extends LitElement {
                         ${multi
                             ? html`<button
                                   class="remove-btn"
-                                  title="Remove this capture"
+                                  title=${t("pluckdlg.remove_capture")}
                                   @click=${() => this._removeCapture(i)}
                               >
                                   &times;
@@ -219,7 +219,7 @@ export class IrPluckSignalDialog extends LitElement {
                         <div class="pronto">${cap.code}</div>
                         ${this._renderValid(cap, i)}
                         <div class="field">
-                            <label>Alias</label>
+                            <label>${t("pluckdlg.alias")}</label>
                             <input
                                 type="text"
                                 .value=${this._aliases[i] ?? ""}
@@ -240,14 +240,14 @@ export class IrPluckSignalDialog extends LitElement {
                     @click=${this._close}
                     ?disabled=${this._creating}
                 >
-                    Cancel
+                    ${t("common.cancel")}
                 </button>
                 <button
                     class="action-btn create-btn"
                     @click=${this._create}
                     ?disabled=${this._creating}
                 >
-                    ${this._creating ? "Saving..." : "Create"}
+                    ${this._creating ? t("common.saving") : t("common.create")}
                 </button>
             </div>
         `;
@@ -257,7 +257,7 @@ export class IrPluckSignalDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading="Pluck Signal"
+                heading=${t("pluckdlg.signal_heading")}
                 scrimClickAction=""
                 @closed=${this._close}
             >

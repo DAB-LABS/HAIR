@@ -9,6 +9,7 @@
         "dev": "rollup -c rollup.config.mjs --watch"
     },
     "devDependencies": {
+        "@rollup/plugin-json": "^6.1.0",
         "@rollup/plugin-node-resolve": "^15.2.0",
         "@rollup/plugin-terser": "^1.0.0",
         "@rollup/plugin-typescript": "^11.1.0",

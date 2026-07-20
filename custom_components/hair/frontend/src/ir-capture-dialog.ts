@@ -12,6 +12,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 import type { CaptureEvent, CaptureResult, IRDevice } from "./types.js";
 
@@ -193,16 +194,15 @@ export class IrCaptureDialog extends LitElement {
                 <div class="pulse" aria-hidden="true">
                     <span></span><span></span><span></span>
                 </div>
-                <div class="title">Listening for IR signal…</div>
+                <div class="title">${t("capture.listening")}</div>
                 <div class="instruction">
-                    Point your remote at the IR receiver and press the
-                    "${this.commandName}" button.
+                    ${t("capture.instruction", { name: this.commandName })}
                 </div>
                 <div class="countdown">
-                    ${this._timeRemaining}s remaining
+                    ${t("capture.remaining", { seconds: this._timeRemaining })}
                 </div>
                 <div class="actions">
-                    <mwc-button @click=${this._cancel}>Cancel</mwc-button>
+                    <mwc-button @click=${this._cancel}>${t("common.cancel")}</mwc-button>
                 </div>
             </div>
         `;
@@ -213,20 +213,20 @@ export class IrCaptureDialog extends LitElement {
         return html`
             <div class="phase captured" aria-live="polite">
                 <div class="check" aria-hidden="true">✓</div>
-                <div class="title">Signal Captured!</div>
+                <div class="title">${t("capture.captured")}</div>
                 <div class="meta">
-                    Protocol: ${result.protocol ?? "Raw"}${result.code
+                    ${t("capture.protocol", { protocol: result.protocol ?? t("capture.protocol_raw") })}${result.code
                         ? html` · <code>${result.code}</code>`
                         : ""}
                 </div>
                 <ha-alert alert-type="info">
-                    Did it work? Press Test to verify.
+                    ${t("capture.verify")}
                 </ha-alert>
                 <div class="actions">
-                    <mwc-button @click=${this._testCommand}>▶ Test</mwc-button>
-                    <mwc-button @click=${this._recapture}>↻ Re-capture</mwc-button>
+                    <mwc-button @click=${this._testCommand}>${t("capture.test")}</mwc-button>
+                    <mwc-button @click=${this._recapture}>${t("capture.recapture")}</mwc-button>
                     <mwc-button raised @click=${() => this._save(true)}>
-                        Save &amp; Learn Next ▶▶
+                        ${t("capture.save_next")}
                     </mwc-button>
                 </div>
             </div>
@@ -236,15 +236,15 @@ export class IrCaptureDialog extends LitElement {
     private _renderTimeout() {
         return html`
             <div class="phase error" aria-live="assertive">
-                <div class="title warn">⚠ No signal detected</div>
+                <div class="title warn">${t("capture.no_signal")}</div>
                 <ul class="tips">
-                    <li>Point the remote directly at the IR receiver</li>
-                    <li>Move closer (within 3 feet / 1 meter)</li>
-                    <li>Press and hold the button briefly</li>
+                    <li>${t("capture.tip_point")}</li>
+                    <li>${t("capture.tip_closer")}</li>
+                    <li>${t("capture.tip_hold")}</li>
                 </ul>
                 <div class="actions">
-                    <mwc-button raised @click=${this._recapture}>↻ Try Again</mwc-button>
-                    <mwc-button @click=${this._cancel}>Cancel</mwc-button>
+                    <mwc-button raised @click=${this._recapture}>${t("capture.try_again")}</mwc-button>
+                    <mwc-button @click=${this._cancel}>${t("common.cancel")}</mwc-button>
                 </div>
             </div>
         `;
@@ -254,20 +254,19 @@ export class IrCaptureDialog extends LitElement {
         const result = this._result!;
         return html`
             <div class="phase warning" aria-live="assertive">
-                <div class="title warn">⚠ Duplicate Signal Detected</div>
+                <div class="title warn">${t("capture.duplicate")}</div>
                 <div class="instruction">
-                    This matches your "${this._duplicate!.name}" command.
-                    Some remotes use the same signal for multiple buttons.
+                    ${t("capture.duplicate_instruction", { name: this._duplicate!.name })}
                 </div>
                 <div class="meta">
-                    Protocol: ${result.protocol ?? "Raw"}
+                    ${t("capture.protocol", { protocol: result.protocol ?? t("capture.protocol_raw") })}
                 </div>
                 <div class="actions">
                     <mwc-button @click=${this._recapture}>
-                        Re-capture Different
+                        ${t("capture.recapture_different")}
                     </mwc-button>
                     <mwc-button raised @click=${() => this._save(true)}>
-                        Save Anyway
+                        ${t("capture.save_anyway")}
                     </mwc-button>
                 </div>
             </div>
@@ -277,13 +276,13 @@ export class IrCaptureDialog extends LitElement {
     private _renderError() {
         return html`
             <div class="phase error" aria-live="assertive">
-                <div class="title warn">⚠ Capture Error</div>
+                <div class="title warn">${t("capture.error")}</div>
                 <div class="instruction">${this._error}</div>
                 <div class="actions">
                     <mwc-button raised @click=${this._recapture}>
-                        ↻ Try Again
+                        ${t("capture.try_again")}
                     </mwc-button>
-                    <mwc-button @click=${this._cancel}>Cancel</mwc-button>
+                    <mwc-button @click=${this._cancel}>${t("common.cancel")}</mwc-button>
                 </div>
             </div>
         `;
@@ -293,7 +292,7 @@ export class IrCaptureDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading=${`Learning: "${this.commandName}"`}
+                heading=${t("capture.learning", { name: this.commandName })}
                 @closed=${this._cancel}
             >
                 ${this._phase === "listening"

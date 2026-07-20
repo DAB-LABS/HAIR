@@ -1,0 +1,31 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "HAIR einrichten",
+                "description": "HAIR verwaltet deine IR-Geräte über ein einziges Panel.\n\nErkannte Hardware:\n\n{hardware_summary}",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIR ist bereits konfiguriert.",
+            "no_ir_hardware": "Keine IR-Hardware erkannt. Zum Einfangen brauchst du ein ESPHome-Gerät mit der remote_receiver-Komponente. Zum Senden brauchst du eine Integration auf HAs nativer Infrarot-Plattform (Broadlink, ESPHome usw.). Details im [Einrichtungsleitfaden]({setup_url})."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "HAIR-Optionen",
+                "description": "Globale Einstellungen für die IR-Geräteverwaltung konfigurieren.",
+                "data": {
+                    "capture_timeout": "Einfang-Timeout (Sekunden)",
+                    "default_repeat_count": "Standard-IR-Wiederholungsanzahl"
+                },
+                "data_description": {
+                    "capture_timeout": "Wie lange beim Einfangen auf ein IR-Signal gewartet wird (5-60 Sekunden).",
+                    "default_repeat_count": "Wie oft jede IR-Befehlsübertragung wiederholt wird (1-10)."
+                }
+            }
+        }
+    }
+}

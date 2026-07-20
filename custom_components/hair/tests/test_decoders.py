@@ -18,6 +18,7 @@ frames) are built from the field reports that motivated each decoder.
 """
 from __future__ import annotations
 
+import base64
 import importlib.util
 import itertools
 
@@ -25,6 +26,7 @@ import pytest
 
 from custom_components.hair.decoders.kaseikyo import KaseikyoCommand
 from custom_components.hair.decoders.marantz_extended import MarantzExtendedCommand
+from custom_components.hair.decoders.nokia32 import Nokia32Command
 from custom_components.hair.decoders.rc5 import RC5Command
 from custom_components.hair.decoders.samsung import Samsung32Command
 from custom_components.hair.decoders.sharp import SharpCommand
@@ -37,6 +39,20 @@ _needs_library = pytest.mark.skipif(
     not _HAS_LIBRARY,
     reason="infrared-protocols unavailable (requires Python 3.13+)",
 )
+
+
+def _broadlink_to_us(b64: str) -> list[int]:
+    """Convert a Broadlink RM base64 IR payload to signed us timings."""
+    raw = base64.b64decode(b64 + "=" * (-len(b64) % 4))
+    length = raw[2] | (raw[3] << 8)
+    ticks = list(raw[4 : 4 + length])
+    while ticks and ticks[-1] == 0:
+        ticks = ticks[:-1]
+    tick_us = 1_000_000 / 32768
+    return [
+        round(v * tick_us) if i % 2 == 0 else -round(v * tick_us)
+        for i, v in enumerate(ticks)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +135,33 @@ class TestEncoderParity:
             address=0x10, command=0x0C, extension=0x20, toggle=1, repeat_count=2
         )
         assert local.get_raw_timings() == upstream.get_raw_timings()
+
+    def test_nokia32(self):
+        # Nokia32 is not in the released library yet (it lives on the
+        # upstream branch from discussion #70), so unlike its siblings this
+        # needs a per-module guard: _needs_library only proves the library
+        # is installed, not that it ships this protocol.
+        upstream_mod = pytest.importorskip(
+            "infrared_protocols.commands.nokia32",
+            reason="upstream library has no Nokia32 yet",
+        )
+        Upstream = upstream_mod.Nokia32Command
+
+        for device, subdevice, function, extension, toggle in (
+            (33, 160, 12, 38, 0),   # Foxtel iQ POWER
+            (33, 160, 253, 38, 1),  # Foxtel iQ ACTIVE, toggled
+            (0, 0, 0, 0, 0),
+        ):
+            local = Nokia32Command(
+                device=device, subdevice=subdevice, function=function,
+                extension=extension, toggle=toggle,
+            )
+            upstream = Upstream(
+                device=device, subdevice=subdevice, function=function,
+                extension=extension, toggle=toggle,
+            )
+            assert local.get_raw_timings() == upstream.get_raw_timings()
+            assert local.modulation == upstream.modulation
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +397,65 @@ class TestRoundTrips:
             decoded.toggle,
         ) == (address, command, extension, toggle)
 
+    @pytest.mark.parametrize(
+        ("device", "subdevice", "function", "extension", "toggle"),
+        [
+            (33, 160, 12, 38, 0),    # Foxtel iQ POWER
+            (33, 160, 16, 38, 0),    # Foxtel iQ VOLUME_UP
+            (33, 160, 253, 38, 1),   # Foxtel iQ ACTIVE, toggle set
+            (0, 0, 0, 0, 0),
+            (0xFF, 0xFF, 0xFF, 0x7F, 1),
+        ],
+    )
+    def test_nokia32(self, device, subdevice, function, extension, toggle):
+        encoded = Nokia32Command(
+            device=device, subdevice=subdevice, function=function,
+            extension=extension, toggle=toggle,
+        ).get_raw_timings()
+        decoded = Nokia32Command.from_raw_timings(encoded)
+        assert decoded is not None
+        assert (
+            decoded.device, decoded.subdevice, decoded.function,
+            decoded.extension, decoded.toggle,
+        ) == (device, subdevice, function, extension, toggle)
+
+    def test_nokia32_held_button_multi_frame_same_identity(self):
+        """Nokia32 has no repeat frame -- a held key just re-sends the whole
+        frame on a ~100ms period. Three back-to-back frames (one toggle
+        value, as a real hold keeps) must majority-vote to one identity."""
+        one = Nokia32Command(
+            device=33, subdevice=160, function=12, extension=38, toggle=1,
+        ).get_raw_timings()
+        held = [*one, -90000, *one, -90000, *one]
+        decoded = Nokia32Command.from_raw_timings(held)
+        assert decoded is not None
+        assert (decoded.device, decoded.subdevice, decoded.function) == (33, 160, 12)
+        assert (decoded.extension, decoded.toggle) == (38, 1)
+
+    def test_nokia32_real_foxtel_captures(self):
+        """Real Foxtel iQ remote captures (Broadlink RM, base64). Device 33 /
+        subdevice 160 / system 38, verified bit-for-bit against the remote."""
+        captures = {
+            # function -> Broadlink base64 payload
+            12: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBQkFCQUZBQkFAA0F",   # POWER
+            16: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBQkFDwUJBQkFAA0F",   # VOLUME_UP
+            32: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBQkFFAUJBQkFAA0F",   # CHANNEL_UP
+            56: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBQkFGQUUBQkFAA0F",   # AV
+            92: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBQ8FDwUZBQkFAA0F",   # SELECT
+            142: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBRQFCQUZBRQFAA0F",  # FOXTEL
+            204: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBRkFCQUZBQkFAA0F",  # TV_GUIDE
+            253: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBRkFGQUZBQ8FAA0F",  # ACTIVE
+            9: "JgAkAA4JBQkFFAUJBQ8FFAUUBQkFCQUJBRQFDwUUBQkFCQUUBQ8FAA0F",    # NUM_9
+        }
+        for function, payload in captures.items():
+            timings = _broadlink_to_us(payload)
+            decoded = Nokia32Command.from_raw_timings(timings)
+            assert decoded is not None, f"real capture fn={function} refused"
+            assert (decoded.device, decoded.subdevice, decoded.extension) == (
+                33, 160, 38,
+            )
+            assert decoded.function == function
+
     def test_symphony(self):
         encoded = SymphonyCommand(data=0xC00, nbits=12, repeat_count=3).get_raw_timings()
         decoded = SymphonyCommand.from_raw_timings(encoded)
@@ -472,6 +574,19 @@ class TestDirtyCaptures:
         assert decoded is not None
         assert (decoded.data, decoded.nbits) == (0xC00, 12)
 
+    # Nokia32's marks are a short 164us, so the 0.3 band is only +-49us --
+    # tighter than the pulse-distance protocols. Real Foxtel captures sit
+    # well inside it (see test_nokia32_real_foxtel_captures); this just
+    # confirms symmetric in-band jitter does not shift identity.
+    @pytest.mark.parametrize("stretch", [-40, -20, 40])
+    def test_nokia32_jitter(self, stretch):
+        clean = Nokia32Command(
+            device=33, subdevice=160, function=12, extension=38,
+        ).get_raw_timings()
+        decoded = Nokia32Command.from_raw_timings(_jitter(clean, stretch, -stretch))
+        assert decoded is not None
+        assert (decoded.device, decoded.subdevice, decoded.function) == (33, 160, 12)
+
 
 # ---------------------------------------------------------------------------
 # 4. Rejection matrix
@@ -482,6 +597,7 @@ _DECODERS = {
     "rc5": RC5Command,
     "samsung": Samsung32Command,
     "sharp": SharpCommand,
+    "nokia32": Nokia32Command,
     "kaseikyo": KaseikyoCommand,
     "marantz": MarantzExtendedCommand,
     "symphony": SymphonyCommand,
@@ -499,6 +615,9 @@ def _samples() -> dict[str, list[int]]:
         ).get_raw_timings(),
         "sharp": SharpCommand(
             address=0x01, command=0x68, repeat_count=1
+        ).get_raw_timings(),
+        "nokia32": Nokia32Command(
+            device=33, subdevice=160, function=12, extension=38
         ).get_raw_timings(),
         "kaseikyo": KaseikyoCommand(
             address=0x2002, data=bytes([0x40, 0x04, 0x01, 0x00]), repeat_count=1

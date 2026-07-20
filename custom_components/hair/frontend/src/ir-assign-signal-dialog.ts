@@ -9,6 +9,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { formatLanguage, t, tv } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-alias.js";
@@ -192,7 +193,7 @@ export class IrAssignSignalDialog extends LitElement {
     private async _assign(): Promise<void> {
         const name = this._commandName.trim();
         if (!name) {
-            this._error = "Command name is required.";
+            this._error = t("assign.command_required");
             return;
         }
 
@@ -204,7 +205,7 @@ export class IrAssignSignalDialog extends LitElement {
 
             if (this._mode === "existing") {
                 if (!this._selectedDeviceId) {
-                    this._error = "Select a target device.";
+                    this._error = t("assign.target_required");
                     this._busy = false;
                     return;
                 }
@@ -220,12 +221,12 @@ export class IrAssignSignalDialog extends LitElement {
                 });
             } else {
                 if (!this._newName.trim()) {
-                    this._error = "Device name is required.";
+                    this._error = t("promote.device_name_required");
                     this._busy = false;
                     return;
                 }
                 if (this._newEmitterIds.length === 0) {
-                    this._error = "Select at least one IR emitter.";
+                    this._error = t("promote.emitter_required");
                     this._busy = false;
                     return;
                 }
@@ -252,7 +253,7 @@ export class IrAssignSignalDialog extends LitElement {
                     }),
                 );
             } else {
-                this._error = "Assignment failed. The signal may have a duplicate code on the target device.";
+                this._error = t("assign.failed_duplicate");
             }
         } catch (err) {
             this._error = (err as Error).message;
@@ -264,7 +265,7 @@ export class IrAssignSignalDialog extends LitElement {
     private _fmtTime(iso: string): string {
         try {
             const d = new Date(iso);
-            return d.toLocaleString(undefined, {
+            return d.toLocaleString(formatLanguage(), {
                 month: "short",
                 day: "numeric",
                 hour: "2-digit",
@@ -283,7 +284,7 @@ export class IrAssignSignalDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading="Assign Signal"
+                heading=${t("assign.heading")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
@@ -304,7 +305,7 @@ export class IrAssignSignalDialog extends LitElement {
                         ></ir-signal-alias>
                     </div>
                     <div class="signal-stats">
-                        <span>${this.signal.hit_count} hits</span>
+                        <span>${t("assign.hits", { count: this.signal.hit_count })}</span>
                         ${freqKhz ? html`<span>${freqKhz}</span>` : ""}
                         <span>${this._fmtTime(this.signal.last_seen)}</span>
                     </div>
@@ -316,13 +317,13 @@ export class IrAssignSignalDialog extends LitElement {
                         class="mode-tab ${this._mode === "existing" ? "active" : ""}"
                         @click=${() => { this._switchMode("existing"); }}
                     >
-                        Existing Device
+                        ${t("assign.mode_existing")}
                     </button>
                     <button
                         class="mode-tab ${this._mode === "new" ? "active" : ""}"
                         @click=${() => { this._switchMode("new"); }}
                     >
-                        New Device
+                        ${t("assign.mode_new")}
                     </button>
                 </div>
 
@@ -335,7 +336,7 @@ export class IrAssignSignalDialog extends LitElement {
 
                 <!-- Whole-frame send count (shared by both modes) -->
                 <div class="field">
-                    <label>Send times</label>
+                    <label>${t("assign.send_times")}</label>
                     <input
                         class="send-count"
                         type="number"
@@ -345,28 +346,25 @@ export class IrAssignSignalDialog extends LitElement {
                         @input=${this._onSendCountInput}
                     />
                     <div class="hint">
-                        Transmit this command this many times per press, for
-                        devices that need a repeat. Default 1.
+                        ${t("assign.send_times_hint")}
                     </div>
                 </div>
 
                 ${this.signal.decoded_fingerprint
                     ? html`<!-- NEC ditto count (decoded signals only) -->
                           <div class="field">
-                              <label>Ditto count</label>
+                              <label>${t("assign.ditto_count")}</label>
                               <input
                                   class="send-count"
                                   type="number"
                                   min="0"
                                   max="20"
                                   .value=${String(this._dittoCount)}
-                                  title="Append repeat frames after the main frame; some strict receivers need at least one to register the command."
+                                  title=${t("assign.ditto_title")}
                                   @input=${this._onDittoInput}
                               />
                               <div class="hint">
-                                  Append repeat frames after the main frame;
-                                  some strict receivers require at least one
-                                  to register the command.
+                                  ${t("assign.ditto_hint")}
                               </div>
                           </div>`
                     : ""}
@@ -377,14 +375,14 @@ export class IrAssignSignalDialog extends LitElement {
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
-                        Cancel
+                        ${t("common.cancel")}
                     </button>
                     <button
                         class="action-btn wide assign-btn"
                         @click=${this._assign}
                         ?disabled=${this._busy}
                     >
-                        ${this._busy ? "Assigning..." : this._mode === "new" ? "Create & Assign" : "Assign"}
+                        ${this._busy ? t("assign.assigning") : this._mode === "new" ? t("assign.create_assign") : t("assign.assign")}
                     </button>
                 </div>
             </ha-dialog>
@@ -394,17 +392,17 @@ export class IrAssignSignalDialog extends LitElement {
     private _renderExistingMode() {
         return html`
             <div class="field">
-                <label>Target device</label>
+                <label>${t("assign.target_device")}</label>
                 ${this._devices.length === 0
                     ? html`<ha-alert alert-type="info">
-                          No devices yet. Switch to "New Device" to create one.
+                          ${t("assign.no_devices")}
                       </ha-alert>`
                     : html`
                           <select
                               .value=${this._selectedDeviceId}
                               @change=${this._onDeviceSelected}
                           >
-                              <option value="" disabled>Select device...</option>
+                              <option value="" disabled>${t("assign.select_device")}</option>
                               ${this._devices.map(
                                   (d) => html`
                                       <option
@@ -424,11 +422,11 @@ export class IrAssignSignalDialog extends LitElement {
     private _renderNewMode() {
         return html`
             <div class="field">
-                <label>Device name</label>
+                <label>${t("promote.device_name")}</label>
                 <input
                     type="text"
                     .value=${this._newName}
-                    placeholder="e.g. Living Room TV"
+                    placeholder=${t("common.device_name_placeholder")}
                     required
                     autofocus
                     @input=${(e: Event) =>
@@ -437,18 +435,18 @@ export class IrAssignSignalDialog extends LitElement {
             </div>
 
             <div class="field">
-                <label>Device type</label>
+                <label>${t("common.device_type")}</label>
                 <select
                     .value=${this._newType}
                     @change=${this._onNewTypeChanged}
                 >
                     ${DEVICE_TYPES.map(
-                        (t) => html`
+                        (dt) => html`
                             <option
-                                value=${t.value}
-                                ?selected=${this._newType === t.value}
+                                value=${dt.value}
+                                ?selected=${this._newType === dt.value}
                             >
-                                ${t.label}
+                                ${t(`device_type.${dt.value}`)}
                             </option>
                         `,
                     )}
@@ -485,12 +483,12 @@ export class IrAssignSignalDialog extends LitElement {
         if (this._customCommand) {
             return html`
                 <div class="field">
-                    <label>Command name</label>
+                    <label>${t("assign.command_name")}</label>
                     <div class="custom-cmd-row">
                         <input
                             class="custom-cmd-input"
                             type="text"
-                            placeholder="Enter command name"
+                            placeholder=${t("assign.command_placeholder")}
                             .value=${this._commandName}
                             @input=${(e: Event) =>
                                 (this._commandName = (e.target as HTMLInputElement).value)}
@@ -498,32 +496,32 @@ export class IrAssignSignalDialog extends LitElement {
                         <button
                             class="back-link"
                             @click=${() => { this._customCommand = false; this._commandName = ""; }}
-                        >Templates</button>
+                        >${t("common.cancel")}</button>
                     </div>
                 </div>
             `;
         }
         return html`
             <div class="field">
-                <label>Command name</label>
+                <label>${t("assign.command_name")}</label>
                 <select
                     .value=${this._commandName}
                     @change=${this._onCommandSelect}
                 >
                     <option value="" disabled ?selected=${!this._commandName}>
-                        Select command...
+                        ${t("assign.select_command")}
                     </option>
                     ${this._templates.map(
-                        (t) => html`
+                        (tpl) => html`
                             <option
-                                value=${t.name}
-                                ?selected=${this._commandName === t.name}
+                                value=${tv(tpl.name)}
+                                ?selected=${this._commandName === tv(tpl.name)}
                             >
-                                ${t.name}
+                                ${tv(tpl.name)}
                             </option>
                         `,
                     )}
-                    <option value="__custom__">Custom...</option>
+                    <option value="__custom__">${t("assign.custom")}</option>
                 </select>
             </div>
         `;

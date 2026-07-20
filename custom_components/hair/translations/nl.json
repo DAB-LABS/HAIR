@@ -1,0 +1,31 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "HAIR instellen",
+                "description": "HAIR beheert je IR-apparaten vanuit één paneel.\n\nGedetecteerde hardware:\n\n{hardware_summary}",
+                "data": {}
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "HAIR is al geconfigureerd.",
+            "no_ir_hardware": "Geen IR-hardware gedetecteerd. Voor het vangen heb je een ESPHome-apparaat met de remote_receiver-component nodig. Voor het verzenden heb je een integratie op het native infraroodplatform van HA nodig (Broadlink, ESPHome enz.). Zie de [installatiegids]({setup_url}) voor details."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "HAIR-opties",
+                "description": "Configureer de algemene instellingen voor IR-apparaatbeheer.",
+                "data": {
+                    "capture_timeout": "Vangtime-out (seconden)",
+                    "default_repeat_count": "Standaard IR-herhalingsaantal"
+                },
+                "data_description": {
+                    "capture_timeout": "Hoe lang er tijdens het vangen op een IR-signaal wordt gewacht (5-60 seconden).",
+                    "default_repeat_count": "Hoe vaak elke IR-commandotransmissie wordt herhaald (1-10)."
+                }
+            }
+        }
+    }
+}

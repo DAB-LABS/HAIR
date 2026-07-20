@@ -16,6 +16,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 
 interface EmitterInfo {
@@ -152,7 +153,7 @@ export class IrEmitterPicker extends LitElement {
         );
 
         return html`
-            <label>IR emitters</label>
+            <label>${t("picker.emitters_label")}</label>
 
             ${this.value.length > 0
                 ? html`
@@ -165,7 +166,7 @@ export class IrEmitterPicker extends LitElement {
                                           ? html`<button
                                                 class="chip-remove"
                                                 @click=${() => this._onRemove(id)}
-                                                title="Remove"
+                                                title=${t("common.remove")}
                                             >&times;</button>`
                                           : ""}
                                   </span>
@@ -176,14 +177,14 @@ export class IrEmitterPicker extends LitElement {
                 : ""}
 
             ${allEmitters.length === 0
-                ? html`<div class="no-emitters">No IR emitters found.</div>`
+                ? html`<div class="no-emitters">${t("picker.no_emitters")}</div>`
                 : available.length > 0
                   ? html`
                         <select
                             @change=${this._onAdd}
                             ?disabled=${this.disabled}
                         >
-                            <option value="">+ Add emitter...</option>
+                            <option value="">${t("picker.add_emitter")}</option>
                             ${available.map(
                                 (em) => html`
                                     <option value=${em.entity_id}>
@@ -194,7 +195,7 @@ export class IrEmitterPicker extends LitElement {
                         </select>
                     `
                   : this.value.length > 0
-                    ? html`<div class="all-selected">All emitters selected.</div>`
+                    ? html`<div class="all-selected">${t("picker.all_emitters_selected")}</div>`
                     : ""}
         `;
     }

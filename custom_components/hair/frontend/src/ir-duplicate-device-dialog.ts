@@ -10,6 +10,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { IRDevice } from "./types.js";
@@ -42,7 +43,7 @@ export class IrDuplicateDeviceDialog extends LitElement {
     private async _duplicate(): Promise<void> {
         const name = this._name.trim();
         if (!name) {
-            this._error = "Name is required.";
+            this._error = t("common.name_required");
             return;
         }
         this._busy = true;
@@ -75,7 +76,7 @@ export class IrDuplicateDeviceDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading="Duplicate device"
+                heading=${t("dup.heading")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
@@ -84,13 +85,14 @@ export class IrDuplicateDeviceDialog extends LitElement {
                     : ""}
 
                 <p class="hint">
-                    Duplicating <strong>${this.sourceName}</strong>. The new
-                    device gets a copy of every command, action mapping, and
-                    emitter assignment. You can change anything afterward.
+                    ${t("dup.hint_duplicating").split("{name}")[0]}<strong
+                        >${this.sourceName}</strong
+                    >${t("dup.hint_duplicating").split("{name}")[1] ?? ""}
+                    ${t("dup.hint_body")}
                 </p>
 
                 <div class="field">
-                    <label>Name</label>
+                    <label>${t("common.name")}</label>
                     <input
                         type="text"
                         .value=${this._name}
@@ -110,14 +112,14 @@ export class IrDuplicateDeviceDialog extends LitElement {
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
-                        Cancel
+                        ${t("common.cancel")}
                     </button>
                     <button
                         class="action-btn create-btn"
                         @click=${this._duplicate}
                         ?disabled=${this._busy || !this._name.trim()}
                     >
-                        ${this._busy ? "Duplicating..." : "Duplicate"}
+                        ${this._busy ? t("dup.duplicating") : t("dup.duplicate")}
                     </button>
                 </div>
             </ha-dialog>

@@ -15,6 +15,7 @@
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-emitter-picker.js";
 import type { HairApi } from "./api.js";
@@ -72,7 +73,7 @@ export class IrTestEmitterDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading="Send from"
+                heading=${t("test_emitter.heading")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
@@ -90,14 +91,14 @@ export class IrTestEmitterDialog extends LitElement {
                         @click=${this._close}
                         ?disabled=${this.busy}
                     >
-                        Cancel
+                        ${t("common.cancel")}
                     </button>
                     <button
                         class="action-btn send-btn"
                         @click=${this._send}
                         ?disabled=${!canSend}
                     >
-                        ${this.busy ? "Sending..." : "Send"}
+                        ${this.busy ? t("test_emitter.sending") : t("test_emitter.send")}
                     </button>
                 </div>
             </ha-dialog>
