@@ -2373,30 +2373,55 @@ class SignalMonitor:
         return {"success": True, "signal": signal.to_dict(), "triggers": rewire}
 
     async def import_manual_remote(
-        self, name: str, entries: list[dict[str, Any]]
+        self,
+        name: str,
+        entries: list[dict[str, Any]],
+        merge_existing: bool = False,
     ) -> dict[str, Any]:
         """Create a clipped remote pre-filled from materialized codebook entries.
 
         ``entries`` are the Clipper-ready dicts from ``code_library``: each
         ``{name, code, decoded_protocol, decoded_address, decoded_command,
-        decoded_fingerprint}``. Signals are validated, deduplicated within
-        the batch, and appended in order under a single lock and save.
-        Invalid or duplicate codes are skipped; returns the new device plus
-        imported/skipped counts so the UI can report partial imports.
+        decoded_fingerprint}`` plus an optional ``send_count`` (wig imports
+        carry it; library entries do not). Signals are validated,
+        deduplicated within the batch, and appended in order under a single
+        lock and save. Invalid or duplicate codes are skipped; returns the
+        device plus imported/skipped counts so the UI can report partial
+        imports.
+
+        ``merge_existing`` (wig imports): when a clipped remote with the
+        same label already exists, its rows absorb the batch instead of a
+        twin remote appearing -- re-materializing a wig you already
+        imported collapses onto existing rows via the tiered duplicate
+        guard (wigs.md section 6). Library imports keep their historical
+        new-remote-every-time behavior.
         """
         label = (name or "").strip() or "Imported Remote"
         now_iso = datetime.now(UTC).isoformat()
         imported = 0
         skipped = 0
         async with self._lock:
-            device = UnknownDevice(
-                label=label,
-                source="manual",
-                first_seen=now_iso,
-                last_seen=now_iso,
-                hit_count=0,
-            )
-            device.fingerprint = f"manual:{device.id}"
+            device = None
+            if merge_existing:
+                device = next(
+                    (
+                        d for d in self._signal_store.get_all_devices()
+                        if d.source == "manual"
+                        and (d.label or "").strip().casefold()
+                        == label.casefold()
+                    ),
+                    None,
+                )
+            created = device is None
+            if device is None:
+                device = UnknownDevice(
+                    label=label,
+                    source="manual",
+                    first_seen=now_iso,
+                    last_seen=now_iso,
+                    hit_count=0,
+                )
+                device.fingerprint = f"manual:{device.id}"
             for entry in entries:
                 result = validate_pronto(entry.get("code") or "")
                 if not result.valid:
@@ -2418,6 +2443,11 @@ class SignalMonitor:
                     if result.frequency_khz
                     else DEFAULT_CARRIER_FREQUENCY
                 )
+                send_count = entry.get("send_count", 1)
+                if not isinstance(send_count, int) or isinstance(
+                    send_count, bool
+                ):
+                    send_count = 1
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     byte_hash=byte_hash,
@@ -2435,15 +2465,20 @@ class SignalMonitor:
                     last_seen=now_iso,
                     source="manual",
                     alias=(entry.get("name") or "").strip(),
+                    send_count=max(1, min(send_count, MAX_SEND_COUNT)),
                 )
                 device.signals.append(signal)
                 imported += 1
-            self._signal_store.add_device(device)
+            if created:
+                self._signal_store.add_device(device)
+            else:
+                device.last_seen = now_iso
             await self._signal_store.async_save()
         return {
             "device": device.to_dict(),
             "imported": imported,
             "skipped": skipped,
+            "merged": not created,
         }
 
     async def set_signal_alias(

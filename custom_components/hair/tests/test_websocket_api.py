@@ -580,7 +580,9 @@ async def test_codes_import_remote_success(fake_hass):
                 "codebook_id": "mod:LGTVCode",
             },
         )
-    monitor.import_manual_remote.assert_awaited_once_with("LG TV", entries)
+    monitor.import_manual_remote.assert_awaited_once_with(
+        "LG TV", entries, merge_existing=False
+    )
     conn.send_result.assert_called_once()
     assert conn.send_result.call_args[0][1]["imported"] == 3
 

@@ -21,6 +21,7 @@ from .signal_store import SignalStore
 from .storage import HAIRStore
 from .trigger_manager import TriggerManager
 from .websocket_api import async_register_websocket_commands
+from .wig_store import ensure_wigs_dir
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,6 +82,11 @@ async def async_setup_entry(
     # Prime the localized auto-map synonyms table off the event loop
     # (reads the panel locale files once, cached for the process).
     await hass.async_add_executor_job(prime_localized_auto_map)
+
+    # The wig closet: /config/hair/wigs/ exists from first boot so "drop
+    # your files here" is always true (wigs.md section 4). Lives outside
+    # custom_components/ because HACS replaces that tree on update.
+    await hass.async_add_executor_job(ensure_wigs_dir, hass.config.config_dir)
 
     entity_factory = EntityFactory(hass)
     orchestrator = CaptureOrchestrator(hass)

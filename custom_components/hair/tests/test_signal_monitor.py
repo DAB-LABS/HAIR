@@ -239,6 +239,51 @@ async def test_import_manual_remote_creates_remote_with_signals():
     assert sig.decoded_fingerprint == "NEC:0xfb04:0x08"
 
 
+@pytest.mark.asyncio
+async def test_import_manual_remote_merge_collapses_reimport():
+    """Wig re-imports collapse onto the same-named clipped remote (tiered
+    duplicate guard) instead of minting a twin; new signals still land.
+    Library-style imports (merge_existing=False) keep minting."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    code_a = (
+        "0000 006D 0006 0000 00E0 0070 0014 000D 0014 002E "
+        "0014 000D 0014 000D 0014 0400"
+    )
+    # Differ well beyond byte-hash quantization so the tiered guard sees
+    # a genuinely distinct signal, not a jittered copy.
+    code_b = code_a.replace("002E", "0060").replace("00E0 0070", "00A0 0050")
+    first = await monitor.import_manual_remote(
+        "Foxtel IQ", [{"name": "Power", "code": code_a, "send_count": 3}],
+        merge_existing=True,
+    )
+    assert first["merged"] is False
+    assert store.get_all_devices()[0].signals[0].send_count == 3
+
+    again = await monitor.import_manual_remote(
+        "Foxtel IQ",
+        [
+            {"name": "Power", "code": code_a},
+            {"name": "Mute", "code": code_b},
+        ],
+        merge_existing=True,
+    )
+    assert again["merged"] is True
+    assert again["imported"] == 1  # only Mute is new
+    assert again["skipped"] == 1
+    devices = store.get_all_devices()
+    assert len(devices) == 1
+    assert len(devices[0].signals) == 2
+
+    twin = await monitor.import_manual_remote(
+        "Foxtel IQ", [{"name": "Power", "code": code_a}],
+        merge_existing=False,
+    )
+    assert twin["merged"] is False
+    assert len(store.get_all_devices()) == 2
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle tests
 # ---------------------------------------------------------------------------
