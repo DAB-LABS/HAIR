@@ -473,6 +473,40 @@ class TestHAIRClimateEntity:
         assert HVACMode.COOL in modes
         assert len(modes) == 2  # OFF + cool
 
+    def test_power_only_ac_gets_synthetic_auto(self):
+        """GH #58: Power On/Off mapped, no mode commands.
+
+        Without a synthetic on-state the card offers only OFF and the
+        unit can never be turned on from the climate entity. AUTO rides
+        the existing set_hvac_mode fallback to turn_on/power_toggle.
+        """
+        entity, _ = self._make(
+            command_mapping={"turn_on": "Power On", "turn_off": "Power Off"},
+        )
+        assert entity.hvac_modes == [HVACMode.OFF, HVACMode.AUTO]
+
+    def test_power_toggle_only_ac_gets_synthetic_auto(self):
+        entity, _ = self._make(
+            command_mapping={"power_toggle": "Power"},
+        )
+        assert entity.hvac_modes == [HVACMode.OFF, HVACMode.AUTO]
+
+    def test_no_power_no_modes_stays_off_only(self):
+        """An AC with nothing power-like mapped has no on-state to
+        offer; advertising one would promise a send that cannot
+        happen."""
+        entity, _ = self._make(command_mapping={"temp_22": "Temp 22"})
+        assert entity.hvac_modes == [HVACMode.OFF]
+
+    def test_real_modes_suppress_synthetic_auto(self):
+        """Once any real mode is configured the synthetic AUTO retires;
+        the user's actual mode commands own the card."""
+        entity, _ = self._make(
+            command_mapping={"turn_on": "Power On", "mode_cool": "Cool"},
+            hvac_modes=["cool"],
+        )
+        assert entity.hvac_modes == [HVACMode.OFF, HVACMode.COOL]
+
     def test_min_max_temp_from_presets(self):
         entity, _ = self._make(temperature_presets=[60, 68, 72, 80])
         assert entity.min_temp == 60.0
