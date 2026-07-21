@@ -79,6 +79,32 @@ The admin panel is built with LitElement and TypeScript. The compiled bundle liv
 - Make sure `pytest` and `ruff check .` pass before opening a PR
 - Write a clear PR description explaining what changed and why
 
+## AI-assisted contributions
+
+Using AI tools to help write code or documentation is fine. HAIR itself is
+developed with them.
+
+What is not fine is submitting work you have not read and cannot explain. If
+you open a pull request, you should be able to say what it changes and why in
+your own words, and answer questions about it without going back to a tool for
+the answer.
+
+In practice:
+
+- Fill in the pull request template. A PR submitted with the template
+  untouched will be closed without a detailed review.
+- Work from a clone of current `main`. Uploading files through the GitHub web
+  interface tends to overwrite unrelated work with stale copies, and that is
+  not something a reviewer can safely untangle.
+- Run `pytest` and `ruff check .` first. Code that imports modules or functions
+  which do not exist is the most common sign of unreviewed generated output.
+- Do not claim tests, hardware verification, or captures that are not in the
+  PR.
+
+Pull requests that look like unreviewed tool output will be closed with a short
+note rather than a full review. That is not a judgement about the tool. It is
+about review time, which has to go to contributions someone is standing behind.
+
 ## Bug Reports
 
 Use the [GitHub issue tracker](https://github.com/DAB-LABS/HAIR/issues). Include:
