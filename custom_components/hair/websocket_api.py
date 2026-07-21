@@ -25,6 +25,7 @@ from .const import (
     EVENT_SIGNAL_UPDATED,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
+    OPT_ENABLE_CUSTOM_AC_PROTOCOLS,
     WS_PREFIX,
     CaptureState,
     CommandCategory,
@@ -32,6 +33,7 @@ from .const import (
 )
 from .device_manager import DeviceManager, category_for_command_name
 from .frequency_standards import IR_CARRIER_STANDARDS_HZ
+from .identity import SignalIdentity
 from .models import IRDevice, IRTrigger
 from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
@@ -103,6 +105,10 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_codes_get_brands)
     websocket_api.async_register_command(hass, ws_codes_import_remote)
 
+    # Custom AC protocols (opt-in)
+    websocket_api.async_register_command(hass, ws_customac_list)
+    websocket_api.async_register_command(hass, ws_customac_set)
+
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
     websocket_api.async_register_command(hass, ws_update_mapping)
@@ -125,6 +131,19 @@ def _get_first_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
         if isinstance(value, dict) and "device_manager" in value:
             return value
     return None
+
+
+def _custom_ac_protocols_enabled(hass: HomeAssistant) -> bool:
+    """True if the opt-in "custom AC protocols" toggle is on.
+
+    Checked fresh on every call (not cached) so flipping the options-flow
+    toggle takes effect without a reload. HAIR is a singleton hub -- the
+    first config entry is the only one.
+    """
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return False
+    return bool(entries[0].options.get(OPT_ENABLE_CUSTOM_AC_PROTOCOLS, False))
 
 
 def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
@@ -694,18 +713,22 @@ async def ws_save_captured_command(
     command = result.to_command(msg["command_name"], category)
     # Decode at save so a captured NEC command transmits canonical timings on
     # the first press (mirrors the catalog-signal capture pipeline). Also sets
-    # byte_hash because no IRCommand byte_hash backfill exists, and the
-    # matcher's reverse index uses (fingerprint, byte_hash) when both are
-    # present. Both fields default to None on undecodable / non-Pronto
-    # captures, matching today's behavior for the NEC-only assign paths.
+    # byte_hash at creation: the matcher's reverse index keys on
+    # (fingerprint, byte_hash), and since v0.5.8 the hash is identity, not
+    # just a tiebreaker. (A load-time backfill exists for pre-0.3.4 records,
+    # but a freshly captured command should not need it.) Both fields default
+    # to None on undecodable / non-Pronto captures.
     from .event_parser import EventParser
-    from .protocol_decode import decode_to_fields
+    from .protocol_decode import try_decode_identity
 
-    d_proto, d_addr, d_cmd, d_fp = decode_to_fields(result.raw_timings)
-    command.decoded_protocol = d_proto
-    command.decoded_address = d_addr
-    command.decoded_command = d_cmd
-    command.decoded_fingerprint = d_fp
+    identity = try_decode_identity(result.raw_timings)
+    command.decoded_protocol = identity.protocol if identity else None
+    command.decoded_address = identity.address if identity else None
+    command.decoded_command = identity.command if identity else None
+    command.decoded_fingerprint = identity.fingerprint if identity else None
+    command.decoded_extras = (
+        dict(identity.extras) if identity and identity.extras else None
+    )
     command.byte_hash = EventParser.pronto_byte_hash(result.code)
     await manager.async_add_command(device.id, command)
     # Notify other tabs this signal now has an assignment (v0.5.7).
@@ -798,9 +821,14 @@ async def ws_get_sniffer_status(
 ) -> None:
     """Return Sniffer status so the empty state can explain itself.
 
-    ``has_receivers`` is False when no native receiver is subscribed and
-    no ESPHome bridge has fired this session, which means "no receiver is
-    set up" rather than "no signals seen yet".
+    ``has_receivers`` is False when no native receiver is currently
+    subscribed and no ESPHome bridge has fired this session, which means
+    "no receiver is set up" rather than "no signals seen yet". Receivers
+    are tracked dynamically (v0.5.8 hot-plug), so this can flip to True
+    without a reload; known cosmetic limitation: the frontend fetches it
+    on load only, so after a hot-plug the empty state persists until a
+    tab refresh -- and once a signal actually arrives, the device-count
+    gate bypasses the empty state anyway.
     """
     data = _get_first_entry_data(hass)
     has_receivers = False
@@ -876,23 +904,94 @@ async def ws_codes_import_remote(
     connection.send_result(msg["id"], result)
 
 
+# --- Custom AC protocols (opt-in, live-encoded -- see custom_ac_source.py) ---
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/customac/list",
+})
+@websocket_api.async_response
+async def ws_customac_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List discovered <config>/hair_codes/ac/ protocols, or [] if the
+    opt-in toggle is off. The frontend treats an empty list as "hide this
+    picker", so no separate "enabled" flag is needed on the wire."""
+    if not _custom_ac_protocols_enabled(hass):
+        connection.send_result(msg["id"], [])
+        return
+    from .custom_ac_source import list_protocols
+
+    # Imports/reads files from disk; keep it off the event loop.
+    protocols = await hass.async_add_executor_job(list_protocols)
+    connection.send_result(msg["id"], protocols)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/customac/set",
+    vol.Required("device_id"): str,
+    vol.Optional("protocol_id"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_customac_set(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Bind (or clear, if protocol_id is None/absent) a device's live AC
+    protocol. Once set, climate.py encodes every send from the entity's
+    current state instead of using entity_config.command_mapping."""
+    if not _custom_ac_protocols_enabled(hass):
+        connection.send_error(
+            msg["id"], "not_enabled", "Custom AC protocols are not enabled"
+        )
+        return
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    device.entity_config.ac_protocol_id = msg.get("protocol_id") or None
+    await manager.async_update_device(device)
+    connection.send_result(msg["id"], {
+        "ac_protocol_id": device.entity_config.ac_protocol_id,
+    })
+
+
 # --- Signal Monitor (Unknown Devices) ---
 
 
-def _assignment_index(hair_devices: list[IRDevice]) -> dict[str, list[str]]:
-    """Map each signal fingerprint to the list of assigned HAIR commands.
+def _assignment_index(
+    hair_devices: list[IRDevice],
+) -> list[tuple[SignalIdentity, str]]:
+    """List every HAIR command as ``(identity, "<device>.<command>")``.
 
-    A catalog signal is "assigned" when a HAIR device command re-encodes to the
-    same S/L fingerprint. ``IRCommand`` carries no stored fingerprint, so it is
-    computed here exactly as ``storage._rebuild_command_index`` does. Values are
-    ``"<device name>.<command name>"`` strings for the frontend tooltip. Keyed on
-    the S/L fingerprint only (dots plan Section 4.7); the byte-hash tiebreaker is
-    not applied here, so two distinct codes sharing an S/L fingerprint count
-    together -- acceptable for a soft row indicator.
+    A catalog signal is "assigned" when a HAIR device command re-encodes to
+    the same identity. ``IRCommand`` carries no stored fingerprint, so it is
+    computed here exactly as ``storage._rebuild_command_index`` does. Labels
+    are ``"<device name>.<command name>"`` strings for the frontend tooltip.
+
+    Tiered identity (v0.5.8 unified identity): matching is the exact
+    pairwise rule via ``SignalIdentity.same_as`` in
+    ``_augment_signals_with_assignments`` -- a linear scan rather than a
+    dict, because the deciding tier depends on which layers BOTH sides
+    carry, which no single-key index expresses (a hash-only capture must
+    still reach a decoded command at tier 2 across a Sony fingerprint
+    flip). Command counts are small and this runs on the per-device fetch,
+    so the scan is cheap; correctness of the dot beats micro-optimization.
     """
     from .event_parser import EventParser
 
-    index: dict[str, list[str]] = {}
+    entries: list[tuple[SignalIdentity, str]] = []
     for device in hair_devices:
         for command in device.commands:
             fp = EventParser.signal_fingerprint(
@@ -900,20 +999,42 @@ def _assignment_index(hair_devices: list[IRDevice]) -> dict[str, list[str]]:
             )
             if not fp:
                 continue
-            index.setdefault(fp, []).append(f"{device.name}.{command.name}")
-    return index
+            entries.append((
+                SignalIdentity(
+                    command.decoded_fingerprint, command.byte_hash, fp
+                ),
+                f"{device.name}.{command.name}",
+            ))
+    return entries
 
 
 def _augment_signals_with_assignments(
-    device_dict: dict[str, Any], assignment_index: dict[str, list[str]]
+    device_dict: dict[str, Any],
+    assignment_index: list[tuple[SignalIdentity, str]],
 ) -> None:
     """Annotate each serialized signal with its assignment count + list.
 
-    Mutates ``device_dict['signals']`` in place, adding ``assignment_count`` and
-    ``assigned_to`` (dots polish, v0.5.7). Cheap; runs on the per-device fetch.
+    Mutates ``device_dict['signals']`` in place, adding ``assignment_count``
+    and ``assigned_to`` (dots polish, v0.5.7). Matching is the tiered
+    identity rule (v0.5.8 unified identity, ``SignalIdentity.same_as``):
+    assigning one sub-threshold button (Sony et al) lights the green dot
+    on that row only, and the dot survives the row's coarse fingerprint
+    flipping across the classification boundary, matching the trigger and
+    known-command matchers.
     """
+    from .identity import SignalIdentity
+
     for sig in device_dict.get("signals", []):
-        assigned = assignment_index.get(sig.get("fingerprint"), [])
+        ident = SignalIdentity(
+            sig.get("decoded_fingerprint"),
+            sig.get("byte_hash"),
+            sig.get("fingerprint") or "",
+        )
+        assigned = [
+            label
+            for cmd_ident, label in assignment_index
+            if ident.same_as(cmd_ident)
+        ]
         sig["assignment_count"] = len(assigned)
         sig["assigned_to"] = assigned
 
@@ -1933,6 +2054,8 @@ async def ws_get_triggers(
     vol.Optional("source_device_id"): vol.Any(str, None),
     vol.Optional("source_command_id"): vol.Any(str, None),
     vol.Optional("receiver_entity_ids"): [str],
+    vol.Optional("byte_hash"): vol.Any(str, None),
+    vol.Optional("decoded_fingerprint"): vol.Any(str, None),
 })
 @websocket_api.async_response
 async def ws_create_trigger(
@@ -1952,26 +2075,60 @@ async def ws_create_trigger(
     sig_fp = msg.get("signal_fingerprint", "")
     protocol = msg.get("protocol")
     code = msg.get("code")
+    # Byte-level identity (v0.5.8). Honored only when the client sends it
+    # explicitly (or derived from a source command below); the protocol+code
+    # auto-derive branch deliberately does NOT compute one server-side, so a
+    # stale cached frontend degrades to a legacy-broad trigger, which is the
+    # pre-0.5.8 behavior.
+    byte_hash = msg.get("byte_hash")
+    # Decoded identity (v0.5.8 unified identity). Unlike byte_hash, this IS
+    # server-derived from the code when the client did not send it: decode
+    # is checksum-validated, so a derived value can only be the code's true
+    # identity or None -- it cannot mis-scope the trigger the way a
+    # recomputed (bin-quantized, snap-fragile) hash could. Mirrors what the
+    # load-time backfill would do at next restart anyway; deriving here
+    # just activates tier-1 matching immediately.
+    decoded_fingerprint = msg.get("decoded_fingerprint")
 
     # Auto-compute fingerprint from protocol+code when not provided.
     if not sig_fp and (protocol or code):
         sig_fp = EventParser.signal_fingerprint(protocol, code, None)
 
-    # If a source command was given, derive fingerprint from that command.
-    if not sig_fp and msg.get("source_command_id") and msg.get("source_device_id"):
+    # Resolve the source command when one was given. Two jobs, independently
+    # gated: fill a missing fingerprint, and (v0.5.8) derive the byte_hash.
+    # The hash derive must NOT hang off `not sig_fp` -- the device-detail
+    # trigger dialog always sends protocol+code, so the fingerprint is
+    # already resolved by here and a gated derive would never run, leaving
+    # every trigger created from a command row legacy-broad. That is the
+    # exact bug this release exists to fix, on the path a user hits right
+    # after assigning a signal.
+    if msg.get("source_command_id") and msg.get("source_device_id"):
         dm = data.get("device_manager")
         if dm:
             device = dm.get_device(msg["source_device_id"])
             if device:
                 cmd = device.get_command(msg["source_command_id"])
                 if cmd:
-                    sig_fp = EventParser.signal_fingerprint(
-                        cmd.protocol, cmd.code, cmd.raw_timings,
-                    )
+                    if not sig_fp:
+                        sig_fp = EventParser.signal_fingerprint(
+                            cmd.protocol, cmd.code, cmd.raw_timings,
+                        )
                     if not protocol:
                         protocol = cmd.protocol
                     if not code:
                         code = cmd.code
+                    # NOTE: a hash inherited from a snapped or re-encoded
+                    # command code may differ from what live captures of the
+                    # same button hash to (snap rescales timing words).
+                    # Accepted trade-off; the command's own identity is
+                    # still the most precise thing we know here. Under
+                    # tiered matching, the command's decoded identity
+                    # (below) additionally rescues exactly that mismatch
+                    # for decodable protocols.
+                    if byte_hash is None:
+                        byte_hash = cmd.byte_hash
+                    if decoded_fingerprint is None:
+                        decoded_fingerprint = cmd.decoded_fingerprint
 
     if not sig_fp:
         connection.send_error(
@@ -1995,7 +2152,21 @@ async def ws_create_trigger(
         source_device_id=msg.get("source_device_id"),
         source_command_id=msg.get("source_command_id"),
         receiver_entity_ids=list(msg.get("receiver_entity_ids") or []),
+        byte_hash=byte_hash,
+        decoded_fingerprint=decoded_fingerprint,
     )
+    if trigger.decoded_fingerprint is None and trigger.code:
+        # Safe server-side derive (see the comment at the top of the
+        # handler); same computation as the load-time trigger backfill.
+        from .ir_command import ProntoCommand
+        from .protocol_decode import decode_to_fields
+
+        try:
+            _raw = ProntoCommand(trigger.code).get_raw_timings()
+        except (ValueError, IndexError):
+            _raw = None
+        _, _, _, derived = decode_to_fields(_raw)
+        trigger.decoded_fingerprint = derived
     store.add_trigger(trigger)
     await store.async_save()
 
@@ -2016,6 +2187,8 @@ async def ws_create_trigger(
     vol.Optional("min_hits"): int,
     vol.Optional("enabled"): bool,
     vol.Optional("receiver_entity_ids"): [str],
+    vol.Optional("byte_hash"): vol.Any(str, None),
+    vol.Optional("decoded_fingerprint"): vol.Any(str, None),
 })
 @websocket_api.async_response
 async def ws_update_trigger(
@@ -2045,6 +2218,12 @@ async def ws_update_trigger(
     if "receiver_entity_ids" in msg:
         # Receiver scope (v0.5.7). Empty list = any receiver (backward compat).
         trigger.receiver_entity_ids = list(msg["receiver_entity_ids"] or [])
+    if "byte_hash" in msg:
+        # Byte-level identity (v0.5.8). None = legacy-broad matching.
+        trigger.byte_hash = msg["byte_hash"]
+    if "decoded_fingerprint" in msg:
+        # Decoded identity (v0.5.8 unified identity). None = no tier-1.
+        trigger.decoded_fingerprint = msg["decoded_fingerprint"]
     trigger.updated_at = datetime.now(UTC).isoformat()
 
     store.update_trigger(trigger)

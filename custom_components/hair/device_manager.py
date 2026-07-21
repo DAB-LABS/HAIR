@@ -66,6 +66,8 @@ AUTO_MAP_RULES: dict[str, str] = {
     "off": "turn_off",
     "brightness up": "brightness_up",
     "brightness down": "brightness_down",
+    "color temp warmer": "color_temp_warmer",
+    "color temp cooler": "color_temp_cooler",
     # Cover / screen
     "open": "open_cover",
     "close": "close_cover",
@@ -138,7 +140,7 @@ class DeviceManager:
         from .event_parser import EventParser
         from .ir_command import ProntoCommand
         from .pronto_validator import validate_pronto
-        from .protocol_decode import decode_to_fields
+        from .protocol_decode import try_decode_identity
 
         device = self._store.get_device(device_id)
         if device is None:
@@ -187,21 +189,27 @@ class DeviceManager:
             old_fp = EventParser.signal_fingerprint(
                 command.protocol, command.code, command.raw_timings
             )
+            # Captured BEFORE the mutations below: a sub-threshold edit
+            # (Sony code A to code B) changes only the byte_hash -- and
+            # rewire needs the old byte-level AND decoded values to repoint
+            # precisely (v0.5.8 unified identity).
+            old_byte_hash = command.byte_hash
+            old_decoded_fingerprint = command.decoded_fingerprint
             new_fp = EventParser.signal_fingerprint("PRONTO", new_code, [])
+            new_byte_hash = EventParser.pronto_byte_hash(new_code)
             try:
                 raw = ProntoCommand(new_code).get_raw_timings()
             except Exception:  # bad code falls back to no decoded timings
                 raw = None
-            (
-                decoded_protocol,
-                decoded_address,
-                decoded_command,
-                decoded_fingerprint,
-            ) = decode_to_fields(raw)
+            identity = try_decode_identity(raw)
+            decoded_protocol = identity.protocol if identity else None
+            decoded_address = identity.address if identity else None
+            decoded_command = identity.command if identity else None
+            decoded_fingerprint = identity.fingerprint if identity else None
             command.protocol = "PRONTO"
             command.code = new_code
             command.raw_timings = list(raw) if raw else None
-            command.byte_hash = EventParser.pronto_byte_hash(new_code)
+            command.byte_hash = new_byte_hash
             command.frequency = (
                 round(result.frequency_khz * 1000)
                 if result.frequency_khz
@@ -211,9 +219,27 @@ class DeviceManager:
             command.decoded_address = decoded_address
             command.decoded_command = decoded_command
             command.decoded_fingerprint = decoded_fingerprint
-            if trigger_manager is not None and new_fp and new_fp != old_fp:
+            command.decoded_extras = (
+                dict(identity.extras) if identity and identity.extras else None
+            )
+            # Rewire on ANY identity component changing (v0.5.8): a
+            # sub-threshold edit shifts only the byte_hash, never the S/L
+            # fingerprint, and would otherwise orphan a scoped trigger.
+            if (
+                trigger_manager is not None
+                and new_fp
+                and (
+                    new_fp != old_fp
+                    or new_byte_hash != old_byte_hash
+                    or decoded_fingerprint != old_decoded_fingerprint
+                )
+            ):
                 rewire = await trigger_manager.rewire(
-                    old_fp, new_fp, "PRONTO", new_code
+                    old_fp, new_fp, "PRONTO", new_code,
+                    old_byte_hash=old_byte_hash,
+                    new_byte_hash=new_byte_hash,
+                    old_decoded_fingerprint=old_decoded_fingerprint,
+                    new_decoded_fingerprint=decoded_fingerprint,
                 )
 
         # --- whole-frame send count ---
@@ -327,6 +353,43 @@ class DeviceManager:
         await self._entity_factory.async_update_entities(device)
         return True
 
+    async def async_send_raw(
+        self,
+        device_id: str,
+        timings: list[int],
+        frequency: int,
+        *,
+        repeat_count: int = 0,
+    ) -> None:
+        """Send raw timings that were just computed, not a stored command.
+
+        Used by a live AC protocol (``EntityConfig.ac_protocol_id``): the
+        climate entity builds an ``ACState`` from its current settings and
+        calls ``PROTOCOL.encode(state)`` on every change, so there is no
+        ``IRCommand`` id to look up -- the frame never existed before this
+        call. Broadcasts to every configured emitter, same as
+        ``async_send_command``, but skips the stored-command lookup,
+        decoded-identity re-encode, and toggle bookkeeping that only make
+        sense for a captured/library command.
+        """
+        device = self._store.get_device(device_id)
+        if device is None:
+            raise KeyError(f"Unknown device {device_id}")
+        if not device.emitter_entity_ids:
+            raise RuntimeError(f"Device {device_id} has no emitters configured")
+
+        from homeassistant.components.infrared import (
+            async_send_command as ir_send,
+        )
+
+        from .ir_command import build_command
+
+        ir_cmd = build_command(
+            raw_timings=timings, frequency=frequency, repeat_count=repeat_count
+        )
+        for emitter_id in device.emitter_entity_ids:
+            await ir_send(self._hass, emitter_id, ir_cmd)
+
     async def async_send_command(
         self, device_id: str, command_id: str
     ) -> None:
@@ -370,7 +433,9 @@ class DeviceManager:
                 command.decoded_address,
                 command.decoded_command,
                 repeat_count=command.repeat_count or 0,
+                decoded_extras=command.decoded_extras,
             )
+        decoded_tx = ir_cmd is not None
         if ir_cmd is None:
             ir_cmd = build_command(
                 protocol=command.protocol,
@@ -389,6 +454,22 @@ class DeviceManager:
                 await asyncio.sleep(SEND_REPEAT_GAP)
             for emitter_id in device.emitter_entity_ids:
                 await ir_send(self._hass, emitter_id, ir_cmd)
+
+        # RC-5-family toggle state (v0.6.0): one send-command call is one
+        # logical press, so flip once after the full emitter loop completes
+        # without raising -- send_count > 1 deliberately re-sends the same
+        # toggle. The decoded fingerprint excludes toggle, so the reverse
+        # index is unaffected and a bare save is safe.
+        if (
+            decoded_tx
+            and command.decoded_extras
+            and "toggle" in command.decoded_extras
+        ):
+            command.decoded_extras["toggle"] = (
+                int(command.decoded_extras["toggle"]) ^ 1
+            )
+            self._store.update_device(device)
+            await self._store.async_save()
 
     async def async_set_command_tx_force_raw(
         self, device_id: str, command_id: str, tx_force_raw: bool

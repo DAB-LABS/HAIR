@@ -56,6 +56,11 @@ class IRCommand:
     decoded_address: int | None = None
     decoded_command: int | None = None
     decoded_fingerprint: str | None = None
+    # Protocol state the decoded re-encode needs beyond the identity
+    # triple (v0.6.0): RC-5/Marantz toggle, Sharp extension. Plain dict,
+    # no schema; None for protocols without extras and for commands
+    # stored before v0.6.0.
+    decoded_extras: dict[str, int] | None = None
     # Per-command opt-out: when True, TX replays the captured Pronto rather
     # than re-encoding from the decoded value. Default False, so a command
     # with decoded fields transmits canonical timings unless the user
@@ -84,6 +89,9 @@ class IRCommand:
             "decoded_address": self.decoded_address,
             "decoded_command": self.decoded_command,
             "decoded_fingerprint": self.decoded_fingerprint,
+            "decoded_extras": dict(self.decoded_extras)
+            if self.decoded_extras
+            else None,
             "tx_force_raw": self.tx_force_raw,
             "plucked_command_name": self.plucked_command_name,
             "created_at": self.created_at,
@@ -107,6 +115,7 @@ class IRCommand:
             decoded_address=data.get("decoded_address"),
             decoded_command=data.get("decoded_command"),
             decoded_fingerprint=data.get("decoded_fingerprint"),
+            decoded_extras=data.get("decoded_extras") or None,
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
             created_at=data.get("created_at") or _now_iso(),
@@ -139,6 +148,10 @@ class EntityConfig:
     hvac_modes: list[str] | None = None
     fan_modes: list[str] | None = None
     swing_modes: list[str] | None = None
+    #: When set (e.g. "customac:fujitsu"), climate.py encodes every send
+    #: live via CustomAcSource instead of looking up a stored command in
+    #: command_mapping. Opt-in feature -- see custom_ac_source.py.
+    ac_protocol_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -150,6 +163,7 @@ class EntityConfig:
             "hvac_modes": list(self.hvac_modes) if self.hvac_modes else None,
             "fan_modes": list(self.fan_modes) if self.fan_modes else None,
             "swing_modes": list(self.swing_modes) if self.swing_modes else None,
+            "ac_protocol_id": self.ac_protocol_id,
         }
 
     @classmethod
@@ -161,6 +175,7 @@ class EntityConfig:
             hvac_modes=data.get("hvac_modes"),
             fan_modes=data.get("fan_modes"),
             swing_modes=data.get("swing_modes"),
+            ac_protocol_id=data.get("ac_protocol_id"),
         )
 
 
@@ -254,6 +269,9 @@ class IRDevice:
                 # (decoded_*) on the clone.
                 byte_hash=cmd.byte_hash,
                 decoded_protocol=cmd.decoded_protocol,
+                decoded_extras=(
+                    dict(cmd.decoded_extras) if cmd.decoded_extras else None
+                ),
                 decoded_address=cmd.decoded_address,
                 decoded_command=cmd.decoded_command,
                 decoded_fingerprint=cmd.decoded_fingerprint,
@@ -284,6 +302,7 @@ class IRDevice:
                 if self.entity_config.swing_modes
                 else None
             ),
+            ac_protocol_id=self.entity_config.ac_protocol_id,
         )
         return IRDevice(
             name=new_name,
@@ -398,6 +417,22 @@ class IRTrigger:
     # when the capturing receiver's entity_id is in this list. Legacy captures
     # (receiver_entity_id None) never match a scoped trigger.
     receiver_entity_ids: list[str] = field(default_factory=list)
+    # Byte-level identity (v0.5.8). Sub-threshold protocols (Sony SIRC,
+    # Panasonic/Kaseikyo, TCL) collapse distinct buttons onto one S/L
+    # fingerprint; the v0.3.4 byte_hash tiebreaker separates them. None =
+    # legacy trigger = byte_hash-agnostic (pre-0.5.8 behavior). Set at
+    # creation from the source signal/command so the trigger fires only
+    # on its own button. See matches_signal().
+    byte_hash: str | None = None
+    # Decoded protocol identity (v0.5.8, unified identity). The strongest
+    # identity tier: jitter-immune, so it keeps a trigger firing even when
+    # a boundary protocol's S/L fingerprint flips between captures. None =
+    # not decoded (no decoder for the protocol, or a pre-upgrade record
+    # before the load-time backfill runs). Backfilled at load from the
+    # stored code -- decode is checksum-validated, so the backfill is safe
+    # in a way a byte_hash backfill would not be (bin-quantized hashes are
+    # snap-fragile and a tier-2 mismatch is fatal; see the plan doc).
+    decoded_fingerprint: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -413,6 +448,8 @@ class IRTrigger:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "receiver_entity_ids": list(self.receiver_entity_ids),
+            "byte_hash": self.byte_hash,
+            "decoded_fingerprint": self.decoded_fingerprint,
         }
 
     @classmethod
@@ -431,6 +468,54 @@ class IRTrigger:
             updated_at=data.get("updated_at") or _now_iso(),
             # Absent (pre-0.5.7 record) or null both resolve to [] = unscoped.
             receiver_entity_ids=list(data.get("receiver_entity_ids") or []),
+            # Absent (pre-0.5.8 record) or null both resolve to None =
+            # byte_hash-agnostic, matching the pre-0.5.8 behavior.
+            byte_hash=data.get("byte_hash"),
+            # Absent or null = not decoded; the load-time backfill fills
+            # this from the stored code where a decoder exists.
+            decoded_fingerprint=data.get("decoded_fingerprint"),
+        )
+
+    def matches_byte_hash(self, byte_hash: str | None) -> bool:
+        """Return True if this trigger's byte-level identity matches.
+
+        Three-way None-tolerant rule: a legacy trigger (``self.byte_hash``
+        None) matches anything; an incoming signal without a byte_hash
+        (non-Pronto or malformed code) matches anything; otherwise the two
+        hashes must be equal. Keeps pre-0.5.8 triggers firing broadly while
+        new triggers distinguish sub-threshold buttons (Sony et al).
+
+        Retained as the tier-2-only comparison; production matching goes
+        through :meth:`matches_signal`, which layers the decoded tier on
+        top and drops the fingerprint-equality precondition.
+        """
+        if self.byte_hash is None or byte_hash is None:
+            return True
+        return self.byte_hash == byte_hash
+
+    def matches_signal(
+        self,
+        fingerprint: str,
+        byte_hash: str | None = None,
+        decoded_fingerprint: str | None = None,
+    ) -> bool:
+        """Tiered identity match against an incoming signal (v0.5.8).
+
+        Decoded > byte_hash > S/L fingerprint; the highest tier both
+        sides carry decides (see ``identity.SignalIdentity``). Notably
+        this DROPS the old fingerprint-equality precondition: a Sony
+        capture whose S/L fingerprint flipped across the 48-unit
+        threshold still matches its trigger via byte_hash, which is the
+        bench-verified failure the unified-identity work exists to fix.
+        Legacy triggers (no hash, no decoded identity) still match on
+        fingerprint alone, exactly as before.
+        """
+        from .identity import SignalIdentity
+
+        return SignalIdentity(
+            self.decoded_fingerprint, self.byte_hash, self.signal_fingerprint
+        ).same_as(
+            SignalIdentity(decoded_fingerprint, byte_hash, fingerprint)
         )
 
     def matches_receiver(self, receiver_entity_id: str | None) -> bool:
@@ -538,10 +623,11 @@ class UnknownSignal:
 
     # Stable per-signal identity. The S/L ``fingerprint`` is NOT unique on
     # a remote once the byte-hash tiebreaker (v0.3.4) stores two distinct
-    # commands that share an S/L pattern (Panasonic, TCL, etc.), so all
-    # per-signal operations (alias, delete, test, assign, reorder, the
-    # frontend row key) key on this id, not the fingerprint. Triggers
-    # remain keyed on (device, fingerprint) by design.
+    # commands that share an S/L pattern (Panasonic, TCL, Sony, etc.), so
+    # all per-signal operations (alias, delete, test, assign, reorder, the
+    # frontend row key) key on this id, not the fingerprint. Triggers key
+    # on (fingerprint, byte_hash) since v0.5.8; a None trigger byte_hash
+    # (pre-0.5.8) matches any hash on the fingerprint.
     id: str = field(default_factory=_new_id)
     fingerprint: str = ""
     # Quantized byte hash, the duplicate-guard tiebreaker layered on top of
@@ -557,6 +643,10 @@ class UnknownSignal:
     decoded_address: int | None = None
     decoded_command: int | None = None
     decoded_fingerprint: str | None = None
+    # Protocol state beyond the identity triple (v0.6.0): RC-5/Marantz
+    # toggle, Sharp extension. Carried onto the IRCommand at assign time
+    # via _apply_signal_provenance so decoded TX can re-encode it.
+    decoded_extras: dict[str, int] | None = None
     protocol: str | None = None
     code: str | None = None
     raw_timings: list[int] = field(default_factory=list)
@@ -591,6 +681,9 @@ class UnknownSignal:
             "decoded_address": self.decoded_address,
             "decoded_command": self.decoded_command,
             "decoded_fingerprint": self.decoded_fingerprint,
+            "decoded_extras": dict(self.decoded_extras)
+            if self.decoded_extras
+            else None,
             "protocol": self.protocol,
             "code": self.code,
             "raw_timings": list(self.raw_timings),
@@ -623,6 +716,7 @@ class UnknownSignal:
             decoded_address=data.get("decoded_address"),
             decoded_command=data.get("decoded_command"),
             decoded_fingerprint=data.get("decoded_fingerprint"),
+            decoded_extras=data.get("decoded_extras") or None,
             protocol=data.get("protocol"),
             code=data.get("code"),
             raw_timings=data.get("raw_timings") or [],
@@ -666,24 +760,46 @@ class UnknownDevice:
     appliance: str | None = None
 
     def get_signal(
-        self, fingerprint: str, byte_hash: str | None = None
+        self,
+        fingerprint: str,
+        byte_hash: str | None = None,
+        decoded_fingerprint: str | None = None,
     ) -> UnknownSignal | None:
-        """Find a signal by the dedup key.
+        """Find the signal an incoming capture belongs to (tiered, v0.5.8).
 
-        Matches on ``fingerprint`` alone unless ``byte_hash`` is given, in
-        which case BOTH must match. This is the duplicate-guard matcher
-        used by the capture pipeline and the Clipper paste guard; two
-        signals that share an S/L fingerprint but differ in ``byte_hash``
-        are distinct and must not collapse. For per-signal operations use
-        ``get_signal_by_id`` instead, since the fingerprint is not unique.
+        The duplicate-guard matcher used by the capture pipeline and the
+        Clipper paste guard. Matching is the tiered identity rule
+        (decoded > byte_hash > S/L fingerprint, ``identity.SignalIdentity``):
+        a boundary-protocol capture whose S/L fingerprint flipped (Sony)
+        still lands on its existing row via byte_hash instead of minting a
+        duplicate, while two genuinely different sub-threshold buttons
+        (differing byte_hash) stay distinct.
+
+        Scans in TIERED PASSES -- all signals at tier 1, then tier 2, then
+        tier 3 -- not first-match-wins on one linear pass, so grouping does
+        not depend on row insertion order (a decode-failed row sitting above
+        its decoded sibling must not absorb a capture via tier 2 before the
+        sibling's tier-1 match is considered).
+
+        For per-signal operations use ``get_signal_by_id`` instead, since
+        neither the fingerprint nor even the composite identity is unique
+        across a remote's rows in legacy data.
         """
+        from .identity import SignalIdentity
+
+        incoming = SignalIdentity(decoded_fingerprint, byte_hash, fingerprint)
+        best: UnknownSignal | None = None
+        best_tier = 99
         for sig in self.signals:
-            if sig.fingerprint != fingerprint:
-                continue
-            if byte_hash is not None and sig.byte_hash != byte_hash:
-                continue
-            return sig
-        return None
+            tier = SignalIdentity(
+                sig.decoded_fingerprint, sig.byte_hash, sig.fingerprint
+            ).match_tier(incoming)
+            if tier is not None and tier < best_tier:
+                best = sig
+                best_tier = tier
+                if tier == 1:
+                    break
+        return best
 
     def get_signal_by_id(self, signal_id: str) -> UnknownSignal | None:
         """Find a signal by its stable id (the per-operation identity)."""

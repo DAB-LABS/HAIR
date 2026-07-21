@@ -166,6 +166,11 @@ class HAIRClimateEntity(ClimateEntity):
         return self._fan_mode
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if self._device.entity_config.ac_protocol_id:
+            self._hvac_mode = hvac_mode
+            await self._send_live_state()
+            self.async_write_ha_state()
+            return
         if hvac_mode == HVACMode.OFF:
             await self._send("turn_off", "power_toggle")
             self._hvac_mode = HVACMode.OFF
@@ -190,6 +195,11 @@ class HAIRClimateEntity(ClimateEntity):
         # does not carry the None-narrowing into a nested closure, so
         # ``target`` must already be a plain float where the lambda captures it.
         target = float(raw_target)
+        if self._device.entity_config.ac_protocol_id:
+            self._target_temperature = target
+            await self._send_live_state()
+            self.async_write_ha_state()
+            return
         presets = self._device.entity_config.temperature_presets or []
         if presets:
             snapped = min(presets, key=lambda t: abs(t - target))
@@ -199,18 +209,34 @@ class HAIRClimateEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
+        if self._device.entity_config.ac_protocol_id:
+            self._fan_mode = fan_mode
+            await self._send_live_state()
+            self.async_write_ha_state()
+            return
         feature = FAN_MODE_TO_FEATURE.get(fan_mode.lower())
         if feature and await self._send(feature):
             self._fan_mode = fan_mode
             self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:
+        if self._device.entity_config.ac_protocol_id:
+            if self._hvac_mode == HVACMode.OFF:
+                self._hvac_mode = HVACMode.AUTO
+            await self._send_live_state()
+            self.async_write_ha_state()
+            return
         await self._send("turn_on", "power_toggle")
         if self._hvac_mode == HVACMode.OFF:
             self._hvac_mode = HVACMode.AUTO
         self.async_write_ha_state()
 
     async def async_turn_off(self) -> None:
+        if self._device.entity_config.ac_protocol_id:
+            self._hvac_mode = HVACMode.OFF
+            await self._send_live_state()
+            self.async_write_ha_state()
+            return
         await self._send("turn_off", "power_toggle")
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
@@ -225,6 +251,55 @@ class HAIRClimateEntity(ClimateEntity):
             # registration coroutine completes.
             return
         self.async_write_ha_state()
+
+    async def _send_live_state(self) -> None:
+        """Encode the entity's CURRENT settings and transmit, right now.
+
+        Unlike ``_send()``, which looks up one pre-captured Pronto command
+        by name, a live AC protocol has no discrete commands at all -- the
+        whole state (power/mode/temperature/fan/swing) is re-encoded into
+        one fresh IR frame on every change, exactly like a real AC remote
+        re-sends its full state on every button press. Called from every
+        actuation method once ``ac_protocol_id`` is set.
+        """
+        protocol_id = self._device.entity_config.ac_protocol_id
+        if not protocol_id:
+            return
+
+        from .custom_ac_source import build_state
+        from .custom_ac_source import encode as ac_encode
+
+        # ACState.temperature is Celsius in the protocol library; this
+        # entity is Fahrenheit-only (_attr_temperature_unit above).
+        temperature_c = 22
+        if self._target_temperature is not None:
+            temperature_c = round((self._target_temperature - 32) * 5 / 9)
+
+        state = build_state(
+            power=self._hvac_mode != HVACMode.OFF,
+            hvac_mode=(self._hvac_mode.value if self._hvac_mode != HVACMode.OFF else "cool"),
+            temperature_c=temperature_c,
+            fan_mode=self._fan_mode,
+        )
+        if state is None:
+            _LOGGER.warning(
+                "Custom AC protocol library unavailable for %s; nothing sent",
+                self._device.name,
+            )
+            return
+
+        packet = ac_encode(protocol_id, state)
+        if packet is None:
+            _LOGGER.warning(
+                "Failed to encode live AC state for %s (%s); nothing sent",
+                self._device.name,
+                protocol_id,
+            )
+            return
+
+        await self._manager.async_send_raw(
+            self._device.id, packet.timings, packet.frequency
+        )
 
     async def _send(self, *feature_keys: str) -> bool:
         mapping = self._device.entity_config.command_mapping

@@ -20,7 +20,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 
 from .capture import get_available_capture_providers
-from .const import DOMAIN, TWEEZER_OBSERVER_ATTR
+from .const import DOMAIN, OPT_ENABLE_CUSTOM_AC_PROTOCOLS, TWEEZER_OBSERVER_ATTR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,6 +69,12 @@ class HAIRConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> HAIROptionsFlow:
+        return HAIROptionsFlow()
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -116,4 +122,33 @@ class HAIRConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title="HAIR",
             data={},
+        )
+
+
+class HAIROptionsFlow(config_entries.OptionsFlow):
+    """Post-setup options: currently just the opt-in feature flags.
+
+    HAIR has no other per-entry settings today, so this is a single form.
+    Add fields here rather than a second config entry -- HAIR is a
+    singleton hub (see the module docstring), so there is exactly one
+    options flow instance for the whole integration.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        current = self.config_entry.options
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        OPT_ENABLE_CUSTOM_AC_PROTOCOLS,
+                        default=current.get(OPT_ENABLE_CUSTOM_AC_PROTOCOLS, False),
+                    ): bool,
+                }
+            ),
         )

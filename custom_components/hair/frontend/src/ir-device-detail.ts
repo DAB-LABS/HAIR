@@ -18,6 +18,7 @@ import { popoverStyles } from "./ir-popover-styles.js";
 import type { HairApi } from "./api.js";
 import type {
     ActionOption,
+    CustomAcProtocol,
     IRCommand,
     IRDevice,
     IRTrigger,
@@ -61,6 +62,12 @@ export class IrDeviceDetail extends LitElement {
     @state() private _popoverTop = 0;
     @state() private _popoverLeft = 0;
     private _dismissHandler: ((e: MouseEvent) => void) | null = null;
+
+    // Custom AC protocols (opt-in, live-encoded -- see custom_ac_source.py).
+    // Empty list = feature off or no protocol files found; the picker
+    // simply doesn't render in that case, no separate flag needed.
+    @state() private _customAcProtocols: CustomAcProtocol[] = [];
+    @state() private _acProtocolBusy = false;
 
     // Inline name editing
     @state() private _editingName = false;
@@ -286,6 +293,7 @@ export class IrDeviceDetail extends LitElement {
         if (changed.has("device")) {
             void this._loadActionOptions();
             void this._loadTriggers();
+            void this._loadCustomAcProtocols();
         }
         // After a keyed rebuild of the commands-list, Sortable needs to
         // be re-attached to the freshly-created container.
@@ -299,6 +307,43 @@ export class IrDeviceDetail extends LitElement {
             this._actionOptions = await this.api.getActionOptions(this.device.device_type);
         } catch {
             this._actionOptions = [];
+        }
+    }
+
+    private async _loadCustomAcProtocols() {
+        if (this.device.device_type !== "ac") {
+            this._customAcProtocols = [];
+            return;
+        }
+        try {
+            this._customAcProtocols = await this.api.listCustomAcProtocols();
+        } catch {
+            this._customAcProtocols = [];
+        }
+    }
+
+    private async _onAcProtocolChanged(e: Event) {
+        const value = (e.target as HTMLSelectElement).value || null;
+        this._acProtocolBusy = true;
+        try {
+            await this.api.setAcProtocol(this.device.id, value);
+            this.dispatchEvent(
+                new CustomEvent("device-updated", {
+                    detail: {
+                        ...this.device,
+                        entity_config: {
+                            ...this.device.entity_config,
+                            ac_protocol_id: value,
+                        },
+                    },
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch (err) {
+            this._toast = (err as Error).message;
+        } finally {
+            this._acProtocolBusy = false;
         }
     }
 
@@ -920,6 +965,50 @@ export class IrDeviceDetail extends LitElement {
                 </div>
             </div>
 
+            <!-- Custom AC protocol (opt-in) -- shown only for AC devices
+                 once at least one <config>/hair_codes/ac/ protocol is
+                 discovered. When bound, this REPLACES per-command action
+                 mapping: climate.py encodes every send live instead. -->
+            ${this.device.device_type === "ac" && this._customAcProtocols.length > 0
+                ? html`
+                      <div class="device-meta">
+                          <span class="meta-label">AC Protocol</span>
+                          <div class="meta-value">
+                              <select
+                                  .value=${this.device.entity_config?.ac_protocol_id ?? ""}
+                                  @change=${this._onAcProtocolChanged}
+                                  ?disabled=${this._acProtocolBusy}
+                              >
+                                  <option value="">
+                                      None (use command mapping below)
+                                  </option>
+                                  ${this._customAcProtocols.map(
+                                      (p) => html`
+                                          <option
+                                              value=${p.id}
+                                              ?selected=${this.device.entity_config
+                                                  ?.ac_protocol_id === p.id}
+                                          >
+                                              ${p.name}
+                                          </option>
+                                      `,
+                                  )}
+                              </select>
+                          </div>
+                      </div>
+                      ${this.device.entity_config?.ac_protocol_id
+                          ? html`
+                                <p class="ac-protocol-hint">
+                                    Every thermostat change now sends a
+                                    live-encoded frame. Captured commands
+                                    and action mapping below are unused
+                                    while a protocol is bound.
+                                </p>
+                            `
+                          : nothing}
+                  `
+                : nothing}
+
             <!-- Commands -->
             <div class="commands-section">
                 <div class="commands-header">
@@ -1102,6 +1191,8 @@ export class IrDeviceDetail extends LitElement {
                           .api=${this.api}
                           .protocol=${this._triggerCommand.protocol}
                           .code=${this._triggerCommand.code}
+                          .byteHash=${this._triggerCommand.byte_hash ?? null}
+                          .decodedFingerprint=${this._triggerCommand.decoded_fingerprint ?? null}
                           .sourceDeviceId=${this.device.id}
                           .sourceCommandId=${this._triggerCommand.id}
                           @trigger-saved=${this._onTriggerSaved}
@@ -1212,6 +1303,11 @@ export class IrDeviceDetail extends LitElement {
             letter-spacing: 0.04em;
             color: var(--secondary-text-color);
             padding-top: 6px;
+        }
+        .ac-protocol-hint {
+            margin: -4px 0 12px;
+            font-size: 0.82rem;
+            color: var(--secondary-text-color);
         }
         .meta-value select {
             width: 100%;

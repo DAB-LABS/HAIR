@@ -14,6 +14,7 @@ import type {
     CaptureStartResponse,
     CodeBrand,
     CommandTemplate,
+    CustomAcProtocol,
     DeleteSignalResult,
     DeviceSummary,
     DeviceTypeId,
@@ -292,6 +293,27 @@ export class HairApi {
             device_id: deviceId,
             command_name: commandName,
             action_key: actionKey,
+        });
+    }
+
+    // --- Custom AC protocols (opt-in) ---
+    // Returns [] whenever the feature is off, so callers can just hide
+    // the picker on an empty list rather than checking a separate flag.
+
+    listCustomAcProtocols(): Promise<CustomAcProtocol[]> {
+        return this.hass.connection.sendMessagePromise<CustomAcProtocol[]>({
+            type: "hair/customac/list",
+        });
+    }
+
+    setAcProtocol(
+        deviceId: string,
+        protocolId: string | null,
+    ): Promise<{ ac_protocol_id: string | null }> {
+        return this.hass.connection.sendMessagePromise<{ ac_protocol_id: string | null }>({
+            type: "hair/customac/set",
+            device_id: deviceId,
+            protocol_id: protocolId,
         });
     }
 
@@ -660,6 +682,8 @@ export class HairApi {
         source_device_id?: string | null;
         source_command_id?: string | null;
         receiver_entity_ids?: string[];
+        byte_hash?: string | null;
+        decoded_fingerprint?: string | null;
     }): Promise<IRTrigger> {
         return this.hass.connection.sendMessagePromise<IRTrigger>({
             type: "hair/trigger/create",
@@ -674,6 +698,8 @@ export class HairApi {
             min_hits: number;
             enabled: boolean;
             receiver_entity_ids: string[];
+            byte_hash: string | null;
+            decoded_fingerprint: string | null;
         }>,
     ): Promise<IRTrigger> {
         return this.hass.connection.sendMessagePromise<IRTrigger>({

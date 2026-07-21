@@ -24,6 +24,7 @@ export type CommandCategoryId =
     | "temperature"
     | "fan_speed"
     | "brightness"
+    | "color_temp"
     | "cover"
     | "media_control"
     | "custom";
@@ -55,6 +56,13 @@ export interface IRCommand {
     // its button (e.g. NEC).
     decoded_protocol?: string | null;
     decoded_fingerprint?: string | null;
+    // Protocol state beyond the identity (v0.6.0): RC-5/Marantz toggle,
+    // Sharp extension. Server-managed; surfaced for display only.
+    decoded_extras?: Record<string, number> | null;
+    // Byte-level identity (v0.3.4 tiebreaker; identity since v0.5.8).
+    // Was missing from this interface -- the device-detail trigger dialog
+    // reads it -- which surfaced as a TS2339 build warning.
+    byte_hash?: string | null;
     tx_force_raw?: boolean;
     created_at: string;
 }
@@ -91,6 +99,18 @@ export interface EntityConfig {
     hvac_modes?: string[] | null;
     fan_modes?: string[] | null;
     swing_modes?: string[] | null;
+    // Set when this device is bound to a live, code-based AC protocol
+    // (opt-in -- see custom_ac_source.py). When present, climate.py
+    // encodes every send from current state instead of command_mapping.
+    ac_protocol_id?: string | null;
+}
+
+// One entry from hair/customac/list -- a discovered
+// <config>/hair_codes/ac/<brand>/code.py protocol.
+export interface CustomAcProtocol {
+    id: string;
+    brand: string;
+    name: string;
 }
 
 export interface IRDevice {
@@ -169,7 +189,8 @@ export type SignalSourceId = "sniffed" | "manual" | "plucked";
 export interface UnknownSignal {
     // Stable per-signal identity. The fingerprint is NOT unique on a remote
     // (two distinct commands can share an S/L pattern), so all per-signal
-    // operations and the row key use this id. Triggers stay on fingerprint.
+    // operations and the row key use this id. Triggers key on
+    // (fingerprint, byte_hash) since v0.5.8; see triggerMatchesSignal().
     id: string;
     fingerprint: string;
     byte_hash?: string | null;
@@ -191,6 +212,7 @@ export interface UnknownSignal {
     decoded_address?: number | null;
     decoded_command?: number | null;
     decoded_fingerprint?: string | null;
+    decoded_extras?: Record<string, number> | null;
     // User-tunable TX knobs (mirror IRCommand) plus the capture-side ditto
     // observation surfaced as an editor hint.
     repeat_count?: number;
@@ -265,6 +287,7 @@ export interface PluckedSignalPreview {
     decoded_address?: number | null;
     decoded_command?: number | null;
     decoded_fingerprint?: string | null;
+    decoded_extras?: Record<string, number> | null;
     plucked_command_name: string;
     suggested_alias: string;
 }
@@ -353,6 +376,45 @@ export interface IRTrigger {
     updated_at: string;
     // Receiver scope (location-aware triggers, v0.5.7). Empty = any receiver.
     receiver_entity_ids: string[];
+    // Byte-level identity (v0.5.8). null/absent = legacy trigger, matches
+    // any byte_hash on the fingerprint. Set = fires only on its button.
+    byte_hash?: string | null;
+    // Decoded protocol identity (v0.5.8 unified identity). The strongest
+    // identity tier; jitter-immune, so it survives the S/L fingerprint
+    // flipping on boundary protocols (Sony). null/absent = not decoded.
+    decoded_fingerprint?: string | null;
+}
+
+/**
+ * Whether a trigger belongs to a catalog signal / command row (v0.5.8
+ * unified identity).
+ *
+ * Tiered rule, mirroring the backend's SignalIdentity: the highest
+ * identity tier BOTH sides carry decides -- decoded fingerprint, then
+ * byte_hash, then the S/L fingerprint. A tier only one side carries is
+ * skipped; a decided-tier mismatch is final (no fallthrough). Notably
+ * there is NO fingerprint-equality precondition anymore: a Sony row whose
+ * coarse fingerprint flipped across the classification boundary still
+ * shows its trigger via byte_hash. Sub-threshold sibling rows (shared
+ * fingerprint, different hashes) stay separated exactly as before, which
+ * keeps the yellow dot, the trigger popover, and the editor from
+ * attributing one button's triggers to its siblings.
+ */
+export function triggerMatchesSignal(
+    trigger: IRTrigger,
+    signal: {
+        fingerprint: string;
+        byte_hash?: string | null;
+        decoded_fingerprint?: string | null;
+    },
+): boolean {
+    const tDec = trigger.decoded_fingerprint ?? null;
+    const sDec = signal.decoded_fingerprint ?? null;
+    if (tDec !== null && sDec !== null) return tDec === sDec;
+    const tBh = trigger.byte_hash ?? null;
+    const sBh = signal.byte_hash ?? null;
+    if (tBh !== null && sBh !== null) return tBh === sBh;
+    return trigger.signal_fingerprint === signal.fingerprint;
 }
 
 export interface TriggerFiredEvent {
