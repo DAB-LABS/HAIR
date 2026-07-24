@@ -12,5 +12,5 @@
     "loggers": ["custom_components.hair"],
     "quality_scale": "silver",
     "requirements": [],
-    "version": "0.7.1"
+    "version": "0.7.2"
 }
