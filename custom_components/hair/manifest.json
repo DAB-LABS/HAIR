@@ -1,16 +1,16 @@
 {
     "domain": "hair",
     "name": "HAIR",
-    "version": "0.7.1",
-    "documentation": "https://github.com/DAB-LABS/HAIR",
-    "issue_tracker": "https://github.com/DAB-LABS/HAIR/issues",
-    "dependencies": ["http", "infrared"],
     "after_dependencies": ["esphome", "broadlink"],
     "codeowners": ["@DAB-LABS"],
     "config_flow": true,
-    "iot_class": "local_push",
+    "dependencies": ["http", "infrared"],
+    "documentation": "https://github.com/DAB-LABS/HAIR",
     "integration_type": "hub",
-    "requirements": [],
+    "iot_class": "local_push",
+    "issue_tracker": "https://github.com/DAB-LABS/HAIR/issues",
+    "loggers": ["custom_components.hair"],
     "quality_scale": "silver",
-    "loggers": ["custom_components.hair"]
+    "requirements": [],
+    "version": "0.7.1"
 }
