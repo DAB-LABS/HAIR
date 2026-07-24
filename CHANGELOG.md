@@ -5,6 +5,13 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-07-24 -- HACS Haircut
+
+### Changed
+
+- The Dyson protocol decoder, shipped as a beta in 0.7.1, is now part of the stable release. The code is unchanged from the beta: HAIR decodes each Dyson frame, keeps device and button as the signal's identity so the rolling mod-4 counter does not split one button into many, and advances that counter on every send so consecutive presses are always accepted.
+- Packaging and validation. The manifest now declares its `http` dependency and has its keys sorted, and an invalid `icons.json` was removed, so HAIR passes Home Assistant's hassfest checks. None of this changes how HAIR runs; it clears the last requirement for listing in the HACS default store.
+
 ## [0.7.1] - 2026-07-20 -- Blow Dry
 
 ### Added
