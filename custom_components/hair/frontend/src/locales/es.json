@@ -366,7 +366,7 @@
     "pluck.title": "HAIR Plucker",
     "pluck.add_blaster": "+ Añadir emisor",
     "pluck.empty_title": "Aún no has añadido ningún emisor",
-    "pluck.empty_body": "El Extractor recupera los códigos IR de tus emisores existentes para utilizarlos en HAIR sin tener que volver a aprenderlos uno a uno.",
+    "pluck.empty_body": "Plucker recupera los códigos IR de tus emisores existentes para utilizarlos en HAIR sin tener que volver a aprenderlos uno a uno.",
     "pluck.empty_hint": "Haz clic en \"+ Añadir emisor\" para empezar.",
     "pluck.clear_all_title": "Elimina todos los emisores añadidos al Extractor y sus señales. Las señales capturadas con Sniffer o pegadas en Clipper no se verán afectadas.",
     "pluck.blaster_fallback": "Emisor",
