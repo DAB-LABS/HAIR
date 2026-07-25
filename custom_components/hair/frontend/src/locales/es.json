@@ -363,7 +363,7 @@
     "clips.del_remote_msg_n.other": "¿Quitar \"{name}\" y sus {count} señales? Esta acción no se puede deshacer.",
     "clips.del_remote_msg": "¿Quitar \"{name}\"? Esta acción no se puede deshacer.",
     "pluck.vendor_unavailable": "La integración de este emisor no está disponible en este momento. Comprueba que la integración del fabricante esté cargada.",
-    "pluck.title": "HAIR Extractor",
+    "pluck.title": "HAIR Plucker",
     "pluck.add_blaster": "+ Añadir emisor",
     "pluck.empty_title": "Aún no has añadido ningún emisor",
     "pluck.empty_body": "El Extractor recupera los códigos IR de tus emisores existentes para utilizarlos en HAIR sin tener que volver a aprenderlos uno a uno.",
