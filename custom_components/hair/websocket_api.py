@@ -2957,6 +2957,7 @@ async def ws_fitting_state(
         )
         return {
             "filename": msg["filename"],
+            "username": username,
             "signals": [sig.alias for sig in wig.signals],
             "draft": (
                 {

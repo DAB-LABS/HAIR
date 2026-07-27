@@ -106,6 +106,54 @@ export interface WigInfo {
     signal_count: number;
     // Signal aliases for the count-click peek popover (v0.7.0).
     signals?: string[];
+    // Fitting summary (Perfect Fit): drives the row check marks and
+    // the fitted/unfitted filter, computed server-side.
+    fitting?: FittingSummary;
+}
+
+// Perfect Fit: the fitting layer.
+export interface FittingSummary {
+    state: "perfect" | "partial" | null;
+    user_state: "perfect" | "partial" | null;
+    user_draft: boolean;
+    confirmed: number;
+    failed: number;
+    total: number;
+    others_complete: number;
+    warnings: string[];
+}
+
+export interface FittingLedgerRow {
+    handle: string;
+    github: string | null;
+    date: string | null;
+    hair_version: string | null;
+    ha_version: string | null;
+    emitter: string | null;
+    receiver: string | null;
+    signals_heard: number | null;
+    note: string | null;
+    confirmed: number;
+    failed: number;
+    draft: boolean;
+    valid: boolean;
+    complete: boolean;
+    signed: "valid" | "invalid" | null;
+    key_fingerprint: string | null;
+}
+
+export interface FittingState {
+    filename: string;
+    username: string;
+    signals: string[];
+    draft: {
+        confirmed: string[];
+        failed: string[];
+        heard: string[];
+        date: string | null;
+    } | null;
+    ledger: FittingLedgerRow[];
+    summary: FittingSummary;
 }
 
 export interface WigInvalid {
