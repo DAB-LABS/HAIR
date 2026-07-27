@@ -275,7 +275,16 @@ export class HairApi {
 
     wigsUpdate(
         filename: string,
-        patch: Partial<{ name: string; brand: string; model: string; notes: string }>,
+        patch: Partial<{
+            name: string;
+            brand: string;
+            model: string;
+            notes: string;
+            fcc_id: string;
+            upc: string;
+            asin: string;
+            oem: string;
+        }>,
     ): Promise<{ success: boolean; filename?: string; errors?: string[] }> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/wigs/update",
@@ -353,7 +362,15 @@ export class HairApi {
     wigsExport(
         source: "catalog" | "device",
         sourceId: string,
-        extras?: Partial<{ brand: string; model: string; notes: string }>,
+        extras?: Partial<{
+            brand: string;
+            model: string;
+            notes: string;
+            fcc_id: string;
+            upc: string;
+            asin: string;
+            oem: string;
+        }>,
     ): Promise<{ filename: string; signal_count: number; skipped: number }> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/wigs/export",

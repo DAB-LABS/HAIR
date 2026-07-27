@@ -561,5 +561,10 @@
     "fitting.ledger_in_progress": "в процессе",
     "fitting.ledger_invalid": "Коды изменились после этой примерки.",
     "fitting.ledger_coverage": "{confirmed} из {total}",
-    "fitting.ledger_heard": "{count} с эхом"
+    "fitting.ledger_heard": "{count} с эхом",
+    "wigs.editor.fcc_id": "FCC ID",
+    "wigs.editor.upc": "UPC/EAN",
+    "wigs.editor.asin": "ASIN",
+    "wigs.editor.oem": "OEM (подтверждённый производитель)",
+    "wigs.editor.ids_hint": "Идентификаторы товара, все необязательны. Несколько значений разделяйте запятыми."
 }

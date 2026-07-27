@@ -354,3 +354,47 @@ class TestIdentifierMultiples:
         assert identifier_values(ids, "fcc_id") == ["X"]
         assert identifier_values(ids, "asin") == []
         assert identifier_values(None, "upc") == []
+
+
+class TestIdentifierInputParsing:
+    """The WS layer's comma-splitting for dialog inputs."""
+
+    def test_parse_forms(self):
+        from custom_components.hair.websocket_api import (
+            _parse_identifier_input,
+        )
+
+        assert _parse_identifier_input("") is None
+        assert _parse_identifier_input("  ") is None
+        assert _parse_identifier_input("SUW74000BT") == "SUW74000BT"
+        assert _parse_identifier_input(
+            "812345678901, 812345678902"
+        ) == ["812345678901", "812345678902"]
+        assert _parse_identifier_input(",a,") == "a"
+
+    def test_apply_edits(self):
+        from custom_components.hair.websocket_api import (
+            _apply_identifier_edits,
+        )
+
+        wig = Wig(name="X", signals=[WigSignal(alias="A", pronto=PRONTO)],
+                  identifiers={"fcc_id": "OLD", "custom": "kept"})
+        _apply_identifier_edits(wig, {
+            "fcc_id": "NEW", "upc": "1, 2", "asin": "",
+        })
+        assert wig.identifiers == {
+            "fcc_id": "NEW", "custom": "kept", "upc": ["1", "2"],
+        }
+        # Clearing everything drops the block.
+        _apply_identifier_edits(wig, {"fcc_id": "", "upc": ""})
+        assert wig.identifiers == {"custom": "kept"}
+
+    def test_absent_fields_untouched(self):
+        from custom_components.hair.websocket_api import (
+            _apply_identifier_edits,
+        )
+
+        wig = Wig(name="X", signals=[WigSignal(alias="A", pronto=PRONTO)],
+                  identifiers={"upc": "1"})
+        _apply_identifier_edits(wig, {"name": "whatever"})
+        assert wig.identifiers == {"upc": "1"}

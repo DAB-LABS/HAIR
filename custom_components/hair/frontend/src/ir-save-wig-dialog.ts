@@ -22,7 +22,14 @@ export class IrSaveWigDialog extends LitElement {
     @property() public sourceName = "";
 
     @state() private _brand = "";
+    @state() private _model = "";
     @state() private _notes = "";
+    // Identifier fields (v0.8.0), all optional; commas become the
+    // format's list form server-side.
+    @state() private _fccId = "";
+    @state() private _upc = "";
+    @state() private _asin = "";
+    @state() private _oem = "";
     @state() private _busy = false;
     @state() private _error: string | null = null;
     @state() private _done: {
@@ -43,7 +50,12 @@ export class IrSaveWigDialog extends LitElement {
         try {
             const extras: Record<string, string> = {};
             if (this._brand.trim()) extras.brand = this._brand.trim();
+            if (this._model.trim()) extras.model = this._model.trim();
             if (this._notes.trim()) extras.notes = this._notes.trim();
+            if (this._fccId.trim()) extras.fcc_id = this._fccId.trim();
+            if (this._upc.trim()) extras.upc = this._upc.trim();
+            if (this._asin.trim()) extras.asin = this._asin.trim();
+            if (this._oem.trim()) extras.oem = this._oem.trim();
             const result = await this.api.wigsExport(
                 this.source,
                 this.sourceId,
@@ -103,20 +115,83 @@ export class IrSaveWigDialog extends LitElement {
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
-                <div class="field">
-                    <label>${t("wigs.editor.brand")}</label>
-                    <input
-                        type="text"
-                        .value=${this._brand}
-                        placeholder=${t("wigs.export.brand_hint")}
-                        autofocus
-                        @input=${(e: Event) =>
-                            (this._brand = (e.target as HTMLInputElement).value)}
-                        @keydown=${(e: KeyboardEvent) => {
-                            if (e.key === "Enter") void this._save();
-                        }}
-                    />
+                <div class="pair-grid">
+                    <div class="field">
+                        <label>${t("wigs.editor.brand")}</label>
+                        <input
+                            type="text"
+                            .value=${this._brand}
+                            placeholder=${t("wigs.export.brand_hint")}
+                            autofocus
+                            @input=${(e: Event) =>
+                                (this._brand = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                            @keydown=${(e: KeyboardEvent) => {
+                                if (e.key === "Enter") void this._save();
+                            }}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.model")}</label>
+                        <input
+                            type="text"
+                            .value=${this._model}
+                            @input=${(e: Event) =>
+                                (this._model = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                            @keydown=${(e: KeyboardEvent) => {
+                                if (e.key === "Enter") void this._save();
+                            }}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.fcc_id")}</label>
+                        <input
+                            type="text"
+                            .value=${this._fccId}
+                            @input=${(e: Event) =>
+                                (this._fccId = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.upc")}</label>
+                        <input
+                            type="text"
+                            .value=${this._upc}
+                            @input=${(e: Event) =>
+                                (this._upc = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.asin")}</label>
+                        <input
+                            type="text"
+                            .value=${this._asin}
+                            @input=${(e: Event) =>
+                                (this._asin = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.oem")}</label>
+                        <input
+                            type="text"
+                            .value=${this._oem}
+                            @input=${(e: Event) =>
+                                (this._oem = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
                 </div>
+                <div class="ident-hint">${t("wigs.editor.ids_hint")}</div>
                 <div class="field">
                     <label>${t("wigs.editor.notes")}</label>
                     <input
@@ -160,6 +235,17 @@ export class IrSaveWigDialog extends LitElement {
             ha-alert {
                 display: block;
                 margin: 8px 0;
+            }
+            .pair-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                column-gap: 10px;
+            }
+            .ident-hint {
+                font-size: 11px;
+                color: var(--secondary-text-color);
+                margin: -5px 0 10px;
+                line-height: 1.4;
             }
             .save-wig-btn {
                 background: #8e3b3b;

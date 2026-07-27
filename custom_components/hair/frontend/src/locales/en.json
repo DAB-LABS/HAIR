@@ -537,5 +537,10 @@
     "fitting.ledger_in_progress": "in progress",
     "fitting.ledger_invalid": "Codes changed since this fitting.",
     "fitting.ledger_coverage": "{confirmed} of {total}",
-    "fitting.ledger_heard": "{count} heard back"
+    "fitting.ledger_heard": "{count} heard back",
+    "wigs.editor.fcc_id": "FCC ID",
+    "wigs.editor.upc": "UPC",
+    "wigs.editor.asin": "ASIN",
+    "wigs.editor.oem": "OEM (verified maker)",
+    "wigs.editor.ids_hint": "Product identifiers, all optional. Separate multiples with commas."
 }

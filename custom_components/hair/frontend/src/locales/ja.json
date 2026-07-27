@@ -537,5 +537,10 @@
     "fitting.ledger_invalid": "この試着の後にコードが変更されました。",
     "fitting.ledger_coverage": "{total}中{confirmed}",
     "fitting.ledger_heard": "{count}件エコー受信",
-    "fitting.chip_others.one": "他{count}名"
+    "fitting.chip_others.one": "他{count}名",
+    "wigs.editor.fcc_id": "FCC ID",
+    "wigs.editor.upc": "UPC/EAN",
+    "wigs.editor.asin": "ASIN",
+    "wigs.editor.oem": "OEM（確認済みメーカー）",
+    "wigs.editor.ids_hint": "製品識別子はすべて任意です。複数はカンマで区切ってください。"
 }

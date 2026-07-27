@@ -121,6 +121,12 @@ export class IrWigs extends LitElement {
     @state() private _editBrand = "";
     @state() private _editModel = "";
     @state() private _editNotes = "";
+    // Identifier fields (v0.8.0): single input each; commas become
+    // the format's list form server-side.
+    @state() private _editFccId = "";
+    @state() private _editUpc = "";
+    @state() private _editAsin = "";
+    @state() private _editOem = "";
     @state() private _editBusy = false;
     @state() private _editError: string | null = null;
     @state() private _confirmDelete: WigInfo | null = null;
@@ -494,6 +500,15 @@ export class IrWigs extends LitElement {
         this._editBrand = wig.brand ?? "";
         this._editModel = wig.model ?? "";
         this._editNotes = wig.notes ?? "";
+        const ident = (key: string): string => {
+            const value = wig.identifiers?.[key];
+            if (!value) return "";
+            return Array.isArray(value) ? value.join(", ") : value;
+        };
+        this._editFccId = ident("fcc_id");
+        this._editUpc = ident("upc");
+        this._editAsin = ident("asin");
+        this._editOem = ident("oem");
         this._editError = null;
     }
 
@@ -524,6 +539,10 @@ export class IrWigs extends LitElement {
                 brand: this._editBrand.trim(),
                 model: this._editModel.trim(),
                 notes: this._editNotes.trim(),
+                fcc_id: this._editFccId.trim(),
+                upc: this._editUpc.trim(),
+                asin: this._editAsin.trim(),
+                oem: this._editOem.trim(),
             });
             if (!result.success) {
                 this._editError = (result.errors ?? []).join("; ");
@@ -991,6 +1010,53 @@ export class IrWigs extends LitElement {
                             ).value)}
                     />
                 </div>
+                <div class="ident-grid">
+                    <div class="field">
+                        <label>${t("wigs.editor.fcc_id")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editFccId}
+                            @input=${(e: Event) =>
+                                (this._editFccId = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.upc")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editUpc}
+                            @input=${(e: Event) =>
+                                (this._editUpc = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.asin")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editAsin}
+                            @input=${(e: Event) =>
+                                (this._editAsin = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.oem")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editOem}
+                            @input=${(e: Event) =>
+                                (this._editOem = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                </div>
+                <div class="ident-hint">${t("wigs.editor.ids_hint")}</div>
                 <div class="field">
                     <label>${t("wigs.editor.notes")}</label>
                     <textarea
@@ -1500,6 +1566,17 @@ export class IrWigs extends LitElement {
             color: var(--warning-color, #e65100);
         }
         /* Editor dialog */
+        .ident-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 10px;
+        }
+        .ident-hint {
+            font-size: 11px;
+            color: var(--secondary-text-color);
+            margin: -5px 0 11px;
+            line-height: 1.4;
+        }
         .origin-line {
             display: flex;
             gap: 8px;

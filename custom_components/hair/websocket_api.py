@@ -2628,6 +2628,42 @@ async def ws_wigs_get(
     )
 
 
+# Identifier keys editable through the update/export dialogs. UI
+# sends single strings; commas split into the format's list form
+# (rebadged families carry several UPCs -- wig_format rationale).
+_WS_IDENTIFIER_KEYS = ("fcc_id", "upc", "asin", "oem")
+
+
+def _parse_identifier_input(value: str) -> str | list[str] | None:
+    """Dialog input -> identifiers value: None / single / comma list."""
+    parts = [p.strip() for p in value.split(",") if p.strip()]
+    if not parts:
+        return None
+    return parts[0] if len(parts) == 1 else parts
+
+
+def _apply_identifier_edits(wig: Any, msg: dict[str, Any]) -> None:
+    """Fold the dialog's identifier fields into ``wig.identifiers``.
+
+    A field absent from the message is untouched; present-but-empty
+    clears the key; the block drops entirely when nothing remains
+    (absent stays absent -- wig_format contract). Keys outside the
+    blessed set (hand-authored) are preserved untouched.
+    """
+    if not any(key in msg for key in _WS_IDENTIFIER_KEYS):
+        return
+    identifiers = dict(wig.identifiers or {})
+    for key in _WS_IDENTIFIER_KEYS:
+        if key not in msg:
+            continue
+        parsed = _parse_identifier_input(msg[key])
+        if parsed is None:
+            identifiers.pop(key, None)
+        else:
+            identifiers[key] = parsed
+    wig.identifiers = identifiers or None
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/update",
@@ -2636,6 +2672,10 @@ async def ws_wigs_get(
     vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
     vol.Optional("model"): vol.All(str, vol.Length(max=200)),
     vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
+    vol.Optional("fcc_id"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("upc"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("asin"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("oem"): vol.All(str, vol.Length(max=200)),
 })
 @websocket_api.async_response
 async def ws_wigs_update(
@@ -2672,6 +2712,7 @@ async def ws_wigs_update(
         for key in ("brand", "model", "notes"):
             if key in msg:
                 setattr(wig, key, msg[key].strip() or None)
+        _apply_identifier_edits(wig, msg)
         path = wigs_dir(hass.config.config_dir) / filename
         path.write_text(serialize_wig(wig), encoding="utf-8")
         return {"success": True, "filename": filename}
@@ -2689,6 +2730,10 @@ async def ws_wigs_update(
     vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
     vol.Optional("model"): vol.All(str, vol.Length(max=200)),
     vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
+    vol.Optional("fcc_id"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("upc"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("asin"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("oem"): vol.All(str, vol.Length(max=200)),
 })
 @websocket_api.async_response
 async def ws_wigs_export(
@@ -2734,6 +2779,7 @@ async def ws_wigs_export(
     for key in ("brand", "model", "notes"):
         if key in msg and msg[key].strip():
             setattr(build.wig, key, msg[key].strip())
+    _apply_identifier_edits(build.wig, msg)
 
     def _write() -> str | None:
         from .wig_format import serialize_wig

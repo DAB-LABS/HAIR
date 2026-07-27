@@ -537,5 +537,10 @@
     "fitting.ledger_in_progress": "en cours",
     "fitting.ledger_invalid": "Les codes ont changé depuis cet essayage.",
     "fitting.ledger_coverage": "{confirmed} sur {total}",
-    "fitting.ledger_heard": "{count} échos reçus"
+    "fitting.ledger_heard": "{count} échos reçus",
+    "wigs.editor.fcc_id": "ID FCC",
+    "wigs.editor.upc": "UPC/EAN",
+    "wigs.editor.asin": "ASIN",
+    "wigs.editor.oem": "OEM (fabricant vérifié)",
+    "wigs.editor.ids_hint": "Identifiants produit, tous facultatifs. Séparez-en plusieurs par des virgules."
 }

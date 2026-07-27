@@ -537,5 +537,10 @@
     "fitting.ledger_in_progress": "bezig",
     "fitting.ledger_invalid": "De codes zijn sinds deze passessie veranderd.",
     "fitting.ledger_coverage": "{confirmed} van {total}",
-    "fitting.ledger_heard": "{count} echo's ontvangen"
+    "fitting.ledger_heard": "{count} echo's ontvangen",
+    "wigs.editor.fcc_id": "FCC-ID",
+    "wigs.editor.upc": "UPC/EAN",
+    "wigs.editor.asin": "ASIN",
+    "wigs.editor.oem": "OEM (bevestigde maker)",
+    "wigs.editor.ids_hint": "Productkenmerken, allemaal optioneel. Scheid meerdere met komma's."
 }
