@@ -525,5 +525,17 @@
     "fitting.record": "Consigner l'essayage",
     "fitting.recorded_perfect": "Consigné : ajustement parfait",
     "fitting.recorded_partial": "Consigné : essayage partiel, {confirmed} sur {total}",
-    "mirror.chip_fitting": "Envoi d'essayage"
+    "mirror.chip_fitting": "Envoi d'essayage",
+    "fitting.chip_you": "Essayée par vous · {date}",
+    "fitting.chip_you_partial": "{confirmed} sur {total} par vous",
+    "fitting.chip_others.one": "{count} autre",
+    "fitting.chip_others.other": "{count} autres",
+    "fitting.ledger_heading": "Essayages",
+    "fitting.ledger_signed": "signé",
+    "fitting.ledger_unsigned": "non signé",
+    "fitting.ledger_bad_sig": "signature invalide",
+    "fitting.ledger_in_progress": "en cours",
+    "fitting.ledger_invalid": "Les codes ont changé depuis cet essayage.",
+    "fitting.ledger_coverage": "{confirmed} sur {total}",
+    "fitting.ledger_heard": "{count} échos reçus"
 }

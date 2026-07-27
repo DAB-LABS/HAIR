@@ -525,5 +525,17 @@
     "fitting.record": "Registrar prova",
     "fitting.recorded_perfect": "Registrada: caimento perfeito",
     "fitting.recorded_partial": "Registrada: prova parcial, {confirmed} de {total}",
-    "mirror.chip_fitting": "Envio de prova"
+    "mirror.chip_fitting": "Envio de prova",
+    "fitting.chip_you": "Provada por você · {date}",
+    "fitting.chip_you_partial": "{confirmed} de {total} por você",
+    "fitting.chip_others.one": "{count} outra pessoa",
+    "fitting.chip_others.other": "{count} outras",
+    "fitting.ledger_heading": "Provas",
+    "fitting.ledger_signed": "assinada",
+    "fitting.ledger_unsigned": "sem assinatura",
+    "fitting.ledger_bad_sig": "a assinatura não confere",
+    "fitting.ledger_in_progress": "em andamento",
+    "fitting.ledger_invalid": "Os códigos mudaram desde esta prova.",
+    "fitting.ledger_coverage": "{confirmed} de {total}",
+    "fitting.ledger_heard": "{count} com eco"
 }

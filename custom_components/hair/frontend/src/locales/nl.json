@@ -525,5 +525,17 @@
     "fitting.record": "Passessie vastleggen",
     "fitting.recorded_perfect": "Vastgelegd: past perfect",
     "fitting.recorded_partial": "Vastgelegd: deels gepast, {confirmed} van {total}",
-    "mirror.chip_fitting": "Pas-verzending"
+    "mirror.chip_fitting": "Pas-verzending",
+    "fitting.chip_you": "Door jou gepast · {date}",
+    "fitting.chip_you_partial": "{confirmed} van {total} door jou",
+    "fitting.chip_others.one": "{count} ander",
+    "fitting.chip_others.other": "{count} anderen",
+    "fitting.ledger_heading": "Passessies",
+    "fitting.ledger_signed": "ondertekend",
+    "fitting.ledger_unsigned": "niet ondertekend",
+    "fitting.ledger_bad_sig": "handtekening klopt niet",
+    "fitting.ledger_in_progress": "bezig",
+    "fitting.ledger_invalid": "De codes zijn sinds deze passessie veranderd.",
+    "fitting.ledger_coverage": "{confirmed} van {total}",
+    "fitting.ledger_heard": "{count} echo's ontvangen"
 }

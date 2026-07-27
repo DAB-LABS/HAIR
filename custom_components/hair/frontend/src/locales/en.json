@@ -525,5 +525,17 @@
     "fitting.record": "Record Fitting",
     "fitting.recorded_perfect": "Recorded: Perfect Fit",
     "fitting.recorded_partial": "Recorded: partial fitting, {confirmed} of {total}",
-    "mirror.chip_fitting": "Fitting Send"
+    "mirror.chip_fitting": "Fitting Send",
+    "fitting.chip_you": "Fitted by you · {date}",
+    "fitting.chip_you_partial": "{confirmed} of {total} by you",
+    "fitting.chip_others.one": "{count} other",
+    "fitting.chip_others.other": "{count} others",
+    "fitting.ledger_heading": "Fittings",
+    "fitting.ledger_signed": "signed",
+    "fitting.ledger_unsigned": "unsigned",
+    "fitting.ledger_bad_sig": "signature doesn't match",
+    "fitting.ledger_in_progress": "in progress",
+    "fitting.ledger_invalid": "Codes changed since this fitting.",
+    "fitting.ledger_coverage": "{confirmed} of {total}",
+    "fitting.ledger_heard": "{count} heard back"
 }

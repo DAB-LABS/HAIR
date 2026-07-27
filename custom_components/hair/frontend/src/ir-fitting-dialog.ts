@@ -47,7 +47,7 @@ export class IrFittingDialog extends LitElement {
     @state() private _facts = new Map<number, RowFacts>();
     @state() private _emitter = "";
     @state() private _receiverIds = new Set<string>();
-    @state() private _view: "session" | "sign" = "session";
+    @state() private _view: "session" | "sign" | "ledger" = "session";
     @state() private _confirmDiscard = false;
     @state() private _busy = false;
     @state() private _error: string | null = null;
@@ -252,8 +252,71 @@ export class IrFittingDialog extends LitElement {
                 >
                     ${this._view === "sign"
                         ? this._renderSign()
-                        : this._renderSession()}
+                        : this._view === "ledger"
+                          ? this._renderLedger()
+                          : this._renderSession()}
                 </div>
+            </div>
+        `;
+    }
+
+    /** The user's own ledger row (valid hash), and everyone else's. */
+    private _ledgerSplit() {
+        const me = (this._fit?.username ?? "").trim().toLowerCase();
+        const rows = this._fit?.ledger ?? [];
+        const mine = rows.find(
+            (r) => r.valid && r.handle.trim().toLowerCase() === me,
+        );
+        const others = rows.filter((r) => r !== mine);
+        return { mine, others };
+    }
+
+    private _chipDate(date: string | null): string {
+        if (!date) return "";
+        const parsed = new Date(`${date}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return date;
+        return parsed.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+        });
+    }
+
+    /** Fitted-status chips (owner rulings 2026-07-27): your fitting
+     * leads, everyone else folds into one quiet chip, and both open
+     * the ledger -- which is where the ledger lives. Unfitted wigs
+     * render nothing, so first-time fitting looks unchanged. */
+    private _renderFitChips() {
+        const { mine, others } = this._ledgerSplit();
+        if (!mine && others.length === 0) return nothing;
+        const total = this._fit?.signals.length ?? 0;
+        return html`
+            <div class="fitrow">
+                ${mine
+                    ? html`<button
+                          class="fstat you ${mine.complete
+                              ? ""
+                              : "partial"}"
+                          @click=${() => (this._view = "ledger")}
+                      >
+                          <span class="tick">&check;</span>
+                          ${mine.complete
+                              ? t("fitting.chip_you", {
+                                    date: this._chipDate(mine.date),
+                                })
+                              : t("fitting.chip_you_partial", {
+                                    confirmed: String(mine.confirmed),
+                                    total: String(total),
+                                })}
+                      </button>`
+                    : nothing}
+                ${others.length
+                    ? html`<button
+                          class="fstat others"
+                          @click=${() => (this._view = "ledger")}
+                      >
+                          ${tp("fitting.chip_others", others.length)}
+                      </button>`
+                    : nothing}
             </div>
         `;
     }
@@ -263,6 +326,7 @@ export class IrFittingDialog extends LitElement {
         return html`
             <h3 class="heading">${this.wig.name}</h3>
             <div class="sess-head">${t("fitting.header")}</div>
+            ${this._renderFitChips()}
             ${this._error
                 ? html`<div class="err">${this._error}</div>`
                 : nothing}
@@ -422,6 +486,118 @@ export class IrFittingDialog extends LitElement {
         `;
     }
 
+    /** The fittings ledger (placement ruled 2026-07-27: it lives here,
+     * behind the status chips). Each row: handle, signature state,
+     * date, then the evidence line. A bad signature discredits the
+     * attribution, not the data, and the wording says which. */
+    private _renderLedger() {
+        const rows = this._fit?.ledger ?? [];
+        const total = this._fit?.signals.length ?? 0;
+        return html`
+            <h3 class="heading">${t("fitting.ledger_heading")}</h3>
+            <div class="ledger">
+                ${rows.map((r) => {
+                    const evidence: string[] = [];
+                    if (r.hair_version)
+                        evidence.push(`HAIR ${r.hair_version}`);
+                    if (r.emitter)
+                        evidence.push(
+                            r.receiver
+                                ? `${r.emitter} → ${r.receiver}`
+                                : r.emitter,
+                        );
+                    evidence.push(
+                        t("fitting.ledger_coverage", {
+                            confirmed: String(r.confirmed),
+                            total: String(total),
+                        }),
+                    );
+                    if (r.failed)
+                        evidence.push(
+                            tp("fitting.failed", r.failed),
+                        );
+                    if (r.signals_heard)
+                        evidence.push(
+                            t("fitting.ledger_heard", {
+                                count: String(r.signals_heard),
+                            }),
+                        );
+                    if (r.key_fingerprint)
+                        evidence.push(`key ${r.key_fingerprint}`);
+                    return html`
+                        <div class="led-row">
+                            <div class="led-head">
+                                <span class="led-handle"
+                                    >${r.handle}</span
+                                >
+                                ${r.github
+                                    ? html`<span class="led-gh"
+                                          >@${r.github.replace(
+                                              /^@/,
+                                              "",
+                                          )}</span
+                                      >`
+                                    : nothing}
+                                ${r.draft
+                                    ? html`<span
+                                          class="led-sig unsigned"
+                                          >${t(
+                                              "fitting.ledger_in_progress",
+                                          )}</span
+                                      >`
+                                    : r.signed === "valid"
+                                      ? html`<span
+                                            class="led-sig valid"
+                                            >&check;
+                                            ${t(
+                                                "fitting.ledger_signed",
+                                            )}</span
+                                        >`
+                                      : r.signed === "invalid"
+                                        ? html`<span
+                                              class="led-sig bad"
+                                              >${t(
+                                                  "fitting.ledger_bad_sig",
+                                              )}</span
+                                          >`
+                                        : html`<span
+                                              class="led-sig unsigned"
+                                              >${t(
+                                                  "fitting.ledger_unsigned",
+                                              )}</span
+                                          >`}
+                                <span class="led-date"
+                                    >${r.date ?? ""}</span
+                                >
+                            </div>
+                            <div class="led-evidence">
+                                ${evidence.join(" · ")}
+                            </div>
+                            ${!r.valid
+                                ? html`<div class="led-invalid">
+                                      ${t("fitting.ledger_invalid")}
+                                  </div>`
+                                : nothing}
+                            ${r.note
+                                ? html`<div class="led-note">
+                                      “${r.note}”
+                                  </div>`
+                                : nothing}
+                        </div>
+                    `;
+                })}
+            </div>
+            <div class="dialog-actions fit-actions">
+                <button
+                    class="action-btn cancel-btn"
+                    @click=${() => (this._view = "session")}
+                >
+                    ${t("common.back")}
+                </button>
+            </div>
+        `;
+    }
+
     private _renderSign() {
         const c = this._counts;
         const emitterName =
@@ -509,6 +685,119 @@ export class IrFittingDialog extends LitElement {
                 color: var(--secondary-text-color);
                 line-height: 1.5;
                 margin-bottom: 12px;
+            }
+            .fitrow {
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                margin: -4px 0 12px;
+            }
+            .fstat {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 3px 9px;
+                border-radius: 12px;
+                letter-spacing: 0.02em;
+                font-family: inherit;
+                cursor: pointer;
+                background: none;
+            }
+            .fstat .tick {
+                font-weight: 700;
+            }
+            .fstat.you {
+                color: #66bb6a;
+                background: rgba(76, 175, 80, 0.12);
+                border: 1px solid rgba(76, 175, 80, 0.3);
+            }
+            .fstat.you.partial {
+                color: #ffb300;
+                background: rgba(255, 179, 0, 0.1);
+                border-color: rgba(255, 179, 0, 0.35);
+            }
+            .fstat.others {
+                color: var(--secondary-text-color);
+                border: 1px solid var(--divider-color);
+            }
+            .fstat:hover {
+                filter: brightness(1.2);
+            }
+            .ledger {
+                border: 1px solid var(--divider-color);
+                border-radius: 8px;
+                max-height: 340px;
+                overflow-y: auto;
+            }
+            .led-row {
+                padding: 9px 12px;
+                border-bottom: 1px solid var(--divider-color);
+                font-size: 12.5px;
+                line-height: 1.5;
+            }
+            .led-row:last-child {
+                border-bottom: none;
+            }
+            .led-head {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .led-handle {
+                font-weight: 600;
+            }
+            .led-gh {
+                color: #78909c;
+                font-size: 11.5px;
+            }
+            .led-date {
+                color: var(--secondary-text-color);
+                margin-left: auto;
+                font-size: 11.5px;
+            }
+            .led-sig {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                border-radius: 3px;
+                padding: 1px 6px;
+            }
+            .led-sig.valid {
+                color: #66bb6a;
+                background: rgba(76, 175, 80, 0.12);
+                border: 1px solid rgba(76, 175, 80, 0.3);
+            }
+            .led-sig.bad {
+                color: #e57373;
+                background: rgba(198, 40, 40, 0.12);
+                border: 1px solid rgba(198, 40, 40, 0.45);
+            }
+            .led-sig.unsigned {
+                color: var(--secondary-text-color);
+                border: 1px solid var(--divider-color);
+            }
+            .led-evidence {
+                color: var(--secondary-text-color);
+                font-size: 11.5px;
+                margin-top: 2px;
+            }
+            .led-invalid {
+                color: #e57373;
+                font-size: 11.5px;
+                margin-top: 2px;
+            }
+            .led-note {
+                color: var(--primary-text-color);
+                font-size: 11.5px;
+                margin-top: 2px;
+                font-style: italic;
             }
             .err {
                 font-size: 12px;

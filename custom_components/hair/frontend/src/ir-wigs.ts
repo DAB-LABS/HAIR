@@ -833,7 +833,10 @@ export class IrWigs extends LitElement {
                 </button>
                 ${row.wig?.fitting?.state
                     ? html`<span
-                          class="fit-tick ${row.wig.fitting.state}"
+                          class="fit-tick ${row.wig.fitting.state} ${row
+                              .wig.fitting.user_state === "perfect"
+                              ? "yours"
+                              : ""}"
                           title=${row.wig.fitting.state === "perfect"
                               ? t("wigs.fit_tick.perfect")
                               : t("wigs.fit_tick.partial", {
@@ -1446,6 +1449,15 @@ export class IrWigs extends LitElement {
         }
         .fit-tick.perfect {
             color: #66bb6a;
+        }
+        /* YOUR perfect fit glows, statically -- the one state you
+           earned yourself (owner ruling 2026-07-27). Someone else's
+           perfect fit is the same green, flat; partials stay flat
+           amber. */
+        .fit-tick.perfect.yours {
+            text-shadow:
+                0 0 6px rgba(102, 187, 106, 0.9),
+                0 0 12px rgba(102, 187, 106, 0.45);
         }
         .fit-tick.partial {
             color: #ffb300;

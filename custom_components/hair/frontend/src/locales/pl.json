@@ -547,5 +547,19 @@
     "fitting.record": "Zapisz przymiarkę",
     "fitting.recorded_perfect": "Zapisano: leży idealnie",
     "fitting.recorded_partial": "Zapisano: przymiarka częściowa, {confirmed} z {total}",
-    "mirror.chip_fitting": "Wysyłka przymiarki"
+    "mirror.chip_fitting": "Wysyłka przymiarki",
+    "fitting.chip_you": "Przymierzona przez ciebie · {date}",
+    "fitting.chip_you_partial": "{confirmed} z {total} przez ciebie",
+    "fitting.chip_others.one": "{count} inna osoba",
+    "fitting.chip_others.few": "{count} inne osoby",
+    "fitting.chip_others.many": "{count} innych osób",
+    "fitting.chip_others.other": "{count} innych",
+    "fitting.ledger_heading": "Przymiarki",
+    "fitting.ledger_signed": "podpisana",
+    "fitting.ledger_unsigned": "bez podpisu",
+    "fitting.ledger_bad_sig": "podpis się nie zgadza",
+    "fitting.ledger_in_progress": "w toku",
+    "fitting.ledger_invalid": "Kody zmieniły się od tej przymiarki.",
+    "fitting.ledger_coverage": "{confirmed} z {total}",
+    "fitting.ledger_heard": "{count} z echem"
 }

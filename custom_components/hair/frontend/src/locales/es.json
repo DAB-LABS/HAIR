@@ -525,5 +525,17 @@
     "fitting.record": "Registrar prueba",
     "fitting.recorded_perfect": "Registrada: ajuste perfecto",
     "fitting.recorded_partial": "Registrada: prueba parcial, {confirmed} de {total}",
-    "mirror.chip_fitting": "Envío de prueba"
+    "mirror.chip_fitting": "Envío de prueba",
+    "fitting.chip_you": "Probada por ti · {date}",
+    "fitting.chip_you_partial": "{confirmed} de {total} por ti",
+    "fitting.chip_others.one": "{count} más",
+    "fitting.chip_others.other": "{count} más",
+    "fitting.ledger_heading": "Pruebas",
+    "fitting.ledger_signed": "firmada",
+    "fitting.ledger_unsigned": "sin firmar",
+    "fitting.ledger_bad_sig": "la firma no coincide",
+    "fitting.ledger_in_progress": "en curso",
+    "fitting.ledger_invalid": "Los códigos cambiaron desde esta prueba.",
+    "fitting.ledger_coverage": "{confirmed} de {total}",
+    "fitting.ledger_heard": "{count} con eco"
 }

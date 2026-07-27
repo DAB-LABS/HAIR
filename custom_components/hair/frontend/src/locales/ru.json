@@ -547,5 +547,19 @@
     "fitting.record": "Записать примерку",
     "fitting.recorded_perfect": "Записано: сидит идеально",
     "fitting.recorded_partial": "Записано: частичная примерка, {confirmed} из {total}",
-    "mirror.chip_fitting": "Отправка примерки"
+    "mirror.chip_fitting": "Отправка примерки",
+    "fitting.chip_you": "Примерено вами · {date}",
+    "fitting.chip_you_partial": "{confirmed} из {total} вами",
+    "fitting.chip_others.one": "ещё {count} человек",
+    "fitting.chip_others.few": "ещё {count} человека",
+    "fitting.chip_others.many": "ещё {count} человек",
+    "fitting.chip_others.other": "ещё {count}",
+    "fitting.ledger_heading": "Примерки",
+    "fitting.ledger_signed": "подписана",
+    "fitting.ledger_unsigned": "без подписи",
+    "fitting.ledger_bad_sig": "подпись не совпадает",
+    "fitting.ledger_in_progress": "в процессе",
+    "fitting.ledger_invalid": "Коды изменились после этой примерки.",
+    "fitting.ledger_coverage": "{confirmed} из {total}",
+    "fitting.ledger_heard": "{count} с эхом"
 }

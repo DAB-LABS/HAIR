@@ -525,5 +525,17 @@
     "fitting.record": "Registra prova",
     "fitting.recorded_perfect": "Registrata: vestibilità perfetta",
     "fitting.recorded_partial": "Registrata: prova parziale, {confirmed} di {total}",
-    "mirror.chip_fitting": "Invio di prova"
+    "mirror.chip_fitting": "Invio di prova",
+    "fitting.chip_you": "Provata da te · {date}",
+    "fitting.chip_you_partial": "{confirmed} di {total} da te",
+    "fitting.chip_others.one": "{count} altra persona",
+    "fitting.chip_others.other": "{count} altre",
+    "fitting.ledger_heading": "Prove",
+    "fitting.ledger_signed": "firmata",
+    "fitting.ledger_unsigned": "non firmata",
+    "fitting.ledger_bad_sig": "la firma non corrisponde",
+    "fitting.ledger_in_progress": "in corso",
+    "fitting.ledger_invalid": "I codici sono cambiati dopo questa prova.",
+    "fitting.ledger_coverage": "{confirmed} di {total}",
+    "fitting.ledger_heard": "{count} con eco"
 }

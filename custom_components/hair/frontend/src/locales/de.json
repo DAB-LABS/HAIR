@@ -525,5 +525,17 @@
     "fitting.record": "Anprobe festhalten",
     "fitting.recorded_perfect": "Festgehalten: Sitzt perfekt",
     "fitting.recorded_partial": "Festgehalten: teilweise Anprobe, {confirmed} von {total}",
-    "mirror.chip_fitting": "Anprobe-Sendung"
+    "mirror.chip_fitting": "Anprobe-Sendung",
+    "fitting.chip_you": "Von dir anprobiert · {date}",
+    "fitting.chip_you_partial": "{confirmed} von {total} durch dich",
+    "fitting.chip_others.one": "{count} weitere Person",
+    "fitting.chip_others.other": "{count} weitere",
+    "fitting.ledger_heading": "Anproben",
+    "fitting.ledger_signed": "signiert",
+    "fitting.ledger_unsigned": "unsigniert",
+    "fitting.ledger_bad_sig": "Signatur passt nicht",
+    "fitting.ledger_in_progress": "läuft noch",
+    "fitting.ledger_invalid": "Die Codes haben sich seit dieser Anprobe geändert.",
+    "fitting.ledger_coverage": "{confirmed} von {total}",
+    "fitting.ledger_heard": "{count} zurückgehört"
 }
