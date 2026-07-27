@@ -2774,7 +2774,10 @@ def _fitting_manager(hass: HomeAssistant) -> Any | None:
 def _fitting_username(connection: websocket_api.ActiveConnection) -> str:
     user = getattr(connection, "user", None)
     name = getattr(user, "name", None)
-    return name or "user"
+    # Stripped: HA display names can carry stray whitespace ("David "
+    # on the live test box), and the finish path strips handles -- an
+    # unstripped username here would fork resume-matching.
+    return (name or "").strip() or "user"
 
 
 def _send_fitting_result(

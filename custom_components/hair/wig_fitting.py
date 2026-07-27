@@ -241,7 +241,7 @@ def fitting_summary(wig: Wig, username: str | None) -> dict[str, Any]:
     user_fitting = next(
         (
             f for f in valid
-            if username and f.handle.lower() == username.lower()
+            if username and f.handle.strip().lower() == username.strip().lower()
         ),
         None,
     )
@@ -574,7 +574,7 @@ class FittingManager:
             wig.extra[FITTINGS_KEY] = raw_list
         candidates = [
             f for f in parse_fittings(wig).fittings
-            if f.handle.lower() == username.lower()
+            if f.handle.strip().lower() == username.strip().lower()
             and f.content_hash == current_hash
         ]
         for fitting in candidates:
@@ -714,7 +714,7 @@ class FittingManager:
         """
         candidates = [
             f.raw for f in parse_fittings(wig).fittings
-            if f.draft and f.handle.lower() == username.lower()
+            if f.draft and f.handle.strip().lower() == username.strip().lower()
         ]
         return candidates[-1] if candidates else None
 
