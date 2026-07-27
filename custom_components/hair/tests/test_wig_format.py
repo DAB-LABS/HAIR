@@ -234,3 +234,123 @@ class TestFilenames:
     def test_collision_suffix(self):
         taken = {"tv.wig.json", "tv-2.wig.json"}
         assert wig_filename("TV", taken) == "tv-3.wig.json"
+
+
+class TestIdentifiers:
+    """The identifiers block (v0.8.0): product-identity anchors for
+    hardware whose brand and model mean nothing (owner ruling
+    2026-07-27). Any string-to-string pairs; blessed keys documented,
+    not enforced."""
+
+    def _text(self, identifiers) -> str:
+        import json as _json
+
+        return _json.dumps({
+            "format": "hair-wig/1",
+            "name": "Candles",
+            "identifiers": identifiers,
+            "signals": [{"alias": "Power", "pronto": PRONTO}],
+        })
+
+    def test_valid_identifiers_parse(self):
+        result = parse_wig(self._text(
+            {"fcc_id": "SUW74000BT", "upc": "812345678901"}
+        ))
+        assert result.ok
+        assert result.wig.identifiers == {
+            "fcc_id": "SUW74000BT", "upc": "812345678901",
+        }
+
+    def test_unblessed_keys_accepted(self):
+        """Future anchors arrive without a format bump."""
+        result = parse_wig(self._text({"gtin": "04012345678901"}))
+        assert result.ok
+        assert result.wig.identifiers == {"gtin": "04012345678901"}
+
+    def test_non_object_rejected(self):
+        result = parse_wig(self._text("FCC-123"))
+        assert not result.ok
+        assert any("identifiers" in e for e in result.errors)
+
+    def test_non_string_value_rejected(self):
+        result = parse_wig(self._text({"upc": 812345678901}))
+        assert not result.ok
+        assert any("identifiers.upc" in e for e in result.errors)
+
+    def test_empty_object_parses_as_none(self):
+        result = parse_wig(self._text({}))
+        assert result.ok
+        assert result.wig.identifiers is None
+
+    def test_roundtrip_and_key_position(self):
+        import json as _json
+
+        result = parse_wig(self._text({"asin": "B0ABC12345"}))
+        out = serialize_wig(result.wig)
+        again = parse_wig(out)
+        assert again.ok
+        assert again.wig.identifiers == {"asin": "B0ABC12345"}
+        # Serialized before signals, with the schema keys.
+        keys = list(_json.loads(out).keys())
+        assert keys.index("identifiers") < keys.index("signals")
+
+    def test_absent_stays_absent(self):
+        import json as _json
+
+        text = _json.dumps({
+            "format": "hair-wig/1", "name": "X",
+            "signals": [{"alias": "A", "pronto": PRONTO}],
+        })
+        result = parse_wig(text)
+        assert result.ok and result.wig.identifiers is None
+        assert "identifiers" not in _json.loads(serialize_wig(result.wig))
+
+
+class TestIdentifierMultiples:
+    """Values may be one string or a list (owner ruling 2026-07-27:
+    rebadged device families carry several UPCs for one device)."""
+
+    def _text(self, identifiers) -> str:
+        import json as _json
+
+        return _json.dumps({
+            "format": "hair-wig/1",
+            "name": "Candles",
+            "identifiers": identifiers,
+            "signals": [{"alias": "Power", "pronto": PRONTO}],
+        })
+
+    def test_list_values_parse_and_roundtrip(self):
+        import json as _json
+
+        text = self._text({
+            "upc": ["812345678901", "812345678902"],
+            "fcc_id": "SUW74000BT",
+        })
+        result = parse_wig(text)
+        assert result.ok
+        assert result.wig.identifiers["upc"] == [
+            "812345678901", "812345678902",
+        ]
+        again = _json.loads(serialize_wig(result.wig))
+        assert again["identifiers"]["upc"] == [
+            "812345678901", "812345678902",
+        ]
+
+    def test_empty_list_rejected(self):
+        result = parse_wig(self._text({"upc": []}))
+        assert not result.ok
+
+    def test_list_with_non_string_rejected(self):
+        result = parse_wig(self._text({"upc": ["ok", 5]}))
+        assert not result.ok
+        assert any("identifiers.upc" in e for e in result.errors)
+
+    def test_identifier_values_helper_normalizes(self):
+        from custom_components.hair.wig_format import identifier_values
+
+        ids = {"upc": ["1", "2"], "fcc_id": "X"}
+        assert identifier_values(ids, "upc") == ["1", "2"]
+        assert identifier_values(ids, "fcc_id") == ["X"]
+        assert identifier_values(ids, "asin") == []
+        assert identifier_values(None, "upc") == []

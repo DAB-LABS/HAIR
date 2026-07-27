@@ -2426,6 +2426,7 @@ async def ws_wigs_list(
                     "signals": [
                         sig.alias for sig in loaded.wig.signals
                     ],
+                    "identifiers": loaded.wig.identifiers,
                     "fitting": fitting_summary(loaded.wig, username),
                 }
                 for loaded in scan.wigs

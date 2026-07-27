@@ -106,6 +106,10 @@ export interface WigInfo {
     signal_count: number;
     // Signal aliases for the count-click peek popover (v0.7.0).
     signals?: string[];
+    // Product identity anchors (v0.8.0): fcc_id / upc / asin / oem
+    // conventions, single or multiple values. Format bones only for
+    // now; editor fields and search coverage are queued.
+    identifiers?: Record<string, string | string[]> | null;
     // Fitting summary (Perfect Fit): drives the row check marks and
     // the fitted/unfitted filter, computed server-side.
     fitting?: FittingSummary;

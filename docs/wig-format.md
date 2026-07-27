@@ -12,6 +12,9 @@ A wig is a portable IR code set: one JSON file describing one remote. HAIR reads
     "model": "IQ3",
     "notes": "Captured from an IQ3 remote, verified on hardware",
     "origin": "captured",
+    "identifiers": {
+        "fcc_id": "SUW74000BT"
+    },
     "signals": [
         {
             "alias": "Power",
@@ -33,6 +36,15 @@ A wig is a portable IR code set: one JSON file describing one remote. HAIR reads
 **`send_count`** (optional, default 1) is how many times the whole signal transmits per press, for devices that need a repeat. Values are clamped to HAIR's supported range on import.
 
 **`origin`** (optional, free-form string) records where the codes came from: `"captured"` for signals exported off real hardware, `"clipped"` for remotes assembled in HAIR's Clipper from pasted or library codes, `"device"` for a HAIR device's command set, `"converted"` or `"converted:smartir"` for adapter output that never touched hardware, `"plucked"` or `"plucked:tuya_local"` for codes extracted live from a vendor blaster. HAIR uses this to explain a wig's provenance in the UI. If you write an adapter, stamp your own: `"converted:yourtool"`.
+
+**`identifiers`** (optional, added in HAIR 0.8.0) is a map of product identity anchors, for hardware whose brand and model do not mean much. The devices only community code sets will ever cover are exactly the ones with no real brand: the marketplace candle set, the no-name fan. When present it must be an object; each value is a non-empty string or a non-empty array of non-empty strings, since rebadged device families often carry several UPCs or listings for the same hardware (`"upc": ["812345678901", "812345678902"]`). Keys are free-form; these four are the documented conventions:
+
+- `fcc_id`: the FCC ID printed on the device or remote. The strongest anchor when present, since the public grantee record leads to the actual maker, internal photos, and manuals. Many IR-only remotes are exempt from FCC certification, so this is often absent, which is why it is one convention among several rather than a required field.
+- `upc`: the barcode on the retail box (UPC or EAN digits). Nearly every product has one.
+- `asin`: the Amazon listing identifier, when "sold on Amazon as X" is the only name the product has.
+- `oem`: the established manufacturer, once someone has actually established it. Kept separate from `brand` on purpose: `brand` records what the box said, `oem` records what was verified, and the two should never overwrite each other. A confidently wrong manufacturer is worse than an honest unknown.
+
+Identifiers are search anchors for humans, not machine identity. The codes themselves remain the strongest fingerprint a wig has: two rebadged units from the same maker share their protocol and device address no matter whose logo is on the shell, and HAIR derives that identity fresh from every wig. Fill in whatever you know; leave out what you do not.
 
 **Unknown keys are tolerated and preserved.** A reader ignores top-level and per-signal keys it does not recognize, and an editor that re-saves a wig keeps them. This is how the format grows without breaking old installs.
 
