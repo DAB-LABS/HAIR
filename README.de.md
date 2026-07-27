@@ -10,11 +10,11 @@ Richte irgendeine Fernbedienung auf einen IR-Empfänger, drücke eine Taste, und
 
 ## Fünf Wege, deine Codes hineinzubekommen
 
-- **Schnüffle ihn.** Drücke eine Taste auf einer echten Fernbedienung und HAIR fängt sie live aus der Luft ein, nimmt ihren Fingerabdruck und gruppiert sie nach Fernbedienung.
-- **Konvertiere ihn.** Füge bekannte IR-Codes ein, oder fülle eine ganze Fernbedienung aus der installierten Code-Bibliothek vor, indem du Hersteller und Modell wählst.
-- **Zieh ihn.** Hole Codes, die bereits in einem Hersteller-Blaster gelernt sind (etwa Tuya Local), ohne einen einzigen am Empfänger neu zu lernen.
+- **Les ihn aus.** Drücke eine Taste auf der original Fernbedienung und HAIR fängt sie live ein, nimmt ihren Fingerabdruck und gruppiert sie nach Fernbedienung.
+- **Konvertiere ihn.** Füge bekannte IR-Codes ein, oder stelle eine ganze Fernbedienung aus der installierten Code-Bibliothek zusammen, indem du Hersteller und Modell wählst.
+- **Übernehme ihn.** Hole Codes, die bereits in einem Hersteller-Blaster angelernt sind (etwa Tuya Local), ohne einen einzigen Code am Empfänger neu anzulernen.
 - **Belausche ihn.** Jeder über Home Assistant gesendete IR-Befehl erscheint im Mirror, gehört oder nicht, einen Klick davon entfernt, dein eigener Befehl zu werden.
-- **Setz sie auf.** Lege eine Code-Datei im Schrank ab -- eine geteilte Perücke, ein SmartIR-JSON, eine Flipper-Zero-`.ir`, eine LIRC-Konfiguration oder ein Girr-Export aus IrScrutinizer -- und sie hängt bei deiner Sammlung, einen Klick von einer funktionierenden Fernbedienung entfernt.
+- **Setz sie auf.** Lege eine Code-Datei im Schrank ab -- eine geteilte WIG-Dateien, ein SmartIR-JSON, eine Flipper-Zero-`.ir`, eine LIRC-Konfiguration oder ein Girr-Export aus IrScrutinizer -- und füge sie zu deiner Sammlung hinzu, einen Klick von einer funktionierenden Fernbedienung entfernt.
 
 ## Was du damit machst
 
