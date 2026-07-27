@@ -31,6 +31,12 @@ test = [
     # package is used, matching the Home Assistant runtime.
     "pyyaml>=6.0",
     "voluptuous>=0.13",
+    # cryptography ships with Home Assistant core at runtime (auth, TLS).
+    # Declared here so CI, which does not install HA, can exercise the
+    # real ed25519 fitting-signature path (fitting_signing.py). The code
+    # degrades to unsigned fittings when the import fails, so this pin
+    # gates test coverage, not runtime correctness.
+    "cryptography>=42.0",
     # Runtime consumes infrared-protocols via HA core's `infrared` dependency
     # (no manifest pin). It is declared here only so the test suite can
     # exercise the real NEC decoder. Version policy: cover the library line

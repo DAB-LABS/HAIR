@@ -2934,6 +2934,7 @@ async def ws_fitting_state(
     username = _fitting_username(connection)
 
     def _read() -> dict[str, Any] | None:
+        from .fitting_signing import key_fingerprint, verify_fitting
         from .wig_fitting import (
             fitting_is_complete,
             fitting_is_valid,
@@ -2982,6 +2983,14 @@ async def ws_fitting_state(
                     "draft": f.draft,
                     "valid": fitting_is_valid(f, wig),
                     "complete": fitting_is_complete(f, wig),
+                    # "valid" | "invalid" | None (unsigned). A bad
+                    # signature discredits the attribution, not the
+                    # data; the ledger renders the difference.
+                    "signed": verify_fitting(f.raw),
+                    "key_fingerprint": (
+                        key_fingerprint(f.raw["key"])
+                        if isinstance(f.raw.get("key"), str) else None
+                    ),
                 }
                 for f in view.fittings
             ],

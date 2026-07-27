@@ -304,6 +304,9 @@ class FittingManager:
         # counter) advanced per press, receiver platform seen on echoes.
         self._sessions: dict[str, dict[str, Any]] = {}
         self._hair_version: str | None = None
+        # The install's signing key, loaded (or minted) on first
+        # finish. False = tried and unavailable, don't retry per-sign.
+        self._signing_key: str | None | bool = None
 
     # -- loading ---------------------------------------------------------
 
@@ -344,6 +347,14 @@ class FittingManager:
         except ImportError:
             ha_version = None
         return (self._hair_version or None, ha_version)
+
+    async def _private_key(self) -> str | None:
+        if self._signing_key is None:
+            from .fitting_signing import async_get_private_key
+
+            key = await async_get_private_key(self._hass)
+            self._signing_key = key if key is not None else False
+        return self._signing_key or None
 
     def _platform_of(self, entity_id: str) -> str | None:
         try:
@@ -572,6 +583,10 @@ class FittingManager:
         if candidates:
             reopened = candidates[-1].raw
             reopened["draft"] = True
+            # The content is about to change; the old attestation no
+            # longer covers it. FINISH re-signs (Section 14.2).
+            reopened.pop("sig", None)
+            reopened.pop("key", None)
             return reopened
         hair_version, ha_version = await self._versions()
         draft: dict[str, Any] = {
@@ -639,6 +654,16 @@ class FittingManager:
         draft["date"] = _today()
         draft.pop("draft", None)
 
+        # Sign the attestation (Section 14): per-install ed25519 key,
+        # canonical form covers everything but the sig itself. A
+        # signing failure records the fitting unsigned, never loses it.
+        signed = False
+        private_key = await self._private_key()
+        if private_key is not None:
+            from .fitting_signing import sign_fitting
+
+            signed = sign_fitting(draft, private_key)
+
         self._pending[filename] = wig
         await self.async_flush(filename)
 
@@ -653,6 +678,7 @@ class FittingManager:
             "confirmed": len(set(draft.get("confirmed", [])) & aliases),
             "failed": len(set(draft.get("failed", [])) & aliases),
             "total": len(wig.signals),
+            "signed": signed,
         }
 
     async def async_discard(

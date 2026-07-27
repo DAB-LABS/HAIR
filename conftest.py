@@ -438,7 +438,8 @@ _stub("homeassistant.helpers.dispatcher", {
 
 class _Store:
     """Minimal stub of homeassistant.helpers.storage.Store."""
-    def __init__(self, hass, version, key, *, minor_version=1, atomic_writes=False):
+    def __init__(self, hass, version, key, *, minor_version=1,
+                 atomic_writes=False, private=False, encoder=None):
         self._data = None
         self.version = version
         self.key = key
