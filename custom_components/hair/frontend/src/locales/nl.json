@@ -518,7 +518,7 @@
     "fitting.sign_partial": "Je legt vast dat {worked} van {total} signalen werkten en {failed} niet, via {emitter}.",
     "fitting.handle": "Naam",
     "fitting.github": "GitHub-naam (optioneel)",
-    "fitting.github_hint": "Maakt het mogelijk je passessie te controleren als deze pruik ooit upstream wordt voorgesteld.",
+    "fitting.github_hint": "Geeft jou de credits als je pruik een Home Assistant-integratie wordt.",
     "fitting.note": "Notitie (optioneel)",
     "fitting.note_placeholder": "Gecontroleerd op het echte apparaat",
     "fitting.signed_hint": "Ondertekend met de sleutel van deze installatie; niemand kan je passessie wijzigen of vervalsen.",

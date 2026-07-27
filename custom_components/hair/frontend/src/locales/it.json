@@ -518,7 +518,7 @@
     "fitting.sign_partial": "Stai registrando che {worked} segnali su {total} hanno funzionato e {failed} no, con {emitter}.",
     "fitting.handle": "Nome",
     "fitting.github": "Utente GitHub (facoltativo)",
-    "fitting.github_hint": "Permette di verificare la tua prova se questa parrucca verrà mai proposta upstream.",
+    "fitting.github_hint": "Ti dà il merito se la tua parrucca diventa un'integrazione Home Assistant.",
     "fitting.note": "Nota (facoltativa)",
     "fitting.note_placeholder": "Verificata sull'apparecchio reale",
     "fitting.signed_hint": "Firmata con la chiave di questa installazione: nessuno può alterare o falsificare la tua prova.",

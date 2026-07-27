@@ -518,7 +518,7 @@
     "fitting.sign_partial": "You are recording that {worked} of {total} signals worked and {failed} did not, on {emitter}.",
     "fitting.handle": "Handle",
     "fitting.github": "GitHub handle (optional)",
-    "fitting.github_hint": "Lets your fitting be checked if this wig is ever proposed upstream.",
+    "fitting.github_hint": "Gives you credit if your wig is fitted to a Home Assistant integration.",
     "fitting.note": "Note (optional)",
     "fitting.note_placeholder": "Verified on the actual unit",
     "fitting.signed_hint": "Signed with this install's key, so nobody can alter or forge your fitting.",

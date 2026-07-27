@@ -540,7 +540,7 @@
     "fitting.sign_partial": "Zapisujesz, że {worked} z {total} sygnałów zadziałało, a {failed} nie, przez {emitter}.",
     "fitting.handle": "Nazwa",
     "fitting.github": "Nazwa na GitHubie (opcjonalnie)",
-    "fitting.github_hint": "Pozwala zweryfikować twoją przymiarkę, jeśli ta peruka trafi kiedyś upstream.",
+    "fitting.github_hint": "Zapewnia ci uznanie, jeśli twoja peruka trafi do integracji Home Assistant.",
     "fitting.note": "Notatka (opcjonalnie)",
     "fitting.note_placeholder": "Sprawdzone na prawdziwym urządzeniu",
     "fitting.signed_hint": "Podpisane kluczem tej instalacji; nikt nie zmieni ani nie podrobi twojej przymiarki.",

@@ -517,7 +517,7 @@
     "fitting.sign_partial": "{total}件中{worked}件が動作し、{failed}件が動作しなかったことを{emitter}で記録します。",
     "fitting.handle": "ハンドル",
     "fitting.github": "GitHubハンドル（任意）",
-    "fitting.github_hint": "このウィッグが将来アップストリームに提案された際、試着の確認に使われます。",
+    "fitting.github_hint": "あなたのウィッグがHome Assistantのインテグレーションになった場合、あなたの功績として記録されます。",
     "fitting.note": "メモ（任意）",
     "fitting.note_placeholder": "実機で確認済み",
     "fitting.signed_hint": "このインストールの鍵で署名され、誰も試着記録を改ざん・偽造できません。",

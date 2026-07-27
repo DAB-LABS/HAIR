@@ -518,7 +518,7 @@
     "fitting.sign_partial": "Du hältst fest, dass {worked} von {total} Signalen funktioniert haben und {failed} nicht, über {emitter}.",
     "fitting.handle": "Name",
     "fitting.github": "GitHub-Name (optional)",
-    "fitting.github_hint": "Erlaubt es, deine Anprobe zu prüfen, falls diese Perücke je upstream vorgeschlagen wird.",
+    "fitting.github_hint": "Sichert dir die Anerkennung, falls deine Perücke zu einer Home-Assistant-Integration wird.",
     "fitting.note": "Notiz (optional)",
     "fitting.note_placeholder": "Am echten Gerät geprüft",
     "fitting.signed_hint": "Mit dem Schlüssel dieser Installation signiert; niemand kann deine Anprobe ändern oder fälschen.",

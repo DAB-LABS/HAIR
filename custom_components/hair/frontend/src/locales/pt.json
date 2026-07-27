@@ -518,7 +518,7 @@
     "fitting.sign_partial": "Você está registrando que {worked} de {total} sinais funcionaram e {failed} não, com {emitter}.",
     "fitting.handle": "Nome",
     "fitting.github": "Usuário do GitHub (opcional)",
-    "fitting.github_hint": "Permite verificar sua prova se esta peruca for um dia proposta upstream.",
+    "fitting.github_hint": "Dá o crédito a você se sua peruca virar uma integração do Home Assistant.",
     "fitting.note": "Observação (opcional)",
     "fitting.note_placeholder": "Verificada no aparelho real",
     "fitting.signed_hint": "Assinada com a chave desta instalação; ninguém pode alterar ou forjar sua prova.",

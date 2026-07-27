@@ -518,7 +518,7 @@
     "fitting.sign_partial": "Vous consignez que {worked} signaux sur {total} ont fonctionné et {failed} non, via {emitter}.",
     "fitting.handle": "Pseudo",
     "fitting.github": "Pseudo GitHub (facultatif)",
-    "fitting.github_hint": "Permet de vérifier votre essayage si cette perruque est un jour proposée upstream.",
+    "fitting.github_hint": "Vous crédite si votre perruque devient une intégration Home Assistant.",
     "fitting.note": "Note (facultatif)",
     "fitting.note_placeholder": "Vérifié sur l'appareil réel",
     "fitting.signed_hint": "Signé avec la clé de cette installation : personne ne peut modifier ni falsifier votre essayage.",

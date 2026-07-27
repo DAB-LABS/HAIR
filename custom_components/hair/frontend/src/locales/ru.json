@@ -540,7 +540,7 @@
     "fitting.sign_partial": "Вы записываете, что {worked} из {total} сигналов сработали, а {failed} — нет, через {emitter}.",
     "fitting.handle": "Имя",
     "fitting.github": "Имя на GitHub (необязательно)",
-    "fitting.github_hint": "Позволит проверить вашу примерку, если этот парик когда-нибудь предложат upstream.",
+    "fitting.github_hint": "Закрепляет за вами заслугу, если ваш парик станет интеграцией Home Assistant.",
     "fitting.note": "Заметка (необязательно)",
     "fitting.note_placeholder": "Проверено на реальном устройстве",
     "fitting.signed_hint": "Подписано ключом этой установки; никто не сможет изменить или подделать вашу примерку.",
