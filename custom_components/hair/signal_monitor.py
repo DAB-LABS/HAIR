@@ -724,6 +724,7 @@ class SignalMonitor:
         source_label: str,
         emitter_entity_ids: list[str],
         decoded_fingerprint: str | None = None,
+        heard_future: asyncio.Future[str | None] | None = None,
     ) -> None:
         """Log an outgoing HAIR transmission on the Mirror, send-time.
 
@@ -735,6 +736,11 @@ class SignalMonitor:
         entering the Sniffer pipeline, and arms the own-beacon
         suppression so this send's emitter state flip is not mistaken
         for a foreign integration's transmission.
+
+        ``heard_future``, when provided, resolves with the receiver
+        entity_id (or None when unknown) the moment a capture claims
+        this send's echo -- the fitting flow's live "heard back" fact.
+        It is never resolved on silence; the caller owns the timeout.
         """
         try:
             n = normalize_command(command)
@@ -774,6 +780,7 @@ class SignalMonitor:
             "sl": EventParser._pronto_sl_pattern(n.code),
             "garble_expires": now + MIRROR_OWN_BEACON_WINDOW_S,
             "cancel": None,
+            "heard_future": heard_future,
         }
         self._echo_expectations.append(expectation)
 
@@ -888,6 +895,7 @@ class SignalMonitor:
                 and n.decoded_fingerprint == exp["decoded_fp"]
             ) or n.sig_fp == exp["sig_fp"]
             if matched:
+                self._resolve_heard(exp, receiver_entity_id)
                 await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
                 return True
         for entity_id, pending in list(self._foreign_pending.items()):
@@ -945,11 +953,21 @@ class SignalMonitor:
                             ratio,
                             exp["row_key"],
                         )
+                        self._resolve_heard(exp, receiver_entity_id)
                         await self._mirror_mark_heard(
                             exp["row_key"], receiver_entity_id
                         )
                         return True
         return False
+
+    @staticmethod
+    def _resolve_heard(
+        exp: dict[str, Any], receiver_entity_id: str | None
+    ) -> None:
+        """Resolve a send's ``heard_future``, if it carries a live one."""
+        fut = exp.get("heard_future")
+        if fut is not None and not fut.done():
+            fut.set_result(receiver_entity_id)
 
     async def _mirror_device(self) -> UnknownDevice:
         device = self._signal_store.get_device_by_fingerprint(MIRROR_DEVICE_FP)

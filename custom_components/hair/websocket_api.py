@@ -113,6 +113,13 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_update)
     websocket_api.async_register_command(hass, ws_wigs_export)
 
+    # Fitting (Perfect Fit)
+    websocket_api.async_register_command(hass, ws_fitting_send)
+    websocket_api.async_register_command(hass, ws_fitting_mark)
+    websocket_api.async_register_command(hass, ws_fitting_finish)
+    websocket_api.async_register_command(hass, ws_fitting_discard)
+    websocket_api.async_register_command(hass, ws_fitting_state)
+
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
     websocket_api.async_register_command(hass, ws_update_mapping)
@@ -2383,10 +2390,19 @@ async def ws_wigs_list(
 ) -> None:
     """The Wigs tab payload: local wigs with metadata, invalid files
     with their validation reasons, library codebooks for the brand rows,
-    and the library version stamp for the toolbar."""
+    and the library version stamp for the toolbar. Each wig carries its
+    fitting summary so the fitted / not fitted filter and the row
+    markers never recompute from raw fittings (fitting-flow.md 5.2)."""
+    manager = _fitting_manager(hass)
+    if manager is not None:
+        # Marks write through debounced; scan reads disk, so flush
+        # first or a summary can trail the session by the debounce.
+        await manager.async_flush()
+    username = _fitting_username(connection)
 
     def _scan() -> dict[str, Any]:
         from .code_library import get_tree, library_available
+        from .wig_fitting import fitting_summary
         from .wig_store import scan_wigs
 
         scan = scan_wigs(hass.config.config_dir)
@@ -2410,6 +2426,7 @@ async def ws_wigs_list(
                     "signals": [
                         sig.alias for sig in loaded.wig.signals
                     ],
+                    "fitting": fitting_summary(loaded.wig, username),
                 }
                 for loaded in scan.wigs
             ],
@@ -2555,6 +2572,11 @@ async def ws_wigs_delete(
 ) -> None:
     """Delete a local wig file (user wigs only by construction; library
     codebooks are not files in the closet)."""
+    manager = _fitting_manager(hass)
+    if manager is not None:
+        # Cancel any pending debounced fitting write so it cannot
+        # resurrect the file after the delete.
+        await manager.async_flush(msg["filename"])
     from .wig_store import delete_wig
 
     deleted = await hass.async_add_executor_job(
@@ -2574,7 +2596,17 @@ async def ws_wigs_get(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Raw file text for the editor popover's download / copy-JSON."""
+    """Raw file text for the editor popover's download / copy-JSON.
+
+    These are the SHARE paths, so incomplete and draft fittings are
+    stripped (fitting-flow.md 2.3: a partial is progress, not an
+    attestation; the shared artifact never carries a half-claim). The
+    byte-exact original comes back whenever stripping would change
+    nothing, so hand-authored formatting survives an ordinary
+    download."""
+    manager = _fitting_manager(hass)
+    if manager is not None:
+        await manager.async_flush(msg["filename"])
     from .wig_store import read_wig_text
 
     text = await hass.async_add_executor_job(
@@ -2583,6 +2615,13 @@ async def ws_wigs_get(
     if text is None:
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
+
+    from .wig_fitting import shared_wig_text, wig_needs_share_strip
+    from .wig_format import parse_wig
+
+    parsed = parse_wig(text)
+    if parsed.ok and wig_needs_share_strip(parsed.wig):
+        text = shared_wig_text(parsed.wig)
     connection.send_result(
         msg["id"], {"filename": msg["filename"], "text": text}
     )
@@ -2609,6 +2648,11 @@ async def ws_wigs_update(
     anything the user points at the path); signals and unknown keys ride
     through untouched via the parser's preservation contract. An empty
     string clears an optional field."""
+    manager = _fitting_manager(hass)
+    if manager is not None:
+        # Land pending fitting marks first; this rewrite reads from
+        # disk and a debounced write behind it would clobber the edit.
+        await manager.async_flush(msg["filename"])
 
     def _update() -> dict[str, Any]:
         from .wig_format import serialize_wig
@@ -2711,3 +2755,241 @@ async def ws_wigs_export(
         "signal_count": len(build.wig.signals),
         "skipped": build.skipped,
     })
+
+
+# ---------------------------------------------------------------------------
+# Fitting (Perfect Fit): the closet's proving ground
+# ---------------------------------------------------------------------------
+# Session state lives in the wig file itself (fitting-flow.md 13.3);
+# these four commands are thin delegates to FittingManager. The user's
+# HA username keys the draft, so two admins fitting the same wig hold
+# independent drafts.
+
+
+def _fitting_manager(hass: HomeAssistant) -> Any | None:
+    data = _get_first_entry_data(hass)
+    return data.get("fitting_manager") if data else None
+
+
+def _fitting_username(connection: websocket_api.ActiveConnection) -> str:
+    user = getattr(connection, "user", None)
+    name = getattr(user, "name", None)
+    return name or "user"
+
+
+def _send_fitting_result(
+    connection: websocket_api.ActiveConnection,
+    msg_id: int,
+    result: dict[str, Any],
+) -> None:
+    """Route the manager's dict onto the WS success/error split."""
+    if result.get("success"):
+        connection.send_result(msg_id, result)
+    else:
+        connection.send_error(
+            msg_id,
+            result.get("code", "fitting_failed"),
+            result.get("error", "Fitting operation failed"),
+        )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/send",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+    vol.Required("emitter"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_fitting_send(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Send one wig signal through an emitter; returns sent + heard.
+
+    Identity derives fresh from the wig's Pronto (no signal-store ids;
+    fitting-flow.md 4.1), and ``heard`` is the Mirror echo claim
+    arriving inside the wait window."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_send(
+        msg["filename"], msg["signal_index"], msg["emitter"]
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/mark",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+    vol.Required("verdict"): vol.In(["worked", "failed", "untested"]),
+})
+@websocket_api.async_response
+async def ws_fitting_mark(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Record a per-signal human verdict into the user's draft fitting.
+
+    The first mark creates the draft inside the local wig file, so
+    progress survives reboots and updates (owner ruling 2026-07-26).
+    ``untested`` clears a previous verdict."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_mark(
+        msg["filename"],
+        msg["signal_index"],
+        msg["verdict"],
+        _fitting_username(connection),
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/finish",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Optional("handle"): vol.All(str, vol.Length(max=100)),
+    vol.Optional("github"): vol.All(str, vol.Length(max=100)),
+    vol.Optional("note"): vol.All(str, vol.Length(max=500)),
+})
+@websocket_api.async_response
+async def ws_fitting_finish(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Sign the fitting (State C): the attestation moment.
+
+    Returns the DERIVED verdict -- perfect when every signal is
+    confirmed and none failed, partial otherwise (fitting-flow.md 2.2:
+    the green state is earned, never asked)."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_finish(
+        msg["filename"],
+        _fitting_username(connection),
+        msg.get("handle"),
+        msg.get("github"),
+        msg.get("note"),
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/discard",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_fitting_discard(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove the user's in-progress draft. Signed fittings stay."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_discard(
+        msg["filename"], _fitting_username(connection)
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/state",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_fitting_state(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The fitting dialog payload: the user's draft plus the ledger.
+
+    ``draft`` carries per-alias verdicts so RESUME reopens exactly where
+    the user left off (untested-first ordering is the frontend's job);
+    ``ledger`` is every parseable fitting with its validity ("codes
+    changed since this fitting") and completeness derived server-side.
+    """
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    await manager.async_flush(msg["filename"])
+
+    username = _fitting_username(connection)
+
+    def _read() -> dict[str, Any] | None:
+        from .wig_fitting import (
+            fitting_is_complete,
+            fitting_is_valid,
+            fitting_summary,
+            parse_fittings,
+        )
+        from .wig_store import load_wig
+
+        wig = load_wig(hass.config.config_dir, msg["filename"])
+        if wig is None:
+            return None
+        view = parse_fittings(wig)
+        draft = next(
+            (
+                f for f in view.fittings
+                if f.draft and f.handle.lower() == username.lower()
+                and fitting_is_valid(f, wig)
+            ),
+            None,
+        )
+        return {
+            "filename": msg["filename"],
+            "signals": [sig.alias for sig in wig.signals],
+            "draft": (
+                {
+                    "confirmed": draft.confirmed,
+                    "failed": draft.failed,
+                    "heard": draft.raw.get("heard") or [],
+                    "date": draft.raw.get("date"),
+                }
+                if draft else None
+            ),
+            "ledger": [
+                {
+                    "handle": f.handle,
+                    "github": f.github,
+                    "date": f.raw.get("date"),
+                    "hair_version": f.raw.get("hair_version"),
+                    "ha_version": f.raw.get("ha_version"),
+                    "emitter": f.raw.get("emitter"),
+                    "receiver": f.raw.get("receiver"),
+                    "signals_heard": f.raw.get("signals_heard"),
+                    "note": f.raw.get("note"),
+                    "confirmed": len(f.confirmed),
+                    "failed": len(f.failed),
+                    "draft": f.draft,
+                    "valid": fitting_is_valid(f, wig),
+                    "complete": fitting_is_complete(f, wig),
+                }
+                for f in view.fittings
+            ],
+            "summary": fitting_summary(wig, username),
+        }
+
+    result = await hass.async_add_executor_job(_read)
+    if result is None:
+        connection.send_error(msg["id"], "not_found", "Wig not found")
+        return
+    connection.send_result(msg["id"], result)

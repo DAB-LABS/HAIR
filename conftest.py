@@ -89,7 +89,9 @@ _stub("homeassistant.const", {
     "Platform": _Platform,
     "UnitOfTemperature": _UnitOfTemperature,
     "EVENT_HOMEASSISTANT_STARTED": "homeassistant_started",
+    "EVENT_HOMEASSISTANT_STOP": "homeassistant_stop",
     "STATE_UNAVAILABLE": "unavailable",
+    "__version__": "2026.7.0",
 })
 
 # ---------------------------------------------------------------------------
