@@ -566,5 +566,11 @@
     "wigs.editor.upc": "UPC/EAN",
     "wigs.editor.asin": "ASIN",
     "wigs.editor.oem": "OEM (potwierdzony producent)",
-    "wigs.editor.ids_hint": "Identyfikatory produktu, wszystkie opcjonalne. Kilka oddziel przecinkami."
+    "wigs.editor.ids_hint": "Identyfikatory produktu, wszystkie opcjonalne. Kilka oddziel przecinkami.",
+    "wigs.editor.kind": "Rodzaj",
+    "wigs.editor.kind_placeholder": "tv, soundbar, candles...",
+    "wigs.editor.kind_hint": "Czym jest urządzenie. Pomaga innym je znaleźć, gdy peruki trafią do Wig Shopu.",
+    "fitting.kind": "Jakie to urządzenie?",
+    "fitting.kind_placeholder": "tv, soundbar, candles...",
+    "fitting.kind_hint": "Etykietuje urządzenie, aby inni mogli je znaleźć, gdy peruki trafią do Wig Shopu."
 }

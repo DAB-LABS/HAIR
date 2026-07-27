@@ -542,5 +542,11 @@
     "wigs.editor.upc": "UPC",
     "wigs.editor.asin": "ASIN",
     "wigs.editor.oem": "OEM (verified maker)",
-    "wigs.editor.ids_hint": "Product identifiers, all optional. Separate multiples with commas."
+    "wigs.editor.ids_hint": "Product identifiers, all optional. Separate multiples with commas.",
+    "wigs.editor.kind": "Kind",
+    "wigs.editor.kind_placeholder": "tv, soundbar, candles...",
+    "wigs.editor.kind_hint": "What the device is. Helps others find it when wigs are shared in the Wig Shop.",
+    "fitting.kind": "What kind of device is this?",
+    "fitting.kind_placeholder": "tv, soundbar, candles...",
+    "fitting.kind_hint": "Labels the device so others can find it when wigs are shared in the Wig Shop."
 }

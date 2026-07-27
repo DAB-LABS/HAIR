@@ -398,3 +398,111 @@ class TestIdentifierInputParsing:
                   identifiers={"upc": "1"})
         _apply_identifier_edits(wig, {"name": "whatever"})
         assert wig.identifiers == {"upc": "1"}
+
+
+class TestKind:
+    """The kind field (owner rulings 2026-07-27): what the device IS,
+    squashed slug, set at signing or in the editor, feeds the
+    generated-integration naming convention."""
+
+    def test_kind_slug_squashes(self):
+        from custom_components.hair.wig_format import kind_slug
+
+        assert kind_slug("Sound Bar") == "soundbar"
+        assert kind_slug("sound-bar") == "soundbar"
+        assert kind_slug("Set-Top Box") == "settopbox"
+        assert kind_slug("TV") == "tv"
+        assert kind_slug("!!!") == ""
+
+    def test_kind_roundtrip(self):
+        import json as _json
+
+        text = _json.dumps({
+            "format": "hair-wig/1", "name": "Candles",
+            "kind": "candles",
+            "signals": [{"alias": "On", "pronto": PRONTO}],
+        })
+        result = parse_wig(text)
+        assert result.ok and result.wig.kind == "candles"
+        out = _json.loads(serialize_wig(result.wig))
+        assert out["kind"] == "candles"
+        keys = list(out.keys())
+        assert keys.index("kind") < keys.index("signals")
+
+    def test_kind_absent_stays_absent(self):
+        import json as _json
+
+        text = _json.dumps({
+            "format": "hair-wig/1", "name": "X",
+            "signals": [{"alias": "A", "pronto": PRONTO}],
+        })
+        result = parse_wig(text)
+        assert result.ok and result.wig.kind is None
+        assert "kind" not in _json.loads(serialize_wig(result.wig))
+
+    def test_device_export_auto_stamps_unambiguous_kind(self):
+        from custom_components.hair.const import DeviceType
+        from custom_components.hair.models import IRCommand, IRDevice
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        def _dev(dtype):
+            return IRDevice(
+                name="X", device_type=dtype,
+                commands=[IRCommand(
+                    id="c1", name="Power", protocol="PRONTO", code=PRONTO,
+                )],
+            )
+
+        assert build_wig_from_device(_dev(DeviceType.FAN)).wig.kind == "fan"
+        assert build_wig_from_device(_dev(DeviceType.AC)).wig.kind == "ac"
+        # media_player is ambiguous (tv? soundbar?): no stamp, the
+        # signing prompt asks the human.
+        assert build_wig_from_device(
+            _dev(DeviceType.MEDIA_PLAYER)
+        ).wig.kind is None
+
+
+class TestKindAtSigning:
+    @pytest.mark.asyncio
+    async def test_finish_sets_kind_once(self, fake_hass, tmp_path):
+        from custom_components.hair.tests.test_wig_fitting import (
+            _read_wig,
+            _write_wig,
+        )
+        from custom_components.hair.wig_fitting import FittingManager
+
+        fake_hass.config.config_dir = str(tmp_path)
+        wigs = tmp_path / "hair" / "wigs"
+        wigs.mkdir(parents=True)
+        filename = _write_wig(wigs)
+        manager = FittingManager(fake_hass, monitor=None)
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_finish(
+            filename, "dab", None, None, None, kind="Candles",
+        )
+        wig = _read_wig(wigs)
+        assert wig.kind == "candles"  # slugged
+        # A later finish with a different kind does NOT overwrite.
+        await manager.async_mark(filename, 1, "worked", "dab")
+        await manager.async_finish(
+            filename, "dab", None, None, None, kind="fan",
+        )
+        assert _read_wig(wigs).kind == "candles"
+
+    def test_share_strip_preserves_kind_and_identifiers(self):
+        """Regression: shared_wig_text rebuilt the Wig without the
+        v0.8.0 fields, silently dropping them on stripped shares."""
+        import json as _json
+
+        from custom_components.hair.tests.test_wig_fitting import (
+            _complete_fitting,
+            _wig,
+        )
+        from custom_components.hair.wig_fitting import shared_wig_text
+
+        wig = _wig([_complete_fitting(_wig(), draft=True)])
+        wig.kind = "candles"
+        wig.identifiers = {"upc": "794969274724"}
+        shared = _json.loads(shared_wig_text(wig))
+        assert shared["kind"] == "candles"
+        assert shared["identifiers"] == {"upc": "794969274724"}

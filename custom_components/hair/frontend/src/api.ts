@@ -279,6 +279,7 @@ export class HairApi {
             name: string;
             brand: string;
             model: string;
+            kind: string;
             notes: string;
             fcc_id: string;
             upc: string;
@@ -336,7 +337,12 @@ export class HairApi {
 
     fittingFinish(
         filename: string,
-        extras: Partial<{ handle: string; github: string; note: string }>,
+        extras: Partial<{
+            handle: string;
+            github: string;
+            note: string;
+            kind: string;
+        }>,
     ): Promise<{
         success: boolean;
         state: "perfect" | "partial";

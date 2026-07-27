@@ -542,5 +542,11 @@
     "wigs.editor.upc": "UPC/EAN",
     "wigs.editor.asin": "ASIN",
     "wigs.editor.oem": "OEM（確認済みメーカー）",
-    "wigs.editor.ids_hint": "製品識別子はすべて任意です。複数はカンマで区切ってください。"
+    "wigs.editor.ids_hint": "製品識別子はすべて任意です。複数はカンマで区切ってください。",
+    "wigs.editor.kind": "種類",
+    "wigs.editor.kind_placeholder": "tv, soundbar, candles...",
+    "wigs.editor.kind_hint": "この機器が何かを表します。ウィッグがWig Shopで共有されたとき、他の人が見つけやすくなります。",
+    "fitting.kind": "これはどんな機器ですか？",
+    "fitting.kind_placeholder": "tv, soundbar, candles...",
+    "fitting.kind_hint": "機器にラベルを付けます。ウィッグがWig Shopで共有されたとき、他の人が見つけやすくなります。"
 }

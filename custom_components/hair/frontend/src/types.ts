@@ -106,6 +106,9 @@ export interface WigInfo {
     signal_count: number;
     // Signal aliases for the count-click peek popover (v0.7.0).
     signals?: string[];
+    // What the device IS ("candles", "tv"): squashed lowercase slug,
+    // set at signing or in the editor (v0.8.0).
+    kind?: string | null;
     // Product identity anchors (v0.8.0): fcc_id / upc / asin / oem
     // conventions, single or multiple values. Format bones only for
     // now; editor fields and search coverage are queued.
@@ -149,6 +152,7 @@ export interface FittingLedgerRow {
 export interface FittingState {
     filename: string;
     username: string;
+    kind: string | null;
     signals: string[];
     draft: {
         confirmed: string[];

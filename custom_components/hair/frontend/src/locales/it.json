@@ -542,5 +542,11 @@
     "wigs.editor.upc": "UPC/EAN",
     "wigs.editor.asin": "ASIN",
     "wigs.editor.oem": "OEM (produttore verificato)",
-    "wigs.editor.ids_hint": "Identificativi del prodotto, tutti facoltativi. Separane più di uno con virgole."
+    "wigs.editor.ids_hint": "Identificativi del prodotto, tutti facoltativi. Separane più di uno con virgole.",
+    "wigs.editor.kind": "Tipo",
+    "wigs.editor.kind_placeholder": "tv, soundbar, candles...",
+    "wigs.editor.kind_hint": "Che cos'è l'apparecchio. Aiuta gli altri a trovarlo quando le parrucche vengono condivise nel Wig Shop.",
+    "fitting.kind": "Che tipo di apparecchio è?",
+    "fitting.kind_placeholder": "tv, soundbar, candles...",
+    "fitting.kind_hint": "Etichetta l'apparecchio così altri possono trovarlo quando le parrucche vengono condivise nel Wig Shop."
 }

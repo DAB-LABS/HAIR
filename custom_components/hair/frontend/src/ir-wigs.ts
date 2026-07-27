@@ -120,6 +120,7 @@ export class IrWigs extends LitElement {
     @state() private _editName = "";
     @state() private _editBrand = "";
     @state() private _editModel = "";
+    @state() private _editKind = "";
     @state() private _editNotes = "";
     // Identifier fields (v0.8.0): single input each; commas become
     // the format's list form server-side.
@@ -512,6 +513,25 @@ export class IrWigs extends LitElement {
         this._editError = null;
     }
 
+    /** Curated kinds plus every kind already used in this closet, so
+     * a custom kind typed once becomes a suggestion from then on
+     * (owner ruling 2026-07-27: dropdown plus custom, self-growing,
+     * no central registry). */
+    private _kindSuggestions(): string[] {
+        const curated = [
+            "tv", "soundbar", "receiver", "settopbox", "projector",
+            "fan", "light", "candles", "ac", "heater", "blinds",
+        ];
+        const seen = new Set(curated);
+        for (const wig of this._wigs) {
+            if (wig.kind && !seen.has(wig.kind)) {
+                seen.add(wig.kind);
+                curated.push(wig.kind);
+            }
+        }
+        return curated;
+    }
+
     private _originSentence(origin: string | null): string {
         if (!origin) return t("wigs.origin.unknown");
         if (origin.startsWith("converted")) {
@@ -538,6 +558,7 @@ export class IrWigs extends LitElement {
                 name: this._editName.trim() || this._editing.name,
                 brand: this._editBrand.trim(),
                 model: this._editModel.trim(),
+                kind: this._editKind.trim(),
                 notes: this._editNotes.trim(),
                 fcc_id: this._editFccId.trim(),
                 upc: this._editUpc.trim(),
@@ -1009,6 +1030,27 @@ export class IrWigs extends LitElement {
                                 e.target as HTMLInputElement
                             ).value)}
                     />
+                </div>
+                <div class="field">
+                    <label>${t("wigs.editor.kind")}</label>
+                    <input
+                        type="text"
+                        list="wig-kind-suggestions"
+                        placeholder=${t("wigs.editor.kind_placeholder")}
+                        .value=${this._editKind}
+                        @input=${(e: Event) =>
+                            (this._editKind = (
+                                e.target as HTMLInputElement
+                            ).value)}
+                    />
+                    <datalist id="wig-kind-suggestions">
+                        ${this._kindSuggestions().map(
+                            (k) => html`<option value=${k}></option>`,
+                        )}
+                    </datalist>
+                    <div class="ident-hint">
+                        ${t("wigs.editor.kind_hint")}
+                    </div>
                 </div>
                 <div class="ident-grid">
                     <div class="field">

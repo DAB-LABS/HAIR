@@ -566,5 +566,11 @@
     "wigs.editor.upc": "UPC/EAN",
     "wigs.editor.asin": "ASIN",
     "wigs.editor.oem": "OEM (подтверждённый производитель)",
-    "wigs.editor.ids_hint": "Идентификаторы товара, все необязательны. Несколько значений разделяйте запятыми."
+    "wigs.editor.ids_hint": "Идентификаторы товара, все необязательны. Несколько значений разделяйте запятыми.",
+    "wigs.editor.kind": "Тип",
+    "wigs.editor.kind_placeholder": "tv, soundbar, candles...",
+    "wigs.editor.kind_hint": "Что это за устройство. Помогает другим найти его, когда парики появятся в Wig Shop.",
+    "fitting.kind": "Что это за устройство?",
+    "fitting.kind_placeholder": "tv, soundbar, candles...",
+    "fitting.kind_hint": "Помечает устройство, чтобы другие могли найти его, когда парики появятся в Wig Shop."
 }

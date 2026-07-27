@@ -542,5 +542,11 @@
     "wigs.editor.upc": "UPC/EAN",
     "wigs.editor.asin": "ASIN",
     "wigs.editor.oem": "OEM (bevestigde maker)",
-    "wigs.editor.ids_hint": "Productkenmerken, allemaal optioneel. Scheid meerdere met komma's."
+    "wigs.editor.ids_hint": "Productkenmerken, allemaal optioneel. Scheid meerdere met komma's.",
+    "wigs.editor.kind": "Soort",
+    "wigs.editor.kind_placeholder": "tv, soundbar, candles...",
+    "wigs.editor.kind_hint": "Wat het apparaat is. Helpt anderen het te vinden wanneer pruiken in de Wig Shop worden gedeeld.",
+    "fitting.kind": "Wat voor apparaat is dit?",
+    "fitting.kind_placeholder": "tv, soundbar, candles...",
+    "fitting.kind_hint": "Labelt het apparaat zodat anderen het vinden wanneer pruiken in de Wig Shop worden gedeeld."
 }

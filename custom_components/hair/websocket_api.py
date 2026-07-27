@@ -2426,6 +2426,7 @@ async def ws_wigs_list(
                     "signals": [
                         sig.alias for sig in loaded.wig.signals
                     ],
+                    "kind": loaded.wig.kind,
                     "identifiers": loaded.wig.identifiers,
                     "fitting": fitting_summary(loaded.wig, username),
                 }
@@ -2672,6 +2673,7 @@ def _apply_identifier_edits(wig: Any, msg: dict[str, Any]) -> None:
     vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
     vol.Optional("model"): vol.All(str, vol.Length(max=200)),
     vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
+    vol.Optional("kind"): vol.All(str, vol.Length(max=100)),
     vol.Optional("fcc_id"): vol.All(str, vol.Length(max=200)),
     vol.Optional("upc"): vol.All(str, vol.Length(max=200)),
     vol.Optional("asin"): vol.All(str, vol.Length(max=200)),
@@ -2712,6 +2714,10 @@ async def ws_wigs_update(
         for key in ("brand", "model", "notes"):
             if key in msg:
                 setattr(wig, key, msg[key].strip() or None)
+        if "kind" in msg:
+            from .wig_format import kind_slug
+
+            wig.kind = kind_slug(msg["kind"]) or None
         _apply_identifier_edits(wig, msg)
         path = wigs_dir(hass.config.config_dir) / filename
         path.write_text(serialize_wig(wig), encoding="utf-8")
@@ -2730,6 +2736,7 @@ async def ws_wigs_update(
     vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
     vol.Optional("model"): vol.All(str, vol.Length(max=200)),
     vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
+    vol.Optional("kind"): vol.All(str, vol.Length(max=100)),
     vol.Optional("fcc_id"): vol.All(str, vol.Length(max=200)),
     vol.Optional("upc"): vol.All(str, vol.Length(max=200)),
     vol.Optional("asin"): vol.All(str, vol.Length(max=200)),
@@ -2779,6 +2786,10 @@ async def ws_wigs_export(
     for key in ("brand", "model", "notes"):
         if key in msg and msg[key].strip():
             setattr(build.wig, key, msg[key].strip())
+    if msg.get("kind", "").strip():
+        from .wig_format import kind_slug
+
+        build.wig.kind = kind_slug(msg["kind"]) or build.wig.kind
     _apply_identifier_edits(build.wig, msg)
 
     def _write() -> str | None:
@@ -2909,6 +2920,7 @@ async def ws_fitting_mark(
     vol.Optional("handle"): vol.All(str, vol.Length(max=100)),
     vol.Optional("github"): vol.All(str, vol.Length(max=100)),
     vol.Optional("note"): vol.All(str, vol.Length(max=500)),
+    vol.Optional("kind"): vol.All(str, vol.Length(max=100)),
 })
 @websocket_api.async_response
 async def ws_fitting_finish(
@@ -2931,6 +2943,7 @@ async def ws_fitting_finish(
         msg.get("handle"),
         msg.get("github"),
         msg.get("note"),
+        kind=msg.get("kind"),
     )
     _send_fitting_result(connection, msg["id"], result)
 
@@ -3008,6 +3021,7 @@ async def ws_fitting_state(
         return {
             "filename": msg["filename"],
             "username": username,
+            "kind": wig.kind,
             "signals": [sig.alias for sig in wig.signals],
             "draft": (
                 {

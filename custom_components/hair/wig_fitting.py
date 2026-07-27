@@ -194,8 +194,10 @@ def shared_wig_text(wig: Wig) -> str:
         signals=wig.signals,
         brand=wig.brand,
         model=wig.model,
+        kind=wig.kind,
         notes=wig.notes,
         origin=wig.origin,
+        identifiers=wig.identifiers,
         extra=extra,
     )
     return serialize_wig(stripped)
@@ -627,11 +629,18 @@ class FittingManager:
         handle: str | None,
         github: str | None,
         note: str | None,
+        kind: str | None = None,
     ) -> dict[str, Any]:
         """Sign the draft: the attestation moment (State C).
 
         Removes the draft flag, collapses draft-only evidence, writes
-        immediately, and reports the derived verdict.
+        immediately, and reports the derived verdict. ``kind`` fills
+        the WIG's kind when it has none (owner ruling 2026-07-27: the
+        signing screen asks once, because a fitter demonstrably cares
+        about this wig) -- it is a fact about the device, so it lives
+        on the wig, never inside the fitting entry, and it sits
+        outside the signals hash so setting it cannot invalidate the
+        fitting being signed.
         """
         wig = await self._load(filename)
         if wig is None:
@@ -641,6 +650,10 @@ class FittingManager:
         if draft is None:
             return {"success": False, "code": "no_draft",
                     "error": "No fitting in progress to record"}
+        if kind and kind.strip() and not wig.kind:
+            from .wig_format import kind_slug
+
+            wig.kind = kind_slug(kind) or None
         self._merge_session_evidence(filename, draft)
         if handle and handle.strip():
             draft["handle"] = handle.strip()

@@ -29,6 +29,13 @@ import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { FittingState, WigInfo } from "./types.js";
 
+// Curated kind suggestions; the input accepts anything (custom kinds
+// welcome) and the server squashes to lowercase alphanumerics.
+const KIND_SUGGESTIONS = [
+    "tv", "soundbar", "receiver", "settopbox", "projector",
+    "fan", "light", "candles", "ac", "heater", "blinds",
+];
+
 interface RowFacts {
     sent: number;
     heard: boolean;
@@ -54,6 +61,7 @@ export class IrFittingDialog extends LitElement {
     @state() private _handle = "";
     @state() private _github = "";
     @state() private _note = "";
+    @state() private _kind = "";
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -69,6 +77,7 @@ export class IrFittingDialog extends LitElement {
             this._receiverIds = new Set(receivers.map((r) => r.entity_id));
             this._fit = fit;
             this._handle = fit.username;
+            this._kind = fit.kind ?? "";
             // Prefill the GitHub handle from the user's previous
             // fitting on this install ("remembered per install").
             const mine = fit.ledger.find(
@@ -199,6 +208,9 @@ export class IrFittingDialog extends LitElement {
                         : {}),
                     ...(this._note.trim()
                         ? { note: this._note.trim() }
+                        : {}),
+                    ...(this._kind.trim() && !this._fit?.kind
+                        ? { kind: this._kind.trim() }
                         : {}),
                 },
             );
@@ -643,6 +655,26 @@ export class IrFittingDialog extends LitElement {
                 />
                 <div class="hint">${t("fitting.github_hint")}</div>
             </div>
+            ${!this._fit?.kind
+                ? html`<div class="field">
+                      <label>${t("fitting.kind")}</label>
+                      <input
+                          list="kind-suggestions"
+                          .value=${this._kind}
+                          placeholder=${t("fitting.kind_placeholder")}
+                          @input=${(e: Event) =>
+                              (this._kind = (
+                                  e.target as HTMLInputElement
+                              ).value)}
+                      />
+                      <datalist id="kind-suggestions">
+                          ${KIND_SUGGESTIONS.map(
+                              (k) => html`<option value=${k}></option>`,
+                          )}
+                      </datalist>
+                      <div class="hint">${t("fitting.kind_hint")}</div>
+                  </div>`
+                : nothing}
             <div class="field">
                 <label>${t("fitting.note")}</label>
                 <input
