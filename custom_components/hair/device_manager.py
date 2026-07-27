@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from .const import (
+    ASSIGN_SERVICE_TIMEOUT_S,
     DEFAULT_CARRIER_FREQUENCY,
     DOMAIN,
     MAX_DITTO_COUNT,
@@ -443,16 +444,39 @@ class DeviceManager:
                 repeat_count=command.repeat_count or 0,
             )
 
+        # Emitter resilience (GH #65, rvgfox): multi-emitter is the
+        # redundancy feature, so one napping blaster must never block
+        # the others or paint a red toast on a command that actually
+        # fired. Pre-skip emitters HA already knows are down; the
+        # per-send guard below is the real backstop, because a wifi
+        # proxy can fail at SEND time while its state still reads fine
+        # (the Athom in the report did exactly that).
+        skipped: dict[str, str] = {}
+        attempt_ids: list[str] = []
+        for emitter_id in device.emitter_entity_ids:
+            state = self._hass.states.get(emitter_id)
+            if state is not None and state.state in (
+                "unavailable", "unknown",
+            ):
+                skipped[emitter_id] = state.state
+                continue
+            attempt_ids.append(emitter_id)
+        if not attempt_ids:
+            raise RuntimeError(
+                f"All emitters for {device.name} are unavailable"
+            )
+
         # The Mirror (v0.6.6): audit this send and arm echo attribution
         # BEFORE transmitting, so every emitter's state beacon reads as
         # HAIR's own and the loopback captures enrich the Mirror row
-        # instead of entering the Sniffer.
+        # instead of entering the Sniffer. Attempted emitters only, so
+        # the row's "via" names the blasters that actually keyed up.
         monitor = self._signal_monitor()
         if monitor is not None:
             monitor.record_send(
                 ir_cmd,
                 f"{device.name} / {command.name}",
-                list(device.emitter_entity_ids),
+                attempt_ids,
                 decoded_fingerprint=(
                     command.decoded_fingerprint
                     if not command.tx_force_raw else None
@@ -465,18 +489,59 @@ class DeviceManager:
         # Sends route through the transmit gate, which staggers emitter
         # CHANGES so a multi-emitter broadcast doesn't superimpose in the
         # air at a receiver that hears both blasters (see tx_gate).
+        # Per-emitter guard (GH #65): a failing emitter is recorded and
+        # dropped from later frames (no point stacking timeouts on a
+        # dead unit); the command succeeds when at least one (emitter,
+        # frame) landed.
         from .tx_gate import gated_send
 
         send_count = max(1, command.send_count or 1)
+        landed: set[str] = set()
+        failures: dict[str, str] = {}
         for i in range(send_count):
             if i:
                 await asyncio.sleep(SEND_REPEAT_GAP)
-            for emitter_id in device.emitter_entity_ids:
-                await gated_send(self._hass, emitter_id, ir_cmd, ir_send)
+            for emitter_id in attempt_ids:
+                if emitter_id in failures:
+                    continue
+                try:
+                    await asyncio.wait_for(
+                        gated_send(
+                            self._hass, emitter_id, ir_cmd, ir_send
+                        ),
+                        timeout=ASSIGN_SERVICE_TIMEOUT_S,
+                    )
+                    landed.add(emitter_id)
+                except TimeoutError:
+                    failures[emitter_id] = "timed out"
+                except Exception as err:
+                    failures[emitter_id] = str(err) or type(err).__name__
+
+        if not landed:
+            # Every attempt failed: honest message, not the raw driver
+            # string (details go to the log).
+            _LOGGER.warning(
+                "Send %s / %s: every emitter failed: %s",
+                device.name, command.name,
+                {**skipped, **failures},
+            )
+            raise RuntimeError(
+                f"All emitters for {device.name} are unavailable"
+            )
+        if failures or skipped:
+            # Partial success is SILENT success (invisible resilience
+            # is the point of redundancy); the log keeps the receipt.
+            _LOGGER.warning(
+                "Send %s / %s went out via %s; skipped/failed: %s",
+                device.name, command.name, sorted(landed),
+                {**skipped, **failures},
+            )
 
         # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
         # one send-command call is one logical press, so advance once
-        # after the full emitter loop completes without raising --
+        # when AT LEAST ONE send landed (GH #65: "loop finished without
+        # raising" desynced state when a late emitter failed after the
+        # device already got the frame from an earlier one) --
         # send_count > 1 deliberately re-sends the same state. The
         # decoded fingerprint excludes both fields, so the reverse
         # index is unaffected and a bare save is safe.
