@@ -8173,11 +8173,15 @@ function e(e,i,t,a){var r,o=arguments.length,n=o<3?i:null===a?a=Object.getOwnPro
             color: var(--wigs-accent);
         }
         /* FIT is the fitting green (owner ruling 2026-07-26), left of
-           Clip It, same shared chip anatomy. Only local wig files get
-           it -- library codebooks cannot carry fittings. */
+           Clip It, same shared chip anatomy. Border alpha matches the
+           row-chip family (clip 0.35, delete 0.25 -- owner bench note
+           2026-07-27: the stroke reads quieter than the text). Only
+           local wig files get it -- library codebooks cannot carry
+           fittings. */
         .action-btn.fit-btn {
-            color: #66bb6a;
-            border-color: rgba(76, 175, 80, 0.45);
+            color: #4caf50;
+            border-color: rgba(76, 175, 80, 0.3);
+            margin-right: 8px;
         }
         .action-btn.fit-btn:hover:not(:disabled) {
             background: rgba(76, 175, 80, 0.08);

@@ -644,8 +644,11 @@ class FittingManager:
         self._merge_session_evidence(filename, draft)
         if handle and handle.strip():
             draft["handle"] = handle.strip()
-        if github and github.strip():
-            draft["github"] = github.strip()
+        # Leading @ stripped: people naturally type "@name" (live bench,
+        # 2026-07-27), but Tier 2 key lookups and the ledger's own @
+        # prefix both want the bare handle.
+        if github and github.strip().lstrip("@").strip():
+            draft["github"] = github.strip().lstrip("@").strip()
         if note and note.strip():
             draft["note"] = note.strip()
         heard_list = draft.pop("heard", None)

@@ -588,3 +588,15 @@ class TestManagerSend:
         filename = _write_wig(wigs_dir_path)
         result = await manager.async_send(filename, 7, "infrared.e")
         assert not result["success"] and result["code"] == "bad_index"
+
+
+class TestGithubNormalization:
+    @pytest.mark.asyncio
+    async def test_leading_at_stripped(self, manager, wigs_dir_path):
+        filename = _write_wig(wigs_dir_path)
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_finish(
+            filename, "dab", None, "@DAB-LABS", None
+        )
+        f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
+        assert f.raw["github"] == "DAB-LABS"
