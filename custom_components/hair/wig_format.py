@@ -47,10 +47,80 @@ _FORMAT_RE = re.compile(rf"^{WIG_FORMAT_NAME}/(\d+)$")
 
 # Top-level and per-signal keys the v1 schema knows. Anything else is
 # tolerated and preserved (forward compatibility).
-_KNOWN_TOP = {"format", "name", "brand", "model", "notes", "origin", "signals"}
+_KNOWN_TOP = {
+    "format", "name", "brand", "model", "kind", "notes", "origin",
+    "identifiers", "signals",
+}
+
+# Curated kind suggestions (v0.8.0). The field accepts ANY value (the
+# dialogs offer these plus a custom entry); values are squashed-slug
+# lowercase alphanumerics with no separators (owner ruling 2026-07-27:
+# the repo naming convention <brand>-<kind>-<model>-infrared already
+# carries the dashes, so the kind itself stays one word --
+# "soundbar", "settopbox"). Kind labels the device for discovery once
+# wigs are shared (the Wig Shop) and picks the factory's wrapper
+# platform.
+KIND_SUGGESTIONS = (
+    "tv", "soundbar", "receiver", "settopbox", "projector",
+    "fan", "light", "candles", "ac", "heater", "blinds",
+)
+
+
+def kind_slug(value: str) -> str:
+    """Normalize a kind to its canonical form: lowercase, [a-z0-9] only.
+
+    "Sound Bar", "sound-bar", and "soundbar" must collapse to one form
+    because kind feeds the generated-integration naming convention.
+    Returns "" when nothing survives.
+    """
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+# Blessed identifier keys, documented in docs/wig-format.md. The map
+# accepts ANY keys (future anchors arrive without a format bump), and
+# each value is a non-empty string or a non-empty list of them --
+# rebadged device families carry several UPCs and listings for the
+# same hardware (owner ruling 2026-07-27). This set exists for docs
+# and UI hints, not enforcement. Rationale (owner ruling 2026-07-27):
+# brand/model die on off-brand hardware -- the Amazon candle, the
+# no-name fan -- and those are exactly the devices only HAIR will
+# ever cover. fcc_id is the strongest anchor WHEN present (grantee
+# lookup, internal photos, manuals) but pure-IR remotes are
+# FCC-exempt, so it cannot be required; upc is the one identifier
+# nearly every retail box has; asin captures "sold on Amazon as X",
+# often the only name the thing has; oem records an ESTABLISHED
+# maker, kept separate from brand so detective work never overwrites
+# what the box said.
+IDENTIFIER_KEYS = ("fcc_id", "upc", "asin", "oem")
+
+
+def _valid_identifier_value(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(v, str) and v.strip() for v in value)
+    )
+
+
+def identifier_values(
+    identifiers: dict[str, str | list[str]] | None, key: str
+) -> list[str]:
+    """All values for one identifier key, single-or-list normalized.
+
+    The consumer-side helper (search, dedup, the factory's attribution
+    gate): callers never branch on the value shape.
+    """
+    if not identifiers or key not in identifiers:
+        return []
+    value = identifiers[key]
+    return [value] if isinstance(value, str) else list(value)
+
+
 _KNOWN_SIGNAL = {"alias", "pronto", "send_count"}
 
-_OPTIONAL_TOP_STRINGS = ("brand", "model", "notes", "origin")
+_OPTIONAL_TOP_STRINGS = ("brand", "model", "kind", "notes", "origin")
 
 
 @dataclass
@@ -71,8 +141,17 @@ class Wig:
     signals: list[WigSignal]
     brand: str | None = None
     model: str | None = None
+    # What the device IS ("candles", "tv", "soundbar"): a squashed
+    # lowercase slug, any value, curated suggestions in
+    # KIND_SUGGESTIONS. Labels the device for Wig Shop discovery and
+    # picks the factory's wrapper platform (v0.8.0).
+    kind: str | None = None
     notes: str | None = None
     origin: str | None = None
+    # Product identity anchors for hardware whose brand/model mean
+    # nothing (v0.8.0): free map of string or list-of-string values,
+    # blessed keys in IDENTIFIER_KEYS. None when absent.
+    identifiers: dict[str, str | list[str]] | None = None
     extra: dict = field(default_factory=dict)
 
 
@@ -137,6 +216,27 @@ def parse_wig(text: str) -> WigParseResult:
         if key in data and not isinstance(data[key], str):
             errors.append(f'"{key}" must be a string when present')
 
+    identifiers: dict[str, str | list[str]] | None = None
+    if "identifiers" in data:
+        raw_ids = data["identifiers"]
+        if not isinstance(raw_ids, dict):
+            errors.append(
+                '"identifiers" must be an object when present '
+                '(e.g. {"fcc_id": "...", "upc": ["...", "..."]})'
+            )
+        else:
+            ids_ok = True
+            for id_key, id_value in raw_ids.items():
+                if _valid_identifier_value(id_value):
+                    continue
+                errors.append(
+                    f"identifiers.{id_key}: must be a non-empty string "
+                    "or a non-empty list of non-empty strings"
+                )
+                ids_ok = False
+            if ids_ok:
+                identifiers = dict(raw_ids) or None
+
     raw_signals = data.get("signals")
     signals: list[WigSignal] = []
     if not isinstance(raw_signals, list) or not raw_signals:
@@ -191,8 +291,10 @@ def parse_wig(text: str) -> WigParseResult:
             signals=signals,
             brand=data.get("brand"),
             model=data.get("model"),
+            kind=data.get("kind"),
             notes=data.get("notes"),
             origin=data.get("origin"),
+            identifiers=identifiers,
             extra={k: v for k, v in data.items() if k not in _KNOWN_TOP},
         ),
         [],
@@ -210,11 +312,14 @@ def serialize_wig(wig: Wig) -> str:
     for key, value in (
         ("brand", wig.brand),
         ("model", wig.model),
+        ("kind", wig.kind),
         ("notes", wig.notes),
         ("origin", wig.origin),
     ):
         if value is not None:
             out[key] = value
+    if wig.identifiers:
+        out["identifiers"] = dict(wig.identifiers)
     out["signals"] = [_signal_out(s) for s in wig.signals]
     out.update(wig.extra)
     return json.dumps(out, indent=4, ensure_ascii=False) + "\n"

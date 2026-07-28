@@ -339,10 +339,22 @@ export class IrMirror extends LitElement {
         const testPrefix = ["Manual test send", "Catalog test"].find((p) =>
             label.startsWith(p),
         );
+        // A fitting-session send (Perfect Fit): its own provenance
+        // chip so a 300-signal fitting never reads as mystery traffic.
+        const fittingPrefix = label.startsWith("Fitting send")
+            ? "Fitting send"
+            : undefined;
         if (label === "automation send") {
             chip = t("mirror.chip_automation");
         } else if (label === "integration send") {
             chip = t("mirror.chip_integration");
+        } else if (fittingPrefix) {
+            chip = t("mirror.chip_fitting");
+            labelTitle =
+                label
+                    .slice(fittingPrefix.length)
+                    .replace(/^:\s*/, "")
+                    .trim() || null;
         } else if (testPrefix) {
             chip = t("mirror.chip_test");
             labelTitle =

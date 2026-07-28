@@ -16,6 +16,7 @@ import type {
     CommandTemplate,
     DeleteSignalResult,
     DeviceSummary,
+    FittingState,
     DeviceTypeId,
     DismissActivityEvent,
     IRCommand,
@@ -274,7 +275,17 @@ export class HairApi {
 
     wigsUpdate(
         filename: string,
-        patch: Partial<{ name: string; brand: string; model: string; notes: string }>,
+        patch: Partial<{
+            name: string;
+            brand: string;
+            model: string;
+            kind: string;
+            notes: string;
+            fcc_id: string;
+            upc: string;
+            asin: string;
+            oem: string;
+        }>,
     ): Promise<{ success: boolean; filename?: string; errors?: string[] }> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/wigs/update",
@@ -283,10 +294,89 @@ export class HairApi {
         });
     }
 
+    // --- Fitting (Perfect Fit) ---
+
+    fittingState(filename: string): Promise<FittingState> {
+        return this.hass.connection.sendMessagePromise<FittingState>({
+            type: "hair/wigs/fitting/state",
+            filename,
+        });
+    }
+
+    fittingSend(
+        filename: string,
+        signalIndex: number,
+        emitter: string,
+    ): Promise<{ success: boolean; heard: boolean; decoded: boolean }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/send",
+            filename,
+            signal_index: signalIndex,
+            emitter,
+        });
+    }
+
+    fittingMark(
+        filename: string,
+        signalIndex: number,
+        verdict: "worked" | "failed" | "untested",
+    ): Promise<{
+        success: boolean;
+        confirmed: number;
+        failed: number;
+        total: number;
+        perfect_ready: boolean;
+    }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/mark",
+            filename,
+            signal_index: signalIndex,
+            verdict,
+        });
+    }
+
+    fittingFinish(
+        filename: string,
+        extras: Partial<{
+            handle: string;
+            github: string;
+            note: string;
+            kind: string;
+        }>,
+    ): Promise<{
+        success: boolean;
+        state: "perfect" | "partial";
+        confirmed: number;
+        failed: number;
+        total: number;
+        signed: boolean;
+    }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/finish",
+            filename,
+            ...extras,
+        });
+    }
+
+    fittingDiscard(filename: string): Promise<{ success: boolean }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/discard",
+            filename,
+        });
+    }
+
     wigsExport(
         source: "catalog" | "device",
         sourceId: string,
-        extras?: Partial<{ brand: string; model: string; notes: string }>,
+        extras?: Partial<{
+            brand: string;
+            model: string;
+            notes: string;
+            fcc_id: string;
+            upc: string;
+            asin: string;
+            oem: string;
+        }>,
     ): Promise<{ filename: string; signal_count: number; skipped: number }> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/wigs/export",

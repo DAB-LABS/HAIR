@@ -134,7 +134,7 @@ The HAIR panel is fully localizable. Adding a language is a two-file PR, and the
 | Language | Panel (`locales/`) | Config flow (`translations/`) | Status |
 |---|---|---|---|
 | English (en) | yes | yes | source |
-| Spanish (es) | yes | yes | config flow reviewed (thanks @Waterbrain); panel dictionary is a programming-assistant draft, native reviewer wanted |
+| Spanish (es) | yes | yes | panel dictionary and config flow reviewed by a native speaker (thanks @Waterbrain) |
 | French (fr) | yes | yes | programming-assistant draft, native reviewer wanted |
 | Japanese (ja) | yes | yes | programming-assistant draft, native reviewer wanted |
 | German (de) | yes | yes | programming-assistant draft, native reviewer wanted |

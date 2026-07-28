@@ -35,6 +35,7 @@ import { t, tp } from "./localize.js";
 import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
+import "./ir-fitting-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
@@ -43,7 +44,7 @@ import type {
     WigsList,
 } from "./types.js";
 
-type FilterChip = "all" | "library" | "yours";
+type FilterChip = "all" | "library" | "yours" | "fitted" | "unfitted";
 
 interface ClosetRow {
     // One entry a brand row can hold: a library codebook or a local wig.
@@ -106,6 +107,10 @@ export class IrWigs extends LitElement {
     @state() private _bloomId: string | null = null;
     private _pendingScrollId: string | null = null;
     @state() private _busyId: string | null = null;
+    // The fitting dialog (Perfect Fit): the row's Fit button opens
+    // straight into the session; reopening resumes (marks live in the
+    // wig file, owner rulings 2026-07-26).
+    @state() private _fittingWig: WigInfo | null = null;
     @state() private _peekId: string | null = null;
     private _peekPos = { top: 0, left: 0 };
     private _peekNames: string[] = [];
@@ -115,7 +120,14 @@ export class IrWigs extends LitElement {
     @state() private _editName = "";
     @state() private _editBrand = "";
     @state() private _editModel = "";
+    @state() private _editKind = "";
     @state() private _editNotes = "";
+    // Identifier fields (v0.8.0): single input each; commas become
+    // the format's list form server-side.
+    @state() private _editFccId = "";
+    @state() private _editUpc = "";
+    @state() private _editAsin = "";
+    @state() private _editOem = "";
     @state() private _editBusy = false;
     @state() private _editError: string | null = null;
     @state() private _confirmDelete: WigInfo | null = null;
@@ -228,6 +240,14 @@ export class IrWigs extends LitElement {
             rows = rows.filter((r) => r.source === "library");
         } else if (this._filter === "yours") {
             rows = rows.filter((r) => r.source === "local");
+        } else if (this._filter === "fitted") {
+            // Fitted mirrors the check mark: any fitting state, green
+            // or yellow (owner ruling 2026-07-26).
+            rows = rows.filter((r) => r.wig?.fitting?.state);
+        } else if (this._filter === "unfitted") {
+            // Only fittable things count as unfitted: local wig files.
+            // Library codebooks cannot carry fittings.
+            rows = rows.filter((r) => r.wig && !r.wig.fitting?.state);
         }
         const query = this._search.trim().toLowerCase();
         if (query && !brand.label.toLowerCase().includes(query)) {
@@ -481,7 +501,35 @@ export class IrWigs extends LitElement {
         this._editBrand = wig.brand ?? "";
         this._editModel = wig.model ?? "";
         this._editNotes = wig.notes ?? "";
+        const ident = (key: string): string => {
+            const value = wig.identifiers?.[key];
+            if (!value) return "";
+            return Array.isArray(value) ? value.join(", ") : value;
+        };
+        this._editFccId = ident("fcc_id");
+        this._editUpc = ident("upc");
+        this._editAsin = ident("asin");
+        this._editOem = ident("oem");
         this._editError = null;
+    }
+
+    /** Curated kinds plus every kind already used in this closet, so
+     * a custom kind typed once becomes a suggestion from then on
+     * (owner ruling 2026-07-27: dropdown plus custom, self-growing,
+     * no central registry). */
+    private _kindSuggestions(): string[] {
+        const curated = [
+            "tv", "soundbar", "receiver", "settopbox", "projector",
+            "fan", "light", "candles", "ac", "heater", "blinds",
+        ];
+        const seen = new Set(curated);
+        for (const wig of this._wigs) {
+            if (wig.kind && !seen.has(wig.kind)) {
+                seen.add(wig.kind);
+                curated.push(wig.kind);
+            }
+        }
+        return curated;
     }
 
     private _originSentence(origin: string | null): string {
@@ -510,7 +558,12 @@ export class IrWigs extends LitElement {
                 name: this._editName.trim() || this._editing.name,
                 brand: this._editBrand.trim(),
                 model: this._editModel.trim(),
+                kind: this._editKind.trim(),
                 notes: this._editNotes.trim(),
+                fcc_id: this._editFccId.trim(),
+                upc: this._editUpc.trim(),
+                asin: this._editAsin.trim(),
+                oem: this._editOem.trim(),
             });
             if (!result.success) {
                 this._editError = (result.errors ?? []).join("; ");
@@ -565,7 +618,13 @@ export class IrWigs extends LitElement {
 
     // --- Render ---
 
-    private _counts(): { all: number; library: number; yours: number } {
+    private _counts(): {
+        all: number;
+        library: number;
+        yours: number;
+        fitted: number;
+        unfitted: number;
+    } {
         const library = this._library.reduce(
             (n, b) =>
                 n +
@@ -574,7 +633,15 @@ export class IrWigs extends LitElement {
             0,
         );
         const yours = this._wigs.length;
-        return { all: library + yours, library, yours };
+        const fitted = this._wigs.filter((w) => w.fitting?.state).length;
+        return {
+            all: library + yours,
+            library,
+            yours,
+            fitted,
+            // Unfitted counts only fittable rows (local wig files).
+            unfitted: yours - fitted,
+        };
     }
 
     render() {
@@ -662,6 +729,21 @@ export class IrWigs extends LitElement {
                     <span class="chip-dot mine"></span>
                     ${t("wigs.chip.yours", { count: String(counts.yours) })}
                 </button>
+                <button
+                    class="fchip ${this._filter === "fitted" ? "on" : ""}"
+                    @click=${() => (this._filter = "fitted")}
+                >
+                    <span class="chip-tick">&check;</span>
+                    ${t("wigs.chip.fitted", { count: String(counts.fitted) })}
+                </button>
+                <button
+                    class="fchip ${this._filter === "unfitted" ? "on" : ""}"
+                    @click=${() => (this._filter = "unfitted")}
+                >
+                    ${t("wigs.chip.unfitted", {
+                        count: String(counts.unfitted),
+                    })}
+                </button>
                 ${this._libraryVersion
                     ? html`<span class="lib-ver"
                           >${t("wigs.library_version", {
@@ -686,7 +768,38 @@ export class IrWigs extends LitElement {
             )}
             ${this._renderPeek()}
             ${this._renderEditor()}
+            ${this._fittingWig
+                ? html`<ir-fitting-dialog
+                      .api=${this.api}
+                      .hass=${this.hass}
+                      .wig=${this._fittingWig}
+                      @closed=${() => (this._fittingWig = null)}
+                      @recorded=${this._onFittingRecorded}
+                  ></ir-fitting-dialog>`
+                : ""}
         `;
+    }
+
+    private async _onFittingRecorded(e: CustomEvent): Promise<void> {
+        const result = e.detail as {
+            state: "perfect" | "partial";
+            confirmed: number;
+            total: number;
+        } | null;
+        if (result) {
+            this._flash(
+                result.state === "perfect"
+                    ? t("fitting.recorded_perfect")
+                    : t("fitting.recorded_partial", {
+                          confirmed: String(result.confirmed),
+                          total: String(result.total),
+                      }),
+                "ok",
+            );
+        }
+        // Refresh so the row's check mark and the filter counts pick
+        // up the new fitting state.
+        await this._refresh();
     }
 
     private _renderBrand(brand: BrandRow) {
@@ -758,6 +871,23 @@ export class IrWigs extends LitElement {
                 >
                     ${tp("wigs.signals", row.signalCount)}
                 </button>
+                ${row.wig?.fitting?.state
+                    ? html`<span
+                          class="fit-tick ${row.wig.fitting.state} ${row
+                              .wig.fitting.user_state === "perfect"
+                              ? "yours"
+                              : ""}"
+                          title=${row.wig.fitting.state === "perfect"
+                              ? t("wigs.fit_tick.perfect")
+                              : t("wigs.fit_tick.partial", {
+                                    confirmed: String(
+                                        row.wig.fitting.confirmed,
+                                    ),
+                                    total: String(row.wig.fitting.total),
+                                })}
+                          >&check;</span
+                      >`
+                    : ""}
                 <span class="row-actions">
                     <span class="glyph-slot">
                         ${row.wig
@@ -785,6 +915,15 @@ export class IrWigs extends LitElement {
                               </button>`
                             : ""}
                     </span>
+                    ${row.wig
+                        ? html`<button
+                              class="action-btn fit-btn"
+                              @click=${() =>
+                                  (this._fittingWig = row.wig!)}
+                          >
+                              ${t("wigs.fit_it")}
+                          </button>`
+                        : ""}
                     <button
                         class="action-btn clip-btn"
                         ?disabled=${this._busyId === row.id}
@@ -892,6 +1031,74 @@ export class IrWigs extends LitElement {
                             ).value)}
                     />
                 </div>
+                <div class="field">
+                    <label>${t("wigs.editor.kind")}</label>
+                    <input
+                        type="text"
+                        list="wig-kind-suggestions"
+                        placeholder=${t("wigs.editor.kind_placeholder")}
+                        .value=${this._editKind}
+                        @input=${(e: Event) =>
+                            (this._editKind = (
+                                e.target as HTMLInputElement
+                            ).value)}
+                    />
+                    <datalist id="wig-kind-suggestions">
+                        ${this._kindSuggestions().map(
+                            (k) => html`<option value=${k}></option>`,
+                        )}
+                    </datalist>
+                    <div class="ident-hint">
+                        ${t("wigs.editor.kind_hint")}
+                    </div>
+                </div>
+                <div class="ident-grid">
+                    <div class="field">
+                        <label>${t("wigs.editor.fcc_id")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editFccId}
+                            @input=${(e: Event) =>
+                                (this._editFccId = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.upc")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editUpc}
+                            @input=${(e: Event) =>
+                                (this._editUpc = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.asin")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editAsin}
+                            @input=${(e: Event) =>
+                                (this._editAsin = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                    <div class="field">
+                        <label>${t("wigs.editor.oem")}</label>
+                        <input
+                            type="text"
+                            .value=${this._editOem}
+                            @input=${(e: Event) =>
+                                (this._editOem = (
+                                    e.target as HTMLInputElement
+                                ).value)}
+                        />
+                    </div>
+                </div>
+                <div class="ident-hint">${t("wigs.editor.ids_hint")}</div>
                 <div class="field">
                     <label>${t("wigs.editor.notes")}</label>
                     <textarea
@@ -1325,6 +1532,52 @@ export class IrWigs extends LitElement {
         .copy-glyph:hover {
             color: var(--wigs-accent);
         }
+        /* FIT is the fitting green (owner ruling 2026-07-26), left of
+           Clip It, same shared chip anatomy. Border alpha matches the
+           row-chip family (clip 0.35, delete 0.25 -- owner bench note
+           2026-07-27: the stroke reads quieter than the text). Only
+           local wig files get it -- library codebooks cannot carry
+           fittings. */
+        .action-btn.fit-btn {
+            color: #4caf50;
+            border-color: rgba(76, 175, 80, 0.3);
+            margin-right: 8px;
+        }
+        .action-btn.fit-btn:hover:not(:disabled) {
+            background: rgba(76, 175, 80, 0.08);
+        }
+        /* The row's fitting check (owner ruling 2026-07-26): green
+           check = fitted, yellow check = partial, nothing = unfitted.
+           Coverage detail lives in the tooltip. */
+        .fit-tick {
+            font-size: 13px;
+            font-weight: 700;
+            flex: none;
+            cursor: default;
+        }
+        .fit-tick.perfect {
+            color: #66bb6a;
+        }
+        /* YOUR perfect fit glows, statically -- the one state you
+           earned yourself (owner ruling 2026-07-27). Someone else's
+           perfect fit is the same green, flat; partials stay flat
+           amber. */
+        .fit-tick.perfect.yours {
+            text-shadow:
+                0 0 6px rgba(102, 187, 106, 0.9),
+                0 0 12px rgba(102, 187, 106, 0.45);
+        }
+        .fit-tick.partial {
+            color: #ffb300;
+        }
+        .chip-tick {
+            font-size: 11px;
+            font-weight: 700;
+            color: #66bb6a;
+        }
+        .fchip.on .chip-tick {
+            color: #fff;
+        }
         /* CLIP is the shared action-chip anatomy (same radius, padding,
            and uppercase as every other button) in the Clipper's copper,
            because it does the same kind of thing as Add Remote. Delete
@@ -1355,6 +1608,17 @@ export class IrWigs extends LitElement {
             color: var(--warning-color, #e65100);
         }
         /* Editor dialog */
+        .ident-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 10px;
+        }
+        .ident-hint {
+            font-size: 11px;
+            color: var(--secondary-text-color);
+            margin: -5px 0 11px;
+            line-height: 1.4;
+        }
         .origin-line {
             display: flex;
             gap: 8px;

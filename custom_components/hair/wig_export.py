@@ -23,6 +23,16 @@ from .ir_command import raw_to_pronto
 from .models import IRDevice, UnknownDevice
 from .wig_format import Wig, WigSignal
 
+# Device-type to wig kind, unambiguous mappings only. media_player
+# stays out (tv / soundbar / receiver / settopbox all live there) and
+# switch / other say nothing about what the hardware is.
+_KIND_BY_DEVICE_TYPE = {
+    "ac": "ac",
+    "fan": "fan",
+    "light": "light",
+    "screen": "screen",
+}
+
 _ORIGIN_BY_SOURCE = {
     "sniffed": "captured",
     "manual": "clipped",
@@ -115,6 +125,15 @@ def build_wig_from_device(device: IRDevice) -> WigBuild:
             or "Exported Device",
             signals=signals,
             origin="device",
+            # Kind auto-stamp (v0.8.0): the HAIR device already knows
+            # what it is for the UNAMBIGUOUS types. media_player is
+            # deliberately absent (tv? soundbar? receiver?) -- the
+            # signing prompt asks the human in that case. Any explicit
+            # kind from the export dialog overrides this in the WS
+            # handler.
+            kind=_KIND_BY_DEVICE_TYPE.get(
+                getattr(device.device_type, "value", device.device_type)
+            ),
         ),
         skipped,
     )

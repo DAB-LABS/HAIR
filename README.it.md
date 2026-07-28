@@ -22,6 +22,7 @@ Punta un telecomando qualsiasi verso un ricevitore IR, premi un tasto, e HAIR tr
 - **Trasforma i tasti del telecomando in trigger.** Qualsiasi tasto di qualsiasi telecomando fisico può far partire le tue automazioni. Premi il tasto rosso del vecchio telecomando della TV per avviare la scena serata cinema. I trigger sanno quale stanza ha sentito la pressione, quindi lo stesso telecomando può fare cose diverse in stanze diverse. Nessun'altra integrazione lo fa.
 - **Guarda il Mirror.** Un audit dal vivo di tutto ciò che la tua casa trasmette: quale comando è uscito, da quale trasmettitore, e quale ricevitore lo ha sentito di ritorno. Se qualcosa a infrarossi si comporta male alle 2 di notte, il Mirror l'ha visto.
 - **Prova e rifinisci tutto.** Spara qualsiasi segnale da qualsiasi trasmettitore per verificarlo prima di fidarti, dai soprannomi ai segnali, modifica un codice Pronto sul posto, e lascia che HAIR decodifichi i protocolli riconosciuti (NEC, Sony, RC-5, Samsung e altri) per una trasmissione più pulita.
+- **Provala.** Dimostra una parrucca su hardware reale: invia ogni segnale, segna cosa ha funzionato, e la prova firmata viaggia dentro il file della parrucca quando la condividi. Le parrucche con prova completa portano una spunta verde nell'armadio.
 
 Il pannello parla la tua lingua. Inglese, spagnolo, francese, giapponese, tedesco, polacco, portoghese, olandese, italiano e russo, seguendo automaticamente la lingua del tuo profilo Home Assistant.
 
@@ -43,4 +44,4 @@ Il README completo, con YAML di configurazione, hardware supportato, guide alle 
 
 ---
 
-*Tradotto dal README inglese, versione v0.7.2. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Tradotto dal README inglese, versione v0.8.0. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*
