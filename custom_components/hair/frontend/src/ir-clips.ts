@@ -1540,8 +1540,6 @@ export class IrClips extends LitElement {
         .save-wig-btn {
             color: #8e3b3b;
             border-color: rgba(142, 59, 59, 0.3);
-            margin-right: auto;
-            margin-left: 8px;
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
