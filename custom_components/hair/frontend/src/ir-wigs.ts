@@ -91,7 +91,9 @@ const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.
 const DROP_FORMAT_LINKS: Record<string, { label: string; url: string }> = {
     wig: {
         label: "Wig",
-        url: "https://github.com/DAB-LABS/HAIR/blob/main/docs/wig-format.md",
+        // Points at the community wig-sharing repo now that it exists,
+        // replacing the docs/wig-format.md link (owner ruling 2026-07-29).
+        url: "https://github.com/DAB-LABS/WigShop",
     },
     smartir: {
         label: "SmartIR",
