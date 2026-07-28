@@ -10,6 +10,7 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 - **HAIR Sniffer** - Real-time IR signal monitor with fingerprinting, deduplication, and hit tracking. Find a mystery remote in seconds.
 - **HAIR Clipper** - Build virtual remotes by pasting Pronto hex codes, with live validation. For commands you have a code for but cannot sniff. The Create Remote dialog can also pick a known manufacturer and model from the device codes in your installed Home Assistant infrared library and pre-fill the buttons for you.
 - **HAIR Plucker** - Pull IR codes already learned into a vendor blaster into HAIR as native signals, without re-learning each one at a receiver. Works with integrations that can replay a stored code by name through a chosen emitter; [Tuya Local](https://github.com/make-all/tuya-local) is the first. No IR is broadcast during a pluck.
+- **HAIR Closet and Perfect Fit** - Portable code sets called wigs: one JSON file per remote, convertible on drop from SmartIR, Flipper Zero, LIRC, and Girr files. New in 0.8.0, wigs can be fitted: prove the codes on real hardware signal by signal, and the signed proof travels inside the file when you share it. Fitted wigs wear a green check in the closet.
 - **HAIR Mirror** - A live audit of every IR command your house transmits, heard back or not: which command, through which blaster, and which room heard it. Any send a receiver hears is one Assign away from living in HAIR, and triggers never fire on the house's own sends.
 - **Protocol-decoded transmit** - When HAIR can read a captured signal as NEC, it sends clean re-encoded timings instead of replaying the captured ones, which fixes replay failures against destinations that expect undistorted timing. A per-command toggle keeps the captured timings when you want them.
 - **Pronto editor** - View or edit a signal's or command's raw Pronto in one editor, with live validation, protocol recognition, and a one-click snap of an off-standard carrier to the nearest IR standard.
@@ -22,7 +23,7 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 - **Action Mapping** - Bind captured IR commands to HA entity features via dropdown selection.
 - **Auto Entities** - Devices get native HA entities (`media_player`, `climate`, `fan`, `light`, `switch`, `cover`, `remote`, `button`).
 - **Command Templates** - Device-type-aware guided setup with predefined command names.
-- **Ten languages** - The panel and setup wizard ship in English, Spanish, French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian, following your HA profile language automatically. Non-English translations are programming-assistant drafts; native-speaker reviewers are very welcome.
+- **Ten languages** - The panel and setup wizard ship in English, Spanish, French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian, following your HA profile language automatically. Spanish has a native-speaker review; the other non-English translations are programming-assistant drafts, and native-speaker reviewers are very welcome.
 - **UX polish** - Drag-to-reorder device cards, remotes, signals, and commands, NATIVE / BRIDGE badges to see migration state at a glance, Sniffer Test with an emitter picker, and a mobile-friendly nav button for phone users.
 
 ## Requirements

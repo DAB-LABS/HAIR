@@ -22,6 +22,7 @@ Pointez n'importe quelle télécommande vers un récepteur IR, appuyez sur un bo
 - **Transformez les boutons de télécommande en déclencheurs.** N'importe quel bouton de n'importe quelle télécommande physique peut lancer vos automatisations. Appuyez sur le bouton rouge de la vieille télécommande TV pour lancer votre scène soirée cinéma. Les déclencheurs savent quelle pièce a entendu l'appui, donc la même télécommande peut faire des choses différentes selon la pièce. Aucune autre intégration ne fait ça.
 - **Regardez le Mirror.** Un audit en direct de tout ce que votre maison transmet : quelle commande est partie, par quel blaster, et quel récepteur l'a entendue en retour. Si quelque chose d'infrarouge se comporte mal à 2h du matin, le Mirror l'a vu.
 - **Testez et peaufinez tout.** Envoyez n'importe quel signal par n'importe quel blaster pour le vérifier avant de lui faire confiance, donnez des surnoms aux signaux, modifiez un code Pronto sur place, et laissez HAIR décoder les protocoles reconnus (NEC, Sony, RC-5, Samsung et d'autres) pour une transmission plus propre.
+- **Essayez-la.** Prouvez une perruque sur du vrai matériel : envoyez chaque signal, notez ce qui a marché, et la preuve signée voyage dans le fichier de la perruque quand vous la partagez. Les perruques entièrement essayées portent une coche verte dans le placard.
 
 Le panneau parle votre langue. Anglais, espagnol, français, japonais, allemand, polonais, portugais, néerlandais, italien et russe, en suivant automatiquement la langue de votre profil Home Assistant.
 
@@ -43,4 +44,4 @@ Le README complet, avec le YAML d'installation, le matériel pris en charge, les
 
 ---
 
-*Traduit du README anglais, version v0.7.2. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traduit du README anglais, version v0.8.0. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*

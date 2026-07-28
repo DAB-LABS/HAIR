@@ -22,6 +22,7 @@ Richte irgendeine Fernbedienung auf einen IR-Empfänger, drücke eine Taste, und
 - **Mach Fernbedienungstasten zu Auslösern.** Jede Taste jeder physischen Fernbedienung kann deine Automationen starten. Drücke die rote Taste der alten TV-Fernbedienung, um deine Kinoabend-Szene zu starten. Auslöser wissen, welcher Raum den Tastendruck gehört hat, dieselbe Fernbedienung kann also in verschiedenen Räumen Verschiedenes tun. Keine andere Integration kann das.
 - **Schau in den Mirror.** Ein Live-Protokoll von allem, was dein Haus sendet: welcher Befehl rausging, über welchen Blaster, und welcher Empfänger ihn zurückgehört hat. Wenn sich um 2 Uhr nachts irgendetwas Infrarotes danebenbenimmt, hat der Mirror es gesehen.
 - **Teste und poliere alles.** Sende jedes Signal über jeden Blaster, um es zu prüfen, bevor du ihm vertraust, gib Signalen Spitznamen, bearbeite einen Pronto-Code direkt, und lass HAIR erkannte Protokolle dekodieren (NEC, Sony, RC-5, Samsung und mehr) für eine sauberere Übertragung.
+- **Probier sie an.** Beweise eine Perücke an echter Hardware: Sende jedes Signal, markiere, was funktioniert hat, und der signierte Nachweis reist beim Teilen in der Perückendatei mit. Perücken mit vollständiger Anprobe tragen im Schrank ein grünes Häkchen.
 
 Das Panel spricht deine Sprache. Englisch, Spanisch, Französisch, Japanisch, Deutsch, Polnisch, Portugiesisch, Niederländisch, Italienisch und Russisch, automatisch nach der Sprache deines Home-Assistant-Profils.
 
@@ -43,4 +44,4 @@ Das komplette README, mit Setup-YAML, unterstützter Hardware, Funktionsanleitun
 
 ---
 
-*Übersetzt aus dem englischen README, Stand v0.7.2. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Übersetzt aus dem englischen README, Stand v0.8.0. Diese Datei wurde von einem Programmier-Assistenten entworfen und wird mit jeder Version aufgefrischt. Muttersprachler sind herzlich eingeladen, sie zu übernehmen; siehe [Adding a language](CONTRIBUTING.md#adding-a-language).*

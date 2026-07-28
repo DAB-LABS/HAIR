@@ -5,6 +5,24 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-28 -- Perfect Fit
+
+### Added
+
+- **Fittings.** A wig can now be proven on real hardware, and the proof travels with the file. FIT on any closet wig opens a fitting session: pick an emitter, send each signal, mark WORKED or DID NOT. Marks persist into the wig file as you make them, so a fitting survives closing the dialog, restarts, and updates; pressing FIT again resumes with untested signals first. When every signal works the session turns green and FINISH records the fitting under your name, with an optional GitHub handle. Complete fittings ride inside the wig on download and share; partial or in-progress fittings stay local, so a shared wig never carries half a claim. The closet shows a green check on fitted wigs, yellow while partial (your own perfect fit gets a small glow), with fitted and not-fitted filter chips, and each wig keeps a ledger of every fitting, opened from the status chips in the session.
+- **Fitting signatures.** Recorded fittings are signed with an ed25519 key generated on the install (the `cryptography` package Home Assistant already ships). A signature proves a fitting was not altered or forged after recording; the ledger shows signed, unsigned, and signature-mismatch states distinctly. Unsigned fittings remain valid as self-reported records. No Home Assistant identifier, raw or hashed, is ever written into a wig.
+- **Wig kind.** An optional `kind` field says what the device is ("candles", "soundbar", "tv"). Asked once at the signing screen when a wig has none, editable in the wig editor, auto-stamped when exporting fan, AC, light, and screen devices. Suggestions plus free entry; values squash to one lowercase word.
+- **Product identifiers.** Wigs can carry FCC ID, UPC, ASIN, and verified-OEM anchors (single values or lists, for rebadged device families sold under several listings), editable in the wig editor and Add to Closet. Off-brand hardware stays findable when its brand and model mean little. Documented in [the wig format](docs/wig-format.md).
+- A Fitting Send provenance chip in the Mirror, so a long fitting session never reads as mystery traffic.
+
+### Fixed
+
+- **One unavailable emitter no longer fails a multi-emitter send** (GH #65, thanks @rvgfox). Sends now succeed when at least one emitter fires, skip emitters Home Assistant already knows are down, log exactly which emitter failed and why, and only error when every emitter is unreachable, with a plain message instead of a raw driver string. RC-5 toggle and Dyson counter state now advance when at least one send lands, so a late emitter failure cannot desync a device that already received the frame.
+
+### Changed
+
+- The Spanish panel translation was reviewed by a native speaker (thanks @Waterbrain, GH #67), and the German README summary by @EckeFL (GH #64).
+
 ## [0.7.2] - 2026-07-24 -- HACS Haircut
 
 ### Changed

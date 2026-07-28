@@ -22,6 +22,7 @@ Skieruj dowolnego pilota na odbiornik IR, naciśnij przycisk, a HAIR zamieni ten
 - **Zamień przyciski pilota w wyzwalacze.** Dowolny przycisk dowolnego fizycznego pilota może uruchamiać Twoje automatyzacje. Naciśnij czerwony przycisk starego pilota od telewizora, aby uruchomić scenę wieczoru filmowego. Wyzwalacze wiedzą, który pokój usłyszał naciśnięcie, więc ten sam pilot może robić różne rzeczy w różnych pokojach. Żadna inna integracja tego nie potrafi.
 - **Obserwuj Mirror.** Audyt na żywo wszystkiego, co nadaje Twój dom: jakie polecenie wyszło, przez który nadajnik i który odbiornik je usłyszał. Jeśli coś podczerwonego zachowa się źle o 2 w nocy, Mirror to widział.
 - **Testuj i szlifuj wszystko.** Wystrzel dowolny sygnał przez dowolny nadajnik, aby go sprawdzić, zanim mu zaufasz, nadawaj sygnałom przydomki, edytuj kod Pronto na miejscu, a rozpoznane protokoły (NEC, Sony, RC-5, Samsung i inne) HAIR zdekoduje dla czystszej transmisji.
+- **Przymierz ją.** Udowodnij perukę na prawdziwym sprzęcie: wyślij każdy sygnał, oznacz co zadziałało, a podpisany dowód podróżuje w pliku peruki, gdy ją udostępniasz. W pełni przymierzone peruki noszą w szafie zielony znacznik.
 
 Panel mówi w Twoim języku. Angielski, hiszpański, francuski, japoński, niemiecki, polski, portugalski, niderlandzki, włoski i rosyjski, automatycznie według języka Twojego profilu Home Assistant.
 
@@ -43,4 +44,4 @@ Kompletny README, z YAML-em konfiguracji, obsługiwanym sprzętem, przewodnikami
 
 ---
 
-*Przetłumaczone z angielskiego README, stan na v0.7.2. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Przetłumaczone z angielskiego README, stan na v0.8.0. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*
