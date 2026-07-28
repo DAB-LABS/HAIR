@@ -474,7 +474,7 @@
     "wigs.peek.swings": "Balayage : {list}",
     "wigs.peek.temp": "Température : de {min}° à {max}° {unit}",
     "wigs.clip_it": "Clipper",
-    "wigs.clip_matrix_confirm": "Cela créera {count} signaux sur le Clipper. Êtes-vous sûr ?",
+    "wigs.clip_matrix_confirm": "Cela créera jusqu'à {count} signaux sur le Clipper. Êtes-vous sûr ?",
     "wigs.clip_matrix_slow": "Les grands jeux peuvent être lents à parcourir.",
     "wigs.tried_on": "Maintenant sur le Clipper sous le nom {name}",
     "wigs.try_on_failed": "Impossible d'essayer cette perruque : {message}",

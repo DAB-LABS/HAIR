@@ -436,11 +436,17 @@ export class IrWigs extends LitElement {
         }
     }
 
-    /** What the open clip will mint: every cell, the off/on power
-     * codes, and the wig's flat extras (its plain signals). */
+    /** What the open clip will mint at most: every cell, Off, On when
+     * the matrix has one, and the wig's flat extras (its plain
+     * signals). */
     private _clipCount(row: ClosetRow): number {
-        const cells = row.wig?.matrix?.cells ?? 0;
-        return cells + 2 + row.signalCount;
+        const matrix = row.wig?.matrix;
+        if (!matrix) return row.signalCount;
+        // An upper bound, not an exact count: byte-identical duplicate
+        // cells collapse on the Clipper (one-code-per-remote rule), so
+        // the true number is unknowable upfront. The confirm text says
+        // "up to" for the same reason.
+        return matrix.cells + 1 + (matrix.has_on ? 1 : 0) + row.signalCount;
     }
 
     /** CLIP click: matrix rows confirm the row count first; signal

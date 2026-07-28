@@ -474,7 +474,7 @@
     "wigs.peek.swings": "Oscilación: {list}",
     "wigs.peek.temp": "Temperatura: de {min}° a {max}° {unit}",
     "wigs.clip_it": "Añadir a Clipper",
-    "wigs.clip_matrix_confirm": "Esto creará {count} señales en el Clipper. ¿Estás seguro?",
+    "wigs.clip_matrix_confirm": "Esto creará hasta {count} señales en el Clipper. ¿Estás seguro?",
     "wigs.clip_matrix_slow": "Los juegos grandes pueden tardar en explorarse.",
     "wigs.tried_on": "Añadido a Clipper como {name}",
     "wigs.try_on_failed": "No se pudo probar esta peluca: {message}",

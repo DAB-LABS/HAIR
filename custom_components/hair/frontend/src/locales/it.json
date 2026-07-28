@@ -474,7 +474,7 @@
     "wigs.peek.swings": "Oscillazione: {list}",
     "wigs.peek.temp": "Temperatura: da {min}° a {max}° {unit}",
     "wigs.clip_it": "Ritaglia",
-    "wigs.clip_matrix_confirm": "Verranno creati {count} segnali nel Clipper. Sei sicuro?",
+    "wigs.clip_matrix_confirm": "Verranno creati fino a {count} segnali nel Clipper. Sei sicuro?",
     "wigs.clip_matrix_slow": "I set grandi possono essere lenti da sfogliare.",
     "wigs.tried_on": "Ora nel Clipper come {name}",
     "wigs.try_on_failed": "Impossibile provare questa parrucca: {message}",

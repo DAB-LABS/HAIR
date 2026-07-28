@@ -492,7 +492,7 @@
     "wigs.peek.swings": "Жалюзи: {list}",
     "wigs.peek.temp": "Температура: от {min}° до {max}° {unit}",
     "wigs.clip_it": "В Clipper",
-    "wigs.clip_matrix_confirm": "Это создаст {count} сигналов в Clipper. Вы уверены?",
+    "wigs.clip_matrix_confirm": "Это создаст до {count} сигналов в Clipper. Вы уверены?",
     "wigs.clip_matrix_slow": "Большие наборы могут листаться медленно.",
     "wigs.tried_on": "Теперь в Clipper под именем {name}",
     "wigs.try_on_failed": "Не удалось примерить этот парик: {message}",

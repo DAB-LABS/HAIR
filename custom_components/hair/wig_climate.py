@@ -385,6 +385,10 @@ def matrix_summary(matrix: ClimateMatrix) -> dict:
 
     return {
         "cells": len(matrix.cells),
+        # Whether the matrix carries a discrete On power code; many
+        # files only have Off. The frontend needs this to bound the
+        # clip-confirm count honestly (bench bug 2026-07-29).
+        "has_on": matrix.on is not None,
         "modes": _ordered(matrix.modes, modes_seen),
         "fan_modes": _ordered(matrix.fan_modes, fans_seen),
         "swing_modes": _ordered(matrix.swing_modes, swings_seen),

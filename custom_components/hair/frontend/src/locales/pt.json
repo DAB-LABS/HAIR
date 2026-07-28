@@ -474,7 +474,7 @@
     "wigs.peek.swings": "Balanço: {list}",
     "wigs.peek.temp": "Temperatura: de {min}° a {max}° {unit}",
     "wigs.clip_it": "Recortar",
-    "wigs.clip_matrix_confirm": "Isso vai criar {count} sinais no Clipper. Tem certeza?",
+    "wigs.clip_matrix_confirm": "Isso vai criar até {count} sinais no Clipper. Tem certeza?",
     "wigs.clip_matrix_slow": "Conjuntos grandes podem ficar lentos de navegar.",
     "wigs.tried_on": "Agora no Clipper como {name}",
     "wigs.try_on_failed": "Não foi possível experimentar esta peruca: {message}",

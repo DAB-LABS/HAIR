@@ -219,6 +219,14 @@ class TestMatrixSummary:
         assert summary["min_temp"] == 16.0
         assert summary["max_temp"] == 30.0
         assert summary["unit"] == "C"
+        # The fixture declares an "on" code; the frontend bounds the
+        # clip-confirm count with this flag (bench bug 2026-07-29).
+        assert summary["has_on"] is True
+
+    def test_has_on_false_without_on_code(self):
+        matrix = self._matrix()
+        matrix.on = None
+        assert matrix_summary(matrix)["has_on"] is False
 
     def test_describes_observed_not_declared(self):
         # "ion" is declared but its subtree skipped at import

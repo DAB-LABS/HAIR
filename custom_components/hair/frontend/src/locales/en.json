@@ -474,7 +474,7 @@
     "wigs.peek.swings": "Swing: {list}",
     "wigs.peek.temp": "Temperature: {min}° to {max}° {unit}",
     "wigs.clip_it": "Clip",
-    "wigs.clip_matrix_confirm": "This will create {count} signals on the Clipper. Are you sure?",
+    "wigs.clip_matrix_confirm": "This will create up to {count} signals on the Clipper. Are you sure?",
     "wigs.clip_matrix_slow": "Large sets can be slow to browse.",
     "wigs.tried_on": "Now on the Clipper as {name}",
     "wigs.try_on_failed": "Could not try on this wig: {message}",

@@ -101,6 +101,9 @@ export interface CodeBrand {
 // temp bounds without ever loading cells.
 export interface MatrixSummary {
     cells: number;
+    // Whether the matrix carries a discrete On power code (many files
+    // only have Off). Bounds the clip-confirm count.
+    has_on: boolean;
     modes: string[];
     fan_modes: string[];
     swing_modes: string[];
