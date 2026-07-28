@@ -1,0 +1,268 @@
+"""Climate matrix helpers: the dimension checklist and cell resolution.
+
+Cold Cuts (v0.8.8). Two consumers share this module:
+
+- The fitting flow derives the DIMENSION CHECK here: a deterministic
+  checklist standing in for the full lattice (owner rulings 2026-07-28,
+  mockup CC1). Nobody fits 2,689 cells; everybody can fit every mode,
+  every fan speed, every swing position, both ends of the temperature
+  range, and off/on -- 12 to 20 sends regardless of matrix size. The
+  derivation is a pure function of the climate block (file order plus
+  sorted temps, no randomness), so every install of the same file
+  produces the identical list and fittings accumulate in one ledger.
+
+- The climate entity resolves target states to cells here: nearest-temp
+  snap inside the chosen branch, first-of-branch fallbacks for a fan or
+  swing the file does not carry, and honest None when a mode subtree
+  simply has no such state (matrices are SPARSE -- census found 158
+  explicit nulls; absent combinations never became cells at import).
+
+Vocabulary is verbatim throughout (addendum section 3): mode / fan /
+swing strings are lookup keys AND entity attributes, so nothing here
+case-normalizes or unifies spellings. The one mapping that exists is
+MODE_ALIAS, which translates a file's mode key to the HA HVAC mode
+vocabulary without touching the stored cell.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .wig_format import ClimateCell, ClimateMatrix, cell_key
+
+# File-mode -> HA HVACMode value. Direct names map to themselves; the
+# two aliases are corpus fact (census: "fan" in 24 files, "cold" in 1).
+# Anything else was skipped with a receipt at import, so a parsed
+# matrix should only carry mappable modes -- but consumers still treat
+# an unmappable mode defensively (skip, never raise).
+MODE_ALIAS: dict[str, str] = {
+    "cool": "cool",
+    "heat": "heat",
+    "dry": "dry",
+    "fan_only": "fan_only",
+    "heat_cool": "heat_cool",
+    "auto": "auto",
+    "fan": "fan_only",
+    "cold": "cool",
+}
+
+
+def ha_mode_for(mode: str) -> str | None:
+    """The HA HVAC mode string for a file mode key, or None."""
+    return MODE_ALIAS.get(mode)
+
+
+# Checklist sections, in walk order (mockup CC1). OFF is last so the
+# session leaves the unit off.
+SECTION_START = "start"
+SECTION_MODES = "modes"
+SECTION_FAN = "fan"
+SECTION_SWING = "swing"
+SECTION_TEMP = "temp"
+SECTION_WRAP = "wrap"
+
+
+@dataclass
+class ChecklistRow:
+    """One dimension-check row: a sendable state plus display facts.
+
+    ``key`` is the fitting record key (``cell_key`` for matrix cells,
+    literal "on" / "off" for the power codes). ``context`` carries the
+    section's held-constant coordinates for the frontend's "in Cool
+    23, fan auto" label; row-specific coordinates live in mode / fan /
+    swing / temp.
+    """
+
+    key: str
+    section: str
+    pronto: str
+    send_count: int = 1
+    mode: str | None = None
+    fan: str | None = None
+    swing: str | None = None
+    temp: float | None = None
+    # True when this row's mode subtree has no temperature dimension
+    # (depth-1 branches; the dialog says so inline).
+    temp_less: bool = False
+    # "min" / "max" on the temperature-range rows.
+    temp_role: str | None = None
+
+
+class _Branches:
+    """Cells indexed mode -> fan -> swing -> sorted temps."""
+
+    def __init__(self, matrix: ClimateMatrix) -> None:
+        self.matrix = matrix
+        self.by_mode: dict[str, list[ClimateCell]] = {}
+        self.index: dict[
+            tuple[str, str | None, str | None], dict[float | None, ClimateCell]
+        ] = {}
+        for cell in matrix.cells:
+            self.by_mode.setdefault(cell.mode, []).append(cell)
+            self.index.setdefault(
+                (cell.mode, cell.fan, cell.swing), {}
+            )[cell.temp] = cell
+
+    def modes(self) -> list[str]:
+        """Declared order first (advisory), then undeclared observed."""
+        ordered = [m for m in self.matrix.modes if m in self.by_mode]
+        ordered += [m for m in self.by_mode if m not in ordered]
+        return ordered
+
+    def fans(self, mode: str) -> list[str]:
+        observed: list[str] = []
+        for cell in self.by_mode.get(mode, []):
+            if cell.fan is not None and cell.fan not in observed:
+                observed.append(cell.fan)
+        ordered = [f for f in self.matrix.fan_modes if f in observed]
+        ordered += [f for f in observed if f not in ordered]
+        return ordered
+
+    def swings(self, mode: str, fan: str | None) -> list[str]:
+        observed: list[str] = []
+        for cell in self.by_mode.get(mode, []):
+            if cell.fan == fan and cell.swing is not None \
+                    and cell.swing not in observed:
+                observed.append(cell.swing)
+        ordered = [s for s in self.matrix.swing_modes if s in observed]
+        ordered += [s for s in observed if s not in ordered]
+        return ordered
+
+    def temps(
+        self, mode: str, fan: str | None, swing: str | None
+    ) -> list[float]:
+        branch = self.index.get((mode, fan, swing), {})
+        return sorted(t for t in branch if t is not None)
+
+    def cell(
+        self, mode: str, fan: str | None, swing: str | None,
+        temp: float | None,
+    ) -> ClimateCell | None:
+        return self.index.get((mode, fan, swing), {}).get(temp)
+
+    def richest_mode(self) -> str | None:
+        modes = self.modes()
+        if not modes:
+            return None
+        return max(modes, key=lambda m: (len(self.by_mode[m]),
+                                         -modes.index(m)))
+
+    def representative(self, mode: str) -> ClimateCell | None:
+        """The mode's one checklist cell: first fan, first swing, median
+        temp -- or the branch's bare cell when a dimension is absent."""
+        fans = self.fans(mode)
+        fan = fans[0] if fans else None
+        swings = self.swings(mode, fan)
+        swing = swings[0] if swings else None
+        temps = self.temps(mode, fan, swing)
+        if temps:
+            return self.cell(mode, fan, swing, temps[len(temps) // 2])
+        return self.cell(mode, fan, swing, None)
+
+
+def dimension_checklist(matrix: ClimateMatrix) -> list[ChecklistRow]:
+    """The dimension check: deterministic, dedup'd, off last."""
+    branches = _Branches(matrix)
+    rows: list[ChecklistRow] = []
+    seen: set[str] = set()
+
+    def _add(section: str, cell: ClimateCell | None, **extra) -> None:
+        if cell is None:
+            return
+        key = cell_key(cell)
+        if key in seen:
+            return
+        seen.add(key)
+        temps_here = branches.temps(cell.mode, cell.fan, cell.swing)
+        rows.append(ChecklistRow(
+            key=key, section=section, pronto=cell.pronto,
+            send_count=cell.send_count, mode=cell.mode, fan=cell.fan,
+            swing=cell.swing, temp=cell.temp,
+            temp_less=not temps_here, **extra,
+        ))
+
+    if matrix.on is not None:
+        rows.append(ChecklistRow(
+            key="on", section=SECTION_START, pronto=matrix.on,
+        ))
+        seen.add("on")
+
+    for mode in branches.modes():
+        _add(SECTION_MODES, branches.representative(mode))
+
+    rich = branches.richest_mode()
+    if rich is not None:
+        rich_fans = branches.fans(rich)
+        for fan in rich_fans:
+            swings = branches.swings(rich, fan)
+            swing = swings[0] if swings else None
+            temps = branches.temps(rich, fan, swing)
+            cell = (
+                branches.cell(rich, fan, swing, temps[len(temps) // 2])
+                if temps else branches.cell(rich, fan, swing, None)
+            )
+            _add(SECTION_FAN, cell)
+
+        primary_fan = rich_fans[0] if rich_fans else None
+        for swing in branches.swings(rich, primary_fan):
+            temps = branches.temps(rich, primary_fan, swing)
+            cell = (
+                branches.cell(
+                    rich, primary_fan, swing, temps[len(temps) // 2]
+                )
+                if temps else branches.cell(rich, primary_fan, swing, None)
+            )
+            _add(SECTION_SWING, cell)
+
+        prim_swings = branches.swings(rich, primary_fan)
+        primary_swing = prim_swings[0] if prim_swings else None
+        temps = branches.temps(rich, primary_fan, primary_swing)
+        if temps:
+            _add(
+                SECTION_TEMP,
+                branches.cell(rich, primary_fan, primary_swing, temps[0]),
+                temp_role="min",
+            )
+            _add(
+                SECTION_TEMP,
+                branches.cell(rich, primary_fan, primary_swing, temps[-1]),
+                temp_role="max",
+            )
+
+    rows.append(ChecklistRow(
+        key="off", section=SECTION_WRAP, pronto=matrix.off,
+    ))
+    return rows
+
+
+def resolve_cell(
+    matrix: ClimateMatrix,
+    mode: str,
+    fan: str | None = None,
+    swing: str | None = None,
+    temp: float | None = None,
+) -> ClimateCell | None:
+    """The entity's lookup: the cell nearest the requested state.
+
+    Mode must match a real subtree (the caller already alias-mapped
+    from HVACMode back to the file's verbatim key). Fan and swing fall
+    back to the branch's first value when the requested one does not
+    exist there; temp snaps to the nearest available in the final
+    branch. Returns None only when the mode subtree has no cells at
+    all -- callers log and refuse, never KeyError (sparse matrices are
+    corpus fact).
+    """
+    branches = _Branches(matrix)
+    if mode not in branches.by_mode:
+        return None
+    fans = branches.fans(mode)
+    use_fan = fan if fan in fans else (fans[0] if fans else None)
+    swings = branches.swings(mode, use_fan)
+    use_swing = swing if swing in swings else (swings[0] if swings else None)
+    temps = branches.temps(mode, use_fan, use_swing)
+    if not temps:
+        return branches.cell(mode, use_fan, use_swing, None)
+    target = (
+        temps[len(temps) // 2] if temp is None
+        else min(temps, key=lambda t: abs(t - temp))
+    )
+    return branches.cell(mode, use_fan, use_swing, target)

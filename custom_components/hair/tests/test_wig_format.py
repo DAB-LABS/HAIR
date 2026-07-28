@@ -105,7 +105,8 @@ class TestParseRejections:
         assert not result.ok
 
     def test_future_major_version_polite_refusal(self):
-        result = _parse(_wig_dict(format="hair-wig/2"))
+        # hair-wig/2 reads since Cold Cuts; 3 is the future now.
+        result = _parse(_wig_dict(format="hair-wig/3"))
         assert not result.ok
         assert len(result.errors) == 1
         assert "update HAIR" in result.errors[0]

@@ -91,14 +91,7 @@ def convert(text: str, name_hint: str = "") -> AdapterResult:
     """Route a non-wig file through its adapter."""
     fmt = sniff_format(text)
     if fmt == "smartir_climate":
-        return AdapterResult(
-            format="smartir",
-            error=(
-                "SmartIR climate files are state matrices (mode x fan x "
-                "temperature), not buttons, and are not supported yet. "
-                "SmartIR media_player and fan files import fine."
-            ),
-        )
+        return _convert_smartir_climate(text)
     if fmt == "smartir":
         return _convert_smartir(text)
     if fmt == "flipper":
@@ -271,6 +264,237 @@ def _convert_smartir(text: str) -> AdapterResult:
             if controller else "Imported from SmartIR"
         ),
         origin="converted:smartir",
+    ))
+    return result
+
+
+# --- SmartIR climate (Cold Cuts, v0.8.8) ---
+#
+# Climate files are precomputed state tables, not button lists:
+# commands[mode][fan][swing?][temp] -> code, plus off/on and bounds.
+# Flattening one yields hundreds of context-free rows (the refusal
+# this adapter replaces); importing it as a STRUCTURED matrix keeps
+# every cell named by its complete state. Census-driven rules
+# (docs/internal/research/smartir-corpus-census.md, 358 files):
+# depth detected per BRANCH (2320's dry subtree is itself mixed),
+# "$"-prefixed keys filtered at every level, vocabulary verbatim
+# (never _humanize_key on cells), Xiaomi "Raw" refused (proprietary
+# blob), null/empty cells counted not fatal, and depth-0 extras
+# (on_once, sleep, led...) become ordinary flat signals riding
+# alongside the matrix.
+
+
+def _is_temp_key(key: str) -> bool:
+    try:
+        float(key)
+        return True
+    except ValueError:
+        return False
+
+
+def _convert_smartir_climate(text: str) -> AdapterResult:
+    from .wig_climate import ha_mode_for
+    from .wig_format import ClimateCell, ClimateMatrix
+
+    result = AdapterResult(format="smartir_climate")
+    data = json.loads(text)
+
+    encoding = str(data.get("commandsEncoding") or "")
+    controller = str(data.get("supportedController") or "").strip()
+    if encoding.strip().lower() == "raw" and controller.lower() == "xiaomi":
+        # Census: Xiaomi "Raw" is a base64-looking proprietary
+        # compressed blob (miio), not decimal timings. ESPHome "Raw"
+        # converts fine; the distinction is controller-keyed.
+        result.error = (
+            "this file's codes are in Xiaomi's proprietary compressed "
+            "format, which HAIR cannot decode yet"
+        )
+        return result
+
+    min_temp = data.get("minTemperature")
+    max_temp = data.get("maxTemperature")
+    if not isinstance(min_temp, (int, float)) \
+            or not isinstance(max_temp, (int, float)) \
+            or isinstance(min_temp, bool) or isinstance(max_temp, bool) \
+            or float(min_temp) >= float(max_temp):
+        result.error = "missing or invalid temperature bounds"
+        return result
+    precision = data.get("precision")
+    if not isinstance(precision, (int, float)) or isinstance(precision, bool) \
+            or float(precision) <= 0:
+        precision = 1.0
+
+    commands = data.get("commands")
+    if not isinstance(commands, dict):
+        result.error = "no commands object"
+        return result
+
+    cells: list[ClimateCell] = []
+    signals: list[WigSignal] = []
+    off_pronto: str | None = None
+    on_pronto: str | None = None
+    absent = 0  # null / empty cells: states the device does not have
+    fail_counts: dict[str, int] = {}
+    skipped_modes: list[str] = []
+
+    def _cell_pronto(value: object) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            nonlocal absent
+            absent += 1
+            return None
+        if not isinstance(value, str):
+            fail_counts["not a string code"] = (
+                fail_counts.get("not a string code", 0) + 1
+            )
+            return None
+        pronto, reason = _smartir_code_to_pronto(value, encoding)
+        if pronto is None:
+            fail_counts[reason or "unconvertible"] = (
+                fail_counts.get(reason or "unconvertible", 0) + 1
+            )
+            return None
+        return pronto
+
+    def _walk_temps(mode: str, fan: str | None, swing: str | None,
+                    subtree: dict) -> None:
+        for temp_key, value in subtree.items():
+            if str(temp_key).startswith("$"):
+                continue
+            pronto = _cell_pronto(value)
+            if pronto is None:
+                continue
+            cells.append(ClimateCell(
+                mode=mode, fan=fan, swing=swing,
+                temp=float(temp_key), pronto=pronto,
+            ))
+
+    def _walk_fan_value(mode: str, fan: str | None, value: object) -> None:
+        # Below the fan level sits either temps (numeric keys) or a
+        # swing layer (census: swing is between fan and temp in all 37
+        # swing files) -- detected per BRANCH, never per file.
+        if isinstance(value, dict):
+            keys = [k for k in value if not str(k).startswith("$")]
+            if keys and all(_is_temp_key(str(k)) for k in keys):
+                _walk_temps(mode, fan, None, value)
+                return
+            for swing_key, sval in value.items():
+                if str(swing_key).startswith("$") or not str(swing_key):
+                    continue
+                if isinstance(sval, dict):
+                    _walk_temps(mode, fan, str(swing_key), sval)
+                else:
+                    pronto = _cell_pronto(sval)
+                    if pronto is not None:
+                        cells.append(ClimateCell(
+                            mode=mode, fan=fan, swing=str(swing_key),
+                            pronto=pronto,
+                        ))
+            return
+        pronto = _cell_pronto(value)
+        if pronto is not None:
+            cells.append(ClimateCell(mode=mode, fan=fan, pronto=pronto))
+
+    for raw_key, value in commands.items():
+        key = str(raw_key)
+        if key.startswith("$") or not key:
+            continue
+        if key == "off":
+            off_pronto = _cell_pronto(value)
+            continue
+        if key == "on":
+            on_pronto = _cell_pronto(value)
+            continue
+        if ha_mode_for(key) is None:
+            if isinstance(value, dict):
+                # A real lattice under a mode HA has no word for
+                # (ion, ifeel, money_saver...): skip with receipt.
+                skipped_modes.append(key)
+                continue
+            # Depth-0 extras (on_once, sleep, led, swing, clean...)
+            # are ordinary one-shot buttons -- route them into the
+            # flat signal list (census second pass).
+            pronto = _cell_pronto(value)
+            if pronto is not None:
+                signals.append(WigSignal(
+                    alias=_humanize_key(key), pronto=pronto,
+                ))
+            continue
+        if isinstance(value, dict):
+            for fan_key, fval in value.items():
+                if str(fan_key).startswith("$") or not str(fan_key):
+                    continue
+                _walk_fan_value(key, str(fan_key), fval)
+        else:
+            _walk_fan_value(key, None, value)
+
+    if off_pronto is None:
+        result.error = 'no convertible "off" code (every climate file needs one)'
+        return result
+    if not cells:
+        result.error = "no convertible state cells in this file"
+        return result
+
+    # Vocabulary lists: observed order, with the file's declared lists
+    # (advisory, census anomaly finding) providing the preferred order.
+    def _ordered(declared: object, observed: list[str]) -> list[str]:
+        declared_list = [
+            str(v) for v in declared
+        ] if isinstance(declared, list) else []
+        ordered = [v for v in declared_list if v in observed]
+        ordered += [v for v in observed if v not in ordered]
+        return ordered
+
+    obs_modes: list[str] = []
+    obs_fans: list[str] = []
+    obs_swings: list[str] = []
+    for cell in cells:
+        if cell.mode not in obs_modes:
+            obs_modes.append(cell.mode)
+        if cell.fan is not None and cell.fan not in obs_fans:
+            obs_fans.append(cell.fan)
+        if cell.swing is not None and cell.swing not in obs_swings:
+            obs_swings.append(cell.swing)
+
+    matrix = ClimateMatrix(
+        min_temp=float(min_temp),
+        max_temp=float(max_temp),
+        precision=float(precision),
+        modes=_ordered(data.get("operationModes"), obs_modes),
+        fan_modes=_ordered(data.get("fanModes"), obs_fans),
+        swing_modes=_ordered(data.get("swingModes"), obs_swings),
+        off=off_pronto,
+        on=on_pronto,
+        cells=cells,
+    )
+
+    for reason, count in sorted(fail_counts.items()):
+        result.skipped.append(f"{count} cells: {reason}")
+    if absent:
+        result.skipped.append(
+            f"{absent} absent states (null or empty cells) skipped"
+        )
+    for mode in skipped_modes:
+        result.skipped.append(
+            f'mode "{mode}": no Home Assistant equivalent, subtree skipped'
+        )
+
+    manufacturer = str(data.get("manufacturer") or "").strip()
+    models = data.get("supportedModels") or []
+    model = str(models[0]).strip() if models else ""
+    name = " ".join(part for part in (manufacturer, model) if part) \
+        or "SmartIR Climate Import"
+    result.wigs.append(Wig(
+        name=name,
+        signals=signals,
+        brand=manufacturer or None,
+        model=model or None,
+        kind="ac",
+        notes=(
+            f"Imported from SmartIR climate ({controller} / {encoding}); "
+            f"{len(cells)} states"
+        ),
+        origin="converted:smartir",
+        climate=matrix,
     ))
     return result
 

@@ -105,7 +105,10 @@ class TestSmartIR:
         assert any(alias.startswith("Default") for alias in aliases)
         assert "Off" in aliases
 
-    def test_climate_rejected_with_reason(self):
+    def test_climate_without_bounds_refused(self):
+        # Cold Cuts (v0.8.8): climate files IMPORT now (matrix wigs,
+        # covered in test_wig_climate.py); a file missing its bounds
+        # still refuses with a reason instead of guessing.
         minimal = (
             '{"manufacturer": "X", "commandsEncoding": "Base64",'
             ' "minTemperature": 16, "operationModes": ["heat"],'
@@ -113,7 +116,7 @@ class TestSmartIR:
         )
         result = convert(minimal)
         assert result.wigs == []
-        assert "climate" in (result.error or "")
+        assert "bounds" in (result.error or "")
 
     def test_differing_sequence_imports_first_with_reason(self):
         text = (
