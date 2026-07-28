@@ -8513,6 +8513,12 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
             margin-left: auto;
             display: flex;
             align-items: center;
+            /* The old order spaced itself with per-button margins;
+               those retired with the 2026-07-28 consistency pass, so
+               the flex gap now carries the rhythm (owner bench find:
+               chips were nearly touching without it). DELETE keeps its
+               extra offset via .row-del -- destructive, set apart. */
+            gap: 8px;
         }
         .glyph-slot {
             width: 30px;
