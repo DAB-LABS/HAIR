@@ -38,6 +38,7 @@ import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+import "./ir-confirm-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-fitting-dialog.js";
 import "./ir-promote-dialog.js";
@@ -129,6 +130,11 @@ export class IrWigs extends LitElement {
     // Matrix rows peek a SUMMARY, not 300 cell names (Cold Cuts,
     // owner ruling 2026-07-28): vocabularies and the temp range.
     private _peekMatrix: MatrixSummary | null = null;
+    // The gated matrix clip (Cold Cuts second half, 2026-07-29): CLIP
+    // on a matrix row confirms first -- the open clip mints one
+    // Clipper row per state, and 2,689 rows must be a choice, never a
+    // surprise. Non-matrix rows keep the instant clip.
+    @state() private _clipConfirm: ClosetRow | null = null;
 
     // Editor dialog state.
     @state() private _editing: WigInfo | null = null;
@@ -384,10 +390,17 @@ export class IrWigs extends LitElement {
 
     // --- Try on ---
 
-    private async _tryOn(row: ClosetRow): Promise<void> {
+    private async _tryOn(
+        row: ClosetRow,
+        includeMatrix = false,
+    ): Promise<void> {
         this._busyId = row.id;
         try {
-            const result = await this.api.importCodeRemote(row.id);
+            const result = await this.api.importCodeRemote(
+                row.id,
+                undefined,
+                includeMatrix,
+            );
             this._flash(
                 t("wigs.tried_on", {
                     name: result.device.label ?? row.label,
@@ -408,6 +421,43 @@ export class IrWigs extends LitElement {
         } finally {
             this._busyId = null;
         }
+    }
+
+    /** What the open clip will mint: every cell, the off/on power
+     * codes, and the wig's flat extras (its plain signals). */
+    private _clipCount(row: ClosetRow): number {
+        const cells = row.wig?.matrix?.cells ?? 0;
+        return cells + 2 + row.signalCount;
+    }
+
+    /** CLIP click: matrix rows confirm the row count first; signal
+     * wigs keep today's instant clip. */
+    private _onClipClick(row: ClosetRow): void {
+        if (row.wig?.matrix) {
+            this._clipConfirm = row;
+            return;
+        }
+        void this._tryOn(row);
+    }
+
+    private _renderClipConfirm() {
+        const row = this._clipConfirm;
+        if (!row) return "";
+        const count = this._clipCount(row);
+        const message =
+            t("wigs.clip_matrix_confirm", { count: String(count) }) +
+            (count > 500 ? ` ${t("wigs.clip_matrix_slow")}` : "");
+        return html`<ir-confirm-dialog
+            title=${row.label}
+            message=${message}
+            confirmLabel=${t("wigs.clip_it")}
+            @confirmed=${() => {
+                const target = this._clipConfirm!;
+                this._clipConfirm = null;
+                void this._tryOn(target, true);
+            }}
+            @closed=${() => (this._clipConfirm = null)}
+        ></ir-confirm-dialog>`;
     }
 
     // --- Upload (drop bar + browse) ---
@@ -999,6 +1049,7 @@ export class IrWigs extends LitElement {
                 </div>`,
             )}
             ${this._renderPeek()}
+            ${this._renderClipConfirm()}
             ${this._renderEditor()}
             ${this._adoptWig
                 ? html`<ir-promote-dialog
@@ -1210,15 +1261,13 @@ export class IrWigs extends LitElement {
                     >
                         ${t("wigs.fit_it")}
                     </button>
-                    ${row.wig?.matrix
-                        ? ""
-                        : html`<button
-                              class="action-btn clip-btn"
-                              ?disabled=${this._busyId === row.id}
-                              @click=${() => this._tryOn(row)}
-                          >
-                              ${t("wigs.clip_it")}
-                          </button>`}
+                    <button
+                        class="action-btn clip-btn"
+                        ?disabled=${this._busyId === row.id}
+                        @click=${() => this._onClipClick(row)}
+                    >
+                        ${t("wigs.clip_it")}
+                    </button>
                     ${row.wig
                         ? html`<button
                               class="action-btn delete-btn"
@@ -1906,9 +1955,10 @@ export class IrWigs extends LitElement {
         /* CLIP is the shared action-chip anatomy (same radius, padding,
            and uppercase as every other button) in the Clipper's copper,
            because it does the same kind of thing as Add Remote. Delete
-           is the stock shared delete chip, untouched. Matrix rows hide
-           CLIP entirely (owner ruling 2026-07-28: 300 states is not a
-           remote); ADOPT and FIT carry the whole flow there. */
+           is the stock shared delete chip, untouched. Matrix rows got
+           CLIP back in the second half (owner ruling 2026-07-29),
+           gated behind a row-count confirm -- the open clip mints one
+           Clipper row per state. */
         .action-btn.clip-btn {
             color: #b87333;
             border-color: rgba(184, 115, 51, 0.35);

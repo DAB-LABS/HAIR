@@ -175,6 +175,11 @@ export class IrCommandRow extends LitElement {
                                       ></span
                                   >`
                             : html`${this.templateName}`}
+                        ${learned && this.command?.source === "matrix"
+                            ? html`<span class="state-chip"
+                                  >${t("devices.state_chip")}</span
+                              >`
+                            : ""}
                         ${learned && this.command?.decoded_fingerprint
                             ? html`<button
                                   class="tx-pill ${this.command.tx_force_raw ? "tx-raw-on" : ""}"
@@ -344,6 +349,21 @@ export class IrCommandRow extends LitElement {
         }
         .editable-name:hover .rename-pencil {
             opacity: 1;
+        }
+        /* STATE origin chip (Cold Cuts): a command saved off the state
+           matrix says so, in the matrix card's cold blue. Driven purely
+           by command.source === "matrix" -- no extra payload key. */
+        .state-chip {
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            line-height: 1.4;
+            padding: 1px 5px;
+            border-radius: 4px;
+            color: #58a6d8;
+            background: rgba(88, 166, 216, 0.12);
+            border: 1px solid rgba(88, 166, 216, 0.45);
         }
         .name-input {
             font-size: inherit;

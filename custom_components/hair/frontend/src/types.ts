@@ -34,7 +34,7 @@ export interface ActionOption {
     label: string;
 }
 
-export type CommandSourceId = "captured" | "database" | "imported";
+export type CommandSourceId = "captured" | "database" | "imported" | "matrix";
 
 export type CaptureProviderTypeId = "esphome" | "broadlink" | "native" | "mock";
 
@@ -106,6 +106,32 @@ export interface MatrixSummary {
     swing_modes: string[];
     min_temp: number;
     max_temp: number;
+}
+
+// One cell's coordinates in the cell-browser payload (Cold Cuts second
+// half, hair/devices/matrix-cells). Single-letter keys because the
+// census worst case is 2,689 cells; a dimension the cell does not
+// carry is OMITTED, never null. These coordinates round-trip verbatim
+// into matrix-send and matrix-command.
+export interface MatrixCellCoord {
+    m: string;
+    f?: string;
+    s?: string;
+    t?: number;
+}
+
+// The full matrix-cells payload: bounds, precision, vocabulary lists
+// (matrix_summary ordering: declared first, observed strays after),
+// has_on, and every cell as coordinates without a byte of Pronto.
+export interface MatrixCells {
+    min_temp: number;
+    max_temp: number;
+    precision: number;
+    modes: string[];
+    fan_modes: string[];
+    swing_modes: string[];
+    has_on: boolean;
+    cells: MatrixCellCoord[];
 }
 
 // Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
@@ -389,6 +415,16 @@ export interface UnknownDeviceSummary {
     // The HAIR devices this remote feeds (v0.7.0): stored promote link
     // plus per-signal assignment targets, resolved live by id.
     linked_devices?: { device_id: string; device_name: string }[];
+    // Cold Cuts (v0.8.8): the matrix-clip provenance stamp. Non-null
+    // only for remotes clipped open (include_matrix) from a matrix
+    // wig; drives the adopt signpost.
+    source_wig?: { filename: string; cells_hash: string } | null;
+    // Resolved live against the closet, list call only and only for
+    // stamped remotes: filename intact, renamed (cells hash still
+    // matches a closet wig), or honestly gone.
+    source_wig_state?: "present" | "renamed" | "gone";
+    // The wig's CURRENT filename; present/renamed only.
+    source_wig_filename?: string;
 }
 
 export interface UnknownDevice {
