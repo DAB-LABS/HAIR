@@ -5,6 +5,7 @@
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
+import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
@@ -537,32 +538,25 @@ export class IrSignalMonitor extends LitElement {
         }
     }
 
-    /** Open promote dialog to create a HAIR device from this unknown device. */
     /**
-     * The linked-devices chip (v0.7.0): identity truth instead of the
-     * old name-match badge. One linked device renders its live name and
-     * navigates on click; several render a count chip opening a small
-     * popover listing each with click-through. Computed server-side
-     * from the stored promote link plus per-signal assignment targets,
-     * so renames on either side never break it (the promote-rename
-     * anomaly, owner bench find).
+     * ADOPT DEVICE (owner ask 2026-07-28, the closet polish landing
+     * here too): the promote chip and the linked-count chip collapse
+     * into one green button next to Dismiss, wearing the count-dot
+     * convention (v0.6.6 Assign/Trigger precedent). Zero linked
+     * devices opens the promote dialog directly; one or more opens
+     * the shared action-popover anatomy with a "+ new device" accent
+     * entry and one navigable row per device. Linkage is identity
+     * truth computed server-side (stored promote link plus per-signal
+     * assignment targets), so renames on either side never break it
+     * (the promote-rename anomaly, owner bench find).
      */
-    /**
-     * The linked-devices chip (v0.7.0): identity truth instead of the
-     * old name-match badge. Always the count form ("1 HAIR device",
-     * "2 HAIR devices") for consistency (owner ruling, bench round
-     * three), always opening the dropdown -- even for one -- so the
-     * gesture never changes. The popover positions FIXED from the
-     * chip's rect so it rides over the collapsed card instead of being
-     * clipped by the card's overflow.
-     */
-    private _renderLinkedChip(d: UnknownDeviceSummary) {
-        const linked = d.linked_devices ?? [];
-        if (linked.length === 0) return "";
-        return html`<span
-            class="status-badge hair-device"
-            @click=${(e: Event) => this._toggleLinkedPopover(d.id, e)}
-        >${tp("sniffer.linked", linked.length)}</span>`;
+    private _onAdoptClick(d: UnknownDeviceSummary, e: Event): void {
+        e.stopPropagation();
+        if (!d.linked_devices?.length) {
+            this._promoteTarget = d;
+            return;
+        }
+        this._toggleLinkedPopover(d.id, e);
     }
 
     private _toggleLinkedPopover(deviceId: string, e: Event): void {
@@ -572,9 +566,11 @@ export class IrSignalMonitor extends LitElement {
             return;
         }
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        // Right-aligned under the Adopt button (the anchor sits at the
+        // row's right edge), mirroring the Assign popover's math.
         this._linkedPopoverPos = {
             top: rect.bottom + 6,
-            left: rect.left,
+            left: Math.max(8, rect.right - 220),
         };
         this._linkedPopoverId = deviceId;
     }
@@ -591,19 +587,41 @@ export class IrSignalMonitor extends LitElement {
                 @click=${() => (this._linkedPopoverId = null)}
             ></div>
             <div
-                class="linked-popover"
+                class="action-popover"
                 style="top: ${this._linkedPopoverPos.top}px; left: ${this
                     ._linkedPopoverPos.left}px;"
             >
+                <div class="popover-header">
+                    ${tp("sniffer.linked", linked.length)}
+                </div>
+                <button
+                    class="popover-item accent"
+                    @click=${(e: Event) => {
+                        e.stopPropagation();
+                        this._linkedPopoverId = null;
+                        this._promoteTarget = d;
+                    }}
+                >
+                    <span>${t("wigs.linked_new")}</span>
+                </button>
+                <div class="popover-divider"></div>
                 ${linked.map(
                     (entry) => html`<button
-                        class="linked-entry"
+                        class="popover-item"
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._linkedPopoverId = null;
                             this._navigateToDevice(entry.device_id);
                         }}
-                    >${entry.device_name}</button>`,
+                    >
+                        <span class="popover-name"
+                            >${entry.device_name}</span
+                        >
+                        <ha-svg-icon
+                            class="linked-chevron"
+                            .path=${"M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"}
+                        ></ha-svg-icon>
+                    </button>`,
                 )}
             </div>`;
     }
@@ -616,11 +634,6 @@ export class IrSignalMonitor extends LitElement {
                 composed: true,
             }),
         );
-    }
-
-    private _promoteDevice(d: UnknownDeviceSummary, e: Event): void {
-        e.stopPropagation();
-        this._promoteTarget = d;
     }
 
     private _closePromote(): void {
@@ -1453,13 +1466,6 @@ export class IrSignalMonitor extends LitElement {
                                 >
                                 <span class="stat last-seen" title=${fmtTime(d.last_seen)}>${relTime(d.last_seen)}</span>
                             </span>
-                            ${d.label && !d.dismissed
-                                ? html`<span
-                                      class="status-badge promote-badge"
-                                      @click=${(e: Event) => this._promoteDevice(d, e)}
-                                  >${t("sniffer.promote")}</span>`
-                                : ""}
-                            ${this._renderLinkedChip(d)}
                             ${d.device_address
                                 ? html`<span class="address">${t("sniffer.addr", { address: d.device_address })}</span>`
                                 : ""}
@@ -1468,6 +1474,22 @@ export class IrSignalMonitor extends LitElement {
                                 : ""}
                         </div>
                     </div>
+                    ${d.dismissed
+                        ? ""
+                        : html`<button
+                              class="action-btn adopt-btn"
+                              title=${d.linked_devices?.length
+                                  ? tp(
+                                        "sniffer.linked",
+                                        d.linked_devices.length,
+                                    )
+                                  : t("wigs.adopt")}
+                              @click=${(e: Event) =>
+                                  this._onAdoptClick(d, e)}
+                          >${t("wigs.adopt")}<ir-count-dot
+                                  color="green"
+                                  .count=${d.linked_devices?.length ?? 0}
+                              ></ir-count-dot></button>`}
                     ${d.dismissed
                         ? html`<button
                               class="action-btn device-dismiss-btn"
@@ -1642,36 +1664,19 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, css`
+    static styles = [actionChipStyles, popoverStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;
             z-index: 39;
         }
-        .linked-popover {
-            position: fixed;
-            z-index: 40;
-            min-width: 160px;
-            background: var(--card-background-color);
-            border: 1px solid var(--divider-color);
-            border-radius: 8px;
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
-            padding: 4px;
-            display: flex;
-            flex-direction: column;
-        }
-        .linked-entry {
-            background: none;
-            border: none;
-            text-align: left;
-            padding: 7px 10px;
-            font-size: 12.5px;
-            color: var(--primary-text-color);
-            cursor: pointer;
-            border-radius: 6px;
-        }
-        .linked-entry:hover {
-            background: rgba(255, 255, 255, 0.06);
+        /* Linked-devices popover (2026-07-28 adopt polish): the shared
+           action-popover anatomy replaces the bespoke list -- the count
+           rides the ADOPT button's dot now. */
+        .linked-chevron {
+            --mdc-icon-size: 14px;
+            color: var(--secondary-text-color);
+            flex: none;
         }
 
         .remote-footer {
@@ -1886,40 +1891,17 @@ export class IrSignalMonitor extends LitElement {
             opacity: 1 !important;
             color: var(--primary-color);
         }
-        /* Identical box to .promote-badge (now also uppercase, so no
-           line-height hack needed) -- only the colour differs. */
-        .status-badge.hair-device {
-            font-size: 0.7rem;
-            font-weight: 500;
-            font-family: inherit;
-            padding: 2px 8px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            white-space: nowrap;
+        /* ADOPT DEVICE (2026-07-28): the promote and linked-count chips
+           collapsed into one green button next to Dismiss, matching the
+           closet's -- green family, dot as the count. */
+        .action-btn.adopt-btn {
             flex-shrink: 0;
-            background: rgba(46, 125, 50, 0.15);
-            color: #2e7d32;
-            border: 1px solid rgba(46, 125, 50, 0.3);
-            margin-left: 4px;
+            color: #4caf50;
+            border-color: rgba(76, 175, 80, 0.3);
+            position: relative; /* anchor for the green linked-count dot */
         }
-        .status-badge.promote-badge {
-            font-size: 0.7rem;
-            font-weight: 500;
-            font-family: inherit;
-            padding: 2px 8px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            background: rgba(0, 151, 167, 0.15);
-            color: #0097a7;
-            border: 1px solid rgba(0, 151, 167, 0.35);
-            margin-left: 4px;
-            cursor: pointer;
-            transition: background 150ms ease;
-        }
-        .status-badge.promote-badge:hover {
-            background: rgba(0, 151, 167, 0.25);
+        .action-btn.adopt-btn:hover:not(:disabled) {
+            background: rgba(76, 175, 80, 0.08);
         }
         .device-dismiss-btn {
             flex-shrink: 0;

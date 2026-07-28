@@ -301,6 +301,49 @@ def materialize_wig(
     return entries
 
 
+def build_wig_from_codebook(codebook_id: str):
+    """Snapshot a library codebook into a Wig (v0.8.1), or None.
+
+    The codebook->wig primitive behind Fit / Adopt / Download on library
+    rows: the same encoder path the Clipper's picker import uses
+    (``materialize_codebook``), captured as a portable wig. The render is
+    deterministic -- one library version always produces the same Pronto
+    bytes, so the wig's signals content hash (and any fitting recorded
+    against it) is comparable across installs. Origin is stamped
+    ``library``; the notes carry the codebook id and library version so
+    a snapshot stays traceable after the library moves on. Members that
+    fail to materialize are skipped, mirroring the import rule.
+    """
+    from .wig_format import Wig, WigSignal
+
+    try:
+        module, _class_name = codebook_id.split(":")
+    except ValueError:
+        return None
+    entries = materialize_codebook(codebook_id)
+    if not entries:
+        return None
+    try:
+        from importlib.metadata import version
+
+        lib_version = version("infrared-protocols")
+    except Exception:
+        lib_version = None
+    stamp = f"infrared-protocols {lib_version}" if lib_version else (
+        "the infrared-protocols library"
+    )
+    return Wig(
+        name=codebook_label(codebook_id) or codebook_id,
+        brand=_humanize_brand(_brand_of(module)),
+        signals=[
+            WigSignal(alias=entry["name"], pronto=entry["code"])
+            for entry in entries
+        ],
+        origin=SOURCE_LIBRARY,
+        notes=f"Rendered from {stamp} ({codebook_id}).",
+    )
+
+
 def codebook_label(codebook_id: str) -> str | None:
     """Human label for a codebook id, e.g. for a default remote name."""
     try:

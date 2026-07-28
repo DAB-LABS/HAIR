@@ -228,3 +228,108 @@ class TestPreSkip:
                 pytest.raises(RuntimeError, match="All emitters for Fan"):
             await manager.async_send_command(dev.id, "c1")
         ir_send.assert_not_awaited()
+
+
+_PN = "homeassistant.components.persistent_notification"
+
+
+class TestDegradeNotification:
+    """GH #65 rider (v0.8.1): a skipped or failed emitter raises one
+    persistent notification (stable id, replace-not-stack), and an
+    emitter that answers again dismisses its own."""
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_notifies_per_dead_emitter(self, manager):
+        import homeassistant.components.persistent_notification as pn
+
+        dev = _dyson_device(["infrared.broadlink", "infrared.athom"])
+        manager._store.add_device(dev)
+        ir_send = _failing_sender({"infrared.athom"})
+        with patch.object(pn, "async_create") as create, \
+                patch.object(pn, "async_dismiss") as dismiss, \
+                patch.object(_infrared_mod, "async_send_command", ir_send), \
+                patch(_BDC, return_value=object()):
+            await manager.async_send_command(dev.id, "c1")
+        assert create.call_count == 1
+        kwargs = create.call_args.kwargs
+        assert kwargs["notification_id"] == (
+            "hair_emitter_down_infrared.athom"
+        )
+        assert "infrared.athom" in create.call_args.args[1]
+        assert "Fan" in create.call_args.args[1]
+        # The live emitter self-heals its (possibly stale) notice.
+        dismissed = [c.args[1] for c in dismiss.call_args_list]
+        assert "hair_emitter_down_infrared.broadlink" in dismissed
+        assert "hair_emitter_down_infrared.athom" not in dismissed
+
+    @pytest.mark.asyncio
+    async def test_total_failure_notifies_every_emitter(self, manager):
+        import homeassistant.components.persistent_notification as pn
+
+        dev = _dyson_device(["infrared.a", "infrared.b"])
+        manager._store.add_device(dev)
+        ir_send = _failing_sender({"infrared.a", "infrared.b"})
+        with patch.object(pn, "async_create") as create, \
+                patch.object(_infrared_mod, "async_send_command", ir_send), \
+                patch(_BDC, return_value=object()), \
+                pytest.raises(RuntimeError):
+            await manager.async_send_command(dev.id, "c1")
+        ids = {
+            c.kwargs["notification_id"] for c in create.call_args_list
+        }
+        assert ids == {
+            "hair_emitter_down_infrared.a",
+            "hair_emitter_down_infrared.b",
+        }
+
+    @pytest.mark.asyncio
+    async def test_pre_skipped_unavailable_emitter_notifies(
+        self, manager, fake_hass
+    ):
+        import homeassistant.components.persistent_notification as pn
+
+        dev = _dyson_device(["infrared.down"])
+        manager._store.add_device(dev)
+        state = MagicMock(state="unavailable")
+        state.attributes = {"friendly_name": "Bedroom Blaster"}
+        fake_hass.states.get = MagicMock(return_value=state)
+        with patch.object(pn, "async_create") as create, \
+                patch.object(_infrared_mod, "async_send_command", AsyncMock()), \
+                pytest.raises(RuntimeError):
+            await manager.async_send_command(dev.id, "c1")
+        assert create.call_count == 1
+        assert "Bedroom Blaster" in create.call_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_clean_send_no_notification_only_dismiss(self, manager):
+        import homeassistant.components.persistent_notification as pn
+
+        dev = _dyson_device(["infrared.broadlink"])
+        manager._store.add_device(dev)
+        with patch.object(pn, "async_create") as create, \
+                patch.object(pn, "async_dismiss") as dismiss, \
+                patch.object(
+                    _infrared_mod, "async_send_command", AsyncMock()
+                ), \
+                patch(_BDC, return_value=object()):
+            await manager.async_send_command(dev.id, "c1")
+        create.assert_not_called()
+        dismissed = [c.args[1] for c in dismiss.call_args_list]
+        assert dismissed == ["hair_emitter_down_infrared.broadlink"]
+
+    @pytest.mark.asyncio
+    async def test_notification_failure_never_breaks_the_send(self, manager):
+        """The guard rail: a broken notification layer must not turn a
+        landed send into an error."""
+        import homeassistant.components.persistent_notification as pn
+
+        dev = _dyson_device(["infrared.broadlink", "infrared.athom"])
+        manager._store.add_device(dev)
+        ir_send = _failing_sender({"infrared.athom"})
+        with patch.object(
+                    pn, "async_create",
+                    side_effect=RuntimeError("notification bus down"),
+                ), \
+                patch.object(_infrared_mod, "async_send_command", ir_send), \
+                patch(_BDC, return_value=object()):
+            await manager.async_send_command(dev.id, "c1")  # no raise

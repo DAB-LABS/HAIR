@@ -106,3 +106,60 @@ def test_addition_b_nec_class_name_pins_decoded_protocol():
 
     cmd = NECCommand(address=0xFB04, command=0x08)
     assert type(cmd).__name__.removesuffix("Command") == "NEC"
+
+
+# --- Codebook -> wig snapshot primitive (v0.8.1 library rows) ---
+
+
+@_needs_codes
+def test_build_wig_from_codebook_shape():
+    tree = code_library.get_tree()
+    brand = tree[0]
+    cb = brand["codebooks"][0]
+    wig = code_library.build_wig_from_codebook(cb["id"])
+    assert wig is not None
+    assert wig.name == cb["label"]
+    assert wig.brand == brand["label"]
+    assert wig.origin == "library"
+    # Provenance: notes carry the codebook id for traceability.
+    assert cb["id"] in (wig.notes or "")
+    # One signal per materializable function, all valid Pronto.
+    assert 0 < len(wig.signals) <= len(cb["functions"])
+    for sig in wig.signals:
+        assert sig.alias
+        assert validate_pronto(sig.pronto).valid
+
+
+@_needs_codes
+def test_build_wig_from_codebook_deterministic():
+    """Same library version -> same render -> same content hash. The
+    property that makes fittings on snapshots comparable across
+    installs (and the snapshot dedup work at all)."""
+    from custom_components.hair.wig_format import signals_content_hash
+
+    cb_id = code_library.get_tree()[0]["codebooks"][0]["id"]
+    first = code_library.build_wig_from_codebook(cb_id)
+    again = code_library.build_wig_from_codebook(cb_id)
+    assert signals_content_hash(first.signals) == signals_content_hash(
+        again.signals
+    )
+
+
+@_needs_codes
+def test_build_wig_from_codebook_serialize_roundtrip():
+    """The rendered wig must survive its own serialize -> parse cycle
+    (the snapshot and download roads both ship serialize_wig output)."""
+    from custom_components.hair.wig_format import parse_wig, serialize_wig
+
+    cb_id = code_library.get_tree()[0]["codebooks"][0]["id"]
+    wig = code_library.build_wig_from_codebook(cb_id)
+    result = parse_wig(serialize_wig(wig))
+    assert result.ok
+    assert result.wig.origin == "library"
+    assert len(result.wig.signals) == len(wig.signals)
+
+
+def test_build_wig_from_codebook_invalid_ids_degrade():
+    assert code_library.build_wig_from_codebook("garbage") is None
+    assert code_library.build_wig_from_codebook("a:b:c") is None
+    assert code_library.build_wig_from_codebook("no.such.module:Nope") is None

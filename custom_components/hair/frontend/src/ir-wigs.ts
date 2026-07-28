@@ -12,8 +12,10 @@
  *
  * Wig rows: source dot, name, signal count, then a fixed-width glyph
  * slot (copy glyph opens the editor popover, user wigs only; library
- * wigs are read-only with no glyph) and TRY ON flush right. TRY ON
- * materializes through the same import path as the Clipper picker:
+ * rows stay non-editable but carry download / FIT / ADOPT since
+ * v0.8.1 via the codebook->wig snapshot primitive) and TRY ON flush
+ * right. TRY ON materializes through the same import path as the
+ * Clipper picker:
  * fresh decode per signal, and re-trying a wig collapses onto the
  * existing clipped remote instead of minting a twin.
  *
@@ -35,7 +37,10 @@ import { t, tp } from "./localize.js";
 import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
+import { popoverStyles } from "./ir-popover-styles.js";
+import "./ir-count-dot.js";
 import "./ir-fitting-dialog.js";
+import "./ir-promote-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
@@ -111,6 +116,12 @@ export class IrWigs extends LitElement {
     // straight into the session; reopening resumes (marks live in the
     // wig file, owner rulings 2026-07-26).
     @state() private _fittingWig: WigInfo | null = null;
+    // Adopt Device (v0.8.1): the wig the promote dialog is open for.
+    @state() private _adoptWig: WigInfo | null = null;
+    // Adopt from a library row: the codebook row instead (no wig file).
+    @state() private _adoptCodebook: ClosetRow | null = null;
+    @state() private _linkedPopoverId: string | null = null;
+    private _linkedPopoverPos = { top: 0, left: 0 };
     @state() private _peekId: string | null = null;
     private _peekPos = { top: 0, left: 0 };
     private _peekNames: string[] = [];
@@ -251,11 +262,31 @@ export class IrWigs extends LitElement {
         }
         const query = this._search.trim().toLowerCase();
         if (query && !brand.label.toLowerCase().includes(query)) {
-            rows = rows.filter((r) =>
-                r.label.toLowerCase().includes(query),
-            );
+            rows = rows.filter((r) => this._rowMatches(r, query));
         }
         return rows;
+    }
+
+    /** Search coverage beyond the label (v0.8.1, paying off the
+     * v0.8.0 identifiers block): the kind and every identifier value,
+     * so typing a UPC straight off the box (or "candles") finds the
+     * wig. Library rows have neither and keep the label-only match. */
+    private _rowMatches(r: ClosetRow, query: string): boolean {
+        if (r.label.toLowerCase().includes(query)) return true;
+        const wig = r.wig;
+        if (!wig) return false;
+        if (wig.kind?.toLowerCase().includes(query)) return true;
+        for (const value of Object.values(wig.identifiers ?? {})) {
+            const list = Array.isArray(value) ? value : [value];
+            if (
+                list.some((v) =>
+                    String(v).toLowerCase().includes(query),
+                )
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private _isOpen(brand: BrandRow, visible: ClosetRow[]): boolean {
@@ -513,6 +544,123 @@ export class IrWigs extends LitElement {
         this._editError = null;
     }
 
+    /** Seed the promote dialog's type from the wig's kind (ruled
+     * 2026-07-28): the deferred type-inference, nearly free now that
+     * kind exists. Unknown kinds fall back to empty (dialog default). */
+    private _typeFromKind(kind: string | null | undefined): string {
+        const map: Record<string, string> = {
+            fan: "fan",
+            ac: "ac",
+            heater: "ac",
+            light: "light",
+            candles: "light",
+            tv: "media_player",
+            soundbar: "media_player",
+            receiver: "media_player",
+            settopbox: "media_player",
+            projector: "media_player",
+            blinds: "screen",
+            screen: "screen",
+        };
+        return map[kind ?? ""] ?? "";
+    }
+
+    /**
+     * ADOPT DEVICE click, count-dot convention (v0.6.6 Assign/Trigger
+     * precedent, owner ask 2026-07-27): zero linked devices opens the
+     * adopt dialog directly; one or more opens the linked-devices
+     * popover, which carries its own "+ new device" accent entry for
+     * adopting again.
+     */
+    private _onAdoptClick(row: ClosetRow, e: Event): void {
+        if (!row.wig) {
+            // Library row (v0.8.1): no wig file, no linked scan --
+            // straight to the dialog on the codebook road.
+            this._adoptCodebook = row;
+            return;
+        }
+        if (!row.wig.linked_devices?.length) {
+            this._adoptWig = row.wig;
+            return;
+        }
+        this._toggleLinkedPopover(row.id, e);
+    }
+
+    private _toggleLinkedPopover(rowId: string, e: Event): void {
+        e.stopPropagation();
+        if (this._linkedPopoverId === rowId) {
+            this._linkedPopoverId = null;
+            return;
+        }
+        const rect = (
+            e.currentTarget as HTMLElement
+        ).getBoundingClientRect();
+        // Right-aligned under the Adopt button (the anchor now lives on
+        // the row's right edge), mirroring the Assign popover's math.
+        this._linkedPopoverPos = {
+            top: rect.bottom + 6,
+            left: Math.max(8, rect.right - 220),
+        };
+        this._linkedPopoverId = rowId;
+    }
+
+    private _renderLinkedWigPopover() {
+        if (!this._linkedPopoverId) return "";
+        const wig = this._wigs.find(
+            (w) => `wig:${w.filename}` === this._linkedPopoverId,
+        );
+        const linked = wig?.linked_devices ?? [];
+        if (!wig || linked.length === 0) return "";
+        return html`<div
+                class="linked-scrim"
+                @click=${() => (this._linkedPopoverId = null)}
+            ></div>
+            <div
+                class="action-popover"
+                style="top: ${this._linkedPopoverPos.top}px; left: ${this
+                    ._linkedPopoverPos.left}px;"
+            >
+                <div class="popover-header">
+                    ${tp("wigs.linked", linked.length)}
+                </div>
+                <button
+                    class="popover-item accent"
+                    @click=${(e: Event) => {
+                        e.stopPropagation();
+                        this._linkedPopoverId = null;
+                        this._adoptWig = wig;
+                    }}
+                >
+                    <span>${t("wigs.linked_new")}</span>
+                </button>
+                <div class="popover-divider"></div>
+                ${linked.map(
+                    (entry) => html`<button
+                        class="popover-item"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._linkedPopoverId = null;
+                            this.dispatchEvent(
+                                new CustomEvent("navigate-device", {
+                                    detail: entry.device_id,
+                                    bubbles: true,
+                                    composed: true,
+                                }),
+                            );
+                        }}
+                    >
+                        <span class="popover-name"
+                            >${entry.device_name}</span
+                        >
+                        <ha-svg-icon
+                            class="linked-chevron"
+                            .path=${"M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"}
+                        ></ha-svg-icon>
+                    </button>`,
+                )}
+            </div>`;
+    }
+
     /** Curated kinds plus every kind already used in this closet, so
      * a custom kind typed once becomes a suggestion from then on
      * (owner ruling 2026-07-27: dropdown plus custom, self-growing,
@@ -545,6 +693,7 @@ export class IrWigs extends LitElement {
             captured: t("wigs.origin.captured"),
             clipped: t("wigs.origin.clipped"),
             device: t("wigs.origin.device"),
+            library: t("wigs.origin.library"),
         };
         return known[origin] ?? t("wigs.origin.unknown");
     }
@@ -578,28 +727,71 @@ export class IrWigs extends LitElement {
         }
     }
 
+    private async _downloadText(
+        filename: string, text: string,
+    ): Promise<void> {
+        try {
+            const blob = new Blob([text], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = filename;
+            anchor.click();
+            URL.revokeObjectURL(url);
+        } catch {
+            // The iframe is hostile to downloads on some hosts; the
+            // clipboard fallback keeps the file reachable.
+            await navigator.clipboard.writeText(text);
+            this._flash(t("wigs.editor.copied"));
+        }
+    }
+
     private async _download(wig: WigInfo | null): Promise<void> {
         if (!wig) return;
         try {
             const { filename, text } = await this.api.wigsGet(
                 wig.filename,
             );
-            try {
-                const blob = new Blob([text], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const anchor = document.createElement("a");
-                anchor.href = url;
-                anchor.download = filename;
-                anchor.click();
-                URL.revokeObjectURL(url);
-            } catch {
-                // The iframe is hostile to downloads on some hosts; the
-                // clipboard fallback keeps the file reachable.
-                await navigator.clipboard.writeText(text);
-                this._flash(t("wigs.editor.copied"));
-            }
+            await this._downloadText(filename, text);
         } catch (err) {
             this._flash((err as Error).message);
+        }
+    }
+
+    /** Download for a library row (v0.8.1): the codebook rendered as
+     * wig text through the snapshot primitive, nothing saved. */
+    private async _downloadLibrary(row: ClosetRow): Promise<void> {
+        try {
+            const { filename, text } = await this.api.wigRender(row.id);
+            await this._downloadText(filename, text);
+        } catch (err) {
+            this._flash((err as Error).message, "warn");
+        }
+    }
+
+    /** FIT on a library row (v0.8.1): fittings live in wig files, so
+     * snapshot the codebook into the closet first (content-hash dedup
+     * lands repeats in the one existing file), then open the fitting
+     * dialog on that wig. The receipt names the file either way. */
+    private async _fitLibrary(row: ClosetRow): Promise<void> {
+        this._busyId = row.id;
+        try {
+            const snap = await this.api.wigSnapshot(row.id);
+            this._flash(t(
+                snap.existed
+                    ? "wigs.snapshot_existing"
+                    : "wigs.snapshot_saved",
+                { filename: snap.filename },
+            ));
+            await this._refresh();
+            const wig = this._wigs.find(
+                (w) => w.filename === snap.filename,
+            );
+            if (wig) this._fittingWig = wig;
+        } catch (err) {
+            this._flash((err as Error).message, "warn");
+        } finally {
+            this._busyId = null;
         }
     }
 
@@ -768,6 +960,30 @@ export class IrWigs extends LitElement {
             )}
             ${this._renderPeek()}
             ${this._renderEditor()}
+            ${this._adoptWig
+                ? html`<ir-promote-dialog
+                      .api=${this.api}
+                      .hass=${this.hass}
+                      .suggestedName=${this._adoptWig.name}
+                      .suggestedType=${this._typeFromKind(
+                          this._adoptWig.kind,
+                      )}
+                      .wigFilename=${this._adoptWig.filename}
+                      @device-created=${this._onWigAdopted}
+                      @closed=${() => (this._adoptWig = null)}
+                  ></ir-promote-dialog>`
+                : ""}
+            ${this._adoptCodebook
+                ? html`<ir-promote-dialog
+                      .api=${this.api}
+                      .hass=${this.hass}
+                      .suggestedName=${this._adoptCodebook.label}
+                      .codebookId=${this._adoptCodebook.id}
+                      @device-created=${this._onWigAdopted}
+                      @closed=${() => (this._adoptCodebook = null)}
+                  ></ir-promote-dialog>`
+                : ""}
+            ${this._renderLinkedWigPopover()}
             ${this._fittingWig
                 ? html`<ir-fitting-dialog
                       .api=${this.api}
@@ -778,6 +994,15 @@ export class IrWigs extends LitElement {
                   ></ir-fitting-dialog>`
                 : ""}
         `;
+    }
+
+    private async _onWigAdopted(): Promise<void> {
+        const name =
+            this._adoptWig?.name ?? this._adoptCodebook?.label ?? "";
+        this._adoptWig = null;
+        this._adoptCodebook = null;
+        this._flash(t("wigs.adopted", { name }), "ok");
+        await this._refresh();
     }
 
     private async _onFittingRecorded(e: CustomEvent): Promise<void> {
@@ -901,29 +1126,47 @@ export class IrWigs extends LitElement {
                             : ""}
                     </span>
                     <span class="glyph-slot">
-                        ${row.wig
-                            ? html`<button
-                                  class="copy-glyph"
-                                  title=${t("wigs.editor.download")}
-                                  @click=${() =>
-                                      void this._download(row.wig!)}
-                              >
-                                  <ha-svg-icon
-                                      class="dl-icon"
-                                      .path=${"M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"}
-                                  ></ha-svg-icon>
-                              </button>`
-                            : ""}
+                        <button
+                            class="copy-glyph"
+                            title=${t("wigs.editor.download")}
+                            @click=${() =>
+                                row.wig
+                                    ? void this._download(row.wig)
+                                    : void this._downloadLibrary(row)}
+                        >
+                            <ha-svg-icon
+                                class="dl-icon"
+                                .path=${"M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"}
+                            ></ha-svg-icon>
+                        </button>
                     </span>
-                    ${row.wig
-                        ? html`<button
-                              class="action-btn fit-btn"
-                              @click=${() =>
-                                  (this._fittingWig = row.wig!)}
-                          >
-                              ${t("wigs.fit_it")}
-                          </button>`
-                        : ""}
+                    <button
+                        class="action-btn adopt-btn"
+                        title=${row.wig?.linked_devices?.length
+                            ? tp(
+                                  "wigs.linked",
+                                  row.wig.linked_devices.length,
+                              )
+                            : t("wigs.adopt")}
+                        @click=${(e: Event) =>
+                            this._onAdoptClick(row, e)}
+                    >
+                        ${t("wigs.adopt")}<ir-count-dot
+                            color="green"
+                            .count=${row.wig?.linked_devices
+                                ?.length ?? 0}
+                        ></ir-count-dot>
+                    </button>
+                    <button
+                        class="action-btn fit-btn"
+                        ?disabled=${this._busyId === row.id}
+                        @click=${() =>
+                            row.wig
+                                ? (this._fittingWig = row.wig)
+                                : void this._fitLibrary(row)}
+                    >
+                        ${t("wigs.fit_it")}
+                    </button>
                     <button
                         class="action-btn clip-btn"
                         ?disabled=${this._busyId === row.id}
@@ -933,7 +1176,7 @@ export class IrWigs extends LitElement {
                     </button>
                     ${row.wig
                         ? html`<button
-                              class="action-btn delete-btn row-del"
+                              class="action-btn delete-btn"
                               @click=${() =>
                                   (this._confirmDelete = row.wig!)}
                           >
@@ -1145,7 +1388,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = [dialogStyles, actionChipStyles, css`
+    static styles = [dialogStyles, actionChipStyles, popoverStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -1515,6 +1758,11 @@ export class IrWigs extends LitElement {
             margin-left: auto;
             display: flex;
             align-items: center;
+            /* 4px, the signal-row tolerance (owner ruling 2026-07-28:
+               one button rhythm everywhere -- the Clipper/Sniffer
+               signal rows set it, everything else matches). Delete
+               sits at the same gap, exactly like the signal rows. */
+            gap: 4px;
         }
         .glyph-slot {
             width: 30px;
@@ -1532,19 +1780,18 @@ export class IrWigs extends LitElement {
         .copy-glyph:hover {
             color: var(--wigs-accent);
         }
-        /* FIT is the fitting green (owner ruling 2026-07-26), left of
-           Clip It, same shared chip anatomy. Border alpha matches the
-           row-chip family (clip 0.35, delete 0.25 -- owner bench note
-           2026-07-27: the stroke reads quieter than the text). Only
-           local wig files get it -- library codebooks cannot carry
-           fittings. */
+        /* Row-button palette (owner re-ruling 2026-07-28, consistency
+           pass): ADOPT green, FIT blue, CLIP gold/copper, DELETE last.
+           Border alpha stays quieter than the text across the family
+           (owner bench note 2026-07-27). Library rows carry FIT too
+           (v0.8.1): FIT there snapshots the codebook into the closet
+           first, since fittings live in wig files. */
         .action-btn.fit-btn {
-            color: #4caf50;
-            border-color: rgba(76, 175, 80, 0.3);
-            margin-right: 8px;
+            color: var(--primary-color, #2196f3);
+            border-color: rgba(33, 150, 243, 0.35);
         }
         .action-btn.fit-btn:hover:not(:disabled) {
-            background: rgba(76, 175, 80, 0.08);
+            background: rgba(33, 150, 243, 0.08);
         }
         /* The row's fitting check (owner ruling 2026-07-26): green
            check = fitted, yellow check = partial, nothing = unfitted.
@@ -1578,6 +1825,26 @@ export class IrWigs extends LitElement {
         .fchip.on .chip-tick {
             color: #fff;
         }
+        /* ADOPT DEVICE (v0.8.1): the closet-native make-it-live action,
+           first in the row and green (owner re-ruling 2026-07-28 --
+           the oxblood chip retired with the color-consistency pass;
+           green matches the Assign family and its own linked dot). */
+        .action-btn.adopt-btn {
+            color: #4caf50;
+            border-color: rgba(76, 175, 80, 0.3);
+            position: relative; /* anchor for the green linked-count dot */
+        }
+        .action-btn.adopt-btn:hover:not(:disabled) {
+            background: rgba(76, 175, 80, 0.08);
+        }
+        /* Linked-devices popover (v0.8.1 dot conversion, owner ask
+           2026-07-27): the shared action-popover anatomy replaces the
+           left-side chip -- count now rides the ADOPT button's dot. */
+        .linked-chevron {
+            --mdc-icon-size: 14px;
+            color: var(--secondary-text-color);
+            flex: none;
+        }
         /* CLIP is the shared action-chip anatomy (same radius, padding,
            and uppercase as every other button) in the Clipper's copper,
            because it does the same kind of thing as Add Remote. Delete
@@ -1588,9 +1855,6 @@ export class IrWigs extends LitElement {
         }
         .action-btn.clip-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
-        }
-        .row-del {
-            margin-left: 8px;
         }
         .try-btn:disabled {
             opacity: 0.5;
@@ -1618,6 +1882,12 @@ export class IrWigs extends LitElement {
             color: var(--secondary-text-color);
             margin: -5px 0 11px;
             line-height: 1.4;
+        }
+        /* Inside a .field the hint sits directly under its input (no
+           12px field margin to eat), so the -5px pull-up above would
+           overlap the input box (owner bench find 2026-07-28). */
+        .field .ident-hint {
+            margin: 4px 0 0;
         }
         .origin-line {
             display: flex;

@@ -12,6 +12,7 @@
  */
 import { LitElement, html, css, type PropertyValues } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
+import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { keyed } from "lit/directives/keyed.js";
@@ -521,16 +522,22 @@ export class IrPluck extends LitElement {
     }
 
     /**
-     * Linked-devices chip (v0.7.0), identical to the Sniffer's and
-     * Clipper's: count form, dropdown always, fixed-position popover.
+     * ADOPT DEVICE (owner ask 2026-07-28), identical to the Sniffer's
+     * and Clipper's conversion: the promote chip and the linked-count
+     * chip collapse into one green button at the row's right edge,
+     * wearing the count-dot convention. Zero linked devices opens the
+     * promote dialog directly (the old name-first gate goes with the
+     * chip; the dialog asks for a name anyway); one or more opens the
+     * shared action-popover with "+ new device" plus one navigable
+     * row per device.
      */
-    private _renderLinkedChip(d: UnknownDeviceSummary) {
-        const linked = d.linked_devices ?? [];
-        if (linked.length === 0) return "";
-        return html`<span
-            class="status-badge hair-device"
-            @click=${(e: Event) => this._toggleLinkedPopover(d.id, e)}
-        >${tp("sniffer.linked", linked.length)}</span>`;
+    private _onAdoptClick(d: UnknownDeviceSummary, e: Event): void {
+        e.stopPropagation();
+        if (!d.linked_devices?.length) {
+            this._promoteTarget = d;
+            return;
+        }
+        this._toggleLinkedPopover(d.id, e);
     }
 
     private _toggleLinkedPopover(deviceId: string, e: Event): void {
@@ -540,9 +547,11 @@ export class IrPluck extends LitElement {
             return;
         }
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        // Right-aligned under the Adopt button (the anchor sits at the
+        // row's right edge), mirroring the Assign popover's math.
         this._linkedPopoverPos = {
             top: rect.bottom + 6,
-            left: rect.left,
+            left: Math.max(8, rect.right - 220),
         };
         this._linkedPopoverId = deviceId;
     }
@@ -559,19 +568,41 @@ export class IrPluck extends LitElement {
                 @click=${() => (this._linkedPopoverId = null)}
             ></div>
             <div
-                class="linked-popover"
+                class="action-popover"
                 style="top: ${this._linkedPopoverPos.top}px; left: ${this
                     ._linkedPopoverPos.left}px;"
             >
+                <div class="popover-header">
+                    ${tp("sniffer.linked", linked.length)}
+                </div>
+                <button
+                    class="popover-item accent"
+                    @click=${(e: Event) => {
+                        e.stopPropagation();
+                        this._linkedPopoverId = null;
+                        this._promoteTarget = d;
+                    }}
+                >
+                    <span>${t("wigs.linked_new")}</span>
+                </button>
+                <div class="popover-divider"></div>
                 ${linked.map(
                     (entry) => html`<button
-                        class="linked-entry"
+                        class="popover-item"
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._linkedPopoverId = null;
                             this._navigateToDevice(entry.device_id);
                         }}
-                    >${entry.device_name}</button>`,
+                    >
+                        <span class="popover-name"
+                            >${entry.device_name}</span
+                        >
+                        <ha-svg-icon
+                            class="linked-chevron"
+                            .path=${"M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"}
+                        ></ha-svg-icon>
+                    </button>`,
                 )}
             </div>`;
     }
@@ -584,11 +615,6 @@ export class IrPluck extends LitElement {
                 composed: true,
             }),
         );
-    }
-
-    private _promoteDevice(d: UnknownDeviceSummary, e: Event): void {
-        e.stopPropagation();
-        this._promoteTarget = d;
     }
 
     private async _onDevicePromoted(): Promise<void> {
@@ -919,17 +945,18 @@ export class IrPluck extends LitElement {
                                 ><strong>${d.signal_count}</strong>
                                 ${d.signal_count === 1 ? "signal" : "signals"}</span
                             >
-                            ${d.label
-                                ? html`<span
-                                      class="status-badge promote-badge"
-                                      title=${t("pluck.promote_title")}
-                                      @click=${(e: Event) => this._promoteDevice(d, e)}
-                                      >${t("sniffer.promote")}</span
-                                  >`
-                                : ""}
-                            ${this._renderLinkedChip(d)}
                         </div>
                     </div>
+                    <button
+                        class="action-btn adopt-btn"
+                        title=${d.linked_devices?.length
+                            ? tp("sniffer.linked", d.linked_devices.length)
+                            : t("pluck.promote_title")}
+                        @click=${(e: Event) => this._onAdoptClick(d, e)}
+                    >${t("wigs.adopt")}<ir-count-dot
+                            color="green"
+                            .count=${d.linked_devices?.length ?? 0}
+                        ></ir-count-dot></button>
                     <ha-svg-icon
                         class="expand-icon"
                         .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
@@ -1275,36 +1302,19 @@ export class IrPluck extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, css`
+    static styles = [actionChipStyles, popoverStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;
             z-index: 39;
         }
-        .linked-popover {
-            position: fixed;
-            z-index: 40;
-            min-width: 160px;
-            background: var(--card-background-color);
-            border: 1px solid var(--divider-color);
-            border-radius: 8px;
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
-            padding: 4px;
-            display: flex;
-            flex-direction: column;
-        }
-        .linked-entry {
-            background: none;
-            border: none;
-            text-align: left;
-            padding: 7px 10px;
-            font-size: 12.5px;
-            color: var(--primary-text-color);
-            cursor: pointer;
-            border-radius: 6px;
-        }
-        .linked-entry:hover {
-            background: rgba(255, 255, 255, 0.06);
+        /* Linked-devices popover (2026-07-28 adopt polish): the shared
+           action-popover anatomy replaces the bespoke list -- the count
+           rides the ADOPT button's dot now. */
+        .linked-chevron {
+            --mdc-icon-size: 14px;
+            color: var(--secondary-text-color);
+            flex: none;
         }
 
         .save-wig-btn {
@@ -1498,36 +1508,17 @@ export class IrPluck extends LitElement {
             color: #455a64;
             border: 1px solid rgba(69, 90, 100, 0.35);
         }
-        .status-badge.hair-device {
-            font-size: 0.7rem;
-            font-weight: 500;
-            font-family: inherit;
-            padding: 2px 8px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            white-space: nowrap;
+        /* ADOPT DEVICE (2026-07-28): the promote and linked-count chips
+           collapsed into one green button at the row's right edge,
+           matching the Sniffer's, Clipper's, and closet's. */
+        .action-btn.adopt-btn {
             flex-shrink: 0;
-            background: rgba(46, 125, 50, 0.15);
-            color: #2e7d32;
-            border: 1px solid rgba(46, 125, 50, 0.3);
+            color: #4caf50;
+            border-color: rgba(76, 175, 80, 0.3);
+            position: relative; /* anchor for the green linked-count dot */
         }
-        .status-badge.promote-badge {
-            font-size: 0.7rem;
-            font-weight: 500;
-            font-family: inherit;
-            padding: 2px 8px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            background: rgba(0, 151, 167, 0.15);
-            color: #0097a7;
-            border: 1px solid rgba(0, 151, 167, 0.35);
-            cursor: pointer;
-            transition: background 150ms ease;
-        }
-        .status-badge.promote-badge:hover {
-            background: rgba(0, 151, 167, 0.25);
+        .action-btn.adopt-btn:hover:not(:disabled) {
+            background: rgba(76, 175, 80, 0.08);
         }
         .stat {
             font-size: 0.85rem;

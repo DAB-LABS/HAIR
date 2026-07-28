@@ -5,6 +5,27 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-07-28 -- Adopt Device
+
+### Added
+
+- **Adopt Device.** Every code set now becomes a HAIR device in one step, from wherever you meet it. Closet wigs, Sniffer remotes, Clipper remotes, and Plucker blasters all carry one green ADOPT DEVICE button. A numbered dot on the button shows how many HAIR devices already run those codes; clicking through lists them with navigation to each, plus an entry to adopt again. Adopting from a wig copies every signal as a named command with protocol identities stamped fresh and recognizable names auto-mapped to entity actions, and the device type dropdown is seeded from the wig's kind.
+- **The code library joined the closet properly.** Built-in library rows (rendered from the infrared-protocols codes package) now carry FIT, ADOPT DEVICE, and download alongside CLIP. Fitting a library codebook first snapshots it into your closet as a wig, since fittings live in wig files; repeat fittings land in the same file by content hash, so its ledger accumulates. Adopting creates the device directly with nothing written to the closet, and download hands you the rendered wig file. Snapshots carry origin `library` with the codebook id and library version in the notes, and the render is deterministic, so fittings of the same library version are comparable across installs.
+- **A dead emitter now tells you** (follow-up to the GH #65 resilience fix). When a send skips or fails an emitter, HAIR raises one persistent notification naming the blaster and the reason. One notice per emitter that replaces itself instead of stacking, and it dismisses itself the next time that emitter answers a send.
+- Closet search now matches the kind and product identifier fields, so a UPC typed straight off the box (or "candles") finds the wig.
+
+### Changed
+
+- The Clipper's "+ Add Remote" and the Devices tab's "+ Add Device" buttons are now simply "+ Add", ahead of a planned split between controlled devices and trigger remotes. The docs say "+ Add" now too.
+- The "Make HAIR Device" and linked-count chips on Sniffer, Clipper, and Plucker cards retired in favor of the ADOPT DEVICE button described above.
+- Closet row buttons reordered and recolored for consistency: ADOPT DEVICE green and first, FIT blue, CLIP copper, DELETE last. Button spacing in the closet and the Mirror now matches the signal rows everywhere else.
+- The v0.6.1 changelog entry about fused Samsung32 end pulses was reworded with a dated correction note; an earlier version asserted an emitter replay mechanism that code review could not support. The captures and the fix stand.
+
+### Fixed
+
+- SmartIR imports whose Base64 codes arrive with their padding stripped (a common shape in circulated files) convert now instead of being refused.
+- The kind hint in the wig editor no longer overlaps its input box.
+
 ## [0.8.0] - 2026-07-28 -- Perfect Fit
 
 ### Added
@@ -135,7 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Air conditioner devices finally expose real target temperatures. The climate entity has supported temperature presets since the entity work landed, but nothing could create them from the UI. Commands named like "Temp 22" or "Temperature 26" now map themselves to the matching temperature step and register the degree value on the thermostat, the same way "Mode: Cool" and "Fan: High" have always self-mapped. Deleting a temp command retires its step. Found by @ripolltata (GH #45), who read the source and correctly identified a half-shipped feature; thank you for the precise report.
 - The thermostat dial is draggable from the start. Without an initial target temperature the dial rendered no handle, and nothing could ever set the first target, so a preset-equipped AC was stuck read-only. The entity now starts at the middle preset; nothing transmits until you actually move it.
 - The climate entity follows your installation's temperature unit instead of assuming Fahrenheit. Metric users' presets are Celsius now, as they always should have been.
-- Samsung32 captures whose end pulse arrives fused with a following frame decode now. Some emitters replay the whole packet for repeats with no gap at the junction, welding the end pulse to the next frame's leader; the decoder tolerates the fused pulse while the protocol checksum keeps gating every decode. Found on the bench with real captures, which are now fixtures.
+- Samsung32 captures whose end pulse arrives fused with a following frame decode now. Real captures show the end pulse can arrive welded to the next frame's leader with no gap at the junction; the decoder tolerates the fused pulse while the protocol checksum keeps gating every decode. Found on the bench with real captures, which are now fixtures. (Wording corrected 2026-07-28: an earlier version of this entry asserted a specific emitter replay mechanism that later code review could not support; the captures and the fix stand.)
 
 ### Changed
 

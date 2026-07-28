@@ -92,3 +92,36 @@ def wig_signal_identity(pronto: str) -> WigSignalIdentity | None:
         decoded_fingerprint=n.decoded_fingerprint,
         decoded_extras=n.decoded_extras,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cached whole-wig identity (Adopt Device, v0.8.1)
+# ---------------------------------------------------------------------------
+
+# Keyed by signals_content_hash: the fitting machinery guarantees a
+# wig's signals cannot change without the hash changing, so entries
+# never go stale. Small LRU-ish cap; a closet scan touches every wig,
+# and decoding a 300-signal wig per scan would otherwise be felt.
+_IDENTITY_CACHE: dict[str, list[WigSignalIdentity | None]] = {}
+_IDENTITY_CACHE_MAX = 128
+
+
+def wig_signal_identities(wig) -> list[WigSignalIdentity | None]:
+    """Identities for every signal in a wig, cached by content hash.
+
+    Position-aligned with ``wig.signals``; an entry is ``None`` when
+    that signal's Pronto does not validate (the caller skips it).
+    """
+    from .wig_format import signals_content_hash
+
+    key = signals_content_hash(wig.signals)
+    cached = _IDENTITY_CACHE.get(key)
+    if cached is not None:
+        return cached
+    identities = [
+        wig_signal_identity(sig.pronto) for sig in wig.signals
+    ]
+    if len(_IDENTITY_CACHE) >= _IDENTITY_CACHE_MAX:
+        _IDENTITY_CACHE.pop(next(iter(_IDENTITY_CACHE)))
+    _IDENTITY_CACHE[key] = identities
+    return identities

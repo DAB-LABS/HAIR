@@ -110,12 +110,15 @@ export interface WigInfo {
     // set at signing or in the editor (v0.8.0).
     kind?: string | null;
     // Product identity anchors (v0.8.0): fcc_id / upc / asin / oem
-    // conventions, single or multiple values. Format bones only for
-    // now; editor fields and search coverage are queued.
+    // conventions, single or multiple values. Editor fields shipped
+    // with v0.8.0; closet search matches these since v0.8.1.
     identifiers?: Record<string, string | string[]> | null;
     // Fitting summary (Perfect Fit): drives the row check marks and
     // the fitted/unfitted filter, computed server-side.
     fitting?: FittingSummary;
+    // Adopt Device (v0.8.1): HAIR devices already carrying this wig's
+    // codes, by tiered identity match.
+    linked_devices?: { device_id: string; device_name: string }[];
 }
 
 // Perfect Fit: the fitting layer.
