@@ -279,7 +279,7 @@ The Clipper tab is for building remotes by hand, for when you cannot or do not w
 
 Click "+ Add" to make a named remote, then expand it and click "+ Add Signal" to add a signal. Paste the Pronto code into the dialog. As you paste, HAIR validates the code and shows a green or red check, the detected carrier frequency, the burst pair count, and the same S/L diamond fingerprint you see in the Sniffer, along with a specific message if anything is wrong (a header that is not `0000`, a truncated code, non-hex characters, or an unusual carrier frequency). Press Enter or click Create once it validates, and give it an alias up front if you like. Pasting a code that is already on the remote is refused, so a remote never ends up with two identical signals.
 
-From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it. Each remote also has a "Delete remote" button that removes it and all of its signals in one step.
+From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it. The whole-remote actions sit in the card header next to ADOPT DEVICE: Add to Closet, and a Delete that removes the remote and all of its signals in one step.
 
 Pronto is the only paste format. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported.
 
@@ -300,7 +300,7 @@ The Closet is the shelf where portable code sets live. Two kinds of entries hang
 Getting things in is one gesture: drop a file anywhere on the tab (or click Browse). The drop bar reads the file, converts it if needed, and becomes the receipt -- it tells you exactly which brand the arrival hung under, with the name and brand clickable so you can jump straight to it. Dropping a file whose codes are already in the closet still files it, but the receipt turns yellow and lists every place an identical device already hangs. Five formats convert on drop:
 
 - **Wig files** (`.wig.json`) -- HAIR's own format, filed as-is.
-- **SmartIR JSON** -- media player and fan files, in all four SmartIR encodings (Base64, Hex, Pronto, Raw). Climate files are refused with an explanation, since they are state matrices rather than buttons.
+- **SmartIR JSON** -- media player, fan, and climate files, in all four SmartIR encodings (Base64, Hex, Pronto, Raw). Climate files convert into wigs carrying a structured state matrix -- every mode / fan / swing / temperature combination as one complete code -- with the file's flat extras (sleep, LED, one-shot codes) arriving as ordinary buttons alongside. See [Stateful air conditioners](#stateful-air-conditioners) for what that unlocks.
 - **Flipper Zero** (`.ir`) -- both raw captures and parsed protocol entries (NEC, Samsung, Sony, RC-5) re-encoded through the code library.
 - **LIRC** (`lircd.conf`) -- raw codes and standard space-encoded remotes, reconstructed from the config's timing parameters, one wig per remote block.
 - **Girr** (IrScrutinizer's export format) -- learned Pronto carried verbatim, one wig per remote. Since IrScrutinizer imports from IRDB, Pronto CCF, JP1, and more, anything it can open is one export away from your closet.
@@ -308,6 +308,14 @@ Getting things in is one gesture: drop a file anywhere on the tab (or click Brow
 Anything a conversion has to skip -- an unsupported protocol, a truncated entry -- is written into the wig's notes with a reason, so a partial import is never silent.
 
 To use an entry, click **CLIP**: the wig materializes on the Clipper as a working remote, each signal decoded fresh against your install's decoders, ready to test, assign, or make into a HAIR device. Clipping the same wig again updates the existing clipped remote instead of minting a duplicate. To share or archive your own work, use **Add to Closet** on any Sniffer, Clipper, or Plucker remote, or on a HAIR device: it saves a wig file carrying the name, brand, model, notes, and an origin stamp that records whether the codes came from live capture, hand entry, a pluck, or a conversion. The wig editor also takes product identifiers (FCC ID, UPC, ASIN, verified OEM) and a **kind** ("candles", "soundbar", "tv") so an off-brand device stays findable even when its brand and model mean little; see [The wig format](docs/wig-format.md).
+
+### Stateful air conditioners
+
+An AC remote does not send buttons, it sends states: every press transmits the complete mode / fan / swing / temperature the unit should be in. HAIR handles those devices as what they are. Drop a SmartIR climate file on the closet and it converts into a wig carrying the full state matrix; the closet row counts its states and peeks the shape of the lattice instead of listing hundreds of cell names. Click ADOPT DEVICE and you get a fully-controlled climate entity: change the temperature on the thermostat card and HAIR looks up that exact state's code and transmits it whole, with swing and temperature controls appearing only when the matrix actually has those dimensions. Temperatures follow your install's unit on every display while the file's native numbers stay untouched underneath.
+
+The device's detail page grows a STATE MATRIX card in cold blue: browse the lattice one branch at a time, see which state the entity last transmitted, send any state directly, or press "+ Command" to save a state you use often as a named command -- it lands in the commands list with a STATE chip and works everywhere a command works, in dashboards and automations included. Fitting a matrix wig uses a dimension check: 12 to 20 sends that walk every mode, fan speed, swing position, and the temperature extremes stand in for the whole lattice, and a fitted matrix wig wears the green check with a cold blue glow.
+
+The honest edges, stated plainly. Files from Xiaomi-controller sources whose codes are Raw are refused, because that Raw is a proprietary compressed format rather than timing data. A small fraction of corpus cells (roughly half a percent) cannot be converted and are skipped with the reason written into the wig's notes, as are modes that have no Home Assistant equivalent. Sparse matrices are honored: a state the file does not carry stays absent in HAIR, which never invents a code. The dimension check attests that each dimension works along its own axis, not that every one of several hundred cells was individually fired. And climate files are treated as Celsius unless they say otherwise, matching the corpus convention -- there is no unit guessing.
 
 ### Fitting a wig
 
@@ -341,7 +349,7 @@ There are six ways to add a device.
 
 **From the Plucker (pull from a vendor blaster):** A blaster you mirror on the Plucker tab becomes a device the same way a sniffed or clipped remote does. Once you have plucked the signals you want with "+ Pluck Signal", click Adopt Device on the blaster. This is the path when the codes already live in a vendor blaster (such as Tuya Local) and you want them as HA entities without re-learning each one at a receiver.
 
-**From the Closet (start from a code set):** Find your device's brand on the Closet tab -- or drop in a wig, SmartIR, Flipper, LIRC, or Girr file -- and click Adopt Device right on the row; the device is created with every button named. If you want to test the codes first, click CLIP to land the set on the Clipper as a working remote, confirm a couple of sends really drive your hardware, then adopt from there. This is the path when someone has already done the capturing for you.
+**From the Closet (start from a code set):** Find your device's brand on the Closet tab -- or drop in a wig, SmartIR, Flipper, LIRC, or Girr file -- and click Adopt Device right on the row; the device is created with every button named. If you want to test the codes first, click CLIP to land the set on the Clipper as a working remote, confirm a couple of sends really drive your hardware, then adopt from there. This is the path when someone has already done the capturing for you. A SmartIR climate file adopts as a fully-controlled air conditioner; see [Stateful air conditioners](#stateful-air-conditioners).
 
 **From an existing device (duplicate):** Click the duplicate icon in the top-right corner of any device card. HAIR opens a dialog pre-filled with `<original name> (Copy)` so you can rename the clone before it lands. All of the original device's commands, action mappings, and emitter assignments are copied across; triggers stay attached to the original. This path is ideal when you have several remotes of the same model (a stack of similar AC units, two identical TVs in different rooms) or when you want a sandbox copy to experiment with action mappings without breaking the working device.
 
@@ -394,7 +402,7 @@ Devices automatically get native HA entities based on their type:
 | Type | HA Entity | Controls |
 |------|-----------|----------|
 | Media Player | `media_player` | Power, volume, mute, source, channels, navigation, transport |
-| AC | `climate` | HVAC modes, temperature presets, fan modes |
+| AC | `climate` | HVAC modes, temperature presets or a full state matrix, fan modes, swing |
 | Fan | `fan` | Power, speed stepping or direct speed levels (1-10), oscillate |
 | Light | `light` | On/off, brightness stepping |
 | Switch | `switch` | On/off |

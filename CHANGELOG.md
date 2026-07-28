@@ -5,6 +5,28 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.8] - 2026-07-29 -- Cold Cuts
+
+### Added
+
+- **SmartIR climate files now import.** Dropping a SmartIR climate JSON on the closet converts it into a wig carrying a structured state matrix instead of refusing it. The importer walks the file the way the corpus is actually shaped -- mode, then fan, then swing, then temperature, with depth detected per branch -- keeps every mode, fan, and swing word verbatim, and brings the file's flat extras (sleep timers, LED toggles, one-shot codes) across as ordinary buttons riding alongside the matrix. Matrix wigs write the new `hair-wig/2` format; everything else stays v1, so older installs keep reading the wigs they already have. Documented in [the wig format](docs/wig-format.md). Together with the adopt path below, this answers the standing stateful-remote request (GH #62, thanks @avonpohle).
+- **Adopt a matrix wig and you get a fully-controlled air conditioner.** ADOPT DEVICE on a climate wig creates a real `climate` entity where every combination of mode, fan speed, swing, and temperature is one complete IR code: each change resolves to its exact cell and transmits the whole state, the way AC remotes actually work. Swing and temperature controls light up only when the matrix carries those dimensions. The matrix is stored as its own file next to the device, so renaming a device never rewrites megabytes of Pronto.
+- **Dimension-check fittings.** Fitting a 300-state matrix does not mean 300 sends. The session builds a checklist of 12 to 20 sends that walk every mode, every fan speed, every swing position, and the temperature extremes -- each dimension proven along its own axis stands in for the lattice, and the claim sentence in the dialog says exactly that. A fitted matrix wig keeps the green check and wears a cold blue glow, the stateful signature.
+- **The state matrix card.** A matrix device's detail page grows a cold-blue STATE MATRIX card: browse the lattice one branch at a time (mode, fan, and swing chips, then that branch's temperatures as tiles, with the state the entity last transmitted wearing the glow), set a state and SEND it, or press "+ Command" to save the state as a named command. Saved states land in the commands list with a small STATE chip and work everywhere a command works. The Map action is absent on matrix devices on purpose: matrix climate reads the matrix, never the mapping.
+- **CLIP on matrix wigs, gated.** Clipping a matrix wig onto the Clipper is back, behind a confirm that counts what it will mint -- "up to" N signals, an honest ceiling, with a slow-to-browse warning on the big ones -- because 2,689 rows should be a choice, not a surprise. Minted rows are named in the state grammar ("cool / fan: auto / 22"), and the clipped remote carries a stamp back to its source wig.
+- **The adopt signpost.** Adopting a wig-stamped Clipper remote flat now passes a signpost first: the dialog names the source wig and the flat cost in real signal counts, then offers "Adopt the wig instead" beside the quiet "Adopt flat anyway". A wig that has since left the closet drops the wig road and says so.
+- **Temperature units handled properly.** The climate block carries an optional `unit` ("C" or "F", default "C" -- the SmartIR corpus is Celsius by convention). Machine keys stay file-native forever; the entity declares the file's unit and Home Assistant converts the thermostat display both ways; panel displays convert dynamically to your install's unit; and names minted from a cell (the matrix clip, saved state commands) freeze in the install's unit at that moment and never rewrite. Preset-mode ACs are untouched and stay unit-agnostic -- the design splits the two on purpose, applying the lesson @ripolltata's metric report taught us back in GH #45.
+
+### Changed
+
+- On all three acquisition tabs (Sniffer, Clipper, Plucker) the expanded card's footer actions moved up into the card header, next to ADOPT DEVICE, and the footer row is gone: ADOPT DEVICE, ADD TO CLOSET, DISMISS (Sniffer only), DELETE, delete last everywhere. The delete button drops the "remote" / "blaster" wording for a bare Delete -- the card header already names the thing.
+
+### Limitations
+
+Stated plainly, because an importer that oversells is worse than none. Files from Xiaomi-controller sources whose codes are Raw are refused: that Raw is a proprietary compressed format, not timing data, and HAIR will not pretend to convert it. Roughly half a percent of corpus cells are unconvertible for other reasons and are skipped, with the reason written into the wig's notes; modes with no Home Assistant equivalent are skipped the same way, with receipts. Sparse matrices are honored -- a state absent from the file stays absent in HAIR, which never invents a cell. The dimension check attests that each dimension works along its own axis, not that all several hundred cells were individually fired. And imported files are treated as Celsius by convention unless they say otherwise, matching the corpus; there is no unit guessing.
+
+The state model also explains a long-standing capture confusion (GH #16, @akikun21's TCL split AC): an AC remote's "buttons" capture as near-identical codes because every press transmits a full-state snapshot, not a button. Capturing one press is capturing one cell of the matrix; for a unit with a published SmartIR climate file, the matrix import above is today's answer.
+
 ## [0.8.1] - 2026-07-28 -- Adopt Device
 
 ### Added

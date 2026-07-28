@@ -1,6 +1,8 @@
-# The wig format (hair-wig/1)
+# The wig format (hair-wig/1, hair-wig/2)
 
 A wig is a portable IR code set: one JSON file describing one remote. HAIR reads wigs from `/config/hair/wigs/`, and any tool can emit them. This page is the format contract; if you build something that writes wigs, this is everything you need.
+
+There are two versions, and the version follows the content. A wig of plain button signals is `hair-wig/1`, unchanged since 0.7.0, and every install that ever read wigs keeps reading it. A wig that carries a climate state matrix (added in HAIR 0.8.8) is `hair-wig/2`: everything in v1 plus the optional `climate` block documented below. An exporter must only write v2 when the wig actually has a climate block, so files never demand a newer reader than they need.
 
 ## A complete example
 
@@ -28,9 +30,9 @@ A wig is a portable IR code set: one JSON file describing one remote. HAIR reads
 
 ## Rules
 
-**Required fields:** `format`, `name`, and a non-empty `signals` list. Each signal requires `alias` and `pronto`. Everything else is optional.
+**Required fields:** `format`, `name`, and a non-empty `signals` list. Each signal requires `alias` and `pronto`. Everything else is optional. One exception: a wig with a `climate` block may have an empty or absent `signals` list -- matrix-only wigs are legal, because the matrix is the payload and flat signals are the optional extras riding alongside it.
 
-**`format`** must be `"hair-wig/1"`. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing.
+**`format`** must be `"hair-wig/1"` or `"hair-wig/2"`. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing. Write v2 only when the wig carries a `climate` block; everything else stays v1.
 
 **`pronto`** carries the raw Pronto hex code, and it is the entire payload. Deliberately, there are no decoded-protocol fields in the file: the importing HAIR install decodes every signal fresh through its own decoders, so a wig can never carry a stale or wrong identity, and it benefits from decoders that shipped after the wig was written. Codes must be valid learned-format Pronto (`0000` header, correct burst-pair length math); HAIR validates each one and rejects the file with a per-signal reason if any code is malformed.
 
@@ -53,13 +55,51 @@ Identifiers are search anchors for humans, not machine identity. The codes thems
 
 **Validation is all-or-nothing.** A file either validates completely or is rejected with concrete, field-level reasons (`signals[3].pronto: ...`). There is no such thing as a half-imported wig.
 
-**Size cap:** 1 MB. A wig is text; this is generous.
+**Size cap:** 16 MB. Raised from 1 MB in 0.8.8 for matrix wigs: a converted climate corpus file runs around 286 KB at the median and 7.9 MB at the worst case.
 
 **File naming:** `<slug>.wig.json`, lowercase, hyphen-separated (for example `foxtel-iq.wig.json`). HAIR only scans files ending in `.wig.json`.
 
+## The climate block (hair-wig/2)
+
+Added in HAIR 0.8.8 for stateful devices, air conditioners above all. An AC remote does not send buttons: every press transmits the complete state the unit should be in, so the code set is a matrix -- one complete Pronto code per mode / fan / swing / temperature combination -- rather than a list of signals. The optional top-level `climate` object carries that matrix.
+
+```json
+"climate": {
+    "min_temp": 16,
+    "max_temp": 30,
+    "precision": 1,
+    "modes": ["cool", "heat", "fan_only"],
+    "fan_modes": ["auto", "low", "high"],
+    "swing_modes": ["off", "swing"],
+    "off": "0000 006d 0022 0002 ...",
+    "on": "0000 006d 0022 0002 ...",
+    "cells": [
+        {
+            "mode": "cool",
+            "fan": "auto",
+            "swing": "off",
+            "temp": 22,
+            "pronto": "0000 006d 0022 0002 ..."
+        }
+    ]
+}
+```
+
+The field rules:
+
+- **`min_temp`** and **`max_temp`** are required numbers with `min_temp` below `max_temp`. **`precision`** (optional, default 1) is the temperature step, a positive number; a few real matrices step by 0.5.
+- **`unit`** (optional) is `"C"` or `"F"`, defaulting to `"C"` -- the SmartIR corpus writes Celsius by convention, and a converter must not guess. It names the scale every temperature in the block is written in. Machine values stay file-native forever; displays convert dynamically to the install's unit, and names minted from a cell freeze in the minter's unit. HAIR's serializer emits the key only when it is `"F"`, so Celsius files stay byte-identical to files written before the key existed.
+- **`modes`**, **`fan_modes`**, **`swing_modes`** (optional lists of non-empty strings) declare the vocabularies in display order. Vocabulary strings are VERBATIM everywhere: they are lookup keys and entity attribute values at once, so a reader or writer must never case-normalize or respell them.
+- **`off`** is required and **`on`** is optional; both are complete-state Pronto codes, validated like any signal. Many real matrices carry only `off` because any cell send implies on.
+- **`cells`** is a required non-empty list. Each cell requires `mode` (non-empty string) and `pronto` (valid Pronto); `fan`, `swing`, and `temp` are each optional, and `send_count` (optional, default 1) works exactly as it does on signals. Dimensions vary per branch: one mode subtree can carry fan / swing / temp while another is a bare one-code mode, so a cell simply omits the dimensions its branch does not have. A cell's canonical key is its coordinates joined by `/` with absent dimensions omitted -- `cool/auto/23`, or a bare `fan_only`.
+- **Sparse matrices are honest.** A combination the device cannot do is simply not a cell. Readers must not invent, interpolate, or snap to invented states; HAIR sends nothing on a sparse miss.
+- Unknown keys inside `climate` and inside each cell are tolerated and preserved, the same growth rule as everywhere else in the format.
+
+A wig may carry a matrix, flat `signals`, or both. The flat signals alongside a matrix are the depth-0 extras (sleep timers, LED toggles, one-shot codes) that are buttons, not states.
+
 ## Canonical signals form
 
-Fittings (below) attach evidence to the exact codes in a wig. They hash the `signals` array in a canonical form, defined from v1 so every install computes identical hashes:
+Fittings (below) attach evidence to the exact codes in a wig. For a signal wig they hash the `signals` array in a canonical form, defined from v1 so every install computes identical hashes:
 
 - A JSON array of objects, in the wig's signal order.
 - Each object carries exactly `alias`, `pronto`, and `send_count` (explicit even when 1); unknown keys are excluded.
@@ -67,6 +107,18 @@ Fittings (below) attach evidence to the exact codes in a wig. They hash the `sig
 - `pronto` whitespace-normalized (single spaces between 4-digit words) and lowercased.
 
 The hash form is `sha256:<hex digest>` over the UTF-8 encoding of that string. Nothing in `hair-wig/1` requires you to compute it; it is documented so files and tools written today stay compatible with what comes next.
+
+## Canonical cells form
+
+Matrix fittings bind to the matrix, so `hair-wig/2` defines a canonical form for the climate block, with the same posture as the signals form:
+
+- A JSON object carrying exactly `unit`, `off`, `on`, and `cells`.
+- `cells` is an array of objects in the wig's cell order; each object carries exactly `mode`, `fan`, `swing`, `temp`, `pronto`, and `send_count`, with absent dimensions as explicit `null` and `send_count` explicit even when 1. Unknown keys are excluded.
+- Every Pronto (`off`, `on`, each cell) whitespace-normalized to single spaces and lowercased; an absent `on` is `null`.
+- Keys sorted alphabetically, compact separators (no whitespace).
+- `unit` participates on purpose: the same numbers on a different scale are different states, so a 22 C lattice and a 22 F lattice can never share a fitting ledger.
+
+The hash form is again `sha256:<hex digest>` over the UTF-8 encoding. Which hash a fitting binds to follows the wig's type: signal wigs use the canonical signals hash, matrix wigs use the canonical cells hash. The flat extras riding alongside a matrix are outside the cells hash -- renaming an extra never invalidates a matrix fitting, and changing any cell always does.
 
 ## Fittings
 
@@ -94,9 +146,9 @@ Added in HAIR 0.8.0. A fitting records that a person sent a wig's signals at rea
 
 The load-bearing rules:
 
-- `confirmed` and `failed` are alias lists, not counts. Anything in neither list was not tested.
-- `content_hash` is the canonical signals hash above, computed when the fitting was made. If a wig's signals change afterward (including an alias rename), the hash no longer matches and the fitting is displayed as outdated rather than silently claiming codes it never saw.
-- A fitting is **complete** when `confirmed` covers every signal in the wig and `failed` is empty. HAIR only lets complete fittings travel: its download and share paths strip incomplete or in-progress fittings, so a shared wig carries whole claims or none.
+- `confirmed` and `failed` are row-key lists, not counts. Anything in neither list was not tested. For a signal wig the keys are aliases, exactly as before 0.8.8. For a matrix wig the keys are cell keys (`cool/auto/23` -- coordinates joined by `/`, absent dimensions omitted, whole-number temps written bare and half-degree temps with their decimal) plus the literal `on` and `off` for the power codes.
+- `content_hash` is the wig's canonical hash above (signals hash for signal wigs, cells hash for matrix wigs), computed when the fitting was made. If the hashed content changes afterward (including an alias rename on a signal wig, or any cell change on a matrix wig), the hash no longer matches and the fitting is displayed as outdated rather than silently claiming codes it never saw.
+- A fitting is **complete** when `confirmed` covers every fitting row of the wig and `failed` is empty. For a signal wig the rows are its signals, one each. For a matrix wig the rows are the **dimension checklist**: a deterministic 12-to-20-row walk derived purely from the climate block that covers the on code, one representative cell per mode, every fan speed and every swing position in the richest mode, the coldest and warmest temperatures, and the off code last. The checklist attests that each dimension works along its own axis; it does not claim every cell was individually fired, and the flat extras alongside a matrix are not rows at all. HAIR only lets complete fittings travel: its download and share paths strip incomplete or in-progress fittings, so a shared wig carries whole claims or none.
 - `key` and `sig` are optional. When present, `sig` is an ed25519 signature over the fitting object minus `sig` (with `key` included), serialized with sorted keys, compact separators, UTF-8. The key pair is generated on the fitting install; a valid signature means the fitting has not been altered since it was recorded there. Unsigned fittings are valid; they are simply self-reported.
 - Fittings are social proof, not cryptographic identity. The handle is what the fitter typed; the GitHub handle is checkable by asking that person; the signature proves the record is unaltered and that fittings sharing a key came from one install.
 
