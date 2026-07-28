@@ -35,6 +35,7 @@ from .wig_climate import (
     ha_mode_for,
     resolve_cell,
     state_display_name,
+    unit_letter,
 )
 
 if TYPE_CHECKING:
@@ -162,14 +163,30 @@ class HAIRClimateEntity(ClimateEntity):
 
     @property
     def temperature_unit(self) -> str:
-        """The installation's unit system, not a hardcoded scale.
+        """Preset mode: the installation's unit. Matrix mode: the
+        FILE's native unit. Mirror images, both correct.
 
         Presets are unit-agnostic integers (a "Temp 22" command is 22
         in whatever unit the user's HA runs), so the entity must
         declare the installation's unit. Hardcoding Fahrenheit made a
         metric user's 16..30C presets display as -9C to -3C (the
         third-party review's B3, surfaced for real by GH #45).
+
+        Matrix temps are the exact opposite (owner ruling 2026-07-29):
+        data-native file numbers, each one a real state the remote
+        encodes. Declaring the matrix's own unit hands HA core the
+        truth, and core then converts BOTH ways dynamically -- the
+        thermostat card displays 16C as 61F on an imperial install,
+        and a 61F set-temperature comes back to this entity as 16.1C
+        for resolve_cell to snap. Declaring the install's unit here
+        instead (the preset rule) would relabel 16C as 16F: the GH #45
+        bug, mirrored.
         """
+        if self._matrix_mode:
+            m = self._matrix
+            if m is not None and m.unit == "F":
+                return UnitOfTemperature.FAHRENHEIT
+            return UnitOfTemperature.CELSIUS
         if self.hass is not None:
             return self.hass.config.units.temperature_unit
         return UnitOfTemperature.FAHRENHEIT
@@ -372,8 +389,21 @@ class HAIRClimateEntity(ClimateEntity):
         # The display grammar names the send (owner ruling 2026-07-29,
         # mockup CC4): the Mirror row and the matrix_cell attribute
         # both read "cool / fan: auto / 22", never the compact
-        # fittings key.
-        name = cell_display_name(cell)
+        # fittings key. The temperature part converts to the INSTALL's
+        # unit at send time (unit ruling 2026-07-29: live surfaces
+        # convert dynamically), so a C-file cell on an imperial
+        # install reads "cool / fan: auto / 72".
+        m = self._matrix
+        display_unit = (
+            unit_letter(self.hass.config.units.temperature_unit)
+            if self.hass is not None else None
+        )
+        name = cell_display_name(
+            cell,
+            unit=m.unit if m is not None else "C",
+            display_unit=display_unit,
+            precision=m.precision if m is not None else 1.0,
+        )
         await self._manager.async_send_matrix_cell(
             self._device.id, name, cell.pronto, cell.send_count
         )

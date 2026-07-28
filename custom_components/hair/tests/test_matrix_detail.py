@@ -152,6 +152,30 @@ class TestClipStamp:
         ]["send_count"] == 2
 
     @pytest.mark.asyncio
+    async def test_clip_names_mint_in_the_install_unit(
+        self, fake_hass, tmp_path
+    ):
+        """Mint-time naming (unit ruling 2026-07-29): on an imperial
+        install a C-file clip mints Fahrenheit names, frozen there;
+        temp-less cells and flat signals ride unchanged."""
+        from homeassistant.const import UnitOfTemperature
+
+        fake_hass.config.config_dir = str(tmp_path)
+        fake_hass.config.units.temperature_unit = (
+            UnitOfTemperature.FAHRENHEIT
+        )
+        _wire_hass(fake_hass, signal_monitor=_real_monitor(fake_hass))
+        filename = write_wig_text(tmp_path, _matrix_wig_text(), "Cold AC")
+        result = await self._clip(fake_hass, _make_connection(), filename)
+        aliases = [s["alias"] for s in result["device"]["signals"]]
+        assert aliases == [
+            "Beep", "Off", "On",
+            "cool / fan: auto / 72",
+            "cool / fan: quiet / swing: swing / 77",
+            "dry / fan: auto",
+        ]
+
+    @pytest.mark.asyncio
     async def test_flat_clip_of_matrix_wig_leaves_no_stamp(
         self, fake_hass, tmp_path
     ):
@@ -334,9 +358,13 @@ class TestMatrixCells:
             "device_id": "dev-1",
         })
         payload = conn.send_result.call_args[0][1]
+        # Bounds and cell temps NATIVE, the file's unit riding along
+        # (unit ruling 2026-07-29): the frontend converts for display
+        # and computes absent tiles from these native numbers.
         assert payload["min_temp"] == 16.0
         assert payload["max_temp"] == 30.0
         assert payload["precision"] == 1.0
+        assert payload["unit"] == "C"
         assert payload["modes"] == ["cool", "dry"]
         assert payload["fan_modes"] == ["auto", "quiet"]
         assert payload["swing_modes"] == ["swing"]
@@ -381,6 +409,32 @@ class TestMatrixSend:
         )
         conn.send_result.assert_called_once_with(
             1, {"sent": "cool / fan: quiet / swing: swing / 25"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_mirror_label_converts_to_the_install_unit(
+        self, fake_hass
+    ):
+        """The unit ruling's LIVE surface: nothing persists on a bare
+        send, so the label follows the install's unit of the moment
+        while the lookup coordinates stay native."""
+        from homeassistant.const import UnitOfTemperature
+
+        fake_hass.config.units.temperature_unit = (
+            UnitOfTemperature.FAHRENHEIT
+        )
+        manager, _device = _wire_matrix(fake_hass, _entity_matrix())
+        conn = _make_connection()
+        await ws_device_matrix_send(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "auto",
+            "temp": 22,
+        })
+        manager.async_send_matrix_cell.assert_awaited_once_with(
+            "dev-1", "cool / fan: auto / 72", "P-C-A-22", 1,
+        )
+        conn.send_result.assert_called_once_with(
+            1, {"sent": "cool / fan: auto / 72"}
         )
 
     @pytest.mark.asyncio
@@ -462,6 +516,27 @@ class TestMatrixCommand:
         assert command.source == CommandSource.MATRIX
         payload = conn.send_result.call_args[0][1]
         assert payload["commands"][0]["source"] == "matrix"
+
+    @pytest.mark.asyncio
+    async def test_saved_name_mints_in_the_install_unit(self, fake_hass):
+        """Mint-time naming (unit ruling 2026-07-29): the saved
+        command's name freezes in the install's unit as of now; the
+        lookup coordinates stay native."""
+        from homeassistant.const import UnitOfTemperature
+
+        fake_hass.config.units.temperature_unit = (
+            UnitOfTemperature.FAHRENHEIT
+        )
+        _manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        await ws_device_matrix_command(
+            fake_hass, _make_connection(),
+            self._msg(mode="cool", fan="quiet", swing="swing", temp=25),
+        )
+        assert device.commands[0].name == (
+            "cool / fan: quiet / swing: swing / 77"
+        )
 
     @pytest.mark.asyncio
     async def test_saving_twice_replaces_by_name(self, fake_hass):

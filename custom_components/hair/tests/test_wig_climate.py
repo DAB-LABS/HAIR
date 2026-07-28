@@ -25,10 +25,12 @@ from custom_components.hair.wig_climate import (
     SECTION_WRAP,
     cell_display_name,
     dimension_checklist,
+    display_temp_str,
     exact_cell,
     matrix_summary,
     resolve_cell,
     state_display_name,
+    unit_letter,
 )
 from custom_components.hair.wig_format import (
     ClimateCell,
@@ -212,8 +214,11 @@ class TestMatrixSummary:
         summary = matrix_summary(self._matrix())
         matrix = self._matrix()
         assert summary["cells"] == len(matrix.cells)
+        # Bounds native, unit riding along (unit ruling 2026-07-29):
+        # the frontend converts per render, the payload never does.
         assert summary["min_temp"] == 16.0
         assert summary["max_temp"] == 30.0
+        assert summary["unit"] == "C"
 
     def test_describes_observed_not_declared(self):
         # "ion" is declared but its subtree skipped at import
@@ -285,6 +290,63 @@ class TestDisplayName:
         assert state_display_name("on") == "On"
         # Defensive passthrough for anything else.
         assert state_display_name("weird") == "weird"
+
+
+class TestUnitConversion:
+    """Display conversion of matrix temperatures (unit ruling
+    2026-07-29): machine keys stay file-native forever, displays and
+    minted names convert to the viewer's unit, non-temp parts never
+    change. displayTemp in temperature.ts mirrors display_temp_str
+    byte-for-byte; any behavior change here must land there too.
+    """
+
+    def test_c_to_f_nearest_int_is_non_uniform(self):
+        """16C and 17C are 1.8F apart, so their nearest whole degrees
+        are 61 and 63 -- the gap is honest, not a bug."""
+        assert display_temp_str(16.0, "C", "F") == "61"
+        assert display_temp_str(17.0, "C", "F") == "63"
+        assert display_temp_str(22.0, "C", "F") == "72"
+
+    def test_half_degree_matrices_render_one_decimal(self):
+        """0.5C steps are 0.9F apart: int rounding would collide
+        distinct cells (22.5C and 23C both round to 73F), so a
+        sub-degree matrix keeps one decimal in the foreign unit."""
+        converted = {
+            display_temp_str(t, "C", "F", precision=0.5)
+            for t in (22.0, 22.5, 23.0)
+        }
+        assert converted == {"71.6", "72.5", "73.4"}
+
+    def test_f_to_c_mirrors_both_rules(self):
+        assert display_temp_str(72.0, "F", "C") == "22"
+        assert display_temp_str(61.0, "F", "C") == "16"
+        assert display_temp_str(72.0, "F", "C", precision=0.5) == "22.2"
+
+    def test_same_or_absent_display_unit_stays_native(self):
+        assert display_temp_str(22.5, "C", "C", precision=0.5) == "22.5"
+        assert display_temp_str(22.0, "C") == "22"
+        assert display_temp_str(22.0, "F", None) == "22"
+
+    def test_cell_name_converts_only_the_temperature(self):
+        cell = ClimateCell(
+            mode="cool", fan="auto", swing="swing", temp=22.0, pronto="P"
+        )
+        assert cell_display_name(cell, unit="C", display_unit="F") == (
+            "cool / fan: auto / swing: swing / 72"
+        )
+        # Zero-arg form: unchanged, native.
+        assert cell_display_name(cell) == (
+            "cool / fan: auto / swing: swing / 22"
+        )
+
+    def test_unit_letter_reads_ha_units_defensively(self):
+        from homeassistant.const import UnitOfTemperature
+
+        assert unit_letter(UnitOfTemperature.FAHRENHEIT) == "F"
+        assert unit_letter(UnitOfTemperature.CELSIUS) == "C"
+        # A mocked or missing config can never flip a name.
+        assert unit_letter(object()) == "C"
+        assert unit_letter(None) == "C"
 
 
 class TestExactCell:

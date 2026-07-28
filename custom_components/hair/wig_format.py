@@ -64,7 +64,7 @@ _KNOWN_TOP = {
 }
 
 _KNOWN_CLIMATE = {
-    "min_temp", "max_temp", "precision", "modes", "fan_modes",
+    "min_temp", "max_temp", "precision", "unit", "modes", "fan_modes",
     "swing_modes", "off", "on", "cells",
 }
 _KNOWN_CELL = {"mode", "fan", "swing", "temp", "pronto", "send_count"}
@@ -181,6 +181,12 @@ class ClimateMatrix:
     off: str
     cells: list[ClimateCell]
     precision: float = 1.0
+    # The scale every temperature in this block is written in (owner
+    # ruling 2026-07-29): "C" or "F", default "C" because the SmartIR
+    # corpus is Celsius by convention. Machine keys (cell_key, temps)
+    # stay file-native forever; displays convert dynamically and names
+    # freeze at mint time (wig_climate.cell_display_name).
+    unit: str = "C"
     modes: list[str] = field(default_factory=list)
     fan_modes: list[str] = field(default_factory=list)
     swing_modes: list[str] = field(default_factory=list)
@@ -429,6 +435,14 @@ def _parse_climate(raw: object, errors: list[str]) -> ClimateMatrix | None:
         errors.append("climate.precision: must be a positive number")
         precision = 1.0
 
+    # The block's temperature scale (owner ruling 2026-07-29). Default
+    # "C": the SmartIR corpus writes Celsius by convention, and every
+    # existing hair-wig/2 file predates the key.
+    unit = raw.get("unit", "C")
+    if unit not in ("C", "F"):
+        errors.append('climate.unit: must be "C" or "F" when present')
+        unit = "C"
+
     lists: dict[str, list[str]] = {}
     for key in ("modes", "fan_modes", "swing_modes"):
         value = raw.get(key, [])
@@ -515,6 +529,7 @@ def _parse_climate(raw: object, errors: list[str]) -> ClimateMatrix | None:
         min_temp=min_temp,  # type: ignore[arg-type]
         max_temp=max_temp,  # type: ignore[arg-type]
         precision=precision,
+        unit=unit,
         modes=lists["modes"],
         fan_modes=lists["fan_modes"],
         swing_modes=lists["swing_modes"],
@@ -587,9 +602,13 @@ def _climate_out(matrix: ClimateMatrix) -> dict:
         "min_temp": _json_temp(matrix.min_temp),
         "max_temp": _json_temp(matrix.max_temp),
         "precision": _json_temp(matrix.precision),
-        "modes": list(matrix.modes),
-        "fan_modes": list(matrix.fan_modes),
     }
+    # Emitted only when Fahrenheit: "C" is the documented default, so
+    # a Celsius file stays byte-identical to its pre-unit self.
+    if matrix.unit == "F":
+        out["unit"] = matrix.unit
+    out["modes"] = list(matrix.modes)
+    out["fan_modes"] = list(matrix.fan_modes)
     if matrix.swing_modes:
         out["swing_modes"] = list(matrix.swing_modes)
     out["off"] = matrix.off
@@ -642,15 +661,19 @@ def canonical_cells_json(matrix: ClimateMatrix) -> str:
     Same posture as ``canonical_signals_json``: every cell as an object
     carrying exactly mode / fan / swing / temp / pronto / send_count
     (absent dimensions as null, send_count explicit, pronto normalized
-    lowercase), plus off and on, keys sorted, separators compact. Two
-    files whose matrices differ only in formatting hash identically;
-    any change to a code or a state key changes the hash.
+    lowercase), plus off, on, and the block's unit, keys sorted,
+    separators compact. Two files whose matrices differ only in
+    formatting hash identically; any change to a code or a state key
+    changes the hash. The unit participates (2026-07-29) because the
+    same numbers on a different scale are different states -- a 22C
+    lattice and a 22F lattice must never share a fitting ledger.
     """
     def _pronto(code: str) -> str:
         result = validate_pronto(code)
         return (result.normalized if result.valid else code).lower()
 
     canon = {
+        "unit": matrix.unit,
         "off": _pronto(matrix.off),
         "on": _pronto(matrix.on) if matrix.on is not None else None,
         "cells": [

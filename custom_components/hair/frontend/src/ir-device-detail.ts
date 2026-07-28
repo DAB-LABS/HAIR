@@ -29,6 +29,7 @@ import type {
     MatrixCells,
     ReceiverInfo,
 } from "./types.js";
+import { displayTemp, installUnit } from "./temperature.js";
 
 // MDI: drag (six-dot grip)
 const ICON_GRIP =
@@ -1036,15 +1037,31 @@ export class IrDeviceDetail extends LitElement {
         );
     }
 
+    /** One matrix temperature as display text, converted to the
+     * viewer's install unit when it differs from the matrix's native
+     * unit (unit ruling 2026-07-29). Display-only: coordinates and
+     * the absent-tile walk stay native. */
+    private _displayTemp(temp: number): string {
+        const mc = this._matrixCells;
+        return displayTemp(
+            temp,
+            mc?.unit ?? "C",
+            installUnit(this.hass),
+            mc?.precision ?? 1,
+        );
+    }
+
     /** The CC4 display grammar, client-side: mode bare, fan and swing
      * labeled, temperature a bare number last. Must mirror
      * wig_climate.cell_display_name byte-for-byte -- the current-tile
-     * glow compares this against the entity's matrix_cell attribute. */
+     * glow compares this against the entity's matrix_cell attribute,
+     * which the backend also converts to the install's unit at send
+     * time, so the temperature part converts here too. */
     private _cellName(c: MatrixCellCoord): string {
         const parts = [c.m];
         if (c.f !== undefined) parts.push(`fan: ${c.f}`);
         if (c.s !== undefined) parts.push(`swing: ${c.s}`);
-        if (c.t !== undefined) parts.push(String(c.t));
+        if (c.t !== undefined) parts.push(this._displayTemp(c.t));
         return parts.join(" / ");
     }
 
@@ -1189,7 +1206,7 @@ export class IrDeviceDetail extends LitElement {
                         disabled
                         title=${t("devices.matrix_absent")}
                     >
-                        ${String(pos)}
+                        ${this._displayTemp(pos)}
                     </button>`;
                 }
                 const isCurrent =
@@ -1207,7 +1224,7 @@ export class IrDeviceDetail extends LitElement {
                             pos,
                         )}
                 >
-                    ${String(pos)}
+                    ${this._displayTemp(pos)}
                 </button>`;
             })}
         </div>`;
@@ -1223,6 +1240,39 @@ export class IrDeviceDetail extends LitElement {
         const current =
             this._climateState()?.attributes?.matrix_cell ?? null;
         const mc = this._matrixCells;
+        // Summary range: converted to the viewer's unit with the unit
+        // letter as suffix ("61 to 86 F"); when converted, the file's
+        // native range rides in a title tooltip (chosen over parens:
+        // the one-line summary is already five facts long). Precision
+        // comes from the loaded lattice when available; summary-only
+        // renders fall back to whole degrees, which corpus bounds are.
+        const viewUnit = installUnit(this.hass);
+        const converted = viewUnit !== m.unit;
+        const rangeTitle = converted
+            ? t("devices.matrix_native_range", {
+                  min: String(m.min_temp),
+                  max: String(m.max_temp),
+                  unit: m.unit,
+              })
+            : "";
+        const summaryText = t("devices.matrix_summary", {
+            cells: String(m.cells),
+            modes: String(m.modes.length),
+            fans: String(m.fan_modes.length),
+            min: displayTemp(
+                m.min_temp,
+                m.unit,
+                viewUnit,
+                mc?.precision ?? 1,
+            ),
+            max: displayTemp(
+                m.max_temp,
+                m.unit,
+                viewUnit,
+                mc?.precision ?? 1,
+            ),
+            unit: viewUnit,
+        });
         const selected = this._selectedCell();
         const fans =
             mc && this._selMode !== null
@@ -1236,14 +1286,8 @@ export class IrDeviceDetail extends LitElement {
             <div class="matrix-card">
                 <div class="mx-head">
                     <span class="mx-title">${t("devices.matrix_title")}</span>
-                    <span class="mx-summary">
-                        ${t("devices.matrix_summary", {
-                            cells: String(m.cells),
-                            modes: String(m.modes.length),
-                            fans: String(m.fan_modes.length),
-                            min: String(m.min_temp),
-                            max: String(m.max_temp),
-                        })}
+                    <span class="mx-summary" title=${rangeTitle}>
+                        ${summaryText}
                     </span>
                 </div>
                 ${current != null

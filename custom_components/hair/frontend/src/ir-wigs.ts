@@ -38,6 +38,7 @@ import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+import { displayTemp, installUnit } from "./temperature.js";
 import "./ir-confirm-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-fitting-dialog.js";
@@ -336,6 +337,21 @@ export class IrWigs extends LitElement {
         this._peekId = row.id;
     }
 
+    /** The peek's temperature line, converted to the viewer's install
+     * unit when it differs from the file's (unit ruling 2026-07-29:
+     * displays convert dynamically, the summary payload stays
+     * native). Whole-degree fallback for the conversion: the summary
+     * carries no precision, and corpus bounds are whole degrees. */
+    private _renderPeekTempRange(): string {
+        const m = this._peekMatrix!;
+        const viewUnit = installUnit(this.hass);
+        return t("wigs.peek.temp", {
+            min: displayTemp(m.min_temp, m.unit, viewUnit),
+            max: displayTemp(m.max_temp, m.unit, viewUnit),
+            unit: viewUnit,
+        });
+    }
+
     private _renderPeek() {
         if (!this._peekId) return "";
         if (!this._peekMatrix && this._peekNames.length === 0) return "";
@@ -367,10 +383,7 @@ export class IrWigs extends LitElement {
                         </div>`
                       : ""}
                   <div class="peek-entry">
-                      ${t("wigs.peek.temp", {
-                          min: String(this._peekMatrix.min_temp),
-                          max: String(this._peekMatrix.max_temp),
-                      })}
+                      ${this._renderPeekTempRange()}
                   </div>`
             : this._peekNames.map(
                   (name) => html`<div class="peek-entry">${name}</div>`,

@@ -246,6 +246,7 @@ def materialize_wig(
     codebook_id: str,
     function_ids: list[str] | None = None,
     include_matrix: bool = False,
+    display_unit: str | None = None,
 ) -> list[dict[str, Any]]:
     """Materialize a local wig into Clipper-ready entries.
 
@@ -264,6 +265,12 @@ def materialize_wig(
     materializing only their flat signals, byte-for-byte the old
     behavior -- the gate exists because 2,689 Clipper rows must be an
     explicit choice, never a surprise.
+
+    ``display_unit`` ("C" / "F") is the install's temperature unit at
+    clip time (unit ruling 2026-07-29): cell names MINT in it, then
+    freeze -- a clipped command keeps its name forever even if the
+    install later switches units, exactly like a saved matrix command.
+    None (and matching units) names cells file-native.
     """
     from .ir_command import ProntoCommand
     from .pronto_validator import validate_pronto
@@ -334,7 +341,14 @@ def materialize_wig(
                 entries.append(entry)
         for cell in matrix.cells:
             entry = _entry(
-                cell_display_name(cell), cell.pronto, cell.send_count
+                cell_display_name(
+                    cell,
+                    unit=matrix.unit,
+                    display_unit=display_unit,
+                    precision=matrix.precision,
+                ),
+                cell.pronto,
+                cell.send_count,
             )
             if entry is not None:
                 entries.append(entry)

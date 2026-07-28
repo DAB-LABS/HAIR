@@ -455,6 +455,10 @@ def _convert_smartir_climate(text: str) -> AdapterResult:
         if cell.swing is not None and cell.swing not in obs_swings:
             obs_swings.append(cell.swing)
 
+    # No unit is set: the format default "C" IS the SmartIR convention
+    # (their climate corpus is Celsius throughout; owner ruling
+    # 2026-07-29 rejected detection heuristics -- a file that "looks
+    # Fahrenheit" is a hand-edit problem, not an import guess).
     matrix = ClimateMatrix(
         min_temp=float(min_temp),
         max_temp=float(max_temp),

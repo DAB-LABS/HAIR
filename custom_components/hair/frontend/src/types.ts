@@ -104,8 +104,12 @@ export interface MatrixSummary {
     modes: string[];
     fan_modes: string[];
     swing_modes: string[];
+    // Bounds are NATIVE file numbers with the file's unit riding
+    // along (unit ruling 2026-07-29): consumers convert for display
+    // per render, the payload never pre-converts.
     min_temp: number;
     max_temp: number;
+    unit: "C" | "F";
 }
 
 // One cell's coordinates in the cell-browser payload (Cold Cuts second
@@ -127,6 +131,10 @@ export interface MatrixCells {
     min_temp: number;
     max_temp: number;
     precision: number;
+    // The matrix's native unit (unit ruling 2026-07-29). Cell temps
+    // and bounds above are in it; displays convert, computations
+    // (absent tiles, coordinates) never do.
+    unit: "C" | "F";
     modes: string[];
     fan_modes: string[];
     swing_modes: string[];
@@ -218,6 +226,11 @@ export interface FittingState {
     kind: string | null;
     // True when this wig fits through the dimension check (Cold Cuts).
     matrix: boolean;
+    // Matrix wigs only, null for signal wigs (unit ruling 2026-07-29):
+    // the matrix's native unit and precision. Row temps stay native;
+    // the dialog converts labels for display with these two facts.
+    unit?: "C" | "F" | null;
+    precision?: number | null;
     // Row keys in session order; for signal wigs this is the alias
     // list, byte-identical to the pre-0.8.8 payload.
     signals: string[];

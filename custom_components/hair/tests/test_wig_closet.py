@@ -237,6 +237,31 @@ class TestMaterializeMatrix:
         assert quiet["code"].upper() == quiet["code"]
         assert by_name["Off"]["send_count"] == 1
 
+    def test_display_unit_mints_converted_names(self, tmp_path):
+        """Mint-time naming (unit ruling 2026-07-29): the caller hands
+        the install's unit letter and cell names freeze in it; power
+        codes, temp-less cells, and flat signals never carry a
+        temperature, so they ride unchanged."""
+        filename = write_wig_text(tmp_path, MATRIX_WIG_TEXT, "Cold AC")
+        entries = materialize_wig(
+            str(tmp_path), wig_codebook_id(filename),
+            include_matrix=True, display_unit="F",
+        )
+        assert [e["name"] for e in entries] == [
+            "Beep",
+            "Off",
+            "On",
+            "cool / fan: auto / 72",
+            "cool / fan: quiet / swing: swing / 77",
+            "dry / fan: auto",
+        ]
+        # A matching unit is a no-op: file-native names, byte-for-byte.
+        entries = materialize_wig(
+            str(tmp_path), wig_codebook_id(filename),
+            include_matrix=True, display_unit="C",
+        )
+        assert "cool / fan: auto / 22" in [e["name"] for e in entries]
+
     def test_gate_open_without_climate_is_a_noop(self, tmp_path):
         """A flat wig with include_matrix asked: nothing extra."""
         filename = write_wig_text(tmp_path, WIG_TEXT, "Foxtel IQ")

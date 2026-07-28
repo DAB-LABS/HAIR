@@ -28,6 +28,7 @@ import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { FittingRow, FittingState, WigInfo } from "./types.js";
+import { displayTemp, installUnit } from "./temperature.js";
 
 // Curated kind suggestions; the input accepts anything (custom kinds
 // welcome) and the server squashes to lowercase alphanumerics.
@@ -543,6 +544,19 @@ export class IrFittingDialog extends LitElement {
         return out;
     }
 
+    /** One matrix temperature as display text, converted to the
+     * viewer's install unit when it differs from the wig's native
+     * unit (unit ruling 2026-07-29). Labels only -- row KEYS and the
+     * mark/send indexing stay native and untouched. */
+    private _displayTemp(temp: number): string {
+        return displayTemp(
+            temp,
+            this._fit?.unit ?? "C",
+            installUnit(this.hass),
+            this._fit?.precision ?? 1,
+        );
+    }
+
     /** The section's dim context note: what stays constant while this
      * section's rows walk one dimension, read off the section's FIRST
      * row (owner ruling 2026-07-28, e.g. "in cool 23, fan auto"). */
@@ -559,7 +573,9 @@ export class IrFittingDialog extends LitElement {
         if (row.mode) {
             const temp = row.section === "temp" ? null : row.temp;
             parts.push(
-                temp != null ? `${row.mode} ${temp}` : row.mode,
+                temp != null
+                    ? `${row.mode} ${this._displayTemp(temp)}`
+                    : row.mode,
             );
         }
         if (row.section !== "fan" && row.fan != null) {
@@ -600,7 +616,9 @@ export class IrFittingDialog extends LitElement {
             caps = true;
             dim = [
                 row.fan,
-                row.temp != null ? `${row.temp}\u00b0` : null,
+                row.temp != null
+                    ? `${this._displayTemp(row.temp)}\u00b0`
+                    : null,
             ]
                 .filter(Boolean)
                 .join(" \u00b7 ");
@@ -618,7 +636,7 @@ export class IrFittingDialog extends LitElement {
                 row.temp_role === "min"
                     ? "fitting.temp_min"
                     : "fitting.temp_max",
-                { temp: String(row.temp) },
+                { temp: row.temp != null ? this._displayTemp(row.temp) : "" },
             );
         }
         return html`

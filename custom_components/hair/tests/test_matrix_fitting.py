@@ -363,6 +363,10 @@ class TestFittingStateRows:
         conn.send_error.assert_not_called()
         payload = conn.send_result.call_args.args[1]
         assert payload["matrix"] is True
+        # Row temps stay native; the dialog converts labels using the
+        # wig's unit and precision (unit ruling 2026-07-29).
+        assert payload["unit"] == "C"
+        assert payload["precision"] == 1.0
         assert payload["signals"] == CHECKLIST_KEYS
         rows = payload["rows"]
         assert [r["key"] for r in rows] == CHECKLIST_KEYS
@@ -393,6 +397,7 @@ class TestFittingStateRows:
         })
         payload = conn.send_result.call_args.args[1]
         assert payload["matrix"] is False
+        assert payload["unit"] is None
         # The pre-0.8.8 contract, byte-identical.
         assert payload["signals"] == ["Power On", "Power Off"]
         assert [(r["key"], r["section"]) for r in payload["rows"]] == [

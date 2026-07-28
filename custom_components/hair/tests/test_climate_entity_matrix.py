@@ -309,3 +309,61 @@ class TestMatrixActions:
             await entity.async_set_hvac_mode(HVACMode.OFF)
         mgr.async_send_matrix_cell.assert_not_awaited()
         assert "not loaded" in caplog.text
+
+
+class TestUnits:
+    """Unit ruling 2026-07-29: matrix temps are data-native file
+    numbers. The entity declares the FILE's unit so HA core converts
+    the thermostat display and inbound set-temperatures both ways
+    dynamically; preset mode keeps the installation-unit behavior
+    byte-for-byte (the mirror image, GH #45). The matrix_cell
+    attribute converts its temperature part to the INSTALL's unit at
+    send time -- a live surface, never a frozen name.
+    """
+
+    @pytest.mark.asyncio
+    async def test_matrix_mode_declares_the_file_unit(self):
+        from homeassistant.const import UnitOfTemperature
+
+        entity, _ = await _entity()
+        # Whatever the install runs, a C file is a C entity.
+        entity.hass.config.units.temperature_unit = (
+            UnitOfTemperature.FAHRENHEIT
+        )
+        assert entity.temperature_unit == UnitOfTemperature.CELSIUS
+
+        f_matrix = _matrix()
+        f_matrix.unit = "F"
+        entity, _ = await _entity(matrix=f_matrix)
+        entity.hass.config.units.temperature_unit = (
+            UnitOfTemperature.CELSIUS
+        )
+        assert entity.temperature_unit == UnitOfTemperature.FAHRENHEIT
+
+    @pytest.mark.asyncio
+    async def test_preset_mode_keeps_the_install_unit(self):
+        from homeassistant.const import UnitOfTemperature
+
+        entity, _ = await _entity()
+        entity._device.climate_matrix = False
+        entity.hass.config.units.temperature_unit = (
+            UnitOfTemperature.FAHRENHEIT
+        )
+        assert entity.temperature_unit == UnitOfTemperature.FAHRENHEIT
+
+    @pytest.mark.asyncio
+    async def test_matrix_cell_attribute_converts_at_send_time(self):
+        from homeassistant.const import UnitOfTemperature
+
+        entity, mgr = await _entity()
+        entity.hass.config.units.temperature_unit = (
+            UnitOfTemperature.FAHRENHEIT
+        )
+        entity._target_temperature = 22.0
+        await entity.async_set_hvac_mode(HVACMode.COOL)
+        name = mgr.async_send_matrix_cell.await_args.args[1]
+        assert name == "cool / fan: auto / 72"
+        assert entity.extra_state_attributes["matrix_cell"] == name
+        # The dial itself stays NATIVE (HA core converts it): the
+        # transmitted cell's own 22, never 72.
+        assert entity.target_temperature == 22.0

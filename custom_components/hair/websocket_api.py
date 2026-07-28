@@ -966,6 +966,11 @@ async def ws_codes_import_remote(
         from .wig_store import load_wig
 
         include_matrix = msg.get("include_matrix", False)
+        # Mint-time naming (unit ruling 2026-07-29): clipped cell
+        # names freeze in the install's unit as of THIS moment.
+        from .wig_climate import unit_letter
+
+        display_unit = unit_letter(hass.config.units.temperature_unit)
         # Both calls do file I/O and fresh decode; off the event loop.
         entries = await hass.async_add_executor_job(
             materialize_wig,
@@ -973,6 +978,7 @@ async def ws_codes_import_remote(
             msg["codebook_id"],
             msg.get("function_ids"),
             include_matrix,
+            display_unit,
         )
         wig = await hass.async_add_executor_job(
             load_wig, hass.config.config_dir, wig_filename
@@ -3214,6 +3220,14 @@ async def ws_fitting_state(
             "username": username,
             "kind": wig.kind,
             "matrix": wig.climate is not None,
+            # Row temps stay NATIVE; the dialog converts for display
+            # using these two facts (unit ruling 2026-07-29). The
+            # precision rides along because the sub-degree one-decimal
+            # display rule needs it, and rows alone do not carry it.
+            "unit": wig.climate.unit if wig.climate is not None else None,
+            "precision": (
+                wig.climate.precision if wig.climate is not None else None
+            ),
             # Row keys in session order. For signal wigs this is the
             # alias list, byte-identical to the pre-0.8.8 payload.
             "signals": [row["key"] for row in rows],
@@ -3630,9 +3644,13 @@ async def ws_device_matrix_cells(
             cell["t"] = c.temp
         cells.append(cell)
     connection.send_result(msg["id"], {
+        # Native bounds plus the native unit (unit ruling 2026-07-29):
+        # the frontend converts for display per render and computes
+        # absent tiles from these native numbers, never the converse.
         "min_temp": matrix.min_temp,
         "max_temp": matrix.max_temp,
         "precision": matrix.precision,
+        "unit": matrix.unit,
         "modes": summary["modes"],
         "fan_modes": summary["fan_modes"],
         "swing_modes": summary["swing_modes"],
@@ -3670,7 +3688,12 @@ async def ws_device_matrix_send(
     if resolved is None:
         return
     data, _device, matrix = resolved
-    from .wig_climate import cell_display_name, exact_cell, state_display_name
+    from .wig_climate import (
+        cell_display_name,
+        exact_cell,
+        state_display_name,
+        unit_letter,
+    )
 
     manager: DeviceManager = data["device_manager"]
     power = msg.get("power")
@@ -3698,7 +3721,16 @@ async def ws_device_matrix_send(
                 msg["id"], "not_found", "No cell at those coordinates"
             )
             return
-        name = cell_display_name(cell)
+        # The Mirror label converts to the install's unit LIVE (unit
+        # ruling 2026-07-29): nothing persists here, so nothing
+        # freezes -- switch the install's unit tomorrow and tomorrow's
+        # sends read in tomorrow's unit.
+        name = cell_display_name(
+            cell,
+            unit=matrix.unit,
+            display_unit=unit_letter(hass.config.units.temperature_unit),
+            precision=matrix.precision,
+        )
         pronto = cell.pronto
         send_count = cell.send_count
     try:
@@ -3747,7 +3779,7 @@ async def ws_device_matrix_command(
         return
     data, device, matrix = resolved
     from .models import CaptureResult
-    from .wig_climate import cell_display_name, exact_cell
+    from .wig_climate import cell_display_name, exact_cell, unit_letter
     from .wig_identity import wig_signal_identity
 
     cell = exact_cell(
@@ -3776,8 +3808,18 @@ async def ws_device_matrix_command(
         raw_timings=list(ident.raw_timings),
         frequency=ident.frequency,
     )
+    # Mint-time naming (unit ruling 2026-07-29): the saved command's
+    # name freezes in the install's unit as of NOW; it never rewrites,
+    # even if the install later changes units. The frontend's Set-state
+    # line previews this exact string.
     command = capture.to_command(
-        cell_display_name(cell), CommandCategory.CUSTOM
+        cell_display_name(
+            cell,
+            unit=matrix.unit,
+            display_unit=unit_letter(hass.config.units.temperature_unit),
+            precision=matrix.precision,
+        ),
+        CommandCategory.CUSTOM,
     )
     command.source = CommandSource.MATRIX
     command.byte_hash = ident.byte_hash

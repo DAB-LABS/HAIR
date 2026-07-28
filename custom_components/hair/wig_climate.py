@@ -62,7 +62,55 @@ def state_display_name(kind: str) -> str:
     return _STATE_DISPLAY.get(kind, kind)
 
 
-def cell_display_name(cell: ClimateCell) -> str:
+def unit_letter(ha_unit: object) -> str:
+    """HA's temperature unit (the degree-glyph "C" / "F" strings) as
+    the matrix letter ("C" / "F").
+
+    The one bridge between ``hass.config.units.temperature_unit`` and
+    the wig format's unit vocabulary. Anything that is not clearly
+    Fahrenheit reads as "C" -- the corpus convention and the format
+    default -- so a mocked or missing config can never flip a name.
+    """
+    return "F" if str(ha_unit).endswith("F") else "C"
+
+
+def display_temp_str(
+    temp: float,
+    unit: str = "C",
+    display_unit: str | None = None,
+    precision: float = 1.0,
+) -> str:
+    """One temperature, converted for DISPLAY when the viewer's unit
+    differs from the matrix's native unit.
+
+    Owner ruling 2026-07-29: matrix temps are data-native file numbers,
+    so displays and minted names convert; machine keys never do. Whole-
+    degree matrices convert to the nearest int (16C -> 61F, 17C -> 63F:
+    the non-uniform spacing is honest, those ARE the nearest degrees).
+    A sub-degree matrix (precision < 1, the six 0.5C corpus files)
+    renders ONE decimal instead, because 0.5C steps are 0.9F apart and
+    int rounding would collide distinct cells (22.5C and 23C both round
+    to 73F). F -> C mirrors both rules. Native renders keep the file's
+    own text (``_temp_str``), untouched by precision.
+
+    The frontend's displayTemp (temperature.ts) mirrors this function
+    byte-for-byte: the current-tile glow compares client-built names
+    against backend-minted ones.
+    """
+    if display_unit is None or display_unit == unit:
+        return _temp_str(temp)
+    converted = temp * 9 / 5 + 32 if unit == "C" else (temp - 32) * 5 / 9
+    if precision < 1:
+        return f"{converted:.1f}"
+    return str(round(converted))
+
+
+def cell_display_name(
+    cell: ClimateCell,
+    unit: str = "C",
+    display_unit: str | None = None,
+    precision: float = 1.0,
+) -> str:
     """THE human name of a cell, on every user surface.
 
     Owner-ruled grammar (2026-07-29, mockup CC4): spaced slashes, mode
@@ -76,6 +124,15 @@ def cell_display_name(cell: ClimateCell) -> str:
     reads "dry / fan: auto" and a bare-mode cell is just its mode.
     The compact ``cell_key`` ("cool/auto/23") stays the fittings
     ledger key and must never appear on a human surface.
+
+    Units (owner ruling 2026-07-29): when ``display_unit`` differs
+    from the matrix's native ``unit``, the temperature part converts
+    through ``display_temp_str``; every other part is unit-agnostic
+    and rides unchanged. Callers minting a PERSISTED name (saved
+    commands, the matrix clip) pass the install's unit at that moment
+    and the name freezes there -- existing names never rewrite. Live
+    surfaces (the Mirror label, the matrix_cell attribute) pass it
+    fresh on every send. The zero-arg form stays valid and native.
     """
     parts = [cell.mode]
     if cell.fan is not None:
@@ -83,7 +140,9 @@ def cell_display_name(cell: ClimateCell) -> str:
     if cell.swing is not None:
         parts.append(f"swing: {cell.swing}")
     if cell.temp is not None:
-        parts.append(_temp_str(cell.temp))
+        parts.append(
+            display_temp_str(cell.temp, unit, display_unit, precision)
+        )
     return " / ".join(parts)
 
 
@@ -329,8 +388,12 @@ def matrix_summary(matrix: ClimateMatrix) -> dict:
         "modes": _ordered(matrix.modes, modes_seen),
         "fan_modes": _ordered(matrix.fan_modes, fans_seen),
         "swing_modes": _ordered(matrix.swing_modes, swings_seen),
+        # Bounds stay NATIVE with the unit riding along (owner ruling
+        # 2026-07-29): the frontend converts for display per render,
+        # the payload never pre-converts.
         "min_temp": matrix.min_temp,
         "max_temp": matrix.max_temp,
+        "unit": matrix.unit,
     }
 
 
