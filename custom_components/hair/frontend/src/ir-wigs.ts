@@ -1176,7 +1176,7 @@ export class IrWigs extends LitElement {
                     </button>
                     ${row.wig
                         ? html`<button
-                              class="action-btn delete-btn row-del"
+                              class="action-btn delete-btn"
                               @click=${() =>
                                   (this._confirmDelete = row.wig!)}
                           >
@@ -1758,12 +1758,11 @@ export class IrWigs extends LitElement {
             margin-left: auto;
             display: flex;
             align-items: center;
-            /* The old order spaced itself with per-button margins;
-               those retired with the 2026-07-28 consistency pass, so
-               the flex gap now carries the rhythm (owner bench find:
-               chips were nearly touching without it). DELETE keeps its
-               extra offset via .row-del -- destructive, set apart. */
-            gap: 8px;
+            /* 4px, the signal-row tolerance (owner ruling 2026-07-28:
+               one button rhythm everywhere -- the Clipper/Sniffer
+               signal rows set it, everything else matches). Delete
+               sits at the same gap, exactly like the signal rows. */
+            gap: 4px;
         }
         .glyph-slot {
             width: 30px;
@@ -1856,9 +1855,6 @@ export class IrWigs extends LitElement {
         }
         .action-btn.clip-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
-        }
-        .row-del {
-            margin-left: 8px;
         }
         .try-btn:disabled {
             opacity: 0.5;

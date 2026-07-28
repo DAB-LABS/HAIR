@@ -924,6 +924,7 @@ export class IrMirror extends LitElement {
                               </button>
                           `
                         : ""}
+                    <span class="mrow-btns">
                     <button
                         class="action-btn assign-btn"
                         ?disabled=${!actionable}
@@ -982,6 +983,7 @@ export class IrMirror extends LitElement {
                             this._deleteSignal = sig;
                         }}
                     >${t("common.delete")}</button>
+                    </span>
                 </div>
             </div>
         `;
@@ -1395,6 +1397,15 @@ export class IrMirror extends LitElement {
                 align-items: center;
                 gap: 10px;
                 white-space: nowrap;
+            }
+            /* The action buttons group at the signal-row tolerance
+               (4px, owner ruling 2026-07-28: one button rhythm
+               everywhere); the 10px meta gap stays for the counts
+               and code glyph around them. */
+            .mrow-btns {
+                display: flex;
+                align-items: center;
+                gap: 4px;
             }
             .counts {
                 font-size: 12px;
