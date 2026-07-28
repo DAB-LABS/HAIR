@@ -784,6 +784,13 @@ class UnknownDevice:
     # Sniffer's linked-device chip resolves it live by id, so renaming
     # either side never breaks the link. None = never promoted.
     promoted_to: str | None = None
+    # Wig provenance for a matrix clip (Cold Cuts second half, owner
+    # ruling CC5 2026-07-29): {"filename": ..., "cells_hash": ...}
+    # stamped when a matrix wig CLIPs with its cells. The adopt
+    # signpost resolves it live at list time -- filename first, then
+    # cells hash over the closet's matrix wigs, so a renamed wig still
+    # points home. None for every other remote.
+    source_wig: dict[str, Any] | None = None
 
     def get_signal(
         self,
@@ -895,6 +902,7 @@ class UnknownDevice:
             "vendor_entity_id": self.vendor_entity_id,
             "appliance": self.appliance,
             "promoted_to": self.promoted_to,
+            "source_wig": dict(self.source_wig) if self.source_wig else None,
         }
 
     @classmethod
@@ -918,4 +926,5 @@ class UnknownDevice:
             vendor_entity_id=data.get("vendor_entity_id"),
             appliance=data.get("appliance"),
             promoted_to=data.get("promoted_to"),
+            source_wig=data.get("source_wig") or None,
         )

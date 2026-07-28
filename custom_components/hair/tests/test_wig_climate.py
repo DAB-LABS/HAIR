@@ -23,11 +23,15 @@ from custom_components.hair.wig_climate import (
     SECTION_SWING,
     SECTION_TEMP,
     SECTION_WRAP,
+    cell_display_name,
     dimension_checklist,
+    exact_cell,
     matrix_summary,
     resolve_cell,
+    state_display_name,
 )
 from custom_components.hair.wig_format import (
+    ClimateCell,
     Wig,
     WigSignal,
     cells_content_hash,
@@ -218,6 +222,106 @@ class TestMatrixSummary:
         assert summary["modes"] == ["cool", "dry", "heat"]
         assert summary["fan_modes"] == ["auto", "low", "high"]
         assert summary["swing_modes"] == ["swing"]
+
+
+class TestDisplayName:
+    """The owner-ruled display grammar (2026-07-29, mockup CC4).
+
+    Spaced slashes, mode bare first, fan and swing labeled, temp a
+    bare number last. The labels are load-bearing: "auto" is a legal
+    value in all three vocabularies (real corpus files declare fan
+    "auto", swing "auto", and mode "auto"), so an unlabeled join could
+    not be read back into coordinates. This grammar is THE name on
+    every human surface; the compact cell_key stays fittings-only.
+    """
+
+    def test_full_cell(self):
+        cell = ClimateCell(mode="cool", fan="auto", temp=22.0, pronto="P")
+        assert cell_display_name(cell) == "cool / fan: auto / 22"
+
+    def test_swing_cell(self):
+        cell = ClimateCell(
+            mode="cool", fan="quiet", swing="swing", temp=25.0, pronto="P"
+        )
+        assert cell_display_name(cell) == (
+            "cool / fan: quiet / swing: swing / 25"
+        )
+
+    def test_triple_auto_stays_readable(self):
+        """The case that forced the labels: every coordinate "auto"."""
+        cell = ClimateCell(
+            mode="auto", fan="auto", swing="auto", temp=24.0, pronto="P"
+        )
+        assert cell_display_name(cell) == (
+            "auto / fan: auto / swing: auto / 24"
+        )
+
+    def test_depth1_cell(self):
+        cell = ClimateCell(mode="dry", fan="auto", pronto="P")
+        assert cell_display_name(cell) == "dry / fan: auto"
+
+    def test_bare_mode_cell(self):
+        assert cell_display_name(
+            ClimateCell(mode="cool", pronto="P")
+        ) == "cool"
+
+    def test_values_verbatim_never_case_normalized(self):
+        """Vocabulary rides exactly as the file spells it (addendum
+        section 3): the strings double as lookup keys."""
+        cell = ClimateCell(
+            mode="COOL", fan="Turbo MAX", swing="Wide  Swing",
+            temp=22.5, pronto="P",
+        )
+        assert cell_display_name(cell) == (
+            "COOL / fan: Turbo MAX / swing: Wide  Swing / 22.5"
+        )
+
+    def test_whole_temps_drop_the_point(self):
+        cell = ClimateCell(mode="cool", fan="auto", temp=22.0, pronto="P")
+        assert cell_display_name(cell).endswith("/ 22")
+
+    def test_power_labels(self):
+        assert state_display_name("off") == "Off"
+        assert state_display_name("on") == "On"
+        # Defensive passthrough for anything else.
+        assert state_display_name("weird") == "weird"
+
+
+class TestExactCell:
+    """The no-snap lookup behind matrix-send and save-state (Cold
+    Cuts second half): real coordinates hit, anything else is None."""
+
+    def _matrix(self):
+        return convert(_smartir_file()).wigs[0].climate
+
+    def test_exact_hit(self):
+        cell = exact_cell(self._matrix(), "cool", "auto", None, 22)
+        assert cell is not None and cell.temp == 22.0
+
+    def test_int_temp_matches_float_cell(self):
+        # WS payloads carry 22, cells store 22.0; same coordinate.
+        m = self._matrix()
+        assert exact_cell(m, "cool", "auto", None, 22) \
+            is exact_cell(m, "cool", "auto", None, 22.0)
+
+    def test_never_snaps(self):
+        # 24 sits between real temps 22 and 30: resolve_cell would
+        # snap, exact_cell must refuse.
+        assert exact_cell(self._matrix(), "cool", "auto", None, 24) is None
+
+    def test_no_dimension_fallbacks(self):
+        m = self._matrix()
+        assert exact_cell(m, "cool", "nonsense", None, 22) is None
+        # cool/high exists only behind swing; without it, no cell.
+        assert exact_cell(m, "cool", "high", None, 22) is None
+        assert exact_cell(m, "cool", "high", "swing", 22) is not None
+
+    def test_depth1_exact(self):
+        cell = exact_cell(self._matrix(), "dry", "auto")
+        assert cell is not None and cell.temp is None
+
+    def test_missing_mode(self):
+        assert exact_cell(self._matrix(), "ion", "auto", None, 22) is None
 
 
 class TestResolveCell:

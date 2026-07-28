@@ -7,11 +7,15 @@ The contracts under test:
   matrix actually carries.
 - Every action resolves the full target state to ONE cell and sends
   its complete-state Pronto via the manager's matrix send path, named
-  by cell key; temperature snaps to what actually went out.
+  by the DISPLAY grammar ("cool / fan: auto / 22", owner ruling
+  2026-07-29 mockup CC4); temperature snaps to what actually went out.
 - OFF sends the file's off code (named "Off") and setters while OFF
   store state locally without transmitting (no surprise blasts).
 - Sparse matrices miss honestly: a warning, no send, no raise.
-- The matrix_cell attribute tracks the last transmitted cell.
+- The matrix_cell attribute tracks the last transmitted cell by its
+  display name -- the machine cell_key never surfaces here.
+- Matrix mode never reads entity_config.command_mapping (the Map
+  door stays shut; preset modes are the documented way back in).
 
 Preset-mode behavior is pinned by the existing suite in
 test_entities.py and deliberately untouched here.
@@ -151,12 +155,12 @@ class TestMatrixActions:
         await entity.async_set_hvac_mode(HVACMode.COOL)
         # Seeded target 23 snaps to the branch's 22.
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool/auto/22", "P-C-A-22", 1
+            "dev-1", "cool / fan: auto / 22", "P-C-A-22", 1
         )
         assert entity.hvac_mode == HVACMode.COOL
         assert entity.target_temperature == 22.0
         assert entity.extra_state_attributes == {
-            "matrix_cell": "cool/auto/22"
+            "matrix_cell": "cool / fan: auto / 22"
         }
 
     @pytest.mark.asyncio
@@ -164,7 +168,7 @@ class TestMatrixActions:
         entity, mgr = await _entity()
         await entity.async_set_hvac_mode(HVACMode.HEAT)
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "heat/auto/22", "P-H-A-22", 2
+            "dev-1", "heat / fan: auto / 22", "P-H-A-22", 2
         )
 
     @pytest.mark.asyncio
@@ -174,7 +178,7 @@ class TestMatrixActions:
         await entity.async_set_temperature(temperature=27)
         # 27 snaps to 30 (nearest of 16/22/30).
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool/auto/30", "P-C-A-30", 1
+            "dev-1", "cool / fan: auto / 30", "P-C-A-30", 1
         )
         assert entity.target_temperature == 30.0
 
@@ -188,7 +192,7 @@ class TestMatrixActions:
         # The stored state rides out on the next mode action.
         await entity.async_set_hvac_mode(HVACMode.COOL)
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool/auto/16", "P-C-A-16", 1
+            "dev-1", "cool / fan: auto / 16", "P-C-A-16", 1
         )
 
     @pytest.mark.asyncio
@@ -197,7 +201,7 @@ class TestMatrixActions:
         entity._hvac_mode = HVACMode.COOL
         await entity.async_set_fan_mode("low")
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool/low/22", "P-C-L-22", 1
+            "dev-1", "cool / fan: low / 22", "P-C-L-22", 1
         )
         assert entity.fan_mode == "low"
 
@@ -214,7 +218,7 @@ class TestMatrixActions:
         entity._hvac_mode = HVACMode.COOL
         await entity.async_set_swing_mode("swing")
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool/auto/swing/22", "P-C-A-22", 1
+            "dev-1", "cool / fan: auto / swing: swing / 22", "P-C-A-22", 1
         )
         assert entity.swing_mode == "swing"
 
@@ -227,7 +231,7 @@ class TestMatrixActions:
             "dev-1", "Off", P_OFF
         )
         assert entity.hvac_mode == HVACMode.OFF
-        assert entity.extra_state_attributes == {"matrix_cell": "off"}
+        assert entity.extra_state_attributes == {"matrix_cell": "Off"}
 
     @pytest.mark.asyncio
     async def test_turn_off_matches_off_mode(self):
@@ -246,14 +250,14 @@ class TestMatrixActions:
         )
         # Displays the file's first mode as the assumed on-state.
         assert entity.hvac_mode == HVACMode.COOL
-        assert entity.extra_state_attributes == {"matrix_cell": "on"}
+        assert entity.extra_state_attributes == {"matrix_cell": "On"}
 
     @pytest.mark.asyncio
     async def test_turn_on_without_on_code_resolves_first_mode(self):
         entity, mgr = await _entity(matrix=_matrix(on=None))
         await entity.async_turn_on()
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool/auto/22", "P-C-A-22", 1
+            "dev-1", "cool / fan: auto / 22", "P-C-A-22", 1
         )
         assert entity.hvac_mode == HVACMode.COOL
 
@@ -268,6 +272,30 @@ class TestMatrixActions:
         assert "no cell" in caplog.text
         # The attribute stays honest: nothing new went out.
         assert entity.extra_state_attributes == {"matrix_cell": None}
+
+    @pytest.mark.asyncio
+    async def test_matrix_mode_never_reads_command_mapping(self):
+        """The Map door stays shut (Cold Cuts second half, 2026-07-29):
+        every matrix send resolves from the matrix file, so a mapping
+        left over from any past life must be inert -- the frontend
+        hides the Map action and the backend needs no enforcement
+        because these paths never consult it. Documented door: preset
+        modes on matrix devices may one day revive the mapping through
+        _send; until then this test pins the wall."""
+        entity, mgr = await _entity()
+        entity._device.entity_config.command_mapping = {
+            "turn_on": "Trap", "turn_off": "Trap", "power_toggle": "Trap",
+            "mode_cool": "Trap", "fan_auto": "Trap", "temp_22": "Trap",
+        }
+        mgr.async_send_command = AsyncMock()
+        await entity.async_set_hvac_mode(HVACMode.COOL)
+        await entity.async_set_temperature(temperature=22)
+        await entity.async_set_fan_mode("low")
+        await entity.async_turn_on()
+        await entity.async_turn_off()
+        mgr.async_send_command.assert_not_awaited()
+        # Everything above went out through the matrix path instead.
+        assert mgr.async_send_matrix_cell.await_count == 5
 
     @pytest.mark.asyncio
     async def test_unloaded_matrix_refuses_gracefully(self, caplog):

@@ -581,7 +581,7 @@ async def test_codes_import_remote_success(fake_hass):
             },
         )
     monitor.import_manual_remote.assert_awaited_once_with(
-        "LG TV", entries, merge_existing=False
+        "LG TV", entries, merge_existing=False, source_wig=None
     )
     conn.send_result.assert_called_once()
     assert conn.send_result.call_args[0][1]["imported"] == 3

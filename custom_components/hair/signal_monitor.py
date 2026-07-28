@@ -2404,6 +2404,7 @@ class SignalMonitor:
         name: str,
         entries: list[dict[str, Any]],
         merge_existing: bool = False,
+        source_wig: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a clipped remote pre-filled from materialized codebook entries.
 
@@ -2422,6 +2423,15 @@ class SignalMonitor:
         imported collapses onto existing rows via the tiered duplicate
         guard (wigs.md section 6). Library imports keep their historical
         new-remote-every-time behavior.
+
+        ``source_wig`` (Cold Cuts second half, owner ruling CC5): the
+        wig-provenance stamp a matrix clip leaves on the remote,
+        ``{"filename": ..., "cells_hash": ...}``. Written on create AND
+        on merge -- re-clipping the same wig collapses onto the one
+        remote and REFRESHES the stamp, so the adopt signpost always
+        resolves against the latest clip. None leaves any existing
+        stamp untouched (a plain flat re-import must not erase matrix
+        provenance).
         """
         label = (name or "").strip() or "Imported Remote"
         now_iso = datetime.now(UTC).isoformat()
@@ -2449,6 +2459,8 @@ class SignalMonitor:
                     hit_count=0,
                 )
                 device.fingerprint = f"manual:{device.id}"
+            if source_wig is not None:
+                device.source_wig = dict(source_wig)
             for entry in entries:
                 result = validate_pronto(entry.get("code") or "")
                 if not result.valid:

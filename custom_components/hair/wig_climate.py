@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .wig_format import ClimateCell, ClimateMatrix, cell_key
+from .wig_format import ClimateCell, ClimateMatrix, _temp_str, cell_key
 
 # File-mode -> HA HVACMode value. Direct names map to themselves; the
 # two aliases are corpus fact (census: "fan" in 24 files, "cold" in 1).
@@ -49,6 +49,69 @@ MODE_ALIAS: dict[str, str] = {
 def ha_mode_for(mode: str) -> str | None:
     """The HA HVAC mode string for a file mode key, or None."""
     return MODE_ALIAS.get(mode)
+
+
+# Power-code display labels. Title case where cells stay verbatim
+# because the power keys are OURS (file-level "off"/"on", not user
+# vocabulary), so they may carry the one capitalization in the system.
+_STATE_DISPLAY = {"off": "Off", "on": "On"}
+
+
+def state_display_name(kind: str) -> str:
+    """The human label for a power code: "off" -> "Off", "on" -> "On"."""
+    return _STATE_DISPLAY.get(kind, kind)
+
+
+def cell_display_name(cell: ClimateCell) -> str:
+    """THE human name of a cell, on every user surface.
+
+    Owner-ruled grammar (2026-07-29, mockup CC4): spaced slashes, mode
+    bare first, fan and swing labeled, temperature a bare number last:
+    "cool / fan: auto / 22". The labels are load-bearing, not
+    decoration: "auto" is a legal value in the mode, fan, AND swing
+    vocabularies of real corpus files, so an unlabeled
+    "auto / auto / auto" cannot be read back into coordinates. Values
+    ride verbatim (never case-normalized, addendum section 3);
+    dimensions the cell does not carry are omitted, so a depth-1 cell
+    reads "dry / fan: auto" and a bare-mode cell is just its mode.
+    The compact ``cell_key`` ("cool/auto/23") stays the fittings
+    ledger key and must never appear on a human surface.
+    """
+    parts = [cell.mode]
+    if cell.fan is not None:
+        parts.append(f"fan: {cell.fan}")
+    if cell.swing is not None:
+        parts.append(f"swing: {cell.swing}")
+    if cell.temp is not None:
+        parts.append(_temp_str(cell.temp))
+    return " / ".join(parts)
+
+
+def exact_cell(
+    matrix: ClimateMatrix,
+    mode: str,
+    fan: str | None = None,
+    swing: str | None = None,
+    temp: float | None = None,
+) -> ClimateCell | None:
+    """The cell at EXACTLY these coordinates, or None.
+
+    No snapping and no first-of-branch fallbacks, unlike
+    ``resolve_cell``: the cell browser and save-state-as-command send
+    coordinates read off the matrix itself (Cold Cuts second half,
+    2026-07-29), so a miss means a stale or hand-rolled caller and the
+    honest answer is "no such state", never a nearby one.
+    """
+    temp = float(temp) if temp is not None else None
+    for cell in matrix.cells:
+        if (
+            cell.mode == mode
+            and cell.fan == fan
+            and cell.swing == swing
+            and cell.temp == temp
+        ):
+            return cell
+    return None
 
 
 # Checklist sections, in walk order (mockup CC1). OFF is last so the

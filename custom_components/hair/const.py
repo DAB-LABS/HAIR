@@ -262,6 +262,13 @@ class CommandSource(StrEnum):
     CAPTURED = "captured"
     DATABASE = "database"
     IMPORTED = "imported"
+    # Saved off a device's climate matrix (Cold Cuts second half,
+    # 2026-07-29: save-state-as-command). Rides the existing source
+    # field because that field already IS the origin story: the
+    # frontend renders the STATE origin chip on source == "matrix"
+    # with no extra payload key, and to_dict/from_dict round-trip it
+    # for free.
+    MATRIX = "matrix"
 
 
 class CaptureProviderType(StrEnum):

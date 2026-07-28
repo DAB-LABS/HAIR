@@ -455,6 +455,23 @@ def test_unknown_device_legacy_load_defaults_to_sniffed():
     assert UnknownDevice.from_dict(legacy).source == "sniffed"
 
 
+def test_unknown_device_source_wig_round_trip():
+    """The matrix-clip provenance stamp (Cold Cuts second half, owner
+    ruling CC5) persists through the catalog store's to/from_dict."""
+    from custom_components.hair.models import UnknownDevice
+
+    stamp = {"filename": "cold-ac.wig.json", "cells_hash": "sha256:ab"}
+    dev = UnknownDevice(label="Cold AC", source="manual", source_wig=stamp)
+    d = dev.to_dict()
+    assert d["source_wig"] == stamp
+    loaded = UnknownDevice.from_dict(d)
+    assert loaded.source_wig == stamp
+    # Pre-Cold-Cuts records lack the field entirely: default None.
+    legacy = {"id": "dev1", "label": "Old Remote", "signals": []}
+    assert UnknownDevice.from_dict(legacy).source_wig is None
+    assert UnknownDevice().to_dict()["source_wig"] is None
+
+
 # ---------------------------------------------------------------------------
 # alias field (Clips signal nickname) on UnknownSignal
 # ---------------------------------------------------------------------------

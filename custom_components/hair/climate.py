@@ -30,8 +30,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
-from .wig_climate import ha_mode_for, resolve_cell
-from .wig_format import cell_key
+from .wig_climate import (
+    cell_display_name,
+    ha_mode_for,
+    resolve_cell,
+    state_display_name,
+)
 
 if TYPE_CHECKING:
     from .wig_format import ClimateCell, ClimateMatrix
@@ -120,9 +124,11 @@ class HAIRClimateEntity(ClimateEntity):
         # file I/O never runs in a constructor called on the loop).
         self._swing_mode: str | None = None
         self._matrix: ClimateMatrix | None = None
-        # cell_key of the last transmitted cell ("off"/"on" for the
-        # power codes): the device page's current-cell readout (owner
-        # ruling Q2). None until the first send.
+        # Display name of the last transmitted cell ("Off"/"On" for
+        # the power codes): the device page's current-cell readout
+        # (owner ruling Q2). Display grammar since the second half
+        # (owner ruling 2026-07-29): the machine cell_key never
+        # appears on a user surface. None until the first send.
         self._matrix_cell: str | None = None
         self._seed_target_temperature()
 
@@ -339,6 +345,14 @@ class HAIRClimateEntity(ClimateEntity):
     # mode/on action). A resolve miss logs and sends nothing: matrices
     # are SPARSE (census: 158 explicit nulls) and a missing state is
     # file fact, not an error to throw at the user.
+    #
+    # Matrix mode NEVER reads entity_config.command_mapping: every
+    # send resolves from the matrix file, so the Map action is
+    # meaningless on a matrix device and the frontend simply hides it
+    # (Cold Cuts second half, 2026-07-29) -- no backend enforcement,
+    # because a stale mapping is inert here by construction. The
+    # documented door: if preset modes ever revive on matrix devices,
+    # the mapping comes back through _send, not through these paths.
 
     def _file_mode_for(self, hvac_mode: HVACMode) -> str | None:
         """The file's verbatim mode key for an HA mode, or None.
@@ -355,11 +369,15 @@ class HAIRClimateEntity(ClimateEntity):
         return None
 
     async def _async_send_cell(self, cell: ClimateCell) -> None:
-        key = cell_key(cell)
+        # The display grammar names the send (owner ruling 2026-07-29,
+        # mockup CC4): the Mirror row and the matrix_cell attribute
+        # both read "cool / fan: auto / 22", never the compact
+        # fittings key.
+        name = cell_display_name(cell)
         await self._manager.async_send_matrix_cell(
-            self._device.id, key, cell.pronto, cell.send_count
+            self._device.id, name, cell.pronto, cell.send_count
         )
-        self._matrix_cell = key
+        self._matrix_cell = name
         # Snap the dial to what actually went out: resolve_cell picks
         # the nearest available temperature, and displaying a target
         # the unit never received would be a quiet lie.
@@ -400,10 +418,11 @@ class HAIRClimateEntity(ClimateEntity):
                 self._device.name,
             )
         else:
+            name = state_display_name("off")
             await self._manager.async_send_matrix_cell(
-                self._device.id, "Off", self._matrix.off
+                self._device.id, name, self._matrix.off
             )
-            self._matrix_cell = "off"
+            self._matrix_cell = name
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
 
@@ -496,10 +515,11 @@ class HAIRClimateEntity(ClimateEntity):
             if m is not None and m.on is not None:
                 # A dedicated power-on code exists: send it and let the
                 # unit resume its own last state.
+                name = state_display_name("on")
                 await self._manager.async_send_matrix_cell(
-                    self._device.id, "On", m.on
+                    self._device.id, name, m.on
                 )
-                self._matrix_cell = "on"
+                self._matrix_cell = name
                 if self._hvac_mode == HVACMode.OFF:
                     self._hvac_mode = self._first_matrix_hvac_mode()
             else:
