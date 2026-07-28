@@ -480,6 +480,7 @@
     "wigs.origin.device": "Экспортирован из команд устройства HAIR.",
     "wigs.origin.converted": "Преобразован из {format}. Ещё не проверен на оборудовании.",
     "wigs.origin.unknown": "Происхождение неизвестно.",
+    "wigs.origin.library": "Создано из встроенной библиотеки кодов.",
     "wigs.editor.brand": "Бренд",
     "wigs.editor.model": "Модель",
     "wigs.editor.notes": "Заметки",
@@ -578,5 +579,8 @@
     "wigs.linked.one": "{count} устройство",
     "wigs.linked.few": "{count} устройства",
     "wigs.linked.many": "{count} устройств",
-    "wigs.linked.other": "{count} устройств"
+    "wigs.linked.other": "{count} устройств",
+    "wigs.linked_new": "+ новое устройство",
+    "wigs.snapshot_saved": "Сохранено в шкафу как {filename}",
+    "wigs.snapshot_existing": "Уже есть в шкафу как {filename}"
 }

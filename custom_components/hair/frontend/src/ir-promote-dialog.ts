@@ -35,6 +35,10 @@ export class IrPromoteDialog extends LitElement {
     /** Adopt Device (v0.8.1): when set, create FROM THIS WIG via the
      * direct-copy path instead of a catalog promote. */
     @property() public wigFilename = "";
+    /** Library rows (v0.8.1): when set, adopt straight from this
+     * codebook -- the backend renders a transient wig, nothing is
+     * written to the closet. Mutually exclusive with wigFilename. */
+    @property() public codebookId = "";
     /** Seed the type dropdown (from the wig's kind); user can change. */
     @property() public suggestedType: DeviceTypeId | "" = "";
 
@@ -75,9 +79,11 @@ export class IrPromoteDialog extends LitElement {
         this._error = null;
 
         try {
-            if (this.wigFilename) {
+            if (this.wigFilename || this.codebookId) {
                 await this.api.wigMakeDevice(
-                    this.wigFilename,
+                    this.wigFilename
+                        ? { filename: this.wigFilename }
+                        : { codebookId: this.codebookId },
                     name,
                     this._type,
                     this._emitterIds,

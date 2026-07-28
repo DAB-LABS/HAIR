@@ -480,6 +480,7 @@
     "wigs.origin.device": "Wyeksportowana z poleceń urządzenia HAIR.",
     "wigs.origin.converted": "Przekonwertowana z {format}. Jeszcze nieprzetestowana na sprzęcie.",
     "wigs.origin.unknown": "Pochodzenie nieznane.",
+    "wigs.origin.library": "Wygenerowano z wbudowanej biblioteki kodów.",
     "wigs.editor.brand": "Marka",
     "wigs.editor.model": "Model",
     "wigs.editor.notes": "Notatki",
@@ -578,5 +579,8 @@
     "wigs.linked.one": "{count} urządzenie",
     "wigs.linked.few": "{count} urządzenia",
     "wigs.linked.many": "{count} urządzeń",
-    "wigs.linked.other": "{count} urządzeń"
+    "wigs.linked.other": "{count} urządzeń",
+    "wigs.linked_new": "+ nowe urządzenie",
+    "wigs.snapshot_saved": "Zapisano w szafie jako {filename}",
+    "wigs.snapshot_existing": "Już jest w szafie jako {filename}"
 }

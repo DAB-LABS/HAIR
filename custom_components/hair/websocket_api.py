@@ -120,6 +120,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fitting_discard)
     websocket_api.async_register_command(hass, ws_fitting_state)
     websocket_api.async_register_command(hass, ws_wig_make_device)
+    websocket_api.async_register_command(hass, ws_wig_snapshot)
+    websocket_api.async_register_command(hass, ws_wig_render)
 
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
@@ -3118,7 +3120,12 @@ def _wig_linked_devices(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/make-device",
-    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Exclusive("filename", "wig_source"): vol.All(
+        str, vol.Length(max=300)
+    ),
+    vol.Exclusive("codebook_id", "wig_source"): vol.All(
+        str, vol.Length(max=300)
+    ),
     vol.Required("name"): vol.All(str, vol.Length(min=1, max=200)),
     vol.Required("device_type"): str,
     vol.Required("emitter_entity_ids"): [str],
@@ -3136,6 +3143,11 @@ async def ws_wig_make_device(
     fresh from the wig's Pronto, auto-mapped so entity features light
     up. Brand and model ride over from the wig. A cancelled dialog
     calls nothing, so there is never an orphan to clean up.
+
+    Source is EITHER a closet ``filename`` or a library ``codebook_id``
+    (v0.8.1 library rows): the codebook path renders a transient wig
+    through the snapshot primitive and adopts it identically, writing
+    nothing to the closet.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3149,15 +3161,31 @@ async def ws_wig_make_device(
         connection.send_error(msg["id"], "invalid_format", "Unknown device_type")
         return
 
-    fitting_manager = data.get("fitting_manager")
-    if fitting_manager is not None:
-        await fitting_manager.async_flush(msg["filename"])
+    filename = msg.get("filename")
+    codebook_id = msg.get("codebook_id")
+    if filename is None and codebook_id is None:
+        connection.send_error(
+            msg["id"], "invalid_format",
+            "Provide filename or codebook_id",
+        )
+        return
 
-    from .wig_store import load_wig
+    if filename is not None:
+        fitting_manager = data.get("fitting_manager")
+        if fitting_manager is not None:
+            await fitting_manager.async_flush(filename)
 
-    wig = await hass.async_add_executor_job(
-        load_wig, hass.config.config_dir, msg["filename"]
-    )
+        from .wig_store import load_wig
+
+        wig = await hass.async_add_executor_job(
+            load_wig, hass.config.config_dir, filename
+        )
+    else:
+        from .code_library import build_wig_from_codebook
+
+        wig = await hass.async_add_executor_job(
+            build_wig_from_codebook, codebook_id
+        )
     if wig is None:
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
@@ -3211,4 +3239,94 @@ async def ws_wig_make_device(
     result = _device_full(device)
     result["copied"] = copied
     result["skipped"] = skipped
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/snapshot",
+    vol.Required("codebook_id"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_wig_snapshot(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Snapshot a library codebook into the closet (v0.8.1).
+
+    The FIT road for library rows: fittings live in wig files, so
+    fitting a codebook first materializes it as a wig. Dedup is by
+    signals content hash -- fitting the same codebook twice (or after
+    a manual Download-and-upload) lands in the ONE existing file
+    instead of minting a twin, which is what keeps every fitting of a
+    given render accumulating in the same ledger.
+    """
+
+    def _snapshot() -> dict[str, Any] | None:
+        from .code_library import build_wig_from_codebook
+        from .wig_format import serialize_wig, signals_content_hash
+        from .wig_store import scan_wigs, write_wig_text
+
+        wig = build_wig_from_codebook(msg["codebook_id"])
+        if wig is None:
+            return None
+        content = signals_content_hash(wig.signals)
+        for loaded in scan_wigs(hass.config.config_dir).wigs:
+            if signals_content_hash(loaded.wig.signals) == content:
+                return {
+                    "filename": loaded.path.name,
+                    "name": loaded.wig.name,
+                    "existed": True,
+                }
+        filename = write_wig_text(
+            hass.config.config_dir, serialize_wig(wig), wig.name
+        )
+        if filename is None:
+            return None
+        return {"filename": filename, "name": wig.name, "existed": False}
+
+    result = await hass.async_add_executor_job(_snapshot)
+    if result is None:
+        connection.send_error(msg["id"], "not_found", "Codebook not found")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/render",
+    vol.Required("codebook_id"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_wig_render(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Render a library codebook as downloadable wig text (v0.8.1).
+
+    The Download road for library rows: same snapshot primitive, but
+    nothing touches the closet -- the text goes straight out as a file.
+    The suggested filename slugifies the wig name with no collision
+    dodging (it is a browser download, not a closet write).
+    """
+
+    def _render() -> dict[str, Any] | None:
+        from .code_library import build_wig_from_codebook
+        from .wig_format import serialize_wig, wig_filename
+
+        wig = build_wig_from_codebook(msg["codebook_id"])
+        if wig is None:
+            return None
+        return {
+            "text": serialize_wig(wig),
+            "name": wig.name,
+            "filename": wig_filename(wig.name),
+        }
+
+    result = await hass.async_add_executor_job(_render)
+    if result is None:
+        connection.send_error(msg["id"], "not_found", "Codebook not found")
+        return
     connection.send_result(msg["id"], result)

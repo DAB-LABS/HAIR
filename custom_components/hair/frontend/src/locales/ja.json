@@ -464,6 +464,7 @@
     "wigs.origin.device": "HAIR デバイスのコマンドからエクスポートされました。",
     "wigs.origin.converted": "{format} から変換されました。実機ではまだ未検証です。",
     "wigs.origin.unknown": "出所不明。",
+    "wigs.origin.library": "内蔵コードライブラリから生成されました。",
     "wigs.editor.brand": "ブランド",
     "wigs.editor.model": "モデル",
     "wigs.editor.notes": "メモ",
@@ -552,5 +553,8 @@
     "wigs.adopt": "デバイスにする",
     "wigs.adopted": "{name}はHAIRデバイスになりました",
     "wigs.linked.other": "{count}台のデバイス",
-    "wigs.linked.one": "{count}台のデバイス"
+    "wigs.linked.one": "{count}台のデバイス",
+    "wigs.linked_new": "+ 新しいデバイス",
+    "wigs.snapshot_saved": "{filename} としてクローゼットに保存しました",
+    "wigs.snapshot_existing": "{filename} として既にクローゼットにあります"
 }

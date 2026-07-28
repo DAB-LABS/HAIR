@@ -464,6 +464,7 @@
     "wigs.origin.device": "Geëxporteerd uit de commando's van een HAIR-apparaat.",
     "wigs.origin.converted": "Geconverteerd uit {format}. Nog niet getest op hardware.",
     "wigs.origin.unknown": "Herkomst onbekend.",
+    "wigs.origin.library": "Gegenereerd uit de ingebouwde codebibliotheek.",
     "wigs.editor.brand": "Merk",
     "wigs.editor.model": "Model",
     "wigs.editor.notes": "Notities",
@@ -552,5 +553,8 @@
     "wigs.adopt": "Apparaat adopteren",
     "wigs.adopted": "{name} is nu een HAIR-apparaat",
     "wigs.linked.one": "{count} apparaat",
-    "wigs.linked.other": "{count} apparaten"
+    "wigs.linked.other": "{count} apparaten",
+    "wigs.linked_new": "+ nieuw apparaat",
+    "wigs.snapshot_saved": "Opgeslagen in je kast als {filename}",
+    "wigs.snapshot_existing": "Staat al in je kast als {filename}"
 }

@@ -464,6 +464,7 @@
     "wigs.origin.device": "Aus den Befehlen eines HAIR-Geräts exportiert.",
     "wigs.origin.converted": "Konvertiert aus {format}. Noch nicht auf Hardware getestet.",
     "wigs.origin.unknown": "Herkunft unbekannt.",
+    "wigs.origin.library": "Aus der eingebauten Code-Bibliothek gerendert.",
     "wigs.editor.brand": "Marke",
     "wigs.editor.model": "Modell",
     "wigs.editor.notes": "Notizen",
@@ -552,5 +553,8 @@
     "wigs.adopt": "Gerät adoptieren",
     "wigs.adopted": "{name} ist jetzt ein HAIR-Gerät",
     "wigs.linked.one": "{count} Gerät",
-    "wigs.linked.other": "{count} Geräte"
+    "wigs.linked.other": "{count} Geräte",
+    "wigs.linked_new": "+ neues Gerät",
+    "wigs.snapshot_saved": "Im Schrank gespeichert als {filename}",
+    "wigs.snapshot_existing": "Bereits im Schrank als {filename}"
 }

@@ -464,6 +464,7 @@
     "wigs.origin.device": "Exported from a HAIR device's commands.",
     "wigs.origin.converted": "Converted from {format}. Not yet tested on hardware.",
     "wigs.origin.unknown": "Origin unknown.",
+    "wigs.origin.library": "Rendered from the built-in code library.",
     "wigs.editor.brand": "Brand",
     "wigs.editor.model": "Model",
     "wigs.editor.notes": "Notes",
@@ -552,5 +553,8 @@
     "wigs.adopt": "Adopt Device",
     "wigs.adopted": "{name} is now a HAIR device",
     "wigs.linked.one": "{count} device",
-    "wigs.linked.other": "{count} devices"
+    "wigs.linked.other": "{count} devices",
+    "wigs.linked_new": "+ new device",
+    "wigs.snapshot_saved": "Saved to your closet as {filename}",
+    "wigs.snapshot_existing": "Already in your closet as {filename}"
 }
