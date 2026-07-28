@@ -1474,6 +1474,7 @@ export class IrSignalMonitor extends LitElement {
                                 : ""}
                         </div>
                     </div>
+                    <span class="row-btns">
                     ${d.dismissed
                         ? ""
                         : html`<button
@@ -1519,6 +1520,7 @@ export class IrSignalMonitor extends LitElement {
                                   this._deleteRemote = d;
                               }}
                           >${t("common.delete")}</button>`}
+                    </span>
                     <ha-svg-icon
                         class="expand-icon"
                         .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
@@ -1807,6 +1809,16 @@ export class IrSignalMonitor extends LitElement {
         }
         .device-row:hover {
             background: var(--secondary-background-color);
+        }
+        /* Header actions sit inside one 4px-gap group (one-button-rhythm
+           ruling 2026-07-28/29): the panel's signal rows keep buttons at a
+           4px beat, so the card header matches instead of spreading its
+           buttons across the row's 12px gap. */
+        .row-btns {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
         }
         .device-info {
             flex: 1;
