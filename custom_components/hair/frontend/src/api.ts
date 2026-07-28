@@ -22,6 +22,7 @@ import type {
     IRCommand,
     IRDevice,
     IRTrigger,
+    MatrixCells,
     PluckRunResult,
     PluckVendor,
     ProntoValidation,
@@ -209,10 +210,15 @@ export class HairApi {
     importCodeRemote(
         codebookId: string,
         name?: string,
+        includeMatrix?: boolean,
     ): Promise<{
         device: UnknownDevice;
         imported: number;
         skipped: number;
+        // Duplicate-guard subset of skipped (2026-07-28): the matrix
+        // clip's receipt names collapsed byte-identical cells so the
+        // "up to {count}" promise and the created count reconcile.
+        duplicates: number;
         merged?: boolean;
     }> {
         const msg: Record<string, unknown> = {
@@ -220,7 +226,57 @@ export class HairApi {
             codebook_id: codebookId,
         };
         if (name) msg.name = name;
+        // The gated matrix clip (Cold Cuts second half): only ever sent
+        // as an explicit true -- the backend default is closed.
+        if (includeMatrix) msg.include_matrix = true;
         return this.hass.connection.sendMessagePromise(msg);
+    }
+
+    // --- Matrix cell browser (Cold Cuts second half, v0.8.8) ---
+
+    matrixCells(deviceId: string): Promise<MatrixCells> {
+        return this.hass.connection.sendMessagePromise<MatrixCells>({
+            type: "hair/devices/matrix-cells",
+            device_id: deviceId,
+        });
+    }
+
+    /** Fire one exact cell, or a power code. Coordinates must be read
+     * off matrixCells verbatim -- the backend resolves exactly, never
+     * snaps. Resolves to the display-grammar name it sent as. */
+    matrixSend(
+        deviceId: string,
+        state: {
+            mode?: string;
+            fan?: string | null;
+            swing?: string | null;
+            temp?: number | null;
+            power?: "on" | "off";
+        },
+    ): Promise<{ sent: string }> {
+        return this.hass.connection.sendMessagePromise<{ sent: string }>({
+            type: "hair/devices/matrix-send",
+            device_id: deviceId,
+            ...state,
+        });
+    }
+
+    /** Save one exact cell as a stored command (display-grammar name,
+     * source "matrix", replace-by-name). Returns the full device. */
+    matrixCommand(
+        deviceId: string,
+        state: {
+            mode: string;
+            fan?: string | null;
+            swing?: string | null;
+            temp?: number | null;
+        },
+    ): Promise<IRDevice> {
+        return this.hass.connection.sendMessagePromise<IRDevice>({
+            type: "hair/devices/matrix-command",
+            device_id: deviceId,
+            ...state,
+        });
     }
 
     // --- Wigs (v0.7.0 Big Wig) ---

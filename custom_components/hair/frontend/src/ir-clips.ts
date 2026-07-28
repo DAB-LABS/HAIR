@@ -79,7 +79,7 @@ export class IrClips extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDevice | null = null;
+    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
     @state() private _wigDragOver = false;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
@@ -101,6 +101,15 @@ export class IrClips extends LitElement {
         signal: UnknownSignal;
     } | null = null;
     @state() private _promoteTarget: UnknownDeviceSummary | null = null;
+    // Adopt signpost (Cold Cuts second half, mockup CC5): a remote
+    // stamped with wig provenance points home before adopting flat.
+    @state() private _signpostTarget: UnknownDeviceSummary | null = null;
+    // The wig road out of the signpost: the promote dialog locked to
+    // the source wig (the closet's isMatrix plumbing, reused).
+    @state() private _adoptWigTarget: {
+        filename: string;
+        suggestedName: string;
+    } | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
     @state() private _assignSignal: {
@@ -405,10 +414,10 @@ export class IrClips extends LitElement {
         await this._load();
     }
 
-    private _openDeleteRemote(device: UnknownDevice): void {
+    private _openDeleteRemote(device: UnknownDeviceSummary): void {
         this._deleteRemoteId = device.id;
         this._deleteRemoteLabel = device.label || "this remote";
-        this._deleteRemoteCount = device.signals.length;
+        this._deleteRemoteCount = device.signal_count;
     }
 
     private async _confirmDeleteRemote(): Promise<void> {
@@ -489,10 +498,107 @@ export class IrClips extends LitElement {
     private _onAdoptClick(d: UnknownDeviceSummary, e: Event): void {
         e.stopPropagation();
         if (!d.linked_devices?.length) {
-            this._promoteTarget = d;
+            this._openAdopt(d);
             return;
         }
         this._toggleLinkedPopover(d.id, e);
+    }
+
+    /** The signpost gate (mockup CC5): a remote clipped from a matrix
+     * wig points home before adopting flat -- the flat copy is real
+     * signals but no thermostat, and the user should choose that with
+     * open eyes. Unstamped remotes go straight to the promote dialog,
+     * exactly as before. */
+    private _openAdopt(d: UnknownDeviceSummary): void {
+        if (d.source_wig) {
+            this._signpostTarget = d;
+            return;
+        }
+        this._promoteTarget = d;
+    }
+
+    /** The wig's CURRENT filename when the closet still has it (under
+     * any name), else the stamped one for the gone body. */
+    private _signpostFilename(d: UnknownDeviceSummary): string {
+        return d.source_wig_filename ?? d.source_wig?.filename ?? "";
+    }
+
+    private _signpostAdoptFlat(): void {
+        const d = this._signpostTarget;
+        this._signpostTarget = null;
+        if (d) this._promoteTarget = d;
+    }
+
+    private _signpostAdoptWig(): void {
+        const d = this._signpostTarget;
+        this._signpostTarget = null;
+        if (!d) return;
+        this._adoptWigTarget = {
+            filename: this._signpostFilename(d),
+            suggestedName: d.label ?? "",
+        };
+    }
+
+    private _renderSignpost() {
+        const d = this._signpostTarget;
+        if (!d) return "";
+        const gone = (d.source_wig_state ?? "gone") === "gone";
+        const filename = this._signpostFilename(d);
+        return html`<div
+            class="sp-overlay"
+            @click=${() => (this._signpostTarget = null)}
+        >
+            <div class="sp-dialog" @click=${(e: Event) => e.stopPropagation()}>
+                <h3 class="sp-heading">${t("wigs.adopt")}</h3>
+                ${gone
+                    ? html`
+                          <p class="sp-body">
+                              ${t("clips.signpost_gone", { filename })}
+                          </p>
+                          <p class="sp-warn">
+                              ${t("clips.signpost_gone_hint")}
+                          </p>
+                      `
+                    : html`
+                          <p class="sp-body">
+                              ${t("clips.signpost_body", {
+                                  filename,
+                                  count: String(d.signal_count),
+                              })}
+                          </p>
+                          <p class="sp-road">
+                              ${t("clips.signpost_wig_road")}
+                          </p>
+                      `}
+                <div class="sp-actions">
+                    <button
+                        class="sp-btn"
+                        @click=${() => (this._signpostTarget = null)}
+                    >
+                        ${t("common.cancel")}
+                    </button>
+                    <button
+                        class="sp-btn"
+                        @click=${() => this._signpostAdoptFlat()}
+                    >
+                        ${t("clips.adopt_flat")}
+                    </button>
+                    ${gone
+                        ? ""
+                        : html`<button
+                              class="sp-btn primary"
+                              @click=${() => this._signpostAdoptWig()}
+                          >
+                              ${t("clips.adopt_wig")}
+                          </button>`}
+                </div>
+            </div>
+        </div>`;
+    }
+
+    private async _onWigRoadAdopted(): Promise<void> {
+        this._adoptWigTarget = null;
+        await this._load();
     }
 
     private _toggleLinkedPopover(deviceId: string, e: Event): void {
@@ -535,7 +641,7 @@ export class IrClips extends LitElement {
                     @click=${(e: Event) => {
                         e.stopPropagation();
                         this._linkedPopoverId = null;
-                        this._promoteTarget = d;
+                        this._openAdopt(d);
                     }}
                 >
                     <span>${t("wigs.linked_new")}</span>
@@ -975,6 +1081,7 @@ export class IrClips extends LitElement {
                             >
                         </div>
                     </div>
+                    <span class="row-btns">
                     <button
                         class="action-btn adopt-btn"
                         title=${d.linked_devices?.length
@@ -985,6 +1092,22 @@ export class IrClips extends LitElement {
                             color="green"
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = d;
+                        }}
+                    >${t("wigs.save_as_wig")}</button>
+                    <button
+                        class="action-btn delete-btn"
+                        title=${t("clips.delete_remote_title")}
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._openDeleteRemote(d);
+                        }}
+                    >${t("common.delete")}</button>
+                    </span>
                     <ha-svg-icon
                         class="expand-icon"
                         .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
@@ -1034,23 +1157,6 @@ export class IrClips extends LitElement {
                               )}
                           </div>
                       `}
-                <div class="remote-footer">
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = device;
-                        }}
-                    >${t("wigs.save_as_wig")}</button>
-                    <button
-                        class="action-btn delete-btn"
-                        title=${t("clips.delete_remote_title")}
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._openDeleteRemote(device);
-                        }}
-                    >${t("clips.delete_remote")}</button>
-                </div>
             </div>
         `;
     }
@@ -1215,6 +1321,19 @@ export class IrClips extends LitElement {
                   ></ir-promote-dialog>`
                 : ""}
 
+            ${this._renderSignpost()}
+            ${this._adoptWigTarget
+                ? html`<ir-promote-dialog
+                      .api=${this.api}
+                      .hass=${this.hass}
+                      .suggestedName=${this._adoptWigTarget.suggestedName}
+                      .wigFilename=${this._adoptWigTarget.filename}
+                      .isMatrix=${true}
+                      @device-created=${this._onWigRoadAdopted}
+                      @closed=${() => (this._adoptWigTarget = null)}
+                  ></ir-promote-dialog>`
+                : ""}
+
             ${this._deleteSignal
                 ? html`<ir-confirm-dialog
                       title=${t("sniffer.del_signal_title")}
@@ -1340,11 +1459,87 @@ export class IrClips extends LitElement {
             flex: none;
         }
 
+        /* Adopt signpost (mockup CC5): the ir-confirm-dialog anatomy
+           under its own class names -- ir-clips cannot spread
+           dialogStyles without its .action-btn colliding with the row
+           chips'. Cancel and "Adopt flat anyway" stay quiet; the wig
+           road is the green primary (the promote dialog's Create
+           green) and its sentence wears the matrix family's cold blue. */
+        .sp-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .sp-dialog {
+            background: var(--card-background-color, #fff);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        .sp-heading {
+            margin: 0 0 12px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--primary-text-color);
+        }
+        .sp-body {
+            margin: 0 0 12px;
+            color: var(--secondary-text-color);
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+        .sp-road {
+            margin: 0 0 20px;
+            color: #58a6d8;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+        .sp-warn {
+            margin: 0 0 20px;
+            color: #ffb300;
+            line-height: 1.5;
+            font-size: 0.9rem;
+        }
+        .sp-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .sp-btn {
+            background: none;
+            border: 1px solid var(--divider-color);
+            border-radius: 6px;
+            padding: 8px 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            color: var(--secondary-text-color);
+            transition: background 150ms ease;
+        }
+        .sp-btn:hover {
+            background: var(--secondary-background-color);
+        }
+        .sp-btn.primary {
+            color: #fff;
+            background: #2e7d32;
+            border-color: #2e7d32;
+        }
+        .sp-btn.primary:hover {
+            background: #2e7d32;
+            opacity: 0.9;
+        }
+
         .save-wig-btn {
             color: #8e3b3b;
             border-color: rgba(142, 59, 59, 0.3);
-            margin-right: auto;
-            margin-left: 8px;
         }
         .save-wig-btn:hover:not(:disabled) {
             background: rgba(142, 59, 59, 0.12);
@@ -1473,9 +1668,22 @@ export class IrClips extends LitElement {
             padding: 12px 16px;
             cursor: pointer;
             gap: 12px;
+            /* Three header actions now (2026-07-29 footer merge): let the
+               row wrap on narrow viewports instead of crushing the name. */
+            flex-wrap: wrap;
         }
         .device-row:hover {
             background: var(--secondary-background-color);
+        }
+        /* Header actions sit inside one 4px-gap group (one-button-rhythm
+           ruling 2026-07-28/29): the panel's signal rows keep buttons at a
+           4px beat, so the card header matches instead of spreading its
+           buttons across the row's 12px gap. */
+        .row-btns {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
         }
         .device-info {
             flex: 1;
@@ -1609,16 +1817,6 @@ export class IrClips extends LitElement {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
-        }
-        /* Persistent "Delete remote" footer: a row below the signal list,
-           right-justified so its button lines up with the per-signal Delete
-           buttons (which sit 8px in from the row edge). Same button size as
-           every other action button. */
-        .remote-footer {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 10px;
-            padding-right: 8px;
         }
         .signal-list {
             display: flex;

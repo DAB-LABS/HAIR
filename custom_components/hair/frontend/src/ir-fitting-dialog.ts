@@ -27,7 +27,8 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { FittingState, WigInfo } from "./types.js";
+import type { FittingRow, FittingState, WigInfo } from "./types.js";
+import { displayTemp, installUnit } from "./temperature.js";
 
 // Curated kind suggestions; the input accepts anything (custom kinds
 // welcome) and the server squashes to lowercase alphanumerics.
@@ -96,11 +97,17 @@ export class IrFittingDialog extends LitElement {
             });
             this._verdicts = verdicts;
             // Untested first, on open only; stable within each half.
+            // Matrix sessions keep checklist order instead (mockup
+            // CC1): the sectioned walk start / modes / fan / swing /
+            // temp / wrap IS the session's shape, and resorting by
+            // verdict would scatter rows across their headers.
             const idx = fit.signals.map((_, i) => i);
-            this._order = [
-                ...idx.filter((i) => !verdicts.has(i)),
-                ...idx.filter((i) => verdicts.has(i)),
-            ];
+            this._order = fit.matrix
+                ? idx
+                : [
+                      ...idx.filter((i) => !verdicts.has(i)),
+                      ...idx.filter((i) => verdicts.has(i)),
+                  ];
             const emitters = this._emitters();
             if (emitters.length === 1) this._emitter = emitters[0].id;
         } catch (err: any) {
@@ -337,6 +344,17 @@ export class IrFittingDialog extends LitElement {
         const c = this._counts;
         return html`
             <h3 class="heading">${this.wig.name}</h3>
+            ${this._fit?.matrix
+                ? html`<div class="matrix-claim">
+                      ${t("fitting.matrix_claim", {
+                          sends: String(this._fit.rows.length),
+                          cells: String(
+                              this.wig.matrix?.cells ??
+                                  this._fit.rows.length,
+                          ),
+                      })}
+                  </div>`
+                : nothing}
             <div class="sess-head">${t("fitting.header")}</div>
             ${this._renderFitChips()}
             ${this._error
@@ -366,7 +384,9 @@ export class IrFittingDialog extends LitElement {
             </div>
             <div class="sig-list">
                 ${this._fit
-                    ? this._order.map((i) => this._renderRow(i))
+                    ? this._fit.matrix
+                        ? this._renderMatrixList()
+                        : this._order.map((i) => this._renderRow(i))
                     : html`<div class="loading">
                           ${t("common.loading_plain")}
                       </div>`}
@@ -453,47 +473,182 @@ export class IrFittingDialog extends LitElement {
 
     private _renderRow(i: number) {
         const alias = this._fit!.signals[i];
-        const verdict = this._verdicts.get(i);
-        const facts = this._facts.get(i);
         return html`
             <div class="sig-row">
                 <span class="sig-alias" title=${alias}>${alias}</span>
-                ${facts?.sent
-                    ? html`<span class="facts">
-                          ${facts.sent > 1
-                              ? t("fitting.sent_n", {
-                                    count: String(facts.sent),
-                                })
-                              : t("fitting.sent")}${facts.heard
-                              ? html` &middot;
-                                    <span class="heard"
-                                        >${t("fitting.heard")}</span
-                                    >`
-                              : nothing}
-                      </span>`
+                ${this._renderRowControls(i)}
+            </div>
+        `;
+    }
+
+    /** The row anatomy every session row shares (Cold Cuts): machine
+     * facts, SEND, WORKED, DID NOT. Extracted verbatim from the signal
+     * row so the matrix rows carry the identical controls -- only the
+     * label anatomy differs between the two wig kinds. */
+    private _renderRowControls(i: number) {
+        const verdict = this._verdicts.get(i);
+        const facts = this._facts.get(i);
+        return html`${facts?.sent
+                ? html`<span class="facts">
+                      ${facts.sent > 1
+                          ? t("fitting.sent_n", {
+                                count: String(facts.sent),
+                            })
+                          : t("fitting.sent")}${facts.heard
+                          ? html` &middot;
+                                <span class="heard"
+                                    >${t("fitting.heard")}</span
+                                >`
+                          : nothing}
+                  </span>`
+                : nothing}
+            <button
+                class="send-btn"
+                ?disabled=${!this._emitter || facts?.busy}
+                title=${this._emitter
+                    ? ""
+                    : t("fitting.pick_emitter")}
+                @click=${() => void this._send(i)}
+            >
+                ${t("fitting.send")}
+            </button>
+            <button
+                class="vbtn ${verdict === "worked" ? "worked-on" : ""}"
+                @click=${() => void this._mark(i, "worked")}
+            >
+                ${t("fitting.worked")}
+            </button>
+            <button
+                class="vbtn ${verdict === "failed" ? "failed-on" : ""}"
+                @click=${() => void this._mark(i, "failed")}
+            >
+                ${t("fitting.did_not")}
+            </button>`;
+    }
+
+    /** The dimension-check list (mockup CC1): the same scrolling list,
+     * grouped under uppercase section headers with a thin rule. Rows
+     * keep their session index, so marks and sends address the backend
+     * exactly as the signal flow does. */
+    private _renderMatrixList() {
+        const rows = this._fit!.rows;
+        const out: unknown[] = [];
+        let section: string | null = null;
+        rows.forEach((row, i) => {
+            if (row.section !== section) {
+                section = row.section;
+                out.push(this._renderSectionHead(row));
+            }
+            out.push(this._renderMatrixRow(i));
+        });
+        return out;
+    }
+
+    /** One matrix temperature as display text, converted to the
+     * viewer's install unit when it differs from the wig's native
+     * unit (unit ruling 2026-07-29). Labels only -- row KEYS and the
+     * mark/send indexing stay native and untouched. */
+    private _displayTemp(temp: number): string {
+        return displayTemp(
+            temp,
+            this._fit?.unit ?? "C",
+            installUnit(this.hass),
+            this._fit?.precision ?? 1,
+        );
+    }
+
+    /** The section's dim context note: what stays constant while this
+     * section's rows walk one dimension, read off the section's FIRST
+     * row (owner ruling 2026-07-28, e.g. "in cool 23, fan auto"). */
+    private _sectionNote(row: FittingRow): string {
+        if (row.section === "modes") return t("fitting.sec_modes_note");
+        if (
+            row.section !== "fan" &&
+            row.section !== "swing" &&
+            row.section !== "temp"
+        ) {
+            return "";
+        }
+        const parts: string[] = [];
+        if (row.mode) {
+            const temp = row.section === "temp" ? null : row.temp;
+            parts.push(
+                temp != null
+                    ? `${row.mode} ${this._displayTemp(temp)}`
+                    : row.mode,
+            );
+        }
+        if (row.section !== "fan" && row.fan != null) {
+            parts.push(t("fitting.ctx_fan", { fan: row.fan }));
+        }
+        if (row.section !== "swing" && row.swing != null) {
+            parts.push(t("fitting.ctx_swing", { swing: row.swing }));
+        }
+        if (parts.length === 0) return "";
+        return t("fitting.sec_in", { context: parts.join(", ") });
+    }
+
+    private _renderSectionHead(row: FittingRow) {
+        const note = this._sectionNote(row);
+        return html`
+            <div class="sec-head">
+                <span>${t(`fitting.sec_${row.section}`)}</span>
+                ${note
+                    ? html`<span class="sec-note">${note}</span>`
                     : nothing}
-                <button
-                    class="send-btn"
-                    ?disabled=${!this._emitter || facts?.busy}
-                    title=${this._emitter
-                        ? ""
-                        : t("fitting.pick_emitter")}
-                    @click=${() => void this._send(i)}
+            </div>
+        `;
+    }
+
+    private _renderMatrixRow(i: number) {
+        const row = this._fit!.rows[i];
+        let label: string = row.key;
+        let caps = false;
+        let dim = "";
+        if (row.section === "start") {
+            label = t("fitting.row_on");
+            caps = true;
+        } else if (row.section === "wrap") {
+            label = t("fitting.row_off");
+            caps = true;
+        } else if (row.section === "modes") {
+            label = row.mode ?? row.key;
+            caps = true;
+            dim = [
+                row.fan,
+                row.temp != null
+                    ? `${this._displayTemp(row.temp)}\u00b0`
+                    : null,
+            ]
+                .filter(Boolean)
+                .join(" \u00b7 ");
+            if (row.temp_less) {
+                dim = [dim, t("fitting.no_temp_note")]
+                    .filter(Boolean)
+                    .join(" ");
+            }
+        } else if (row.section === "fan") {
+            label = row.fan ?? row.key;
+        } else if (row.section === "swing") {
+            label = row.swing ?? row.key;
+        } else if (row.section === "temp") {
+            label = t(
+                row.temp_role === "min"
+                    ? "fitting.temp_min"
+                    : "fitting.temp_max",
+                { temp: row.temp != null ? this._displayTemp(row.temp) : "" },
+            );
+        }
+        return html`
+            <div class="sig-row">
+                <span
+                    class="sig-alias ${caps ? "caps" : ""}"
+                    title=${row.key}
+                    >${label}${dim
+                        ? html` <span class="row-dim">${dim}</span>`
+                        : nothing}</span
                 >
-                    ${t("fitting.send")}
-                </button>
-                <button
-                    class="vbtn ${verdict === "worked" ? "worked-on" : ""}"
-                    @click=${() => void this._mark(i, "worked")}
-                >
-                    ${t("fitting.worked")}
-                </button>
-                <button
-                    class="vbtn ${verdict === "failed" ? "failed-on" : ""}"
-                    @click=${() => void this._mark(i, "failed")}
-                >
-                    ${t("fitting.did_not")}
-                </button>
+                ${this._renderRowControls(i)}
             </div>
         `;
     }
@@ -717,6 +872,44 @@ export class IrFittingDialog extends LitElement {
                 color: var(--secondary-text-color);
                 line-height: 1.5;
                 margin-bottom: 12px;
+            }
+            /* The dimension-check claim (mockup CC1): sits under the
+               title and says exactly what the 12-20 sends stand for. */
+            .matrix-claim {
+                font-size: 12.5px;
+                color: var(--primary-text-color);
+                line-height: 1.5;
+                margin-bottom: 8px;
+            }
+            /* Sectioned list anatomy (matrix sessions only): uppercase
+               header over a thin rule, dim context note alongside. */
+            .sec-head {
+                display: flex;
+                align-items: baseline;
+                gap: 8px;
+                padding: 9px 12px 4px;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--secondary-text-color);
+                border-bottom: 1px solid var(--divider-color);
+            }
+            .sec-note {
+                font-weight: 400;
+                letter-spacing: normal;
+                text-transform: none;
+                font-size: 10.5px;
+                opacity: 0.8;
+            }
+            .sig-alias.caps {
+                text-transform: uppercase;
+            }
+            .row-dim {
+                font-weight: 400;
+                font-size: 11px;
+                color: var(--secondary-text-color);
+                text-transform: none;
             }
             .fitrow {
                 display: flex;

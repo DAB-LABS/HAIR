@@ -168,6 +168,109 @@ class TestMaterializeWig:
         assert materialize_wig(str(tmp_path), "not-a-wig-id") == []
 
 
+def _p(word: str) -> str:
+    """A distinct valid Pronto per duration word (distinct identity)."""
+    return PRONTO.replace("002E", word)
+
+
+MATRIX_WIG_TEXT = json.dumps({
+    "format": "hair-wig/2",
+    "name": "Cold AC",
+    "brand": "Fixture",
+    "kind": "ac",
+    "signals": [{"alias": "Beep", "pronto": _p("0020")}],
+    "climate": {
+        "min_temp": 16,
+        "max_temp": 30,
+        "precision": 1,
+        "modes": ["cool", "dry"],
+        "fan_modes": ["auto", "quiet"],
+        "swing_modes": ["swing"],
+        "off": _p("0060"),
+        "on": _p("0090"),
+        "cells": [
+            {"mode": "cool", "fan": "auto", "temp": 22,
+             "pronto": _p("00C0")},
+            {"mode": "cool", "fan": "quiet", "swing": "swing",
+             "temp": 25, "pronto": _p("0100"), "send_count": 2},
+            {"mode": "dry", "fan": "auto", "pronto": _p("0130")},
+        ],
+    },
+})
+
+
+class TestMaterializeMatrix:
+    """The gated matrix clip (Cold Cuts second half, 2026-07-29)."""
+
+    def _clip(self, tmp_path, include_matrix):
+        filename = write_wig_text(tmp_path, MATRIX_WIG_TEXT, "Cold AC")
+        return materialize_wig(
+            str(tmp_path), wig_codebook_id(filename),
+            include_matrix=include_matrix,
+        )
+
+    def test_gate_closed_is_flat_only(self, tmp_path):
+        """Default False: matrix wigs materialize exactly as before --
+        flat signals, not one cell."""
+        entries = self._clip(tmp_path, include_matrix=False)
+        assert [e["name"] for e in entries] == ["Beep"]
+
+    def test_gate_open_brings_power_and_every_cell(self, tmp_path):
+        entries = self._clip(tmp_path, include_matrix=True)
+        assert [e["name"] for e in entries] == [
+            "Beep",
+            "Off",
+            "On",
+            "cool / fan: auto / 22",
+            "cool / fan: quiet / swing: swing / 25",
+            "dry / fan: auto",
+        ]
+
+    def test_cell_entries_are_fresh_decoded_with_send_count(self, tmp_path):
+        entries = self._clip(tmp_path, include_matrix=True)
+        by_name = {e["name"]: e for e in entries}
+        quiet = by_name["cool / fan: quiet / swing: swing / 25"]
+        assert quiet["send_count"] == 2
+        # Fresh-decode keys exist on cell entries exactly like flat
+        # ones (None is fine for codes no decoder reads).
+        assert "decoded_fingerprint" in quiet
+        assert quiet["code"].upper() == quiet["code"]
+        assert by_name["Off"]["send_count"] == 1
+
+    def test_display_unit_mints_converted_names(self, tmp_path):
+        """Mint-time naming (unit ruling 2026-07-29): the caller hands
+        the install's unit letter and cell names freeze in it; power
+        codes, temp-less cells, and flat signals never carry a
+        temperature, so they ride unchanged."""
+        filename = write_wig_text(tmp_path, MATRIX_WIG_TEXT, "Cold AC")
+        entries = materialize_wig(
+            str(tmp_path), wig_codebook_id(filename),
+            include_matrix=True, display_unit="F",
+        )
+        assert [e["name"] for e in entries] == [
+            "Beep",
+            "Off",
+            "On",
+            "cool / fan: auto / 72",
+            "cool / fan: quiet / swing: swing / 77",
+            "dry / fan: auto",
+        ]
+        # A matching unit is a no-op: file-native names, byte-for-byte.
+        entries = materialize_wig(
+            str(tmp_path), wig_codebook_id(filename),
+            include_matrix=True, display_unit="C",
+        )
+        assert "cool / fan: auto / 22" in [e["name"] for e in entries]
+
+    def test_gate_open_without_climate_is_a_noop(self, tmp_path):
+        """A flat wig with include_matrix asked: nothing extra."""
+        filename = write_wig_text(tmp_path, WIG_TEXT, "Foxtel IQ")
+        entries = materialize_wig(
+            str(tmp_path), wig_codebook_id(filename), include_matrix=True
+        )
+        assert [e["name"] for e in entries] == ["Power", "Mute"]
+
+
 def _catalog_remote() -> UnknownDevice:
     device = UnknownDevice(label="Foxtel IQ", source="sniffed")
     device.signals.append(UnknownSignal(

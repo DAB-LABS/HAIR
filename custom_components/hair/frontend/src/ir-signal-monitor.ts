@@ -112,8 +112,8 @@ export class IrSignalMonitor extends LitElement {
     @state() private _devices: UnknownDeviceSummary[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDevice | null = null;
-    @state() private _deleteRemote: UnknownDevice | null = null;
+    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
+    @state() private _deleteRemote: UnknownDeviceSummary | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
     @state() private _error: string | null = null;
@@ -1474,6 +1474,7 @@ export class IrSignalMonitor extends LitElement {
                                 : ""}
                         </div>
                     </div>
+                    <span class="row-btns">
                     ${d.dismissed
                         ? ""
                         : html`<button
@@ -1489,7 +1490,14 @@ export class IrSignalMonitor extends LitElement {
                           >${t("wigs.adopt")}<ir-count-dot
                                   color="green"
                                   .count=${d.linked_devices?.length ?? 0}
-                              ></ir-count-dot></button>`}
+                              ></ir-count-dot></button>
+                          <button
+                              class="action-btn save-wig-btn"
+                              @click=${(e: Event) => {
+                                  e.stopPropagation();
+                                  this._saveWigDevice = d;
+                              }}
+                          >${t("wigs.save_as_wig")}</button>`}
                     ${d.dismissed
                         ? html`<button
                               class="action-btn device-dismiss-btn"
@@ -1504,7 +1512,15 @@ export class IrSignalMonitor extends LitElement {
                                   e.stopPropagation();
                                   void this._dismiss(d.id);
                               }}
-                          >${t("sniffer.dismiss")}</button>`}
+                          >${t("sniffer.dismiss")}</button>
+                          <button
+                              class="action-btn delete-btn"
+                              @click=${(e: Event) => {
+                                  e.stopPropagation();
+                                  this._deleteRemote = d;
+                              }}
+                          >${t("common.delete")}</button>`}
+                    </span>
                     <ha-svg-icon
                         class="expand-icon"
                         .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
@@ -1644,22 +1660,6 @@ export class IrSignalMonitor extends LitElement {
                         ),
                     )}
                 </div>
-            <div class="remote-footer">
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = device;
-                        }}
-                    >${t("wigs.save_as_wig")}</button>
-                    <button
-                        class="action-btn delete-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._deleteRemote = device;
-                        }}
-                    >${t("clips.delete_remote")}</button>
-                </div>
             </div>
         `;
     }
@@ -1679,13 +1679,6 @@ export class IrSignalMonitor extends LitElement {
             flex: none;
         }
 
-        .remote-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 10px;
-            padding: 0 8px;
-        }
         .save-wig-btn {
             color: #8e3b3b;
             border-color: rgba(142, 59, 59, 0.3);
@@ -1810,9 +1803,22 @@ export class IrSignalMonitor extends LitElement {
             padding: 12px 16px;
             cursor: pointer;
             gap: 12px;
+            /* Four header actions now (2026-07-29 footer merge): let the
+               row wrap on narrow viewports instead of crushing the name. */
+            flex-wrap: wrap;
         }
         .device-row:hover {
             background: var(--secondary-background-color);
+        }
+        /* Header actions sit inside one 4px-gap group (one-button-rhythm
+           ruling 2026-07-28/29): the panel's signal rows keep buttons at a
+           4px beat, so the card header matches instead of spreading its
+           buttons across the row's 12px gap. */
+        .row-btns {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
         }
         .device-info {
             flex: 1;

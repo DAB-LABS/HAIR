@@ -188,6 +188,14 @@ class IRDevice:
     commands: list[IRCommand] = field(default_factory=list)
     entity_config: EntityConfig = field(default_factory=EntityConfig)
     database_id: str | None = None
+    # Climate state matrix marker (Cold Cuts, v0.8.8). True = this
+    # device's climate entity runs in matrix mode off a
+    # ``hair/matrices/<device_id>.matrix.json`` file. A boolean, not a
+    # path or an embedded blob: the reference is implicit (the file is
+    # named by this device's id) and the matrix stays OUT of the
+    # devices JSON, which storage.py rewrites wholesale on every
+    # update (census worst case 7.9 MB; addendum 2.3).
+    climate_matrix: bool = False
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -308,6 +316,10 @@ class IRDevice:
             commands=cloned_commands,
             entity_config=cloned_entity_config,
             database_id=self.database_id,
+            # The flag rides; the matrix FILE is copied by the
+            # duplicate path (device_manager/WS) via copy_matrix,
+            # since a dataclass copy cannot touch disk.
+            climate_matrix=self.climate_matrix,
         )
 
     def reorder_commands(self, command_ids: list[str]) -> None:
@@ -357,6 +369,7 @@ class IRDevice:
             "commands": [c.to_dict() for c in self.commands],
             "entity_config": self.entity_config.to_dict(),
             "database_id": self.database_id,
+            "climate_matrix": self.climate_matrix,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -385,6 +398,8 @@ class IRDevice:
             ],
             entity_config=EntityConfig.from_dict(data.get("entity_config") or {}),
             database_id=data.get("database_id"),
+            # Absent (pre-0.8.8 record) resolves to False = preset mode.
+            climate_matrix=bool(data.get("climate_matrix", False)),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         )
@@ -769,6 +784,13 @@ class UnknownDevice:
     # Sniffer's linked-device chip resolves it live by id, so renaming
     # either side never breaks the link. None = never promoted.
     promoted_to: str | None = None
+    # Wig provenance for a matrix clip (Cold Cuts second half, owner
+    # ruling CC5 2026-07-29): {"filename": ..., "cells_hash": ...}
+    # stamped when a matrix wig CLIPs with its cells. The adopt
+    # signpost resolves it live at list time -- filename first, then
+    # cells hash over the closet's matrix wigs, so a renamed wig still
+    # points home. None for every other remote.
+    source_wig: dict[str, Any] | None = None
 
     def get_signal(
         self,
@@ -880,6 +902,7 @@ class UnknownDevice:
             "vendor_entity_id": self.vendor_entity_id,
             "appliance": self.appliance,
             "promoted_to": self.promoted_to,
+            "source_wig": dict(self.source_wig) if self.source_wig else None,
         }
 
     @classmethod
@@ -903,4 +926,5 @@ class UnknownDevice:
             vendor_entity_id=data.get("vendor_entity_id"),
             appliance=data.get("appliance"),
             promoted_to=data.get("promoted_to"),
+            source_wig=data.get("source_wig") or None,
         )

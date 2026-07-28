@@ -338,6 +338,45 @@ class TestReleaseAndReconcile:
             monitor2._start_native_tracking()
         hass2.bus.async_listen_once.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_stop_after_started_fired_skips_dead_unsubscribe(self):
+        """Teardown guard (2026-07-28): a once-listener consumes itself
+        at fire time, so calling its stored unsubscribe on stop made HA
+        log 'Unable to remove unknown job listener ... _on_hass_started'
+        on every normal restart. Fired -> stop must not touch it."""
+        hass = _make_hass()
+        hass.state = MagicMock()  # still starting -> listener wired
+        started_unsub = MagicMock()
+        hass.bus.async_listen_once.return_value = started_unsub
+        monitor = _monitor(hass)
+        fake = _FakeInfrared(receivers=[])
+
+        with _patched(fake):
+            await monitor.async_start()
+            monitor._on_hass_started(MagicMock())
+            assert monitor._started_unsub is None
+            await monitor.async_stop()
+
+        started_unsub.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_stop_before_started_fires_unsubscribes_once(self):
+        """The complement: an entry unloaded while HA is still starting
+        holds a live once-listener, and stop must release exactly it."""
+        hass = _make_hass()
+        hass.state = MagicMock()  # still starting -> listener wired
+        started_unsub = MagicMock()
+        hass.bus.async_listen_once.return_value = started_unsub
+        monitor = _monitor(hass)
+        fake = _FakeInfrared(receivers=[])
+
+        with _patched(fake):
+            await monitor.async_start()
+            await monitor.async_stop()
+
+        started_unsub.assert_called_once()
+        assert monitor._started_unsub is None
+
 
 # ---------------------------------------------------------------------------
 # The reload / ghost heal: availability transitions (GH #16 class)

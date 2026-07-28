@@ -245,6 +245,8 @@ def materialize_wig(
     config_dir: str,
     codebook_id: str,
     function_ids: list[str] | None = None,
+    include_matrix: bool = False,
+    display_unit: str | None = None,
 ) -> list[dict[str, Any]]:
     """Materialize a local wig into Clipper-ready entries.
 
@@ -254,6 +256,21 @@ def materialize_wig(
     ``send_count`` (already clamped by the parser); signals whose Pronto
     fails validation are skipped, mirroring the library materializer's
     one-bad-code-never-breaks-the-import rule.
+
+    ``include_matrix`` (Cold Cuts second half, 2026-07-29: the gated
+    matrix clip): when True and the wig carries a climate block, the
+    power codes and EVERY cell join the flat signals as entries named
+    by the display grammar ("cool / fan: auto / 22"), each decoded
+    fresh exactly like a flat signal. Default False keeps matrix wigs
+    materializing only their flat signals, byte-for-byte the old
+    behavior -- the gate exists because 2,689 Clipper rows must be an
+    explicit choice, never a surprise.
+
+    ``display_unit`` ("C" / "F") is the install's temperature unit at
+    clip time (unit ruling 2026-07-29): cell names MINT in it, then
+    freeze -- a clipped command keeps its name forever even if the
+    install later switches units, exactly like a saved matrix command.
+    None (and matching units) names cells file-native.
     """
     from .ir_command import ProntoCommand
     from .pronto_validator import validate_pronto
@@ -273,23 +290,23 @@ def materialize_wig(
             index = fid.rsplit(":", 1)[-1]
             if index.isdigit():
                 wanted.add(int(index))
-    entries: list[dict[str, Any]] = []
-    for i, sig in enumerate(wig.signals):
-        if wanted is not None and i not in wanted:
-            continue
-        result = validate_pronto(sig.pronto)
+
+    def _entry(
+        name: str, pronto: str, send_count: int
+    ) -> dict[str, Any] | None:
+        result = validate_pronto(pronto)
         if not result.valid:
-            continue
+            return None
         code = result.normalized
         try:
             decode_raw = ProntoCommand(code).get_raw_timings()
         except Exception:
             decode_raw = None
         identity = try_decode_identity(decode_raw)
-        entries.append({
-            "name": sig.alias,
+        return {
+            "name": name,
             "code": code,
-            "send_count": sig.send_count,
+            "send_count": send_count,
             "decoded_protocol": identity.protocol if identity else None,
             "decoded_address": identity.address if identity else None,
             "decoded_command": identity.command if identity else None,
@@ -297,7 +314,44 @@ def materialize_wig(
             "decoded_extras": (
                 dict(identity.extras) if identity and identity.extras else None
             ),
-        })
+        }
+
+    entries: list[dict[str, Any]] = []
+    for i, sig in enumerate(wig.signals):
+        if wanted is not None and i not in wanted:
+            continue
+        entry = _entry(sig.alias, sig.pronto, sig.send_count)
+        if entry is not None:
+            entries.append(entry)
+
+    if include_matrix and wig.climate is not None:
+        from .wig_climate import cell_display_name, state_display_name
+
+        matrix = wig.climate
+        # Power codes lead the matrix block, then every cell in file
+        # order; the function_ids filter never applies here (it
+        # indexes flat signals -- the picker has no cell rows, the
+        # gate is whole-matrix or nothing).
+        power = [("off", matrix.off)]
+        if matrix.on is not None:
+            power.append(("on", matrix.on))
+        for kind, pronto in power:
+            entry = _entry(state_display_name(kind), pronto, 1)
+            if entry is not None:
+                entries.append(entry)
+        for cell in matrix.cells:
+            entry = _entry(
+                cell_display_name(
+                    cell,
+                    unit=matrix.unit,
+                    display_unit=display_unit,
+                    precision=matrix.precision,
+                ),
+                cell.pronto,
+                cell.send_count,
+            )
+            if entry is not None:
+                entries.append(entry)
     return entries
 
 

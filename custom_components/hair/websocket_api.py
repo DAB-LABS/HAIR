@@ -28,6 +28,7 @@ from .const import (
     WS_PREFIX,
     CaptureState,
     CommandCategory,
+    CommandSource,
     DeviceType,
 )
 from .device_manager import DeviceManager, category_for_command_name
@@ -71,6 +72,11 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_capture_providers)
     websocket_api.async_register_command(hass, ws_get_receivers)
     websocket_api.async_register_command(hass, ws_get_sniffer_status)
+
+    # Matrix device detail (Cold Cuts second half)
+    websocket_api.async_register_command(hass, ws_device_matrix_cells)
+    websocket_api.async_register_command(hass, ws_device_matrix_send)
+    websocket_api.async_register_command(hass, ws_device_matrix_command)
 
     # Signal Monitor (unknown devices)
     websocket_api.async_register_command(hass, ws_get_unknown_devices)
@@ -161,9 +167,27 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
     }
 
 
-def _device_full(device: IRDevice) -> dict[str, Any]:
+async def _device_full(
+    hass: HomeAssistant, device: IRDevice
+) -> dict[str, Any]:
     full = device.to_dict()
     full["command_count"] = len(device.commands)
+    # The matrix summary rides the full payload (owner ruling
+    # 2026-07-28) so the device page renders its state-matrix card
+    # without a second round trip. Loading goes through the manager's
+    # cache exactly like the climate entity's own load; any miss
+    # (no manager, no file, unreadable file) is an honest null, the
+    # same shape non-matrix devices carry.
+    full["matrix"] = None
+    if device.climate_matrix:
+        data = _get_first_entry_data(hass)
+        manager = data.get("device_manager") if data else None
+        if manager is not None:
+            matrix = await manager.async_get_matrix(device.id)
+            if matrix is not None:
+                from .wig_climate import matrix_summary
+
+                full["matrix"] = matrix_summary(matrix)
     return full
 
 
@@ -208,7 +232,7 @@ async def ws_get_device(
     if device is None:
         connection.send_error(msg["id"], "not_found", "Device not found")
         return
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -278,7 +302,7 @@ async def ws_create_device(
             await manager.async_update_device(device)
         await monitor.mark_promoted(source_unknown, device.id)
 
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -319,7 +343,7 @@ async def ws_update_device(
         device.device_type = DeviceType(msg["device_type"])
 
     await manager.async_update_device(device)
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -485,8 +509,21 @@ async def ws_duplicate_device(
         return
 
     clone = source.clone(new_name)
+    if source.climate_matrix:
+        # The matrix file rides along under the clone's id (Cold Cuts)
+        # BEFORE the device exists, so the climate entity created below
+        # never races a missing file. A failed copy clears the flag:
+        # a device claiming a matrix it does not have would leave the
+        # entity permanently refusing sends with no visible reason.
+        from .matrix_store import copy_matrix
+
+        copied = await hass.async_add_executor_job(
+            copy_matrix, hass.config.config_dir, source.id, clone.id
+        )
+        if not copied:
+            clone.climate_matrix = False
     await manager.async_create_device(clone)
-    connection.send_result(msg["id"], _device_full(clone))
+    connection.send_result(msg["id"], await _device_full(hass, clone))
 
 
 @websocket_api.require_admin
@@ -524,7 +561,7 @@ async def ws_reorder_commands(
         return
 
     await manager.async_update_device(device)
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -891,6 +928,11 @@ async def ws_codes_get_brands(
     vol.Required("codebook_id"): vol.All(str, vol.Length(max=200)),
     vol.Optional("name"): vol.All(str, vol.Length(max=200)),
     vol.Optional("function_ids"): [vol.All(str, vol.Length(max=200))],
+    # Cold Cuts second half (2026-07-29): the gated matrix clip. Only
+    # meaningful for wig ids whose wig carries a climate block; the
+    # gate defaults closed so 2,689 Clipper rows are always an explicit
+    # choice.
+    vol.Optional("include_matrix", default=False): bool,
 })
 @websocket_api.async_response
 async def ws_codes_import_remote(
@@ -903,7 +945,10 @@ async def ws_codes_import_remote(
     code decodes) pre-populated with its protocol identity for canonical
     transmit. Wig imports decode FRESH here (raw-first contract) and
     collapse onto an existing same-named clipped remote instead of
-    minting a twin (wigs.md section 6)."""
+    minting a twin (wigs.md section 6). With ``include_matrix`` a
+    matrix wig's cells and power codes come along, named by the display
+    grammar, and the remote is stamped with wig provenance for the
+    adopt signpost (owner ruling CC5)."""
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
@@ -915,22 +960,45 @@ async def ws_codes_import_remote(
         parse_wig_id,
     )
 
+    source_wig: dict[str, Any] | None = None
     wig_filename = parse_wig_id(msg["codebook_id"])
     if wig_filename is not None:
         from .wig_store import load_wig
 
+        include_matrix = msg.get("include_matrix", False)
+        # Mint-time naming (unit ruling 2026-07-29): clipped cell
+        # names freeze in the install's unit as of THIS moment.
+        from .wig_climate import unit_letter
+
+        display_unit = unit_letter(hass.config.units.temperature_unit)
         # Both calls do file I/O and fresh decode; off the event loop.
         entries = await hass.async_add_executor_job(
             materialize_wig,
             hass.config.config_dir,
             msg["codebook_id"],
             msg.get("function_ids"),
+            include_matrix,
+            display_unit,
         )
         wig = await hass.async_add_executor_job(
             load_wig, hass.config.config_dir, wig_filename
         )
         default_name = wig.name if wig else "Imported Remote"
         merge = True
+        if include_matrix and wig is not None and wig.climate is not None:
+            from .wig_format import cells_content_hash
+
+            # The stamp the adopt signpost resolves at list time
+            # (owner ruling CC5): filename for the cheap check, cells
+            # hash for the rename-safe fallback. Hashing a worst-case
+            # matrix serializes megabytes; executor, not loop.
+            cells_hash = await hass.async_add_executor_job(
+                cells_content_hash, wig.climate
+            )
+            source_wig = {
+                "filename": wig_filename,
+                "cells_hash": cells_hash,
+            }
     else:
         # materialize_codebook imports library modules from disk; keep it
         # off the event loop.
@@ -947,7 +1015,7 @@ async def ws_codes_import_remote(
     monitor: SignalMonitor = data["signal_monitor"]
     name = msg.get("name") or default_name
     result = await monitor.import_manual_remote(
-        name, entries, merge_existing=merge
+        name, entries, merge_existing=merge, source_wig=source_wig
     )
     connection.send_result(msg["id"], result)
 
@@ -1079,7 +1147,56 @@ def _unknown_device_summary(device) -> dict[str, Any]:
         "last_seen": device.last_seen,
         "dismissed": device.dismissed,
         "source": device.source,
+        "source_wig": dict(device.source_wig) if device.source_wig else None,
     }
+
+
+def _resolve_source_wig_states(
+    config_dir: str, stamps: list[dict[str, Any]]
+) -> list[tuple[str, str | None]]:
+    """Resolve clip stamps against the closet: present/renamed/gone.
+
+    The adopt signpost's live check (owner ruling CC5, 2026-07-29),
+    rename-safe by design: filename first (one cheap directory glob,
+    no parsing), then ``cells_content_hash`` over the closet's PARSED
+    matrix wigs -- a wig the user renamed still points home because
+    its cells did not change. Anything else is honestly "gone".
+
+    Blocking file I/O; callers run this on the executor. The hash
+    index is built lazily and at most once per call, so a list where
+    every stamped file still exists never parses a single wig.
+    """
+    from .wig_format import WIG_SUFFIX, cells_content_hash
+    from .wig_store import scan_wigs, wigs_dir
+
+    directory = wigs_dir(config_dir)
+    names: set[str] = set()
+    if directory.is_dir():
+        names = {p.name for p in directory.glob(f"*{WIG_SUFFIX}")}
+    hash_index: dict[str, str] | None = None
+    out: list[tuple[str, str | None]] = []
+    for stamp in stamps:
+        filename = stamp.get("filename")
+        if filename and filename in names:
+            out.append(("present", filename))
+            continue
+        if hash_index is None:
+            hash_index = {}
+            for loaded in scan_wigs(config_dir).wigs:
+                if loaded.wig.climate is None:
+                    continue
+                # setdefault: on a hash tie the name-sorted scan's
+                # first file wins, deterministically.
+                hash_index.setdefault(
+                    cells_content_hash(loaded.wig.climate),
+                    loaded.path.name,
+                )
+        renamed = hash_index.get(stamp.get("cells_hash") or "")
+        if renamed is not None:
+            out.append(("renamed", renamed))
+        else:
+            out.append(("gone", None))
+    return out
 
 
 @websocket_api.require_admin
@@ -1122,6 +1239,26 @@ async def ws_get_unknown_devices(
             d, index, hair_by_id
         )
         summaries.append(summary)
+    # Adopt signpost (Cold Cuts second half, owner ruling CC5):
+    # resolve wig provenance ONLY for remotes carrying the clip stamp,
+    # so the everyday list call pays nothing. File I/O on the executor.
+    stamped = [
+        (i, d.source_wig)
+        for i, d in enumerate(devices)
+        if d.source_wig
+    ]
+    if stamped:
+        states = await hass.async_add_executor_job(
+            _resolve_source_wig_states,
+            hass.config.config_dir,
+            [stamp for _i, stamp in stamped],
+        )
+        for (i, _stamp), (state, filename) in zip(
+            stamped, states, strict=True
+        ):
+            summaries[i]["source_wig_state"] = state
+            if filename is not None:
+                summaries[i]["source_wig_filename"] = filename
     connection.send_result(msg["id"], summaries)
 
 
@@ -2407,6 +2544,7 @@ async def ws_wigs_list(
 
     def _scan() -> dict[str, Any]:
         from .code_library import get_tree, library_available
+        from .wig_climate import matrix_summary
         from .wig_fitting import fitting_summary
         from .wig_store import scan_wigs
 
@@ -2439,6 +2577,14 @@ async def ws_wigs_list(
                     ],
                     "kind": loaded.wig.kind,
                     "identifiers": loaded.wig.identifiers,
+                    # The closet's matrix summary (owner ruling
+                    # 2026-07-28): state count, vocabularies, and temp
+                    # bounds so matrix rows render their "N states"
+                    # chip and peek summary without loading cells.
+                    "matrix": (
+                        matrix_summary(loaded.wig.climate)
+                        if loaded.wig.climate is not None else None
+                    ),
                     "fitting": fitting_summary(loaded.wig, username),
                     "linked_devices": _wig_linked_devices(
                         loaded.wig, index
@@ -2483,7 +2629,7 @@ async def ws_wigs_upload(
         from .wig_format import (
             parse_wig,
             serialize_wig,
-            signals_content_hash,
+            wig_content_hash,
         )
         from .wig_store import scan_wigs, write_wig_text
 
@@ -2493,10 +2639,16 @@ async def ws_wigs_upload(
         # file gets a duplicate receipt (yellow, owner ruling) instead
         # of silently minting -2, -3, ... twins. The file still writes:
         # keeping it is the user's call, the receipt just tells them.
+        # wig_content_hash, not signals_content_hash (2026-07-28):
+        # matrix wigs carry empty/near-empty flat signal lists, so
+        # hashing only the signals made EVERY matrix wig collide on the
+        # empty-list hash (owner bench: a Mitsubishi drop got "already
+        # in Toyotomi"). wig_content_hash is cells-aware for matrix
+        # wigs and byte-identical to the old hash for signal wigs.
         existing: dict[str, list[dict[str, Any]]] = {}
         for loaded in scan_wigs(hass.config.config_dir).wigs:
             existing.setdefault(
-                signals_content_hash(loaded.wig.signals), []
+                wig_content_hash(loaded.wig), []
             ).append({
                 "filename": loaded.path.name,
                 "brand": loaded.wig.brand,
@@ -2504,7 +2656,7 @@ async def ws_wigs_upload(
 
         def _entry(wig, filename: str) -> dict[str, Any]:
             matches = existing.get(
-                signals_content_hash(wig.signals), []
+                wig_content_hash(wig), []
             )
             return {
                 "filename": filename,
@@ -3015,6 +3167,7 @@ async def ws_fitting_state(
         from .wig_fitting import (
             fitting_is_complete,
             fitting_is_valid,
+            fitting_rows,
             fitting_summary,
             parse_fittings,
         )
@@ -3032,11 +3185,59 @@ async def ws_fitting_state(
             ),
             None,
         )
+        confirmed_keys = set(draft.confirmed) if draft else set()
+        failed_keys = set(draft.failed) if draft else set()
+        # The rows the session walks, with per-row state resolved
+        # server-side. Signal wigs keep the minimal shape they always
+        # had ("signals" below is unchanged, and their rows carry
+        # section: null); matrix wigs add the checklist display facts
+        # so the dialog renders the sectioned CC1 layout without
+        # re-deriving the checklist client-side.
+        if wig.climate is not None:
+            from .wig_climate import dimension_checklist
+
+            rows = [
+                {
+                    "key": r.key,
+                    "section": r.section,
+                    "mode": r.mode,
+                    "fan": r.fan,
+                    "swing": r.swing,
+                    "temp": r.temp,
+                    "temp_less": r.temp_less,
+                    "temp_role": r.temp_role,
+                    "confirmed": r.key in confirmed_keys,
+                    "failed": r.key in failed_keys,
+                }
+                for r in dimension_checklist(wig.climate)
+            ]
+        else:
+            rows = [
+                {
+                    "key": key,
+                    "section": None,
+                    "confirmed": key in confirmed_keys,
+                    "failed": key in failed_keys,
+                }
+                for key, _, _ in fitting_rows(wig)
+            ]
         return {
             "filename": msg["filename"],
             "username": username,
             "kind": wig.kind,
-            "signals": [sig.alias for sig in wig.signals],
+            "matrix": wig.climate is not None,
+            # Row temps stay NATIVE; the dialog converts for display
+            # using these two facts (unit ruling 2026-07-29). The
+            # precision rides along because the sub-degree one-decimal
+            # display rule needs it, and rows alone do not carry it.
+            "unit": wig.climate.unit if wig.climate is not None else None,
+            "precision": (
+                wig.climate.precision if wig.climate is not None else None
+            ),
+            # Row keys in session order. For signal wigs this is the
+            # alias list, byte-identical to the pre-0.8.8 payload.
+            "signals": [row["key"] for row in rows],
+            "rows": rows,
             "draft": (
                 {
                     "confirmed": draft.confirmed,
@@ -3148,6 +3349,13 @@ async def ws_wig_make_device(
     (v0.8.1 library rows): the codebook path renders a transient wig
     through the snapshot primitive and adopts it identically, writing
     nothing to the closet.
+
+    Matrix wigs (hair-wig/2, Cold Cuts) adopt as AC devices only: the
+    matrix writes to its own ``hair/matrices/`` file keyed by the new
+    device id, ``climate_matrix`` flags the device, and the flat
+    signals (the depth-0 extras) still copy as ordinary commands with
+    auto-map running over THEM only -- the cells are the climate
+    entity's, not the command list's.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3190,6 +3398,18 @@ async def ws_wig_make_device(
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
 
+    matrix = wig.climate
+    if matrix is not None and device_type != DeviceType.AC:
+        # The matrix IS a thermostat lattice; adopting it as anything
+        # else would strand the cells (only the climate entity reads
+        # them). The frontend seeds "ac" from kind, so this only fires
+        # on a stale or hand-rolled caller.
+        connection.send_error(
+            msg["id"], "invalid_format",
+            "matrix wigs adopt as AC devices",
+        )
+        return
+
     from .models import CaptureResult, CommandCategory
     from .wig_identity import wig_signal_identities
 
@@ -3203,7 +3423,26 @@ async def ws_wig_make_device(
         manufacturer=wig.brand,
         model=wig.model,
         emitter_entity_ids=list(msg["emitter_entity_ids"]),
+        climate_matrix=matrix is not None,
     )
+    if matrix is not None:
+        # The matrix file lands BEFORE the device exists (Cold Cuts):
+        # async_create_device spins up the climate entity, whose
+        # added-to-hass hook loads the matrix -- writing after would
+        # race it. A write failure refuses the whole adopt, so a
+        # cancelled or failed dialog still never leaves an orphan.
+        from .matrix_store import write_matrix
+
+        try:
+            await hass.async_add_executor_job(
+                write_matrix, hass.config.config_dir, device.id, matrix
+            )
+        except OSError as err:
+            connection.send_error(
+                msg["id"], "write_failed",
+                f"Could not write the matrix file: {err}",
+            )
+            return
     await manager.async_create_device(device)
 
     copied = 0
@@ -3236,9 +3475,10 @@ async def ws_wig_make_device(
         copied += 1
 
     await manager.async_update_device(device)
-    result = _device_full(device)
+    result = await _device_full(hass, device)
     result["copied"] = copied
     result["skipped"] = skipped
+    result["matrix_cells"] = len(matrix.cells) if matrix is not None else 0
     connection.send_result(msg["id"], result)
 
 
@@ -3265,15 +3505,20 @@ async def ws_wig_snapshot(
 
     def _snapshot() -> dict[str, Any] | None:
         from .code_library import build_wig_from_codebook
-        from .wig_format import serialize_wig, signals_content_hash
+        from .wig_format import serialize_wig, wig_content_hash
         from .wig_store import scan_wigs, write_wig_text
 
         wig = build_wig_from_codebook(msg["codebook_id"])
         if wig is None:
             return None
-        content = signals_content_hash(wig.signals)
+        # wig_content_hash on the scan side too (2026-07-28): the closet
+        # scan includes matrix wigs, and hashing their near-empty flat
+        # signal lists is the same collision class the upload dedup hit.
+        # Codebook wigs carry no climate block, so the incoming side is
+        # byte-identical to the old signals hash.
+        content = wig_content_hash(wig)
         for loaded in scan_wigs(hass.config.config_dir).wigs:
-            if signals_content_hash(loaded.wig.signals) == content:
+            if wig_content_hash(loaded.wig) == content:
                 return {
                     "filename": loaded.path.name,
                     "name": loaded.wig.name,
@@ -3330,3 +3575,274 @@ async def ws_wig_render(
         connection.send_error(msg["id"], "not_found", "Codebook not found")
         return
     connection.send_result(msg["id"], result)
+
+
+# --- Matrix device detail (Cold Cuts second half, 2026-07-29) ---
+#
+# The device page's cell browser rides three commands: matrix-cells
+# lists the lattice without a byte of Pronto, matrix-send fires one
+# exact cell (or a power code), and matrix-command saves one exact cell
+# as a stored command. All three resolve EXACTLY -- the frontend sends
+# coordinates read off matrix-cells, so snapping here would only paper
+# over a stale client. The entity's resolve_cell keeps its snapping;
+# these are different callers with different contracts.
+
+
+async def _matrix_for_request(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> tuple[Any, Any, Any] | None:
+    """Shared entry: (data, device, matrix), or None after send_error."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return None
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return None
+    matrix = None
+    if device.climate_matrix:
+        matrix = await manager.async_get_matrix(device.id)
+    if matrix is None:
+        # Covers both a non-matrix device and an unreadable matrix
+        # file; matrix_store already logged the reason for the latter.
+        connection.send_error(
+            msg["id"], "not_found", "Device has no readable climate matrix"
+        )
+        return None
+    return data, device, matrix
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/devices/matrix-cells",
+    vol.Required("device_id"): str,
+})
+@websocket_api.async_response
+async def ws_device_matrix_cells(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The cell browser payload: the whole lattice WITHOUT prontos.
+
+    The census worst case is 2,689 cells, so cells carry single-letter
+    keys and OMIT dimensions the cell does not have -- three spelled
+    nulls per cell would cost tens of kilobytes for pure padding. The
+    vocabulary lists follow the matrix_summary ordering rule (declared
+    order first, observed strays after, never-observed dropped). The
+    frontend round-trips these coordinates verbatim into matrix-send
+    and matrix-command.
+    """
+    resolved = await _matrix_for_request(hass, connection, msg)
+    if resolved is None:
+        return
+    _data, _device, matrix = resolved
+    from .wig_climate import matrix_summary
+
+    summary = matrix_summary(matrix)
+    cells: list[dict[str, Any]] = []
+    for c in matrix.cells:
+        cell: dict[str, Any] = {"m": c.mode}
+        if c.fan is not None:
+            cell["f"] = c.fan
+        if c.swing is not None:
+            cell["s"] = c.swing
+        if c.temp is not None:
+            cell["t"] = c.temp
+        cells.append(cell)
+    connection.send_result(msg["id"], {
+        # Native bounds plus the native unit (unit ruling 2026-07-29):
+        # the frontend converts for display per render and computes
+        # absent tiles from these native numbers, never the converse.
+        "min_temp": matrix.min_temp,
+        "max_temp": matrix.max_temp,
+        "precision": matrix.precision,
+        "unit": matrix.unit,
+        "modes": summary["modes"],
+        "fan_modes": summary["fan_modes"],
+        "swing_modes": summary["swing_modes"],
+        "has_on": matrix.on is not None,
+        "cells": cells,
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/devices/matrix-send",
+    vol.Required("device_id"): str,
+    vol.Optional("mode"): str,
+    vol.Optional("fan"): vol.Any(str, None),
+    vol.Optional("swing"): vol.Any(str, None),
+    vol.Optional("temp"): vol.Any(int, float, None),
+    vol.Optional("power"): vol.Any("on", "off"),
+})
+@websocket_api.async_response
+async def ws_device_matrix_send(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Send one exact cell, or a power code, from the cell browser.
+
+    ``power`` sends the matrix's off/on code and wins over any cell
+    coordinates; otherwise the exact cell resolves or errors
+    ``not_found`` (matrices are sparse -- an absent combination is
+    file fact and the browser shows it as such). Sends ride
+    ``async_send_matrix_cell`` under the display-grammar name, so the
+    Mirror row reads exactly like the entity's own sends.
+    """
+    resolved = await _matrix_for_request(hass, connection, msg)
+    if resolved is None:
+        return
+    data, _device, matrix = resolved
+    from .wig_climate import (
+        cell_display_name,
+        exact_cell,
+        state_display_name,
+        unit_letter,
+    )
+
+    manager: DeviceManager = data["device_manager"]
+    power = msg.get("power")
+    if power is not None:
+        pronto = matrix.off if power == "off" else matrix.on
+        if pronto is None:
+            connection.send_error(
+                msg["id"], "not_found", "This matrix has no on code"
+            )
+            return
+        name = state_display_name(power)
+        send_count = 1
+    else:
+        mode = msg.get("mode")
+        if mode is None:
+            connection.send_error(
+                msg["id"], "invalid_format", "Provide power or mode"
+            )
+            return
+        cell = exact_cell(
+            matrix, mode, msg.get("fan"), msg.get("swing"), msg.get("temp")
+        )
+        if cell is None:
+            connection.send_error(
+                msg["id"], "not_found", "No cell at those coordinates"
+            )
+            return
+        # The Mirror label converts to the install's unit LIVE (unit
+        # ruling 2026-07-29): nothing persists here, so nothing
+        # freezes -- switch the install's unit tomorrow and tomorrow's
+        # sends read in tomorrow's unit.
+        name = cell_display_name(
+            cell,
+            unit=matrix.unit,
+            display_unit=unit_letter(hass.config.units.temperature_unit),
+            precision=matrix.precision,
+        )
+        pronto = cell.pronto
+        send_count = cell.send_count
+    try:
+        await manager.async_send_matrix_cell(
+            msg["device_id"], name, pronto, send_count
+        )
+    except Exception as err:
+        _LOGGER.error("Matrix send failed: %s", err, exc_info=True)
+        connection.send_error(msg["id"], "send_failed", str(err))
+        return
+    connection.send_result(msg["id"], {"sent": name})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/devices/matrix-command",
+    vol.Required("device_id"): str,
+    vol.Required("mode"): str,
+    vol.Optional("fan"): vol.Any(str, None),
+    vol.Optional("swing"): vol.Any(str, None),
+    vol.Optional("temp"): vol.Any(int, float, None),
+})
+@websocket_api.async_response
+async def ws_device_matrix_command(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Save one exact cell as a stored command (save-state-as-command).
+
+    The exact cell becomes an IRCommand named by the display grammar,
+    identity stamped fresh from its Pronto -- the same per-signal
+    stamping ws_wig_make_device does, so a saved state matches its
+    off-the-air twin everywhere identities are compared. The command's
+    ``source`` is CommandSource.MATRIX, which is the whole origin
+    mechanism: the frontend renders the STATE origin chip off
+    ``command.source == "matrix"`` with no extra payload key.
+    ``add_command`` replaces by name, so saving the same state twice
+    refreshes the one command instead of stacking twins. No auto-map
+    runs: matrix-mode climate never reads command_mapping (see
+    climate.py), and a display-grammar name matches no standard action
+    anyway.
+    """
+    resolved = await _matrix_for_request(hass, connection, msg)
+    if resolved is None:
+        return
+    data, device, matrix = resolved
+    from .models import CaptureResult
+    from .wig_climate import cell_display_name, exact_cell, unit_letter
+    from .wig_identity import wig_signal_identity
+
+    cell = exact_cell(
+        matrix, msg["mode"], msg.get("fan"), msg.get("swing"),
+        msg.get("temp"),
+    )
+    if cell is None:
+        connection.send_error(
+            msg["id"], "not_found", "No cell at those coordinates"
+        )
+        return
+    ident = await hass.async_add_executor_job(
+        wig_signal_identity, cell.pronto
+    )
+    if ident is None:
+        # Possible only for a hand-edited matrix file whose cell no
+        # longer validates; refuse honestly rather than store a
+        # command that cannot transmit.
+        connection.send_error(
+            msg["id"], "invalid_format", "The cell's code does not validate"
+        )
+        return
+    capture = CaptureResult(
+        protocol="PRONTO",
+        code=ident.pronto,
+        raw_timings=list(ident.raw_timings),
+        frequency=ident.frequency,
+    )
+    # Mint-time naming (unit ruling 2026-07-29): the saved command's
+    # name freezes in the install's unit as of NOW; it never rewrites,
+    # even if the install later changes units. The frontend's Set-state
+    # line previews this exact string.
+    command = capture.to_command(
+        cell_display_name(
+            cell,
+            unit=matrix.unit,
+            display_unit=unit_letter(hass.config.units.temperature_unit),
+            precision=matrix.precision,
+        ),
+        CommandCategory.CUSTOM,
+    )
+    command.source = CommandSource.MATRIX
+    command.byte_hash = ident.byte_hash
+    command.decoded_protocol = ident.decoded_protocol
+    command.decoded_address = ident.decoded_address
+    command.decoded_command = ident.decoded_command
+    command.decoded_fingerprint = ident.decoded_fingerprint
+    command.decoded_extras = (
+        dict(ident.decoded_extras) if ident.decoded_extras else None
+    )
+    command.send_count = max(1, cell.send_count or 1)
+    device.add_command(command)
+    manager: DeviceManager = data["device_manager"]
+    await manager.async_update_device(device)
+    connection.send_result(msg["id"], await _device_full(hass, device))

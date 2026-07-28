@@ -15,9 +15,12 @@ from custom_components.hair.const import MAX_SEND_COUNT
 from custom_components.hair.wig_format import (
     MAX_WIG_BYTES,
     WIG_FORMAT_V1,
+    WIG_FORMAT_V2,
     Wig,
     WigSignal,
+    canonical_cells_json,
     canonical_signals_json,
+    cells_content_hash,
     parse_wig,
     serialize_wig,
     signals_content_hash,
@@ -105,7 +108,8 @@ class TestParseRejections:
         assert not result.ok
 
     def test_future_major_version_polite_refusal(self):
-        result = _parse(_wig_dict(format="hair-wig/2"))
+        # hair-wig/2 reads since Cold Cuts; 3 is the future now.
+        result = _parse(_wig_dict(format="hair-wig/3"))
         assert not result.ok
         assert len(result.errors) == 1
         assert "update HAIR" in result.errors[0]
@@ -506,3 +510,65 @@ class TestKindAtSigning:
         shared = _json.loads(shared_wig_text(wig))
         assert shared["kind"] == "candles"
         assert shared["identifiers"] == {"upc": "794969274724"}
+
+
+class TestClimateUnit:
+    """The climate block's temperature scale (unit ruling 2026-07-29).
+
+    Machine keys stay file-native forever, so the unit is a FILE fact:
+    parsed strictly, defaulted to "C" (the SmartIR corpus convention),
+    serialized only when it earns its bytes, and hashed -- the same
+    numbers on a different scale are different states.
+    """
+
+    def _matrix_wig(self, **climate_over) -> dict:
+        climate = {
+            "min_temp": 16,
+            "max_temp": 30,
+            "off": PRONTO,
+            "cells": [
+                {"mode": "cool", "fan": "auto", "temp": 22,
+                 "pronto": PRONTO},
+            ],
+        }
+        climate.update(climate_over)
+        return {"format": WIG_FORMAT_V2, "name": "AC", "climate": climate}
+
+    def test_absent_defaults_to_celsius(self):
+        result = _parse(self._matrix_wig())
+        assert result.ok, result.errors
+        assert result.wig.climate.unit == "C"
+
+    def test_fahrenheit_parses(self):
+        result = _parse(self._matrix_wig(unit="F"))
+        assert result.ok, result.errors
+        assert result.wig.climate.unit == "F"
+
+    @pytest.mark.parametrize("bad", ["K", "c", "f", "Celsius", 1, True])
+    def test_only_the_two_letters_validate(self, bad):
+        result = _parse(self._matrix_wig(unit=bad))
+        assert not result.ok
+        assert any("climate.unit" in e for e in result.errors)
+
+    def test_serialize_omits_the_celsius_default(self):
+        """A Celsius file stays byte-identical to its pre-unit self."""
+        wig = _parse(self._matrix_wig()).wig
+        assert '"unit"' not in serialize_wig(wig)
+
+    def test_fahrenheit_round_trips(self):
+        wig = _parse(self._matrix_wig(unit="F")).wig
+        text = serialize_wig(wig)
+        assert json.loads(text)["climate"]["unit"] == "F"
+        again = parse_wig(text)
+        assert again.ok and again.wig.climate.unit == "F"
+
+    def test_unit_participates_in_the_cells_hash(self):
+        """The format is unreleased, so the canonical form could still
+        grow the unit without a hash migration; from here on it is
+        frozen. A 22C lattice and a 22F lattice must never share a
+        fitting ledger."""
+        c = _parse(self._matrix_wig()).wig.climate
+        f = _parse(self._matrix_wig(unit="F")).wig.climate
+        assert '"unit":"C"' in canonical_cells_json(c)
+        assert '"unit":"F"' in canonical_cells_json(f)
+        assert cells_content_hash(c) != cells_content_hash(f)

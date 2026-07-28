@@ -34,7 +34,7 @@ export interface ActionOption {
     label: string;
 }
 
-export type CommandSourceId = "captured" | "database" | "imported";
+export type CommandSourceId = "captured" | "database" | "imported" | "matrix";
 
 export type CaptureProviderTypeId = "esphome" | "broadlink" | "native" | "mock";
 
@@ -95,6 +95,56 @@ export interface CodeBrand {
     codebooks: CodeCodebook[];
 }
 
+// Cold Cuts (v0.8.8): the climate-matrix summary block. Served on
+// wigs/list entries and full device payloads (owner ruling 2026-07-28)
+// so matrix rows and the device page render counts, vocabularies, and
+// temp bounds without ever loading cells.
+export interface MatrixSummary {
+    cells: number;
+    // Whether the matrix carries a discrete On power code (many files
+    // only have Off). Bounds the clip-confirm count.
+    has_on: boolean;
+    modes: string[];
+    fan_modes: string[];
+    swing_modes: string[];
+    // Bounds are NATIVE file numbers with the file's unit riding
+    // along (unit ruling 2026-07-29): consumers convert for display
+    // per render, the payload never pre-converts.
+    min_temp: number;
+    max_temp: number;
+    unit: "C" | "F";
+}
+
+// One cell's coordinates in the cell-browser payload (Cold Cuts second
+// half, hair/devices/matrix-cells). Single-letter keys because the
+// census worst case is 2,689 cells; a dimension the cell does not
+// carry is OMITTED, never null. These coordinates round-trip verbatim
+// into matrix-send and matrix-command.
+export interface MatrixCellCoord {
+    m: string;
+    f?: string;
+    s?: string;
+    t?: number;
+}
+
+// The full matrix-cells payload: bounds, precision, vocabulary lists
+// (matrix_summary ordering: declared first, observed strays after),
+// has_on, and every cell as coordinates without a byte of Pronto.
+export interface MatrixCells {
+    min_temp: number;
+    max_temp: number;
+    precision: number;
+    // The matrix's native unit (unit ruling 2026-07-29). Cell temps
+    // and bounds above are in it; displays convert, computations
+    // (absent tiles, coordinates) never do.
+    unit: "C" | "F";
+    modes: string[];
+    fan_modes: string[];
+    swing_modes: string[];
+    has_on: boolean;
+    cells: MatrixCellCoord[];
+}
+
 // Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
 export interface WigInfo {
     filename: string;
@@ -119,6 +169,10 @@ export interface WigInfo {
     // Adopt Device (v0.8.1): HAIR devices already carrying this wig's
     // codes, by tiered identity match.
     linked_devices?: { device_id: string; device_name: string }[];
+    // Cold Cuts (v0.8.8): non-null for matrix wigs. Drives the "N
+    // states" chip, the peek summary, CLIP suppression, and the
+    // fit-tick's cold blue glow.
+    matrix?: MatrixSummary | null;
 }
 
 // Perfect Fit: the fitting layer.
@@ -152,11 +206,38 @@ export interface FittingLedgerRow {
     key_fingerprint: string | null;
 }
 
+// Cold Cuts (v0.8.8): one fitting-session row. Signal wigs carry the
+// minimal shape (key = alias, section null); matrix wigs add the
+// dimension-check display facts so the dialog renders the sectioned
+// CC1 layout without re-deriving the checklist client-side.
+export interface FittingRow {
+    key: string;
+    section: "start" | "modes" | "fan" | "swing" | "temp" | "wrap" | null;
+    mode?: string | null;
+    fan?: string | null;
+    swing?: string | null;
+    temp?: number | null;
+    temp_less?: boolean;
+    temp_role?: "min" | "max" | null;
+    confirmed: boolean;
+    failed: boolean;
+}
+
 export interface FittingState {
     filename: string;
     username: string;
     kind: string | null;
+    // True when this wig fits through the dimension check (Cold Cuts).
+    matrix: boolean;
+    // Matrix wigs only, null for signal wigs (unit ruling 2026-07-29):
+    // the matrix's native unit and precision. Row temps stay native;
+    // the dialog converts labels for display with these two facts.
+    unit?: "C" | "F" | null;
+    precision?: number | null;
+    // Row keys in session order; for signal wigs this is the alias
+    // list, byte-identical to the pre-0.8.8 payload.
     signals: string[];
+    rows: FittingRow[];
     draft: {
         confirmed: string[];
         failed: string[];
@@ -203,6 +284,10 @@ export interface IRDevice {
     created_at: string;
     updated_at: string;
     command_count: number;
+    // Cold Cuts (v0.8.8): the state-matrix summary on full device
+    // payloads, null for devices without a matrix. Feeds the device
+    // page's compact matrix card.
+    matrix?: MatrixSummary | null;
 }
 
 export interface DeviceSummary {
@@ -346,6 +431,16 @@ export interface UnknownDeviceSummary {
     // The HAIR devices this remote feeds (v0.7.0): stored promote link
     // plus per-signal assignment targets, resolved live by id.
     linked_devices?: { device_id: string; device_name: string }[];
+    // Cold Cuts (v0.8.8): the matrix-clip provenance stamp. Non-null
+    // only for remotes clipped open (include_matrix) from a matrix
+    // wig; drives the adopt signpost.
+    source_wig?: { filename: string; cells_hash: string } | null;
+    // Resolved live against the closet, list call only and only for
+    // stamped remotes: filename intact, renamed (cells hash still
+    // matches a closet wig), or honestly gone.
+    source_wig_state?: "present" | "renamed" | "gone";
+    // The wig's CURRENT filename; present/renamed only.
+    source_wig_filename?: string;
 }
 
 export interface UnknownDevice {

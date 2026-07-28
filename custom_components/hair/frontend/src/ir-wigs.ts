@@ -38,12 +38,15 @@ import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+import { displayTemp, installUnit } from "./temperature.js";
+import "./ir-confirm-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-fitting-dialog.js";
 import "./ir-promote-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
+    MatrixSummary,
     WigInfo,
     WigInvalid,
     WigsList,
@@ -79,6 +82,31 @@ const ICON_WIG =
 // cards use, so every disclosure arrow in the panel is one glyph.
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
+
+// The drop-bar title names the five formats the closet accepts; each
+// name links to the format's home. The locale strings carry {wig}-style
+// placeholders so every language keeps its own sentence around the
+// untranslated format names (localize.ts owner ruling), and the render
+// splits on the placeholders instead of substituting text.
+const DROP_FORMAT_LINKS: Record<string, { label: string; url: string }> = {
+    wig: {
+        label: "Wig",
+        // Points at the community wig-sharing repo now that it exists,
+        // replacing the docs/wig-format.md link (owner ruling 2026-07-29).
+        url: "https://github.com/DAB-LABS/WigShop",
+    },
+    smartir: {
+        label: "SmartIR",
+        url: "https://github.com/smartHomeHub/SmartIR",
+    },
+    flipper: {
+        label: "Flipper",
+        url: "https://github.com/logickworkshop/Flipper-IRDB",
+    },
+    lirc: { label: "LIRC", url: "https://lirc.sourceforge.net/remotes/" },
+    girr: { label: "Girr", url: "https://www.harctoolbox.org/Girr.html" },
+};
+const DROP_FORMAT_SPLIT = /\{(wig|smartir|flipper|lirc|girr)\}/g;
 
 @customElement("ir-wigs")
 export class IrWigs extends LitElement {
@@ -125,6 +153,14 @@ export class IrWigs extends LitElement {
     @state() private _peekId: string | null = null;
     private _peekPos = { top: 0, left: 0 };
     private _peekNames: string[] = [];
+    // Matrix rows peek a SUMMARY, not 300 cell names (Cold Cuts,
+    // owner ruling 2026-07-28): vocabularies and the temp range.
+    private _peekMatrix: MatrixSummary | null = null;
+    // The gated matrix clip (Cold Cuts second half, 2026-07-29): CLIP
+    // on a matrix row confirms first -- the open clip mints one
+    // Clipper row per state, and 2,689 rows must be a choice, never a
+    // surprise. Non-matrix rows keep the instant clip.
+    @state() private _clipConfirm: ClosetRow | null = null;
 
     // Editor dialog state.
     @state() private _editing: WigInfo | null = null;
@@ -322,11 +358,61 @@ export class IrWigs extends LitElement {
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         this._peekPos = { top: rect.bottom + 6, left: rect.left };
         this._peekNames = row.signalNames;
+        this._peekMatrix = row.wig?.matrix ?? null;
         this._peekId = row.id;
     }
 
+    /** The peek's temperature line, converted to the viewer's install
+     * unit when it differs from the file's (unit ruling 2026-07-29:
+     * displays convert dynamically, the summary payload stays
+     * native). Whole-degree fallback for the conversion: the summary
+     * carries no precision, and corpus bounds are whole degrees. */
+    private _renderPeekTempRange(): string {
+        const m = this._peekMatrix!;
+        const viewUnit = installUnit(this.hass);
+        return t("wigs.peek.temp", {
+            min: displayTemp(m.min_temp, m.unit, viewUnit),
+            max: displayTemp(m.max_temp, m.unit, viewUnit),
+            unit: viewUnit,
+        });
+    }
+
     private _renderPeek() {
-        if (!this._peekId || this._peekNames.length === 0) return "";
+        if (!this._peekId) return "";
+        if (!this._peekMatrix && this._peekNames.length === 0) return "";
+        // Matrix rows: the shop window shows the shape of the lattice
+        // (modes / fans / swings / temp range), never a cell list --
+        // 300 rows is not a popover (owner ruling 2026-07-28).
+        const body = this._peekMatrix
+            ? html`<div class="peek-entry">
+                      ${t("wigs.peek.modes", {
+                          list: this._peekMatrix.modes.join(", "),
+                      })}
+                  </div>
+                  ${this._peekMatrix.fan_modes.length
+                      ? html`<div class="peek-entry">
+                            ${t("wigs.peek.fans", {
+                                list: this._peekMatrix.fan_modes.join(
+                                    ", ",
+                                ),
+                            })}
+                        </div>`
+                      : ""}
+                  ${this._peekMatrix.swing_modes.length
+                      ? html`<div class="peek-entry">
+                            ${t("wigs.peek.swings", {
+                                list: this._peekMatrix.swing_modes.join(
+                                    ", ",
+                                ),
+                            })}
+                        </div>`
+                      : ""}
+                  <div class="peek-entry">
+                      ${this._renderPeekTempRange()}
+                  </div>`
+            : this._peekNames.map(
+                  (name) => html`<div class="peek-entry">${name}</div>`,
+              );
         return html`<div
                 class="linked-scrim"
                 @click=${() => (this._peekId = null)}
@@ -336,23 +422,48 @@ export class IrWigs extends LitElement {
                 style="top: ${this._peekPos.top}px; left: ${this._peekPos
                     .left}px;"
             >
-                ${this._peekNames.map(
-                    (name) => html`<div class="peek-entry">${name}</div>`,
-                )}
+                ${body}
             </div>`;
     }
 
     // --- Try on ---
 
-    private async _tryOn(row: ClosetRow): Promise<void> {
+    private async _tryOn(
+        row: ClosetRow,
+        includeMatrix = false,
+    ): Promise<void> {
         this._busyId = row.id;
         try {
-            const result = await this.api.importCodeRemote(row.id);
-            this._flash(
-                t("wigs.tried_on", {
-                    name: result.device.label ?? row.label,
-                }),
+            const result = await this.api.importCodeRemote(
+                row.id,
+                undefined,
+                includeMatrix,
             );
+            if (includeMatrix) {
+                // The matrix clip's receipt (2026-07-28): the confirm
+                // promised "up to N", so the receipt reports what was
+                // actually created and, when byte-identical cells
+                // collapsed under the one-code-per-remote rule, says
+                // where the shortfall went. Non-matrix clips keep the
+                // plain tried-on flash below.
+                const duplicates = result.duplicates ?? 0;
+                this._flash(
+                    duplicates > 0
+                        ? t("wigs.clip_matrix_done_duplicates", {
+                              imported: String(result.imported),
+                              duplicates: String(duplicates),
+                          })
+                        : t("wigs.clip_matrix_done", {
+                              imported: String(result.imported),
+                          }),
+                );
+            } else {
+                this._flash(
+                    t("wigs.tried_on", {
+                        name: result.device.label ?? row.label,
+                    }),
+                );
+            }
             this.dispatchEvent(
                 new CustomEvent("wig-tried-on", {
                     detail: result.device,
@@ -368,6 +479,49 @@ export class IrWigs extends LitElement {
         } finally {
             this._busyId = null;
         }
+    }
+
+    /** What the open clip will mint at most: every cell, Off, On when
+     * the matrix has one, and the wig's flat extras (its plain
+     * signals). */
+    private _clipCount(row: ClosetRow): number {
+        const matrix = row.wig?.matrix;
+        if (!matrix) return row.signalCount;
+        // An upper bound, not an exact count: byte-identical duplicate
+        // cells collapse on the Clipper (one-code-per-remote rule), so
+        // the true number is unknowable upfront. The confirm text says
+        // "up to" for the same reason.
+        return matrix.cells + 1 + (matrix.has_on ? 1 : 0) + row.signalCount;
+    }
+
+    /** CLIP click: matrix rows confirm the row count first; signal
+     * wigs keep today's instant clip. */
+    private _onClipClick(row: ClosetRow): void {
+        if (row.wig?.matrix) {
+            this._clipConfirm = row;
+            return;
+        }
+        void this._tryOn(row);
+    }
+
+    private _renderClipConfirm() {
+        const row = this._clipConfirm;
+        if (!row) return "";
+        const count = this._clipCount(row);
+        const message =
+            t("wigs.clip_matrix_confirm", { count: String(count) }) +
+            (count > 500 ? ` ${t("wigs.clip_matrix_slow")}` : "");
+        return html`<ir-confirm-dialog
+            title=${row.label}
+            message=${message}
+            confirmLabel=${t("wigs.clip_it")}
+            @confirmed=${() => {
+                const target = this._clipConfirm!;
+                this._clipConfirm = null;
+                void this._tryOn(target, true);
+            }}
+            @closed=${() => (this._clipConfirm = null)}
+        ></ir-confirm-dialog>`;
     }
 
     // --- Upload (drop bar + browse) ---
@@ -466,6 +620,30 @@ export class IrWigs extends LitElement {
         )}${this._receiptSuffix
             ? html` \u00b7 ${this._receiptSuffix}`
             : ""}`;
+    }
+
+    /**
+     * Drop-bar title with each accepted format linked to its home
+     * (owner ask, 2026-07-29). Splitting on the placeholder tokens
+     * keeps the alternation text/token, so the links land wherever
+     * the language puts them. stopPropagation keeps a link click from
+     * reaching the drop-bar's handlers.
+     */
+    private _renderDropTitle() {
+        const segments = t("wigs.drop.title").split(DROP_FORMAT_SPLIT);
+        return html`${segments.map((seg, i) => {
+            const link = i % 2 === 1 ? DROP_FORMAT_LINKS[seg] : undefined;
+            return link
+                ? html`<a
+                      class="fmt-link"
+                      href=${link.url}
+                      target="_blank"
+                      rel="noopener"
+                      @click=${(e: Event) => e.stopPropagation()}
+                      >${link.label}</a
+                  >`
+                : html`${seg}`;
+        })}`;
     }
 
     private _jumpToWig(f: { filename: string; brand: string | null }): void {
@@ -874,8 +1052,8 @@ export class IrWigs extends LitElement {
                         ? html`<div class="t1">
                                   ${this._renderReceiptLine()}
                               </div>
-                              <div class="t2">${t("wigs.drop.title")}</div>`
-                        : html`<div class="t1">${t("wigs.drop.title")}</div>
+                              <div class="t2">${this._renderDropTitle()}</div>`
+                        : html`<div class="t1">${this._renderDropTitle()}</div>
                               <div class="t2">${t("wigs.drop.hint")}</div>`}
                 </div>
                 <button class="browse" @click=${this._browse}>
@@ -959,6 +1137,7 @@ export class IrWigs extends LitElement {
                 </div>`,
             )}
             ${this._renderPeek()}
+            ${this._renderClipConfirm()}
             ${this._renderEditor()}
             ${this._adoptWig
                 ? html`<ir-promote-dialog
@@ -968,6 +1147,7 @@ export class IrWigs extends LitElement {
                       .suggestedType=${this._typeFromKind(
                           this._adoptWig.kind,
                       )}
+                      .isMatrix=${!!this._adoptWig.matrix}
                       .wigFilename=${this._adoptWig.filename}
                       @device-created=${this._onWigAdopted}
                       @closed=${() => (this._adoptWig = null)}
@@ -1094,14 +1274,16 @@ export class IrWigs extends LitElement {
                     class="wig-count"
                     @click=${(e: Event) => this._togglePeek(row, e)}
                 >
-                    ${tp("wigs.signals", row.signalCount)}
+                    ${row.wig?.matrix
+                        ? tp("wigs.states", row.wig.matrix.cells)
+                        : tp("wigs.signals", row.signalCount)}
                 </button>
                 ${row.wig?.fitting?.state
                     ? html`<span
                           class="fit-tick ${row.wig.fitting.state} ${row
                               .wig.fitting.user_state === "perfect"
                               ? "yours"
-                              : ""}"
+                              : ""} ${row.wig.matrix ? "matrix" : ""}"
                           title=${row.wig.fitting.state === "perfect"
                               ? t("wigs.fit_tick.perfect")
                               : t("wigs.fit_tick.partial", {
@@ -1170,7 +1352,7 @@ export class IrWigs extends LitElement {
                     <button
                         class="action-btn clip-btn"
                         ?disabled=${this._busyId === row.id}
-                        @click=${() => this._tryOn(row)}
+                        @click=${() => this._onClipClick(row)}
                     >
                         ${t("wigs.clip_it")}
                     </button>
@@ -1489,6 +1671,17 @@ export class IrWigs extends LitElement {
         .drop-bar .t2 {
             font-size: 11.5px;
             opacity: 0.75;
+        }
+        /* Format links in the drop-bar title: same dim ink as the
+           surrounding sentence, underline only on hover -- reference,
+           not call to action. */
+        .drop-bar .fmt-link {
+            color: inherit;
+            text-decoration: none;
+        }
+        .drop-bar .fmt-link:hover {
+            text-decoration: underline;
+            text-underline-offset: 2px;
         }
         .drop-bar .browse {
             margin-left: auto;
@@ -1817,6 +2010,19 @@ export class IrWigs extends LitElement {
         .fit-tick.partial {
             color: #ffb300;
         }
+        /* Matrix wigs' stateful signature (owner design 2026-07-28:
+           green check, blue glow, "like a cold glow"): the check keeps
+           its fitted color, the GLOW goes cold blue -- faint for any
+           fitting, brighter when YOUR fitting is perfect. Signal wigs
+           keep the green glow above untouched. */
+        .fit-tick.matrix {
+            text-shadow: 0 0 6px rgba(79, 195, 247, 0.55);
+        }
+        .fit-tick.matrix.perfect.yours {
+            text-shadow:
+                0 0 6px rgba(79, 195, 247, 0.95),
+                0 0 12px rgba(79, 195, 247, 0.5);
+        }
         .chip-tick {
             font-size: 11px;
             font-weight: 700;
@@ -1848,7 +2054,10 @@ export class IrWigs extends LitElement {
         /* CLIP is the shared action-chip anatomy (same radius, padding,
            and uppercase as every other button) in the Clipper's copper,
            because it does the same kind of thing as Add Remote. Delete
-           is the stock shared delete chip, untouched. */
+           is the stock shared delete chip, untouched. Matrix rows got
+           CLIP back in the second half (owner ruling 2026-07-29),
+           gated behind a row-count confirm -- the open clip mints one
+           Clipper row per state. */
         .action-btn.clip-btn {
             color: #b87333;
             border-color: rgba(184, 115, 51, 0.35);

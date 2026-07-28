@@ -25,8 +25,11 @@ import type {
     IRDevice,
     IRTrigger,
     DeviceTypeId,
+    MatrixCellCoord,
+    MatrixCells,
     ReceiverInfo,
 } from "./types.js";
+import { displayTemp, installUnit } from "./temperature.js";
 
 // MDI: drag (six-dot grip)
 const ICON_GRIP =
@@ -77,6 +80,18 @@ export class IrDeviceDetail extends LitElement {
     // Inline name editing
     @state() private _editingName = false;
     @state() private _draftName = "";
+
+    // State-matrix cell browser (Cold Cuts second half, mockup CC3).
+    // The lattice loads lazily the first time the card renders and is
+    // cached per device id; a load failure leaves the card summary-only
+    // rather than dead. Selection is one branch (mode, then fan/swing
+    // as the branch offers them) plus one temperature tile.
+    @state() private _matrixCells: MatrixCells | null = null;
+    private _matrixCellsFor: string | null = null;
+    @state() private _selMode: string | null = null;
+    @state() private _selFan: string | null = null;
+    @state() private _selSwing: string | null = null;
+    @state() private _selTemp: number | null = null;
 
     // Triggers
     @state() private _triggers: IRTrigger[] = [];
@@ -298,6 +313,13 @@ export class IrDeviceDetail extends LitElement {
         if (changed.has("device")) {
             void this._loadActionOptions();
             void this._loadTriggers();
+        }
+        // Lazy matrix load, once per device id: the card renders its
+        // summary immediately and the cell browser fills in when the
+        // lattice arrives.
+        if (this.device.matrix && this._matrixCellsFor !== this.device.id) {
+            this._matrixCellsFor = this.device.id;
+            void this._loadMatrixCells();
         }
         // After a keyed rebuild of the commands-list, Sortable needs to
         // be re-attached to the freshly-created container.
@@ -868,6 +890,484 @@ export class IrDeviceDetail extends LitElement {
     }
 
     // ---------------------------------------------------------------
+    // State matrix (Cold Cuts, v0.8.8)
+    // ---------------------------------------------------------------
+
+    /** The device's HAIR climate state object, resolved through the
+     * HA registries: device by its (hair, id) identifier, then that
+     * device's climate entity. Registry-first because the HAIR device
+     * id is not the HA device id and the entity_id is user-renamable;
+     * null (no card readout) while the registries have not caught up. */
+    private _climateState(): any | null {
+        const devices = (this.hass?.devices ?? {}) as Record<string, any>;
+        let haDeviceId: string | null = null;
+        for (const dev of Object.values(devices)) {
+            const idents = (dev?.identifiers ?? []) as [string, string][];
+            if (
+                idents.some(
+                    (pair) =>
+                        pair[0] === "hair" && pair[1] === this.device.id,
+                )
+            ) {
+                haDeviceId = dev.id;
+                break;
+            }
+        }
+        if (!haDeviceId) return null;
+        const entities = (this.hass?.entities ?? {}) as Record<
+            string,
+            any
+        >;
+        for (const [entityId, entry] of Object.entries(entities)) {
+            if (
+                entry?.device_id === haDeviceId &&
+                entityId.startsWith("climate.")
+            ) {
+                return this.hass?.states?.[entityId] ?? null;
+            }
+        }
+        return null;
+    }
+
+    private async _loadMatrixCells(): Promise<void> {
+        this._matrixCells = null;
+        try {
+            const cells = await this.api.matrixCells(this.device.id);
+            this._matrixCells = cells;
+            if (cells.modes.length > 0) {
+                this._select(cells.modes[0], null, null, null);
+            }
+        } catch {
+            // Summary-only card; the backend already logged why.
+            this._matrixCells = null;
+        }
+    }
+
+    /** Fan values the mode branch actually holds, in vocabulary order. */
+    private _fansFor(mode: string): string[] {
+        const mc = this._matrixCells!;
+        const seen = new Set<string>();
+        for (const c of mc.cells) {
+            if (c.m === mode && c.f !== undefined) seen.add(c.f);
+        }
+        return mc.fan_modes.filter((f) => seen.has(f));
+    }
+
+    /** Swing values under (mode, fan), in vocabulary order. */
+    private _swingsFor(mode: string, fan: string | null): string[] {
+        const mc = this._matrixCells!;
+        const seen = new Set<string>();
+        for (const c of mc.cells) {
+            if (
+                c.m === mode &&
+                (c.f ?? null) === fan &&
+                c.s !== undefined
+            ) {
+                seen.add(c.s);
+            }
+        }
+        return mc.swing_modes.filter((s) => seen.has(s));
+    }
+
+    /** Every cell of the selected branch (exact dimension match --
+     * absent dimensions pair only with null, mirroring exact_cell). */
+    private _branchCells(
+        mode: string,
+        fan: string | null,
+        swing: string | null,
+    ): MatrixCellCoord[] {
+        return this._matrixCells!.cells.filter(
+            (c) =>
+                c.m === mode &&
+                (c.f ?? null) === fan &&
+                (c.s ?? null) === swing,
+        );
+    }
+
+    /** Move the selection, re-resolving the deeper dimensions so the
+     * result is always a branch the matrix actually has: a fan/swing
+     * that vanished with the mode change falls to the branch's first,
+     * a temperature falls to the nearest available (middle when the
+     * branch is fresh -- the entity's resolve_cell default). */
+    private _select(
+        mode: string,
+        fan: string | null,
+        swing: string | null,
+        temp: number | null,
+    ): void {
+        const fans = this._fansFor(mode);
+        const useFan =
+            fan !== null && fans.includes(fan) ? fan : (fans[0] ?? null);
+        const swings = this._swingsFor(mode, useFan);
+        const useSwing =
+            swing !== null && swings.includes(swing)
+                ? swing
+                : (swings[0] ?? null);
+        const temps = this._branchCells(mode, useFan, useSwing)
+            .filter((c) => c.t !== undefined)
+            .map((c) => c.t!)
+            .sort((a, b) => a - b);
+        let useTemp: number | null = null;
+        if (temps.length > 0) {
+            if (temp === null) {
+                useTemp = temps[Math.floor(temps.length / 2)];
+            } else if (temps.includes(temp)) {
+                useTemp = temp;
+            } else {
+                useTemp = temps.reduce((best, x) =>
+                    Math.abs(x - temp) < Math.abs(best - temp) ? x : best,
+                );
+            }
+        }
+        this._selMode = mode;
+        this._selFan = useFan;
+        this._selSwing = useSwing;
+        this._selTemp = useTemp;
+    }
+
+    /** The exact cell the selection points at, or null mid-load. */
+    private _selectedCell(): MatrixCellCoord | null {
+        if (!this._matrixCells || this._selMode === null) return null;
+        return (
+            this._branchCells(
+                this._selMode,
+                this._selFan,
+                this._selSwing,
+            ).find((c) => (c.t ?? null) === this._selTemp) ?? null
+        );
+    }
+
+    /** One matrix temperature as display text, converted to the
+     * viewer's install unit when it differs from the matrix's native
+     * unit (unit ruling 2026-07-29). Display-only: coordinates and
+     * the absent-tile walk stay native. */
+    private _displayTemp(temp: number): string {
+        const mc = this._matrixCells;
+        return displayTemp(
+            temp,
+            mc?.unit ?? "C",
+            installUnit(this.hass),
+            mc?.precision ?? 1,
+        );
+    }
+
+    /** The CC4 display grammar, client-side: mode bare, fan and swing
+     * labeled, temperature a bare number last. Must mirror
+     * wig_climate.cell_display_name byte-for-byte -- the current-tile
+     * glow compares this against the entity's matrix_cell attribute,
+     * which the backend also converts to the install's unit at send
+     * time, so the temperature part converts here too. */
+    private _cellName(c: MatrixCellCoord): string {
+        const parts = [c.m];
+        if (c.f !== undefined) parts.push(`fan: ${c.f}`);
+        if (c.s !== undefined) parts.push(`swing: ${c.s}`);
+        if (c.t !== undefined) parts.push(this._displayTemp(c.t));
+        return parts.join(" / ");
+    }
+
+    private async _matrixSend(): Promise<void> {
+        const cell = this._selectedCell();
+        if (!cell) return;
+        this._busy = true;
+        try {
+            const result = await this.api.matrixSend(this.device.id, {
+                mode: cell.m,
+                fan: cell.f ?? null,
+                swing: cell.s ?? null,
+                temp: cell.t ?? null,
+            });
+            this._flash(t("devdetail.sent_cmd", { name: result.sent }));
+        } catch (err) {
+            this._flash(
+                t("devdetail.send_failed", {
+                    message: (err as Error).message,
+                }),
+            );
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    private async _matrixSaveCommand(): Promise<void> {
+        const cell = this._selectedCell();
+        if (!cell) return;
+        this._busy = true;
+        try {
+            // The response IS the refreshed full device (the saved
+            // state replaces by name, so the list never twins).
+            this.device = await this.api.matrixCommand(this.device.id, {
+                mode: cell.m,
+                fan: cell.f ?? null,
+                swing: cell.s ?? null,
+                temp: cell.t ?? null,
+            });
+            this._flash(
+                t("devdetail.saved", { name: this._cellName(cell) }),
+            );
+            this.dispatchEvent(
+                new CustomEvent("device-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch (err) {
+            this._flash(
+                t("devdetail.update_failed", {
+                    message: (err as Error).message,
+                }),
+            );
+        } finally {
+            this._busy = false;
+        }
+    }
+
+    /** One dimension chip row (Mode / Fan / Swing). */
+    private _renderDimRow(
+        label: string,
+        values: string[],
+        selected: string | null,
+        pick: (value: string) => void,
+    ) {
+        return html`
+            <div class="mx-dim-row">
+                <span class="mx-dim-label">${label}</span>
+                <span class="mx-chips">
+                    ${values.map(
+                        (v) => html`<button
+                            class="mx-chip ${v === selected ? "on" : ""}"
+                            @click=${() => pick(v)}
+                        >
+                            ${v}
+                        </button>`,
+                    )}
+                </span>
+            </div>
+        `;
+    }
+
+    /** The temperature tiles of the selected branch: present tiles
+     * show the number, absent positions (branch min to max stepping
+     * precision) render dashed and inert, the selected tile fills
+     * cold blue, and the tile matching the entity's current cell
+     * wears the cold glow ring. Depth-limited branches (no
+     * temperature dimension) render one bare tile for the branch. */
+    private _renderMatrixGrid(currentName: string | null) {
+        const mode = this._selMode!;
+        const branch = this._branchCells(
+            mode,
+            this._selFan,
+            this._selSwing,
+        );
+        const byTemp = new Map<number, MatrixCellCoord>();
+        for (const c of branch) {
+            if (c.t !== undefined) byTemp.set(c.t, c);
+        }
+        const temps = [...byTemp.keys()].sort((a, b) => a - b);
+        if (temps.length === 0) {
+            const bare = branch.find((c) => c.t === undefined) ?? null;
+            if (!bare) return nothing;
+            const isCurrent =
+                currentName !== null &&
+                this._cellName(bare) === currentName;
+            return html`<div class="mx-grid">
+                <button
+                    class="mx-tile sel ${isCurrent ? "cur" : ""}"
+                    @click=${() =>
+                        this._select(
+                            mode,
+                            this._selFan,
+                            this._selSwing,
+                            null,
+                        )}
+                >
+                    ${mode}
+                </button>
+            </div>`;
+        }
+        const step =
+            this._matrixCells!.precision > 0
+                ? this._matrixCells!.precision
+                : 1;
+        const positions: number[] = [];
+        for (
+            let x = temps[0];
+            x <= temps[temps.length - 1] + step / 2;
+            x += step
+        ) {
+            // Two-decimal rounding keeps 0.5-precision walks exact.
+            positions.push(Math.round(x * 100) / 100);
+        }
+        return html`<div class="mx-grid">
+            ${positions.map((pos) => {
+                const cell = byTemp.get(pos);
+                if (!cell) {
+                    return html`<button
+                        class="mx-tile absent"
+                        disabled
+                        title=${t("devices.matrix_absent")}
+                    >
+                        ${this._displayTemp(pos)}
+                    </button>`;
+                }
+                const isCurrent =
+                    currentName !== null &&
+                    this._cellName(cell) === currentName;
+                return html`<button
+                    class="mx-tile ${pos === this._selTemp ? "sel" : ""} ${
+                        isCurrent ? "cur" : ""
+                    }"
+                    @click=${() =>
+                        this._select(
+                            mode,
+                            this._selFan,
+                            this._selSwing,
+                            pos,
+                        )}
+                >
+                    ${this._displayTemp(pos)}
+                </button>`;
+            })}
+        </div>`;
+    }
+
+    /** The STATE MATRIX card (mockups CC3/CC4): summary header, the
+     * entity's current-cell readout, one-branch dimension chips, the
+     * temperature tile grid, and the action bar (send the state, or
+     * save it as a command). The lattice loads lazily; until it
+     * arrives (or if it cannot), the card stays summary-only. */
+    private _renderMatrixCard() {
+        const m = this.device.matrix!;
+        const current =
+            this._climateState()?.attributes?.matrix_cell ?? null;
+        const mc = this._matrixCells;
+        // Summary range: converted to the viewer's unit with the unit
+        // letter as suffix ("61 to 86 F"); when converted, the file's
+        // native range rides in a title tooltip (chosen over parens:
+        // the one-line summary is already five facts long). Precision
+        // comes from the loaded lattice when available; summary-only
+        // renders fall back to whole degrees, which corpus bounds are.
+        const viewUnit = installUnit(this.hass);
+        const converted = viewUnit !== m.unit;
+        const rangeTitle = converted
+            ? t("devices.matrix_native_range", {
+                  min: String(m.min_temp),
+                  max: String(m.max_temp),
+                  unit: m.unit,
+              })
+            : "";
+        const summaryText = t("devices.matrix_summary", {
+            cells: String(m.cells),
+            modes: String(m.modes.length),
+            fans: String(m.fan_modes.length),
+            min: displayTemp(
+                m.min_temp,
+                m.unit,
+                viewUnit,
+                mc?.precision ?? 1,
+            ),
+            max: displayTemp(
+                m.max_temp,
+                m.unit,
+                viewUnit,
+                mc?.precision ?? 1,
+            ),
+            unit: viewUnit,
+        });
+        const selected = this._selectedCell();
+        const fans =
+            mc && this._selMode !== null
+                ? this._fansFor(this._selMode)
+                : [];
+        const swings =
+            mc && this._selMode !== null
+                ? this._swingsFor(this._selMode, this._selFan)
+                : [];
+        return html`
+            <div class="matrix-card">
+                <div class="mx-head">
+                    <span class="mx-title">${t("devices.matrix_title")}</span>
+                    <span class="mx-summary" title=${rangeTitle}>
+                        ${summaryText}
+                    </span>
+                </div>
+                ${current != null
+                    ? html`<div class="matrix-current">
+                          ${t("devices.matrix_current", { cell: current })}
+                      </div>`
+                    : nothing}
+                ${mc && this._selMode !== null
+                    ? html`
+                          ${this._renderDimRow(
+                              t("devices.matrix_dim_mode"),
+                              mc.modes,
+                              this._selMode,
+                              (v) =>
+                                  this._select(
+                                      v,
+                                      this._selFan,
+                                      this._selSwing,
+                                      this._selTemp,
+                                  ),
+                          )}
+                          ${fans.length > 0
+                              ? this._renderDimRow(
+                                    t("devices.matrix_dim_fan"),
+                                    fans,
+                                    this._selFan,
+                                    (v) =>
+                                        this._select(
+                                            this._selMode!,
+                                            v,
+                                            this._selSwing,
+                                            this._selTemp,
+                                        ),
+                                )
+                              : nothing}
+                          ${swings.length > 0
+                              ? this._renderDimRow(
+                                    t("devices.matrix_dim_swing"),
+                                    swings,
+                                    this._selSwing,
+                                    (v) =>
+                                        this._select(
+                                            this._selMode!,
+                                            this._selFan,
+                                            v,
+                                            this._selTemp,
+                                        ),
+                                )
+                              : nothing}
+                          ${this._renderMatrixGrid(current)}
+                          <div class="mx-actions">
+                              <span class="mx-set">
+                                  ${selected
+                                      ? t("devices.matrix_set_state", {
+                                            name: this._cellName(selected),
+                                        })
+                                      : nothing}
+                              </span>
+                              <button
+                                  class="action-btn test-btn"
+                                  ?disabled=${this._busy || !selected}
+                                  @click=${this._matrixSend}
+                              >
+                                  ${t("fitting.send")}
+                              </button>
+                              <button
+                                  class="action-btn mx-cmd-btn"
+                                  ?disabled=${this._busy || !selected}
+                                  @click=${this._matrixSaveCommand}
+                              >
+                                  ${t("devices.matrix_add_command")}
+                              </button>
+                          </div>
+                      `
+                    : nothing}
+            </div>
+        `;
+    }
+
+    // ---------------------------------------------------------------
     // Render
     // ---------------------------------------------------------------
 
@@ -943,6 +1443,8 @@ export class IrDeviceDetail extends LitElement {
                 </div>
             </div>
 
+            ${this.device.matrix ? this._renderMatrixCard() : nothing}
+
             <!-- Commands -->
             <div class="commands-section">
                 <div class="commands-header">
@@ -964,7 +1466,8 @@ export class IrDeviceDetail extends LitElement {
                                           .actionLabel=${this._getActionLabel(cmd.name)}
                                           .hasTrigger=${this._commandHasTrigger(cmd)}
                                           .triggerCount=${this._commandTriggerCount(cmd)}
-                                          .showActionMapping=${this.device.device_type !== "other"}
+                                          .showActionMapping=${this.device.device_type !== "other" &&
+                                          !this.device.matrix}
                                           @map-action=${this._onMapAction}
                                           @test=${this._onTest}
                                           @toggle-trigger=${this._onToggleTrigger}
@@ -1336,6 +1839,151 @@ export class IrDeviceDetail extends LitElement {
             letter-spacing: 0.04em;
             color: var(--secondary-text-color);
             padding-top: 6px;
+        }
+        /* The STATE MATRIX card (Cold Cuts second half, mockup CC3):
+           the cell browser in the cold-blue family (#58a6d8) -- the
+           stateful signature the closet's fit-tick glow introduced.
+           Everything in here is the card's own dialect; the action bar
+           reuses the shared chip anatomy. */
+        .matrix-card {
+            margin-top: 12px;
+            padding: 9px 12px 10px;
+            border: 1px solid rgba(88, 166, 216, 0.45);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--primary-text-color);
+            line-height: 1.5;
+        }
+        .mx-head {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .mx-title {
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #58a6d8;
+        }
+        .mx-summary {
+            font-size: 0.8rem;
+            color: var(--secondary-text-color);
+        }
+        .matrix-current {
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
+        }
+        .mx-dim-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .mx-dim-label {
+            flex: none;
+            width: 44px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--secondary-text-color);
+        }
+        .mx-chips {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .mx-chip {
+            font-size: 0.75rem;
+            font-family: inherit;
+            padding: 3px 10px;
+            border-radius: 12px;
+            border: 1px solid var(--divider-color);
+            background: none;
+            color: var(--primary-text-color);
+            cursor: pointer;
+            transition: background 150ms ease, border-color 150ms ease;
+        }
+        .mx-chip:hover {
+            border-color: rgba(88, 166, 216, 0.6);
+        }
+        .mx-chip.on {
+            background: #58a6d8;
+            border-color: #58a6d8;
+            color: #fff;
+        }
+        .mx-grid {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .mx-tile {
+            width: 52px;
+            height: 38px;
+            box-sizing: border-box;
+            border: 1px solid var(--divider-color);
+            border-radius: 6px;
+            background: none;
+            font-family: inherit;
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: var(--primary-text-color);
+            cursor: pointer;
+            transition: background 150ms ease, border-color 150ms ease,
+                        box-shadow 300ms ease;
+        }
+        .mx-tile:hover:not(:disabled):not(.sel) {
+            border-color: rgba(88, 166, 216, 0.6);
+        }
+        /* Absent position: the matrix is sparse and says so -- dashed,
+           inert, dimmed, with the tooltip carrying the sentence. */
+        .mx-tile.absent {
+            border-style: dashed;
+            color: var(--secondary-text-color);
+            opacity: 0.45;
+            cursor: default;
+        }
+        .mx-tile.sel {
+            background: #58a6d8;
+            border-color: #58a6d8;
+            color: #fff;
+        }
+        /* The entity's CURRENT cell wears the cold glow ring, whatever
+           else it is -- same cue language as the closet's matrix tick. */
+        .mx-tile.cur {
+            box-shadow:
+                0 0 0 2px rgba(88, 166, 216, 0.5),
+                0 0 10px rgba(88, 166, 216, 0.55);
+        }
+        .mx-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid var(--divider-color);
+        }
+        .mx-set {
+            flex: 1;
+            min-width: 0;
+            font-size: 0.8rem;
+            color: var(--primary-text-color);
+            font-family: var(--code-font-family, monospace);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        /* Save-state-as-command wears the Clipper's copper: it does the
+           same kind of thing as Add Signal -- one more command row. */
+        .action-btn.mx-cmd-btn {
+            color: #b87333;
+            border-color: rgba(184, 115, 51, 0.35);
+        }
+        .action-btn.mx-cmd-btn:hover:not(:disabled) {
+            background: rgba(184, 115, 51, 0.08);
         }
         .meta-value select {
             width: 100%;

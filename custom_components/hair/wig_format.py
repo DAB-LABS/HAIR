@@ -37,20 +37,37 @@ from .pronto_validator import validate_pronto
 
 WIG_FORMAT_NAME = "hair-wig"
 WIG_FORMAT_MAJOR = 1
+# hair-wig/2 (Cold Cuts, v0.8.8): v1 plus an optional ``climate``
+# state-matrix block. A wig with no climate block still reads and
+# writes as v1, so older installs keep reading everything they could
+# read before; only matrix wigs are gated behind the version they
+# actually need.
+WIG_FORMAT_MAJOR_CLIMATE = 2
 WIG_FORMAT_V1 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR}"
+WIG_FORMAT_V2 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_CLIMATE}"
+
 WIG_SUFFIX = ".wig.json"
 
-# A wig is text; this is generous (plan section 4).
-MAX_WIG_BYTES = 1_000_000
+# A wig is text; this is generous (plan section 4). Raised from 1 MB
+# for Cold Cuts: the SmartIR climate census (2026-07-20) measured a
+# 286 KB MEDIAN matrix wig as Pronto text, 25 real devices over 1 MB,
+# and a 7.9 MB worst case (Mitsubishi 1129, 2,689 cells).
+MAX_WIG_BYTES = 16_000_000
 
 _FORMAT_RE = re.compile(rf"^{WIG_FORMAT_NAME}/(\d+)$")
 
-# Top-level and per-signal keys the v1 schema knows. Anything else is
+# Top-level and per-signal keys the schema knows. Anything else is
 # tolerated and preserved (forward compatibility).
 _KNOWN_TOP = {
     "format", "name", "brand", "model", "kind", "notes", "origin",
-    "identifiers", "signals",
+    "identifiers", "signals", "climate",
 }
+
+_KNOWN_CLIMATE = {
+    "min_temp", "max_temp", "precision", "unit", "modes", "fan_modes",
+    "swing_modes", "off", "on", "cells",
+}
+_KNOWN_CELL = {"mode", "fan", "swing", "temp", "pronto", "send_count"}
 
 # Curated kind suggestions (v0.8.0). The field accepts ANY value (the
 # dialogs offer these plus a custom entry); values are squashed-slug
@@ -134,6 +151,73 @@ class WigSignal:
 
 
 @dataclass
+class ClimateCell:
+    """One complete state in a climate matrix.
+
+    Vocabulary strings (``mode``, ``fan``, ``swing``) are VERBATIM from
+    the source: the census found 71 fan spellings including case
+    variants, spaces, and vendor tokens, and they double as lookup keys
+    AND entity attribute values, so normalizing any of them breaks the
+    lookup (addendum section 3). ``fan``/``swing``/``temp`` are None
+    when that mode subtree has no such dimension (depth varies per
+    BRANCH, census finding).
+    """
+
+    mode: str
+    pronto: str
+    fan: str | None = None
+    swing: str | None = None
+    temp: float | None = None
+    send_count: int = 1
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass
+class ClimateMatrix:
+    """The hair-wig/2 climate block: a stateful device's full lattice."""
+
+    min_temp: float
+    max_temp: float
+    off: str
+    cells: list[ClimateCell]
+    precision: float = 1.0
+    # The scale every temperature in this block is written in (owner
+    # ruling 2026-07-29): "C" or "F", default "C" because the SmartIR
+    # corpus is Celsius by convention. Machine keys (cell_key, temps)
+    # stay file-native forever; displays convert dynamically and names
+    # freeze at mint time (wig_climate.cell_display_name).
+    unit: str = "C"
+    modes: list[str] = field(default_factory=list)
+    fan_modes: list[str] = field(default_factory=list)
+    swing_modes: list[str] = field(default_factory=list)
+    on: str | None = None
+    extra: dict = field(default_factory=dict)
+
+
+def cell_key(cell: ClimateCell) -> str:
+    """Canonical human-readable key for one cell: ``cool/auto/23``.
+
+    Dimensions the cell does not have are omitted; a bare mode cell is
+    just its mode. This string is what fittings record in confirmed /
+    failed (dimension check, Cold Cuts rulings 2026-07-28), so it must
+    be stable across installs: built only from the cell's own values.
+    """
+    parts = [cell.mode]
+    if cell.fan is not None:
+        parts.append(cell.fan)
+    if cell.swing is not None:
+        parts.append(cell.swing)
+    if cell.temp is not None:
+        parts.append(_temp_str(cell.temp))
+    return "/".join(parts)
+
+
+def _temp_str(temp: float) -> str:
+    """``23.0`` -> ``"23"``; ``22.5`` stays ``"22.5"``."""
+    return str(int(temp)) if float(temp).is_integer() else str(temp)
+
+
+@dataclass
 class Wig:
     """A parsed, validated wig."""
 
@@ -152,6 +236,11 @@ class Wig:
     # nothing (v0.8.0): free map of string or list-of-string values,
     # blessed keys in IDENTIFIER_KEYS. None when absent.
     identifiers: dict[str, str | list[str]] | None = None
+    # The state matrix (hair-wig/2, Cold Cuts). A wig may carry a
+    # matrix, flat signals, or both (depth-0 SmartIR extras like
+    # on_once / sleep import as ordinary buttons alongside the
+    # matrix -- census second pass).
+    climate: ClimateMatrix | None = None
     extra: dict = field(default_factory=dict)
 
 
@@ -199,7 +288,7 @@ def parse_wig(text: str) -> WigParseResult:
         return WigParseResult(None, [
             f'"format" is {fmt!r}, expected "hair-wig/1"'
         ])
-    if int(match.group(1)) > WIG_FORMAT_MAJOR:
+    if int(match.group(1)) > WIG_FORMAT_MAJOR_CLIMATE:
         return WigParseResult(None, [
             f"this wig uses {fmt}, which this version of HAIR does not "
             "read yet; update HAIR to import it"
@@ -237,9 +326,19 @@ def parse_wig(text: str) -> WigParseResult:
             if ids_ok:
                 identifiers = dict(raw_ids) or None
 
+    climate: ClimateMatrix | None = None
+    if "climate" in data:
+        climate = _parse_climate(data["climate"], errors)
+
     raw_signals = data.get("signals")
     signals: list[WigSignal] = []
-    if not isinstance(raw_signals, list) or not raw_signals:
+    if raw_signals is None and "climate" in data:
+        # Matrix-only wigs are legal (hair-wig/2): the matrix IS the
+        # payload; flat signals are the optional extras.
+        raw_signals = []
+    if not isinstance(raw_signals, list) or (
+        not raw_signals and "climate" not in data
+    ):
         errors.append('"signals" is required and must be a non-empty list')
     else:
         for i, raw in enumerate(raw_signals):
@@ -295,9 +394,149 @@ def parse_wig(text: str) -> WigParseResult:
             notes=data.get("notes"),
             origin=data.get("origin"),
             identifiers=identifiers,
+            climate=climate,
             extra={k: v for k, v in data.items() if k not in _KNOWN_TOP},
         ),
         [],
+    )
+
+
+def _num(value: object) -> float | None:
+    """A JSON number (int or float, never bool) as float, else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _parse_climate(raw: object, errors: list[str]) -> ClimateMatrix | None:
+    """Validate the climate block strictly-with-reasons.
+
+    Appends field-path errors like the rest of parse_wig; returns None
+    whenever anything is wrong (parse fails as a whole on any error).
+    Vocabulary strings pass through verbatim -- validation checks
+    types, never spelling.
+    """
+    if not isinstance(raw, dict):
+        errors.append('"climate" must be an object when present')
+        return None
+    before = len(errors)
+
+    min_temp = _num(raw.get("min_temp"))
+    max_temp = _num(raw.get("max_temp"))
+    if min_temp is None:
+        errors.append("climate.min_temp: required, must be a number")
+    if max_temp is None:
+        errors.append("climate.max_temp: required, must be a number")
+    if min_temp is not None and max_temp is not None and min_temp >= max_temp:
+        errors.append("climate.min_temp must be below climate.max_temp")
+
+    precision = _num(raw.get("precision", 1.0))
+    if precision is None or precision <= 0:
+        errors.append("climate.precision: must be a positive number")
+        precision = 1.0
+
+    # The block's temperature scale (owner ruling 2026-07-29). Default
+    # "C": the SmartIR corpus writes Celsius by convention, and every
+    # existing hair-wig/2 file predates the key.
+    unit = raw.get("unit", "C")
+    if unit not in ("C", "F"):
+        errors.append('climate.unit: must be "C" or "F" when present')
+        unit = "C"
+
+    lists: dict[str, list[str]] = {}
+    for key in ("modes", "fan_modes", "swing_modes"):
+        value = raw.get(key, [])
+        if not isinstance(value, list) or not all(
+            isinstance(v, str) and v.strip() for v in value
+        ):
+            errors.append(
+                f"climate.{key}: must be a list of non-empty strings"
+            )
+            lists[key] = []
+        else:
+            lists[key] = list(value)
+
+    off = raw.get("off")
+    if not isinstance(off, str) or not validate_pronto(off).valid:
+        errors.append("climate.off: required, must be a valid Pronto code")
+        off = ""
+    on = raw.get("on")
+    if on is not None and (
+        not isinstance(on, str) or not validate_pronto(on).valid
+    ):
+        errors.append("climate.on: must be a valid Pronto code when present")
+        on = None
+
+    raw_cells = raw.get("cells")
+    cells: list[ClimateCell] = []
+    if not isinstance(raw_cells, list) or not raw_cells:
+        errors.append("climate.cells: required, must be a non-empty list")
+    else:
+        for i, raw_cell in enumerate(raw_cells):
+            cell_errors_before = len(errors)
+            if not isinstance(raw_cell, dict):
+                errors.append(f"climate.cells[{i}]: must be an object")
+                continue
+            mode = raw_cell.get("mode")
+            if not isinstance(mode, str) or not mode.strip():
+                errors.append(
+                    f"climate.cells[{i}].mode: required, non-empty string"
+                )
+            for dim in ("fan", "swing"):
+                value = raw_cell.get(dim)
+                if value is not None and (
+                    not isinstance(value, str) or not value.strip()
+                ):
+                    errors.append(
+                        f"climate.cells[{i}].{dim}: must be a non-empty "
+                        "string when present"
+                    )
+            temp = raw_cell.get("temp")
+            if temp is not None and _num(temp) is None:
+                errors.append(
+                    f"climate.cells[{i}].temp: must be a number when present"
+                )
+            pronto = raw_cell.get("pronto")
+            if not isinstance(pronto, str) or not validate_pronto(pronto).valid:
+                errors.append(
+                    f"climate.cells[{i}].pronto: required, must be a valid "
+                    "Pronto code"
+                )
+            send_count = raw_cell.get("send_count", 1)
+            if not isinstance(send_count, int) or isinstance(send_count, bool):
+                errors.append(
+                    f"climate.cells[{i}].send_count: must be an integer "
+                    "when present"
+                )
+                send_count = 1
+            if len(errors) > cell_errors_before:
+                continue
+            cells.append(ClimateCell(
+                mode=mode,
+                fan=raw_cell.get("fan"),
+                swing=raw_cell.get("swing"),
+                temp=_num(temp) if temp is not None else None,
+                pronto=pronto.strip(),
+                send_count=max(1, min(send_count, MAX_SEND_COUNT)),
+                extra={
+                    k: v for k, v in raw_cell.items() if k not in _KNOWN_CELL
+                },
+            ))
+
+    if len(errors) > before:
+        return None
+    return ClimateMatrix(
+        min_temp=min_temp,  # type: ignore[arg-type]
+        max_temp=max_temp,  # type: ignore[arg-type]
+        precision=precision,
+        unit=unit,
+        modes=lists["modes"],
+        fan_modes=lists["fan_modes"],
+        swing_modes=lists["swing_modes"],
+        off=off,
+        on=on,
+        cells=cells,
+        extra={k: v for k, v in raw.items() if k not in _KNOWN_CLIMATE},
     )
 
 
@@ -308,7 +547,11 @@ def serialize_wig(wig: Wig) -> str:
     in their original order), 4-space indent, trailing newline. This is
     the exporter's output shape and the shape edits re-save in.
     """
-    out: dict = {"format": WIG_FORMAT_V1, "name": wig.name}
+    # The version follows the content: a wig with no climate block is
+    # a v1 file every existing install reads; only matrix wigs demand
+    # the version they need.
+    fmt = WIG_FORMAT_V2 if wig.climate is not None else WIG_FORMAT_V1
+    out: dict = {"format": fmt, "name": wig.name}
     for key, value in (
         ("brand", wig.brand),
         ("model", wig.model),
@@ -321,6 +564,8 @@ def serialize_wig(wig: Wig) -> str:
     if wig.identifiers:
         out["identifiers"] = dict(wig.identifiers)
     out["signals"] = [_signal_out(s) for s in wig.signals]
+    if wig.climate is not None:
+        out["climate"] = _climate_out(wig.climate)
     out.update(wig.extra)
     return json.dumps(out, indent=4, ensure_ascii=False) + "\n"
 
@@ -330,6 +575,47 @@ def _signal_out(sig: WigSignal) -> dict:
     if sig.send_count != 1:
         out["send_count"] = sig.send_count
     out.update(sig.extra)
+    return out
+
+
+def _json_temp(temp: float) -> int | float:
+    return int(temp) if float(temp).is_integer() else temp
+
+
+def _cell_out(cell: ClimateCell) -> dict:
+    out: dict = {"mode": cell.mode}
+    if cell.fan is not None:
+        out["fan"] = cell.fan
+    if cell.swing is not None:
+        out["swing"] = cell.swing
+    if cell.temp is not None:
+        out["temp"] = _json_temp(cell.temp)
+    out["pronto"] = cell.pronto
+    if cell.send_count != 1:
+        out["send_count"] = cell.send_count
+    out.update(cell.extra)
+    return out
+
+
+def _climate_out(matrix: ClimateMatrix) -> dict:
+    out: dict = {
+        "min_temp": _json_temp(matrix.min_temp),
+        "max_temp": _json_temp(matrix.max_temp),
+        "precision": _json_temp(matrix.precision),
+    }
+    # Emitted only when Fahrenheit: "C" is the documented default, so
+    # a Celsius file stays byte-identical to its pre-unit self.
+    if matrix.unit == "F":
+        out["unit"] = matrix.unit
+    out["modes"] = list(matrix.modes)
+    out["fan_modes"] = list(matrix.fan_modes)
+    if matrix.swing_modes:
+        out["swing_modes"] = list(matrix.swing_modes)
+    out["off"] = matrix.off
+    if matrix.on is not None:
+        out["on"] = matrix.on
+    out["cells"] = [_cell_out(c) for c in matrix.cells]
+    out.update(matrix.extra)
     return out
 
 
@@ -366,6 +652,65 @@ def signals_content_hash(signals: list[WigSignal]) -> str:
         canonical_signals_json(signals).encode("utf-8")
     ).hexdigest()
     return f"sha256:{digest}"
+
+
+def canonical_cells_json(matrix: ClimateMatrix) -> str:
+    """The canonical form of a climate matrix, the matrix-fitting-hash
+    target (hair-wig/2 contract, mirrored in docs/wig-format.md).
+
+    Same posture as ``canonical_signals_json``: every cell as an object
+    carrying exactly mode / fan / swing / temp / pronto / send_count
+    (absent dimensions as null, send_count explicit, pronto normalized
+    lowercase), plus off, on, and the block's unit, keys sorted,
+    separators compact. Two files whose matrices differ only in
+    formatting hash identically; any change to a code or a state key
+    changes the hash. The unit participates (2026-07-29) because the
+    same numbers on a different scale are different states -- a 22C
+    lattice and a 22F lattice must never share a fitting ledger.
+    """
+    def _pronto(code: str) -> str:
+        result = validate_pronto(code)
+        return (result.normalized if result.valid else code).lower()
+
+    canon = {
+        "unit": matrix.unit,
+        "off": _pronto(matrix.off),
+        "on": _pronto(matrix.on) if matrix.on is not None else None,
+        "cells": [
+            {
+                "mode": c.mode,
+                "fan": c.fan,
+                "swing": c.swing,
+                "temp": _json_temp(c.temp) if c.temp is not None else None,
+                "pronto": _pronto(c.pronto),
+                "send_count": c.send_count,
+            }
+            for c in matrix.cells
+        ],
+    }
+    return json.dumps(
+        canon, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+
+def cells_content_hash(matrix: ClimateMatrix) -> str:
+    """``sha256:<hex>`` over the canonical matrix form."""
+    digest = hashlib.sha256(
+        canonical_cells_json(matrix).encode("utf-8")
+    ).hexdigest()
+    return f"sha256:{digest}"
+
+
+def wig_content_hash(wig: Wig) -> str:
+    """The hash fittings bind to for THIS wig.
+
+    Signal wigs keep the v1 signals hash byte-for-byte (existing
+    fittings in the wild must stay valid); matrix wigs bind to the
+    matrix, which is what the dimension check actually attests.
+    """
+    if wig.climate is not None:
+        return cells_content_hash(wig.climate)
+    return signals_content_hash(wig.signals)
 
 
 def wig_filename(name: str, taken: set[str] | None = None) -> str:

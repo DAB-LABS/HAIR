@@ -65,8 +65,9 @@ class TestScan:
 
     def test_oversize_file_rejected_without_read(self, tmp_path):
         d = ensure_wigs_dir(tmp_path)
+        # Cap raised to 16 MB for Cold Cuts matrix wigs.
         (d / "huge.wig.json").write_text(
-            "x" * 1_100_000, encoding="utf-8"
+            "x" * 16_100_000, encoding="utf-8"
         )
         scan = scan_wigs(tmp_path)
         assert scan.wigs == []
