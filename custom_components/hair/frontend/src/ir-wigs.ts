@@ -83,6 +83,29 @@ const ICON_WIG =
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
 
+// The drop-bar title names the five formats the closet accepts; each
+// name links to the format's home. The locale strings carry {wig}-style
+// placeholders so every language keeps its own sentence around the
+// untranslated format names (localize.ts owner ruling), and the render
+// splits on the placeholders instead of substituting text.
+const DROP_FORMAT_LINKS: Record<string, { label: string; url: string }> = {
+    wig: {
+        label: "Wig",
+        url: "https://github.com/DAB-LABS/HAIR/blob/main/docs/wig-format.md",
+    },
+    smartir: {
+        label: "SmartIR",
+        url: "https://github.com/smartHomeHub/SmartIR",
+    },
+    flipper: {
+        label: "Flipper",
+        url: "https://github.com/logickworkshop/Flipper-IRDB",
+    },
+    lirc: { label: "LIRC", url: "https://lirc.sourceforge.net/remotes/" },
+    girr: { label: "Girr", url: "https://www.harctoolbox.org/Girr.html" },
+};
+const DROP_FORMAT_SPLIT = /\{(wig|smartir|flipper|lirc|girr)\}/g;
+
 @customElement("ir-wigs")
 export class IrWigs extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -597,6 +620,30 @@ export class IrWigs extends LitElement {
             : ""}`;
     }
 
+    /**
+     * Drop-bar title with each accepted format linked to its home
+     * (owner ask, 2026-07-29). Splitting on the placeholder tokens
+     * keeps the alternation text/token, so the links land wherever
+     * the language puts them. stopPropagation keeps a link click from
+     * reaching the drop-bar's handlers.
+     */
+    private _renderDropTitle() {
+        const segments = t("wigs.drop.title").split(DROP_FORMAT_SPLIT);
+        return html`${segments.map((seg, i) => {
+            const link = i % 2 === 1 ? DROP_FORMAT_LINKS[seg] : undefined;
+            return link
+                ? html`<a
+                      class="fmt-link"
+                      href=${link.url}
+                      target="_blank"
+                      rel="noopener"
+                      @click=${(e: Event) => e.stopPropagation()}
+                      >${link.label}</a
+                  >`
+                : html`${seg}`;
+        })}`;
+    }
+
     private _jumpToWig(f: { filename: string; brand: string | null }): void {
         const open = new Set(this._openBrands);
         open.add(this._brandKeyFor(f.brand));
@@ -1003,8 +1050,8 @@ export class IrWigs extends LitElement {
                         ? html`<div class="t1">
                                   ${this._renderReceiptLine()}
                               </div>
-                              <div class="t2">${t("wigs.drop.title")}</div>`
-                        : html`<div class="t1">${t("wigs.drop.title")}</div>
+                              <div class="t2">${this._renderDropTitle()}</div>`
+                        : html`<div class="t1">${this._renderDropTitle()}</div>
                               <div class="t2">${t("wigs.drop.hint")}</div>`}
                 </div>
                 <button class="browse" @click=${this._browse}>
@@ -1622,6 +1669,17 @@ export class IrWigs extends LitElement {
         .drop-bar .t2 {
             font-size: 11.5px;
             opacity: 0.75;
+        }
+        /* Format links in the drop-bar title: same dim ink as the
+           surrounding sentence, underline only on hover -- reference,
+           not call to action. */
+        .drop-bar .fmt-link {
+            color: inherit;
+            text-decoration: none;
+        }
+        .drop-bar .fmt-link:hover {
+            text-decoration: underline;
+            text-underline-offset: 2px;
         }
         .drop-bar .browse {
             margin-left: auto;

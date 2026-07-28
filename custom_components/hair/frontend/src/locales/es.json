@@ -453,7 +453,7 @@
     "vocab.volume_up": "Subir volumen",
     "panel.tab.wigs": "Armario",
     "panel.tagline.wigs": "Tu armario de juegos de códigos portátiles. Pruébate uno, comparte los tuyos.",
-    "wigs.drop.title": "Suelta un archivo de peluca, SmartIR, Flipper, LIRC o Girr en cualquier parte de esta pestaña",
+    "wigs.drop.title": "Suelta un archivo {wig}, {smartir}, {flipper}, {lirc} o {girr} en cualquier parte de esta pestaña",
     "wigs.drop.hint": "Los archivos se guardan en /config/hair/wigs/ y aparecerán aquí",
     "wigs.drop.browse": "Examinar...",
     "wigs.search": "Buscar marcas y mandos...",
