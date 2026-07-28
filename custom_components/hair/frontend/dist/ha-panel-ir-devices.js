@@ -7960,6 +7960,16 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
                         </button>
                     </span>
                     <button
+                        class="action-btn adopt-btn"
+                        title=${e.wig?.linked_devices?.length?$e("wigs.linked",e.wig.linked_devices.length):ke("wigs.adopt")}
+                        @click=${i=>this._onAdoptClick(e,i)}
+                    >
+                        ${ke("wigs.adopt")}<ir-count-dot
+                            color="green"
+                            .count=${e.wig?.linked_devices?.length??0}
+                        ></ir-count-dot>
+                    </button>
+                    <button
                         class="action-btn fit-btn"
                         ?disabled=${this._busyId===e.id}
                         @click=${()=>e.wig?this._fittingWig=e.wig:void this._fitLibrary(e)}
@@ -7972,16 +7982,6 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
                         @click=${()=>this._tryOn(e)}
                     >
                         ${ke("wigs.clip_it")}
-                    </button>
-                    <button
-                        class="action-btn adopt-btn"
-                        title=${e.wig?.linked_devices?.length?$e("wigs.linked",e.wig.linked_devices.length):ke("wigs.adopt")}
-                        @click=${i=>this._onAdoptClick(e,i)}
-                    >
-                        ${ke("wigs.adopt")}<ir-count-dot
-                            color="green"
-                            .count=${e.wig?.linked_devices?.length??0}
-                        ></ir-count-dot>
                     </button>
                     ${e.wig?B`<button
                               class="action-btn delete-btn row-del"
@@ -8530,19 +8530,18 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
         .copy-glyph:hover {
             color: var(--wigs-accent);
         }
-        /* FIT is the fitting green (owner ruling 2026-07-26), left of
-           Clip It, same shared chip anatomy. Border alpha matches the
-           row-chip family (clip 0.35, delete 0.25 -- owner bench note
-           2026-07-27: the stroke reads quieter than the text). Library
-           rows carry it too (v0.8.1): FIT there snapshots the codebook
-           into the closet first, since fittings live in wig files. */
+        /* Row-button palette (owner re-ruling 2026-07-28, consistency
+           pass): ADOPT green, FIT blue, CLIP gold/copper, DELETE last.
+           Border alpha stays quieter than the text across the family
+           (owner bench note 2026-07-27). Library rows carry FIT too
+           (v0.8.1): FIT there snapshots the codebook into the closet
+           first, since fittings live in wig files. */
         .action-btn.fit-btn {
-            color: #4caf50;
-            border-color: rgba(76, 175, 80, 0.3);
-            margin-right: 8px;
+            color: var(--primary-color, #2196f3);
+            border-color: rgba(33, 150, 243, 0.35);
         }
         .action-btn.fit-btn:hover:not(:disabled) {
-            background: rgba(76, 175, 80, 0.08);
+            background: rgba(33, 150, 243, 0.08);
         }
         /* The row's fitting check (owner ruling 2026-07-26): green
            check = fitted, yellow check = partial, nothing = unfitted.
@@ -8577,15 +8576,16 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
             color: #fff;
         }
         /* ADOPT DEVICE (v0.8.1): the closet-native make-it-live action,
-           in the closet's own oxblood. */
+           first in the row and green (owner re-ruling 2026-07-28 --
+           the oxblood chip retired with the color-consistency pass;
+           green matches the Assign family and its own linked dot). */
         .action-btn.adopt-btn {
-            color: #b06a6a;
-            border-color: rgba(142, 59, 59, 0.4);
-            margin-left: 8px;
+            color: #4caf50;
+            border-color: rgba(76, 175, 80, 0.3);
             position: relative; /* anchor for the green linked-count dot */
         }
         .action-btn.adopt-btn:hover:not(:disabled) {
-            background: rgba(142, 59, 59, 0.1);
+            background: rgba(76, 175, 80, 0.08);
         }
         /* Linked-devices popover (v0.8.1 dot conversion, owner ask
            2026-07-27): the shared action-popover anatomy replaces the
@@ -8635,6 +8635,12 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
             color: var(--secondary-text-color);
             margin: -5px 0 11px;
             line-height: 1.4;
+        }
+        /* Inside a .field the hint sits directly under its input (no
+           12px field margin to eat), so the -5px pull-up above would
+           overlap the input box (owner bench find 2026-07-28). */
+        .field .ident-hint {
+            margin: 4px 0 0;
         }
         .origin-line {
             display: flex;
