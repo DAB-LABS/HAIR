@@ -474,6 +474,8 @@
     "wigs.clip_it": "クリップ",
     "wigs.clip_matrix_confirm": "Clipper に最大 {count} 件の信号を作成します。よろしいですか？",
     "wigs.clip_matrix_slow": "大きなセットは一覧の表示が重くなることがあります。",
+    "wigs.clip_matrix_done": "{imported} 件の信号を作成しました",
+    "wigs.clip_matrix_done_duplicates": "{imported} 件の信号を作成しました ({duplicates} 件の重複を統合)",
     "wigs.tried_on": "Clipper に {name} として追加されました",
     "wigs.try_on_failed": "このウィッグを試着できませんでした: {message}",
     "wigs.edit": "ウィッグを編集",

@@ -414,11 +414,31 @@ export class IrWigs extends LitElement {
                 undefined,
                 includeMatrix,
             );
-            this._flash(
-                t("wigs.tried_on", {
-                    name: result.device.label ?? row.label,
-                }),
-            );
+            if (includeMatrix) {
+                // The matrix clip's receipt (2026-07-28): the confirm
+                // promised "up to N", so the receipt reports what was
+                // actually created and, when byte-identical cells
+                // collapsed under the one-code-per-remote rule, says
+                // where the shortfall went. Non-matrix clips keep the
+                // plain tried-on flash below.
+                const duplicates = result.duplicates ?? 0;
+                this._flash(
+                    duplicates > 0
+                        ? t("wigs.clip_matrix_done_duplicates", {
+                              imported: String(result.imported),
+                              duplicates: String(duplicates),
+                          })
+                        : t("wigs.clip_matrix_done", {
+                              imported: String(result.imported),
+                          }),
+                );
+            } else {
+                this._flash(
+                    t("wigs.tried_on", {
+                        name: result.device.label ?? row.label,
+                    }),
+                );
+            }
             this.dispatchEvent(
                 new CustomEvent("wig-tried-on", {
                     detail: result.device,

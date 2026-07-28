@@ -474,6 +474,8 @@
     "wigs.clip_it": "Clippen",
     "wigs.clip_matrix_confirm": "Das erstellt bis zu {count} Signale im Clipper. Bist du sicher?",
     "wigs.clip_matrix_slow": "Große Sets können beim Durchsehen träge sein.",
+    "wigs.clip_matrix_done": "{imported} Signale erstellt",
+    "wigs.clip_matrix_done_duplicates": "{imported} Signale erstellt, {duplicates} Duplikate zusammengelegt",
     "wigs.tried_on": "Jetzt im Clipper als {name}",
     "wigs.try_on_failed": "Diese Perücke konnte nicht anprobiert werden: {message}",
     "wigs.edit": "Perücke bearbeiten",

@@ -474,6 +474,8 @@
     "wigs.clip_it": "Añadir a Clipper",
     "wigs.clip_matrix_confirm": "Esto creará hasta {count} señales en el Clipper. ¿Estás seguro?",
     "wigs.clip_matrix_slow": "Los juegos grandes pueden tardar en explorarse.",
+    "wigs.clip_matrix_done": "Se han creado {imported} señales",
+    "wigs.clip_matrix_done_duplicates": "Se han creado {imported} señales y se han agrupado {duplicates} duplicados",
     "wigs.tried_on": "Añadido a Clipper como {name}",
     "wigs.try_on_failed": "No se pudo probar esta peluca: {message}",
     "wigs.edit": "Editar peluca",

@@ -474,6 +474,8 @@
     "wigs.clip_it": "Ritaglia",
     "wigs.clip_matrix_confirm": "Verranno creati fino a {count} segnali nel Clipper. Sei sicuro?",
     "wigs.clip_matrix_slow": "I set grandi possono essere lenti da sfogliare.",
+    "wigs.clip_matrix_done": "{imported} segnali creati",
+    "wigs.clip_matrix_done_duplicates": "{imported} segnali creati, {duplicates} duplicati accorpati",
     "wigs.tried_on": "Ora nel Clipper come {name}",
     "wigs.try_on_failed": "Impossibile provare questa parrucca: {message}",
     "wigs.edit": "Modifica parrucca",

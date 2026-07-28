@@ -492,6 +492,8 @@
     "wigs.clip_it": "Przytnij",
     "wigs.clip_matrix_confirm": "To utworzy do {count} sygnałów na karcie Clipper. Czy na pewno?",
     "wigs.clip_matrix_slow": "Duże zestawy mogą się przeglądać powoli.",
+    "wigs.clip_matrix_done": "Utworzono {imported} sygnałów",
+    "wigs.clip_matrix_done_duplicates": "Utworzono {imported} sygnałów, scalono {duplicates} duplikatów",
     "wigs.tried_on": "Teraz na karcie Clipper jako {name}",
     "wigs.try_on_failed": "Nie udało się przymierzyć tej peruki: {message}",
     "wigs.edit": "Edytuj perukę",

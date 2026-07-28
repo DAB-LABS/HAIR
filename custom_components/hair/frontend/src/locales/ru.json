@@ -492,6 +492,8 @@
     "wigs.clip_it": "В Clipper",
     "wigs.clip_matrix_confirm": "Это создаст до {count} сигналов в Clipper. Вы уверены?",
     "wigs.clip_matrix_slow": "Большие наборы могут листаться медленно.",
+    "wigs.clip_matrix_done": "Создано сигналов: {imported}",
+    "wigs.clip_matrix_done_duplicates": "Создано сигналов: {imported}, объединено дубликатов: {duplicates}",
     "wigs.tried_on": "Теперь в Clipper под именем {name}",
     "wigs.try_on_failed": "Не удалось примерить этот парик: {message}",
     "wigs.edit": "Редактировать парик",

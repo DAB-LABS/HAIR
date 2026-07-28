@@ -215,6 +215,10 @@ export class HairApi {
         device: UnknownDevice;
         imported: number;
         skipped: number;
+        // Duplicate-guard subset of skipped (2026-07-28): the matrix
+        // clip's receipt names collapsed byte-identical cells so the
+        // "up to {count}" promise and the created count reconcile.
+        duplicates: number;
         merged?: boolean;
     }> {
         const msg: Record<string, unknown> = {

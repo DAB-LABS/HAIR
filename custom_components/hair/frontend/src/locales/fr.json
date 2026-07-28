@@ -474,6 +474,8 @@
     "wigs.clip_it": "Clipper",
     "wigs.clip_matrix_confirm": "Cela créera jusqu'à {count} signaux sur le Clipper. Êtes-vous sûr ?",
     "wigs.clip_matrix_slow": "Les grands jeux peuvent être lents à parcourir.",
+    "wigs.clip_matrix_done": "{imported} signaux créés",
+    "wigs.clip_matrix_done_duplicates": "{imported} signaux créés, {duplicates} doublons regroupés",
     "wigs.tried_on": "Maintenant sur le Clipper sous le nom {name}",
     "wigs.try_on_failed": "Impossible d'essayer cette perruque : {message}",
     "wigs.edit": "Modifier la perruque",

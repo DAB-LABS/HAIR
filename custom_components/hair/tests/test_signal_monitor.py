@@ -223,10 +223,17 @@ async def test_import_manual_remote_creates_remote_with_signals():
             "decoded_fingerprint": "NEC:0xfb04:0x08",
         },
         {"name": "Bad", "code": "not a pronto code"},
+        # Byte-identical to Power: collapses under the in-batch
+        # duplicate guard (one code per remote).
+        {"name": "Power Again", "code": code},
     ]
     result = await monitor.import_manual_remote("LG TV", entries)
     assert result["imported"] == 1
-    assert result["skipped"] == 1
+    # skipped keeps its historical invalid+duplicate meaning; duplicates
+    # breaks out the duplicate-guard subset so the matrix-clip receipt
+    # can explain the up-to-N shortfall (2026-07-28).
+    assert result["skipped"] == 2
+    assert result["duplicates"] == 1
 
     devices = store.get_all_devices()
     assert len(devices) == 1
@@ -272,6 +279,9 @@ async def test_import_manual_remote_merge_collapses_reimport():
     assert again["merged"] is True
     assert again["imported"] == 1  # only Mute is new
     assert again["skipped"] == 1
+    # The re-imported Power collapsed onto its existing row: a
+    # duplicate, not an invalid code (2026-07-28).
+    assert again["duplicates"] == 1
     devices = store.get_all_devices()
     assert len(devices) == 1
     assert len(devices[0].signals) == 2

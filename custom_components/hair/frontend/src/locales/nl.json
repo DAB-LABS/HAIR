@@ -474,6 +474,8 @@
     "wigs.clip_it": "Knippen",
     "wigs.clip_matrix_confirm": "Dit maakt maximaal {count} signalen aan op de Clipper. Weet je het zeker?",
     "wigs.clip_matrix_slow": "Grote sets kunnen traag zijn om door te bladeren.",
+    "wigs.clip_matrix_done": "{imported} signalen aangemaakt",
+    "wigs.clip_matrix_done_duplicates": "{imported} signalen aangemaakt, {duplicates} duplicaten samengevoegd",
     "wigs.tried_on": "Nu op de Clipper als {name}",
     "wigs.try_on_failed": "Kon deze pruik niet passen: {message}",
     "wigs.edit": "Pruik bewerken",

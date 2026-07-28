@@ -269,9 +269,15 @@ class SignalMonitor:
         # hot-plug, v0.5.8). Receivers are tracked DYNAMICALLY -- see
         # _reconcile_receivers -- so this dict grows and shrinks as
         # receiver entities appear and disappear; _unsubs keeps only the
-        # non-per-receiver listeners (domain trackers, bridge tracking,
-        # the started-once re-scan).
+        # non-per-receiver listeners (domain trackers, bridge tracking).
         self._receiver_subs: dict[str, CALLBACK_TYPE] = {}
+        # The started-once re-scan handle lives OUTSIDE _unsubs (teardown
+        # guard, 2026-07-28): a one-time listener consumes itself at fire
+        # time, and calling its stale unsubscribe on shutdown makes HA
+        # log "Unable to remove unknown job listener" on every normal
+        # restart. _on_hass_started clears this the moment it fires, so
+        # async_stop only unsubscribes a listener that never got to fire.
+        self._started_unsub: CALLBACK_TYPE | None = None
         # Availability watcher over the current receiver inventory,
         # rewired at the end of every reconcile. This -- not the domain
         # add/remove trackers -- is what heals subscriptions across a
@@ -480,10 +486,8 @@ class SignalMonitor:
             )
         )
         if self._hass.state is not CoreState.running:
-            self._unsubs.append(
-                self._hass.bus.async_listen_once(
-                    EVENT_HOMEASSISTANT_STARTED, self._on_hass_started
-                )
+            self._started_unsub = self._hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED, self._on_hass_started
             )
         self._reconcile_receivers()
         if self._receiver_subs:
@@ -500,6 +504,10 @@ class SignalMonitor:
     @callback
     def _on_hass_started(self, _event: Event) -> None:
         """Re-scan for receivers once Home Assistant finishes starting."""
+        # The one-time listener just consumed itself; drop the handle so
+        # async_stop does not call a dead unsubscribe (teardown guard,
+        # 2026-07-28).
+        self._started_unsub = None
         self._reconcile_receivers()
 
     @callback
@@ -697,6 +705,12 @@ class SignalMonitor:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        # Only an UNFIRED started-once listener still owns a live
+        # subscription; a fired one already cleared this handle
+        # (teardown guard, 2026-07-28).
+        if self._started_unsub is not None:
+            self._started_unsub()
+            self._started_unsub = None
         if self._beacon_unsub is not None:
             self._beacon_unsub()
             self._beacon_unsub = None
@@ -2415,7 +2429,12 @@ class SignalMonitor:
         deduplicated within the batch, and appended in order under a single
         lock and save. Invalid or duplicate codes are skipped; returns the
         device plus imported/skipped counts so the UI can report partial
-        imports.
+        imports. ``skipped`` conflates invalid codes with collapsed
+        duplicates, so ``duplicates`` breaks out the duplicate-guard
+        subset separately (2026-07-28): the matrix-clip receipt promises
+        "up to N" and owes the user the reason for the shortfall
+        (bench: warned up-to-181, created 178, 3 byte-identical cells
+        collapsed under the one-code-per-remote rule).
 
         ``merge_existing`` (wig imports): when a clipped remote with the
         same label already exists, its rows absorb the batch instead of a
@@ -2437,6 +2456,7 @@ class SignalMonitor:
         now_iso = datetime.now(UTC).isoformat()
         imported = 0
         skipped = 0
+        duplicates = 0
         async with self._lock:
             device = None
             if merge_existing:
@@ -2475,7 +2495,11 @@ class SignalMonitor:
                 if device.get_signal(
                     sig_fp, byte_hash, entry.get("decoded_fingerprint")
                 ) is not None:
+                    # skipped keeps its historical invalid+duplicate
+                    # meaning; the duplicate subset is also counted
+                    # apart so the receipt can name it (2026-07-28).
                     skipped += 1
+                    duplicates += 1
                     continue
                 frequency = (
                     round(result.frequency_khz * 1000)
@@ -2517,6 +2541,7 @@ class SignalMonitor:
             "device": device.to_dict(),
             "imported": imported,
             "skipped": skipped,
+            "duplicates": duplicates,
             "merged": not created,
         }
 
