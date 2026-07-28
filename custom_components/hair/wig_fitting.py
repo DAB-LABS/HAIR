@@ -14,12 +14,23 @@ rulings, restated:
   copy JSON) strip every fitting that is not complete-and-signed, and
   drop the ``fittings`` key when nothing survives. The on-disk file
   always keeps everything.
-- Fittings bind to ``signals_content_hash`` (tamper evidence). A hash
+- Fittings bind to ``wig_content_hash`` (tamper evidence): the v1
+  signals hash for signal wigs, byte-for-byte as shipped in 0.8.0, and
+  the cells hash for matrix wigs (Cold Cuts) -- the dimension check
+  attests the MATRIX, so that is what the hash must cover. A hash
   mismatch marks the fitting invalid ("codes changed since this
   fitting") rather than deleting it.
-- The verdict lists are ALIAS lists, not counts: alias is inside the
-  canonical hash form, so a rename breaks the hash and invalidates the
-  fitting instead of silently mismatching.
+- The verdict lists are ROW-KEY lists, not counts: the alias for a
+  signal wig, the checklist cell key ("cool/auto/23", "on", "off") for
+  a matrix wig. Both live inside their canonical hash form, so a
+  rename breaks the hash and invalidates the fitting instead of
+  silently mismatching.
+- Matrix wigs fit through the SAME manager via the rows abstraction
+  (``fitting_rows``): a session addresses rows by index whichever kind
+  of wig is under test, and only the row source differs -- the signals
+  array for v1 wigs, the dimension checklist for matrix wigs (owner
+  rulings 2026-07-28: nobody fits 2,689 cells; everybody can fit every
+  dimension).
 
 Storage shape: fittings live under the ``fittings`` top-level key,
 which wig_format deliberately does NOT school itself on -- it rides in
@@ -37,7 +48,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from .wig_format import Wig, serialize_wig, signals_content_hash
+from .wig_format import Wig, serialize_wig, wig_content_hash
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -66,6 +77,31 @@ VERDICTS = (_VERDICT_WORKED, _VERDICT_FAILED, _VERDICT_UNTESTED)
 # ---------------------------------------------------------------------------
 # Pure layer: parsing, completeness, summaries, share stripping
 # ---------------------------------------------------------------------------
+
+
+def fitting_rows(wig: Wig) -> list[tuple[str, str, int]]:
+    """What a fitting session actually walks: (key, pronto, send_count).
+
+    The rows abstraction (Cold Cuts): signal wigs fit their signals
+    one-to-one (key = alias, exactly the pre-0.8.8 behavior); matrix
+    wigs fit the DIMENSION CHECKLIST (key = cell key, or literal
+    "on"/"off"), never the raw lattice. Deterministic by construction
+    on both sides -- session indexes, marks, and completeness all key
+    off this one list, so the two wig kinds cannot drift apart. Note
+    the deliberate asymmetry: a matrix wig's flat extras (on_once,
+    sleep...) are NOT rows; the dimension check attests the matrix,
+    and the extras are ordinary buttons outside its hash.
+    """
+    if wig.climate is not None:
+        from .wig_climate import dimension_checklist
+
+        return [
+            (row.key, row.pronto, row.send_count)
+            for row in dimension_checklist(wig.climate)
+        ]
+    return [
+        (sig.alias, sig.pronto, sig.send_count) for sig in wig.signals
+    ]
 
 
 @dataclass
@@ -155,19 +191,21 @@ def _is_str_list(value: Any) -> bool:
 
 def fitting_is_valid(fitting: Fitting, wig: Wig) -> bool:
     """Hash validity: do the codes still match what was fitted?"""
-    return fitting.content_hash == signals_content_hash(wig.signals)
+    return fitting.content_hash == wig_content_hash(wig)
 
 
 def fitting_is_complete(fitting: Fitting, wig: Wig) -> bool:
-    """Complete = signed (not draft), nothing failed, every alias confirmed.
+    """Complete = signed (not draft), nothing failed, every row confirmed.
 
     Only a complete fitting travels (2.3) and only complete fittings
-    count toward the factory promotion bar (Section 8).
+    count toward the factory promotion bar (Section 8). "Every row" is
+    the rows abstraction: aliases for signal wigs, the dimension
+    checklist for matrix wigs.
     """
     if fitting.draft or fitting.failed:
         return False
-    aliases = {sig.alias for sig in wig.signals}
-    return aliases <= set(fitting.confirmed)
+    keys = {key for key, _, _ in fitting_rows(wig)}
+    return keys <= set(fitting.confirmed)
 
 
 def shared_wig_text(wig: Wig) -> str:
@@ -198,6 +236,10 @@ def shared_wig_text(wig: Wig) -> str:
         notes=wig.notes,
         origin=wig.origin,
         identifiers=wig.identifiers,
+        # The matrix travels too (Cold Cuts): omitting it here would
+        # replay the shared_wig_text field-drop bug that once ate
+        # identifiers (regression-tested since 0.8.0).
+        climate=wig.climate,
         extra=extra,
     )
     return serialize_wig(stripped)
@@ -231,7 +273,8 @@ def fitting_summary(wig: Wig, username: str | None) -> dict[str, Any]:
     marker must never claim codes that changed since the fitting; the
     editor's ledger is where invalidity is explained.
     """
-    total = len(wig.signals)
+    rows = fitting_rows(wig)
+    total = len(rows)
     view = parse_fittings(wig)
     valid = [f for f in view.fittings if fitting_is_valid(f, wig)]
 
@@ -258,11 +301,11 @@ def fitting_summary(wig: Wig, username: str | None) -> dict[str, Any]:
         best = "partial"
 
     coverage_source = user_fitting or (valid[0] if valid else None)
-    aliases = {sig.alias for sig in wig.signals}
+    keys = {key for key, _, _ in rows}
     confirmed = failed = 0
     if coverage_source is not None:
-        confirmed = len(set(coverage_source.confirmed) & aliases)
-        failed = len(set(coverage_source.failed) & aliases)
+        confirmed = len(set(coverage_source.confirmed) & keys)
+        failed = len(set(coverage_source.failed) & keys)
     return {
         "state": best,
         "user_state": _state(user_fitting) if user_fitting else None,
@@ -375,13 +418,15 @@ class FittingManager:
     async def async_send(
         self, filename: str, index: int, emitter_entity_id: str
     ) -> dict[str, Any]:
-        """Send one wig signal through an emitter; report sent + heard.
+        """Send one fitting row through an emitter; report sent + heard.
 
         No signal-store dependency (plan 4.1): identity derives fresh
-        from the wig's Pronto via the shared helper, the command builds
+        from the row's Pronto via the shared helper, the command builds
         decoded-preferring exactly like the catalog Test path, and the
         send claims its own Mirror echo, which is where ``heard`` comes
-        from.
+        from. ``index`` addresses ``fitting_rows(wig)``, so a matrix
+        wig's checklist and a signal wig's aliases ride the identical
+        path -- only the row source differs.
         """
         if self._hass.states.get(emitter_entity_id) is None:
             return {"success": False, "code": "entity_not_found",
@@ -390,14 +435,15 @@ class FittingManager:
         if wig is None:
             return {"success": False, "code": "wig_not_found",
                     "error": "Wig not found"}
-        if not 0 <= index < len(wig.signals):
+        rows = fitting_rows(wig)
+        if not 0 <= index < len(rows):
             return {"success": False, "code": "bad_index",
                     "error": "No such signal in this wig"}
-        sig = wig.signals[index]
+        row_key, row_pronto, row_send_count = rows[index]
 
         from .wig_identity import wig_signal_identity
 
-        ident = wig_signal_identity(sig.pronto)
+        ident = wig_signal_identity(row_pronto)
         if ident is None:
             return {"success": False, "code": "bad_pronto",
                     "error": "This signal's Pronto code does not validate"}
@@ -438,7 +484,7 @@ class FittingManager:
         heard_future: asyncio.Future[str | None] = (
             asyncio.get_running_loop().create_future()
         )
-        label = f"Fitting send: {sig.alias}" if sig.alias else "Fitting send"
+        label = f"Fitting send: {row_key}" if row_key else "Fitting send"
         self._monitor.record_send(
             ir_cmd, label, [emitter_entity_id],
             decoded_fingerprint=ident.decoded_fingerprint,
@@ -452,7 +498,7 @@ class FittingManager:
         from .const import ASSIGN_SERVICE_TIMEOUT_S, SEND_REPEAT_GAP
         from .tx_gate import gated_send
 
-        send_count = max(1, sig.send_count or 1)
+        send_count = max(1, row_send_count or 1)
         try:
             for i in range(send_count):
                 if i:
@@ -493,7 +539,7 @@ class FittingManager:
             heard_future.done() and not heard_future.cancelled()
         )
         if heard:
-            session["heard"].add(sig.alias)
+            session["heard"].add(row_key)
             if heard_receiver:
                 session["receiver_platform"] = (
                     self._platform_of(heard_receiver)
@@ -510,11 +556,15 @@ class FittingManager:
     async def async_mark(
         self, filename: str, index: int, verdict: str, username: str
     ) -> dict[str, Any]:
-        """Record a per-signal verdict into the user's draft fitting.
+        """Record a per-row verdict into the user's draft fitting.
 
         The first mark creates the draft inside the wig file (13.3);
         every mark schedules a debounced write, so progress survives
-        anything short of the disk itself.
+        anything short of the disk itself. ``index`` addresses
+        ``fitting_rows(wig)`` and the verdict lists store ROW KEYS --
+        aliases for signal wigs (unchanged on disk), checklist cell
+        keys for matrix wigs, both stable across installs because both
+        derive purely from file content.
         """
         if verdict not in VERDICTS:
             return {"success": False, "code": "bad_verdict",
@@ -523,18 +573,19 @@ class FittingManager:
         if wig is None:
             return {"success": False, "code": "wig_not_found",
                     "error": "Wig not found"}
-        if not 0 <= index < len(wig.signals):
+        rows = fitting_rows(wig)
+        if not 0 <= index < len(rows):
             return {"success": False, "code": "bad_index",
                     "error": "No such signal in this wig"}
-        alias = wig.signals[index].alias
+        row_key = rows[index][0]
 
         draft = await self._draft_for(wig, filename, username)
-        confirmed = [a for a in draft["confirmed"] if a != alias]
-        failed = [a for a in draft["failed"] if a != alias]
+        confirmed = [k for k in draft["confirmed"] if k != row_key]
+        failed = [k for k in draft["failed"] if k != row_key]
         if verdict == _VERDICT_WORKED:
-            confirmed.append(alias)
+            confirmed.append(row_key)
         elif verdict == _VERDICT_FAILED:
-            failed.append(alias)
+            failed.append(row_key)
         draft["confirmed"] = confirmed
         draft["failed"] = failed
         draft["date"] = _today()
@@ -543,14 +594,14 @@ class FittingManager:
         self._pending[filename] = wig
         self._schedule_write(filename)
 
-        aliases = {sig.alias for sig in wig.signals}
+        keys = {key for key, _, _ in rows}
         return {
             "success": True,
-            "confirmed": len(set(confirmed) & aliases),
-            "failed": len(set(failed) & aliases),
-            "total": len(wig.signals),
+            "confirmed": len(set(confirmed) & keys),
+            "failed": len(set(failed) & keys),
+            "total": len(rows),
             "perfect_ready": (
-                not failed and aliases <= set(confirmed)
+                not failed and keys <= set(confirmed)
             ),
         }
 
@@ -569,7 +620,7 @@ class FittingManager:
         handle starts its own ledger row, which is correct -- the row
         belongs to the attester name on it.
         """
-        current_hash = signals_content_hash(wig.signals)
+        current_hash = wig_content_hash(wig)
         raw_list = wig.extra.get(FITTINGS_KEY)
         if not isinstance(raw_list, list):
             raw_list = []
@@ -687,13 +738,14 @@ class FittingManager:
         complete = bool(
             fitting and fitting_is_complete(fitting, wig)
         )
-        aliases = {sig.alias for sig in wig.signals}
+        rows = fitting_rows(wig)
+        keys = {key for key, _, _ in rows}
         return {
             "success": True,
             "state": "perfect" if complete else "partial",
-            "confirmed": len(set(draft.get("confirmed", [])) & aliases),
-            "failed": len(set(draft.get("failed", [])) & aliases),
-            "total": len(wig.signals),
+            "confirmed": len(set(draft.get("confirmed", [])) & keys),
+            "failed": len(set(draft.get("failed", [])) & keys),
+            "total": len(rows),
             "signed": signed,
         }
 

@@ -224,6 +224,7 @@ class _ClimateEntityFeature:
     TURN_OFF = 2
     TARGET_TEMPERATURE = 4
     FAN_MODE = 8
+    SWING_MODE = 16
     def __init__(self, val=0): self._val = val
     def __or__(self, other):
         if isinstance(other, int):
@@ -238,6 +239,7 @@ class _HVACMode(StrEnum):
     FAN_ONLY = "fan_only"
     DRY = "dry"
     AUTO = "auto"
+    HEAT_COOL = "heat_cool"
 
 class _ClimateEntity:
     _attr_has_entity_name = True

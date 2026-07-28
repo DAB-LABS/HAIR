@@ -26,6 +26,7 @@ from .vocabulary import localized_auto_map
 
 if TYPE_CHECKING:
     from .trigger_manager import TriggerManager
+    from .wig_format import ClimateMatrix
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -116,6 +117,13 @@ class DeviceManager:
         self._store = store
         self._entity_factory = entity_factory
         self._config_entry_id = config_entry_id
+        # Parsed climate matrices by device id (Cold Cuts). Loaded from
+        # hair/matrices/ on first ask, held for the install's lifetime:
+        # matrix files only change through adopt/duplicate/delete, all
+        # of which run through this manager, so the cache never goes
+        # stale behind our back. Misses are NOT cached, so a file that
+        # appears later (restored backup) is picked up on the next ask.
+        self._matrix_cache: dict[str, ClimateMatrix] = {}
 
     async def async_create_device(self, device: IRDevice) -> IRDevice:
         """Create a new IR device, register in HA registry, create entities."""
@@ -300,7 +308,46 @@ class DeviceManager:
 
         self._store.remove_device(device_id)
         await self._store.async_save()
+
+        # Matrix file cleanup (Cold Cuts): best-effort, AFTER the store
+        # commit -- a full disk or bad permission must never resurrect
+        # a device the user already deleted, and an orphaned matrix
+        # file is inert (nothing reads it without the device id).
+        self._matrix_cache.pop(device_id, None)
+        if device.climate_matrix:
+            try:
+                from .matrix_store import delete_matrix
+
+                await self._hass.async_add_executor_job(
+                    delete_matrix, self._hass.config.config_dir, device_id
+                )
+            except Exception:
+                _LOGGER.warning(
+                    "Could not delete matrix file for device %s",
+                    device_id, exc_info=True,
+                )
         return True
+
+    async def async_get_matrix(self, device_id: str) -> ClimateMatrix | None:
+        """The device's climate matrix, cache-first (Cold Cuts).
+
+        The climate entity calls this from ``async_added_to_hass`` and
+        again on updates until a matrix lands; file I/O runs on the
+        executor. None = no file or an unreadable one (matrix_store
+        logs the reason), and the entity refuses sends rather than
+        guessing.
+        """
+        cached = self._matrix_cache.get(device_id)
+        if cached is not None:
+            return cached
+        from .matrix_store import load_matrix
+
+        matrix = await self._hass.async_add_executor_job(
+            load_matrix, self._hass.config.config_dir, device_id
+        )
+        if matrix is not None:
+            self._matrix_cache[device_id] = matrix
+        return matrix
 
     async def async_add_command(
         self, device_id: str, command: IRCommand
@@ -411,11 +458,6 @@ class DeviceManager:
         if not device.emitter_entity_ids:
             raise RuntimeError(f"Device {device_id} has no emitters configured")
 
-        # Lazy imports: infrared component only available at runtime on HA 2026.4+.
-        from homeassistant.components.infrared import (
-            async_send_command as ir_send,
-        )
-
         from .ir_command import build_command, build_decoded_command
 
         # Prefer canonical encode-from-decoded when the command carries a
@@ -443,6 +485,78 @@ class DeviceManager:
                 frequency=command.frequency or 38000,
                 repeat_count=command.repeat_count or 0,
             )
+
+        # Broadcast through the shared emitter path; raises when every
+        # emitter fails, so the code below only runs on a landed send.
+        await self._async_broadcast(
+            device,
+            ir_cmd,
+            command.name,
+            send_count=max(1, command.send_count or 1),
+            decoded_fingerprint=(
+                command.decoded_fingerprint
+                if not command.tx_force_raw else None
+            ),
+        )
+
+        # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
+        # one send-command call is one logical press, so advance once
+        # when AT LEAST ONE send landed (GH #65: "loop finished without
+        # raising" desynced state when a late emitter failed after the
+        # device already got the frame from an earlier one) --
+        # send_count > 1 deliberately re-sends the same state. The
+        # decoded fingerprint excludes both fields, so the reverse
+        # index is unaffected and a bare save is safe.
+        # - RC-5-family toggle: flips 0/1 per press.
+        # - Dyson rolling counter: increments mod 4 per press. The fan
+        #   rejects a frame reusing its last-seen counter (GH #33), so
+        #   advancing AFTER each send guarantees consecutive HAIR
+        #   presses always differ.
+        if decoded_tx and command.decoded_extras:
+            advanced = False
+            if "toggle" in command.decoded_extras:
+                command.decoded_extras["toggle"] = (
+                    int(command.decoded_extras["toggle"]) ^ 1
+                )
+                advanced = True
+            if "counter" in command.decoded_extras:
+                command.decoded_extras["counter"] = (
+                    int(command.decoded_extras["counter"]) + 1
+                ) & 0x3
+                advanced = True
+            if advanced:
+                self._store.update_device(device)
+                await self._store.async_save()
+
+    async def _async_broadcast(
+        self,
+        device: IRDevice,
+        ir_cmd: Any,
+        send_name: str,
+        *,
+        send_count: int = 1,
+        decoded_fingerprint: str | None = None,
+    ) -> set[str]:
+        """The shared all-emitters transmit path (GH #65 semantics).
+
+        Extracted from ``async_send_command`` for Cold Cuts so matrix
+        cell sends ride the EXACT same resilience machinery instead of
+        a third path: pre-skip known-down emitters, per-emitter guard
+        with the assign timeout, a failing emitter dropped from later
+        frames, Mirror audit armed BEFORE transmitting, degrade
+        notifications raised and self-dismissed identically. Succeeds
+        (returns the landed set) when at least one (emitter, frame)
+        landed; raises RuntimeError with the honest "all unavailable"
+        message otherwise. ``send_name`` is the command-name channel
+        for the Mirror label and the log lines ("<device> / <name>").
+        """
+        # Lazy import: infrared component only available at runtime on
+        # HA 2026.4+.
+        from homeassistant.components.infrared import (
+            async_send_command as ir_send,
+        )
+
+        from .tx_gate import gated_send
 
         # Emitter resilience (GH #65, rvgfox): multi-emitter is the
         # redundancy feature, so one napping blaster must never block
@@ -476,12 +590,9 @@ class DeviceManager:
         if monitor is not None:
             monitor.record_send(
                 ir_cmd,
-                f"{device.name} / {command.name}",
+                f"{device.name} / {send_name}",
                 attempt_ids,
-                decoded_fingerprint=(
-                    command.decoded_fingerprint
-                    if not command.tx_force_raw else None
-                ),
+                decoded_fingerprint=decoded_fingerprint,
             )
 
         # Whole-frame repetition: transmit the built Command send_count times
@@ -494,9 +605,6 @@ class DeviceManager:
         # dropped from later frames (no point stacking timeouts on a
         # dead unit); the command succeeds when at least one (emitter,
         # frame) landed.
-        from .tx_gate import gated_send
-
-        send_count = max(1, command.send_count or 1)
         landed: set[str] = set()
         failures: dict[str, str] = {}
         for i in range(send_count):
@@ -523,7 +631,7 @@ class DeviceManager:
             # string (details go to the log).
             _LOGGER.warning(
                 "Send %s / %s: every emitter failed: %s",
-                device.name, command.name,
+                device.name, send_name,
                 {**skipped, **failures},
             )
             self._notify_emitter_degraded(
@@ -540,7 +648,7 @@ class DeviceManager:
             # know one of their transmitters is out").
             _LOGGER.warning(
                 "Send %s / %s went out via %s; skipped/failed: %s",
-                device.name, command.name, sorted(landed),
+                device.name, send_name, sorted(landed),
                 {**skipped, **failures},
             )
             self._notify_emitter_degraded(
@@ -551,35 +659,39 @@ class DeviceManager:
         # tidies up without the user hunting for a dismiss button.
         for emitter_id in landed:
             self._dismiss_emitter_notification(emitter_id)
+        return landed
 
-        # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
-        # one send-command call is one logical press, so advance once
-        # when AT LEAST ONE send landed (GH #65: "loop finished without
-        # raising" desynced state when a late emitter failed after the
-        # device already got the frame from an earlier one) --
-        # send_count > 1 deliberately re-sends the same state. The
-        # decoded fingerprint excludes both fields, so the reverse
-        # index is unaffected and a bare save is safe.
-        # - RC-5-family toggle: flips 0/1 per press.
-        # - Dyson rolling counter: increments mod 4 per press. The fan
-        #   rejects a frame reusing its last-seen counter (GH #33), so
-        #   advancing AFTER each send guarantees consecutive HAIR
-        #   presses always differ.
-        if decoded_tx and command.decoded_extras:
-            advanced = False
-            if "toggle" in command.decoded_extras:
-                command.decoded_extras["toggle"] = (
-                    int(command.decoded_extras["toggle"]) ^ 1
-                )
-                advanced = True
-            if "counter" in command.decoded_extras:
-                command.decoded_extras["counter"] = (
-                    int(command.decoded_extras["counter"]) + 1
-                ) & 0x3
-                advanced = True
-            if advanced:
-                self._store.update_device(device)
-                await self._store.async_save()
+    async def async_send_matrix_cell(
+        self,
+        device_id: str,
+        cell_name: str,
+        pronto: str,
+        send_count: int = 1,
+    ) -> None:
+        """Send one climate matrix cell's raw Pronto (Cold Cuts).
+
+        Rides ``_async_broadcast`` so a matrix send behaves EXACTLY
+        like a stored-command send: same pre-skip, same per-emitter
+        guard and timeout, same "all unavailable" contract, same
+        degrade notifications, and the Mirror row labeled with the
+        cell key ("Bedroom AC / cool/auto/23"). Deliberately raw
+        Pronto replay with no decoded re-encode attempt: AC frames are
+        long state blobs the decoders do not cover, and the matrix
+        file's code IS the ground truth (census finding).
+        """
+        device = self._store.get_device(device_id)
+        if device is None:
+            raise KeyError(f"Unknown device {device_id}")
+        if not device.emitter_entity_ids:
+            raise RuntimeError(f"Device {device_id} has no emitters configured")
+
+        from .ir_command import build_command
+
+        ir_cmd = build_command(protocol="PRONTO", code=pronto)
+        await self._async_broadcast(
+            device, ir_cmd, cell_name,
+            send_count=max(1, send_count or 1),
+        )
 
     # --- Emitter-degrade notifications (GH #65 rider, v0.8.1) ---
     #

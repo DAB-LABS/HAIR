@@ -485,6 +485,19 @@ async def ws_duplicate_device(
         return
 
     clone = source.clone(new_name)
+    if source.climate_matrix:
+        # The matrix file rides along under the clone's id (Cold Cuts)
+        # BEFORE the device exists, so the climate entity created below
+        # never races a missing file. A failed copy clears the flag:
+        # a device claiming a matrix it does not have would leave the
+        # entity permanently refusing sends with no visible reason.
+        from .matrix_store import copy_matrix
+
+        copied = await hass.async_add_executor_job(
+            copy_matrix, hass.config.config_dir, source.id, clone.id
+        )
+        if not copied:
+            clone.climate_matrix = False
     await manager.async_create_device(clone)
     connection.send_result(msg["id"], _device_full(clone))
 
@@ -3015,6 +3028,7 @@ async def ws_fitting_state(
         from .wig_fitting import (
             fitting_is_complete,
             fitting_is_valid,
+            fitting_rows,
             fitting_summary,
             parse_fittings,
         )
@@ -3032,11 +3046,51 @@ async def ws_fitting_state(
             ),
             None,
         )
+        confirmed_keys = set(draft.confirmed) if draft else set()
+        failed_keys = set(draft.failed) if draft else set()
+        # The rows the session walks, with per-row state resolved
+        # server-side. Signal wigs keep the minimal shape they always
+        # had ("signals" below is unchanged, and their rows carry
+        # section: null); matrix wigs add the checklist display facts
+        # so the dialog renders the sectioned CC1 layout without
+        # re-deriving the checklist client-side.
+        if wig.climate is not None:
+            from .wig_climate import dimension_checklist
+
+            rows = [
+                {
+                    "key": r.key,
+                    "section": r.section,
+                    "mode": r.mode,
+                    "fan": r.fan,
+                    "swing": r.swing,
+                    "temp": r.temp,
+                    "temp_less": r.temp_less,
+                    "temp_role": r.temp_role,
+                    "confirmed": r.key in confirmed_keys,
+                    "failed": r.key in failed_keys,
+                }
+                for r in dimension_checklist(wig.climate)
+            ]
+        else:
+            rows = [
+                {
+                    "key": key,
+                    "section": None,
+                    "confirmed": key in confirmed_keys,
+                    "failed": key in failed_keys,
+                }
+                for key, _, _ in fitting_rows(wig)
+            ]
         return {
             "filename": msg["filename"],
             "username": username,
             "kind": wig.kind,
-            "signals": [sig.alias for sig in wig.signals],
+            "matrix": wig.climate is not None,
+            # Row keys in session order. For signal wigs this is the
+            # alias list, byte-identical to the pre-0.8.8 payload.
+            "signals": [row["key"] for row in rows],
+            "rows": rows,
             "draft": (
                 {
                     "confirmed": draft.confirmed,
@@ -3148,6 +3202,13 @@ async def ws_wig_make_device(
     (v0.8.1 library rows): the codebook path renders a transient wig
     through the snapshot primitive and adopts it identically, writing
     nothing to the closet.
+
+    Matrix wigs (hair-wig/2, Cold Cuts) adopt as AC devices only: the
+    matrix writes to its own ``hair/matrices/`` file keyed by the new
+    device id, ``climate_matrix`` flags the device, and the flat
+    signals (the depth-0 extras) still copy as ordinary commands with
+    auto-map running over THEM only -- the cells are the climate
+    entity's, not the command list's.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3190,6 +3251,18 @@ async def ws_wig_make_device(
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
 
+    matrix = wig.climate
+    if matrix is not None and device_type != DeviceType.AC:
+        # The matrix IS a thermostat lattice; adopting it as anything
+        # else would strand the cells (only the climate entity reads
+        # them). The frontend seeds "ac" from kind, so this only fires
+        # on a stale or hand-rolled caller.
+        connection.send_error(
+            msg["id"], "invalid_format",
+            "matrix wigs adopt as AC devices",
+        )
+        return
+
     from .models import CaptureResult, CommandCategory
     from .wig_identity import wig_signal_identities
 
@@ -3203,7 +3276,26 @@ async def ws_wig_make_device(
         manufacturer=wig.brand,
         model=wig.model,
         emitter_entity_ids=list(msg["emitter_entity_ids"]),
+        climate_matrix=matrix is not None,
     )
+    if matrix is not None:
+        # The matrix file lands BEFORE the device exists (Cold Cuts):
+        # async_create_device spins up the climate entity, whose
+        # added-to-hass hook loads the matrix -- writing after would
+        # race it. A write failure refuses the whole adopt, so a
+        # cancelled or failed dialog still never leaves an orphan.
+        from .matrix_store import write_matrix
+
+        try:
+            await hass.async_add_executor_job(
+                write_matrix, hass.config.config_dir, device.id, matrix
+            )
+        except OSError as err:
+            connection.send_error(
+                msg["id"], "write_failed",
+                f"Could not write the matrix file: {err}",
+            )
+            return
     await manager.async_create_device(device)
 
     copied = 0
@@ -3239,6 +3331,7 @@ async def ws_wig_make_device(
     result = _device_full(device)
     result["copied"] = copied
     result["skipped"] = skipped
+    result["matrix_cells"] = len(matrix.cells) if matrix is not None else 0
     connection.send_result(msg["id"], result)
 
 

@@ -1,8 +1,21 @@
-"""Climate entity platform for HAIR (preset-based)."""
+"""Climate entity platform for HAIR (preset-based and matrix-based).
+
+Two operating modes since Cold Cuts (v0.8.8), selected by
+``IRDevice.climate_matrix``:
+
+- PRESET mode (the original): discrete mapped commands (mode_cool,
+  fan_low, temp_22...) from ``entity_config``. Untouched by Cold Cuts.
+- MATRIX mode: the device carries a full climate state lattice in
+  ``hair/matrices/<device_id>.matrix.json``; every user action resolves
+  to ONE cell via ``wig_climate.resolve_cell`` and transmits that
+  cell's complete-state Pronto. Vocabulary (fan/swing strings) is
+  verbatim from the file -- the strings are lookup keys AND entity
+  attribute values (addendum section 3).
+"""
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
     ATTR_TEMPERATURE,
@@ -17,6 +30,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
+from .wig_climate import ha_mode_for, resolve_cell
+from .wig_format import cell_key
+
+if TYPE_CHECKING:
+    from .wig_format import ClimateCell, ClimateMatrix
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,7 +100,7 @@ async def async_setup_entry(
 
 
 class HAIRClimateEntity(ClimateEntity):
-    """IR-controlled climate device (preset-based)."""
+    """IR-controlled climate device (preset-based or matrix-based)."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -97,7 +115,44 @@ class HAIRClimateEntity(ClimateEntity):
         self._hvac_mode = HVACMode.OFF
         self._target_temperature: float | None = None
         self._fan_mode: str | None = None
+        # Matrix mode state (Cold Cuts). The matrix itself loads in
+        # async_added_to_hass through the manager's cache (blocking
+        # file I/O never runs in a constructor called on the loop).
+        self._swing_mode: str | None = None
+        self._matrix: ClimateMatrix | None = None
+        # cell_key of the last transmitted cell ("off"/"on" for the
+        # power codes): the device page's current-cell readout (owner
+        # ruling Q2). None until the first send.
+        self._matrix_cell: str | None = None
         self._seed_target_temperature()
+
+    @property
+    def _matrix_mode(self) -> bool:
+        return self._device.climate_matrix
+
+    async def async_added_to_hass(self) -> None:
+        # Real HA calls the base hook (a no-op) here; the matrix load
+        # is this entity's only lifecycle need.
+        if self._matrix_mode and self._matrix is None:
+            await self._async_load_matrix()
+
+    async def _async_load_matrix(self) -> None:
+        self._matrix = await self._manager.async_get_matrix(self._device.id)
+        if self._matrix is not None and self._target_temperature is None:
+            # Seed the dial for the same reason presets seed (v0.6.1
+            # bench find: no draggable target while None). Midpoint of
+            # the file's bounds, snapped to its precision; local state
+            # only, nothing transmits.
+            m = self._matrix
+            step = m.precision or 1.0
+            mid = (m.min_temp + m.max_temp) / 2
+            self._target_temperature = (
+                m.min_temp + round((mid - m.min_temp) / step) * step
+            )
+
+    async def _async_refresh_matrix(self) -> None:
+        await self._async_load_matrix()
+        self.async_write_ha_state()
 
     @property
     def temperature_unit(self) -> str:
@@ -143,6 +198,19 @@ class HAIRClimateEntity(ClimateEntity):
         features = (
             ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
         )
+        if self._matrix_mode:
+            m = self._matrix
+            if m is not None:
+                if m.fan_modes:
+                    features |= ClimateEntityFeature.FAN_MODE
+                if m.swing_modes:
+                    features |= ClimateEntityFeature.SWING_MODE
+                # Temperature is a per-branch dimension (census): only
+                # a matrix with at least one temp-bearing cell can
+                # honor a target, so only that matrix offers the dial.
+                if any(c.temp is not None for c in m.cells):
+                    features |= ClimateEntityFeature.TARGET_TEMPERATURE
+            return features
         config = self._device.entity_config
 
         if config.fan_modes:
@@ -154,7 +222,23 @@ class HAIRClimateEntity(ClimateEntity):
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
-        modes: list[HVACMode] = [HVACMode.OFF]
+        if self._matrix_mode:
+            # OFF plus the file's declared modes through the alias map,
+            # order preserved -- the file's order is the remote's order.
+            modes: list[HVACMode] = [HVACMode.OFF]
+            if self._matrix is not None:
+                for raw in self._matrix.modes:
+                    ha_value = ha_mode_for(raw)
+                    if ha_value is None:
+                        continue
+                    try:
+                        mode = HVACMode(ha_value)
+                    except ValueError:
+                        continue
+                    if mode not in modes:
+                        modes.append(mode)
+            return modes
+        modes = [HVACMode.OFF]
         configured = self._device.entity_config.hvac_modes or []
         for raw in configured:
             try:
@@ -186,6 +270,8 @@ class HAIRClimateEntity(ClimateEntity):
 
     @property
     def min_temp(self) -> float:
+        if self._matrix_mode and self._matrix is not None:
+            return float(self._matrix.min_temp)
         presets = self._device.entity_config.temperature_presets
         if presets:
             return float(min(presets))
@@ -193,20 +279,155 @@ class HAIRClimateEntity(ClimateEntity):
 
     @property
     def max_temp(self) -> float:
+        if self._matrix_mode and self._matrix is not None:
+            return float(self._matrix.max_temp)
         presets = self._device.entity_config.temperature_presets
         if presets:
             return float(max(presets))
         return 86.0
 
     @property
+    def target_temperature_step(self) -> float | None:
+        # Matrix files declare their own precision (0.5-degree remotes
+        # exist in the census); preset mode keeps HA's default step, as
+        # it always has (None = base behavior).
+        if self._matrix_mode and self._matrix is not None:
+            return float(self._matrix.precision)
+        return None
+
+    @property
     def fan_modes(self) -> list[str] | None:
+        if self._matrix_mode:
+            if self._matrix is None:
+                return None
+            # Verbatim file vocabulary, never normalized: these strings
+            # are the resolve_cell lookup keys (addendum section 3).
+            return list(self._matrix.fan_modes) or None
         return list(self._device.entity_config.fan_modes or []) or None
 
     @property
     def fan_mode(self) -> str | None:
         return self._fan_mode
 
+    @property
+    def swing_modes(self) -> list[str] | None:
+        # Swing exists only in matrix mode (no preset-mode device ever
+        # had it); verbatim for the same lookup-key reason as fans.
+        if self._matrix_mode and self._matrix is not None:
+            return list(self._matrix.swing_modes) or None
+        return None
+
+    @property
+    def swing_mode(self) -> str | None:
+        return self._swing_mode
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if not self._matrix_mode:
+            return None
+        # The device page's current-cell readout (owner ruling Q2):
+        # which complete state the unit last received from HAIR.
+        return {"matrix_cell": self._matrix_cell}
+
+    # -- matrix mode actions (Cold Cuts) --------------------------------
+    #
+    # Shared shape: update the LOCAL state the user asked for, then
+    # resolve the full target state to one cell and transmit it --
+    # every matrix send is a complete state, so fan/swing/temp always
+    # travel together. While OFF, setters store state without sending
+    # (no surprise blasts; the stored state rides out on the next
+    # mode/on action). A resolve miss logs and sends nothing: matrices
+    # are SPARSE (census: 158 explicit nulls) and a missing state is
+    # file fact, not an error to throw at the user.
+
+    def _file_mode_for(self, hvac_mode: HVACMode) -> str | None:
+        """The file's verbatim mode key for an HA mode, or None.
+
+        First declared mode whose alias maps to the requested HA value:
+        the exact inverse of how hvac_modes was built, so anything the
+        entity offered can be mapped back.
+        """
+        if self._matrix is None:
+            return None
+        for raw in self._matrix.modes:
+            if ha_mode_for(raw) == str(hvac_mode):
+                return raw
+        return None
+
+    async def _async_send_cell(self, cell: ClimateCell) -> None:
+        key = cell_key(cell)
+        await self._manager.async_send_matrix_cell(
+            self._device.id, key, cell.pronto, cell.send_count
+        )
+        self._matrix_cell = key
+        # Snap the dial to what actually went out: resolve_cell picks
+        # the nearest available temperature, and displaying a target
+        # the unit never received would be a quiet lie.
+        if cell.temp is not None:
+            self._target_temperature = cell.temp
+
+    async def _async_resolve_and_send(self, hvac_mode: HVACMode) -> bool:
+        if self._matrix is None:
+            _LOGGER.warning(
+                "Climate matrix for %s is not loaded; nothing sent",
+                self._device.name,
+            )
+            return False
+        file_mode = self._file_mode_for(hvac_mode)
+        if file_mode is None:
+            _LOGGER.warning(
+                "No matrix mode on %s maps to %s; nothing sent",
+                self._device.name, hvac_mode,
+            )
+            return False
+        cell = resolve_cell(
+            self._matrix, file_mode, self._fan_mode, self._swing_mode,
+            self._target_temperature,
+        )
+        if cell is None:
+            _LOGGER.warning(
+                "Matrix for %s has no cell for mode %s; nothing sent",
+                self._device.name, file_mode,
+            )
+            return False
+        await self._async_send_cell(cell)
+        return True
+
+    async def _async_matrix_off(self) -> None:
+        if self._matrix is None:
+            _LOGGER.warning(
+                "Climate matrix for %s is not loaded; nothing sent",
+                self._device.name,
+            )
+        else:
+            await self._manager.async_send_matrix_cell(
+                self._device.id, "Off", self._matrix.off
+            )
+            self._matrix_cell = "off"
+        self._hvac_mode = HVACMode.OFF
+        self.async_write_ha_state()
+
+    def _first_matrix_hvac_mode(self) -> HVACMode:
+        """The on-state to display after a bare power-on.
+
+        The file's first mode when one maps; AUTO otherwise (the same
+        synthetic-on convention preset mode uses for GH #58).
+        """
+        modes = self.hvac_modes
+        return modes[1] if len(modes) > 1 else HVACMode.AUTO
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if self._matrix_mode:
+            if hvac_mode == HVACMode.OFF:
+                await self._async_matrix_off()
+                return
+            await self._async_resolve_and_send(hvac_mode)
+            # Assumed-state entity: the mode records the user's intent
+            # even on a sparse miss (the attr shows what really went
+            # out last).
+            self._hvac_mode = hvac_mode
+            self.async_write_ha_state()
+            return
         if hvac_mode == HVACMode.OFF:
             await self._send("turn_off", "power_toggle")
             self._hvac_mode = HVACMode.OFF
@@ -227,6 +448,14 @@ class HAIRClimateEntity(ClimateEntity):
         raw_target = kwargs.get(ATTR_TEMPERATURE)
         if raw_target is None:
             return
+        if self._matrix_mode:
+            self._target_temperature = float(raw_target)
+            if self._hvac_mode != HVACMode.OFF:
+                # _async_send_cell snaps the dial to the transmitted
+                # cell's temperature.
+                await self._async_resolve_and_send(self._hvac_mode)
+            self.async_write_ha_state()
+            return
         # Bind a definitely-non-None float before the lambda below: mypy
         # does not carry the None-narrowing into a nested closure, so
         # ``target`` must already be a plain float where the lambda captures it.
@@ -240,18 +469,57 @@ class HAIRClimateEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
+        if self._matrix_mode:
+            self._fan_mode = fan_mode
+            if self._hvac_mode != HVACMode.OFF:
+                await self._async_resolve_and_send(self._hvac_mode)
+            self.async_write_ha_state()
+            return
         feature = FAN_MODE_TO_FEATURE.get(fan_mode.lower())
         if feature and await self._send(feature):
             self._fan_mode = fan_mode
             self.async_write_ha_state()
 
+    async def async_set_swing_mode(self, swing_mode: str) -> None:
+        # Matrix mode only: preset mode never advertises SWING_MODE, so
+        # HA never routes here for it.
+        if not self._matrix_mode:
+            return
+        self._swing_mode = swing_mode
+        if self._hvac_mode != HVACMode.OFF:
+            await self._async_resolve_and_send(self._hvac_mode)
+        self.async_write_ha_state()
+
     async def async_turn_on(self) -> None:
+        if self._matrix_mode:
+            m = self._matrix
+            if m is not None and m.on is not None:
+                # A dedicated power-on code exists: send it and let the
+                # unit resume its own last state.
+                await self._manager.async_send_matrix_cell(
+                    self._device.id, "On", m.on
+                )
+                self._matrix_cell = "on"
+                if self._hvac_mode == HVACMode.OFF:
+                    self._hvac_mode = self._first_matrix_hvac_mode()
+            else:
+                # No bare on code (common in the census): waking the
+                # unit IS selecting a state, so resolve in the first
+                # mode.
+                target = self._first_matrix_hvac_mode()
+                await self._async_resolve_and_send(target)
+                self._hvac_mode = target
+            self.async_write_ha_state()
+            return
         await self._send("turn_on", "power_toggle")
         if self._hvac_mode == HVACMode.OFF:
             self._hvac_mode = HVACMode.AUTO
         self.async_write_ha_state()
 
     async def async_turn_off(self) -> None:
+        if self._matrix_mode:
+            await self._async_matrix_off()
+            return
         await self._send("turn_off", "power_toggle")
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
@@ -262,6 +530,16 @@ class HAIRClimateEntity(ClimateEntity):
         # Presets can appear after entity creation (the assign path adds
         # "Temp N" commands to a live device); seed the dial then too.
         self._seed_target_temperature()
+        if (
+            device.climate_matrix
+            and self._matrix is None
+            and self.hass is not None
+        ):
+            # A device that just gained (or was created with) a matrix:
+            # load it off-loop, then repaint. Loaded matrices are never
+            # re-read here -- matrix files only change through manager
+            # paths that recreate the device.
+            self.hass.async_create_task(self._async_refresh_matrix())
         if self.hass is None:
             # Race: entity instantiated and tracked in the platform's local
             # dict but not yet registered with HA via async_add_entities.
