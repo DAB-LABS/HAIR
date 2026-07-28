@@ -2629,7 +2629,7 @@ async def ws_wigs_upload(
         from .wig_format import (
             parse_wig,
             serialize_wig,
-            signals_content_hash,
+            wig_content_hash,
         )
         from .wig_store import scan_wigs, write_wig_text
 
@@ -2639,10 +2639,16 @@ async def ws_wigs_upload(
         # file gets a duplicate receipt (yellow, owner ruling) instead
         # of silently minting -2, -3, ... twins. The file still writes:
         # keeping it is the user's call, the receipt just tells them.
+        # wig_content_hash, not signals_content_hash (2026-07-28):
+        # matrix wigs carry empty/near-empty flat signal lists, so
+        # hashing only the signals made EVERY matrix wig collide on the
+        # empty-list hash (owner bench: a Mitsubishi drop got "already
+        # in Toyotomi"). wig_content_hash is cells-aware for matrix
+        # wigs and byte-identical to the old hash for signal wigs.
         existing: dict[str, list[dict[str, Any]]] = {}
         for loaded in scan_wigs(hass.config.config_dir).wigs:
             existing.setdefault(
-                signals_content_hash(loaded.wig.signals), []
+                wig_content_hash(loaded.wig), []
             ).append({
                 "filename": loaded.path.name,
                 "brand": loaded.wig.brand,
@@ -2650,7 +2656,7 @@ async def ws_wigs_upload(
 
         def _entry(wig, filename: str) -> dict[str, Any]:
             matches = existing.get(
-                signals_content_hash(wig.signals), []
+                wig_content_hash(wig), []
             )
             return {
                 "filename": filename,
@@ -3499,15 +3505,20 @@ async def ws_wig_snapshot(
 
     def _snapshot() -> dict[str, Any] | None:
         from .code_library import build_wig_from_codebook
-        from .wig_format import serialize_wig, signals_content_hash
+        from .wig_format import serialize_wig, wig_content_hash
         from .wig_store import scan_wigs, write_wig_text
 
         wig = build_wig_from_codebook(msg["codebook_id"])
         if wig is None:
             return None
-        content = signals_content_hash(wig.signals)
+        # wig_content_hash on the scan side too (2026-07-28): the closet
+        # scan includes matrix wigs, and hashing their near-empty flat
+        # signal lists is the same collision class the upload dedup hit.
+        # Codebook wigs carry no climate block, so the incoming side is
+        # byte-identical to the old signals hash.
+        content = wig_content_hash(wig)
         for loaded in scan_wigs(hass.config.config_dir).wigs:
-            if signals_content_hash(loaded.wig.signals) == content:
+            if wig_content_hash(loaded.wig) == content:
                 return {
                     "filename": loaded.path.name,
                     "name": loaded.wig.name,

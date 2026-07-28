@@ -1989,3 +1989,91 @@ class TestLinkedHairDevices:
         ids = {entry["device_id"] for entry in linked}
         assert ids == {"hd1", "hd2"}
 
+
+
+# ---------------------------------------------------------------------------
+# ws_wigs_upload: closet duplicate receipt
+# ---------------------------------------------------------------------------
+
+
+class TestWigsUploadDuplicateReceipt:
+    """The duplicate receipt hashes whole wigs, not flat signal lists
+    (owner bench, 2026-07-28): matrix wigs carry empty/near-empty flat
+    signals, so hashing only ``wig.signals`` collided EVERY matrix wig
+    on the empty-list hash -- dropping a Mitsubishi SmartIR file read
+    "an identical device was already in Toyotomi". ``wig_content_hash``
+    is cells-aware for matrix wigs and byte-identical to the old
+    signals hash for signal wigs."""
+
+    @staticmethod
+    def _b64(seed: int) -> str:
+        """A minimal valid Broadlink packet, varied by seed."""
+        import base64
+
+        payload = bytes([seed, 0x24, 0x12, 0x12, 0x12, 0x24, 0x12,
+                         0x12, 0x12, 0x24])
+        packet = bytes([0x26, 0x00, len(payload), 0x00]) + payload
+        return base64.b64encode(packet).decode()
+
+    def _smartir(self, name: str, seed: int) -> str:
+        """A minimal SmartIR climate file: matrix only, no depth-0
+        extras, so the converted wig's flat signal list is empty."""
+        import json
+
+        return json.dumps({
+            "manufacturer": name,
+            "supportedModels": [f"{name}-100"],
+            "supportedController": "Broadlink",
+            "commandsEncoding": "Base64",
+            "minTemperature": 16.0,
+            "maxTemperature": 30.0,
+            "precision": 1,
+            "operationModes": ["cool"],
+            "fanModes": ["auto"],
+            "commands": {
+                "off": self._b64(seed),
+                "cool": {"auto": {"22": self._b64(seed + 1)}},
+            },
+        })
+
+    async def _upload(self, fake_hass, text: str) -> dict:
+        from custom_components.hair.websocket_api import ws_wigs_upload
+
+        conn = _make_connection()
+        await ws_wigs_upload(
+            fake_hass, conn,
+            {"id": 1, "type": "hair/wigs/upload", "text": text},
+        )
+        conn.send_result.assert_called_once()
+        return conn.send_result.call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_different_matrix_wigs_do_not_false_match(
+        self, fake_hass, tmp_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        first = await self._upload(
+            fake_hass, self._smartir("Toyotomi", 0x30)
+        )
+        assert first["success"] is True
+        assert first["files"][0]["duplicate_of"] is None
+
+        second = await self._upload(
+            fake_hass, self._smartir("Mitsubishi", 0x60)
+        )
+        assert second["success"] is True
+        assert second["files"][0]["duplicate_of"] is None
+        assert second["files"][0]["duplicates"] == []
+
+    @pytest.mark.asyncio
+    async def test_identical_matrix_reupload_gets_the_receipt(
+        self, fake_hass, tmp_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        text = self._smartir("Toyotomi", 0x30)
+        first = await self._upload(fake_hass, text)
+        assert first["files"][0]["duplicate_of"] is None
+
+        again = await self._upload(fake_hass, text)
+        assert again["success"] is True
+        assert again["files"][0]["duplicate_of"] == first["filename"]
