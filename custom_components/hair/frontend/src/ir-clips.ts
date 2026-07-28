@@ -79,7 +79,7 @@ export class IrClips extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDevice | null = null;
+    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
     @state() private _wigDragOver = false;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
@@ -414,10 +414,10 @@ export class IrClips extends LitElement {
         await this._load();
     }
 
-    private _openDeleteRemote(device: UnknownDevice): void {
+    private _openDeleteRemote(device: UnknownDeviceSummary): void {
         this._deleteRemoteId = device.id;
         this._deleteRemoteLabel = device.label || "this remote";
-        this._deleteRemoteCount = device.signals.length;
+        this._deleteRemoteCount = device.signal_count;
     }
 
     private async _confirmDeleteRemote(): Promise<void> {
@@ -1091,6 +1091,21 @@ export class IrClips extends LitElement {
                             color="green"
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
+                    <button
+                        class="action-btn save-wig-btn"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._saveWigDevice = d;
+                        }}
+                    >${t("wigs.save_as_wig")}</button>
+                    <button
+                        class="action-btn delete-btn"
+                        title=${t("clips.delete_remote_title")}
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._openDeleteRemote(d);
+                        }}
+                    >${t("common.delete")}</button>
                     <ha-svg-icon
                         class="expand-icon"
                         .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
@@ -1140,23 +1155,6 @@ export class IrClips extends LitElement {
                               )}
                           </div>
                       `}
-                <div class="remote-footer">
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = device;
-                        }}
-                    >${t("wigs.save_as_wig")}</button>
-                    <button
-                        class="action-btn delete-btn"
-                        title=${t("clips.delete_remote_title")}
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._openDeleteRemote(device);
-                        }}
-                    >${t("clips.delete_remote")}</button>
-                </div>
             </div>
         `;
     }
@@ -1670,6 +1668,9 @@ export class IrClips extends LitElement {
             padding: 12px 16px;
             cursor: pointer;
             gap: 12px;
+            /* Three header actions now (2026-07-29 footer merge): let the
+               row wrap on narrow viewports instead of crushing the name. */
+            flex-wrap: wrap;
         }
         .device-row:hover {
             background: var(--secondary-background-color);
@@ -1806,16 +1807,6 @@ export class IrClips extends LitElement {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
-        }
-        /* Persistent "Delete remote" footer: a row below the signal list,
-           right-justified so its button lines up with the per-signal Delete
-           buttons (which sit 8px in from the row edge). Same button size as
-           every other action button. */
-        .remote-footer {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 10px;
-            padding-right: 8px;
         }
         .signal-list {
             display: flex;
