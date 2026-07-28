@@ -308,7 +308,7 @@ class FittingManager:
         self._hair_version: str | None = None
         # The install's signing key, loaded (or minted) on first
         # finish. False = tried and unavailable, don't retry per-sign.
-        self._signing_key: str | None | bool = None
+        self._signing_key: str | bool | None = None
 
     # -- loading ---------------------------------------------------------
 
