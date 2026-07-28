@@ -548,5 +548,9 @@
     "wigs.editor.kind_hint": "この機器が何かを表します。ウィッグがWig Shopで共有されたとき、他の人が見つけやすくなります。",
     "fitting.kind": "これはどんな機器ですか？",
     "fitting.kind_placeholder": "tv, soundbar, candles...",
-    "fitting.kind_hint": "機器にラベルを付けます。ウィッグがWig Shopで共有されたとき、他の人が見つけやすくなります。"
+    "fitting.kind_hint": "機器にラベルを付けます。ウィッグがWig Shopで共有されたとき、他の人が見つけやすくなります。",
+    "wigs.adopt": "デバイスにする",
+    "wigs.adopted": "{name}はHAIRデバイスになりました",
+    "wigs.linked.other": "{count}台のデバイス",
+    "wigs.linked.one": "{count}台のデバイス"
 }

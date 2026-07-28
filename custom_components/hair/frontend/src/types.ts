@@ -116,6 +116,9 @@ export interface WigInfo {
     // Fitting summary (Perfect Fit): drives the row check marks and
     // the fitted/unfitted filter, computed server-side.
     fitting?: FittingSummary;
+    // Adopt Device (v0.8.1): HAIR devices already carrying this wig's
+    // codes, by tiered identity match.
+    linked_devices?: { device_id: string; device_name: string }[];
 }
 
 // Perfect Fit: the fitting layer.

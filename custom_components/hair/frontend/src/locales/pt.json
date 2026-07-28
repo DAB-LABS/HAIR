@@ -548,5 +548,9 @@
     "wigs.editor.kind_hint": "O que o aparelho é. Ajuda outras pessoas a encontrá-lo quando as perucas forem compartilhadas no Wig Shop.",
     "fitting.kind": "Que tipo de aparelho é este?",
     "fitting.kind_placeholder": "tv, soundbar, candles...",
-    "fitting.kind_hint": "Rotula o aparelho para que outros o encontrem quando as perucas forem compartilhadas no Wig Shop."
+    "fitting.kind_hint": "Rotula o aparelho para que outros o encontrem quando as perucas forem compartilhadas no Wig Shop.",
+    "wigs.adopt": "Adotar aparelho",
+    "wigs.adopted": "{name} agora é um aparelho HAIR",
+    "wigs.linked.one": "{count} aparelho",
+    "wigs.linked.other": "{count} aparelhos"
 }

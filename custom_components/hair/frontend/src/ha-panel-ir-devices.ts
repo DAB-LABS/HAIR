@@ -312,6 +312,7 @@ export class HaPanelIrDevices extends LitElement {
                                       .api=${this._api}
                                       .hass=${this.hass}
                                       @wig-tried-on=${() => this._switchTab("clips")}
+                                      @navigate-device=${this._onNavigateDevice}
                                   ></ir-wigs>
                               `}
             </div>

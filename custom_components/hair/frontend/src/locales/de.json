@@ -548,5 +548,9 @@
     "wigs.editor.kind_hint": "Was das Gerät ist. Hilft anderen, es zu finden, wenn Perücken im Wig Shop geteilt werden.",
     "fitting.kind": "Was für ein Gerät ist das?",
     "fitting.kind_placeholder": "tv, soundbar, candles...",
-    "fitting.kind_hint": "Beschriftet das Gerät, damit andere es finden, wenn Perücken im Wig Shop geteilt werden."
+    "fitting.kind_hint": "Beschriftet das Gerät, damit andere es finden, wenn Perücken im Wig Shop geteilt werden.",
+    "wigs.adopt": "Gerät adoptieren",
+    "wigs.adopted": "{name} ist jetzt ein HAIR-Gerät",
+    "wigs.linked.one": "{count} Gerät",
+    "wigs.linked.other": "{count} Geräte"
 }

@@ -572,5 +572,11 @@
     "wigs.editor.kind_hint": "Что это за устройство. Помогает другим найти его, когда парики появятся в Wig Shop.",
     "fitting.kind": "Что это за устройство?",
     "fitting.kind_placeholder": "tv, soundbar, candles...",
-    "fitting.kind_hint": "Помечает устройство, чтобы другие могли найти его, когда парики появятся в Wig Shop."
+    "fitting.kind_hint": "Помечает устройство, чтобы другие могли найти его, когда парики появятся в Wig Shop.",
+    "wigs.adopt": "Усыновить устройство",
+    "wigs.adopted": "{name} теперь устройство HAIR",
+    "wigs.linked.one": "{count} устройство",
+    "wigs.linked.few": "{count} устройства",
+    "wigs.linked.many": "{count} устройств",
+    "wigs.linked.other": "{count} устройств"
 }

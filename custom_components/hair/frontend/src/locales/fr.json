@@ -548,5 +548,9 @@
     "wigs.editor.kind_hint": "Ce qu'est l'appareil. Aide les autres à le trouver quand les perruques sont partagées sur le Wig Shop.",
     "fitting.kind": "Quel type d'appareil est-ce ?",
     "fitting.kind_placeholder": "tv, soundbar, candles...",
-    "fitting.kind_hint": "Étiquette l'appareil pour que d'autres le trouvent quand les perruques sont partagées sur le Wig Shop."
+    "fitting.kind_hint": "Étiquette l'appareil pour que d'autres le trouvent quand les perruques sont partagées sur le Wig Shop.",
+    "wigs.adopt": "Adopter l'appareil",
+    "wigs.adopted": "{name} est maintenant un appareil HAIR",
+    "wigs.linked.one": "{count} appareil",
+    "wigs.linked.other": "{count} appareils"
 }

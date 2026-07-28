@@ -365,6 +365,21 @@ export class HairApi {
         });
     }
 
+    wigMakeDevice(
+        filename: string,
+        name: string,
+        deviceType: DeviceTypeId,
+        emitterEntityIds: string[],
+    ): Promise<IRDevice & { copied: number; skipped: number }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/make-device",
+            filename,
+            name,
+            device_type: deviceType,
+            emitter_entity_ids: emitterEntityIds,
+        });
+    }
+
     wigsExport(
         source: "catalog" | "device",
         sourceId: string,

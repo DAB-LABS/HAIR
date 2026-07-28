@@ -119,6 +119,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fitting_finish)
     websocket_api.async_register_command(hass, ws_fitting_discard)
     websocket_api.async_register_command(hass, ws_fitting_state)
+    websocket_api.async_register_command(hass, ws_wig_make_device)
 
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
@@ -2400,12 +2401,20 @@ async def ws_wigs_list(
         await manager.async_flush()
     username = _fitting_username(connection)
 
+    entry_data = _get_first_entry_data(hass)
+
     def _scan() -> dict[str, Any]:
         from .code_library import get_tree, library_available
         from .wig_fitting import fitting_summary
         from .wig_store import scan_wigs
 
         scan = scan_wigs(hass.config.config_dir)
+        # Adopt Device (v0.8.1): which HAIR devices already carry this
+        # wig's codes, by the same tiered identity match the catalog
+        # rows use. Identities come content-hash cached.
+        store = entry_data.get("store") if entry_data else None
+        hair_devices = store.get_all_devices() if store else []
+        index = _assignment_index(hair_devices)
         library = get_tree() if library_available() else []
         try:
             from importlib.metadata import version
@@ -2429,6 +2438,9 @@ async def ws_wigs_list(
                     "kind": loaded.wig.kind,
                     "identifiers": loaded.wig.identifiers,
                     "fitting": fitting_summary(loaded.wig, username),
+                    "linked_devices": _wig_linked_devices(
+                        loaded.wig, index
+                    ),
                 }
                 for loaded in scan.wigs
             ],
@@ -3066,4 +3078,137 @@ async def ws_fitting_state(
     if result is None:
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
+    connection.send_result(msg["id"], result)
+
+
+# ---------------------------------------------------------------------------
+# Adopt Device (v0.8.1): a wig becomes a HAIR device in one step
+# ---------------------------------------------------------------------------
+
+
+def _wig_linked_devices(
+    wig: Any,
+    assignment_index: list[tuple[SignalIdentity, dict[str, str]]],
+) -> list[dict[str, str]]:
+    """The HAIR devices this wig's codes already live in, by identity.
+
+    The wig-side sibling of ``_linked_hair_devices``: no stored promote
+    pointer (wigs are files, not store records), so the identity match
+    IS the whole union. Many-to-many falls out the same way -- adopt
+    one wig twice (living room and bedroom) and both devices chip up.
+    """
+    from .wig_identity import wig_signal_identities
+
+    linked: dict[str, str] = {}
+    for ident in wig_signal_identities(wig):
+        if ident is None:
+            continue
+        identity = SignalIdentity(
+            ident.decoded_fingerprint, ident.byte_hash, ident.fingerprint
+        )
+        for entry_identity, payload in assignment_index:
+            if identity.same_as(entry_identity):
+                linked[payload["device_id"]] = payload["device_name"]
+    return [
+        {"device_id": did, "device_name": name}
+        for did, name in linked.items()
+    ]
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/make-device",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("name"): vol.All(str, vol.Length(min=1, max=200)),
+    vol.Required("device_type"): str,
+    vol.Required("emitter_entity_ids"): [str],
+})
+@websocket_api.async_response
+async def ws_wig_make_device(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Adopt Device: create a HAIR device straight from a closet wig.
+
+    Direct copy, NO Clipper residue (owner ruling 2026-07-21): every
+    wig signal becomes a command named by its alias, identities stamped
+    fresh from the wig's Pronto, auto-mapped so entity features light
+    up. Brand and model ride over from the wig. A cancelled dialog
+    calls nothing, so there is never an orphan to clean up.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+
+    try:
+        device_type = DeviceType(msg["device_type"])
+    except ValueError:
+        connection.send_error(msg["id"], "invalid_format", "Unknown device_type")
+        return
+
+    fitting_manager = data.get("fitting_manager")
+    if fitting_manager is not None:
+        await fitting_manager.async_flush(msg["filename"])
+
+    from .wig_store import load_wig
+
+    wig = await hass.async_add_executor_job(
+        load_wig, hass.config.config_dir, msg["filename"]
+    )
+    if wig is None:
+        connection.send_error(msg["id"], "not_found", "Wig not found")
+        return
+
+    from .models import CaptureResult, CommandCategory
+    from .wig_identity import wig_signal_identities
+
+    identities = await hass.async_add_executor_job(
+        wig_signal_identities, wig
+    )
+
+    device = IRDevice(
+        name=msg["name"],
+        device_type=device_type,
+        manufacturer=wig.brand,
+        model=wig.model,
+        emitter_entity_ids=list(msg["emitter_entity_ids"]),
+    )
+    await manager.async_create_device(device)
+
+    copied = 0
+    skipped = 0
+    for i, (sig, ident) in enumerate(
+        zip(wig.signals, identities, strict=True), start=1
+    ):
+        if ident is None:
+            skipped += 1
+            continue
+        capture = CaptureResult(
+            protocol="PRONTO",
+            code=ident.pronto,
+            raw_timings=list(ident.raw_timings),
+            frequency=ident.frequency,
+        )
+        name = sig.alias.strip() or f"Signal {i}"
+        command = capture.to_command(name, CommandCategory.CUSTOM)
+        command.byte_hash = ident.byte_hash
+        command.decoded_protocol = ident.decoded_protocol
+        command.decoded_address = ident.decoded_address
+        command.decoded_command = ident.decoded_command
+        command.decoded_fingerprint = ident.decoded_fingerprint
+        command.decoded_extras = (
+            dict(ident.decoded_extras) if ident.decoded_extras else None
+        )
+        command.send_count = max(1, sig.send_count or 1)
+        device.add_command(command)
+        manager._auto_map_command(device, command)
+        copied += 1
+
+    await manager.async_update_device(device)
+    result = _device_full(device)
+    result["copied"] = copied
+    result["skipped"] = skipped
     connection.send_result(msg["id"], result)

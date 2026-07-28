@@ -548,5 +548,9 @@
     "wigs.editor.kind_hint": "Che cos'è l'apparecchio. Aiuta gli altri a trovarlo quando le parrucche vengono condivise nel Wig Shop.",
     "fitting.kind": "Che tipo di apparecchio è?",
     "fitting.kind_placeholder": "tv, soundbar, candles...",
-    "fitting.kind_hint": "Etichetta l'apparecchio così altri possono trovarlo quando le parrucche vengono condivise nel Wig Shop."
+    "fitting.kind_hint": "Etichetta l'apparecchio così altri possono trovarlo quando le parrucche vengono condivise nel Wig Shop.",
+    "wigs.adopt": "Adotta dispositivo",
+    "wigs.adopted": "{name} ora è un dispositivo HAIR",
+    "wigs.linked.one": "{count} dispositivo",
+    "wigs.linked.other": "{count} dispositivi"
 }

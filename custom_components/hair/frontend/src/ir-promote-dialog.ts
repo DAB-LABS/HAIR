@@ -32,6 +32,11 @@ export class IrPromoteDialog extends LitElement {
     /** Pre-filled device name from the unknown device label. */
     @property() public suggestedName = "";
     @property() public sourceUnknownId = "";
+    /** Adopt Device (v0.8.1): when set, create FROM THIS WIG via the
+     * direct-copy path instead of a catalog promote. */
+    @property() public wigFilename = "";
+    /** Seed the type dropdown (from the wig's kind); user can change. */
+    @property() public suggestedType: DeviceTypeId | "" = "";
 
     @state() private _name = "";
     @state() private _type: DeviceTypeId = "other";
@@ -43,6 +48,9 @@ export class IrPromoteDialog extends LitElement {
         super.connectedCallback();
         if (this.suggestedName && !this._name) {
             this._name = this.suggestedName;
+        }
+        if (this.suggestedType) {
+            this._type = this.suggestedType;
         }
     }
 
@@ -67,12 +75,21 @@ export class IrPromoteDialog extends LitElement {
         this._error = null;
 
         try {
-            await this.api.createDevice({
-                name,
-                device_type: this._type,
-                emitter_entity_ids: this._emitterIds,
-                promoted_from_unknown_id: this.sourceUnknownId || null,
-            });
+            if (this.wigFilename) {
+                await this.api.wigMakeDevice(
+                    this.wigFilename,
+                    name,
+                    this._type,
+                    this._emitterIds,
+                );
+            } else {
+                await this.api.createDevice({
+                    name,
+                    device_type: this._type,
+                    emitter_entity_ids: this._emitterIds,
+                    promoted_from_unknown_id: this.sourceUnknownId || null,
+                });
+            }
             this.dispatchEvent(
                 new CustomEvent("device-created", {
                     bubbles: true,

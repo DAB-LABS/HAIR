@@ -572,5 +572,11 @@
     "wigs.editor.kind_hint": "Czym jest urządzenie. Pomaga innym je znaleźć, gdy peruki trafią do Wig Shopu.",
     "fitting.kind": "Jakie to urządzenie?",
     "fitting.kind_placeholder": "tv, soundbar, candles...",
-    "fitting.kind_hint": "Etykietuje urządzenie, aby inni mogli je znaleźć, gdy peruki trafią do Wig Shopu."
+    "fitting.kind_hint": "Etykietuje urządzenie, aby inni mogli je znaleźć, gdy peruki trafią do Wig Shopu.",
+    "wigs.adopt": "Adoptuj urządzenie",
+    "wigs.adopted": "{name} jest teraz urządzeniem HAIR",
+    "wigs.linked.one": "{count} urządzenie",
+    "wigs.linked.few": "{count} urządzenia",
+    "wigs.linked.many": "{count} urządzeń",
+    "wigs.linked.other": "{count} urządzeń"
 }

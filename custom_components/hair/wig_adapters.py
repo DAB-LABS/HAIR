@@ -148,8 +148,16 @@ def broadlink_packet_to_pronto(packet: bytes) -> str | None:
 
 
 def _broadlink_b64_to_pronto(code: str) -> str | None:
+    # Padding salvage (SmartIR census, 2026-07-2x): about 1.7% of the
+    # SmartIR corpus's Base64 cells are valid except for missing
+    # trailing "=" padding, which some encoder once stripped. Appending
+    # the padding the length demands rescues them; anything still
+    # malformed fails exactly as before.
+    cleaned = code.strip()
+    if len(cleaned) % 4:
+        cleaned += "=" * (-len(cleaned) % 4)
     try:
-        packet = base64.b64decode(code.strip(), validate=False)
+        packet = base64.b64decode(cleaned, validate=False)
     except (binascii.Error, ValueError):
         return None
     return broadlink_packet_to_pronto(packet)

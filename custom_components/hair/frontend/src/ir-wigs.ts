@@ -36,6 +36,7 @@ import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import "./ir-fitting-dialog.js";
+import "./ir-promote-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
@@ -111,6 +112,10 @@ export class IrWigs extends LitElement {
     // straight into the session; reopening resumes (marks live in the
     // wig file, owner rulings 2026-07-26).
     @state() private _fittingWig: WigInfo | null = null;
+    // Adopt Device (v0.8.1): the wig the promote dialog is open for.
+    @state() private _adoptWig: WigInfo | null = null;
+    @state() private _linkedPopoverId: string | null = null;
+    private _linkedPopoverPos = { top: 0, left: 0 };
     @state() private _peekId: string | null = null;
     private _peekPos = { top: 0, left: 0 };
     private _peekNames: string[] = [];
@@ -513,6 +518,75 @@ export class IrWigs extends LitElement {
         this._editError = null;
     }
 
+    /** Seed the promote dialog's type from the wig's kind (ruled
+     * 2026-07-28): the deferred type-inference, nearly free now that
+     * kind exists. Unknown kinds fall back to empty (dialog default). */
+    private _typeFromKind(kind: string | null | undefined): string {
+        const map: Record<string, string> = {
+            fan: "fan",
+            ac: "ac",
+            heater: "ac",
+            light: "light",
+            candles: "light",
+            tv: "media_player",
+            soundbar: "media_player",
+            receiver: "media_player",
+            settopbox: "media_player",
+            projector: "media_player",
+            blinds: "screen",
+            screen: "screen",
+        };
+        return map[kind ?? ""] ?? "";
+    }
+
+    private _toggleLinkedPopover(rowId: string, e: Event): void {
+        e.stopPropagation();
+        if (this._linkedPopoverId === rowId) {
+            this._linkedPopoverId = null;
+            return;
+        }
+        const rect = (
+            e.currentTarget as HTMLElement
+        ).getBoundingClientRect();
+        this._linkedPopoverPos = { top: rect.bottom + 6, left: rect.left };
+        this._linkedPopoverId = rowId;
+    }
+
+    private _renderLinkedWigPopover() {
+        if (!this._linkedPopoverId) return "";
+        const wig = this._wigs.find(
+            (w) => `wig:${w.filename}` === this._linkedPopoverId,
+        );
+        const linked = wig?.linked_devices ?? [];
+        if (!wig || linked.length === 0) return "";
+        return html`<div
+                class="linked-scrim"
+                @click=${() => (this._linkedPopoverId = null)}
+            ></div>
+            <div
+                class="linked-popover"
+                style="top: ${this._linkedPopoverPos.top}px; left: ${this
+                    ._linkedPopoverPos.left}px;"
+            >
+                ${linked.map(
+                    (entry) => html`<button
+                        class="linked-entry"
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._linkedPopoverId = null;
+                            this.dispatchEvent(
+                                new CustomEvent("navigate-device", {
+                                    detail: entry.device_id,
+                                    bubbles: true,
+                                    composed: true,
+                                }),
+                            );
+                        }}
+                    >${entry.device_name}</button>`,
+                )}
+            </div>`;
+    }
+
     /** Curated kinds plus every kind already used in this closet, so
      * a custom kind typed once becomes a suggestion from then on
      * (owner ruling 2026-07-27: dropdown plus custom, self-growing,
@@ -768,6 +842,20 @@ export class IrWigs extends LitElement {
             )}
             ${this._renderPeek()}
             ${this._renderEditor()}
+            ${this._adoptWig
+                ? html`<ir-promote-dialog
+                      .api=${this.api}
+                      .hass=${this.hass}
+                      .suggestedName=${this._adoptWig.name}
+                      .suggestedType=${this._typeFromKind(
+                          this._adoptWig.kind,
+                      )}
+                      .wigFilename=${this._adoptWig.filename}
+                      @device-created=${this._onWigAdopted}
+                      @closed=${() => (this._adoptWig = null)}
+                  ></ir-promote-dialog>`
+                : ""}
+            ${this._renderLinkedWigPopover()}
             ${this._fittingWig
                 ? html`<ir-fitting-dialog
                       .api=${this.api}
@@ -778,6 +866,13 @@ export class IrWigs extends LitElement {
                   ></ir-fitting-dialog>`
                 : ""}
         `;
+    }
+
+    private async _onWigAdopted(): Promise<void> {
+        const name = this._adoptWig?.name ?? "";
+        this._adoptWig = null;
+        this._flash(t("wigs.adopted", { name }), "ok");
+        await this._refresh();
     }
 
     private async _onFittingRecorded(e: CustomEvent): Promise<void> {
@@ -888,6 +983,17 @@ export class IrWigs extends LitElement {
                           >&check;</span
                       >`
                     : ""}
+                ${row.wig?.linked_devices?.length
+                    ? html`<span
+                          class="linked-chip"
+                          @click=${(e: Event) =>
+                              this._toggleLinkedPopover(row.id, e)}
+                          >${tp(
+                              "wigs.linked",
+                              row.wig.linked_devices.length,
+                          )}</span
+                      >`
+                    : ""}
                 <span class="row-actions">
                     <span class="glyph-slot">
                         ${row.wig
@@ -931,6 +1037,15 @@ export class IrWigs extends LitElement {
                     >
                         ${t("wigs.clip_it")}
                     </button>
+                    ${row.wig
+                        ? html`<button
+                              class="action-btn adopt-btn"
+                              @click=${() =>
+                                  (this._adoptWig = row.wig!)}
+                          >
+                              ${t("wigs.adopt")}
+                          </button>`
+                        : ""}
                     ${row.wig
                         ? html`<button
                               class="action-btn delete-btn row-del"
@@ -1577,6 +1692,61 @@ export class IrWigs extends LitElement {
         }
         .fchip.on .chip-tick {
             color: #fff;
+        }
+        /* ADOPT DEVICE (v0.8.1): the closet-native make-it-live action,
+           in the closet's own oxblood. */
+        .action-btn.adopt-btn {
+            color: #b06a6a;
+            border-color: rgba(142, 59, 59, 0.4);
+            margin-left: 8px;
+        }
+        .action-btn.adopt-btn:hover:not(:disabled) {
+            background: rgba(142, 59, 59, 0.1);
+        }
+        /* Linked-device chip: same anatomy as the Sniffer's, chips
+           left / actions right (locked rule). */
+        .linked-chip {
+            font-size: 10.5px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 10px;
+            cursor: pointer;
+            white-space: nowrap;
+            flex: none;
+            color: #7fa87f;
+            background: rgba(76, 175, 80, 0.1);
+            border: 1px solid rgba(76, 175, 80, 0.25);
+        }
+        .linked-chip:hover {
+            filter: brightness(1.2);
+        }
+        .linked-popover {
+            position: fixed;
+            z-index: 40;
+            background: var(--card-background-color);
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+            padding: 4px;
+            display: flex;
+            flex-direction: column;
+            min-width: 160px;
+        }
+        .linked-entry {
+            background: none;
+            border: none;
+            color: var(--primary-text-color);
+            font-size: 12.5px;
+            font-family: inherit;
+            text-align: left;
+            padding: 7px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .linked-entry:hover {
+            background: var(--secondary-background-color);
         }
         /* CLIP is the shared action-chip anatomy (same radius, padding,
            and uppercase as every other button) in the Clipper's copper,
