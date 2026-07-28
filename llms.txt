@@ -1,7 +1,7 @@
 # HAIR
 
-> HAIR (Home Assistant Infrared Registry) is a Home Assistant custom integration
-> (HACS-compatible) that provides a full admin UI for infrared device management.
+> HAIR is a Home Assistant custom integration (HACS-compatible) that provides a
+> full admin UI for infrared device management.
 > Built on top of HA's native infrared platform (introduced in HA 2026.4), HAIR
 > handles capturing, fingerprinting, deduplicating, organizing, and transmitting
 > IR commands through a single sidebar panel at /hair. No YAML, no manual entity
@@ -80,30 +80,99 @@ Key components:
   buttons keep flashing in the Sniffer and deleted rows resurrect on re-hearing;
   dismiss is the only hiding tool.
 - Closet: portable code sets, called wigs (the fifth panel tab, before
-  Mirror, v0.7.0). A wig is one JSON file (format "hair-wig/1", suffix
+  Mirror, v0.7.0). A wig is one JSON file (format "hair-wig/1", or
+  "hair-wig/2" when it carries a climate state matrix; suffix
   .wig.json, documented in docs/wig-format.md): name, optional
-  brand/model/notes/origin, and a non-empty signals list of alias + raw Pronto
+  brand/model/notes/origin, and a signals list of alias + raw Pronto
   (+ optional send_count). Raw Pronto is the whole payload by design -- no
   decoded fields ship in the file, so importing decodes fresh against the
-  installed decoders and a wig can never carry a stale identity. Files live in
-  /config/hair/wigs/ (created at setup, outside the HACS-managed tree, scanned
-  on demand); invalid files surface on the tab with field-level reasons
+  installed decoders and a wig can never carry a stale identity. Optional
+  kind (one lowercase word: "candles", "soundbar") and product identifiers
+  (FCC ID, UPC, ASIN, verified-OEM anchors, single values or lists) keep
+  off-brand hardware findable; closet search matches both (v0.8.0/0.8.1).
+  Files live in /config/hair/wigs/ (created at setup, outside the
+  HACS-managed tree, scanned on demand); invalid files surface on the tab
+  with field-level reasons
   instead of disappearing. The tab shelves library codebooks and local wigs
   together by brand; CLIP materializes a wig into a Clipper remote through the
   same import path as the code-library picker, and re-clipping collapses onto
-  the existing remote. Add to Closet serializes any Sniffer/Clipper/Plucker
-  remote or HAIR device into the closet with an origin stamp (captured /
-  clipped / plucked / device / converted:*) that the wig editor renders as a
-  plain-English provenance sentence. The drop bar is also an import funnel:
-  SmartIR JSON (all four encodings; climate files refused with a reason),
-  Flipper Zero .ir (raw + parsed via library encoders), LIRC lircd.conf (raw
-  codes + SPACE_ENC reconstruction), and Girr (IrScrutinizer's XML; ccf
-  Pronto verbatim, raw synthesized, parameters-only skipped) all convert INTO
+  the existing remote. Built-in library rows (rendered from the
+  infrared-protocols codes package) carry FIT, ADOPT DEVICE, and download
+  alongside CLIP (v0.8.1); fitting one first snapshots it into the closet as
+  a wig (origin "library", deterministic render, repeat fittings land in the
+  same file by content hash). Add to Closet serializes any Sniffer, Clipper,
+  or Plucker remote or HAIR device into the closet with an origin stamp
+  (captured / clipped / plucked / device / library / converted:*) that the
+  wig editor renders as a plain-English provenance sentence. The drop bar is
+  also an import funnel: SmartIR JSON (all four encodings; climate files
+  convert to state-matrix wigs, see below), Flipper Zero .ir (raw + parsed
+  via library encoders), LIRC lircd.conf (raw codes + SPACE_ENC
+  reconstruction), and Girr (IrScrutinizer's XML; ccf Pronto verbatim, raw
+  synthesized, parameters-only skipped; any of the four spec root elements
+  accepted since v0.7.1) all convert INTO
   wigs on drop, with skip reasons appended to the wig's notes -- one funnel,
-  one-way doors. Broadlink .storage scan and a CSV wizard follow in 0.7.x.
-  The Add Remote picker intermixes local wigs into the library alphabet. HAIR
+  one-way doors. A Broadlink .storage scan and a CSV wizard remain planned.
+  The Add picker intermixes local wigs into the library alphabet. HAIR
   ships zero codes: wigs are the landing spot for codes that cannot or have
   not yet gone upstream.
+- Fittings (v0.8.0): a wig can be proven on real hardware and the proof
+  travels with the file. FIT on a closet wig (or library row) opens a
+  session: pick an emitter, send each signal, mark WORKED or DID NOT. Marks
+  persist into the wig file as they are made; FIT again resumes with
+  untested signals first. Complete fittings ride inside the wig on download
+  and share; partial or in-progress fittings stay local, so a shared wig
+  never carries half a claim. The closet shows a green check on fitted wigs,
+  yellow while partial, with fitted / not-fitted filter chips, and each wig
+  keeps a ledger of every fitting. Recorded fittings are signed with an
+  ed25519 key generated on the install (via the cryptography package HA
+  already ships); the ledger distinguishes signed, unsigned, and
+  signature-mismatch states, unsigned fittings stay valid as self-reported
+  records, and no Home Assistant identifier, raw or hashed, is ever written
+  into a wig (fitting_signing.py). Fittings bind to a content hash of what
+  they attest (wig_fitting.py): the signals hash for signal wigs, the cells
+  hash for matrix wigs, so a rename survives but a code change invalidates
+  the fitting. Fitting sends carry their own provenance chip in the Mirror.
+- Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
+  from wherever you meet it. Closet wigs, library rows, Sniffer remotes,
+  Clipper remotes, and Plucker blasters all carry one ADOPT DEVICE button
+  (it replaced the former Make HAIR Device / Promote action). A numbered dot
+  shows how many HAIR devices already run those codes, with navigation to
+  each. Adopting copies every signal as a named command with protocol
+  identities stamped fresh and recognizable names auto-mapped to entity
+  actions; the device type dropdown is seeded from the wig's kind. Adopting
+  a wig-stamped Clipper remote flat passes a signpost first that names the
+  source wig and offers adopting the wig instead (v0.8.8).
+- Climate state matrices (v0.8.8, "Cold Cuts"): AC remotes do not send
+  buttons, they send complete states, so HAIR models stateful climate
+  devices as a matrix -- one complete Pronto code per mode / fan / swing /
+  temperature combination. Dropping a SmartIR climate JSON on the closet
+  converts it into a wig carrying the structured matrix (depth detected per
+  branch; mode/fan/swing words kept verbatim; flat extras like sleep timers
+  ride alongside as ordinary buttons). Matrix wigs write hair-wig/2 with an
+  optional climate.unit field ("C" or "F", default "C", the SmartIR corpus
+  convention); plain wigs stay hair-wig/1 so older installs keep reading
+  them. ADOPT DEVICE on a matrix wig creates a real climate entity: every
+  user action resolves to exactly one cell (wig_climate.resolve_cell,
+  nearest-temp snap, honest None on sparse branches -- HAIR never invents a
+  cell) and transmits that cell's whole-state code. Swing and temperature
+  controls appear only when the matrix carries those dimensions. The entity
+  declares the file's native unit and HA converts the thermostat display;
+  panel displays convert dynamically, while names minted from a cell (matrix
+  clip, saved state commands) freeze in the install's unit at that moment.
+  The matrix is stored as its own file next to the device
+  (hair/matrices/<device_id>.matrix.json, matrix_store.py) so renaming a
+  device never rewrites megabytes of Pronto. Fitting a matrix wig runs a
+  dimension check (wig_climate.py): a deterministic 12-to-20-send checklist
+  covering every mode, every fan speed, every swing position, and the
+  temperature extremes -- each dimension proven along its own axis stands in
+  for the lattice; it does not claim every cell was fired. The device detail
+  page grows a state matrix card (browse the lattice, send a state, save it
+  as a named command); CLIP on a matrix wig is gated behind a confirm that
+  counts what it will mint. Stated limitations: Xiaomi-sourced Raw codes are
+  refused (proprietary compression, not timing data), roughly half a percent
+  of corpus cells skip with the reason written into the wig's notes, sparse
+  matrices are honored, and files are treated as Celsius unless they say
+  otherwise -- no unit guessing.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a
@@ -173,6 +242,11 @@ Key components:
   successful send. GE-AC registers identity-only (tx_rebuild=False): decoded
   identity matches/collapses signals, but TX always replays the captured
   raw, since re-encoding AC state risks transmitting wrong state.
+  A Dyson decoder followed (beta v0.7.1, stable v0.7.2): Dyson fans
+  rotate a mod-4 counter in every frame and reject a replayed value, so
+  HAIR keeps device+button as the signal's identity (rotating presses
+  collapse to one signal) and advances the counter on every send, from
+  device commands and catalog Test presses alike.
   Recovery passes (v0.6.1): registry specs can carry optional seek and
   salvage hooks, wired for NEC today. Seek trims junk ahead of the main
   leader (stray repeat markers, partial bursts) before the strict decode;
@@ -198,8 +272,8 @@ Signal fingerprinting details:
 - Covers all major consumer IR protocols: NEC, Samsung, JVC, LG, Sony, RC-5, RC-6.
 - Source-remote grouping uses carrier frequency and preamble fingerprinting, so the
   Sniffer can identify which remote sent a signal without decoding the protocol.
-- When a captured signal can be read as a known protocol (NEC plus the seven
-  v0.6.0 registry protocols), HAIR also
+- When a captured signal can be read as a known protocol (NEC plus the
+  registry protocols above, Dyson included), HAIR also
   stores the decoded identity alongside the raw timings as a cache layer. Raw
   timings stay the source of truth; the decoded form gives stronger matching and
   lets transmit re-encode clean timings instead of replaying captured ones.
@@ -229,11 +303,17 @@ Supported capture providers (auto-discovered):
 
 Supported transmit hardware: any IR emitter exposed to HA's infrared platform,
 including ESPHome IR LEDs, Tuya Local IR blasters, Broadlink RM series, and
-SMLIGHT SLZB devices.
+SMLIGHT SLZB devices. One unavailable emitter no longer fails a multi-emitter
+send (v0.8.0): sends succeed when at least one emitter fires, known-down
+emitters are skipped, and only an all-emitters failure errors; a dead emitter
+raises one self-replacing persistent notification naming the blaster and the
+reason, dismissed automatically when it answers again (v0.8.1). RC-5 toggle
+and Dyson counter state advance when at least one send lands.
 
 Supported device types and resulting HA entities:
 - Media Player -> media_player (power, volume, mute, source, channels, navigation, transport)
-- AC -> climate (HVAC modes, temperature presets, fan modes)
+- AC -> climate (two modes: preset-based from mapped commands, or
+  matrix-based full state control when adopted from a climate matrix wig)
 - Fan -> fan (power, speed stepping or direct speed levels 1-10, oscillate)
 - Light -> light (on/off, brightness stepping)
 - Switch -> switch (on/off)
@@ -244,7 +324,8 @@ Localization (v0.6.8): the panel and the config flow ship in ten languages
 (en, es, fr, ja, de, pl, pt/pt-BR, nl, it, ru). The panel follows the HA user's
 profile language with English fallback. Non-English locales are
 programming-assistant drafts, marked "reviewer wanted" inside each
-dictionary file; native-speaker reviews
+dictionary file (the Spanish panel translation is native-speaker
+reviewed as of v0.8.0); native-speaker reviews
 and new languages are welcome as small PRs guarded by parity tests (see
 CONTRIBUTING.md, "Adding a language").
 
@@ -267,7 +348,8 @@ What HAIR is NOT:
 - Not a YAML-based integration -- all device profiles and command assignments are
   managed through the sidebar UI.
 - Not a built-in Home Assistant integration -- must be installed via HACS as a
-  custom repository.
+  custom repository. (HAIR passes Home Assistant's hassfest checks as of
+  v0.7.2, clearing the requirements for HACS default-store listing.)
 
 Receiver architecture:
 - On HA 2026.6+, HAIR uses the native InfraredReceiverEntity API
@@ -295,6 +377,9 @@ Receiver architecture:
   each release, and open for native-speaker ownership.
 - [info.md](https://github.com/DAB-LABS/HAIR/blob/main/info.md): HACS short-form
   summary shown in the HACS UI during install.
+- [The wig format](https://github.com/DAB-LABS/HAIR/blob/main/docs/wig-format.md):
+  the portable code-set file format (hair-wig/1 and hair-wig/2), including the
+  climate state-matrix block, fittings, and the canonical hash forms.
 - [Making your integration pluckable](https://github.com/DAB-LABS/HAIR/blob/main/docs/making-your-integration-pluckable.md):
   guide for HA integration authors on exposing the cross-emitter replay service the
   Plucker needs. The registry file format is documented in
