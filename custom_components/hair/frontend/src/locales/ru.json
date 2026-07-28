@@ -336,7 +336,6 @@
     "sniffer.clear_all_confirm_title": "Очистить все сигналы",
     "sniffer.clear_all_confirm_msg": "Убрать все неизвестные сигналы и устройства? Это нельзя отменить.",
     "sniffer.hair_device": "Устройство HAIR",
-    "sniffer.promote": "Создать устройство HAIR",
     "sniffer.dismissed": "скрыт",
     "sniffer.restore": "Восстановить",
     "sniffer.dismiss": "Скрыть",

@@ -262,11 +262,31 @@ export class IrWigs extends LitElement {
         }
         const query = this._search.trim().toLowerCase();
         if (query && !brand.label.toLowerCase().includes(query)) {
-            rows = rows.filter((r) =>
-                r.label.toLowerCase().includes(query),
-            );
+            rows = rows.filter((r) => this._rowMatches(r, query));
         }
         return rows;
+    }
+
+    /** Search coverage beyond the label (v0.8.1, paying off the
+     * v0.8.0 identifiers block): the kind and every identifier value,
+     * so typing a UPC straight off the box (or "candles") finds the
+     * wig. Library rows have neither and keep the label-only match. */
+    private _rowMatches(r: ClosetRow, query: string): boolean {
+        if (r.label.toLowerCase().includes(query)) return true;
+        const wig = r.wig;
+        if (!wig) return false;
+        if (wig.kind?.toLowerCase().includes(query)) return true;
+        for (const value of Object.values(wig.identifiers ?? {})) {
+            const list = Array.isArray(value) ? value : [value];
+            if (
+                list.some((v) =>
+                    String(v).toLowerCase().includes(query),
+                )
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private _isOpen(brand: BrandRow, visible: ClosetRow[]): boolean {

@@ -159,6 +159,10 @@ _stub("homeassistant.components.infrared", {
     "InfraredEmitterEntity": _InfraredEmitterEntity,
     "InfraredEntity": _InfraredEmitterEntity,
 })
+_stub("homeassistant.components.persistent_notification", {
+    "async_create": MagicMock(),
+    "async_dismiss": MagicMock(),
+})
 _stub("homeassistant.components.websocket_api", {
     "require_admin": lambda fn: fn,
     "websocket_command": lambda schema: lambda fn: fn,

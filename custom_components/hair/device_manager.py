@@ -462,6 +462,7 @@ class DeviceManager:
                 continue
             attempt_ids.append(emitter_id)
         if not attempt_ids:
+            self._notify_emitter_degraded(device, skipped)
             raise RuntimeError(
                 f"All emitters for {device.name} are unavailable"
             )
@@ -525,17 +526,31 @@ class DeviceManager:
                 device.name, command.name,
                 {**skipped, **failures},
             )
+            self._notify_emitter_degraded(
+                device, {**skipped, **failures}
+            )
             raise RuntimeError(
                 f"All emitters for {device.name} are unavailable"
             )
         if failures or skipped:
             # Partial success is SILENT success (invisible resilience
-            # is the point of redundancy); the log keeps the receipt.
+            # is the point of redundancy); the log keeps the receipt,
+            # and the persistent notification below is the one visible
+            # trace (GH #65 bench, queued 2026-07-27: "the user should
+            # know one of their transmitters is out").
             _LOGGER.warning(
                 "Send %s / %s went out via %s; skipped/failed: %s",
                 device.name, command.name, sorted(landed),
                 {**skipped, **failures},
             )
+            self._notify_emitter_degraded(
+                device, {**skipped, **failures}
+            )
+        # Self-healing: an emitter that answered clears its own
+        # notification, so a Broadlink coming back from a power blip
+        # tidies up without the user hunting for a dismiss button.
+        for emitter_id in landed:
+            self._dismiss_emitter_notification(emitter_id)
 
         # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
         # one send-command call is one logical press, so advance once
@@ -565,6 +580,59 @@ class DeviceManager:
             if advanced:
                 self._store.update_device(device)
                 await self._store.async_save()
+
+    # --- Emitter-degrade notifications (GH #65 rider, v0.8.1) ---
+    #
+    # The resilience fix made partial failure a silent success, which is
+    # right for the send but wrong for the human: a dead blaster should
+    # not stay invisible until the day its twin dies too. One persistent
+    # notification per unresponsive emitter (stable id, so repeats
+    # replace instead of stack), self-dismissed the next time that
+    # emitter answers. Notifications must never break a send, so every
+    # path here swallows its own errors.
+
+    @staticmethod
+    def _emitter_notification_id(emitter_id: str) -> str:
+        return f"hair_emitter_down_{emitter_id}"
+
+    def _notify_emitter_degraded(
+        self, device: IRDevice, problems: dict[str, str]
+    ) -> None:
+        try:
+            from homeassistant.components import persistent_notification
+
+            for emitter_id, reason in problems.items():
+                state = self._hass.states.get(emitter_id)
+                attrs = getattr(state, "attributes", None) or {}
+                name = attrs.get("friendly_name") or emitter_id
+                persistent_notification.async_create(
+                    self._hass,
+                    (
+                        f"{name} did not answer while sending to "
+                        f"{device.name} ({reason}). Check its power and "
+                        "network. This notice clears itself the next "
+                        "time the emitter answers."
+                    ),
+                    title="HAIR: IR emitter not responding",
+                    notification_id=self._emitter_notification_id(
+                        emitter_id
+                    ),
+                )
+        except Exception:  # pragma: no cover - never break a send
+            _LOGGER.debug(
+                "Could not raise emitter-degrade notification",
+                exc_info=True,
+            )
+
+    def _dismiss_emitter_notification(self, emitter_id: str) -> None:
+        try:
+            from homeassistant.components import persistent_notification
+
+            persistent_notification.async_dismiss(
+                self._hass, self._emitter_notification_id(emitter_id)
+            )
+        except Exception:  # pragma: no cover - never break a send
+            pass
 
     async def async_set_command_tx_force_raw(
         self, device_id: str, command_id: str, tx_force_raw: bool
