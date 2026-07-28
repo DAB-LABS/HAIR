@@ -161,9 +161,27 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
     }
 
 
-def _device_full(device: IRDevice) -> dict[str, Any]:
+async def _device_full(
+    hass: HomeAssistant, device: IRDevice
+) -> dict[str, Any]:
     full = device.to_dict()
     full["command_count"] = len(device.commands)
+    # The matrix summary rides the full payload (owner ruling
+    # 2026-07-28) so the device page renders its state-matrix card
+    # without a second round trip. Loading goes through the manager's
+    # cache exactly like the climate entity's own load; any miss
+    # (no manager, no file, unreadable file) is an honest null, the
+    # same shape non-matrix devices carry.
+    full["matrix"] = None
+    if device.climate_matrix:
+        data = _get_first_entry_data(hass)
+        manager = data.get("device_manager") if data else None
+        if manager is not None:
+            matrix = await manager.async_get_matrix(device.id)
+            if matrix is not None:
+                from .wig_climate import matrix_summary
+
+                full["matrix"] = matrix_summary(matrix)
     return full
 
 
@@ -208,7 +226,7 @@ async def ws_get_device(
     if device is None:
         connection.send_error(msg["id"], "not_found", "Device not found")
         return
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -278,7 +296,7 @@ async def ws_create_device(
             await manager.async_update_device(device)
         await monitor.mark_promoted(source_unknown, device.id)
 
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -319,7 +337,7 @@ async def ws_update_device(
         device.device_type = DeviceType(msg["device_type"])
 
     await manager.async_update_device(device)
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -499,7 +517,7 @@ async def ws_duplicate_device(
         if not copied:
             clone.climate_matrix = False
     await manager.async_create_device(clone)
-    connection.send_result(msg["id"], _device_full(clone))
+    connection.send_result(msg["id"], await _device_full(hass, clone))
 
 
 @websocket_api.require_admin
@@ -537,7 +555,7 @@ async def ws_reorder_commands(
         return
 
     await manager.async_update_device(device)
-    connection.send_result(msg["id"], _device_full(device))
+    connection.send_result(msg["id"], await _device_full(hass, device))
 
 
 @websocket_api.require_admin
@@ -2420,6 +2438,7 @@ async def ws_wigs_list(
 
     def _scan() -> dict[str, Any]:
         from .code_library import get_tree, library_available
+        from .wig_climate import matrix_summary
         from .wig_fitting import fitting_summary
         from .wig_store import scan_wigs
 
@@ -2452,6 +2471,14 @@ async def ws_wigs_list(
                     ],
                     "kind": loaded.wig.kind,
                     "identifiers": loaded.wig.identifiers,
+                    # The closet's matrix summary (owner ruling
+                    # 2026-07-28): state count, vocabularies, and temp
+                    # bounds so matrix rows render their "N states"
+                    # chip and peek summary without loading cells.
+                    "matrix": (
+                        matrix_summary(loaded.wig.climate)
+                        if loaded.wig.climate is not None else None
+                    ),
                     "fitting": fitting_summary(loaded.wig, username),
                     "linked_devices": _wig_linked_devices(
                         loaded.wig, index
@@ -3328,7 +3355,7 @@ async def ws_wig_make_device(
         copied += 1
 
     await manager.async_update_device(device)
-    result = _device_full(device)
+    result = await _device_full(hass, device)
     result["copied"] = copied
     result["skipped"] = skipped
     result["matrix_cells"] = len(matrix.cells) if matrix is not None else 0

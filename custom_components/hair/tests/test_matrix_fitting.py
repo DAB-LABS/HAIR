@@ -410,6 +410,11 @@ def _adopt_manager():
     manager.async_create_device = AsyncMock()
     manager.async_update_device = AsyncMock()
     manager._auto_map_command = MagicMock()
+    # _device_full loads the matrix summary through the manager since
+    # the device page grew its state-matrix card (owner ruling
+    # 2026-07-28); a bare MagicMock is not awaitable, so the stub
+    # answers like a manager whose cache and file both miss.
+    manager.async_get_matrix = AsyncMock(return_value=None)
     return manager
 
 

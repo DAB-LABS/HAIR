@@ -95,6 +95,19 @@ export interface CodeBrand {
     codebooks: CodeCodebook[];
 }
 
+// Cold Cuts (v0.8.8): the climate-matrix summary block. Served on
+// wigs/list entries and full device payloads (owner ruling 2026-07-28)
+// so matrix rows and the device page render counts, vocabularies, and
+// temp bounds without ever loading cells.
+export interface MatrixSummary {
+    cells: number;
+    modes: string[];
+    fan_modes: string[];
+    swing_modes: string[];
+    min_temp: number;
+    max_temp: number;
+}
+
 // Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
 export interface WigInfo {
     filename: string;
@@ -119,6 +132,10 @@ export interface WigInfo {
     // Adopt Device (v0.8.1): HAIR devices already carrying this wig's
     // codes, by tiered identity match.
     linked_devices?: { device_id: string; device_name: string }[];
+    // Cold Cuts (v0.8.8): non-null for matrix wigs. Drives the "N
+    // states" chip, the peek summary, CLIP suppression, and the
+    // fit-tick's cold blue glow.
+    matrix?: MatrixSummary | null;
 }
 
 // Perfect Fit: the fitting layer.
@@ -152,11 +169,33 @@ export interface FittingLedgerRow {
     key_fingerprint: string | null;
 }
 
+// Cold Cuts (v0.8.8): one fitting-session row. Signal wigs carry the
+// minimal shape (key = alias, section null); matrix wigs add the
+// dimension-check display facts so the dialog renders the sectioned
+// CC1 layout without re-deriving the checklist client-side.
+export interface FittingRow {
+    key: string;
+    section: "start" | "modes" | "fan" | "swing" | "temp" | "wrap" | null;
+    mode?: string | null;
+    fan?: string | null;
+    swing?: string | null;
+    temp?: number | null;
+    temp_less?: boolean;
+    temp_role?: "min" | "max" | null;
+    confirmed: boolean;
+    failed: boolean;
+}
+
 export interface FittingState {
     filename: string;
     username: string;
     kind: string | null;
+    // True when this wig fits through the dimension check (Cold Cuts).
+    matrix: boolean;
+    // Row keys in session order; for signal wigs this is the alias
+    // list, byte-identical to the pre-0.8.8 payload.
     signals: string[];
+    rows: FittingRow[];
     draft: {
         confirmed: string[];
         failed: string[];
@@ -203,6 +242,10 @@ export interface IRDevice {
     created_at: string;
     updated_at: string;
     command_count: number;
+    // Cold Cuts (v0.8.8): the state-matrix summary on full device
+    // payloads, null for devices without a matrix. Feeds the device
+    // page's compact matrix card.
+    matrix?: MatrixSummary | null;
 }
 
 export interface DeviceSummary {

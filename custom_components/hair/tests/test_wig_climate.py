@@ -24,6 +24,7 @@ from custom_components.hair.wig_climate import (
     SECTION_TEMP,
     SECTION_WRAP,
     dimension_checklist,
+    matrix_summary,
     resolve_cell,
 )
 from custom_components.hair.wig_format import (
@@ -195,6 +196,28 @@ class TestChecklist:
     def test_no_duplicate_keys(self):
         keys = [r.key for r in dimension_checklist(self._matrix())]
         assert len(keys) == len(set(keys))
+
+
+class TestMatrixSummary:
+    """The closet/device summary block (owner ruling 2026-07-28)."""
+
+    def _matrix(self):
+        return convert(_smartir_file()).wigs[0].climate
+
+    def test_shape_and_counts(self):
+        summary = matrix_summary(self._matrix())
+        matrix = self._matrix()
+        assert summary["cells"] == len(matrix.cells)
+        assert summary["min_temp"] == 16.0
+        assert summary["max_temp"] == 30.0
+
+    def test_describes_observed_not_declared(self):
+        # "ion" is declared but its subtree skipped at import
+        # (unmappable mode); the summary must not advertise it.
+        summary = matrix_summary(self._matrix())
+        assert summary["modes"] == ["cool", "dry", "heat"]
+        assert summary["fan_modes"] == ["auto", "low", "high"]
+        assert summary["swing_modes"] == ["swing"]
 
 
 class TestResolveCell:

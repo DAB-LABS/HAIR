@@ -44,6 +44,7 @@ import "./ir-promote-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
+    MatrixSummary,
     WigInfo,
     WigInvalid,
     WigsList,
@@ -125,6 +126,9 @@ export class IrWigs extends LitElement {
     @state() private _peekId: string | null = null;
     private _peekPos = { top: 0, left: 0 };
     private _peekNames: string[] = [];
+    // Matrix rows peek a SUMMARY, not 300 cell names (Cold Cuts,
+    // owner ruling 2026-07-28): vocabularies and the temp range.
+    private _peekMatrix: MatrixSummary | null = null;
 
     // Editor dialog state.
     @state() private _editing: WigInfo | null = null;
@@ -322,11 +326,49 @@ export class IrWigs extends LitElement {
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         this._peekPos = { top: rect.bottom + 6, left: rect.left };
         this._peekNames = row.signalNames;
+        this._peekMatrix = row.wig?.matrix ?? null;
         this._peekId = row.id;
     }
 
     private _renderPeek() {
-        if (!this._peekId || this._peekNames.length === 0) return "";
+        if (!this._peekId) return "";
+        if (!this._peekMatrix && this._peekNames.length === 0) return "";
+        // Matrix rows: the shop window shows the shape of the lattice
+        // (modes / fans / swings / temp range), never a cell list --
+        // 300 rows is not a popover (owner ruling 2026-07-28).
+        const body = this._peekMatrix
+            ? html`<div class="peek-entry">
+                      ${t("wigs.peek.modes", {
+                          list: this._peekMatrix.modes.join(", "),
+                      })}
+                  </div>
+                  ${this._peekMatrix.fan_modes.length
+                      ? html`<div class="peek-entry">
+                            ${t("wigs.peek.fans", {
+                                list: this._peekMatrix.fan_modes.join(
+                                    ", ",
+                                ),
+                            })}
+                        </div>`
+                      : ""}
+                  ${this._peekMatrix.swing_modes.length
+                      ? html`<div class="peek-entry">
+                            ${t("wigs.peek.swings", {
+                                list: this._peekMatrix.swing_modes.join(
+                                    ", ",
+                                ),
+                            })}
+                        </div>`
+                      : ""}
+                  <div class="peek-entry">
+                      ${t("wigs.peek.temp", {
+                          min: String(this._peekMatrix.min_temp),
+                          max: String(this._peekMatrix.max_temp),
+                      })}
+                  </div>`
+            : this._peekNames.map(
+                  (name) => html`<div class="peek-entry">${name}</div>`,
+              );
         return html`<div
                 class="linked-scrim"
                 @click=${() => (this._peekId = null)}
@@ -336,9 +378,7 @@ export class IrWigs extends LitElement {
                 style="top: ${this._peekPos.top}px; left: ${this._peekPos
                     .left}px;"
             >
-                ${this._peekNames.map(
-                    (name) => html`<div class="peek-entry">${name}</div>`,
-                )}
+                ${body}
             </div>`;
     }
 
@@ -968,6 +1008,7 @@ export class IrWigs extends LitElement {
                       .suggestedType=${this._typeFromKind(
                           this._adoptWig.kind,
                       )}
+                      .isMatrix=${!!this._adoptWig.matrix}
                       .wigFilename=${this._adoptWig.filename}
                       @device-created=${this._onWigAdopted}
                       @closed=${() => (this._adoptWig = null)}
@@ -1094,14 +1135,16 @@ export class IrWigs extends LitElement {
                     class="wig-count"
                     @click=${(e: Event) => this._togglePeek(row, e)}
                 >
-                    ${tp("wigs.signals", row.signalCount)}
+                    ${row.wig?.matrix
+                        ? tp("wigs.states", row.wig.matrix.cells)
+                        : tp("wigs.signals", row.signalCount)}
                 </button>
                 ${row.wig?.fitting?.state
                     ? html`<span
                           class="fit-tick ${row.wig.fitting.state} ${row
                               .wig.fitting.user_state === "perfect"
                               ? "yours"
-                              : ""}"
+                              : ""} ${row.wig.matrix ? "matrix" : ""}"
                           title=${row.wig.fitting.state === "perfect"
                               ? t("wigs.fit_tick.perfect")
                               : t("wigs.fit_tick.partial", {
@@ -1167,13 +1210,15 @@ export class IrWigs extends LitElement {
                     >
                         ${t("wigs.fit_it")}
                     </button>
-                    <button
-                        class="action-btn clip-btn"
-                        ?disabled=${this._busyId === row.id}
-                        @click=${() => this._tryOn(row)}
-                    >
-                        ${t("wigs.clip_it")}
-                    </button>
+                    ${row.wig?.matrix
+                        ? ""
+                        : html`<button
+                              class="action-btn clip-btn"
+                              ?disabled=${this._busyId === row.id}
+                              @click=${() => this._tryOn(row)}
+                          >
+                              ${t("wigs.clip_it")}
+                          </button>`}
                     ${row.wig
                         ? html`<button
                               class="action-btn delete-btn"
@@ -1817,6 +1862,19 @@ export class IrWigs extends LitElement {
         .fit-tick.partial {
             color: #ffb300;
         }
+        /* Matrix wigs' stateful signature (owner design 2026-07-28:
+           green check, blue glow, "like a cold glow"): the check keeps
+           its fitted color, the GLOW goes cold blue -- faint for any
+           fitting, brighter when YOUR fitting is perfect. Signal wigs
+           keep the green glow above untouched. */
+        .fit-tick.matrix {
+            text-shadow: 0 0 6px rgba(79, 195, 247, 0.55);
+        }
+        .fit-tick.matrix.perfect.yours {
+            text-shadow:
+                0 0 6px rgba(79, 195, 247, 0.95),
+                0 0 12px rgba(79, 195, 247, 0.5);
+        }
         .chip-tick {
             font-size: 11px;
             font-weight: 700;
@@ -1848,7 +1906,9 @@ export class IrWigs extends LitElement {
         /* CLIP is the shared action-chip anatomy (same radius, padding,
            and uppercase as every other button) in the Clipper's copper,
            because it does the same kind of thing as Add Remote. Delete
-           is the stock shared delete chip, untouched. */
+           is the stock shared delete chip, untouched. Matrix rows hide
+           CLIP entirely (owner ruling 2026-07-28: 300 states is not a
+           remote); ADOPT and FIT carry the whole flow there. */
         .action-btn.clip-btn {
             color: #b87333;
             border-color: rgba(184, 115, 51, 0.35);

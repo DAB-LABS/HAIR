@@ -41,6 +41,10 @@ export class IrPromoteDialog extends LitElement {
     @property() public codebookId = "";
     /** Seed the type dropdown (from the wig's kind); user can change. */
     @property() public suggestedType: DeviceTypeId | "" = "";
+    /** Cold Cuts (v0.8.8): adopting a matrix wig locks the type to
+     * Air Conditioner. The backend refuses anything else, so the lock
+     * is honest UI, not a suggestion (owner ruling 2026-07-28). */
+    @property({ type: Boolean }) public isMatrix = false;
 
     @state() private _name = "";
     @state() private _type: DeviceTypeId = "other";
@@ -55,6 +59,9 @@ export class IrPromoteDialog extends LitElement {
         }
         if (this.suggestedType) {
             this._type = this.suggestedType;
+        }
+        if (this.isMatrix) {
+            this._type = "ac";
         }
     }
 
@@ -144,6 +151,7 @@ export class IrPromoteDialog extends LitElement {
                     <label>${t("common.device_type")}</label>
                     <select
                         .value=${this._type}
+                        ?disabled=${this.isMatrix}
                         @change=${(e: Event) =>
                             (this._type = (e.target as HTMLSelectElement)
                                 .value as DeviceTypeId)}
@@ -159,6 +167,11 @@ export class IrPromoteDialog extends LitElement {
                             `,
                         )}
                     </select>
+                    ${this.isMatrix
+                        ? html`<div class="type-hint">
+                              ${t("promote.matrix_type_hint")}
+                          </div>`
+                        : ""}
                 </div>
 
                 <ir-emitter-picker
@@ -207,6 +220,14 @@ export class IrPromoteDialog extends LitElement {
             font-size: 0.85rem;
             color: var(--secondary-text-color);
             margin: 0 0 8px;
+        }
+        /* Why the type select is locked (matrix adopts): one dim line,
+           same voice as the editor's field hints. */
+        .type-hint {
+            font-size: 11px;
+            color: var(--secondary-text-color);
+            margin-top: 4px;
+            line-height: 1.4;
         }
         .create-btn {
             background: #2e7d32;

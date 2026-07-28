@@ -234,6 +234,43 @@ def dimension_checklist(matrix: ClimateMatrix) -> list[ChecklistRow]:
     return rows
 
 
+def matrix_summary(matrix: ClimateMatrix) -> dict:
+    """The one-line matrix summary the closet and device page render.
+
+    Owner ruling 2026-07-28: wigs/list and the full device payload both
+    carry this block so the frontend can say "300 states, 5 modes,
+    16-30" without ever loading cells. Declared vocabulary order leads
+    (it is advisory display order, same rule as _Branches), observed
+    values the file forgot to declare follow, and values declared but
+    never observed are dropped -- the summary describes what the
+    matrix can actually do, not what its header claims.
+    """
+    modes_seen: list[str] = []
+    fans_seen: list[str] = []
+    swings_seen: list[str] = []
+    for cell in matrix.cells:
+        if cell.mode not in modes_seen:
+            modes_seen.append(cell.mode)
+        if cell.fan is not None and cell.fan not in fans_seen:
+            fans_seen.append(cell.fan)
+        if cell.swing is not None and cell.swing not in swings_seen:
+            swings_seen.append(cell.swing)
+
+    def _ordered(declared: list[str], observed: list[str]) -> list[str]:
+        out = [v for v in declared if v in observed]
+        out += [v for v in observed if v not in out]
+        return out
+
+    return {
+        "cells": len(matrix.cells),
+        "modes": _ordered(matrix.modes, modes_seen),
+        "fan_modes": _ordered(matrix.fan_modes, fans_seen),
+        "swing_modes": _ordered(matrix.swing_modes, swings_seen),
+        "min_temp": matrix.min_temp,
+        "max_temp": matrix.max_temp,
+    }
+
+
 def resolve_cell(
     matrix: ClimateMatrix,
     mode: str,

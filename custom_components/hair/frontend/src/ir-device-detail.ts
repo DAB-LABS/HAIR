@@ -868,6 +868,74 @@ export class IrDeviceDetail extends LitElement {
     }
 
     // ---------------------------------------------------------------
+    // State matrix (Cold Cuts, v0.8.8)
+    // ---------------------------------------------------------------
+
+    /** The device's HAIR climate state object, resolved through the
+     * HA registries: device by its (hair, id) identifier, then that
+     * device's climate entity. Registry-first because the HAIR device
+     * id is not the HA device id and the entity_id is user-renamable;
+     * null (no card readout) while the registries have not caught up. */
+    private _climateState(): any | null {
+        const devices = (this.hass?.devices ?? {}) as Record<string, any>;
+        let haDeviceId: string | null = null;
+        for (const dev of Object.values(devices)) {
+            const idents = (dev?.identifiers ?? []) as [string, string][];
+            if (
+                idents.some(
+                    (pair) =>
+                        pair[0] === "hair" && pair[1] === this.device.id,
+                )
+            ) {
+                haDeviceId = dev.id;
+                break;
+            }
+        }
+        if (!haDeviceId) return null;
+        const entities = (this.hass?.entities ?? {}) as Record<
+            string,
+            any
+        >;
+        for (const [entityId, entry] of Object.entries(entities)) {
+            if (
+                entry?.device_id === haDeviceId &&
+                entityId.startsWith("climate.")
+            ) {
+                return this.hass?.states?.[entityId] ?? null;
+            }
+        }
+        return null;
+    }
+
+    /** The compact state-matrix card (owner ruling 2026-07-28): what
+     * the lattice holds, plus the entity's current-cell readout (its
+     * matrix_cell attribute; null until the first send renders
+     * nothing rather than a lie). */
+    private _renderMatrixCard() {
+        const m = this.device.matrix!;
+        const cell =
+            this._climateState()?.attributes?.matrix_cell ?? null;
+        return html`
+            <div class="matrix-card">
+                <div>
+                    ${t("devices.matrix_summary", {
+                        cells: String(m.cells),
+                        modes: String(m.modes.length),
+                        fans: String(m.fan_modes.length),
+                        min: String(m.min_temp),
+                        max: String(m.max_temp),
+                    })}
+                </div>
+                ${cell != null
+                    ? html`<div class="matrix-current">
+                          ${t("devices.matrix_current", { cell })}
+                      </div>`
+                    : nothing}
+            </div>
+        `;
+    }
+
+    // ---------------------------------------------------------------
     // Render
     // ---------------------------------------------------------------
 
@@ -942,6 +1010,8 @@ export class IrDeviceDetail extends LitElement {
                     ></ir-emitter-picker>
                 </div>
             </div>
+
+            ${this.device.matrix ? this._renderMatrixCard() : nothing}
 
             <!-- Commands -->
             <div class="commands-section">
@@ -1336,6 +1406,21 @@ export class IrDeviceDetail extends LitElement {
             letter-spacing: 0.04em;
             color: var(--secondary-text-color);
             padding-top: 6px;
+        }
+        /* The state-matrix card (Cold Cuts): one compact block in the
+           surrounding meta typography, not a second commands list. */
+        .matrix-card {
+            margin-top: 12px;
+            padding: 9px 12px;
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--primary-text-color);
+            line-height: 1.5;
+        }
+        .matrix-current {
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
         }
         .meta-value select {
             width: 100%;
