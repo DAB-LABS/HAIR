@@ -25,11 +25,16 @@ Matching rules, chosen against real false-positive traps:
   test bench's IR receiver is friendly-named "Athom RF IR Remote 1 IR
   Proxy Receiver", so any name-based match would disable the exact
   hardware this guard protects.
-- A field reads as RF when it carries an ``rf`` token WITHOUT an
-  ``ir`` token. A field claiming both (hypothetical combined
-  ``rf_ir_receiver``) keeps its subscription: it claims IR, and a
-  wrongly-dropped IR receiver is a silent capture outage while a
-  wrongly-kept RF receiver is now only cap-bounded noise.
+- A field reads as RF when it carries an RF claim WITHOUT an ``ir``
+  token. RF claims are the ``rf`` token (``rf_proxy_receiver``), an
+  ``rf``-prefixed frequency token (``rf433``), an ISM band number
+  (315/433/434/868/915, bare or MHz-suffixed: ``433mhz_receiver``),
+  or any three-digit MHz token -- RF bands are MHz where IR carriers
+  are kHz, so a MHz-named receiver is not an IR receiver. A field
+  claiming both (hypothetical combined ``rf_ir_receiver``) keeps its
+  subscription: it claims IR, and a wrongly-dropped IR receiver is a
+  silent capture outage while a wrongly-kept RF receiver is now only
+  cap-bounded noise.
 - The ``infrared`` domain marker present in every ESPHome unique_id is
   NOT an IR claim; only a bare ``ir`` token is, otherwise nothing
   could ever read as RF.
@@ -42,6 +47,11 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
 _TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
+# RF claims, matched per token: "rf", "rf433"; the common ISM bands
+# bare or MHz-suffixed ("433", "433mhz"); any 3-digit MHz value
+# ("868mhz"). Exact-match anchored so hex fragments in MACs/uuids
+# ("433f06") never read as a frequency claim.
+_RF_TOKEN = re.compile(r"^(rf\d*|\d{3}mhz|315|433|434|868|915)$")
 
 
 def _reads_as_rf(field: str | None) -> bool:
@@ -51,7 +61,9 @@ def _reads_as_rf(field: str | None) -> bool:
     if not isinstance(field, str) or not field:
         return False
     tokens = set(_TOKEN_SPLIT.split(field.lower()))
-    return "rf" in tokens and "ir" not in tokens
+    if "ir" in tokens:
+        return False
+    return any(_RF_TOKEN.match(t) for t in tokens)
 
 
 @callback

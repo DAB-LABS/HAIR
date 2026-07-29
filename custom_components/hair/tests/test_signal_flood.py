@@ -544,6 +544,54 @@ class TestSignalCaps:
             assert len(dev.signals) <= SIGNAL_MAX_SIGNALS_PER_DEVICE
 
 
+class TestTriggersSurviveEviction:
+    """Triggers match the capture's identity at hearing time; they hold
+    no reference to unknown-signal store rows, so cap eviction cannot
+    disconnect a trigger from its button. Pinned here rather than
+    assumed."""
+
+    def test_trigger_fires_after_its_catalog_row_was_evicted(self):
+        from custom_components.hair.models import IRTrigger
+        from custom_components.hair.storage import HAIRStore
+        from custom_components.hair.trigger_manager import TriggerManager
+
+        hass = MagicMock()
+        hass.bus = MagicMock()
+        hair_store = HAIRStore(hass)
+        hair_store._loaded = True
+        trigger = IRTrigger(
+            name="Doorbell",
+            signal_fingerprint="fpT",
+            protocol="pronto",
+            code="0000 0001",
+            min_hits=1,
+            enabled=True,
+        )
+        hair_store.add_trigger(trigger)
+        manager = TriggerManager(hass, hair_store)
+
+        # The trigger's signal sits in a device at the cap; a flood of
+        # newer rows evicts it from the catalog entirely.
+        signal_store = SignalStore(hass)
+        signal_store._loaded = True
+        old_row = _sig(0, "fpT", "bT", last_seen="2026-06-01T00:00:00+00:00")
+        flood = [
+            _sig(n, f"fp{n}", last_seen="2026-07-28T00:00:00+00:00")
+            for n in range(1, SIGNAL_MAX_SIGNALS_PER_DEVICE + 1)
+        ]
+        dev = _dev([old_row, *flood])
+        signal_store._devices[dev.id] = dev
+        signal_store.enforce_signal_caps(dev)
+        assert all(s.id != "s0" for s in dev.signals), "row must be evicted"
+
+        # The button is pressed again: the trigger fires from the
+        # capture's identity, no catalog row required.
+        fired = manager.on_signal_captured(
+            "fpT", "pronto", "0000 0001", "DEV", None, "bT", None
+        )
+        assert trigger.id in fired
+
+
 # ---------------------------------------------------------------------------
 # RF receiver exclusion
 # ---------------------------------------------------------------------------
@@ -586,6 +634,23 @@ class TestRfDetection:
         assert not _reads_as_rf(None)
         assert not _reads_as_rf("")
         assert not _reads_as_rf(MagicMock())  # non-string = no claim
+
+    def test_frequency_tokens_read_as_rf(self):
+        # RF receivers named by band instead of medium: MHz is an RF
+        # claim (IR carriers are kHz). Bare band numbers and rf-fused
+        # forms count too.
+        assert _reads_as_rf("433mhz_receiver")
+        assert _reads_as_rf("mac-infrared-433mhz_proxy_receiver")
+        assert _reads_as_rf("868mhz_receiver")
+        assert _reads_as_rf("rf433_receiver")
+        assert _reads_as_rf("receiver_315")
+        assert _reads_as_rf("433MHz RF Transmitter")  # bench radio_frequency name
+        # The ir token still wins: a combined claim keeps its sub.
+        assert not _reads_as_rf("433mhz_ir_receiver")
+        # Hex fragments and kHz-scale IR carrier numbers are no claim.
+        assert not _reads_as_rf("a433f06b-infrared-receiver")
+        assert not _reads_as_rf("receiver_38khz")
+        assert not _reads_as_rf("proxy_receiver_2")
 
     def test_is_rf_receiver_consults_registry(self):
         hass = MagicMock()
