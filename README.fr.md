@@ -44,4 +44,4 @@ Le README complet, avec le YAML d'installation, le matériel pris en charge, les
 
 ---
 
-*Traduit du README anglais, version v0.8.8. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traduit du README anglais, version v0.8.9. Ce fichier a été rédigé par un assistant de programmation et est rafraîchi à chaque version. Les locuteurs natifs sont les bienvenus pour en prendre la responsabilité ; voir [Adding a language](CONTRIBUTING.md#adding-a-language).*

@@ -81,6 +81,10 @@ def _make_hass():
     hass.loop = MagicMock()
     hass.loop.call_later = MagicMock(return_value=MagicMock())
     hass.async_create_task = MagicMock()
+    # GH #72: async_load runs its payload transform via the executor.
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
     return hass
 
 

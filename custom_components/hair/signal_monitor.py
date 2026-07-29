@@ -288,6 +288,10 @@ class SignalMonitor:
         # core's own InfraredReceiverConsumerEntity, which drops its
         # subscription on unavailable and resubscribes on available.
         self._receiver_watch_unsub: CALLBACK_TYPE | None = None
+        # RF receivers skipped by the GH #72 guard, so the "not
+        # subscribing" note logs once per entity per run instead of on
+        # every reconcile.
+        self._rf_skip_logged: set[str] = set()
         # --- The Mirror (v0.6.6): send expectations + emitter beacons ---
         # Expectations for HAIR's OWN sends: full identity known.
         # Each: {"decoded_fp", "sig_fp", "row_key", "expires", "cancel"}.
@@ -552,14 +556,23 @@ class SignalMonitor:
         receiver not yet tracked and releases every tracked id no longer
         listed. One bad entity cannot abort the loop -- and can NEVER
         route us onto the legacy bus.
+
+        RF receivers are excluded from the inventory entirely (GH #72):
+        combined RF/IR hardware exposes RF proxy receivers on the
+        infrared platform, and subscribing them floods the store with
+        ambient radio chatter. Filtering ``current`` up front keeps
+        them out of the subscription loop AND the availability watcher,
+        and releases one that was somehow subscribed before this guard.
         """
         from homeassistant.components.infrared import (  # type: ignore[attr-defined]
             async_get_receivers,
             async_subscribe_receiver,
         )
 
+        from .receiver_filter import partition_receivers
+
         try:
-            current = set(async_get_receivers(self._hass))
+            inventory = list(async_get_receivers(self._hass))
         except Exception:
             # Never fail setup (or a tracker callback) on a bad scan; the
             # trackers and the started-once re-scan retry naturally. And
@@ -570,6 +583,18 @@ class SignalMonitor:
                 exc_info=True,
             )
             return
+        ir_ids, rf_ids = partition_receivers(self._hass, inventory)
+        for entity_id in rf_ids:
+            if entity_id not in self._rf_skip_logged:
+                self._rf_skip_logged.add(entity_id)
+                _LOGGER.info(
+                    "Not subscribing to %s: it reads as an RF receiver, "
+                    "and HAIR captures IR only (ambient RF chatter would "
+                    "flood the Sniffer). RF support is on the roadmap as "
+                    "an explicit opt-in",
+                    entity_id,
+                )
+        current = set(ir_ids)
         states = self._hass.states
         for entity_id in [e for e in self._receiver_subs if e not in current]:
             self._release_receiver(entity_id)
@@ -1341,6 +1366,15 @@ class SignalMonitor:
             # Evict if over buffer.
             if self._signal_store.device_count > 500:
                 self._signal_store.evict()
+
+            # Signal caps (GH #72): bound per-device and total signal
+            # counts so a noisy receiver cannot grow the store without
+            # limit. The just-stored signal is spared -- when every
+            # other row on the device is aliased it would otherwise be
+            # the first eviction candidate.
+            self._signal_store.enforce_signal_caps(
+                device, receiver_entity_id, spare=signal
+            )
 
         # Capture observation (v0.5.5): confirm the ditto anchor by writing in
         # the persisted signal_id. The timestamp and dev_fp came from the sync

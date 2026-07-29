@@ -27,7 +27,11 @@ Key components:
   by the Sniffer, the Clipper, and device commands); a bound trigger re-points
   automatically when an edit changes the S/L fingerprint, and a carrier reading off
   the consumer standards can be snapped to the nearest one (30, 33, 36, 38, 40, or
-  56 kHz).
+  56 kHz). The Sniffer listens to IR receivers only: RF receivers that combined
+  RF/IR hardware exposes on the infrared platform are excluded (RF support is
+  roadmapped as an explicit opt-in), and the sniffed catalog is capped (200
+  signals per remote, 20,000 total, oldest evicted first) so a noisy receiver
+  cannot grow the store without bound.
 - Clipper: a manual-entry surface (a third panel tab) for building virtual remotes by
   pasting Pronto hex codes, for cases where a live signal cannot be sniffed. Each
   pasted code is validated (hex shape, four-digit words, a learned-code 0000 header,

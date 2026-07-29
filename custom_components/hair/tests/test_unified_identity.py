@@ -33,7 +33,7 @@ unchanged. The NEC codes are the test_event_parser remote-1 Power code
 from __future__ import annotations
 
 import importlib.util
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -125,6 +125,10 @@ def _decoded(code: str) -> str:
 def mock_hass():
     hass = MagicMock()
     hass.bus = MagicMock()
+    # GH #72: SignalStore.async_load runs its transform in the executor.
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
     return hass
 
 

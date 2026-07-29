@@ -850,8 +850,14 @@ async def ws_get_receivers(
             async_get_receivers,
         )
 
+        from .receiver_filter import is_rf_receiver
+
         entity_ids = async_get_receivers(hass)
         for entity_id in entity_ids:
+            if is_rf_receiver(hass, entity_id):
+                # GH #72: never subscribed, so never offered in the
+                # receiver picker either.
+                continue
             state = hass.states.get(entity_id)
             name = entity_id
             if state is not None:
