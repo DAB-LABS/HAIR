@@ -103,6 +103,15 @@ NATIVE_RECEIVER_AVAILABLE = "native_receiver_available"
 SIGNAL_STORAGE_KEY = "hair_unknown_signals"
 SIGNAL_STORAGE_VERSION = 1
 SIGNAL_BUFFER_MAX_DEVICES = 500
+# Signal caps (GH #72, 2026-07-29). Ambient noise on a subscribed RF
+# receiver minted 104k signals / 340MB / 500 phantom remotes in 33
+# hours on one install, and the load-time heal froze HA for ~15 min
+# per boot at that size. The device cap above held; per-signal growth
+# was unbounded (largest phantom device: 40,779 rows). A real remote
+# stays far below 200 distinct signals (a full AC matrix is ~100).
+# Sniffed only; clipped/plucked remotes are user creations and exempt.
+SIGNAL_MAX_SIGNALS_PER_DEVICE = 200
+SIGNAL_MAX_TOTAL_SIGNALS = 20000
 SIGNAL_EVICT_AGE_DAYS = 30
 SIGNAL_EVICT_MIN_HITS = 5
 SIGNAL_CLUSTER_THRESHOLD = 3

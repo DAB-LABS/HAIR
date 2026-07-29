@@ -58,8 +58,15 @@ async def _async_get_native_receivers(hass) -> set[str]:
         from homeassistant.components.infrared import (  # type: ignore[attr-defined]
             async_get_receivers,
         )
+
+        from .receiver_filter import is_rf_receiver
+
         receivers = async_get_receivers(hass)
-        return set(receivers) if receivers else set()
+        # GH #72: RF proxy receivers on the infrared platform are never
+        # subscribed; do not count them as available capture hardware.
+        return {
+            e for e in (receivers or []) if not is_rf_receiver(hass, e)
+        }
     except (ImportError, AttributeError):
         return set()
 

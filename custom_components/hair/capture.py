@@ -360,8 +360,15 @@ async def get_available_capture_providers(
             async_get_receivers,
         )
 
+        from .receiver_filter import is_rf_receiver
+
         receivers = async_get_receivers(hass)
         for entity_id in receivers:
+            if is_rf_receiver(hass, entity_id):
+                # GH #72: RF proxy receivers on the infrared platform
+                # are never subscribed, so never offer them as capture
+                # providers either.
+                continue
             native_receiver_ids.add(entity_id)
             state = hass.states.get(entity_id)
             name = entity_id

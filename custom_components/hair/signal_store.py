@@ -19,12 +19,14 @@ from .const import (
     SIGNAL_BUFFER_MAX_DEVICES,
     SIGNAL_EVICT_AGE_DAYS,
     SIGNAL_EVICT_MIN_HITS,
+    SIGNAL_MAX_SIGNALS_PER_DEVICE,
+    SIGNAL_MAX_TOTAL_SIGNALS,
     SIGNAL_SAVE_DEBOUNCE_S,
     SIGNAL_SAVE_MAX_DELAY_S,
     SIGNAL_STORAGE_KEY,
     SIGNAL_STORAGE_VERSION,
 )
-from .models import UnknownDevice
+from .models import UnknownDevice, UnknownSignal
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +81,10 @@ class SignalStore:
         self._debounce_handle: asyncio.TimerHandle | None = None
         self._ceiling_handle: asyncio.TimerHandle | None = None
         self._first_dirty_time: float | None = None
+        # Cap-hit warnings fire once per device per HA run (GH #72): a
+        # flood trims on every capture, and a per-capture WARNING would
+        # itself become the flood.
+        self._cap_warned: set[str] = set()
 
     @property
     def loaded(self) -> bool:
@@ -89,7 +95,16 @@ class SignalStore:
     # -----------------------------------------------------------------
 
     async def async_load(self) -> None:
-        """Load data from storage. Safe to call multiple times."""
+        """Load data from storage. Safe to call multiple times.
+
+        The payload transform (parse, backfills, duplicate heal, caps,
+        order seed) runs in ONE executor job. It is pure CPU with no
+        awaits, and run on the event loop it starved all of Home
+        Assistant -- GH #72: a noise-flooded 104k-signal store froze HA
+        for ~15 minutes on every boot, py-spy landing in the heal's
+        pairwise scan. Off-loop, a pathological store can at worst delay
+        HAIR's own setup while the rest of HA keeps serving.
+        """
         raw = await self._store.async_load()
         if raw is None:
             self._devices = {}
@@ -97,168 +112,13 @@ class SignalStore:
             self._loaded = True
             return
 
-        self._devices = {}
-        for entry in raw.get("devices") or []:
-            try:
-                device = UnknownDevice.from_dict(entry)
-                self._devices[device.id] = device
-            except Exception as err:
-                _LOGGER.warning("Skipping malformed unknown device: %s", err)
-
-        self._dismissed = set(raw.get("dismissed") or [])
-
-        # Self-heal: prune any fingerprint in ``_dismissed`` that has no
-        # matching ``_devices`` entry. Users upgrading from v0.2.0 or
-        # earlier may have accumulated orphan fingerprints on disk via
-        # the GH #9 bug. We clean them up at load time so the user
-        # auto-recovers on next HA restart after upgrading to v0.2.1
-        # without any manual intervention.
-        live_fingerprints = {d.fingerprint for d in self._devices.values()}
-        orphans = self._dismissed - live_fingerprints
-        if orphans:
-            self._dismissed -= orphans
-            self._dirty = True
-            _LOGGER.warning(
-                "Pruned %d orphan dismissed fingerprint(s) on load. "
-                "This was a v0.2.0 issue (GitHub issue #9) fixed in "
-                "v0.2.1; signals from previously-silent remotes should "
-                "now appear in the Sniffer normally.",
-                len(orphans),
-            )
-
-        # v0.3.4 migration: every signal needs a stable id and a byte_hash.
-        # ``UnknownSignal.from_dict`` already assigns a fresh id when the
-        # stored record has none; compute the byte_hash from the Pronto
-        # code where it is missing. Mark the store dirty so the generated
-        # ids and computed hashes persist (otherwise ids would regenerate
-        # on every load). Runs BEFORE the duplicate cleanup below, which as
-        # of v0.3.4 keys on the composite (fingerprint, byte_hash).
-        from .event_parser import EventParser
-
-        legacy_signals = any(
-            not s.get("id") or s.get("byte_hash") is None
-            for d in (raw.get("devices") or [])
-            for s in (d.get("signals") or [])
+        devices, dismissed, dirty = await self._hass.async_add_executor_job(
+            _transform_loaded, raw
         )
-        for device in self._devices.values():
-            for sig in device.signals:
-                if sig.byte_hash is None and sig.code:
-                    sig.byte_hash = EventParser.pronto_byte_hash(sig.code)
-        if legacy_signals:
+        self._devices = devices
+        self._dismissed = dismissed
+        if dirty:
             self._dirty = True
-
-        # v0.4.0 backfill: decode stored catalog signals into their
-        # decoded_* fields. For each signal with no decoded_fingerprint,
-        # decode the stored raw timings (or timings derived from the
-        # Pronto code) and populate the identity. Non-decodable signals are
-        # left untouched. Idempotent across restarts.
-        from .ir_command import ProntoCommand
-        from .protocol_decode import try_decode_identity
-
-        decoded_backfilled = 0
-        for device in self._devices.values():
-            for sig in device.signals:
-                if sig.decoded_fingerprint:
-                    continue
-                raw = sig.raw_timings
-                if not raw and sig.code:
-                    try:
-                        raw = ProntoCommand(sig.code).get_raw_timings()
-                    except (ValueError, IndexError):
-                        raw = None
-                identity = try_decode_identity(raw)
-                if identity is None:
-                    continue
-                sig.decoded_protocol = identity.protocol
-                sig.decoded_address = identity.address
-                sig.decoded_command = identity.command
-                sig.decoded_fingerprint = identity.fingerprint
-                sig.decoded_extras = (
-                    dict(identity.extras) if identity.extras else None
-                )
-                decoded_backfilled += 1
-        if decoded_backfilled:
-            self._dirty = True
-            _LOGGER.info(
-                "Backfilled decoded protocol identity on %d catalog signal(s)",
-                decoded_backfilled,
-            )
-
-        # Duplicate-signal cleanup (v0.3.2; composite key as of v0.3.4;
-        # tiered identity as of v0.5.8). The Clipper's manual paste path
-        # historically had no guard, so a remote could hold two truly
-        # identical signals (the same Pronto pasted twice); and boundary
-        # protocols (Sony) minted flip-duplicates -- same byte_hash,
-        # DIFFERENT S/L fingerprint -- under the pre-unified runtime dedup.
-        # Collapse each remote's signals under the tiered identity rule
-        # (decoded > byte_hash > S/L fingerprint), merging each duplicate's
-        # hit count into the first (older) occurrence and keeping that
-        # row's alias (adopting the duplicate's alias only when the kept
-        # row has none). Two signals that share an S/L fingerprint but
-        # differ at the byte level (Panasonic, TCL, Sony siblings) are
-        # distinct and are NOT collapsed.
-        from .identity import SignalIdentity
-
-        for device in self._devices.values():
-            kept: list = []
-            for sig in device.signals:
-                ident = SignalIdentity(
-                    sig.decoded_fingerprint, sig.byte_hash, sig.fingerprint
-                )
-                # Strongest-match-wins across the kept rows (same tiered-
-                # passes reasoning as UnknownDevice.get_signal), so healing
-                # does not depend on row order when a remote holds both a
-                # decoded row and a decode-failed one.
-                best = None
-                best_tier = 99
-                for keep in kept:
-                    tier = SignalIdentity(
-                        keep.decoded_fingerprint, keep.byte_hash, keep.fingerprint
-                    ).match_tier(ident)
-                    if tier is not None and tier < best_tier:
-                        best = keep
-                        best_tier = tier
-                        if tier == 1:
-                            break
-                if best is not None:
-                    best.hit_count += sig.hit_count
-                    if not best.alias and sig.alias:
-                        best.alias = sig.alias
-                    if sig.last_seen and (
-                        not best.last_seen or sig.last_seen > best.last_seen
-                    ):
-                        best.last_seen = sig.last_seen
-                    _LOGGER.debug(
-                        "Healed duplicate signal %s into %s on remote %s "
-                        "(matched at identity tier %d)",
-                        sig.id,
-                        best.id,
-                        device.label or device.id,
-                        best_tier,
-                    )
-                else:
-                    kept.append(sig)
-            if len(kept) != len(device.signals):
-                device.signals = kept
-                self._dirty = True
-
-        # One-time order backfill (v0.3.2). Pre-0.3.2 records have no
-        # ``order`` field, so every device deserializes with order 0. On
-        # first load after upgrade, seed the manual order from the old
-        # hit_count-descending sort so a user's list does not visibly
-        # reshuffle. After this the order is purely manual. Detect the
-        # un-migrated state as "more than one device and all order 0".
-        if len(self._devices) > 1 and all(
-            d.order == 0 for d in self._devices.values()
-        ):
-            ranked = sorted(
-                self._devices.values(),
-                key=lambda d: (-d.hit_count, d.first_seen),
-            )
-            for index, device in enumerate(ranked):
-                device.order = index
-            self._dirty = True
-
         self._loaded = True
 
     async def async_save(self) -> None:
@@ -494,6 +354,70 @@ class SignalStore:
 
         return removed
 
+    def enforce_signal_caps(
+        self,
+        device: UnknownDevice | None = None,
+        receiver_entity_id: str | None = None,
+        spare: UnknownSignal | None = None,
+    ) -> int:
+        """Apply the GH #72 signal caps; return the eviction count.
+
+        Two caps on sniffed signals, both capacity protection in the
+        heard-means-shown sense (an evicted row resurrects the moment
+        its button is genuinely pressed again): a per-device cap so one
+        noisy source cannot dominate the store, and a global cap so the
+        store stays bounded no matter how many sources misbehave.
+        Clipped/plucked remotes are user creations and are never
+        touched, same as ``evict()``.
+
+        ``device`` is the remote that just captured (trimmed first,
+        cheaply); ``spare`` protects the signal just inserted from
+        being evicted out from under its caller (only reachable when
+        every other row on the device is aliased); the receiver id
+        makes the warning actionable. Warnings fire once per device
+        per run via ``_cap_warned``.
+        """
+        removed = 0
+        if device is not None and device.source == _EVICTABLE:
+            removed = _trim_device_signals(
+                device, SIGNAL_MAX_SIGNALS_PER_DEVICE, spare=spare
+            )
+            if removed and device.id not in self._cap_warned:
+                self._cap_warned.add(device.id)
+                _LOGGER.warning(
+                    "Remote '%s' hit the %d-signal store cap%s; evicting "
+                    "oldest signals as new ones arrive. This many distinct "
+                    "signals from one source usually means a receiver is "
+                    "capturing noise; consider dismissing the remote in "
+                    "the Sniffer",
+                    device.label or device.id,
+                    SIGNAL_MAX_SIGNALS_PER_DEVICE,
+                    (
+                        f" (heard by {receiver_entity_id})"
+                        if receiver_entity_id
+                        else ""
+                    ),
+                )
+        global_removed, noisiest = _enforce_global_cap(
+            self._devices, spare=spare
+        )
+        if global_removed and "__global__" not in self._cap_warned:
+            self._cap_warned.add("__global__")
+            _LOGGER.warning(
+                "Unknown-signal store hit the global %d-signal cap; "
+                "evicted %d oldest signal(s), most from '%s'%s. A noisy "
+                "receiver may be flooding the Sniffer",
+                SIGNAL_MAX_TOTAL_SIGNALS,
+                global_removed,
+                noisiest or "?",
+                (
+                    f" (last heard by {receiver_entity_id})"
+                    if receiver_entity_id
+                    else ""
+                ),
+            )
+        return removed + global_removed
+
     # -----------------------------------------------------------------
     # Cleanup
     # -----------------------------------------------------------------
@@ -531,3 +455,387 @@ class SignalStore:
         self._cancel_timers()
         if self._dirty:
             await self.async_save()
+
+
+# ---------------------------------------------------------------------------
+# Load-time transform (GH #72: executor-side, pure CPU)
+# ---------------------------------------------------------------------------
+# Everything below operates on plain Python objects: no hass access, no
+# awaits, no I/O. ``async_load`` runs ``_transform_loaded`` in a single
+# executor job so a large store can never block the event loop, however
+# it got large. Module functions (not methods) keep that contract
+# visible at the call site.
+
+
+def _transform_loaded(
+    raw: dict[str, Any],
+) -> tuple[dict[str, UnknownDevice], set[str], bool]:
+    """Parse the stored payload and run every load-time backfill/heal.
+
+    Returns ``(devices, dismissed, dirty)``; ``dirty`` is True when any
+    step changed data that should persist. The steps and their order
+    are unchanged from the pre-GH #72 inline body of ``async_load``,
+    except the duplicate heal is O(n) (``_heal_device_signals``) and
+    the new signal caps run after it.
+    """
+    dirty = False
+    devices: dict[str, UnknownDevice] = {}
+    for entry in raw.get("devices") or []:
+        try:
+            device = UnknownDevice.from_dict(entry)
+            devices[device.id] = device
+        except Exception as err:
+            _LOGGER.warning("Skipping malformed unknown device: %s", err)
+
+    dismissed = set(raw.get("dismissed") or [])
+
+    # Self-heal: prune any fingerprint in ``dismissed`` that has no
+    # matching device entry. Users upgrading from v0.2.0 or earlier may
+    # have accumulated orphan fingerprints on disk via the GH #9 bug.
+    # We clean them up at load time so the user auto-recovers on next
+    # HA restart after upgrading to v0.2.1 without any manual
+    # intervention.
+    live_fingerprints = {d.fingerprint for d in devices.values()}
+    orphans = dismissed - live_fingerprints
+    if orphans:
+        dismissed -= orphans
+        dirty = True
+        _LOGGER.warning(
+            "Pruned %d orphan dismissed fingerprint(s) on load. "
+            "This was a v0.2.0 issue (GitHub issue #9) fixed in "
+            "v0.2.1; signals from previously-silent remotes should "
+            "now appear in the Sniffer normally.",
+            len(orphans),
+        )
+
+    # v0.3.4 migration: every signal needs a stable id and a byte_hash.
+    # ``UnknownSignal.from_dict`` already assigns a fresh id when the
+    # stored record has none; compute the byte_hash from the Pronto
+    # code where it is missing. Mark the store dirty so the generated
+    # ids and computed hashes persist (otherwise ids would regenerate
+    # on every load). Runs BEFORE the duplicate cleanup below, which as
+    # of v0.3.4 keys on the composite (fingerprint, byte_hash).
+    from .event_parser import EventParser
+
+    legacy_signals = any(
+        not s.get("id") or s.get("byte_hash") is None
+        for d in (raw.get("devices") or [])
+        for s in (d.get("signals") or [])
+    )
+    for device in devices.values():
+        for sig in device.signals:
+            if sig.byte_hash is None and sig.code:
+                sig.byte_hash = EventParser.pronto_byte_hash(sig.code)
+    if legacy_signals:
+        dirty = True
+
+    # v0.4.0 backfill: decode stored catalog signals into their
+    # decoded_* fields. For each signal with no decoded_fingerprint,
+    # decode the stored raw timings (or timings derived from the
+    # Pronto code) and populate the identity. Non-decodable signals are
+    # left untouched. Idempotent across restarts.
+    from .ir_command import ProntoCommand
+    from .protocol_decode import try_decode_identity
+
+    decoded_backfilled = 0
+    for device in devices.values():
+        for sig in device.signals:
+            if sig.decoded_fingerprint:
+                continue
+            timings = sig.raw_timings
+            if not timings and sig.code:
+                try:
+                    timings = ProntoCommand(sig.code).get_raw_timings()
+                except (ValueError, IndexError):
+                    timings = None
+            identity = try_decode_identity(timings)
+            if identity is None:
+                continue
+            sig.decoded_protocol = identity.protocol
+            sig.decoded_address = identity.address
+            sig.decoded_command = identity.command
+            sig.decoded_fingerprint = identity.fingerprint
+            sig.decoded_extras = (
+                dict(identity.extras) if identity.extras else None
+            )
+            decoded_backfilled += 1
+    if decoded_backfilled:
+        dirty = True
+        _LOGGER.info(
+            "Backfilled decoded protocol identity on %d catalog signal(s)",
+            decoded_backfilled,
+        )
+
+    # Duplicate-signal cleanup (v0.3.2; composite key as of v0.3.4;
+    # tiered identity as of v0.5.8; O(n) as of GH #72). See
+    # ``_heal_device_signals`` for the semantics.
+    for device in devices.values():
+        if _heal_device_signals(device):
+            dirty = True
+
+    # Signal caps (GH #72): trim an already-oversized store back to
+    # bounds on the first load after upgrade, so a user sitting on a
+    # noise-flooded store recovers without touching .storage by hand.
+    if _enforce_caps_on_load(devices):
+        dirty = True
+
+    # One-time order backfill (v0.3.2). Pre-0.3.2 records have no
+    # ``order`` field, so every device deserializes with order 0. On
+    # first load after upgrade, seed the manual order from the old
+    # hit_count-descending sort so a user's list does not visibly
+    # reshuffle. After this the order is purely manual. Detect the
+    # un-migrated state as "more than one device and all order 0".
+    if len(devices) > 1 and all(d.order == 0 for d in devices.values()):
+        ranked = sorted(
+            devices.values(),
+            key=lambda d: (-d.hit_count, d.first_seen),
+        )
+        for index, device in enumerate(ranked):
+            device.order = index
+        dirty = True
+
+    return devices, dismissed, dirty
+
+
+def _heal_device_signals(device: UnknownDevice) -> bool:
+    """Collapse one remote's duplicate signals in a single O(n) pass.
+
+    The Clipper's manual paste path historically had no guard, so a
+    remote could hold two truly identical signals (the same Pronto
+    pasted twice); and boundary protocols (Sony) minted
+    flip-duplicates -- same byte_hash, DIFFERENT S/L fingerprint --
+    under the pre-unified runtime dedup. Signals collapse under the
+    tiered identity rule (decoded > byte_hash > S/L fingerprint),
+    merging each duplicate's hit count into the first (older)
+    occurrence and keeping that row's alias (adopting the duplicate's
+    alias only when the kept row has none). Two signals that share an
+    S/L fingerprint but differ at the byte level (Panasonic, TCL, Sony
+    siblings) are distinct and are NOT collapsed.
+
+    GH #72 rewrite: the old pass rescanned every kept row per signal
+    (quadratic; 1.46e9 pair comparisons on the reporter's store) and
+    built a SignalIdentity per pair. This pass keys dicts on the
+    identity values instead and reproduces the old scan's outcome
+    exactly. Per ``SignalIdentity.match_tier``, the highest tier BOTH
+    sides carry decides, a decided-tier mismatch is final (no
+    fallthrough), and a tier either side lacks is skipped; the old
+    scan then kept the strongest-tier match, first (oldest) kept row
+    winning within a tier. Hence:
+
+    - Tier 1: every candidate shares the signal's decoded
+      fingerprint, so the first kept row under that key in
+      ``dec_first`` IS the old scan's answer.
+    - Tier 2 applies only to pairs that do not BOTH carry decoded
+      identity. When the incoming signal carries one, a kept row with
+      any decoded fingerprint is unreachable at tier 2 (equal decoded
+      matched at tier 1; different decoded is a final mismatch), so
+      the eligible rows are exactly the byte_hash matches lacking
+      decoded identity (``byte_nod``). When the signal lacks decoded
+      identity, every byte_hash match is eligible (``byte_all``).
+    - Tier 3 mirrors that logic against both stronger layers
+      (``fp_all`` / ``fp_nod`` / ``fp_nob`` / ``fp_nodb``).
+
+    Each dict stores only the FIRST kept row per key (setdefault):
+    within a tier the first-inserted eligible row is the match, so
+    later kept rows with the same key can never be the answer.
+    """
+    if len(device.signals) < 2:
+        return False
+
+    kept: list[UnknownSignal] = []
+    dec_first: dict[str, UnknownSignal] = {}
+    byte_all: dict[str, UnknownSignal] = {}
+    byte_nod: dict[str, UnknownSignal] = {}  # rows lacking decoded
+    fp_all: dict[str, UnknownSignal] = {}
+    fp_nod: dict[str, UnknownSignal] = {}  # rows lacking decoded
+    fp_nob: dict[str, UnknownSignal] = {}  # rows lacking byte_hash
+    fp_nodb: dict[str, UnknownSignal] = {}  # rows lacking both
+
+    for sig in device.signals:
+        dec = sig.decoded_fingerprint
+        bh = sig.byte_hash
+        fp = sig.fingerprint
+
+        best: UnknownSignal | None = None
+        best_tier = 0
+        if dec and (row := dec_first.get(dec)) is not None:
+            best, best_tier = row, 1
+        elif bh and (
+            row := (byte_nod if dec else byte_all).get(bh)
+        ) is not None:
+            best, best_tier = row, 2
+        elif fp:
+            # Eligible rows must lack every stronger layer the signal
+            # carries (see docstring); pick the matching dict.
+            if dec and bh:
+                fp_map = fp_nodb
+            elif dec:
+                fp_map = fp_nod
+            elif bh:
+                fp_map = fp_nob
+            else:
+                fp_map = fp_all
+            if (row := fp_map.get(fp)) is not None:
+                best, best_tier = row, 3
+
+        if best is not None:
+            best.hit_count += sig.hit_count
+            if not best.alias and sig.alias:
+                best.alias = sig.alias
+            if sig.last_seen and (
+                not best.last_seen or sig.last_seen > best.last_seen
+            ):
+                best.last_seen = sig.last_seen
+            _LOGGER.debug(
+                "Healed duplicate signal %s into %s on remote %s "
+                "(matched at identity tier %d)",
+                sig.id,
+                best.id,
+                device.label or device.id,
+                best_tier,
+            )
+            continue
+
+        kept.append(sig)
+        if dec:
+            dec_first.setdefault(dec, sig)
+        if bh:
+            byte_all.setdefault(bh, sig)
+            if not dec:
+                byte_nod.setdefault(bh, sig)
+        if fp:
+            fp_all.setdefault(fp, sig)
+            if not dec:
+                fp_nod.setdefault(fp, sig)
+            if not bh:
+                fp_nob.setdefault(fp, sig)
+                if not dec:
+                    fp_nodb.setdefault(fp, sig)
+
+    if len(kept) != len(device.signals):
+        device.signals = kept
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Signal caps (GH #72)
+# ---------------------------------------------------------------------------
+
+
+def _signal_evict_order(sig: UnknownSignal) -> tuple[bool, str, str]:
+    """Sort key for cap eviction: least-worth-keeping first.
+
+    Aliased rows are user touch; they are evicted only after every
+    unnamed row is gone. Within each class the oldest ``last_seen``
+    goes first (ISO-8601 UTC strings sort chronologically, matching the
+    string sort ``evict()`` already relies on), tie-broken on
+    ``first_seen``.
+    """
+    return (bool(sig.alias), sig.last_seen or "", sig.first_seen or "")
+
+
+def _trim_device_signals(
+    device: UnknownDevice,
+    cap: int,
+    spare: UnknownSignal | None = None,
+) -> int:
+    """Trim one device's signal list to ``cap`` rows; return count evicted.
+
+    ``spare`` is never evicted (the row a live capture just inserted;
+    without it, a device whose every other row is aliased would evict
+    the brand-new capture out from under the caller).
+    """
+    excess = len(device.signals) - cap
+    if excess <= 0:
+        return 0
+    candidates = sorted(
+        (s for s in device.signals if s is not spare),
+        key=_signal_evict_order,
+    )
+    victim_ids = {s.id for s in candidates[:excess]}
+    if not victim_ids:
+        return 0
+    device.signals = [s for s in device.signals if s.id not in victim_ids]
+    return len(victim_ids)
+
+
+def _enforce_global_cap(
+    devices: dict[str, UnknownDevice],
+    spare: UnknownSignal | None = None,
+) -> tuple[int, str | None]:
+    """Enforce ``SIGNAL_MAX_TOTAL_SIGNALS`` across all sniffed devices.
+
+    Water-filling: find the highest per-device level at which the total
+    fits, then trim only the devices above it -- the noisiest devices
+    pay, quiet remotes keep every row. Returns ``(evicted_count,
+    noisiest_device_label)``.
+    """
+    sniffed = [d for d in devices.values() if d.source == _EVICTABLE]
+    counts = [len(d.signals) for d in sniffed]
+    if sum(counts) <= SIGNAL_MAX_TOTAL_SIGNALS:
+        return 0, None
+    lo, hi = 0, max(counts)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if sum(min(n, mid) for n in counts) <= SIGNAL_MAX_TOTAL_SIGNALS:
+            lo = mid
+        else:
+            hi = mid - 1
+    evicted = 0
+    noisiest: tuple[int, str | None] = (0, None)
+    for d in sniffed:
+        removed = _trim_device_signals(d, lo, spare=spare)
+        if removed:
+            evicted += removed
+            if removed > noisiest[0]:
+                noisiest = (removed, d.label or d.id)
+    return evicted, noisiest[1]
+
+
+def _enforce_caps_on_load(devices: dict[str, UnknownDevice]) -> bool:
+    """One-shot cap pass at load; True when anything was evicted.
+
+    Runs after the duplicate heal so merged rows do not count against
+    the caps. A store that grew past the caps before this release (the
+    GH #72 reporter carried 104k signals / 340MB) is trimmed back to
+    bounds on its first post-upgrade boot; a single WARNING summarizes
+    what happened and names the worst offender.
+    """
+    per_device = 0
+    worst: tuple[int, str, int] | None = None
+    for d in devices.values():
+        if d.source != _EVICTABLE:
+            continue
+        before = len(d.signals)
+        removed = _trim_device_signals(d, SIGNAL_MAX_SIGNALS_PER_DEVICE)
+        if removed:
+            per_device += removed
+            if worst is None or removed > worst[0]:
+                worst = (removed, d.label or d.id, before)
+    global_removed, global_noisiest = _enforce_global_cap(devices)
+    if not per_device and not global_removed:
+        return False
+    if worst is not None:
+        noisiest_note = (
+            f"; noisiest: '{worst[1]}' ({worst[2]} -> "
+            f"{worst[2] - worst[0]} signals)"
+        )
+    elif global_noisiest is not None:
+        noisiest_note = f"; noisiest: '{global_noisiest}'"
+    else:
+        noisiest_note = ""
+    _LOGGER.warning(
+        "Unknown-signal store exceeded its caps; evicted %d signal(s) at "
+        "load (%d over the %d-per-device cap, %d over the %d global "
+        "cap)%s. Oldest sniffed signals were removed; clipped and plucked "
+        "remotes are untouched, and any evicted signal reappears when its "
+        "button is pressed again",
+        per_device + global_removed,
+        per_device,
+        SIGNAL_MAX_SIGNALS_PER_DEVICE,
+        global_removed,
+        SIGNAL_MAX_TOTAL_SIGNALS,
+        noisiest_note,
+    )
+    return True
