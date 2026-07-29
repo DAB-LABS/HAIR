@@ -5,7 +5,21 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.8] - 2026-07-29 -- Cold Cuts
+## [0.8.9] - 2026-07-29 -- Cuts the Buzz
+
+### Fixed
+
+- **The startup freeze at flood scale.** `SignalStore.async_load()` ran its duplicate-healing pass directly on Home Assistant's event loop, and the pass was quadratic. Once the unknown-signal store grew large enough, every boot froze all of Home Assistant -- HTTP included -- for the duration; at 104,000 stored signals that was about 15 minutes of apparent death per start, with no warning from HA's blocking-call detector because the work is pure CPU, not I/O. The load transform now runs off the event loop in an executor job, and the heal is rewritten from pairwise rescans to hash lookups with identical merge results (pinned by test against the old algorithm). The same 104k-signal store now heals in under a second, and a store of any size can no longer stall the rest of Home Assistant. Reported by @carlmiller99 (GH #72) with a py-spy-profiled analysis that isolated both the freeze and its root cause; this release exists because of that report.
+
+### Changed
+
+- **HAIR no longer listens to RF receivers.** Combined RF/IR hardware (Athom's RF IR Remote and similar ESPHome `ir_rf_proxy` builds) can expose its RF receivers as `infrared` platform entities, and HAIR subscribed to every receiver in the domain. That was the root cause behind the freeze above: ambient radio chatter is not IR, never decodes, and on the reporting install minted 500 phantom remotes and 340MB of stored noise in 33 hours. HAIR now skips receivers that read as RF (by registry naming: an `rf` token or an MHz-band token such as `433mhz`, without an `ir` token) at subscription, in capture-provider discovery, and in the receiver picker, logging each skip once. Stated plainly: if you were deliberately sniffing RF remotes through one of these receivers, those captures stop with this release, and there is no toggle to bring them back yet. RF as a proper, explicit opt-in is on the roadmap; excluding it silently by default is the honest interim, because HAIR cannot decode or replay what it was storing. The Home Assistant core platform currently exposes no attribute distinguishing RF from IR receivers, so naming is the discriminator available; if a receiver of yours is wrongly skipped, the log line names it and an `ir` token in its name restores the subscription.
+
+### Added
+
+- **The unknown-signal store is capped.** Two new bounds on sniffed signals: 200 per remote and 20,000 total (the existing 500-remote cap stays). When a cap is hit the oldest signals are evicted first, aliased rows last, and a warning names the remote and the receiver it was heard by. Clipped and plucked remotes are user creations and are never touched. Eviction is capacity protection, not hiding: an evicted signal reappears the moment its button is genuinely pressed again. A store already past the caps is trimmed once at load, so an install sitting on a flooded store recovers on its first boot after upgrading with no manual `.storage` surgery.
+
+
 
 ### Added
 

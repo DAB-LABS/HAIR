@@ -44,4 +44,4 @@ Il README completo, con YAML di configurazione, hardware supportato, guide alle 
 
 ---
 
-*Tradotto dal README inglese, versione v0.8.8. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Tradotto dal README inglese, versione v0.8.9. Questo file è stato redatto da un assistente di programmazione e viene aggiornato a ogni release. I madrelingua sono i benvenuti a prendersene cura; vedi [Adding a language](CONTRIBUTING.md#adding-a-language).*
