@@ -31,6 +31,8 @@ O painel fala o seu idioma. Inglês, espanhol, francês, japonês, alemão, polo
 
 ## Instalação
 
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
 1. Adicione `https://github.com/DAB-LABS/HAIR` ao HACS como repositório personalizado (categoria: Integration)
 2. Instale o HAIR, reinicie o Home Assistant e adicione a integração em Configurações, depois Dispositivos e serviços
 

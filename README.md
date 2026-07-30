@@ -91,6 +91,12 @@ Same device as the Device Detail shot above, but after a profile-language change
 
 ### HACS (Recommended)
 
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
+Click the button above, then **Download**, then restart Home Assistant.
+
+Or add it by hand:
+
 1. Open HACS in your Home Assistant instance
 2. Go to **Integrations**
 3. Click the three-dot menu > **Custom repositories**

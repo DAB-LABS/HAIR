@@ -31,6 +31,8 @@
 
 ## インストール
 
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
 1. HACSのカスタムリポジトリに `https://github.com/DAB-LABS/HAIR` を追加（カテゴリ：Integration）
 2. HAIRをインストールしてHome Assistantを再起動し、設定→デバイスとサービスから統合を追加
 
