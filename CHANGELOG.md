@@ -5,7 +5,15 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.9] - 2026-07-29 -- Cuts the Buzz
+## [0.9.0] - 2026-07-30 -- Fine-tuned Fittings
+
+### Added
+
+- **A device that needs three presses can now say so.** Some devices miss a single IR send and respond every time at three -- a fact about distance, blaster power, and angle, not about the codes. The fitting session grows a **send times** control: raise it when the device misses, and every send in the session transmits that many times. What you used is recorded on the fitting as `send_times_used`, inside the signed entry, so the evidence travels with the wig. The record only ever rises during a session (a signal proven at three stays claimed at three, even if you drop back down for the next one), and it survives a Home Assistant restart mid-fitting.
+- **The next person's adopt picks it up.** ADOPT DEVICE now seeds new commands -- and every cell of a matrix wig -- from the highest send times any fitter needed, so a wig fitted at three answers the first press on a fresh install with nothing to tune. The wig's own per-signal `send_count` still wins where it is higher, and the value is clamped to 1..10 everywhere it is read.
+- **The ledger shows the evidence.** Fittings that carry the field display "at N sends" alongside their coverage. Fittings recorded before this release show nothing there, deliberately: absent means unknown, not 1, so old fittings never silently claim a measurement they did not make.
+
+
 
 ### Fixed
 

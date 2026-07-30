@@ -3032,6 +3032,7 @@ def _send_fitting_result(
     vol.Required("filename"): vol.All(str, vol.Length(max=300)),
     vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
     vol.Required("emitter"): vol.All(str, vol.Length(max=300)),
+    vol.Optional("send_times"): vol.All(int, vol.Range(min=1, max=10)),
 })
 @websocket_api.async_response
 async def ws_fitting_send(
@@ -3049,7 +3050,11 @@ async def ws_fitting_send(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     result = await manager.async_send(
-        msg["filename"], msg["signal_index"], msg["emitter"]
+        msg["filename"],
+        msg["signal_index"],
+        msg["emitter"],
+        send_times=msg.get("send_times"),
+        username=_fitting_username(connection),
     )
     _send_fitting_result(connection, msg["id"], result)
 
@@ -3250,6 +3255,7 @@ async def ws_fitting_state(
                     "failed": draft.failed,
                     "heard": draft.raw.get("heard") or [],
                     "date": draft.raw.get("date"),
+                    "send_times_used": draft.send_times_used,
                 }
                 if draft else None
             ),
@@ -3264,6 +3270,9 @@ async def ws_fitting_state(
                     "receiver": f.raw.get("receiver"),
                     "signals_heard": f.raw.get("signals_heard"),
                     "note": f.raw.get("note"),
+                    # None where absent: the ledger renders nothing
+                    # there, because absent is unknown, not 1.
+                    "send_times_used": f.send_times_used,
                     "confirmed": len(f.confirmed),
                     "failed": len(f.failed),
                     "draft": f.draft,
@@ -3287,6 +3296,15 @@ async def ws_fitting_state(
     if result is None:
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
+    # The dialog's restore value for the send-times control: the live
+    # session where one exists, else the draft's persisted record (an
+    # HA restart wipes sessions but not drafts -- without the fallback
+    # a resumed fitting would show 1 while the record says 3). None
+    # means the control starts fresh at 1.
+    session_value = manager.session_send_times(msg["filename"])
+    draft_value = (result.get("draft") or {}).get("send_times_used")
+    candidates = [v for v in (session_value, draft_value) if v]
+    result["send_times"] = max(candidates) if candidates else None
     connection.send_result(msg["id"], result)
 
 
@@ -3417,11 +3435,20 @@ async def ws_wig_make_device(
         return
 
     from .models import CaptureResult, CommandCategory
+    from .wig_fitting import fitting_send_times_max
     from .wig_identity import wig_signal_identities
 
     identities = await hass.async_add_executor_job(
         wig_signal_identities, wig
     )
+
+    # Fine-tuned-fittings: the highest send-times any fitter needed
+    # seeds the adopted device, so a candle that answers at three
+    # sends answers the first press for the next person. The wig's
+    # own definition wins when HIGHER (it is what the codes are; a
+    # fitting is one person's observation). Codebook adopts carry no
+    # fittings and resolve to 1, a no-op.
+    fitted_sends = fitting_send_times_max(wig)
 
     device = IRDevice(
         name=msg["name"],
@@ -3437,6 +3464,13 @@ async def ws_wig_make_device(
         # added-to-hass hook loads the matrix -- writing after would
         # race it. A write failure refuses the whole adopt, so a
         # cancelled or failed dialog still never leaves an orphan.
+        # Cell seeding therefore happens HERE, before the write: the
+        # cells never reach the signal loop below, and raising them
+        # after the device exists would race the same hook.
+        if fitted_sends > 1:
+            for cell in matrix.cells:
+                if cell.send_count < fitted_sends:
+                    cell.send_count = fitted_sends
         from .matrix_store import write_matrix
 
         try:
@@ -3475,7 +3509,9 @@ async def ws_wig_make_device(
         command.decoded_extras = (
             dict(ident.decoded_extras) if ident.decoded_extras else None
         )
-        command.send_count = max(1, sig.send_count or 1)
+        # Definition wins when higher; fitting evidence raises, never
+        # lowers. Flat extras on a matrix wig ride this same loop.
+        command.send_count = max(1, sig.send_count or 1, fitted_sends)
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1

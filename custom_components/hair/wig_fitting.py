@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from .const import MAX_SEND_COUNT
 from .wig_format import Wig, serialize_wig, wig_content_hash
 
 if TYPE_CHECKING:
@@ -125,6 +126,18 @@ class Fitting:
         value = self.raw.get("github")
         return value if isinstance(value, str) and value else None
 
+    @property
+    def send_times_used(self) -> int | None:
+        """The send-times evidence this fitting carries, clamped.
+
+        ABSENT IS NOT 1: a fitting without the field predates it (or
+        came from a tool that does not write it) and claims nothing --
+        None here, never coerced. An explicit value is clamped to
+        1..MAX_SEND_COUNT on read (design 5.3: a signature makes a
+        value tamper-evident, not sane).
+        """
+        return _read_send_times(self.raw)
+
 
 @dataclass
 class FittingsView:
@@ -187,6 +200,46 @@ def _is_str_list(value: Any) -> bool:
     return isinstance(value, list) and all(
         isinstance(item, str) for item in value
     )
+
+
+def _read_send_times(entry: dict[str, Any]) -> int | None:
+    """Read ``send_times_used`` from a raw fitting dict, clamped.
+
+    None for absent or unreadable (bool is an int subclass and reads
+    as garbage, not as 1). This is the ONE place the value is parsed,
+    so the absent-is-not-1 rule cannot drift between readers.
+    """
+    value = entry.get("send_times_used")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return max(1, min(value, MAX_SEND_COUNT))
+
+
+def fitting_send_times_max(wig: Wig) -> int:
+    """The highest send-times any fitter needed: the adopt/factory seed.
+
+    THE single aggregation point (handoff 4.1): ADOPT DEVICE, the
+    factory and the shop index all call this, so the rule cannot
+    drift. Max, never mean or mode -- send times is a threshold ("at
+    least N to be reliable"), and averaging [1, 3, 3] to 2 serves
+    nobody (design section 4).
+
+    Counts every COMPLETE fitting whose content hash matches the
+    CURRENT codes, signed or unsigned (design 5.0: a measurement, not
+    a vote; the incentive to inflate is nil). Stale-hash fittings
+    describe different codes and are excluded. Absent values
+    contribute nothing. Returns 1 when nothing is known.
+    """
+    best = 1
+    for fitting in parse_fittings(wig).fittings:
+        if not fitting_is_valid(fitting, wig):
+            continue
+        if not fitting_is_complete(fitting, wig):
+            continue
+        value = fitting.send_times_used
+        if value is not None and value > best:
+            best = value
+    return best
 
 
 def fitting_is_valid(fitting: Fitting, wig: Wig) -> bool:
@@ -372,7 +425,23 @@ class FittingManager:
             "receiver_platform": None,
             "extras": {},        # signal index -> live decoded_extras
             "heard": set(),      # aliases whose echo came back
+            # Highest send-times value used on any send this session
+            # (fine-tuned-fittings). MONOTONIC by owner ruling
+            # 2026-07-30: lowering the control never lowers the
+            # record, so a signal proven at 3 stays claimed at 3 even
+            # if the fitter drops back to 1 for the next one. None
+            # until the control is first exercised; merged into the
+            # draft at mark/finish and written directly on send when
+            # a draft already exists.
+            "send_times": None,
         })
+
+    def session_send_times(self, filename: str) -> int | None:
+        """Peek the session's send-times record without creating one."""
+        session = self._sessions.get(filename)
+        if not session:
+            return None
+        return session.get("send_times")
 
     async def _versions(self) -> tuple[str | None, str | None]:
         if self._hair_version is None:
@@ -416,7 +485,12 @@ class FittingManager:
     # -- send ------------------------------------------------------------
 
     async def async_send(
-        self, filename: str, index: int, emitter_entity_id: str
+        self,
+        filename: str,
+        index: int,
+        emitter_entity_id: str,
+        send_times: int | None = None,
+        username: str | None = None,
     ) -> dict[str, Any]:
         """Send one fitting row through an emitter; report sent + heard.
 
@@ -427,6 +501,16 @@ class FittingManager:
         from. ``index`` addresses ``fitting_rows(wig)``, so a matrix
         wig's checklist and a signal wig's aliases ride the identical
         path -- only the row source differs.
+
+        ``send_times`` is the session control (fine-tuned-fittings):
+        this send loops that many times instead of the row's own
+        ``send_count``, and the highest value ever used is recorded as
+        ``send_times_used`` evidence. When the caller's ``username``
+        already has a draft, the record is written into it here, on
+        the send, so a mid-fitting HA restart cannot roll a tested-at-3
+        claim back to 1 (handoff 4.2); before the first mark the
+        session carries it, because the first mark is what creates the
+        draft and a bare test send must not.
         """
         if self._hass.states.get(emitter_entity_id) is None:
             return {"success": False, "code": "entity_not_found",
@@ -454,6 +538,20 @@ class FittingManager:
             self._platform_of(emitter_entity_id)
             or session["emitter_platform"]
         )
+        if send_times is not None:
+            used = max(1, min(int(send_times), MAX_SEND_COUNT))
+            session["send_times"] = max(
+                session.get("send_times") or 0, used
+            )
+            if username:
+                draft = self._find_user_draft(wig, username)
+                if draft is not None:
+                    draft["send_times_used"] = max(
+                        _read_send_times(draft) or 0,
+                        session["send_times"],
+                    )
+                    self._pending[filename] = wig
+                    self._schedule_write(filename)
 
         from .ir_command import build_command, build_decoded_command
 
@@ -498,7 +596,14 @@ class FittingManager:
         from .const import ASSIGN_SERVICE_TIMEOUT_S, SEND_REPEAT_GAP
         from .tx_gate import gated_send
 
-        send_count = max(1, row_send_count or 1)
+        # The session control substitutes for the row's own send_count
+        # when set (fine-tuned-fittings). THIS call's value drives the
+        # loop -- the monotonic session record above is what gets
+        # claimed, but a fitter who lowered the control back to 1
+        # genuinely sends once.
+        send_count = max(
+            1, min(send_times or row_send_count or 1, MAX_SEND_COUNT)
+        )
         try:
             for i in range(send_count):
                 if i:
@@ -670,6 +775,13 @@ class FittingManager:
         if session["heard"]:
             merged = set(draft.get("heard") or []) | session["heard"]
             draft["heard"] = sorted(merged)
+        if session.get("send_times"):
+            # Monotonic (owner ruling 2026-07-30): the record only ever
+            # rises, so re-marking a row after lowering the control
+            # cannot roll a tested-at-3 claim back down.
+            draft["send_times_used"] = max(
+                _read_send_times(draft) or 0, session["send_times"]
+            )
 
     # -- finish / discard ------------------------------------------------
 
@@ -719,6 +831,17 @@ class FittingManager:
         if heard_list:
             draft["signals_heard"] = len(heard_list)
         draft["date"] = _today()
+        # Version stamps refresh at the signing moment, exactly like
+        # the date (owner bench, 2026-07-30): a reopened fitting kept
+        # the stamps from when its entry was FIRST created, so a
+        # re-fit on 0.9.0 signed an entry claiming hair_version 0.7.2
+        # while carrying send_times_used, a field 0.7.2 could not
+        # write. The attestation is made now, by this install.
+        hair_version, ha_version = await self._versions()
+        if hair_version:
+            draft["hair_version"] = hair_version
+        if ha_version:
+            draft["ha_version"] = ha_version
         draft.pop("draft", None)
 
         # Sign the attestation (Section 14): per-install ed25519 key,

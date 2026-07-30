@@ -44,4 +44,4 @@ De complete README, met setup-YAML, ondersteunde hardware, functiegidsen en scre
 
 ---
 
-*Vertaald uit de Engelse README, stand v0.8.9. Dit bestand is opgesteld door een programmeerassistent en wordt bij elke release ververst. Moedertaalsprekers zijn welkom om het over te nemen; zie [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Vertaald uit de Engelse README, stand v0.9.0. Dit bestand is opgesteld door een programmeerassistent en wordt bij elke release ververst. Moedertaalsprekers zijn welkom om het over te nemen; zie [Adding a language](CONTRIBUTING.md#adding-a-language).*

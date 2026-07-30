@@ -43,6 +43,19 @@ interface RowFacts {
     busy: boolean;
 }
 
+/** Display cleanup for a prefilled GitHub handle: strip a profile URL
+ * down to its account (everything up to the first remaining slash, so
+ * a copied repo URL yields the owner, not owner/repo), drop a typed @.
+ * Prefill only; the backend normalizes again at record time. */
+function _cleanGithubHandle(value: string): string {
+    let v = value.trim();
+    v = v.replace(/^https?:\/\/(www\.)?github\.com\//i, "");
+    v = v.replace(/^@+/, "");
+    const slash = v.indexOf("/");
+    if (slash !== -1) v = v.slice(0, slash);
+    return v.trim();
+}
+
 @customElement("ir-fitting-dialog")
 export class IrFittingDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -54,6 +67,12 @@ export class IrFittingDialog extends LitElement {
     @state() private _verdicts = new Map<number, "worked" | "failed">();
     @state() private _facts = new Map<number, RowFacts>();
     @state() private _emitter = "";
+    // Session send-times control (fine-tuned-fittings). Every fresh
+    // session starts at 1; NEVER carried between wigs, because a
+    // remembered 3 quietly inflates every later wig's claim. Restored
+    // from the state payload on open so a resumed session shows what
+    // was used rather than snapping back to 1.
+    @state() private _sendTimes = 1;
     @state() private _receiverIds = new Set<string>();
     @state() private _view: "session" | "sign" | "ledger" = "session";
     @state() private _confirmDiscard = false;
@@ -79,6 +98,11 @@ export class IrFittingDialog extends LitElement {
             this._fit = fit;
             this._handle = fit.username;
             this._kind = fit.kind ?? "";
+            if (fit.send_times)
+                this._sendTimes = Math.max(
+                    1,
+                    Math.min(fit.send_times, 10),
+                );
             // Prefill the GitHub handle from the user's previous
             // fitting on this install ("remembered per install").
             const mine = fit.ledger.find(
@@ -87,7 +111,11 @@ export class IrFittingDialog extends LitElement {
                     row.handle.toLowerCase() ===
                         fit.username.toLowerCase(),
             );
-            this._github = mine?.github ?? "";
+            // Normalized on prefill: a previous fitting may carry an
+            // imported wig's dirty value (URL, @-prefixed), and a URL
+            // sitting behind the field's decorative @ reads as a bug.
+            // The backend cleans again on record either way.
+            this._github = _cleanGithubHandle(mine?.github ?? "");
             const verdicts = new Map<number, "worked" | "failed">();
             fit.signals.forEach((alias, i) => {
                 if (fit.draft?.failed.includes(alias))
@@ -139,6 +167,12 @@ export class IrFittingDialog extends LitElement {
         );
     }
 
+    private _onSendTimesInput(e: Event): void {
+        const raw = Number((e.target as HTMLInputElement).value);
+        if (!Number.isFinite(raw)) return;
+        this._sendTimes = Math.max(1, Math.min(Math.round(raw), 10));
+    }
+
     private async _send(i: number): Promise<void> {
         if (!this._emitter || !this._fit) return;
         const facts = this._facts.get(i) ?? {
@@ -156,6 +190,7 @@ export class IrFittingDialog extends LitElement {
                 this.wig.filename,
                 i,
                 this._emitter,
+                this._sendTimes,
             );
             this._facts = new Map(this._facts).set(i, {
                 sent: facts.sent + 1,
@@ -381,6 +416,18 @@ export class IrFittingDialog extends LitElement {
                         </option>`,
                     )}
                 </select>
+            </div>
+            <div class="field">
+                <label>${t("fitting.send_times")}</label>
+                <input
+                    class="send-count"
+                    type="number"
+                    min="1"
+                    max="10"
+                    .value=${String(this._sendTimes)}
+                    @input=${this._onSendTimesInput}
+                />
+                <div class="hint">${t("fitting.send_times_hint")}</div>
             </div>
             <div class="sig-list">
                 ${this._fit
@@ -689,6 +736,13 @@ export class IrFittingDialog extends LitElement {
                                 count: String(r.signals_heard),
                             }),
                         );
+                    if (r.send_times_used)
+                        // Absent renders nothing: unknown is not 1.
+                        evidence.push(
+                            t("fitting.ledger_send_times", {
+                                count: String(r.send_times_used),
+                            }),
+                        );
                     if (r.key_fingerprint)
                         evidence.push(`key ${r.key_fingerprint}`);
                     return html`
@@ -800,14 +854,22 @@ export class IrFittingDialog extends LitElement {
             </div>
             <div class="field">
                 <label>${t("fitting.github")}</label>
-                <input
-                    .value=${this._github}
-                    placeholder="octocat"
-                    @input=${(e: Event) =>
-                        (this._github = (
-                            e.target as HTMLInputElement
-                        ).value)}
-                />
+                <!-- Decorative @ (roadmap, 2026-07-30): the format is
+                     visible without being typed. Never enters _github;
+                     the record payload is unchanged. Placeholder stays
+                     "octocat" on purpose -- "@octocat" would suggest
+                     typing the symbol, the opposite of the point. -->
+                <div class="gh-wrap">
+                    <span class="gh-at" aria-hidden="true">@</span>
+                    <input
+                        .value=${this._github}
+                        placeholder="octocat"
+                        @input=${(e: Event) =>
+                            (this._github = (
+                                e.target as HTMLInputElement
+                            ).value)}
+                    />
+                </div>
                 <div class="hint">${t("fitting.github_hint")}</div>
             </div>
             ${!this._fit?.kind
@@ -866,6 +928,23 @@ export class IrFittingDialog extends LitElement {
         css`
             .fit-dialog {
                 max-width: 440px;
+            }
+            /* Decorative @ inside the GitHub field's left edge. */
+            .gh-wrap {
+                position: relative;
+            }
+            .gh-wrap .gh-at {
+                position: absolute;
+                left: 10px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: var(--secondary-text-color);
+                pointer-events: none;
+            }
+            .gh-wrap input {
+                width: 100%;
+                box-sizing: border-box;
+                padding-left: 24px;
             }
             .sess-head {
                 font-size: 12.5px;
