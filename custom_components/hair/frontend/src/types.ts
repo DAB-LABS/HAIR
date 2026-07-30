@@ -197,6 +197,10 @@ export interface FittingLedgerRow {
     receiver: string | null;
     signals_heard: number | null;
     note: string | null;
+    // Send times the fitter recorded (fine-tuned-fittings). null =
+    // absent = unknown (pre-field fitting), which renders as nothing.
+    // Absent is not 1.
+    send_times_used?: number | null;
     confirmed: number;
     failed: number;
     draft: boolean;
@@ -243,9 +247,14 @@ export interface FittingState {
         failed: string[];
         heard: string[];
         date: string | null;
+        send_times_used?: number | null;
     } | null;
     ledger: FittingLedgerRow[];
     summary: FittingSummary;
+    // Restore value for the session's send-times control: the live
+    // session where one exists, else the draft's persisted record.
+    // null = fresh session, control starts at 1.
+    send_times?: number | null;
 }
 
 export interface WigInvalid {

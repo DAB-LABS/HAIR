@@ -600,3 +600,272 @@ class TestGithubNormalization:
         )
         f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
         assert f.raw["github"] == "DAB-LABS"
+
+
+# ---------------------------------------------------------------------------
+# Send times (fine-tuned-fittings, v0.9.0)
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, patch  # noqa: E402
+
+from custom_components.hair.wig_fitting import (  # noqa: E402
+    _read_send_times,
+    fitting_send_times_max,
+)
+
+
+class TestReadSendTimes:
+    """The one parse point: absent is not 1, garbage is not a claim."""
+
+    def test_absent_is_none(self):
+        assert _read_send_times({}) is None
+
+    def test_explicit_none_is_none(self):
+        assert _read_send_times({"send_times_used": None}) is None
+
+    def test_string_is_none(self):
+        assert _read_send_times({"send_times_used": "3"}) is None
+
+    def test_bool_is_none(self):
+        # bool subclasses int; True must not read as 1.
+        assert _read_send_times({"send_times_used": True}) is None
+
+    def test_clamped_low(self):
+        assert _read_send_times({"send_times_used": 0}) == 1
+        assert _read_send_times({"send_times_used": -1}) == 1
+
+    def test_clamped_high(self):
+        # A signature makes a value tamper-evident, not sane: a typo
+        # of 1000 must never become a minute-long press.
+        assert _read_send_times({"send_times_used": 1000}) == 10
+
+    def test_plain_value(self):
+        assert _read_send_times({"send_times_used": 3}) == 3
+
+
+class TestSendTimesMax:
+    """The single aggregation point: max, complete + current-hash only."""
+
+    def test_empty_wig_returns_one(self):
+        assert fitting_send_times_max(_wig()) == 1
+
+    def test_max_across_fittings(self):
+        base = _wig()
+        wig = _wig([
+            _complete_fitting(base),  # absent: contributes nothing
+            _complete_fitting(base, handle="b", send_times_used=3),
+            _complete_fitting(base, handle="c", send_times_used=2),
+        ])
+        assert fitting_send_times_max(wig) == 3
+
+    def test_absent_never_coerced(self):
+        wig = _wig([_complete_fitting(_wig())])
+        assert fitting_send_times_max(wig) == 1
+
+    def test_draft_excluded(self):
+        wig = _wig([
+            _complete_fitting(_wig(), draft=True, send_times_used=5),
+        ])
+        assert fitting_send_times_max(wig) == 1
+
+    def test_stale_hash_excluded(self):
+        # A fitting on old codes describes a different wig.
+        wig = _wig([
+            _complete_fitting(
+                _wig(), content_hash="sha256:stale", send_times_used=7,
+            ),
+        ])
+        assert fitting_send_times_max(wig) == 1
+
+    def test_incomplete_excluded(self):
+        wig = _wig([
+            _complete_fitting(
+                _wig(), confirmed=["Power On"], failed=["Power Off"],
+                send_times_used=4,
+            ),
+        ])
+        assert fitting_send_times_max(wig) == 1
+
+    def test_unsigned_complete_counts(self):
+        # Design 5.0: a measurement, not a vote. No sig required.
+        wig = _wig([
+            _complete_fitting(_wig(), send_times_used=3),
+        ])
+        assert "sig" not in wig.extra[FITTINGS_KEY][0]
+        assert fitting_send_times_max(wig) == 3
+
+    def test_garbage_value_ignored(self):
+        wig = _wig([
+            _complete_fitting(_wig(), send_times_used="lots"),
+        ])
+        assert fitting_send_times_max(wig) == 1
+
+
+def _sending_manager(fake_hass, tmp_path):
+    fake_hass.config.config_dir = str(tmp_path)
+    fake_hass.states.get = lambda eid: object()
+    return FittingManager(fake_hass, _FakeMonitor())
+
+
+class TestSendTimesSession:
+    @pytest.mark.asyncio
+    async def test_override_beats_row_value(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            result = await manager.async_send(
+                filename, 0, "infrared.e", send_times=3,
+            )
+        assert result["success"]
+        assert gated.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_no_control_uses_row_default(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            result = await manager.async_send(filename, 0, "infrared.e")
+        assert result["success"]
+        assert gated.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_loop_clamped(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=1000,
+            )
+        assert gated.await_count == 10
+
+    @pytest.mark.asyncio
+    async def test_record_lands_on_mark(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        with patch("custom_components.hair.tx_gate.gated_send",
+                   AsyncMock()):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=3, username="dab",
+            )
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_flush()
+        f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
+        assert f.send_times_used == 3
+
+    @pytest.mark.asyncio
+    async def test_record_is_monotonic(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """Owner ruling 2026-07-30: lowering the control never lowers
+        the record. Raise to 3, prove a signal, drop to 1 for the next:
+        the claim stays 3."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        with patch("custom_components.hair.tx_gate.gated_send",
+                   AsyncMock()):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=3, username="dab",
+            )
+            await manager.async_mark(filename, 0, "worked", "dab")
+            await manager.async_send(
+                filename, 1, "infrared.e", send_times=1, username="dab",
+            )
+            await manager.async_mark(filename, 1, "worked", "dab")
+        await manager.async_flush()
+        f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
+        assert f.send_times_used == 3
+
+    @pytest.mark.asyncio
+    async def test_send_writes_existing_draft_directly(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """Handoff 4.2: once a draft exists, the send itself persists
+        the record; no further mark is needed for it to survive."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        await manager.async_mark(filename, 0, "worked", "dab")
+        with patch("custom_components.hair.tx_gate.gated_send",
+                   AsyncMock()):
+            await manager.async_send(
+                filename, 1, "infrared.e", send_times=3, username="dab",
+            )
+        await manager.async_flush()
+        f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
+        assert f.send_times_used == 3
+
+    @pytest.mark.asyncio
+    async def test_bare_test_send_creates_no_draft(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """First mark creates the draft; a test send never does."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        with patch("custom_components.hair.tx_gate.gated_send",
+                   AsyncMock()):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=3, username="dab",
+            )
+        await manager.async_flush()
+        assert parse_fittings(_read_wig(wigs_dir_path)).fittings == []
+
+    @pytest.mark.asyncio
+    async def test_record_survives_restart(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """THE 4.2 test: an HA restart mid-fitting must not roll a
+        tested-at-3 claim back to 1 through the resume path."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        with patch("custom_components.hair.tx_gate.gated_send",
+                   AsyncMock()):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=3, username="dab",
+            )
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_flush()
+
+        # Restart: fresh manager, empty sessions.
+        reborn = FittingManager(fake_hass, monitor=None)
+        assert reborn.session_send_times(filename) is None
+        await reborn.async_mark(filename, 1, "worked", "dab")
+        await reborn.async_finish(filename, "dab", None, None, None)
+        f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
+        assert f.raw["send_times_used"] == 3
+        assert not f.draft
+
+    @pytest.mark.asyncio
+    async def test_finish_signs_the_record(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        with patch("custom_components.hair.tx_gate.gated_send",
+                   AsyncMock()):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=2, username="dab",
+            )
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_mark(filename, 1, "worked", "dab")
+        await manager.async_finish(filename, "dab", None, None, None)
+        f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
+        assert f.raw["send_times_used"] == 2
+        # Inside the signed payload when signing succeeded (the sandbox
+        # may lack the cryptography package; the field is present
+        # either way).
+        if "sig" in f.raw:
+            from custom_components.hair.fitting_signing import (
+                verify_fitting,
+            )
+
+            assert verify_fitting(f.raw) == "valid"

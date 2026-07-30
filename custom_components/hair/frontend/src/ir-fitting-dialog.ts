@@ -54,6 +54,12 @@ export class IrFittingDialog extends LitElement {
     @state() private _verdicts = new Map<number, "worked" | "failed">();
     @state() private _facts = new Map<number, RowFacts>();
     @state() private _emitter = "";
+    // Session send-times control (fine-tuned-fittings). Every fresh
+    // session starts at 1; NEVER carried between wigs, because a
+    // remembered 3 quietly inflates every later wig's claim. Restored
+    // from the state payload on open so a resumed session shows what
+    // was used rather than snapping back to 1.
+    @state() private _sendTimes = 1;
     @state() private _receiverIds = new Set<string>();
     @state() private _view: "session" | "sign" | "ledger" = "session";
     @state() private _confirmDiscard = false;
@@ -79,6 +85,11 @@ export class IrFittingDialog extends LitElement {
             this._fit = fit;
             this._handle = fit.username;
             this._kind = fit.kind ?? "";
+            if (fit.send_times)
+                this._sendTimes = Math.max(
+                    1,
+                    Math.min(fit.send_times, 10),
+                );
             // Prefill the GitHub handle from the user's previous
             // fitting on this install ("remembered per install").
             const mine = fit.ledger.find(
@@ -139,6 +150,12 @@ export class IrFittingDialog extends LitElement {
         );
     }
 
+    private _onSendTimesInput(e: Event): void {
+        const raw = Number((e.target as HTMLInputElement).value);
+        if (!Number.isFinite(raw)) return;
+        this._sendTimes = Math.max(1, Math.min(Math.round(raw), 10));
+    }
+
     private async _send(i: number): Promise<void> {
         if (!this._emitter || !this._fit) return;
         const facts = this._facts.get(i) ?? {
@@ -156,6 +173,7 @@ export class IrFittingDialog extends LitElement {
                 this.wig.filename,
                 i,
                 this._emitter,
+                this._sendTimes,
             );
             this._facts = new Map(this._facts).set(i, {
                 sent: facts.sent + 1,
@@ -381,6 +399,18 @@ export class IrFittingDialog extends LitElement {
                         </option>`,
                     )}
                 </select>
+            </div>
+            <div class="field">
+                <label>${t("fitting.send_times")}</label>
+                <input
+                    class="send-count"
+                    type="number"
+                    min="1"
+                    max="10"
+                    .value=${String(this._sendTimes)}
+                    @input=${this._onSendTimesInput}
+                />
+                <div class="hint">${t("fitting.send_times_hint")}</div>
             </div>
             <div class="sig-list">
                 ${this._fit
@@ -687,6 +717,13 @@ export class IrFittingDialog extends LitElement {
                         evidence.push(
                             t("fitting.ledger_heard", {
                                 count: String(r.signals_heard),
+                            }),
+                        );
+                    if (r.send_times_used)
+                        // Absent renders nothing: unknown is not 1.
+                        evidence.push(
+                            t("fitting.ledger_send_times", {
+                                count: String(r.send_times_used),
                             }),
                         );
                     if (r.key_fingerprint)

@@ -542,3 +542,188 @@ class TestDuplicateMatrixDevice:
         })
         result = conn.send_result.call_args.args[1]
         assert result["climate_matrix"] is False
+
+
+# ---------------------------------------------------------------------------
+# Adopt seeding from fitting evidence (fine-tuned-fittings, v0.9.0)
+# ---------------------------------------------------------------------------
+
+
+def _fitted(wig, send_times, **overrides):
+    """A complete, current-hash fitting carrying send-times evidence."""
+    confirmed = (
+        list(CHECKLIST_KEYS)
+        if wig.climate is not None
+        else [s.alias for s in wig.signals]
+    )
+    entry = {
+        "handle": "tester",
+        "date": "2026-07-30",
+        "content_hash": wig_content_hash(wig),
+        "confirmed": confirmed,
+        "failed": [],
+        "send_times_used": send_times,
+    }
+    entry.update(overrides)
+    return entry
+
+
+class TestAdoptSeedsSendTimes:
+    @pytest.mark.asyncio
+    async def test_signal_adopt_raises_to_fitting_max(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        """Fittings say 3, the signals say 1: commands land at 3."""
+        fake_hass.config.config_dir = str(tmp_path)
+        wig = _signal_wig()
+        wig.extra[FITTINGS_KEY] = [_fitted(wig, 3)]
+        filename = _write_wig(wigs_dir_path, wig, "tv.wig.json")
+        manager = _adopt_manager()
+        _wire_adopt(fake_hass, manager)
+        conn = _make_connection()
+        await ws_wig_make_device(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/make-device",
+            "filename": filename, "name": "TV",
+            "device_type": "media_player",
+            "emitter_entity_ids": ["infrared.e"],
+        })
+        conn.send_error.assert_not_called()
+        device = manager.async_create_device.call_args.args[0]
+        assert [c.send_count for c in device.commands] == [3, 3]
+
+    @pytest.mark.asyncio
+    async def test_signal_definition_wins_when_higher(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        """The signal says 5, fittings say 3: the definition wins."""
+        fake_hass.config.config_dir = str(tmp_path)
+        wig = _signal_wig()
+        wig.signals[0].send_count = 5
+        wig.extra[FITTINGS_KEY] = [_fitted(wig, 3)]
+        filename = _write_wig(wigs_dir_path, wig, "tv.wig.json")
+        manager = _adopt_manager()
+        _wire_adopt(fake_hass, manager)
+        conn = _make_connection()
+        await ws_wig_make_device(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/make-device",
+            "filename": filename, "name": "TV",
+            "device_type": "media_player",
+            "emitter_entity_ids": ["infrared.e"],
+        })
+        device = manager.async_create_device.call_args.args[0]
+        assert [c.send_count for c in device.commands] == [5, 3]
+
+    @pytest.mark.asyncio
+    async def test_no_fittings_is_a_noop(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        wig = _signal_wig()
+        filename = _write_wig(wigs_dir_path, wig, "tv.wig.json")
+        manager = _adopt_manager()
+        _wire_adopt(fake_hass, manager)
+        conn = _make_connection()
+        await ws_wig_make_device(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/make-device",
+            "filename": filename, "name": "TV",
+            "device_type": "media_player",
+            "emitter_entity_ids": ["infrared.e"],
+        })
+        device = manager.async_create_device.call_args.args[0]
+        assert [c.send_count for c in device.commands] == [1, 1]
+
+    @pytest.mark.asyncio
+    async def test_matrix_cells_and_flat_extras_seeded(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        """Cells rise to the fitting max (a higher cell keeps its own
+        value pattern: the 2 rises to 3 here), the flat extra rides the
+        signal loop, and the seeded matrix is what landed on disk --
+        which proves seeding happened before write_matrix."""
+        fake_hass.config.config_dir = str(tmp_path)
+        wig = _matrix_wig()
+        wig.extra[FITTINGS_KEY] = [_fitted(wig, 3)]
+        filename = _write_wig(wigs_dir_path, wig)
+        manager = _adopt_manager()
+        _wire_adopt(fake_hass, manager)
+        conn = _make_connection()
+        await ws_wig_make_device(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/make-device",
+            "filename": filename, "name": "Bedroom AC",
+            "device_type": "ac", "emitter_entity_ids": ["infrared.e"],
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args.args[1]
+        matrix = load_matrix(tmp_path, result["id"])
+        assert matrix is not None
+        assert all(c.send_count == 3 for c in matrix.cells)
+        # The flat extra (Sleep) went through the signal loop.
+        device = manager.async_create_device.call_args.args[0]
+        assert [c.send_count for c in device.commands] == [3]
+
+    @pytest.mark.asyncio
+    async def test_matrix_cell_above_max_keeps_its_value(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        wig = _matrix_wig()
+        wig.climate.cells[0].send_count = 7
+        wig.extra[FITTINGS_KEY] = [_fitted(wig, 3)]
+        filename = _write_wig(wigs_dir_path, wig)
+        manager = _adopt_manager()
+        _wire_adopt(fake_hass, manager)
+        conn = _make_connection()
+        await ws_wig_make_device(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/make-device",
+            "filename": filename, "name": "Bedroom AC",
+            "device_type": "ac", "emitter_entity_ids": ["infrared.e"],
+        })
+        result = conn.send_result.call_args.args[1]
+        matrix = load_matrix(tmp_path, result["id"])
+        counts = sorted(c.send_count for c in matrix.cells)
+        assert counts == [3, 3, 3, 3, 3, 7]
+
+
+class TestFittingStateSendTimes:
+    @pytest.mark.asyncio
+    async def test_state_restores_from_draft_after_restart(
+        self, fake_hass, manager, wigs_dir_path
+    ):
+        """The resume fallback: sessions die with HA, drafts do not.
+        A reopened dialog must show what the record claims."""
+        wig = _signal_wig()
+        wig.extra[FITTINGS_KEY] = [{
+            "handle": "dab",
+            "draft": True,
+            "date": "2026-07-30",
+            "content_hash": wig_content_hash(wig),
+            "confirmed": ["Power On"],
+            "failed": [],
+            "send_times_used": 3,
+        }]
+        filename = _write_wig(wigs_dir_path, wig, "tv.wig.json")
+        _wire_fitting(fake_hass, manager)
+        conn = _make_connection()
+        await ws_fitting_state(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/fitting/state",
+            "filename": filename,
+        })
+        payload = conn.send_result.call_args.args[1]
+        assert payload["draft"]["send_times_used"] == 3
+        assert payload["send_times"] == 3
+
+    @pytest.mark.asyncio
+    async def test_state_fresh_session_is_none(
+        self, fake_hass, manager, wigs_dir_path
+    ):
+        filename = _write_wig(
+            wigs_dir_path, _signal_wig(), "tv.wig.json"
+        )
+        _wire_fitting(fake_hass, manager)
+        conn = _make_connection()
+        await ws_fitting_state(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/fitting/state",
+            "filename": filename,
+        })
+        payload = conn.send_result.call_args.args[1]
+        assert payload["send_times"] is None

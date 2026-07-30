@@ -218,3 +218,35 @@ class TestManagerSigning:
         # key is reused when the store returns one.
         key2 = await async_get_private_key(fake_hass)
         assert key2 is not None
+
+
+class TestSendTimesInSignature:
+    """Fine-tuned-fittings (v0.9.0): send_times_used rides inside the
+    signed payload. The canonical form is generic over keys, so no
+    signing code changed; these tests prove the field is covered."""
+
+    def test_signs_and_verifies_with_field(self):
+        priv, _pub = _keypair_b64()
+        entry = _entry()
+        entry["send_times_used"] = 3
+        assert sign_fitting(entry, priv)
+        assert verify_fitting(entry) == SIGNED_VALID
+
+    def test_mutating_field_after_signing_invalidates(self):
+        """The tamper test that proves the claim is attested: quietly
+        editing a recorded 3 to 1 discredits the signature."""
+        priv, _pub = _keypair_b64()
+        entry = _entry()
+        entry["send_times_used"] = 3
+        sign_fitting(entry, priv)
+        entry["send_times_used"] = 1
+        assert verify_fitting(entry) == SIGNED_INVALID
+
+    def test_adding_field_after_signing_invalidates(self):
+        """A pre-field signed fitting cannot be backfilled: absent
+        stays absent, and forging the field flips the signature."""
+        priv, _pub = _keypair_b64()
+        entry = _entry()
+        sign_fitting(entry, priv)
+        entry["send_times_used"] = 3
+        assert verify_fitting(entry) == SIGNED_INVALID

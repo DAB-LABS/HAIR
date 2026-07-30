@@ -363,12 +363,14 @@ export class HairApi {
         filename: string,
         signalIndex: number,
         emitter: string,
+        sendTimes?: number,
     ): Promise<{ success: boolean; heard: boolean; decoded: boolean }> {
         return this.hass.connection.sendMessagePromise({
             type: "hair/wigs/fitting/send",
             filename,
             signal_index: signalIndex,
             emitter,
+            ...(sendTimes ? { send_times: sendTimes } : {}),
         });
     }
 
