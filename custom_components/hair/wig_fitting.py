@@ -831,6 +831,17 @@ class FittingManager:
         if heard_list:
             draft["signals_heard"] = len(heard_list)
         draft["date"] = _today()
+        # Version stamps refresh at the signing moment, exactly like
+        # the date (owner bench, 2026-07-30): a reopened fitting kept
+        # the stamps from when its entry was FIRST created, so a
+        # re-fit on 0.9.0 signed an entry claiming hair_version 0.7.2
+        # while carrying send_times_used, a field 0.7.2 could not
+        # write. The attestation is made now, by this install.
+        hair_version, ha_version = await self._versions()
+        if hair_version:
+            draft["hair_version"] = hair_version
+        if ha_version:
+            draft["ha_version"] = ha_version
         draft.pop("draft", None)
 
         # Sign the attestation (Section 14): per-install ed25519 key,

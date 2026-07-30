@@ -869,3 +869,45 @@ class TestSendTimesSession:
             )
 
             assert verify_fitting(f.raw) == "valid"
+
+
+class TestFinishRefreshesVersionStamps:
+    @pytest.mark.asyncio
+    async def test_reopened_fitting_resigns_with_current_versions(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        """Owner bench 2026-07-30: a re-fit reopened the old entry and
+        kept its original hair_version (0.7.2) while adding a 0.9.0
+        field. FINISH now refreshes both stamps at the signing moment,
+        the same way it refreshes the date."""
+        fake_hass.config.config_dir = str(tmp_path)
+        base = _wig()
+        wig = _wig([_complete_fitting(
+            base, handle="dab",
+            hair_version="0.7.2", ha_version="2026.5.1",
+        )])
+        (wigs_dir_path / "old.wig.json").write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        manager = FittingManager(fake_hass, monitor=None)
+        manager._hair_version = "0.9.0"
+        # Re-fit: marking reopens the signed entry as the draft.
+        await manager.async_mark("old.wig.json", 0, "worked", "dab")
+        await manager.async_finish("old.wig.json", "dab", None, None, None)
+        f = parse_fittings(_read_wig(wigs_dir_path, "old.wig.json")).fittings
+        assert len(f) == 1  # merged, never a second ledger row
+        assert f[0].raw["hair_version"] == "0.9.0"
+        assert f[0].raw["ha_version"] not in (None, "2026.5.1")
+
+    @pytest.mark.asyncio
+    async def test_fresh_fitting_still_stamped(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        filename = _write_wig(wigs_dir_path)
+        manager = FittingManager(fake_hass, monitor=None)
+        manager._hair_version = "0.9.0"
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_finish(filename, "dab", None, None, None)
+        f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
+        assert f.raw["hair_version"] == "0.9.0"
