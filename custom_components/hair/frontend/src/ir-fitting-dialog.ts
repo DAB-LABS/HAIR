@@ -43,6 +43,19 @@ interface RowFacts {
     busy: boolean;
 }
 
+/** Display cleanup for a prefilled GitHub handle: strip a profile URL
+ * down to its account (everything up to the first remaining slash, so
+ * a copied repo URL yields the owner, not owner/repo), drop a typed @.
+ * Prefill only; the backend normalizes again at record time. */
+function _cleanGithubHandle(value: string): string {
+    let v = value.trim();
+    v = v.replace(/^https?:\/\/(www\.)?github\.com\//i, "");
+    v = v.replace(/^@+/, "");
+    const slash = v.indexOf("/");
+    if (slash !== -1) v = v.slice(0, slash);
+    return v.trim();
+}
+
 @customElement("ir-fitting-dialog")
 export class IrFittingDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -98,7 +111,11 @@ export class IrFittingDialog extends LitElement {
                     row.handle.toLowerCase() ===
                         fit.username.toLowerCase(),
             );
-            this._github = mine?.github ?? "";
+            // Normalized on prefill: a previous fitting may carry an
+            // imported wig's dirty value (URL, @-prefixed), and a URL
+            // sitting behind the field's decorative @ reads as a bug.
+            // The backend cleans again on record either way.
+            this._github = _cleanGithubHandle(mine?.github ?? "");
             const verdicts = new Map<number, "worked" | "failed">();
             fit.signals.forEach((alias, i) => {
                 if (fit.draft?.failed.includes(alias))
@@ -837,14 +854,22 @@ export class IrFittingDialog extends LitElement {
             </div>
             <div class="field">
                 <label>${t("fitting.github")}</label>
-                <input
-                    .value=${this._github}
-                    placeholder="octocat"
-                    @input=${(e: Event) =>
-                        (this._github = (
-                            e.target as HTMLInputElement
-                        ).value)}
-                />
+                <!-- Decorative @ (roadmap, 2026-07-30): the format is
+                     visible without being typed. Never enters _github;
+                     the record payload is unchanged. Placeholder stays
+                     "octocat" on purpose -- "@octocat" would suggest
+                     typing the symbol, the opposite of the point. -->
+                <div class="gh-wrap">
+                    <span class="gh-at" aria-hidden="true">@</span>
+                    <input
+                        .value=${this._github}
+                        placeholder="octocat"
+                        @input=${(e: Event) =>
+                            (this._github = (
+                                e.target as HTMLInputElement
+                            ).value)}
+                    />
+                </div>
                 <div class="hint">${t("fitting.github_hint")}</div>
             </div>
             ${!this._fit?.kind
@@ -903,6 +928,23 @@ export class IrFittingDialog extends LitElement {
         css`
             .fit-dialog {
                 max-width: 440px;
+            }
+            /* Decorative @ inside the GitHub field's left edge. */
+            .gh-wrap {
+                position: relative;
+            }
+            .gh-wrap .gh-at {
+                position: absolute;
+                left: 10px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: var(--secondary-text-color);
+                pointer-events: none;
+            }
+            .gh-wrap input {
+                width: 100%;
+                box-sizing: border-box;
+                padding-left: 24px;
             }
             .sess-head {
                 font-size: 12.5px;

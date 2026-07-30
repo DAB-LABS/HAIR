@@ -7509,7 +7509,7 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
                 margin-right: auto;
                 line-height: 1.5;
             }
-        `],e([pe({attribute:!1})],Na.prototype,"api",void 0),e([pe({attribute:!1})],Na.prototype,"hass",void 0),e([ge()],Na.prototype,"_device",void 0),e([ge()],Na.prototype,"_loading",void 0),e([ge()],Na.prototype,"_error",void 0),e([ge()],Na.prototype,"_triggers",void 0),e([ge()],Na.prototype,"_receivers",void 0),e([ge()],Na.prototype,"_hasReceivers",void 0),e([ge()],Na.prototype,"_filter",void 0),e([ge()],Na.prototype,"_search",void 0),e([ge()],Na.prototype,"_bloomIds",void 0),e([ge()],Na.prototype,"_assignSignal",void 0),e([ge()],Na.prototype,"_assignedPopover",void 0),e([ge()],Na.prototype,"_triggerDialog",void 0),e([ge()],Na.prototype,"_triggerEditDialog",void 0),e([ge()],Na.prototype,"_triggerPopover",void 0),e([ge()],Na.prototype,"_confirmDeleteTriggerId",void 0),e([ge()],Na.prototype,"_deleteSignal",void 0),e([ge()],Na.prototype,"_editSignal",void 0),e([ge()],Na.prototype,"_testDialog",void 0),e([ge()],Na.prototype,"_testEmitters",void 0),e([ge()],Na.prototype,"_testingSignalId",void 0),e([ge()],Na.prototype,"_testResult",void 0),Na=e([ue("ir-mirror")],Na);const ja=["tv","soundbar","receiver","settopbox","projector","fan","light","candles","ac","heater","blinds"];let La=class extends se{constructor(){super(...arguments),this._fit=null,this._order=[],this._verdicts=new Map,this._facts=new Map,this._emitter="",this._sendTimes=1,this._receiverIds=new Set,this._view="session",this._confirmDiscard=!1,this._busy=!1,this._error=null,this._handle="",this._github="",this._note="",this._kind=""}connectedCallback(){super.connectedCallback(),this._load()}async _load(){try{const[e,i]=await Promise.all([this.api.fittingState(this.wig.filename),this.api.listReceivers().catch(()=>[])]);this._receiverIds=new Set(i.map(e=>e.entity_id)),this._fit=e,this._handle=e.username,this._kind=e.kind??"",e.send_times&&(this._sendTimes=Math.max(1,Math.min(e.send_times,10)));const t=e.ledger.find(i=>i.github&&i.handle.toLowerCase()===e.username.toLowerCase());this._github=t?.github??"";const a=new Map;e.signals.forEach((i,t)=>{e.draft?.failed.includes(i)?a.set(t,"failed"):e.draft?.confirmed.includes(i)&&a.set(t,"worked")}),this._verdicts=a;const o=e.signals.map((e,i)=>i);this._order=e.matrix?o:[...o.filter(e=>!a.has(e)),...o.filter(e=>a.has(e))];const r=this._emitters();1===r.length&&(this._emitter=r[0].id)}catch(e){this._error=e?.message??String(e)}}_emitters(){const e=this.hass?.states??{},i=[];for(const[t,a]of Object.entries(e))!t.startsWith("infrared.")||this._receiverIds.has(t)||a.attributes?.hair_observer||i.push({id:t,name:a.attributes?.friendly_name??t});return i}_close(){this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}_onSendTimesInput(e){const i=Number(e.target.value);Number.isFinite(i)&&(this._sendTimes=Math.max(1,Math.min(Math.round(i),10)))}async _send(e){if(!this._emitter||!this._fit)return;const i=this._facts.get(e)??{sent:0,heard:!1,busy:!1};if(!i.busy){this._facts=new Map(this._facts).set(e,{...i,busy:!0});try{const t=await this.api.fittingSend(this.wig.filename,e,this._emitter,this._sendTimes);this._facts=new Map(this._facts).set(e,{sent:i.sent+1,heard:i.heard||t.heard,busy:!1})}catch(t){this._facts=new Map(this._facts).set(e,{...i,busy:!1}),this._error=t?.message??String(t)}}}async _mark(e,i){const t=this._verdicts.get(e)===i?"untested":i,a=new Map(this._verdicts);"untested"===t?a.delete(e):a.set(e,t),this._verdicts=a;try{await this.api.fittingMark(this.wig.filename,e,t)}catch(e){this._error=e?.message??String(e)}}async _discard(){this._busy=!0;try{await this.api.fittingDiscard(this.wig.filename)}catch{}this._busy=!1,this._recordedRefresh(),this._close()}async _record(){this._busy=!0,this._error=null;try{const e=await this.api.fittingFinish(this.wig.filename,{...this._handle.trim()?{handle:this._handle.trim()}:{},...this._github.trim()?{github:this._github.trim()}:{},...this._note.trim()?{note:this._note.trim()}:{},...this._kind.trim()&&!this._fit?.kind?{kind:this._kind.trim()}:{}});this.dispatchEvent(new CustomEvent("recorded",{detail:e,bubbles:!0,composed:!0})),this._close()}catch(e){this._error=e?.message??String(e)}this._busy=!1}_recordedRefresh(){this.dispatchEvent(new CustomEvent("recorded",{detail:null,bubbles:!0,composed:!0}))}get _counts(){let e=0,i=0;for(const t of this._verdicts.values())"worked"===t?e+=1:i+=1;const t=this._fit?.signals.length??0;return{worked:e,failed:i,tested:e+i,total:t,perfect:t>0&&e===t}}render(){return B`
+        `],e([pe({attribute:!1})],Na.prototype,"api",void 0),e([pe({attribute:!1})],Na.prototype,"hass",void 0),e([ge()],Na.prototype,"_device",void 0),e([ge()],Na.prototype,"_loading",void 0),e([ge()],Na.prototype,"_error",void 0),e([ge()],Na.prototype,"_triggers",void 0),e([ge()],Na.prototype,"_receivers",void 0),e([ge()],Na.prototype,"_hasReceivers",void 0),e([ge()],Na.prototype,"_filter",void 0),e([ge()],Na.prototype,"_search",void 0),e([ge()],Na.prototype,"_bloomIds",void 0),e([ge()],Na.prototype,"_assignSignal",void 0),e([ge()],Na.prototype,"_assignedPopover",void 0),e([ge()],Na.prototype,"_triggerDialog",void 0),e([ge()],Na.prototype,"_triggerEditDialog",void 0),e([ge()],Na.prototype,"_triggerPopover",void 0),e([ge()],Na.prototype,"_confirmDeleteTriggerId",void 0),e([ge()],Na.prototype,"_deleteSignal",void 0),e([ge()],Na.prototype,"_editSignal",void 0),e([ge()],Na.prototype,"_testDialog",void 0),e([ge()],Na.prototype,"_testEmitters",void 0),e([ge()],Na.prototype,"_testingSignalId",void 0),e([ge()],Na.prototype,"_testResult",void 0),Na=e([ue("ir-mirror")],Na);const ja=["tv","soundbar","receiver","settopbox","projector","fan","light","candles","ac","heater","blinds"];let La=class extends se{constructor(){super(...arguments),this._fit=null,this._order=[],this._verdicts=new Map,this._facts=new Map,this._emitter="",this._sendTimes=1,this._receiverIds=new Set,this._view="session",this._confirmDiscard=!1,this._busy=!1,this._error=null,this._handle="",this._github="",this._note="",this._kind=""}connectedCallback(){super.connectedCallback(),this._load()}async _load(){try{const[e,i]=await Promise.all([this.api.fittingState(this.wig.filename),this.api.listReceivers().catch(()=>[])]);this._receiverIds=new Set(i.map(e=>e.entity_id)),this._fit=e,this._handle=e.username,this._kind=e.kind??"",e.send_times&&(this._sendTimes=Math.max(1,Math.min(e.send_times,10)));const t=e.ledger.find(i=>i.github&&i.handle.toLowerCase()===e.username.toLowerCase());this._github=function(e){let i=e.trim();i=i.replace(/^https?:\/\/(www\.)?github\.com\//i,""),i=i.replace(/^@+/,"");const t=i.indexOf("/");return-1!==t&&(i=i.slice(0,t)),i.trim()}(t?.github??"");const a=new Map;e.signals.forEach((i,t)=>{e.draft?.failed.includes(i)?a.set(t,"failed"):e.draft?.confirmed.includes(i)&&a.set(t,"worked")}),this._verdicts=a;const o=e.signals.map((e,i)=>i);this._order=e.matrix?o:[...o.filter(e=>!a.has(e)),...o.filter(e=>a.has(e))];const r=this._emitters();1===r.length&&(this._emitter=r[0].id)}catch(e){this._error=e?.message??String(e)}}_emitters(){const e=this.hass?.states??{},i=[];for(const[t,a]of Object.entries(e))!t.startsWith("infrared.")||this._receiverIds.has(t)||a.attributes?.hair_observer||i.push({id:t,name:a.attributes?.friendly_name??t});return i}_close(){this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}_onSendTimesInput(e){const i=Number(e.target.value);Number.isFinite(i)&&(this._sendTimes=Math.max(1,Math.min(Math.round(i),10)))}async _send(e){if(!this._emitter||!this._fit)return;const i=this._facts.get(e)??{sent:0,heard:!1,busy:!1};if(!i.busy){this._facts=new Map(this._facts).set(e,{...i,busy:!0});try{const t=await this.api.fittingSend(this.wig.filename,e,this._emitter,this._sendTimes);this._facts=new Map(this._facts).set(e,{sent:i.sent+1,heard:i.heard||t.heard,busy:!1})}catch(t){this._facts=new Map(this._facts).set(e,{...i,busy:!1}),this._error=t?.message??String(t)}}}async _mark(e,i){const t=this._verdicts.get(e)===i?"untested":i,a=new Map(this._verdicts);"untested"===t?a.delete(e):a.set(e,t),this._verdicts=a;try{await this.api.fittingMark(this.wig.filename,e,t)}catch(e){this._error=e?.message??String(e)}}async _discard(){this._busy=!0;try{await this.api.fittingDiscard(this.wig.filename)}catch{}this._busy=!1,this._recordedRefresh(),this._close()}async _record(){this._busy=!0,this._error=null;try{const e=await this.api.fittingFinish(this.wig.filename,{...this._handle.trim()?{handle:this._handle.trim()}:{},...this._github.trim()?{github:this._github.trim()}:{},...this._note.trim()?{note:this._note.trim()}:{},...this._kind.trim()&&!this._fit?.kind?{kind:this._kind.trim()}:{}});this.dispatchEvent(new CustomEvent("recorded",{detail:e,bubbles:!0,composed:!0})),this._close()}catch(e){this._error=e?.message??String(e)}this._busy=!1}_recordedRefresh(){this.dispatchEvent(new CustomEvent("recorded",{detail:null,bubbles:!0,composed:!0}))}get _counts(){let e=0,i=0;for(const t of this._verdicts.values())"worked"===t?e+=1:i+=1;const t=this._fit?.signals.length??0;return{worked:e,failed:i,tested:e+i,total:t,perfect:t>0&&e===t}}render(){return B`
             <div class="overlay" @click=${this._close}>
                 <div
                     class="dialog fit-dialog"
@@ -7742,11 +7742,19 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
             </div>
             <div class="field">
                 <label>${ke("fitting.github")}</label>
-                <input
-                    .value=${this._github}
-                    placeholder="octocat"
-                    @input=${e=>this._github=e.target.value}
-                />
+                <!-- Decorative @ (roadmap, 2026-07-30): the format is
+                     visible without being typed. Never enters _github;
+                     the record payload is unchanged. Placeholder stays
+                     "octocat" on purpose -- "@octocat" would suggest
+                     typing the symbol, the opposite of the point. -->
+                <div class="gh-wrap">
+                    <span class="gh-at" aria-hidden="true">@</span>
+                    <input
+                        .value=${this._github}
+                        placeholder="octocat"
+                        @input=${e=>this._github=e.target.value}
+                    />
+                </div>
                 <div class="hint">${ke("fitting.github_hint")}</div>
             </div>
             ${this._fit?.kind?U:B`<div class="field">
@@ -7790,6 +7798,23 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
         `}};La.styles=[Bt,n`
             .fit-dialog {
                 max-width: 440px;
+            }
+            /* Decorative @ inside the GitHub field's left edge. */
+            .gh-wrap {
+                position: relative;
+            }
+            .gh-wrap .gh-at {
+                position: absolute;
+                left: 10px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: var(--secondary-text-color);
+                pointer-events: none;
+            }
+            .gh-wrap input {
+                width: 100%;
+                box-sizing: border-box;
+                padding-left: 24px;
             }
             .sess-head {
                 font-size: 12.5px;
@@ -9306,7 +9331,7 @@ function e(e,i,t,a){var o,r=arguments.length,n=r<3?i:null===a?a=Object.getOwnPro
                       ></ir-add-device-dialog>
                   `:""}
 
-            <div class="version-footer">v${"0.8.9"}</div>
+            <div class="version-footer">v${"0.9.0"}</div>
             </ha-top-app-bar-fixed>
         `:B`<div class="loading">${ke("panel.loading")}</div>`}};Fa.styles=n`
         :host {
