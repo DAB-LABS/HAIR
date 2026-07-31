@@ -3413,6 +3413,17 @@ async def ws_fitting_state(
                     "send_times_used": f.send_times_used,
                     "confirmed": len(f.confirmed),
                     "failed": len(f.failed),
+                    # The rows behind that failed count, so the ledger
+                    # can NAVIGATE into the session at the first one
+                    # (owner ruling 2026-07-30: no replace from the
+                    # ledger, because the send-and-judge loop has to
+                    # stay attached). Intersected with the current rows
+                    # so a stale fitting's dead keys never offer a link
+                    # to a row that no longer exists.
+                    "failed_keys": [
+                        key for key in f.failed
+                        if key in {spec.key for spec in specs}
+                    ],
                     "draft": f.draft,
                     "valid": fitting_is_valid(f, wig),
                     "complete": fitting_is_complete(f, wig),

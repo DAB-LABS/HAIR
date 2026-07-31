@@ -16,6 +16,7 @@ import type {
     CommandTemplate,
     DeleteSignalResult,
     DeviceSummary,
+    FittingListenEvent,
     FittingState,
     DeviceTypeId,
     DismissActivityEvent,
@@ -414,6 +415,40 @@ export class HairApi {
             filename,
             ...extras,
         });
+    }
+
+    /** Swap one fitting row's code (Smart Perm). The wig changes in
+     * place and its identity rolls, so the caller refetches state. */
+    fittingReplace(
+        filename: string,
+        signalIndex: number,
+        pronto: string,
+        source: "captured" | "pasted",
+    ): Promise<{
+        success: boolean;
+        content_hash: string;
+        row_key: string;
+        carried: number;
+    }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/replace",
+            filename,
+            signal_index: signalIndex,
+            pronto,
+            source,
+        });
+    }
+
+    /** Arm the Sniffer for one capture into the Replace box. Emits a
+     * single fitting_capture or fitting_listen_timeout; call the
+     * returned unsubscribe on cancel or when the dialog closes. */
+    async fittingListen(
+        onEvent: (event: FittingListenEvent) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeMessage<FittingListenEvent>(
+            onEvent,
+            { type: "hair/wigs/fitting/listen" },
+        );
     }
 
     fittingDiscard(filename: string): Promise<{ success: boolean }> {
