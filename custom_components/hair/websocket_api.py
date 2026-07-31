@@ -127,6 +127,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fitting_finish)
     websocket_api.async_register_command(hass, ws_fitting_discard)
     websocket_api.async_register_command(hass, ws_fitting_replace)
+    websocket_api.async_register_command(hass, ws_fitting_revert)
     websocket_api.async_register_command(hass, ws_fitting_listen)
     websocket_api.async_register_command(hass, ws_fitting_state)
     websocket_api.async_register_command(hass, ws_wig_make_device)
@@ -3186,6 +3187,35 @@ async def ws_fitting_replace(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/revert",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+})
+@websocket_api.async_response
+async def ws_fitting_revert(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Put one row back to the code the wig came with.
+
+    The other half of replace, reached from the row's provenance chip.
+    Rolls the hash back, which is why a fitting that attested the
+    replaced code goes stale afterward."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_revert(
+        msg["filename"],
+        msg["signal_index"],
+        _fitting_username(connection),
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/listen",
 })
 @callback
@@ -3309,6 +3339,7 @@ async def ws_fitting_state(
             fitting_summary,
             parse_fittings,
             pending_replaces,
+            revertible_keys,
         )
         from .wig_store import load_wig
 
@@ -3349,6 +3380,7 @@ async def ws_fitting_state(
         # client-side, plus any appended Changed Codes rows.
         specs = fitting_row_specs(wig)
         row_keys = {spec.key for spec in specs}
+        revertible = revertible_keys(wig)
         matrix = wig.climate is not None
         rows = [
             {
@@ -3357,6 +3389,10 @@ async def ws_fitting_state(
                 "confirmed": spec.key in confirmed_keys,
                 "failed": spec.key in failed_keys,
                 "provenance": spec.provenance,
+                # A chip alone does not mean the row can go back:
+                # markers also ride in on shared wigs, and from
+                # installs that never recorded an earlier code.
+                "revertible": spec.key in revertible,
                 **({
                     "mode": spec.mode,
                     "fan": spec.fan,

@@ -624,5 +624,9 @@
     "fitting.carried_notice": "前回のフィッティングから判定を引き継ぎました。コードが変わった行だけが未テストに戻っています。",
     "fitting.ledger_goto_failed": "最初の失敗した行でセッションを開く",
     "fitting.discard_reverts.one": "置き換えたコードは元に戻ります。",
-    "fitting.discard_reverts.other": "置き換えた {count} 件のコードは元に戻ります。"
+    "fitting.discard_reverts.other": "置き換えた {count} 件のコードは元に戻ります。",
+    "fitting.revert": "元に戻す",
+    "fitting.revert_confirm": "戻しますか？",
+    "fitting.revert_title": "この行をウィッグ元来のコードに戻します",
+    "fitting.reverted_notice": "コードを元に戻しました。このウィッグの識別子が再び変わり、他の {count} 件の判定は引き継がれました。この行は未テストに戻ります。"
 }

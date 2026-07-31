@@ -624,5 +624,9 @@
     "fitting.carried_notice": "Veredictos mantidos da sua prova anterior. Só as linhas com códigos alterados voltam por testar.",
     "fitting.ledger_goto_failed": "Abrir a sessão na primeira linha falhada",
     "fitting.discard_reverts.one": "O código substituído volta ao que era.",
-    "fitting.discard_reverts.other": "Os {count} códigos substituídos voltam ao que eram."
+    "fitting.discard_reverts.other": "Os {count} códigos substituídos voltam ao que eram.",
+    "fitting.revert": "reverter",
+    "fitting.revert_confirm": "reverter?",
+    "fitting.revert_title": "Repor nesta linha o código original da cabeleira",
+    "fitting.reverted_notice": "Código reposto no original. A identidade desta cabeleira mudou outra vez e os seus outros {count} veredictos foram mantidos. Esta linha volta a não testada."
 }

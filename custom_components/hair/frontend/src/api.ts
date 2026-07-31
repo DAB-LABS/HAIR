@@ -439,6 +439,24 @@ export class HairApi {
         });
     }
 
+    /** Put one row back to the code the wig came with. Rolls the hash
+     * back, so the caller refetches state exactly as after a replace. */
+    fittingRevert(
+        filename: string,
+        signalIndex: number,
+    ): Promise<{
+        success: boolean;
+        content_hash: string;
+        row_key: string;
+        carried: number;
+    }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/revert",
+            filename,
+            signal_index: signalIndex,
+        });
+    }
+
     /** Arm the Sniffer for one capture into the Replace box. Emits a
      * single fitting_capture or fitting_listen_timeout; call the
      * returned unsubscribe on cancel or when the dialog closes. */

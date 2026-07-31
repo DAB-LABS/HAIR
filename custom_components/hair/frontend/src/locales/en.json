@@ -624,5 +624,9 @@
     "fitting.carried_notice": "Verdicts carried forward from your last fitting. Only rows whose codes changed came back untested.",
     "fitting.ledger_goto_failed": "Open the session at the first failed row",
     "fitting.discard_reverts.one": "Its replaced code goes back to what it was.",
-    "fitting.discard_reverts.other": "Its {count} replaced codes go back to what they were."
+    "fitting.discard_reverts.other": "Its {count} replaced codes go back to what they were.",
+    "fitting.revert": "revert",
+    "fitting.revert_confirm": "revert?",
+    "fitting.revert_title": "Put this row back to the code the wig came with",
+    "fitting.reverted_notice": "Code put back to the original. This wig's identity rolled again, and your other {count} verdicts carried forward. This row returns untested."
 }

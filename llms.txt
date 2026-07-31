@@ -146,8 +146,13 @@ Key components:
   fitting for every row whose key and normalized code both still match,
   proven against a digest snapshot taken at replace time. On a matrix wig,
   replaced cells the dimension checklist does not sample are appended as a
-  Changed Codes section and proved like any other row. Markers and the carry
-  snapshot ride extra maps outside every canonical hash (wig-format.md).
+  Changed Codes section and proved like any other row. Every replaced row
+  keeps the code the wig came with in a replaced_from record, so the row's
+  chip offers REVERT: back to the file's own original, past any number of
+  repairs, and still available after signing (the attesting fitting then goes
+  stale by hash, correctly). Discard puts back the codes the session replaced
+  as well as its verdicts. Markers, the carry snapshot and the replaced-from
+  record all ride extra maps outside every canonical hash (wig-format.md).
 - Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
   from wherever you meet it. Closet wigs, library rows, Sniffer remotes,
   Clipper remotes, and Plucker blasters all carry one ADOPT DEVICE button

@@ -129,6 +129,8 @@ export class IrFittingDialog extends LitElement {
     @state() private _replaceError: string | null = null;
     @state() private _listening = false;
     @state() private _listenMissed = false;
+    // Which row's chip is armed for revert (two-click confirm).
+    @state() private _revertArmed: number | null = null;
     // The post-replace line: what changed, and what it cost.
     @state() private _notice: string | null = null;
     private _unlisten: (() => Promise<void>) | null = null;
@@ -315,6 +317,8 @@ export class IrFittingDialog extends LitElement {
             return;
         }
         await this._stopListening();
+        // Any other action disarms a chip left half-pressed.
+        this._revertArmed = null;
         this._replaceRow = i;
         this._replaceText = "";
         this._replaceQuality = null;
@@ -744,17 +748,68 @@ export class IrFittingDialog extends LitElement {
 
     /** The provenance chip: this row's code came off a real remote, or
      * out of somebody's clipboard, rather than out of the file as
-     * shipped. */
+     * shipped.
+     *
+     * When the wig still has the row's earlier code on record the chip
+     * becomes the way back: hovering offers REVERT, and it takes two
+     * clicks, because one stray click would throw away a capture the
+     * fitter may have walked across the house for. A chip that arrived
+     * inside a shared wig has nothing on record and stays a label. */
     private _renderChip(i: number) {
-        const marker = this._fit?.rows[i]?.provenance;
+        const row = this._fit?.rows[i];
+        const marker = row?.provenance;
         if (!marker) return nothing;
-        return html`<span class="prov-chip"
-            >${t(
-                marker.replaced === "captured"
-                    ? "fitting.chip_replaced_captured"
-                    : "fitting.chip_replaced_pasted",
-            )}</span
-        >`;
+        const label = t(
+            marker.replaced === "captured"
+                ? "fitting.chip_replaced_captured"
+                : "fitting.chip_replaced_pasted",
+        );
+        if (!row?.revertible) {
+            return html`<span class="prov-chip" title=${marker.date ?? ""}
+                >${label}</span
+            >`;
+        }
+        const armed = this._revertArmed === i;
+        // The hover label overlays rather than replaces, so the chip
+        // keeps its width and the row's buttons do not jump sideways
+        // under the pointer.
+        return html`<button
+            class="prov-chip revertible ${armed ? "armed" : ""}"
+            title=${t("fitting.revert_title")}
+            @click=${() => void this._onChipClick(i)}
+        >
+            <span class="chip-label">${label}</span>
+            <span class="chip-alt"
+                >${armed
+                    ? t("fitting.revert_confirm")
+                    : t("fitting.revert")}</span
+            >
+        </button>`;
+    }
+
+    private async _onChipClick(i: number): Promise<void> {
+        if (this._revertArmed !== i) {
+            this._revertArmed = i;
+            return;
+        }
+        this._revertArmed = null;
+        this._replaceBusy = true;
+        this._error = null;
+        try {
+            const result = await this.api.fittingRevert(
+                this.wig.filename,
+                i,
+            );
+            await this._closeReplace();
+            await this._refresh();
+            this._notice = t("fitting.reverted_notice", {
+                count: String(result.carried),
+            });
+            this._recordedRefresh();
+        } catch (err: any) {
+            this._error = err?.message ?? String(err);
+        }
+        this._replaceBusy = false;
     }
 
     /** The row anatomy every session row shares (Cold Cuts): machine
@@ -1644,6 +1699,37 @@ export class IrFittingDialog extends LitElement {
                 border: 1px solid rgba(201, 138, 75, 0.35);
                 color: #c98a4b;
                 white-space: nowrap;
+                background: none;
+                font-family: inherit;
+            }
+            .prov-chip.revertible {
+                cursor: pointer;
+                position: relative;
+            }
+            .prov-chip.revertible:hover {
+                background: rgba(201, 138, 75, 0.15);
+                border-color: rgba(201, 138, 75, 0.6);
+            }
+            .prov-chip.armed {
+                background: #c98a4b;
+                border-color: #c98a4b;
+                color: #fff;
+            }
+            .prov-chip .chip-alt {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                visibility: hidden;
+            }
+            .prov-chip.revertible:hover .chip-label,
+            .prov-chip.armed .chip-label {
+                visibility: hidden;
+            }
+            .prov-chip.revertible:hover .chip-alt,
+            .prov-chip.armed .chip-alt {
+                visibility: visible;
             }
             .repstrip {
                 margin: 2px 12px 10px 12px;

@@ -248,6 +248,9 @@ export interface FittingRow {
     confirmed: boolean;
     failed: boolean;
     provenance?: RowProvenance | null;
+    // True when an earlier code for this row is on record, so its chip
+    // can offer REVERT. A chip without this arrived with the file.
+    revertible?: boolean;
 }
 
 // One event from the Replace strip's listen window.

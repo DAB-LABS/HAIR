@@ -28,6 +28,7 @@ from custom_components.hair.const import DOMAIN, MIRROR_DEVICE_FP
 from custom_components.hair.websocket_api import (
     ws_fitting_listen,
     ws_fitting_replace,
+    ws_fitting_revert,
     ws_fitting_state,
 )
 from custom_components.hair.wig_fitting import (
@@ -35,7 +36,7 @@ from custom_components.hair.wig_fitting import (
     FITTINGS_KEY,
     PROVENANCE_KEY,
     PROVENANCE_POWER_KEY,
-    REPLACE_UNDO_KEY,
+    REPLACED_FROM_KEY,
     SECTION_CHANGED,
     FittingManager,
     carry_forward_seed,
@@ -44,6 +45,7 @@ from custom_components.hair.wig_fitting import (
     fitting_row_specs,
     fitting_rows,
     parse_fittings,
+    revertible_keys,
 )
 from custom_components.hair.wig_format import (
     ClimateCell,
@@ -637,7 +639,7 @@ class TestDiscardReverts:
         assert wig_content_hash(wig) == before
         assert FITTINGS_KEY not in wig.extra
         assert CARRY_KEY not in wig.extra
-        assert REPLACE_UNDO_KEY not in wig.extra
+        assert REPLACED_FROM_KEY not in wig.extra
 
     @pytest.mark.asyncio
     async def test_discard_with_no_marks_still_reverts(
@@ -690,7 +692,11 @@ class TestDiscardReverts:
         )
         await manager.async_finish(filename, "dab", None, None, None)
         await manager.async_flush()
-        assert REPLACE_UNDO_KEY not in _read_wig(wigs_dir_path).extra
+        # The record STAYS (owner ruling): signing closes it to
+        # discard, and leaves revert available forever.
+        record = _read_wig(wigs_dir_path).extra[REPLACED_FROM_KEY]
+        assert record["Power On"]["session"] is False
+        assert record["Power On"]["pronto"] == PRONTO_A
 
         await manager.async_mark(filename, 1, "worked", "dab")
         await manager.async_discard(filename, "dab")
@@ -704,8 +710,11 @@ class TestDiscardReverts:
         self, manager, wigs_dir_path
     ):
         """Reverting a row somebody else has since replaced would be
-        this session quietly editing their work."""
+        this session quietly editing their work. The row belongs to
+        whoever touched it last, so dab's discard leaves it alone and
+        only throws away dab's own verdicts."""
         filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_mark(filename, 1, "worked", "dab")
         await manager.async_replace(
             filename, 0, PRONTO_C, "pasted", "dab"
         )
@@ -713,11 +722,14 @@ class TestDiscardReverts:
             filename, 0, PRONTO_D, "captured", "someone-else"
         )
         result = await manager.async_discard(filename, "dab")
-        assert result["reverted"] == 0
+        assert result["success"] and result["reverted"] == 0
         await manager.async_flush()
         wig = _read_wig(wigs_dir_path)
         assert wig.signals[0].pronto == PRONTO_D
         assert wig.signals[0].extra[PROVENANCE_KEY]["replaced"] == "captured"
+        # And the original is still on record, so the chip can still
+        # take it all the way back.
+        assert wig.extra[REPLACED_FROM_KEY]["Power On"]["pronto"] == PRONTO_A
 
     @pytest.mark.asyncio
     async def test_discard_survives_a_restart(
@@ -798,6 +810,238 @@ class TestDiscardReverts:
             "filename": filename,
         })
         assert conn.send_result.call_args.args[1]["pending_replaces"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Revert: the chip's way back
+# ---------------------------------------------------------------------------
+
+
+class TestRevert:
+    @pytest.mark.asyncio
+    async def test_revert_restores_the_shipped_code(
+        self, manager, wigs_dir_path
+    ):
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        before = wig_content_hash(_read_wig(wigs_dir_path))
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        result = await manager.async_revert(filename, 0, "dab")
+        assert result["success"] and result["row_key"] == "Power On"
+        await manager.async_flush()
+
+        wig = _read_wig(wigs_dir_path)
+        assert wig.signals[0].pronto == PRONTO_A
+        assert PROVENANCE_KEY not in wig.signals[0].extra
+        assert wig_content_hash(wig) == before
+        assert REPLACED_FROM_KEY not in wig.extra
+
+    @pytest.mark.asyncio
+    async def test_revert_reaches_past_several_replaces(
+        self, manager, wigs_dir_path
+    ):
+        """Owner ruling: back to what the wig came with, not to the
+        previous repair attempt."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_replace(filename, 0, PRONTO_C, "pasted", "dab")
+        await manager.async_replace(filename, 0, PRONTO_D, "captured", "dab")
+        await manager.async_revert(filename, 0, "dab")
+        await manager.async_flush()
+        assert _read_wig(wigs_dir_path).signals[0].pronto == PRONTO_A
+
+    @pytest.mark.asyncio
+    async def test_revert_survives_signing(
+        self, manager, wigs_dir_path
+    ):
+        """Owner ruling 2026-07-30: a capture that was proved and later
+        turned out wrong is still fixable. The signed fitting goes
+        stale by hash, which is what a hash is for."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_finish(filename, "dab", None, None, None)
+        await manager.async_flush()
+
+        wig = _read_wig(wigs_dir_path)
+        signed = parse_fittings(wig).fittings[0]
+        assert not signed.draft and fitting_is_valid(signed, wig)
+        assert "Power On" in revertible_keys(wig)
+
+        reborn = FittingManager(manager._hass, monitor=None)
+        assert (await reborn.async_revert(filename, 0, "dab"))["success"]
+        await reborn.async_flush()
+        after = _read_wig(wigs_dir_path)
+        assert after.signals[0].pronto == PRONTO_A
+        # The attestation covered the replaced code; it is now stale.
+        assert not fitting_is_valid(
+            parse_fittings(after).fittings[0], after
+        )
+
+    @pytest.mark.asyncio
+    async def test_revert_refused_with_nothing_on_record(
+        self, manager, wigs_dir_path
+    ):
+        """A marker that arrived inside a shared wig has no earlier
+        code here, so there is nothing to go back to."""
+        wig = _signal_wig()
+        wig.signals[0].extra[PROVENANCE_KEY] = {
+            "replaced": "captured", "date": "2026-07-29",
+        }
+        filename = _write_wig(wigs_dir_path, wig)
+        result = await manager.async_revert(filename, 0, "dab")
+        assert not result["success"]
+        assert result["code"] == "not_revertible"
+        assert revertible_keys(_read_wig(wigs_dir_path)) == set()
+
+    @pytest.mark.asyncio
+    async def test_revert_restores_an_inherited_marker(
+        self, manager, wigs_dir_path
+    ):
+        """A wig that arrived already carrying a marker keeps it when
+        a local replace is reverted: the row goes back to the state
+        this install received, not to no-marker-at-all."""
+        wig = _signal_wig()
+        wig.signals[0].extra[PROVENANCE_KEY] = {
+            "replaced": "pasted", "date": "2026-07-29",
+        }
+        filename = _write_wig(wigs_dir_path, wig)
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_revert(filename, 0, "dab")
+        await manager.async_flush()
+        after = _read_wig(wigs_dir_path)
+        assert after.signals[0].pronto == PRONTO_A
+        assert after.signals[0].extra[PROVENANCE_KEY]["replaced"] == "pasted"
+
+    @pytest.mark.asyncio
+    async def test_revert_rebinds_the_draft_and_resets_the_row(
+        self, manager, wigs_dir_path
+    ):
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_mark(filename, 1, "worked", "dab")
+        result = await manager.async_revert(filename, 0, "dab")
+        assert result["carried"] == 1
+        await manager.async_flush()
+        wig = _read_wig(wigs_dir_path)
+        draft = parse_fittings(wig).fittings[0]
+        assert draft.content_hash == wig_content_hash(wig)
+        assert draft.confirmed == ["Power Off"]
+
+    @pytest.mark.asyncio
+    async def test_matrix_revert_retires_the_changed_row(
+        self, manager, wigs_dir_path
+    ):
+        """A wig that arrives carrying a repaired off-checklist cell
+        lists it under Changed Codes and can still be taken back, and
+        taking it back retires the row with it.
+
+        Note the shape this exercises: a replace made in a session can
+        only ever target a row the session walks, so on a matrix wig
+        phase 1's own replaces always land on checklist rows. Changed
+        Codes rows come from markers that arrived with the file -- and,
+        from the next release, from lint and rule repair.
+        """
+        wig = _matrix_wig()
+        cell = next(c for c in wig.climate.cells if c.temp == 25.0)
+        cell.pronto = PRONTO_D
+        cell.extra[PROVENANCE_KEY] = {
+            "replaced": "captured", "date": "2026-07-29",
+        }
+        wig.extra[REPLACED_FROM_KEY] = {
+            "cool/auto/25": {
+                "pronto": PRONTO_C,
+                "provenance": None,
+                "by": "someone-else",
+                "to": PRONTO_D,
+                "session": False,
+            },
+        }
+        filename = _write_wig(wigs_dir_path, wig, "ac.wig.json")
+
+        loaded = _read_wig(wigs_dir_path, "ac.wig.json")
+        assert [s.key for s in fitting_row_specs(loaded)] == [
+            *CHECKLIST_KEYS, "cool/auto/25",
+        ]
+        assert "cool/auto/25" in revertible_keys(loaded)
+
+        await manager.async_revert(
+            filename, _index_of(loaded, "cool/auto/25"), "dab"
+        )
+        await manager.async_flush()
+        after = _read_wig(wigs_dir_path, "ac.wig.json")
+        cell = next(c for c in after.climate.cells if c.temp == 25.0)
+        assert cell.pronto == PRONTO_C
+        assert PROVENANCE_KEY not in cell.extra
+        assert [s.key for s in fitting_row_specs(after)] == CHECKLIST_KEYS
+
+    @pytest.mark.asyncio
+    async def test_revertible_flag_reaches_the_dialog(
+        self, fake_hass, manager, wigs_dir_path
+    ):
+        wig = _signal_wig()
+        # Row 1 arrives with a marker and no record: a chip, but no way
+        # back. Row 0 gets replaced here, so it has both.
+        wig.signals[1].extra[PROVENANCE_KEY] = {
+            "replaced": "pasted", "date": "2026-07-29",
+        }
+        filename = _write_wig(wigs_dir_path, wig)
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_flush()
+        _wire_fitting(fake_hass, manager)
+        conn = _make_connection()
+        await ws_fitting_state(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/fitting/state",
+            "filename": filename,
+        })
+        rows = conn.send_result.call_args.args[1]["rows"]
+        assert rows[0]["provenance"]["replaced"] == "captured"
+        assert rows[0]["revertible"] is True
+        assert rows[1]["provenance"]["replaced"] == "pasted"
+        assert rows[1]["revertible"] is False
+
+    @pytest.mark.asyncio
+    async def test_revert_command_routes_errors(
+        self, fake_hass, manager, wigs_dir_path
+    ):
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        _wire_fitting(fake_hass, manager)
+        conn = _make_connection()
+        await ws_fitting_revert(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/fitting/revert",
+            "filename": filename, "signal_index": 0,
+        })
+        conn.send_result.assert_not_called()
+        assert conn.send_error.call_args.args[1] == "not_revertible"
+
+    @pytest.mark.asyncio
+    async def test_revert_command_succeeds(
+        self, fake_hass, manager, wigs_dir_path
+    ):
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        _wire_fitting(fake_hass, manager)
+        conn = _make_connection()
+        await ws_fitting_revert(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/fitting/revert",
+            "filename": filename, "signal_index": 0,
+        })
+        conn.send_error.assert_not_called()
+        assert conn.send_result.call_args.args[1]["success"]
+        await manager.async_flush()
+        assert _read_wig(wigs_dir_path).signals[0].pronto == PRONTO_A
 
 
 # ---------------------------------------------------------------------------

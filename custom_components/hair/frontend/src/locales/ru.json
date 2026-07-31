@@ -654,5 +654,9 @@
     "fitting.discard_reverts.one": "Заменённый код вернётся к прежнему.",
     "fitting.discard_reverts.other": "{count} заменённых кодов вернутся к прежним.",
     "fitting.discard_reverts.few": "{count} заменённых кода вернутся к прежним.",
-    "fitting.discard_reverts.many": "{count} заменённых кодов вернутся к прежним."
+    "fitting.discard_reverts.many": "{count} заменённых кодов вернутся к прежним.",
+    "fitting.revert": "вернуть",
+    "fitting.revert_confirm": "вернуть?",
+    "fitting.revert_title": "Вернуть этой строке исходный код парика",
+    "fitting.reverted_notice": "Код возвращён к исходному. Идентичность этого парика снова изменилась, остальные {count} вердиктов сохранились. Эта строка снова непроверена."
 }

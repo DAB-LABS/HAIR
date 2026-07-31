@@ -624,5 +624,9 @@
     "fitting.carried_notice": "Oordelen overgenomen uit je vorige pasbeurt. Alleen rijen met gewijzigde codes komen ongetest terug.",
     "fitting.ledger_goto_failed": "De sessie openen bij de eerste mislukte rij",
     "fitting.discard_reverts.one": "De vervangen code gaat terug naar wat hij was.",
-    "fitting.discard_reverts.other": "De {count} vervangen codes gaan terug naar wat ze waren."
+    "fitting.discard_reverts.other": "De {count} vervangen codes gaan terug naar wat ze waren.",
+    "fitting.revert": "terugzetten",
+    "fitting.revert_confirm": "terugzetten?",
+    "fitting.revert_title": "Deze rij terugzetten naar de oorspronkelijke code van de pruik",
+    "fitting.reverted_notice": "Code teruggezet naar het origineel. De identiteit van deze pruik is opnieuw veranderd en je andere {count} oordelen zijn behouden. Deze rij is weer ongetest."
 }

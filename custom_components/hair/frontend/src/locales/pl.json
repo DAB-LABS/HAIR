@@ -654,5 +654,9 @@
     "fitting.discard_reverts.one": "Zamieniony kod wróci do poprzedniej postaci.",
     "fitting.discard_reverts.other": "{count} zamienionych kodów wróci do poprzedniej postaci.",
     "fitting.discard_reverts.few": "{count} zamienione kody wrócą do poprzedniej postaci.",
-    "fitting.discard_reverts.many": "{count} zamienionych kodów wróci do poprzedniej postaci."
+    "fitting.discard_reverts.many": "{count} zamienionych kodów wróci do poprzedniej postaci.",
+    "fitting.revert": "cofnij",
+    "fitting.revert_confirm": "cofnąć?",
+    "fitting.revert_title": "Przywróć w tym wierszu pierwotny kod peruki",
+    "fitting.reverted_notice": "Kod przywrócony do pierwotnego. Tożsamość tej peruki znowu się zmieniła, a pozostałe {count} werdyktów zostało zachowanych. Ten wiersz wraca jako niesprawdzony."
 }

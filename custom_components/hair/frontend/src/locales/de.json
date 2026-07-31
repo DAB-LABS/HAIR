@@ -624,5 +624,9 @@
     "fitting.carried_notice": "Urteile aus Ihrer letzten Anprobe übernommen. Nur Zeilen mit geändertem Code kommen ungeprüft zurück.",
     "fitting.ledger_goto_failed": "Sitzung bei der ersten fehlgeschlagenen Zeile öffnen",
     "fitting.discard_reverts.one": "Der ersetzte Code wird wiederhergestellt.",
-    "fitting.discard_reverts.other": "Die {count} ersetzten Codes werden wiederhergestellt."
+    "fitting.discard_reverts.other": "Die {count} ersetzten Codes werden wiederhergestellt.",
+    "fitting.revert": "zurücksetzen",
+    "fitting.revert_confirm": "zurücksetzen?",
+    "fitting.revert_title": "Diese Zeile auf den ursprünglichen Code der Perücke zurücksetzen",
+    "fitting.reverted_notice": "Code auf das Original zurückgesetzt. Die Identität dieser Perücke hat sich erneut geändert, Ihre übrigen {count} Urteile bleiben erhalten. Diese Zeile gilt wieder als ungeprüft."
 }
