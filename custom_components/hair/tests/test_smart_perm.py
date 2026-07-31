@@ -521,6 +521,77 @@ class TestCarryForward:
         assert confirmed == [] and failed == []
 
     @pytest.mark.asyncio
+    async def test_hand_edited_bytes_do_not_carry(
+        self, manager, wigs_dir_path
+    ):
+        """The anti-laundering case the digest snapshot was CHOSEN for
+        (brief 4.4): the row key survives a hand edit outside HAIR, the
+        bytes do not, and a verdict must never carry onto bytes nobody
+        attested. Key intact, digest mismatch, no seed."""
+        filename = await self._fit_and_replace(manager, wigs_dir_path)
+        wig = _read_wig(wigs_dir_path, filename)
+        # A hand edit outside HAIR: same alias, foreign bytes, no
+        # replace op, no provenance, no hash bookkeeping.
+        untouched = next(
+            s for s in wig.signals if s.alias == "Power Off"
+        )
+        untouched.pronto = PRONTO_D
+        (wigs_dir_path / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        edited = _read_wig(wigs_dir_path, filename)
+        confirmed, failed = carry_forward_seed(edited, "dab")
+        assert confirmed == [] and failed == []
+
+    @pytest.mark.asyncio
+    async def test_sequential_replaces_verify_against_own_snapshots(
+        self, manager, wigs_dir_path
+    ):
+        """Two rolls, no chaining (brief 4.4): each retired hash holds
+        its own complete snapshot, and a fitting bound to EITHER old
+        hash verifies directly against its own entry. After replacing
+        both rows in turn, the fitting from before the first roll seeds
+        nothing (both rows' bytes moved), and the fitting signed
+        between the rolls seeds exactly the row the second roll left
+        alone."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        # Fitting 1 on the original codes.
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_mark(filename, 1, "worked", "dab")
+        await manager.async_finish(filename, "dab", None, None, None)
+        # Roll 1: Power On -> C. Fitting 2 signs on the new codes.
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_finish(filename, "dab", None, None, None)
+        # Roll 2: Power Off -> D.
+        await manager.async_replace(
+            filename, 1, PRONTO_D, "captured", "dab"
+        )
+        await manager.async_flush()
+
+        wig = _read_wig(wigs_dir_path, filename)
+        fittings = parse_fittings(wig).fittings
+        current = wig_content_hash(wig)
+        stale_hashes = {
+            f.content_hash for f in fittings
+            if f.content_hash != current
+        }
+        carry = wig.extra[CARRY_KEY]
+        # One snapshot per retired hash a fitting still points at,
+        # each complete over the rows of its own era -- no chaining.
+        assert stale_hashes <= set(carry)
+        for snapshot in carry.values():
+            assert set(snapshot) == {"Power On", "Power Off"}
+        # The latest prior fitting (post-roll-1) seeds the row roll 2
+        # left alone: Power On (proven at C, still C). Power Off moved
+        # to D and must come back untested.
+        confirmed, failed = carry_forward_seed(wig, "dab")
+        assert confirmed == ["Power On"]
+        assert failed == []
+
+    @pytest.mark.asyncio
     async def test_no_snapshot_means_no_seeding(
         self, manager, wigs_dir_path
     ):

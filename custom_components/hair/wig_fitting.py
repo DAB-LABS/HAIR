@@ -1010,9 +1010,11 @@ class FittingManager:
         from the row's Pronto via the shared helper, the command builds
         decoded-preferring exactly like the catalog Test path, and the
         send claims its own Mirror echo, which is where ``heard`` comes
-        from. ``index`` addresses ``fitting_rows(wig)``, so a matrix
-        wig's checklist and a signal wig's aliases ride the identical
-        path -- only the row source differs.
+        from. ``index`` addresses ``session_row_specs(wig)`` -- the
+        session's list, comb-suspect advisory rows included, because a
+        suspect exists to be SENT -- while marks stay on
+        ``fitting_rows(wig)``, the countable rows. The distinction is
+        load-bearing: see ``session_row_specs``.
 
         ``send_times`` is the session control (fine-tuned-fittings):
         this send loops that many times instead of the row's own
