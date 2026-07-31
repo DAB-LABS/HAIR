@@ -165,6 +165,10 @@ class FittingRowSpec:
     # (``revertible_keys``), not by the row builder, which stays a
     # pure projection of the wig.
     revertible: bool = False
+    # True for a comb suspect surfaced for proofing that is NOT a
+    # fitting row. It can be sent and replaced; it carries no verdict
+    # and never counts toward completeness (see session_row_specs).
+    advisory: bool = False
 
 
 def _provenance_of(extra: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -351,6 +355,69 @@ def fitting_rows(wig: Wig) -> list[tuple[str, str, int]]:
         (spec.key, spec.pronto, spec.send_count)
         for spec in fitting_row_specs(wig)
     ]
+
+
+def session_row_specs(wig: Wig) -> list[FittingRowSpec]:
+    """Fitting rows, plus comb suspects appended as ADVISORY rows.
+
+    The dialog walks this; completeness does not. That distinction is
+    the whole design, and getting it backwards would be quietly
+    destructive:
+
+    Combing stamps a receipt WITHOUT rolling the content hash -- by
+    design, so recording what was found never invalidates a fitting. But
+    it means that if suspects counted toward completeness, running a comb
+    on a wig would retroactively demote every complete fitting in its
+    ledger, including other people's, with no code having changed
+    anywhere. Somebody's signed PERFECT FIT would silently become partial
+    because a different person pressed a button in a different install.
+
+    So a suspect appears in the session to be SENT and, if it is wrong,
+    REPLACED -- and replacing it stamps provenance, which rolls the hash,
+    which is what legitimately promotes it to a Changed Codes row that
+    does count. Lint finds it, the session shows it, replace fixes it,
+    and only then does the arithmetic move.
+
+    A suspect that is already a checklist or changed row is NOT
+    duplicated here; it is the same row, and it keeps its verdict
+    buttons.
+    """
+    from .wig_comb import suspect_keys
+
+    specs = fitting_row_specs(wig)
+    known = {spec.key for spec in specs}
+    suspects = [key for key in suspect_keys(wig) if key not in known]
+    if not suspects:
+        return specs
+
+    by_key: dict[str, Any] = {}
+    if wig.climate is not None:
+        for cell in wig.climate.cells:
+            by_key.setdefault(cell_key(cell), cell)
+    else:
+        for sig in wig.signals:
+            by_key.setdefault(sig.alias, sig)
+
+    for key in suspects:
+        source = by_key.get(key)
+        if source is None:
+            # The receipt names a row that no longer exists: the codes
+            # moved since it was written. Silently skipped -- a stale
+            # receipt is expected, and combing again is what fixes it.
+            continue
+        specs.append(FittingRowSpec(
+            key=key,
+            pronto=source.pronto,
+            send_count=source.send_count,
+            section=SECTION_CHANGED,
+            mode=getattr(source, "mode", None),
+            fan=getattr(source, "fan", None),
+            swing=getattr(source, "swing", None),
+            temp=getattr(source, "temp", None),
+            provenance=_provenance_of(source.extra),
+            advisory=True,
+        ))
+    return specs
 
 
 @dataclass
@@ -964,7 +1031,12 @@ class FittingManager:
         if wig is None:
             return {"success": False, "code": "wig_not_found",
                     "error": "Wig not found"}
-        rows = fitting_rows(wig)
+        # The SESSION list, not the fitting list: a comb suspect must be
+        # sendable, which is how a fitter decides whether it is really
+        # wrong before replacing it.
+        rows = [
+            (s.key, s.pronto, s.send_count) for s in session_row_specs(wig)
+        ]
         if not 0 <= index < len(rows):
             return {"success": False, "code": "bad_index",
                     "error": "No such signal in this wig"}
@@ -1134,7 +1206,10 @@ class FittingManager:
         if wig is None:
             return {"success": False, "code": "wig_not_found",
                     "error": "Wig not found"}
-        specs = fitting_row_specs(wig)
+        # Session rows: repairing a comb suspect is the whole point of
+        # surfacing it. Replacing one stamps provenance and rolls the
+        # hash, which is what promotes it to a real Changed Codes row.
+        specs = session_row_specs(wig)
         if not 0 <= index < len(specs):
             return {"success": False, "code": "bad_index",
                     "error": "No such signal in this wig"}
@@ -1273,7 +1348,7 @@ class FittingManager:
         if wig is None:
             return {"success": False, "code": "wig_not_found",
                     "error": "Wig not found"}
-        specs = fitting_row_specs(wig)
+        specs = session_row_specs(wig)
         if not 0 <= index < len(specs):
             return {"success": False, "code": "bad_index",
                     "error": "No such signal in this wig"}

@@ -671,5 +671,6 @@
     "comb.suspects.one": "{count} verdächtiger Code",
     "comb.suspects.other": "{count} verdächtige Codes",
     "comb.tip_suspects.one": "{count} verdächtiger Code. Für den Bericht klicken.",
-    "comb.tip_suspects.other": "{count} verdächtige Codes. Für den Bericht klicken."
+    "comb.tip_suspects.other": "{count} verdächtige Codes. Für den Bericht klicken.",
+    "fitting.chip_suspect": "verdächtig"
 }

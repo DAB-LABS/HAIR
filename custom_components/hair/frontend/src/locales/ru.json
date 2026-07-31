@@ -705,5 +705,6 @@
     "comb.tip_suspects.one": "{count} подозрительный код. Нажмите для отчёта.",
     "comb.tip_suspects.few": "{count} подозрительных кода. Нажмите для отчёта.",
     "comb.tip_suspects.many": "{count} подозрительных кодов. Нажмите для отчёта.",
-    "comb.tip_suspects.other": "{count} подозрительного кода. Нажмите для отчёта."
+    "comb.tip_suspects.other": "{count} подозрительного кода. Нажмите для отчёта.",
+    "fitting.chip_suspect": "подозрительный"
 }

@@ -656,7 +656,7 @@
     "comb.what.stray-burst": "inofensivo; a captura não foi limpa",
     "comb.class.duplicate-labels": "Mesmo código, nomes diferentes",
     "comb.what.duplicate-labels": "muitas vezes legítimo; assinalado, nunca alterado",
-    "comb.duplicated_neighbour": "Envia o mesmo código que {other}, numa linha que muda a cada outro passo.",
+    "comb.duplicated_neighbour": "Envia o mesmo código que {other}, numa linha que de resto muda a cada passo.",
     "comb.frame_short": "À trama {frame} faltam {timings} tempos face a todas as outras.",
     "comb.frame_missing": "Faltam {missing} das tramas repetidas.",
     "comb.frame_shape": "{pairs} pares de rajada onde o resto da grelha envia {expected}.",
@@ -671,5 +671,6 @@
     "comb.suspects.one": "{count} código suspeito",
     "comb.suspects.other": "{count} códigos suspeitos",
     "comb.tip_suspects.one": "{count} código suspeito. Clique para o relatório.",
-    "comb.tip_suspects.other": "{count} códigos suspeitos. Clique para o relatório."
+    "comb.tip_suspects.other": "{count} códigos suspeitos. Clique para o relatório.",
+    "fitting.chip_suspect": "suspeito"
 }

@@ -194,7 +194,11 @@ export class IrCombReport extends LitElement {
                 <div class="glist">
                     ${shown.map(
                         (f) => html`<div class="find">
-                            <span class="key">${f.keys.join(" \u00b7 ")}</span>
+                            <span class="key"
+                                >${f.keys.map(
+                                    (k) => html`<span class="k">${k}</span>`,
+                                )}</span
+                            >
                             <span class="diag">${this._diagnosis(f)}</span>
                         </div>`,
                     )}
@@ -224,7 +228,7 @@ export class IrCombReport extends LitElement {
         dialogStyles,
         css`
             .comb-dialog {
-                max-width: 620px;
+                max-width: 700px;
             }
             .heading {
                 display: flex;
@@ -294,22 +298,40 @@ export class IrCombReport extends LitElement {
                 max-height: 260px;
                 overflow-y: auto;
             }
+            /* A grid, not a flex row: the key column is FIXED so every
+               diagnosis starts at the same x. With flex, a finding whose
+               key wrapped pushed its diagnosis somewhere else entirely and
+               the column read as ragged (owner bench 2026-07-31). */
             .find {
-                display: flex;
-                gap: 12px;
-                align-items: baseline;
-                padding: 6px 12px 6px 26px;
+                display: grid;
+                grid-template-columns: 200px 1fr;
+                gap: 6px 14px;
+                padding: 7px 12px 7px 26px;
                 font-size: 12px;
                 line-height: 1.5;
             }
             .find .key {
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
                 font-family: ui-monospace, "SF Mono", Menlo, monospace;
                 font-size: 11px;
-                min-width: 140px;
                 word-break: break-word;
+            }
+            /* One key per line. A finding about a RELATIONSHIP names both
+               rows, and joining them with a separator left it dangling at
+               the wrap. */
+            .find .key .k {
+                white-space: nowrap;
             }
             .find .diag {
                 color: var(--secondary-text-color);
+            }
+            @media (max-width: 620px) {
+                .find {
+                    grid-template-columns: 1fr;
+                    gap: 2px;
+                }
             }
             .more {
                 padding: 7px 12px 9px 26px;

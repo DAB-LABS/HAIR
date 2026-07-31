@@ -656,7 +656,7 @@
     "comb.what.stray-burst": "harmless; the capture was not clean",
     "comb.class.duplicate-labels": "Same code, different names",
     "comb.what.duplicate-labels": "often legitimate; reported, never changed",
-    "comb.duplicated_neighbour": "Sends the same code as {other}, in a row that changes at every other step.",
+    "comb.duplicated_neighbour": "Sends the same code as {other}, in a row that otherwise changes at every step.",
     "comb.frame_short": "Frame {frame} is {timings} timings short of every other code here.",
     "comb.frame_missing": "Short by {missing} of the repeated frames.",
     "comb.frame_shape": "{pairs} burst pairs where the rest of the lattice sends {expected}.",
@@ -671,5 +671,6 @@
     "comb.suspects.one": "{count} suspect code",
     "comb.suspects.other": "{count} suspect codes",
     "comb.tip_suspects.one": "{count} suspect code. Click for the report.",
-    "comb.tip_suspects.other": "{count} suspect codes. Click for the report."
+    "comb.tip_suspects.other": "{count} suspect codes. Click for the report.",
+    "fitting.chip_suspect": "suspect"
 }

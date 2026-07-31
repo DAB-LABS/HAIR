@@ -285,6 +285,9 @@ export interface FittingRow {
     // True when an earlier code for this row is on record, so its chip
     // can offer REVERT. A chip without this arrived with the file.
     revertible?: boolean;
+    // A comb suspect surfaced for proofing. Sendable and replaceable,
+    // but carries no verdict and never counts toward completeness.
+    advisory?: boolean;
 }
 
 // One event from the Replace strip's listen window.

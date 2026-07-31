@@ -758,6 +758,10 @@ export class IrFittingDialog extends LitElement {
     private _renderChip(i: number) {
         const row = this._fit?.rows[i];
         const marker = row?.provenance;
+        if (row?.advisory && !marker)
+            return html`<span class="prov-chip suspect"
+                >${t("fitting.chip_suspect")}</span
+            >`;
         if (!marker) return nothing;
         const label = t(
             marker.replaced === "captured"
@@ -819,6 +823,11 @@ export class IrFittingDialog extends LitElement {
     private _renderRowControls(i: number) {
         const verdict = this._verdicts.get(i);
         const facts = this._facts.get(i);
+        // A comb suspect is here to be tested and, if it is wrong,
+        // repaired -- not judged. It is not a checklist row, so a
+        // verdict on it would imply it counts toward completeness, and
+        // it deliberately does not (see session_row_specs).
+        const advisory = !!this._fit?.rows[i]?.advisory;
         return html`${facts?.sent
                 ? html`<span class="facts">
                       ${facts.sent > 1
@@ -843,18 +852,24 @@ export class IrFittingDialog extends LitElement {
             >
                 ${t("fitting.send")}
             </button>
-            <button
-                class="vbtn ${verdict === "worked" ? "worked-on" : ""}"
-                @click=${() => void this._mark(i, "worked")}
-            >
-                ${t("fitting.worked")}
-            </button>
-            <button
-                class="vbtn ${verdict === "failed" ? "failed-on" : ""}"
-                @click=${() => void this._mark(i, "failed")}
-            >
-                ${t("fitting.did_not")}
-            </button>
+            ${advisory
+                ? nothing
+                : html`<button
+                          class="vbtn ${verdict === "worked"
+                              ? "worked-on"
+                              : ""}"
+                          @click=${() => void this._mark(i, "worked")}
+                      >
+                          ${t("fitting.worked")}
+                      </button>
+                      <button
+                          class="vbtn ${verdict === "failed"
+                              ? "failed-on"
+                              : ""}"
+                          @click=${() => void this._mark(i, "failed")}
+                      >
+                          ${t("fitting.did_not")}
+                      </button>`}
             <button
                 class="vbtn replace-btn ${this._replaceRow === i
                     ? "open"
@@ -1687,6 +1702,10 @@ export class IrFittingDialog extends LitElement {
             .vbtn.replace-btn.open {
                 background: rgba(201, 138, 75, 0.15);
                 border-color: rgba(201, 138, 75, 0.6);
+            }
+            .prov-chip.suspect {
+                color: #e6a23c;
+                border-color: rgba(230, 162, 60, 0.4);
             }
             .prov-chip {
                 flex: none;

@@ -656,7 +656,7 @@
     "comb.what.stray-burst": "無害ですが、取得がきれいではありません",
     "comb.class.duplicate-labels": "同じコード、異なる名前",
     "comb.what.duplicate-labels": "多くは正当です。報告のみで変更しません",
-    "comb.duplicated_neighbour": "{other} と同じコードを送ります。他はすべて 1 段ごとに変わる行です。",
+    "comb.duplicated_neighbour": "{other} と同じコードを送ります。この行は他のすべての段で変化します。",
     "comb.frame_short": "フレーム {frame} は他のすべてより {timings} タイミング不足しています。",
     "comb.frame_missing": "繰り返しフレームが {missing} 個不足しています。",
     "comb.frame_shape": "バーストペアが {pairs} 組、他の格子は {expected} 組です。",
@@ -671,5 +671,6 @@
     "comb.suspects.other": "{count} 件の疑わしいコード",
     "comb.tip_suspects.other": "疑わしいコード {count} 件。クリックでレポート。",
     "comb.suspects.one": "{count} 件の疑わしいコード",
-    "comb.tip_suspects.one": "疑わしいコード {count} 件。クリックでレポート。"
+    "comb.tip_suspects.one": "疑わしいコード {count} 件。クリックでレポート。",
+    "fitting.chip_suspect": "疑わしい"
 }

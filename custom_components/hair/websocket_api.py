@@ -3443,11 +3443,11 @@ async def ws_fitting_state(
             carry_forward_seed,
             fitting_is_complete,
             fitting_is_valid,
-            fitting_row_specs,
             fitting_summary,
             parse_fittings,
             pending_replaces,
             revertible_keys,
+            session_row_specs,
         )
         from .wig_store import load_wig
 
@@ -3486,8 +3486,13 @@ async def ws_fitting_state(
         # add the checklist display facts so the dialog renders the
         # sectioned CC1 layout without re-deriving the checklist
         # client-side, plus any appended Changed Codes rows.
-        specs = fitting_row_specs(wig)
-        row_keys = {spec.key for spec in specs}
+        # The SESSION list: fitting rows plus comb suspects surfaced for
+        # proofing. The suspects can be sent and replaced; they carry no
+        # verdict and never count toward completeness, because combing
+        # stamps a receipt without rolling the hash and counting them
+        # would demote complete fittings nobody touched.
+        specs = session_row_specs(wig)
+        row_keys = {spec.key for spec in specs if not spec.advisory}
         revertible = revertible_keys(wig)
         matrix = wig.climate is not None
         rows = [
@@ -3501,6 +3506,10 @@ async def ws_fitting_state(
                 # markers also ride in on shared wigs, and from
                 # installs that never recorded an earlier code.
                 "revertible": spec.key in revertible,
+                # Surfaced by the comb, not part of the checklist: send
+                # it, replace it if it is wrong, but do not judge it and
+                # do not count it.
+                "advisory": spec.advisory,
                 **({
                     "mode": spec.mode,
                     "fan": spec.fan,
@@ -3527,7 +3536,12 @@ async def ws_fitting_state(
             ),
             # Row keys in session order. For signal wigs this is the
             # alias list, byte-identical to the pre-0.8.8 payload.
-            "signals": [row["key"] for row in rows],
+            # Row keys in session order. Advisory rows are excluded so
+            # the pre-existing contract ("signals" is the fitting list)
+            # and every count derived from it stay exactly as they were.
+            "signals": [
+                row["key"] for row in rows if not row["advisory"]
+            ],
             "rows": rows,
             # True when the row verdicts above are a carry-forward
             # preview rather than a live draft, so the dialog can say

@@ -656,7 +656,7 @@
     "comb.what.stray-burst": "innocuo; la cattura non era pulita",
     "comb.class.duplicate-labels": "Stesso codice, nomi diversi",
     "comb.what.duplicate-labels": "spesso legittimo; segnalato, mai modificato",
-    "comb.duplicated_neighbour": "Invia lo stesso codice di {other}, in una riga che cambia a ogni altro passo.",
+    "comb.duplicated_neighbour": "Invia lo stesso codice di {other}, in una riga che per il resto cambia a ogni passo.",
     "comb.frame_short": "Alla trama {frame} mancano {timings} tempi rispetto a tutte le altre.",
     "comb.frame_missing": "Mancano {missing} delle trame ripetute.",
     "comb.frame_shape": "{pairs} coppie di raffica dove il resto del reticolo ne invia {expected}.",
@@ -671,5 +671,6 @@
     "comb.suspects.one": "{count} codice sospetto",
     "comb.suspects.other": "{count} codici sospetti",
     "comb.tip_suspects.one": "{count} codice sospetto. Clicca per il rapporto.",
-    "comb.tip_suspects.other": "{count} codici sospetti. Clicca per il rapporto."
+    "comb.tip_suspects.other": "{count} codici sospetti. Clicca per il rapporto.",
+    "fitting.chip_suspect": "sospetto"
 }

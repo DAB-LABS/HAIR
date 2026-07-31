@@ -705,5 +705,6 @@
     "comb.tip_suspects.one": "{count} podejrzany kod. Kliknij po raport.",
     "comb.tip_suspects.few": "{count} podejrzane kody. Kliknij po raport.",
     "comb.tip_suspects.many": "{count} podejrzanych kodów. Kliknij po raport.",
-    "comb.tip_suspects.other": "{count} podejrzanego kodu. Kliknij po raport."
+    "comb.tip_suspects.other": "{count} podejrzanego kodu. Kliknij po raport.",
+    "fitting.chip_suspect": "podejrzany"
 }

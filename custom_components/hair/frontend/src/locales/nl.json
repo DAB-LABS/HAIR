@@ -656,7 +656,7 @@
     "comb.what.stray-burst": "onschadelijk; de opname was niet schoon",
     "comb.class.duplicate-labels": "Zelfde code, andere namen",
     "comb.what.duplicate-labels": "vaak terecht; gemeld, nooit gewijzigd",
-    "comb.duplicated_neighbour": "Stuurt dezelfde code als {other}, in een rij die bij elke andere stap wel verandert.",
+    "comb.duplicated_neighbour": "Stuurt dezelfde code als {other}, in een rij die verder bij elke stap verandert.",
     "comb.frame_short": "Frame {frame} komt {timings} tijden tekort ten opzichte van alle andere.",
     "comb.frame_missing": "Er ontbreken {missing} van de herhaalde frames.",
     "comb.frame_shape": "{pairs} pulsparen waar de rest van het raster er {expected} stuurt.",
@@ -671,5 +671,6 @@
     "comb.suspects.one": "{count} verdachte code",
     "comb.suspects.other": "{count} verdachte codes",
     "comb.tip_suspects.one": "{count} verdachte code. Klik voor het rapport.",
-    "comb.tip_suspects.other": "{count} verdachte codes. Klik voor het rapport."
+    "comb.tip_suspects.other": "{count} verdachte codes. Klik voor het rapport.",
+    "fitting.chip_suspect": "verdacht"
 }

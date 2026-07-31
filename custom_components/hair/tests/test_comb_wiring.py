@@ -347,3 +347,161 @@ class TestClosetPayload:
         })
         conn.send_result.assert_not_called()
         assert conn.send_error.call_args.args[1] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# The trap: suspects must never count
+# ---------------------------------------------------------------------------
+
+
+class TestSuspectsInTheSession:
+    def _fitted(self) -> Wig:
+        """A matrix wig with a signed, COMPLETE fitting on it."""
+        from custom_components.hair.wig_fitting import fitting_rows
+
+        wig = _defective_matrix()
+        wig.extra["fittings"] = [{
+            "handle": "dab", "date": "2026-07-30",
+            "content_hash": wig_content_hash(wig),
+            "confirmed": [k for k, _, _ in fitting_rows(wig)],
+            "failed": [],
+        }]
+        return wig
+
+    def test_combing_cannot_demote_a_complete_fitting(self):
+        """THE trap this design exists to avoid. Combing stamps a receipt
+        without rolling the hash -- deliberately, so it never invalidates
+        anything. If suspects counted toward completeness, combing a wig
+        would retroactively demote every complete fitting in its ledger,
+        including other people's, with no code changed anywhere."""
+        from custom_components.hair.wig_fitting import (
+            fitting_is_complete,
+            parse_fittings,
+        )
+
+        wig = self._fitted()
+        before = parse_fittings(wig).fittings[0]
+        assert fitting_is_complete(before, wig)
+
+        stamp_receipt(wig, comb_wig(wig), "2026-07-31")
+        after = parse_fittings(wig).fittings[0]
+        assert fitting_is_complete(after, wig)
+        assert wig_content_hash(wig) == before.content_hash
+
+    def test_suspects_join_the_session_but_not_the_row_list(self):
+        from custom_components.hair.wig_fitting import (
+            fitting_rows,
+            session_row_specs,
+        )
+
+        wig = self._fitted()
+        rows_before = fitting_rows(wig)
+        stamp_receipt(wig, comb_wig(wig), "2026-07-31")
+
+        # The fitting list is untouched: same rows, same order.
+        assert fitting_rows(wig) == rows_before
+        session = session_row_specs(wig)
+        assert len(session) > len(rows_before)
+        extra = [s for s in session if s.advisory]
+        assert extra and all(s.section == "changed" for s in extra)
+        # And they carry the coordinates a fitter needs to find them.
+        assert extra[0].mode == "cool"
+
+    def test_a_suspect_that_is_already_a_row_is_not_duplicated(self):
+        """It is the same row, and it keeps its verdict buttons."""
+        from custom_components.hair.wig_fitting import session_row_specs
+
+        wig = self._fitted()
+        stamp_receipt(wig, comb_wig(wig), "2026-07-31")
+        keys = [s.key for s in session_row_specs(wig)]
+        assert len(keys) == len(set(keys))
+
+    def test_advisories_are_never_surfaced_for_proofing(self):
+        """A toggle remote's shared code is legitimate; putting it in
+        front of a fitter as something to prove would be noise."""
+        from custom_components.hair.wig_comb import suspect_keys
+
+        toggle = _code([11], seed=1)
+        wig = _signal_wig({
+            "Power On": toggle, "Power Off": toggle,
+            "A": _code([11], seed=2), "B": _code([11], seed=3),
+            "C": _code([11], seed=4),
+        })
+        stamp_receipt(wig, comb_wig(wig), "2026-07-31")
+        assert suspect_keys(wig) == []
+
+    def test_a_stale_receipt_naming_a_gone_row_is_skipped(self):
+        """Receipts go stale by design: a Replace changes codes without
+        touching one. A row the receipt names that no longer exists is
+        dropped rather than crashing the session."""
+        from custom_components.hair.wig_fitting import session_row_specs
+
+        wig = self._fitted()
+        stamp_receipt(wig, comb_wig(wig), "2026-07-31")
+        wig.extra["comb"]["findings"].append({
+            "check": "malformed", "keys": ["cool/auto/99"],
+            "message": "comb.frame_short",
+        })
+        keys = [s.key for s in session_row_specs(wig)]
+        assert "cool/auto/99" not in keys
+
+    @pytest.mark.asyncio
+    async def test_send_reaches_a_suspect_but_mark_does_not(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        """A suspect is here to be tested and, if wrong, repaired --
+        never judged, because a verdict would imply it counts."""
+        from custom_components.hair.wig_fitting import (
+            FittingManager,
+            fitting_rows,
+            session_row_specs,
+        )
+
+        fake_hass.config.config_dir = str(tmp_path)
+        wig = self._fitted()
+        stamp_receipt(wig, comb_wig(wig), "2026-07-31")
+        (wigs_dir_path / "ac.wig.json").write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        manager = FittingManager(fake_hass, monitor=None)
+        suspect_index = len(fitting_rows(wig))
+        assert session_row_specs(wig)[suspect_index].advisory
+
+        result = await manager.async_mark(
+            "ac.wig.json", suspect_index, "worked", "dab"
+        )
+        assert not result["success"] and result["code"] == "bad_index"
+
+    @pytest.mark.asyncio
+    async def test_replacing_a_suspect_promotes_it_to_a_real_row(
+        self, fake_hass, tmp_path, wigs_dir_path
+    ):
+        """The escalation the release is built around: the comb finds it,
+        the session shows it, replace fixes it -- and only then does the
+        arithmetic move, because replace rolled the hash."""
+        from custom_components.hair.wig_fitting import (
+            FittingManager,
+            fitting_rows,
+        )
+
+        fake_hass.config.config_dir = str(tmp_path)
+        wig = self._fitted()
+        stamp_receipt(wig, comb_wig(wig), "2026-07-31")
+        (wigs_dir_path / "ac.wig.json").write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        manager = FittingManager(fake_hass, monitor=None)
+        before = len(fitting_rows(wig))
+
+        result = await manager.async_replace(
+            "ac.wig.json", before, _code([10], seed=222), "captured", "dab"
+        )
+        assert result["success"]
+        await manager.async_flush()
+
+        after = parse_wig(
+            (wigs_dir_path / "ac.wig.json").read_text()
+        ).wig
+        rows = [k for k, _, _ in fitting_rows(after)]
+        assert len(rows) == before + 1
+        assert result["row_key"] in rows

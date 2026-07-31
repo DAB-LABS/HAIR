@@ -572,3 +572,33 @@ def receipt_summary(wig: Wig) -> dict[str, Any] | None:
         "dangerous": bool(counts.get(CHECK_DUPLICATED_NEIGHBOUR)),
         "counts": counts,
     }
+
+
+def suspect_keys(wig: Wig) -> list[str]:
+    """Row keys the stored receipt flagged, worst first, deduped.
+
+    What the fitting session surfaces for proofing. ADVISORY findings are
+    excluded: "same code, different names" is legitimate on a toggle
+    remote and putting it in front of a fitter as something to prove
+    would be noise.
+
+    Reads the stored receipt rather than re-combing, because the session
+    must not do lattice work on open -- and because a receipt is exactly
+    the claim the closet glyph is already making.
+    """
+    raw = wig.extra.get(COMB_KEY)
+    if not isinstance(raw, dict):
+        return []
+    findings = raw.get("findings")
+    if not isinstance(findings, list):
+        return []
+    seen: list[str] = []
+    for entry in findings:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("check") in ADVISORY_CHECKS:
+            continue
+        for key in entry.get("keys") or []:
+            if isinstance(key, str) and key not in seen:
+                seen.append(key)
+    return seen
