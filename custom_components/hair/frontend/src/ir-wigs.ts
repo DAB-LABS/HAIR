@@ -38,6 +38,8 @@ import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+import { COMB_PATH } from "./ir-comb-report.js";
+import "./ir-comb-report.js";
 import { displayTemp, installUnit } from "./temperature.js";
 import "./ir-confirm-dialog.js";
 import "./ir-count-dot.js";
@@ -144,6 +146,8 @@ export class IrWigs extends LitElement {
     // straight into the session; reopening resumes (marks live in the
     // wig file, owner rulings 2026-07-26).
     @state() private _fittingWig: WigInfo | null = null;
+    // Smart Perm: the wig whose comb report is open.
+    @state() private _combWig: WigInfo | null = null;
     // Adopt Device (v0.8.1): the wig the promote dialog is open for.
     @state() private _adoptWig: WigInfo | null = null;
     // Adopt from a library row: the codebook row instead (no wig file).
@@ -1172,6 +1176,14 @@ export class IrWigs extends LitElement {
                   ></ir-promote-dialog>`
                 : ""}
             ${this._renderLinkedWigPopover()}
+            ${this._combWig
+                ? html`<ir-comb-report
+                      .api=${this.api}
+                      .wig=${this._combWig}
+                      @combed=${() => void this._refresh(true)}
+                      @closed=${() => (this._combWig = null)}
+                  ></ir-comb-report>`
+                : ""}
             ${this._fittingWig
                 ? html`<ir-fitting-dialog
                       .api=${this.api}
@@ -1266,6 +1278,25 @@ export class IrWigs extends LitElement {
         `;
     }
 
+    /** The comb glyph's state class. Neutral grey with no glow covers BOTH
+     * "nobody has combed this" and "combed, nothing found" (owner ruling
+     * CG3); the tooltip is what separates them. Red outranks yellow by
+     * taxonomy rather than count -- one duplicated neighbour is worse than
+     * thirty-four malformed frames, because the device answers that one. */
+    private _combState(wig: WigInfo): string {
+        const comb = wig.comb;
+        if (!comb || comb.suspects === 0) return "";
+        return comb.dangerous ? "bad" : "warn";
+    }
+
+    private _combTitle(wig: WigInfo): string {
+        const comb = wig.comb;
+        if (!comb) return t("comb.action");
+        if (comb.suspects === 0)
+            return t("comb.tip_clean", { date: comb.date ?? "" });
+        return tp("comb.tip_suspects", comb.suspects);
+    }
+
     private _renderRow(row: ClosetRow) {
         return html`
             <div
@@ -1317,6 +1348,28 @@ export class IrWigs extends LitElement {
                               </button>`
                             : ""}
                     </span>
+                    ${row.wig
+                        ? html`<span class="glyph-slot">
+                              <button
+                                  class="copy-glyph"
+                                  title=${this._combTitle(row.wig)}
+                                  @click=${() =>
+                                      (this._combWig = row.wig!)}
+                              >
+                                  <svg
+                                      class="comb-glyph ${this._combState(
+                                          row.wig,
+                                      )}"
+                                      viewBox="0 0 512 512"
+                                      width="15"
+                                      height="15"
+                                      aria-hidden="true"
+                                  >
+                                      <path d=${COMB_PATH}></path>
+                                  </svg>
+                              </button>
+                          </span>`
+                        : ""}
                     <span class="glyph-slot">
                         <button
                             class="copy-glyph"
@@ -2169,6 +2222,21 @@ export class IrWigs extends LitElement {
         .wig-actions .delete-btn {
             color: var(--error-color, #c62828);
             border-color: var(--error-color, #c62828);
+        }
+        /* The comb glyph (Smart Perm, ruled CG3 at glow level C): ALWAYS
+           the neutral glyph grey, like edit and download, and 15px against
+           their 16. Only the glow moves, so a closet of clean wigs stays
+           calm and colour appears only when something is actually wrong. */
+        .comb-glyph {
+            fill: currentColor;
+        }
+        .comb-glyph.warn {
+            filter: drop-shadow(0 0 2px rgba(255, 193, 7, 0.55))
+                drop-shadow(0 0 4px rgba(255, 193, 7, 0.32));
+        }
+        .comb-glyph.bad {
+            filter: drop-shadow(0 0 2px rgba(255, 82, 82, 0.55))
+                drop-shadow(0 0 5px rgba(255, 82, 82, 0.4));
         }
         .dl-icon {
             --mdc-icon-size: 15px;

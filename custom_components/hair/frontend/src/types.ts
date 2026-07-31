@@ -173,6 +173,40 @@ export interface WigInfo {
     // states" chip, the peek summary, CLIP suppression, and the
     // fit-tick's cold blue glow.
     matrix?: MatrixSummary | null;
+    // Smart Perm: the stored comb receipt, or null when nobody has
+    // combed this wig. Drives the comb glyph's glow.
+    comb?: CombSummary | null;
+}
+
+// Combing (Smart Perm phase 2): the closet's code check.
+export interface CombFinding {
+    check: string;
+    keys: string[];
+    // A localization key plus its substitutions; the backend never ships
+    // prebaked English.
+    message: string;
+    params?: Record<string, string>;
+}
+
+// What the closet row needs to draw the comb glyph. null on a wig with no
+// receipt, which means NOBODY HAS COMBED IT -- deliberately not the same
+// as clean, which is a receipt carrying zero suspects.
+export interface CombSummary {
+    suspects: number;
+    date: string | null;
+    version: number | null;
+    // True when a duplicated neighbour is present: the class the device
+    // answers while setting the wrong state. Drives red over yellow.
+    dangerous: boolean;
+    counts: Record<string, number>;
+}
+
+export interface CombReport extends CombSummary {
+    filename: string;
+    name: string;
+    matrix: boolean;
+    findings: CombFinding[];
+    truncated?: number;
 }
 
 // Perfect Fit: the fitting layer.

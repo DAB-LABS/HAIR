@@ -16,6 +16,7 @@ import type {
     CommandTemplate,
     DeleteSignalResult,
     DeviceSummary,
+    CombReport,
     FittingListenEvent,
     FittingState,
     DeviceTypeId,
@@ -314,6 +315,15 @@ export class HairApi {
         };
         if (filename) msg.filename = filename;
         return this.hass.connection.sendMessagePromise(msg);
+    }
+
+    /** Comb one wig and refresh its receipt. Always re-combs rather than
+     * serving the stored report: the receipt may predate a Replace. */
+    wigsComb(filename: string): Promise<CombReport> {
+        return this.hass.connection.sendMessagePromise<CombReport>({
+            type: "hair/wigs/comb",
+            filename,
+        });
     }
 
     wigsDelete(filename: string): Promise<{ deleted: boolean }> {
