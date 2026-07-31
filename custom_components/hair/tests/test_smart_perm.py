@@ -45,7 +45,10 @@ from custom_components.hair.wig_fitting import (
     fitting_row_specs,
     fitting_rows,
     parse_fittings,
+    pending_replaces,
     revertible_keys,
+    shared_wig_text,
+    wig_needs_share_strip,
 )
 from custom_components.hair.wig_format import (
     ClimateCell,
@@ -810,6 +813,67 @@ class TestDiscardReverts:
             "filename": filename,
         })
         assert conn.send_result.call_args.args[1]["pending_replaces"] == 1
+
+
+# ---------------------------------------------------------------------------
+# What travels when a wig is shared
+# ---------------------------------------------------------------------------
+
+
+class TestSharePaths:
+    @pytest.mark.asyncio
+    async def test_stripped_fitting_takes_its_carry_snapshot_with_it(
+        self, manager, wigs_dir_path
+    ):
+        """Owner bench 2026-07-31, from a downloaded pair: reverting a
+        code invalidated the fitting that attested it, the share path
+        correctly stripped that fitting, and the snapshot taken FOR it
+        rode along keyed to an attestation no longer in the file."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_mark(filename, 1, "worked", "dab")
+        await manager.async_finish(filename, "dab", None, None, None)
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_flush()
+
+        wig = _read_wig(wigs_dir_path)
+        # On disk the snapshot is live: the stale fitting still refers
+        # to the hash it was taken at.
+        assert wig.extra[CARRY_KEY]
+        assert len(parse_fittings(wig).fittings) == 1
+
+        shared = parse_wig(shared_wig_text(wig)).wig
+        assert FITTINGS_KEY not in shared.extra  # stale, so stripped
+        assert CARRY_KEY not in shared.extra     # and so is its snapshot
+
+    def test_share_drops_session_bookkeeping_keeps_the_way_back(self):
+        wig = _signal_wig()
+        wig.extra[REPLACED_FROM_KEY] = {
+            "Power On": {
+                "pronto": PRONTO_A,
+                "provenance": None,
+                "by": "dab",
+                "to": PRONTO_C,
+                "session": True,
+            },
+        }
+        wig.signals[0].pronto = PRONTO_C
+        wig.signals[0].extra[PROVENANCE_KEY] = {
+            "replaced": "captured", "date": "2026-07-31",
+        }
+        assert wig_needs_share_strip(wig)
+
+        shared = parse_wig(shared_wig_text(wig)).wig
+        record = shared.extra[REPLACED_FROM_KEY]["Power On"]
+        # The codes travel, so the recipient can still put it back.
+        assert record["pronto"] == PRONTO_A
+        assert record["to"] == PRONTO_C
+        assert "Power On" in revertible_keys(shared)
+        # Whose session it was does not.
+        assert "by" not in record and "session" not in record
+        assert pending_replaces(shared, "dab") == 0
 
 
 # ---------------------------------------------------------------------------

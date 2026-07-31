@@ -528,6 +528,36 @@ def shared_wig_text(wig: Wig) -> str:
         extra[FITTINGS_KEY] = kept
     else:
         extra.pop(FITTINGS_KEY, None)
+
+    # Carry snapshots exist to seed the NEXT session against a fitting
+    # this install holds. Stripping a fitting therefore strips the
+    # snapshot it was for, or the shared file ships digests of codes
+    # keyed to an attestation that is not in it.
+    live = {f.get("content_hash") for f in kept}
+    carry = {
+        h: rows for h, rows in _carry_map(wig).items() if h in live
+    }
+    if carry:
+        extra[CARRY_KEY] = carry
+    else:
+        extra.pop(CARRY_KEY, None)
+
+    # A shared wig says what a code IS and what it WAS, never whose
+    # session it is in the middle of. Dropping ``by`` and ``session``
+    # keeps REVERT working for the recipient (it needs the codes) while
+    # making sure a stranger's in-flight replace can never be swept up
+    # by their discard.
+    origins = {
+        key: {
+            k: v for k, v in record.items()
+            if k not in ("by", "session")
+        }
+        for key, record in _origin_map(wig).items()
+    }
+    if origins:
+        extra[REPLACED_FROM_KEY] = origins
+    else:
+        extra.pop(REPLACED_FROM_KEY, None)
     stripped = Wig(
         name=wig.name,
         signals=wig.signals,
@@ -552,6 +582,13 @@ def wig_needs_share_strip(wig: Wig) -> bool:
     Lets the download path return the byte-exact original file whenever
     stripping would change nothing (hand-authored formatting survives).
     """
+    # Session bookkeeping never travels, even on a wig whose fittings
+    # would all survive as they are.
+    if any(
+        "by" in record or "session" in record
+        for record in _origin_map(wig).values()
+    ):
+        return True
     raw_list = wig.extra.get(FITTINGS_KEY)
     if raw_list is None:
         return False

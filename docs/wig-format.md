@@ -181,6 +181,7 @@ Added in HAIR 0.9.5. When a fitter replaces a code from the fitting session -- p
 - `to` is the code the most recent replace wrote. A put-back only proceeds while the row still holds it; anything else means the file was edited outside this machinery and the record no longer describes it.
 - `by` and `session` mark whose current session the replace belongs to. Discarding a session puts back only that user's rows; signing sets `session` to false, which closes them to a later discard without removing the record.
 - The record is **not** removed at signing, so a repair that was proved and later turned out wrong can still be undone. Putting a row back rolls the hash to what it was, which correctly marks any fitting that attested the replaced code as outdated. The entry is dropped when the row goes back, because a row holding its original code has nothing left to return to.
+- On the share paths the codes travel and the session bookkeeping does not: `by` and `session` are dropped, so a recipient can still put a row back but nobody's in-progress session follows the file to another install.
 
 **The carry map** lets the next session keep the verdicts that are still true:
 
@@ -190,7 +191,7 @@ Added in HAIR 0.9.5. When a fitter replaces a code from the fitting session -- p
 
 - One entry per superseded content hash, taken at the moment that hash was replaced away from. Each value maps a fitting row key to a truncated SHA-256 of that row's normalized Pronto, so byte-identity is provable without storing the codes twice.
 - A new session seeds its verdicts from the fitter's last fitting for every row whose key and code digest both still match. Rows whose code changed, and rows whose key changed, come back untested. Without a carry entry nothing is seeded: matching on the key alone would carry a verdict onto bytes it never attested.
-- Entries no fitting references are pruned on the next replace.
+- Entries no fitting references are pruned on the next replace, and the share paths drop any whose fitting was stripped: a snapshot exists to seed a session against an attestation, so it never travels without one.
 
 ## For adapter authors
 
