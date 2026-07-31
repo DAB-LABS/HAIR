@@ -32,6 +32,24 @@ rulings, restated:
   rulings 2026-07-28: nobody fits 2,689 cells; everybody can fit every
   dimension).
 
+Smart Perm adds REPLACE (Section 4 of the implementation brief): a
+fitting row's code can be swapped in place from a paste or a live
+Sniffer capture. Three rules ride with it and are load-bearing:
+
+- Replace is the ONLY path that changes a wig's codes, it is always
+  explicit, it always stamps provenance, and it always rolls the
+  content hash. Pasting the code that is already there is refused
+  rather than stamped, so "a provenance marker exists" always implies
+  "the hash rolled" -- which is what keeps an appended Changed Codes
+  row from retroactively demoting somebody else's complete fitting.
+- Nothing ever edits a signed fitting. Replace re-binds only the
+  CALLING user's open draft; everyone else's fittings go stale by
+  hash, which is tamper evidence working as designed.
+- Carry-forward is byte-exact or nothing. A verdict carries into the
+  next session only when the row's key AND its normalized Pronto match
+  what the old fitting covered, proven against the ``carry`` receipt
+  written at replace time -- never on the key alone.
+
 Storage shape: fittings live under the ``fittings`` top-level key,
 which wig_format deliberately does NOT school itself on -- it rides in
 ``Wig.extra`` under the unknown-key preservation contract (an older
@@ -43,13 +61,15 @@ not something this install can attest as complete).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from .const import MAX_SEND_COUNT
-from .wig_format import Wig, serialize_wig, wig_content_hash
+from .pronto_validator import validate_pronto
+from .wig_format import Wig, cell_key, serialize_wig, wig_content_hash
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -59,6 +79,19 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 FITTINGS_KEY = "fittings"
+# Receipts, both OUTSIDE every canonical hash (wig / signal / cell
+# extra, preserved by every reader since v1): recording provenance or
+# carry-forward evidence must never move a wig's identity.
+PROVENANCE_KEY = "provenance"
+PROVENANCE_POWER_KEY = "provenance_power"
+CARRY_KEY = "carry"
+
+# The Changed Codes section (brief 4.6): replaced cells that are not
+# already dimension-checklist rows list here and are proved like any
+# other row.
+SECTION_CHANGED = "changed"
+
+REPLACE_SOURCES = ("captured", "pasted")
 
 # Marks are written through to the wig file with this debounce, so a
 # fast run down a signal list costs one write, not one per tap.
@@ -80,8 +113,59 @@ VERDICTS = (_VERDICT_WORKED, _VERDICT_FAILED, _VERDICT_UNTESTED)
 # ---------------------------------------------------------------------------
 
 
-def fitting_rows(wig: Wig) -> list[tuple[str, str, int]]:
-    """What a fitting session actually walks: (key, pronto, send_count).
+@dataclass
+class FittingRowSpec:
+    """One row of a fitting session, with everything any consumer needs.
+
+    THE single row source (Smart Perm). Before this, ``fitting_rows``
+    built the send/mark index from the dimension checklist while
+    ``ws_fitting_state`` rebuilt its display rows from
+    ``dimension_checklist`` separately -- fine while the two lists were
+    the same length, and a silent index shear the moment Changed Codes
+    rows started appending to one of them. Both now project from here.
+    """
+
+    key: str
+    pronto: str
+    send_count: int = 1
+    # None for signal wigs; the checklist section or SECTION_CHANGED
+    # for matrix wigs.
+    section: str | None = None
+    mode: str | None = None
+    fan: str | None = None
+    swing: str | None = None
+    temp: float | None = None
+    temp_less: bool = False
+    temp_role: str | None = None
+    # The replaced-marker riding this row's extra, or None.
+    provenance: dict[str, Any] | None = None
+
+
+def _provenance_of(extra: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A readable ``provenance`` marker out of a signal / cell extra."""
+    if not isinstance(extra, dict):
+        return None
+    marker = extra.get(PROVENANCE_KEY)
+    return marker if isinstance(marker, dict) else None
+
+
+def _power_provenance(wig: Wig, which: str) -> dict[str, Any] | None:
+    """The marker for a matrix power code ("on" / "off").
+
+    Power codes are not cells, so they have no extra of their own; the
+    marker rides the matrix block's extra under ``provenance_power``.
+    """
+    if wig.climate is None:
+        return None
+    block = wig.climate.extra.get(PROVENANCE_POWER_KEY)
+    if not isinstance(block, dict):
+        return None
+    marker = block.get(which)
+    return marker if isinstance(marker, dict) else None
+
+
+def fitting_row_specs(wig: Wig) -> list[FittingRowSpec]:
+    """Every row a fitting session walks, in session order.
 
     The rows abstraction (Cold Cuts): signal wigs fit their signals
     one-to-one (key = alias, exactly the pre-0.8.8 behavior); matrix
@@ -92,16 +176,124 @@ def fitting_rows(wig: Wig) -> list[tuple[str, str, int]]:
     the deliberate asymmetry: a matrix wig's flat extras (on_once,
     sleep...) are NOT rows; the dimension check attests the matrix,
     and the extras are ordinary buttons outside its hash.
+
+    Smart Perm appends the CHANGED CODES section (brief 4.6) for
+    matrix wigs: one row per replaced cell that the checklist does not
+    already cover, in file order, so the human proves exactly the cells
+    the machine touched. A signal wig grows nothing -- every signal is
+    already a standard row, so a replaced one keeps its place and just
+    carries a chip. These rows join completeness like any other, which
+    is only safe because a marker cannot exist without a replace, and a
+    replace always rolls the hash (see ``async_replace``).
+    """
+    if wig.climate is None:
+        return [
+            FittingRowSpec(
+                key=sig.alias,
+                pronto=sig.pronto,
+                send_count=sig.send_count,
+                provenance=_provenance_of(sig.extra),
+            )
+            for sig in wig.signals
+        ]
+
+    from .wig_climate import dimension_checklist
+
+    by_key: dict[str, Any] = {}
+    for cell in wig.climate.cells:
+        by_key.setdefault(cell_key(cell), cell)
+
+    specs: list[FittingRowSpec] = []
+    for row in dimension_checklist(wig.climate):
+        if row.key in ("on", "off"):
+            marker = _power_provenance(wig, row.key)
+        else:
+            marker = _provenance_of(getattr(by_key.get(row.key), "extra", None))
+        specs.append(FittingRowSpec(
+            key=row.key,
+            pronto=row.pronto,
+            send_count=row.send_count,
+            section=row.section,
+            mode=row.mode,
+            fan=row.fan,
+            swing=row.swing,
+            temp=row.temp,
+            temp_less=row.temp_less,
+            temp_role=row.temp_role,
+            provenance=marker,
+        ))
+
+    seen = {spec.key for spec in specs}
+    for cell in wig.climate.cells:
+        marker = _provenance_of(cell.extra)
+        if marker is None:
+            continue
+        key = cell_key(cell)
+        if key in seen:
+            continue
+        seen.add(key)
+        specs.append(FittingRowSpec(
+            key=key,
+            pronto=cell.pronto,
+            send_count=cell.send_count,
+            section=SECTION_CHANGED,
+            mode=cell.mode,
+            fan=cell.fan,
+            swing=cell.swing,
+            temp=cell.temp,
+            provenance=marker,
+        ))
+    return specs
+
+
+def _write_row_code(
+    wig: Wig, key: str, pronto: str, marker: dict[str, Any]
+) -> bool:
+    """Put ``pronto`` on the row ``key`` names and stamp its provenance.
+
+    Three destinations, because a row key means three different things:
+    a signal alias, a matrix cell coordinate, or one of the literal
+    power keys "on" / "off" -- which are not cells at all, so their
+    marker rides the matrix block instead. Repeat replaces overwrite
+    the marker (latest wins); it never leaves the file once present.
+    Returns False when the key addresses nothing, which means the
+    caller's row list and the wig have drifted.
     """
     if wig.climate is not None:
-        from .wig_climate import dimension_checklist
+        if key in ("on", "off"):
+            if key == "on":
+                wig.climate.on = pronto
+            else:
+                wig.climate.off = pronto
+            block = wig.climate.extra.get(PROVENANCE_POWER_KEY)
+            if not isinstance(block, dict):
+                block = {}
+                wig.climate.extra[PROVENANCE_POWER_KEY] = block
+            block[key] = marker
+            return True
+        for cell in wig.climate.cells:
+            if cell_key(cell) == key:
+                cell.pronto = pronto
+                cell.extra[PROVENANCE_KEY] = marker
+                return True
+        return False
+    for sig in wig.signals:
+        if sig.alias == key:
+            sig.pronto = pronto
+            sig.extra[PROVENANCE_KEY] = marker
+            return True
+    return False
 
-        return [
-            (row.key, row.pronto, row.send_count)
-            for row in dimension_checklist(wig.climate)
-        ]
+
+def fitting_rows(wig: Wig) -> list[tuple[str, str, int]]:
+    """What a fitting session sends: (key, pronto, send_count).
+
+    A projection of :func:`fitting_row_specs`, kept as the narrow shape
+    the send / mark / completeness paths have always used.
+    """
     return [
-        (sig.alias, sig.pronto, sig.send_count) for sig in wig.signals
+        (spec.key, spec.pronto, spec.send_count)
+        for spec in fitting_row_specs(wig)
     ]
 
 
@@ -373,6 +565,97 @@ def fitting_summary(wig: Wig, username: str | None) -> dict[str, Any]:
 
 def _today() -> str:
     return datetime.now(UTC).date().isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Carry-forward: keeping verdicts across a hash roll
+# ---------------------------------------------------------------------------
+# A replace edits the wig in place, so the codes the OLD fitting
+# attested are gone the moment the hash rolls. Carry-forward therefore
+# cannot compare against them later; the evidence has to be captured AT
+# REPLACE TIME. ``wig.extra["carry"]`` maps each superseded hash to a
+# snapshot of every row it had, as digests rather than whole Pronto
+# codes: byte-exactness is preserved (a digest match IS a byte match)
+# at about forty bytes a row instead of a kilobyte, which matters on a
+# 288-signal wig. Receipts territory: wig extra, outside all hashes.
+
+
+def normalized_pronto(code: str) -> str:
+    """A Pronto code in the form the canonical serializers hash.
+
+    Validator whitespace normalization, then lowercased -- byte-identical
+    to what ``canonical_signals_json`` / ``canonical_cells_json`` write,
+    so "same code" means the same thing here as it does to the hash.
+    """
+    result = validate_pronto(code)
+    return (result.normalized if result.valid else code).lower()
+
+
+def _row_digest(pronto: str) -> str:
+    """The carry snapshot's per-row value: a truncated sha256."""
+    return hashlib.sha256(
+        normalized_pronto(pronto).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def carry_snapshot(wig: Wig) -> dict[str, str]:
+    """Every current row as key -> code digest."""
+    return {
+        spec.key: _row_digest(spec.pronto)
+        for spec in fitting_row_specs(wig)
+    }
+
+
+def _carry_map(wig: Wig) -> dict[str, dict[str, str]]:
+    raw = wig.extra.get(CARRY_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        key: value for key, value in raw.items()
+        if isinstance(key, str) and isinstance(value, dict)
+    }
+
+
+def carry_forward_seed(
+    wig: Wig, username: str
+) -> tuple[list[str], list[str]]:
+    """Verdicts a NEW session inherits from this user's last fitting.
+
+    Seeds only rows whose key and normalized Pronto are byte-identical
+    to what the old fitting covered, proven against the carry snapshot
+    taken when that hash was superseded. No snapshot means no seeding:
+    matching on the key alone would carry a verdict onto bytes it never
+    attested, which the hard rule forbids. The old entry is never
+    touched -- it is signed history; the seeded draft is new.
+
+    Pure and side-effect free, so the dialog can SHOW what will carry
+    before the first mark writes a draft carrying it.
+    """
+    current = wig_content_hash(wig)
+    handle = username.strip().lower()
+    previous = [
+        f for f in parse_fittings(wig).fittings
+        if f.handle.strip().lower() == handle
+        and f.content_hash != current
+    ]
+    if not previous:
+        return ([], [])
+    snapshot = _carry_map(wig).get(previous[-1].content_hash)
+    if not snapshot:
+        return ([], [])
+    source = previous[-1]
+    confirmed_keys = set(source.confirmed)
+    failed_keys = set(source.failed)
+    confirmed: list[str] = []
+    failed: list[str] = []
+    for spec in fitting_row_specs(wig):
+        if snapshot.get(spec.key) != _row_digest(spec.pronto):
+            continue
+        if spec.key in confirmed_keys:
+            confirmed.append(spec.key)
+        elif spec.key in failed_keys:
+            failed.append(spec.key)
+    return (confirmed, failed)
 
 
 # ---------------------------------------------------------------------------
@@ -656,6 +939,113 @@ class FittingManager:
             "decoded": decoded_tx,
         }
 
+    # -- replace ---------------------------------------------------------
+
+    async def async_replace(
+        self,
+        filename: str,
+        index: int,
+        pronto: str,
+        source: str,
+        username: str,
+    ) -> dict[str, Any]:
+        """Swap one fitting row's code, from a paste or a live capture.
+
+        The only path that changes a wig's codes (brief Section 2), and
+        it is never quiet about it: the new code is validated, written
+        in place, stamped with provenance, and the content hash rolls.
+        Everyone else's fittings go stale by hash, which is the tamper
+        evidence doing its job; only the CALLING user's open draft is
+        re-bound so their session survives the roll.
+
+        Refuses a code byte-identical to the one already on the row.
+        That is not pedantry: an appended Changed Codes row is only
+        safe to count toward completeness because a provenance marker
+        implies a hash roll, and stamping a no-op replace would add a
+        row to a wig whose hash never moved -- retroactively demoting
+        every complete fitting in its ledger, including other people's.
+        """
+        if source not in REPLACE_SOURCES:
+            return {"success": False, "code": "bad_source",
+                    "error": f"source must be one of {REPLACE_SOURCES}"}
+        wig = await self._load(filename)
+        if wig is None:
+            return {"success": False, "code": "wig_not_found",
+                    "error": "Wig not found"}
+        specs = fitting_row_specs(wig)
+        if not 0 <= index < len(specs):
+            return {"success": False, "code": "bad_index",
+                    "error": "No such signal in this wig"}
+        row_key = specs[index].key
+
+        result = validate_pronto(pronto)
+        if not result.valid:
+            reason = (
+                result.errors[0] if result.errors
+                else "not a valid Pronto code"
+            )
+            return {"success": False, "code": "bad_pronto",
+                    "error": reason}
+        new_code = result.normalized
+        if normalized_pronto(new_code) == normalized_pronto(
+            specs[index].pronto
+        ):
+            return {"success": False, "code": "same_code",
+                    "error": "That is already this row's code"}
+
+        old_hash = wig_content_hash(wig)
+        snapshot = carry_snapshot(wig)
+        marker = {"replaced": source, "date": _today()}
+        if not _write_row_code(wig, row_key, new_code, marker):
+            return {"success": False, "code": "row_not_found",
+                    "error": "Could not find that row's code to replace"}
+        new_hash = wig_content_hash(wig)
+
+        # The snapshot the NEXT session carries forward from, plus a
+        # sweep of entries no fitting references any more (a wig
+        # replaced through ten times should not carry ten dead
+        # snapshots for the rest of its life).
+        carry = _carry_map(wig)
+        carry[old_hash] = snapshot
+        live = {
+            f.content_hash for f in parse_fittings(wig).fittings
+        }
+        carry = {h: rows for h, rows in carry.items() if h in live}
+        if carry:
+            wig.extra[CARRY_KEY] = carry
+        else:
+            wig.extra.pop(CARRY_KEY, None)
+
+        # Re-bind this user's open draft (brief 4.3). Without it the
+        # draft-by-hash lookups all go blind the instant the hash
+        # rolls: the next mark would mint a SECOND draft and the state
+        # payload would report the session wiped. Every key but the
+        # replaced one keeps its verdict -- those bytes did not change,
+        # so those verdicts still describe them.
+        carried = 0
+        draft = self._find_user_draft(wig, username)
+        if draft is not None:
+            draft["content_hash"] = new_hash
+            keys = {spec.key for spec in fitting_row_specs(wig)}
+            confirmed = [
+                k for k in draft.get("confirmed", []) if k != row_key
+            ]
+            failed = [k for k in draft.get("failed", []) if k != row_key]
+            draft["confirmed"] = confirmed
+            draft["failed"] = failed
+            carried = len(
+                (set(confirmed) | set(failed)) & keys
+            )
+
+        self._pending[filename] = wig
+        self._schedule_write(filename)
+        return {
+            "success": True,
+            "content_hash": new_hash,
+            "row_key": row_key,
+            "carried": carried,
+        }
+
     # -- marks -----------------------------------------------------------
 
     async def async_mark(
@@ -746,14 +1136,21 @@ class FittingManager:
             reopened.pop("sig", None)
             reopened.pop("key", None)
             return reopened
+        # Nothing on this hash: seed the fresh draft with whatever the
+        # user's last fitting still describes truthfully (Smart Perm
+        # carry-forward). One bad button on a 288-signal wig is
+        # fit-one-and-re-sign, not start-over. Byte-exact or nothing,
+        # and send_times_used is deliberately NOT carried -- it
+        # described the old session's conditions, not this one's.
+        seed_confirmed, seed_failed = carry_forward_seed(wig, username)
         hair_version, ha_version = await self._versions()
         draft: dict[str, Any] = {
             "handle": username,
             "draft": True,
             "date": _today(),
             "content_hash": current_hash,
-            "confirmed": [],
-            "failed": [],
+            "confirmed": seed_confirmed,
+            "failed": seed_failed,
         }
         if hair_version:
             draft["hair_version"] = hair_version
