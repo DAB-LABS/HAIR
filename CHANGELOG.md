@@ -5,6 +5,19 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] -- Smart Perm
+
+### Added
+
+- **Fix a bad code from inside the fitting.** Every fitting row grows a fourth button, REPLACE, alongside Send / Worked / Did not. Open it and a strip appears under the row with a box for a Pronto code and a LISTEN button: press LISTEN, point the real remote at one of your receivers, press the button, and the capture lands in the box for you to look at before anything is saved. On a matrix wig the strip tells you which state to set the remote to first, which is what makes a captured cell the strongest repair there is -- the remote's own display is the state, so what it sends is the cell, whole and correct. A capture that did not decode cleanly is flagged and still allowed; the button reads "Replace anyway" and the send-and-judge loop is right there to settle it.
+- **Your other verdicts survive the repair.** Replacing a code changes the wig, so its identity changes with it and fittings that attested the old codes are marked outdated. That is the tamper evidence doing its job, and it used to mean starting over. Now the session you are in follows the change, and the next session you start seeds itself from your last fitting for every row whose code is byte-for-byte what it was. Only the rows that actually changed come back untested. One bad button on a 288-signal remote is fit-one-and-re-sign, not fit-288-again.
+- **Changed codes get proved.** On a matrix wig, a replaced cell that the dimension checklist does not already sample is listed in a new **Changed codes** section at the bottom of the session, with the same four buttons as any other row. The checklist samples dimensions; this is where the cells you touched by hand get their own confirmation.
+- **The ledger points at what failed.** A failed count on a ledger row is now a link: it opens the session at the first row that fitting failed, with Replace one click away.
+
+### Changed
+
+- Replacing a code with the code already on that row is refused rather than silently recorded, so a provenance marker in a wig file always means the codes genuinely changed.
+
 ## [0.9.0] - 2026-07-30 -- Fine-tuned Fittings
 
 ### Added

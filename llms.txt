@@ -136,6 +136,18 @@ Key components:
   they attest (wig_fitting.py): the signals hash for signal wigs, the cells
   hash for matrix wigs, so a rename survives but a code change invalidates
   the fitting. Fitting sends carry their own provenance chip in the Mirror.
+- Replace (Smart Perm, v0.9.5): every fitting row carries a fourth button
+  that swaps its code, either from a pasted Pronto or from a live capture
+  taken through a receiver while the session waits. Replacing stamps a
+  provenance marker (captured / pasted) on the signal, cell, or matrix power
+  block and rolls the wig's content hash, so the change is never quiet; the
+  identical code is refused rather than stamped. The caller's own session
+  follows the roll, and the next session seeds its verdicts from their last
+  fitting for every row whose key and normalized code both still match,
+  proven against a digest snapshot taken at replace time. On a matrix wig,
+  replaced cells the dimension checklist does not sample are appended as a
+  Changed Codes section and proved like any other row. Markers and the carry
+  snapshot ride extra maps outside every canonical hash (wig-format.md).
 - Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
   from wherever you meet it. Closet wigs, library rows, Sniffer remotes,
   Clipper remotes, and Plucker blasters all carry one ADOPT DEVICE button
