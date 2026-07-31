@@ -3308,6 +3308,7 @@ async def ws_fitting_state(
             fitting_row_specs,
             fitting_summary,
             parse_fittings,
+            pending_replaces,
         )
         from .wig_store import load_wig
 
@@ -3388,6 +3389,11 @@ async def ws_fitting_state(
             # preview rather than a live draft, so the dialog can say
             # where they came from instead of just showing ticks.
             "carried": carried,
+            # How many rows DISCARD would put back. Drives both the
+            # discard button's enabled state (a session that only
+            # replaced still has something to throw away) and the
+            # warning on the confirm.
+            "pending_replaces": pending_replaces(wig, username),
             "draft": (
                 {
                     "confirmed": draft.confirmed,

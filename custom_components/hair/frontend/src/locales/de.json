@@ -622,5 +622,7 @@
     "fitting.replaced_notice": "Code ersetzt. Die Identität dieser Perücke hat sich geändert, und Ihre übrigen {count} Urteile bleiben erhalten, weil deren Codes unverändert sind. Diese Zeile gilt wieder als ungeprüft.",
     "fitting.replaced_notice_none": "Code ersetzt. Die Identität dieser Perücke hat sich geändert. Diese Zeile gilt wieder als ungeprüft: senden, das Gerät beobachten, neu beurteilen.",
     "fitting.carried_notice": "Urteile aus Ihrer letzten Anprobe übernommen. Nur Zeilen mit geändertem Code kommen ungeprüft zurück.",
-    "fitting.ledger_goto_failed": "Sitzung bei der ersten fehlgeschlagenen Zeile öffnen"
+    "fitting.ledger_goto_failed": "Sitzung bei der ersten fehlgeschlagenen Zeile öffnen",
+    "fitting.discard_reverts.one": "Der ersetzte Code wird wiederhergestellt.",
+    "fitting.discard_reverts.other": "Die {count} ersetzten Codes werden wiederhergestellt."
 }

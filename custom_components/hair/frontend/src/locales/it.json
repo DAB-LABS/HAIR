@@ -622,5 +622,7 @@
     "fitting.replaced_notice": "Codice sostituito. L'identità di questa parrucca è cambiata e gli altri {count} verdetti sono stati mantenuti perché i loro codici non sono cambiati. Questa riga torna non provata.",
     "fitting.replaced_notice_none": "Codice sostituito. L'identità di questa parrucca è cambiata. Questa riga torna non provata: inviala, guarda l'apparecchio, giudicala di nuovo.",
     "fitting.carried_notice": "Verdetti mantenuti dalla prova precedente. Solo le righe con codici cambiati tornano non provate.",
-    "fitting.ledger_goto_failed": "Apri la sessione alla prima riga fallita"
+    "fitting.ledger_goto_failed": "Apri la sessione alla prima riga fallita",
+    "fitting.discard_reverts.one": "Il codice sostituito tornerà com'era.",
+    "fitting.discard_reverts.other": "I {count} codici sostituiti torneranno com'erano."
 }

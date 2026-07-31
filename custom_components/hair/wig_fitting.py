@@ -85,6 +85,16 @@ FITTINGS_KEY = "fittings"
 PROVENANCE_KEY = "provenance"
 PROVENANCE_POWER_KEY = "provenance_power"
 CARRY_KEY = "carry"
+# What DISCARD puts back (owner bench 2026-07-30). Discard throws away
+# an unsigned session, and a replace made during that session is part
+# of it: the codes go back to what they were, not just the verdicts.
+# Keyed by lowercased handle, one entry per row, FIRST replace wins so
+# a row replaced three times still reverts to what it was before the
+# session started. In the wig file, not a side store, for the same
+# reason marks are (design 13.3): an HA restart mid-session must not
+# quietly turn a revertible replace into a permanent one. FINISH is
+# what commits them, by clearing the block.
+REPLACE_UNDO_KEY = "replace_undo"
 
 # The Changed Codes section (brief 4.6): replaced cells that are not
 # already dimension-checklist rows list here and are proved like any
@@ -246,8 +256,23 @@ def fitting_row_specs(wig: Wig) -> list[FittingRowSpec]:
     return specs
 
 
+def _row_provenance(wig: Wig, key: str) -> dict[str, Any] | None:
+    """The marker currently on a row, by key. None when it has none."""
+    if wig.climate is not None:
+        if key in ("on", "off"):
+            return _power_provenance(wig, key)
+        for cell in wig.climate.cells:
+            if cell_key(cell) == key:
+                return _provenance_of(cell.extra)
+        return None
+    for sig in wig.signals:
+        if sig.alias == key:
+            return _provenance_of(sig.extra)
+    return None
+
+
 def _write_row_code(
-    wig: Wig, key: str, pronto: str, marker: dict[str, Any]
+    wig: Wig, key: str, pronto: str, marker: dict[str, Any] | None
 ) -> bool:
     """Put ``pronto`` on the row ``key`` names and stamp its provenance.
 
@@ -255,10 +280,19 @@ def _write_row_code(
     a signal alias, a matrix cell coordinate, or one of the literal
     power keys "on" / "off" -- which are not cells at all, so their
     marker rides the matrix block instead. Repeat replaces overwrite
-    the marker (latest wins); it never leaves the file once present.
+    the marker (latest wins). A ``marker`` of None REMOVES it, which is
+    the discard-revert path: a code that went back to what it was was
+    never replaced, and leaving the marker would claim otherwise (and
+    on a matrix wig would leave a Changed Codes row behind it).
     Returns False when the key addresses nothing, which means the
     caller's row list and the wig have drifted.
     """
+    def _stamp(extra: dict[str, Any]) -> None:
+        if marker is None:
+            extra.pop(PROVENANCE_KEY, None)
+        else:
+            extra[PROVENANCE_KEY] = marker
+
     if wig.climate is not None:
         if key in ("on", "off"):
             if key == "on":
@@ -268,19 +302,25 @@ def _write_row_code(
             block = wig.climate.extra.get(PROVENANCE_POWER_KEY)
             if not isinstance(block, dict):
                 block = {}
+            if marker is None:
+                block.pop(key, None)
+            else:
+                block[key] = marker
+            if block:
                 wig.climate.extra[PROVENANCE_POWER_KEY] = block
-            block[key] = marker
+            else:
+                wig.climate.extra.pop(PROVENANCE_POWER_KEY, None)
             return True
         for cell in wig.climate.cells:
             if cell_key(cell) == key:
                 cell.pronto = pronto
-                cell.extra[PROVENANCE_KEY] = marker
+                _stamp(cell.extra)
                 return True
         return False
     for sig in wig.signals:
         if sig.alias == key:
             sig.pronto = pronto
-            sig.extra[PROVENANCE_KEY] = marker
+            _stamp(sig.extra)
             return True
     return False
 
@@ -614,6 +654,36 @@ def _carry_map(wig: Wig) -> dict[str, dict[str, str]]:
         key: value for key, value in raw.items()
         if isinstance(key, str) and isinstance(value, dict)
     }
+
+
+def _prune_carry(wig: Wig) -> None:
+    """Drop carry snapshots no fitting in the file points at."""
+    carry = _carry_map(wig)
+    if not carry:
+        wig.extra.pop(CARRY_KEY, None)
+        return
+    live = {f.content_hash for f in parse_fittings(wig).fittings}
+    kept = {h: rows for h, rows in carry.items() if h in live}
+    if kept:
+        wig.extra[CARRY_KEY] = kept
+    else:
+        wig.extra.pop(CARRY_KEY, None)
+
+
+def _undo_map(wig: Wig) -> dict[str, dict[str, Any]]:
+    raw = wig.extra.get(REPLACE_UNDO_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        key: value for key, value in raw.items()
+        if isinstance(key, str) and isinstance(value, dict)
+    }
+
+
+def pending_replaces(wig: Wig, username: str) -> int:
+    """How many rows this user's DISCARD would put back."""
+    block = _undo_map(wig).get(username.strip().lower())
+    return len(block) if isinstance(block, dict) else 0
 
 
 def carry_forward_seed(
@@ -996,6 +1066,20 @@ class FittingManager:
         old_hash = wig_content_hash(wig)
         snapshot = carry_snapshot(wig)
         marker = {"replaced": source, "date": _today()}
+
+        # What DISCARD would put back. First replace on a row wins, so
+        # replacing the same row three times still reverts to the code
+        # the session started with.
+        undo = _undo_map(wig)
+        block = undo.setdefault(username.strip().lower(), {})
+        if row_key not in block:
+            block[row_key] = {
+                "from": specs[index].pronto,
+                "provenance": _row_provenance(wig, row_key),
+            }
+        block[row_key]["to"] = new_code
+        wig.extra[REPLACE_UNDO_KEY] = undo
+
         if not _write_row_code(wig, row_key, new_code, marker):
             return {"success": False, "code": "row_not_found",
                     "error": "Could not find that row's code to replace"}
@@ -1031,12 +1115,8 @@ class FittingManager:
         # keep a snapshot of the old one.
         carry = _carry_map(wig)
         carry[old_hash] = snapshot
-        live = {f.content_hash for f in parse_fittings(wig).fittings}
-        carry = {h: rows for h, rows in carry.items() if h in live}
-        if carry:
-            wig.extra[CARRY_KEY] = carry
-        else:
-            wig.extra.pop(CARRY_KEY, None)
+        wig.extra[CARRY_KEY] = carry
+        _prune_carry(wig)
 
         self._pending[filename] = wig
         self._schedule_write(filename)
@@ -1242,6 +1322,16 @@ class FittingManager:
             draft["ha_version"] = ha_version
         draft.pop("draft", None)
 
+        # Signing COMMITS this session's replaces: the attestation
+        # covers the codes as they are now, so there is nothing left
+        # for a later discard to put back.
+        undo = _undo_map(wig)
+        if undo.pop(username.strip().lower(), None) is not None:
+            if undo:
+                wig.extra[REPLACE_UNDO_KEY] = undo
+            else:
+                wig.extra.pop(REPLACE_UNDO_KEY, None)
+
         # Sign the attestation (Section 14): per-install ed25519 key,
         # canonical form covers everything but the sig itself. A
         # signing failure records the fitting unsigned, never loses it.
@@ -1273,24 +1363,69 @@ class FittingManager:
     async def async_discard(
         self, filename: str, username: str
     ) -> dict[str, Any]:
-        """Remove the user's in-progress draft; signed fittings stay."""
+        """Throw the session away: verdicts AND replaced codes.
+
+        Owner bench 2026-07-30: discard is the explicit "none of this
+        happened" action, so a code replaced during the session goes
+        back to what it was, not just the verdicts recorded about it.
+        Signed fittings stay untouched, and a replace the user already
+        FINISHED is not reverted -- signing is what commits it.
+
+        A row is only put back when it still holds the code this user's
+        replace wrote. If somebody else has replaced it since, theirs
+        stands: reverting it would be this session quietly editing
+        another user's work.
+        """
         wig = await self._load(filename)
         if wig is None:
             return {"success": False, "code": "wig_not_found",
                     "error": "Wig not found"}
         draft = self._find_user_draft(wig, username)
-        if draft is None:
+        undo = _undo_map(wig)
+        block = undo.get(username.strip().lower()) or {}
+        if draft is None and not block:
             return {"success": False, "code": "no_draft",
                     "error": "No fitting in progress to discard"}
-        raw_list = wig.extra.get(FITTINGS_KEY)
-        if isinstance(raw_list, list) and draft in raw_list:
-            raw_list.remove(draft)
-        if not raw_list:
-            wig.extra.pop(FITTINGS_KEY, None)
+
+        reverted = 0
+        if block:
+            current = {spec.key: spec.pronto for spec in fitting_row_specs(wig)}
+            for row_key, record in block.items():
+                if not isinstance(record, dict):
+                    continue
+                original = record.get("from")
+                mine = record.get("to")
+                if not isinstance(original, str):
+                    continue
+                now = current.get(row_key)
+                if now is None or (
+                    isinstance(mine, str)
+                    and normalized_pronto(now) != normalized_pronto(mine)
+                ):
+                    continue
+                marker = record.get("provenance")
+                if _write_row_code(
+                    wig, row_key, original,
+                    marker if isinstance(marker, dict) else None,
+                ):
+                    reverted += 1
+            undo.pop(username.strip().lower(), None)
+            if undo:
+                wig.extra[REPLACE_UNDO_KEY] = undo
+            else:
+                wig.extra.pop(REPLACE_UNDO_KEY, None)
+
+        if draft is not None:
+            raw_list = wig.extra.get(FITTINGS_KEY)
+            if isinstance(raw_list, list) and draft in raw_list:
+                raw_list.remove(draft)
+            if not raw_list:
+                wig.extra.pop(FITTINGS_KEY, None)
+        _prune_carry(wig)
         self._sessions.pop(filename, None)
         self._pending[filename] = wig
         await self.async_flush(filename)
-        return {"success": True}
+        return {"success": True, "reverted": reverted}
 
     def _find_user_draft(
         self, wig: Wig, username: str

@@ -35,6 +35,7 @@ from custom_components.hair.wig_fitting import (
     FITTINGS_KEY,
     PROVENANCE_KEY,
     PROVENANCE_POWER_KEY,
+    REPLACE_UNDO_KEY,
     SECTION_CHANGED,
     FittingManager,
     carry_forward_seed,
@@ -606,6 +607,197 @@ class TestCarryForward:
         assert first_hash not in _read_wig(wigs_dir_path).extra.get(
             CARRY_KEY, {}
         )
+
+
+# ---------------------------------------------------------------------------
+# Discard puts the codes back
+# ---------------------------------------------------------------------------
+
+
+class TestDiscardReverts:
+    @pytest.mark.asyncio
+    async def test_discard_restores_the_original_code(
+        self, manager, wigs_dir_path
+    ):
+        """Discard is 'none of this happened', and a replace made
+        during the session is part of it."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        before = wig_content_hash(_read_wig(wigs_dir_path))
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        result = await manager.async_discard(filename, "dab")
+        assert result["success"] and result["reverted"] == 1
+        await manager.async_flush()
+
+        wig = _read_wig(wigs_dir_path)
+        assert wig.signals[0].pronto == PRONTO_A
+        assert PROVENANCE_KEY not in wig.signals[0].extra
+        assert wig_content_hash(wig) == before
+        assert FITTINGS_KEY not in wig.extra
+        assert CARRY_KEY not in wig.extra
+        assert REPLACE_UNDO_KEY not in wig.extra
+
+    @pytest.mark.asyncio
+    async def test_discard_with_no_marks_still_reverts(
+        self, manager, wigs_dir_path
+    ):
+        """Replacing without marking anything is still a session with
+        something in it to throw away."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "pasted", "dab"
+        )
+        result = await manager.async_discard(filename, "dab")
+        assert result["success"] and result["reverted"] == 1
+        await manager.async_flush()
+        assert _read_wig(wigs_dir_path).signals[0].pronto == PRONTO_A
+
+    @pytest.mark.asyncio
+    async def test_nothing_to_discard_still_errors(
+        self, manager, wigs_dir_path
+    ):
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        result = await manager.async_discard(filename, "dab")
+        assert not result["success"] and result["code"] == "no_draft"
+
+    @pytest.mark.asyncio
+    async def test_repeat_replaces_revert_to_the_session_original(
+        self, manager, wigs_dir_path
+    ):
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "pasted", "dab"
+        )
+        await manager.async_replace(
+            filename, 0, PRONTO_D, "captured", "dab"
+        )
+        await manager.async_discard(filename, "dab")
+        await manager.async_flush()
+        assert _read_wig(wigs_dir_path).signals[0].pronto == PRONTO_A
+
+    @pytest.mark.asyncio
+    async def test_finish_commits_the_replace(
+        self, manager, wigs_dir_path
+    ):
+        """Signing is what makes a replace permanent. A discard in a
+        LATER session must not undo an attested repair."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_mark(filename, 0, "worked", "dab")
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_finish(filename, "dab", None, None, None)
+        await manager.async_flush()
+        assert REPLACE_UNDO_KEY not in _read_wig(wigs_dir_path).extra
+
+        await manager.async_mark(filename, 1, "worked", "dab")
+        await manager.async_discard(filename, "dab")
+        await manager.async_flush()
+        wig = _read_wig(wigs_dir_path)
+        assert wig.signals[0].pronto == PRONTO_C
+        assert wig.signals[0].extra[PROVENANCE_KEY]["replaced"] == "captured"
+
+    @pytest.mark.asyncio
+    async def test_another_users_later_replace_stands(
+        self, manager, wigs_dir_path
+    ):
+        """Reverting a row somebody else has since replaced would be
+        this session quietly editing their work."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "pasted", "dab"
+        )
+        await manager.async_replace(
+            filename, 0, PRONTO_D, "captured", "someone-else"
+        )
+        result = await manager.async_discard(filename, "dab")
+        assert result["reverted"] == 0
+        await manager.async_flush()
+        wig = _read_wig(wigs_dir_path)
+        assert wig.signals[0].pronto == PRONTO_D
+        assert wig.signals[0].extra[PROVENANCE_KEY]["replaced"] == "captured"
+
+    @pytest.mark.asyncio
+    async def test_discard_survives_a_restart(
+        self, manager, wigs_dir_path, fake_hass
+    ):
+        """The undo record lives in the wig file, not in memory, so an
+        HA restart cannot quietly make a replace permanent."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_flush()
+
+        reborn = FittingManager(fake_hass, monitor=None)
+        result = await reborn.async_discard(filename, "dab")
+        assert result["reverted"] == 1
+        await reborn.async_flush()
+        assert _read_wig(wigs_dir_path).signals[0].pronto == PRONTO_A
+
+    @pytest.mark.asyncio
+    async def test_matrix_revert_clears_the_changed_row(
+        self, manager, wigs_dir_path
+    ):
+        """A reverted cell was never replaced, so it must not leave a
+        Changed Codes row behind claiming it was."""
+        wig = _matrix_wig()
+        filename = _write_wig(wigs_dir_path, wig, "ac.wig.json")
+        index = _index_of(wig, "cool/low/22")
+        await manager.async_replace(
+            filename, index, PRONTO_D, "captured", "dab"
+        )
+        await manager.async_discard(filename, "dab")
+        await manager.async_flush()
+        after = _read_wig(wigs_dir_path, "ac.wig.json")
+        cell = next(
+            c for c in after.climate.cells
+            if c.mode == "cool" and c.fan == "low"
+        )
+        assert cell.pronto == PRONTO_B
+        assert PROVENANCE_KEY not in cell.extra
+        assert [s.key for s in fitting_row_specs(after)] == CHECKLIST_KEYS
+
+    @pytest.mark.asyncio
+    async def test_matrix_power_revert_clears_the_block(
+        self, manager, wigs_dir_path
+    ):
+        wig = _matrix_wig()
+        filename = _write_wig(wigs_dir_path, wig, "ac.wig.json")
+        await manager.async_replace(
+            filename, _index_of(wig, "on"), PRONTO_D, "captured", "dab"
+        )
+        await manager.async_discard(filename, "dab")
+        await manager.async_flush()
+        after = _read_wig(wigs_dir_path, "ac.wig.json")
+        assert after.climate.on == PRONTO_B
+        assert PROVENANCE_POWER_KEY not in after.climate.extra
+
+    @pytest.mark.asyncio
+    async def test_pending_count_reaches_the_dialog(
+        self, fake_hass, manager, wigs_dir_path
+    ):
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        _wire_fitting(fake_hass, manager)
+        conn = _make_connection()
+        await ws_fitting_state(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/fitting/state",
+            "filename": filename,
+        })
+        assert conn.send_result.call_args.args[1]["pending_replaces"] == 0
+
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_flush()
+        conn = _make_connection()
+        await ws_fitting_state(fake_hass, conn, {
+            "id": 2, "type": "hair/wigs/fitting/state",
+            "filename": filename,
+        })
+        assert conn.send_result.call_args.args[1]["pending_replaces"] == 1
 
 
 # ---------------------------------------------------------------------------

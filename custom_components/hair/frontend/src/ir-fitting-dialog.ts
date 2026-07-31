@@ -673,7 +673,15 @@ export class IrFittingDialog extends LitElement {
                 ${this._confirmDiscard
                     ? html`
                           <span class="discard-q"
-                              >${t("fitting.discard_confirm")}</span
+                              >${t("fitting.discard_confirm")}${this
+                                  ._fit?.pending_replaces
+                                  ? html` <span class="discard-revert"
+                                        >${tp(
+                                            "fitting.discard_reverts",
+                                            this._fit.pending_replaces,
+                                        )}</span
+                                    >`
+                                  : nothing}</span
                           >
                           <span class="spacer"></span>
                           <button
@@ -701,7 +709,8 @@ export class IrFittingDialog extends LitElement {
                           <span class="spacer"></span>
                           <button
                               class="action-btn discard-btn"
-                              ?disabled=${c.tested === 0}
+                              ?disabled=${c.tested === 0 &&
+                              !this._fit?.pending_replaces}
                               @click=${() =>
                                   (this._confirmDiscard = true)}
                           >
@@ -1321,8 +1330,17 @@ export class IrFittingDialog extends LitElement {
     static styles = [
         dialogStyles,
         css`
+            /* Wider than the house 400px (owner bench 2026-07-30): a
+               row now carries four buttons AND can carry a provenance
+               chip, and at 440px the chip squeezed the signal's own
+               name down to nothing. */
             .fit-dialog {
-                max-width: 440px;
+                max-width: 620px;
+            }
+            /* The name never collapses to zero. It ellipsizes instead,
+               which is the point of the title attribute beside it. */
+            .sig-alias {
+                min-width: 96px;
             }
             /* Decorative @ inside the GitHub field's left edge. */
             .gh-wrap {
@@ -1787,6 +1805,9 @@ export class IrFittingDialog extends LitElement {
             .discard-q {
                 font-size: 12.5px;
                 color: var(--primary-text-color);
+            }
+            .discard-revert {
+                color: #c98a4b;
             }
             .discard-btn {
                 color: var(--secondary-text-color);

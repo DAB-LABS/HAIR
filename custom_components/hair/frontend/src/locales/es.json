@@ -622,5 +622,7 @@
     "fitting.replaced_notice": "Código sustituido. La identidad de esta peluca ha cambiado y tus otros {count} veredictos se han conservado porque sus códigos siguen igual. Esta fila vuelve a estar sin probar.",
     "fitting.replaced_notice_none": "Código sustituido. La identidad de esta peluca ha cambiado. Esta fila vuelve a estar sin probar: envíala, observa el aparato y júzgala de nuevo.",
     "fitting.carried_notice": "Veredictos conservados de tu prueba anterior. Solo las filas cuyos códigos cambiaron vuelven sin probar.",
-    "fitting.ledger_goto_failed": "Abrir la sesión en la primera fila fallida"
+    "fitting.ledger_goto_failed": "Abrir la sesión en la primera fila fallida",
+    "fitting.discard_reverts.one": "Su código sustituido volverá a ser el original.",
+    "fitting.discard_reverts.other": "Sus {count} códigos sustituidos volverán a ser los originales."
 }

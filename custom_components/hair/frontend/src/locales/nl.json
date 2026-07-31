@@ -622,5 +622,7 @@
     "fitting.replaced_notice": "Code vervangen. De identiteit van deze pruik is veranderd en je andere {count} oordelen zijn behouden omdat hun codes ongewijzigd zijn. Deze rij is weer ongetest.",
     "fitting.replaced_notice_none": "Code vervangen. De identiteit van deze pruik is veranderd. Deze rij is weer ongetest: verstuur hem, kijk naar het apparaat en beoordeel opnieuw.",
     "fitting.carried_notice": "Oordelen overgenomen uit je vorige pasbeurt. Alleen rijen met gewijzigde codes komen ongetest terug.",
-    "fitting.ledger_goto_failed": "De sessie openen bij de eerste mislukte rij"
+    "fitting.ledger_goto_failed": "De sessie openen bij de eerste mislukte rij",
+    "fitting.discard_reverts.one": "De vervangen code gaat terug naar wat hij was.",
+    "fitting.discard_reverts.other": "De {count} vervangen codes gaan terug naar wat ze waren."
 }

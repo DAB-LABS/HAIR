@@ -286,6 +286,8 @@ export interface FittingState {
     // True when the row verdicts are a carry-forward preview from the
     // user's last fitting rather than a live draft on these codes.
     carried?: boolean;
+    // How many replaced codes DISCARD would put back.
+    pending_replaces?: number;
     ledger: FittingLedgerRow[];
     summary: FittingSummary;
     // Restore value for the session's send-times control: the live

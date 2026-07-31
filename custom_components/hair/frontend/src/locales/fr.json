@@ -622,5 +622,7 @@
     "fitting.replaced_notice": "Code remplacé. L'identité de cette perruque a changé, et vos {count} autres verdicts sont conservés car leurs codes n'ont pas bougé. Cette ligne redevient non testée.",
     "fitting.replaced_notice_none": "Code remplacé. L'identité de cette perruque a changé. Cette ligne redevient non testée : envoyez-la, observez l'appareil, jugez à nouveau.",
     "fitting.carried_notice": "Verdicts conservés depuis votre essayage précédent. Seules les lignes dont le code a changé reviennent non testées.",
-    "fitting.ledger_goto_failed": "Ouvrir la session à la première ligne en échec"
+    "fitting.ledger_goto_failed": "Ouvrir la session à la première ligne en échec",
+    "fitting.discard_reverts.one": "Son code remplacé redeviendra ce qu'il était.",
+    "fitting.discard_reverts.other": "Ses {count} codes remplacés redeviendront ce qu'ils étaient."
 }

@@ -622,5 +622,7 @@
     "fitting.replaced_notice": "コードを置き換えました。このウィッグの識別子が変わりましたが、他の {count} 件の判定はコードが変わっていないため引き継がれました。この行は未テストに戻ります。",
     "fitting.replaced_notice_none": "コードを置き換えました。このウィッグの識別子が変わりました。この行は未テストに戻ります。送信し、機器を見て、改めて判定してください。",
     "fitting.carried_notice": "前回のフィッティングから判定を引き継ぎました。コードが変わった行だけが未テストに戻っています。",
-    "fitting.ledger_goto_failed": "最初の失敗した行でセッションを開く"
+    "fitting.ledger_goto_failed": "最初の失敗した行でセッションを開く",
+    "fitting.discard_reverts.one": "置き換えたコードは元に戻ります。",
+    "fitting.discard_reverts.other": "置き換えた {count} 件のコードは元に戻ります。"
 }

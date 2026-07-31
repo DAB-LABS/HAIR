@@ -191,8 +191,16 @@ export class IrWigs extends LitElement {
         if (this._noticeTimer) window.clearTimeout(this._noticeTimer);
     }
 
-    private async _refresh(): Promise<void> {
-        this._loading = true;
+    /** Reload the closet. ``quiet`` skips the loading state, which
+     * matters more than it sounds: render() short-circuits to a
+     * spinner while loading, so a normal refresh removes every open
+     * dialog from the DOM and rebuilds it from scratch. That is fine
+     * for refreshes that follow a dialog closing, and wrong for one
+     * that happens WHILE a dialog is open -- a replace mid-fitting
+     * used to reset the session's emitter and send-times picks
+     * (owner bench 2026-07-30). */
+    private async _refresh(quiet = false): Promise<void> {
+        this._loading = !quiet;
         try {
             const list: WigsList = await this.api.wigsList();
             this._wigs = list.wigs;
@@ -1203,8 +1211,10 @@ export class IrWigs extends LitElement {
             );
         }
         // Refresh so the row's check mark and the filter counts pick
-        // up the new fitting state.
-        await this._refresh();
+        // up the new fitting state. Quiet when the dialog is still
+        // open (a replace, not a finish): rebuilding it would throw
+        // away the session the fitter is in the middle of.
+        await this._refresh(this._fittingWig !== null);
     }
 
     private _renderBrand(brand: BrandRow) {

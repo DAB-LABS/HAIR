@@ -650,5 +650,9 @@
     "fitting.replaced_notice": "Kod zamieniony. Tożsamość tej peruki się zmieniła, a pozostałe {count} werdyktów zostało zachowanych, bo ich kody się nie zmieniły. Ten wiersz wraca jako niesprawdzony.",
     "fitting.replaced_notice_none": "Kod zamieniony. Tożsamość tej peruki się zmieniła. Ten wiersz wraca jako niesprawdzony: wyślij go, popatrz na urządzenie i ocen ponownie.",
     "fitting.carried_notice": "Werdykty zachowane z poprzedniego przymierzania. Tylko wiersze ze zmienionymi kodami wracają jako niesprawdzone.",
-    "fitting.ledger_goto_failed": "Otwórz sesję na pierwszym nieudanym wierszu"
+    "fitting.ledger_goto_failed": "Otwórz sesję na pierwszym nieudanym wierszu",
+    "fitting.discard_reverts.one": "Zamieniony kod wróci do poprzedniej postaci.",
+    "fitting.discard_reverts.other": "{count} zamienionych kodów wróci do poprzedniej postaci.",
+    "fitting.discard_reverts.few": "{count} zamienione kody wrócą do poprzedniej postaci.",
+    "fitting.discard_reverts.many": "{count} zamienionych kodów wróci do poprzedniej postaci."
 }
