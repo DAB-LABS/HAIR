@@ -212,6 +212,13 @@ TWEEZER_OBSERVER_ATTR = "hair_observer"
 # the Mirror tab; the Sniffer filters it out of its own feed.
 MIRROR_DEVICE_FP = "hair-mirror"
 MIRROR_DEVICE_LABEL = "Mirror"
+
+# --- Fitting REPLACE (Smart Perm) -------------------------------------------
+# How long the fitting dialog's LISTEN window stays armed waiting for the
+# user to press the real remote at a receiver. Long, because the flow is
+# "read which state to set, walk to the unit, set it, aim, press" -- the
+# capture dialog's tighter window suits a user already holding the remote.
+FITTING_LISTEN_TIMEOUT_S = 60.0
 # How long after a send (or a foreign emitter beacon) an arriving capture
 # may still be claimed as that send's echo. Generous for slow emitters
 # (Broadlink queueing) and multi-frame sends.

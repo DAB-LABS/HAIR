@@ -23,8 +23,10 @@ from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
     DOMAIN,
     EVENT_SIGNAL_UPDATED,
+    FITTING_LISTEN_TIMEOUT_S,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
+    MIRROR_DEVICE_FP,
     WS_PREFIX,
     CaptureState,
     CommandCategory,
@@ -118,12 +120,16 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_get)
     websocket_api.async_register_command(hass, ws_wigs_update)
     websocket_api.async_register_command(hass, ws_wigs_export)
+    websocket_api.async_register_command(hass, ws_wigs_comb)
 
     # Fitting (Perfect Fit)
     websocket_api.async_register_command(hass, ws_fitting_send)
     websocket_api.async_register_command(hass, ws_fitting_mark)
     websocket_api.async_register_command(hass, ws_fitting_finish)
     websocket_api.async_register_command(hass, ws_fitting_discard)
+    websocket_api.async_register_command(hass, ws_fitting_replace)
+    websocket_api.async_register_command(hass, ws_fitting_revert)
+    websocket_api.async_register_command(hass, ws_fitting_listen)
     websocket_api.async_register_command(hass, ws_fitting_state)
     websocket_api.async_register_command(hass, ws_wig_make_device)
     websocket_api.async_register_command(hass, ws_wig_snapshot)
@@ -2551,6 +2557,7 @@ async def ws_wigs_list(
     def _scan() -> dict[str, Any]:
         from .code_library import get_tree, library_available
         from .wig_climate import matrix_summary
+        from .wig_comb import receipt_summary
         from .wig_fitting import fitting_summary
         from .wig_store import scan_wigs
 
@@ -2592,6 +2599,12 @@ async def ws_wigs_list(
                         if loaded.wig.climate is not None else None
                     ),
                     "fitting": fitting_summary(loaded.wig, username),
+                    # The comb glyph's state. None means NO RECEIPT --
+                    # nobody has combed this wig -- which is deliberately
+                    # not the same as clean, and the row draws the same
+                    # plain grey for both with the tooltip telling them
+                    # apart (owner ruling CG3).
+                    "comb": receipt_summary(loaded.wig),
                     "linked_devices": _wig_linked_devices(
                         loaded.wig, index
                     ),
@@ -2614,7 +2627,16 @@ async def ws_wigs_list(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/upload",
-    vol.Required("text"): vol.All(str, vol.Length(min=2, max=1_000_000)),
+    # 4 MB, raised from 1 MB (Smart Perm). The old cap was well under the
+    # format's own 16 MB ceiling, so the two largest wigs in a real closet
+    # could not be re-dropped -- and those are exactly the big SmartIR
+    # lattices combing exists to examine. 4 MB rather than the full 16
+    # deliberately: aiohttp's WebSocket frame limit defaults to 4 MiB, so a
+    # larger schema cap would move the failure from a message we can
+    # explain to a connection drop we cannot. Anything bigger goes in
+    # through the wigs folder, which never touches a WS frame; the drop
+    # zone says so rather than just refusing.
+    vol.Required("text"): vol.All(str, vol.Length(min=2, max=4_000_000)),
     vol.Optional("filename"): vol.All(str, vol.Length(max=300)),
 })
 @websocket_api.async_response
@@ -2631,7 +2653,10 @@ async def ws_wigs_upload(
     as reasons instead of vanishing."""
 
     def _upload() -> dict[str, Any]:
+        from datetime import UTC, datetime
+
         from .wig_adapters import convert, sniff_format
+        from .wig_comb import comb_wig, receipt_summary, stamp_receipt
         from .wig_format import (
             parse_wig,
             serialize_wig,
@@ -2640,6 +2665,19 @@ async def ws_wigs_upload(
         from .wig_store import scan_wigs, write_wig_text
 
         text = msg["text"]
+        today = datetime.now(UTC).date().isoformat()
+
+        def _combed(wig) -> dict[str, Any] | None:
+            """Comb before the file lands, and stamp what was found.
+
+            Import is the cheapest moment in a wig's life to look: no
+            fittings, no signatures, no shop copies, and it is precisely
+            the moment you know a converter was involved. The receipt
+            rides in wig extra, outside every canonical hash, so this
+            never changes what the wig IS -- only what is known about it.
+            """
+            stamp_receipt(wig, comb_wig(wig), today)
+            return receipt_summary(wig)
 
         # Content hashes of everything already hanging, so a re-dropped
         # file gets a duplicate receipt (yellow, owner ruling) instead
@@ -2676,18 +2714,26 @@ async def ws_wigs_upload(
 
         result = parse_wig(text)
         if result.ok:
+            comb = _combed(result.wig)
+            # The receipt means the file written is no longer byte-for-byte
+            # what was dropped, so it goes out through the serializer -- the
+            # same shape every edit re-saves in.
             filename = write_wig_text(
-                hass.config.config_dir, text, result.wig.name
+                hass.config.config_dir, serialize_wig(result.wig),
+                result.wig.name,
             )
             if filename is None:
                 return {"success": False, "errors": ["could not write file"]}
+            entry = _entry(result.wig, filename)
+            entry["comb"] = comb
             return {
                 "success": True,
                 "filename": filename,
                 "filenames": [filename],
-                "files": [_entry(result.wig, filename)],
+                "files": [entry],
                 "format": "wig",
                 "skipped": [],
+                "folds": [],
             }
 
         # Not a wig: sniff for a foreign format before reporting the
@@ -2711,12 +2757,15 @@ async def ws_wigs_upload(
         filenames: list[str] = []
         files: list[dict[str, Any]] = []
         for wig in converted.wigs:
+            comb = _combed(wig)
             filename = write_wig_text(
                 hass.config.config_dir, serialize_wig(wig), wig.name
             )
             if filename is not None:
                 filenames.append(filename)
-                files.append(_entry(wig, filename))
+                entry = _entry(wig, filename)
+                entry["comb"] = comb
+                files.append(entry)
         if not filenames:
             return {"success": False, "errors": ["could not write files"]}
         return {
@@ -2726,11 +2775,75 @@ async def ws_wigs_upload(
             "files": files,
             "format": converted.format,
             "skipped": converted.skipped,
+            # Named, not silent: the one place import transforms rather
+            # than transcodes.
+            "folds": converted.folds,
         }
 
     connection.send_result(
         msg["id"], await hass.async_add_executor_job(_upload)
     )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/comb",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_wigs_comb(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Comb one wig on demand and refresh its receipt.
+
+    Import is where combing pays off most, but a wig is not static: a
+    REPLACE changes its codes, and a receipt written before that describes
+    codes which no longer exist. This is how the receipt catches up -- and
+    how the wigs that predate combing entirely get looked at at all.
+
+    Runs in the executor. A 2,689-cell Mitsubishi is real, the checks walk
+    every cell several times, and none of that belongs on the event loop.
+    """
+    manager = _fitting_manager(hass)
+    if manager is not None:
+        # Land pending fitting marks first: this rewrites the file, and a
+        # debounced write landing behind it would drop the receipt.
+        await manager.async_flush(msg["filename"])
+
+    def _comb() -> dict[str, Any] | None:
+        from datetime import UTC, datetime
+
+        from .wig_comb import comb_wig, stamp_receipt
+        from .wig_format import serialize_wig
+        from .wig_store import load_wig, safe_wig_filename, wigs_dir
+
+        filename = msg["filename"]
+        if not safe_wig_filename(filename):
+            return None
+        wig = load_wig(hass.config.config_dir, filename)
+        if wig is None:
+            return None
+        report = comb_wig(wig)
+        stamp_receipt(
+            wig, report, datetime.now(UTC).date().isoformat()
+        )
+        path = wigs_dir(hass.config.config_dir) / filename
+        if path.is_file():
+            path.write_text(serialize_wig(wig), encoding="utf-8")
+        return {
+            "filename": filename,
+            "name": wig.name,
+            "matrix": wig.climate is not None,
+            **wig.extra["comb"],
+        }
+
+    result = await hass.async_add_executor_job(_comb)
+    if result is None:
+        connection.send_error(msg["id"], "not_found", "Wig not found")
+        return
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.require_admin
@@ -3149,6 +3262,157 @@ async def ws_fitting_discard(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/replace",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+    vol.Required("pronto"): vol.All(str, vol.Length(min=1, max=100_000)),
+    vol.Required("source"): vol.In(["captured", "pasted"]),
+})
+@websocket_api.async_response
+async def ws_fitting_replace(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Replace one fitting row's code (Smart Perm).
+
+    The wig changes in place, its identity rolls, and every fitting
+    that attested the old bytes goes stale -- by design. Only the
+    caller's own draft is carried across the roll."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_replace(
+        msg["filename"],
+        msg["signal_index"],
+        msg["pronto"],
+        msg["source"],
+        _fitting_username(connection),
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/revert",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+})
+@websocket_api.async_response
+async def ws_fitting_revert(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Put one row back to the code the wig came with.
+
+    The other half of replace, reached from the row's provenance chip.
+    Rolls the hash back, which is why a fitting that attested the
+    replaced code goes stale afterward."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_revert(
+        msg["filename"],
+        msg["signal_index"],
+        _fitting_username(connection),
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/listen",
+})
+@callback
+def ws_fitting_listen(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Arm the Sniffer for one capture into the Replace box.
+
+    A subscription, not a one-shot: the window has to be cancellable
+    from the dialog (Cancel, or simply closing it), and the house
+    already listens this way for capture sessions. Emits exactly one
+    ``fitting_capture`` or one ``fitting_listen_timeout``, then stops.
+
+    It rides ``signal_monitor``'s existing subscriber feed rather than
+    opening a second capture path. That feed also carries MIRROR rows,
+    which matters more than it sounds: every send HAIR makes echoes
+    back through it, so without the Mirror filter below, pressing SEND
+    on the row being replaced would land HAIR's own transmission in the
+    box and present it as the remote's.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor = data["signal_monitor"]
+    signal_store = data["signal_store"]
+    msg_id = msg["id"]
+    state: dict[str, Any] = {"done": False, "timer": None}
+
+    def _finish() -> None:
+        state["done"] = True
+        monitor.unsubscribe(_on_signal)
+        timer = state.pop("timer", None)
+        if timer is not None:
+            timer.cancel()
+        connection.subscriptions.pop(msg_id, None)
+
+    @callback
+    def _on_signal(summary: dict[str, Any]) -> None:
+        if state["done"]:
+            return
+        # HAIR's own transmissions, and the foreign ones it audits: the
+        # Mirror logs what was SENT, never what a remote pressed.
+        if summary.get("device_fingerprint") == MIRROR_DEVICE_FP:
+            return
+        device = signal_store.get_device(summary.get("device_id") or "")
+        signal = (
+            device.get_signal_by_id(summary.get("signal_id") or "")
+            if device is not None else None
+        )
+        pronto = getattr(signal, "code", None)
+        if (
+            signal is None
+            or getattr(signal, "protocol", None) != "PRONTO"
+            or not pronto
+        ):
+            # Raw timings that would not encode to Pronto: nothing to
+            # put in the box, so keep listening rather than closing the
+            # window with nothing in it.
+            return
+        heard = getattr(signal, "heard_by", None) or []
+        _finish()
+        connection.send_event(msg_id, {
+            "type": "fitting_capture",
+            "pronto": pronto,
+            "decoded": bool(getattr(signal, "decoded_fingerprint", None)),
+            "protocol": getattr(signal, "decoded_protocol", None),
+            "receiver": heard[-1] if heard else None,
+        })
+
+    @callback
+    def _on_timeout() -> None:
+        if state["done"]:
+            return
+        _finish()
+        connection.send_event(msg_id, {"type": "fitting_listen_timeout"})
+
+    monitor.subscribe(_on_signal)
+    state["timer"] = hass.loop.call_later(
+        FITTING_LISTEN_TIMEOUT_S, _on_timeout
+    )
+    connection.subscriptions[msg_id] = _finish
+    connection.send_result(msg_id, {"listening": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/state",
     vol.Required("filename"): vol.All(str, vol.Length(max=300)),
 })
@@ -3176,11 +3440,14 @@ async def ws_fitting_state(
     def _read() -> dict[str, Any] | None:
         from .fitting_signing import key_fingerprint, verify_fitting
         from .wig_fitting import (
+            carry_forward_seed,
             fitting_is_complete,
             fitting_is_valid,
-            fitting_rows,
             fitting_summary,
             parse_fittings,
+            pending_replaces,
+            revertible_keys,
+            session_row_specs,
         )
         from .wig_store import load_wig
 
@@ -3196,42 +3463,64 @@ async def ws_fitting_state(
             ),
             None,
         )
-        confirmed_keys = set(draft.confirmed) if draft else set()
-        failed_keys = set(draft.failed) if draft else set()
-        # The rows the session walks, with per-row state resolved
-        # server-side. Signal wigs keep the minimal shape they always
-        # had ("signals" below is unchanged, and their rows carry
-        # section: null); matrix wigs add the checklist display facts
-        # so the dialog renders the sectioned CC1 layout without
-        # re-deriving the checklist client-side.
-        if wig.climate is not None:
-            from .wig_climate import dimension_checklist
-
-            rows = [
-                {
-                    "key": r.key,
-                    "section": r.section,
-                    "mode": r.mode,
-                    "fan": r.fan,
-                    "swing": r.swing,
-                    "temp": r.temp,
-                    "temp_less": r.temp_less,
-                    "temp_role": r.temp_role,
-                    "confirmed": r.key in confirmed_keys,
-                    "failed": r.key in failed_keys,
-                }
-                for r in dimension_checklist(wig.climate)
-            ]
+        if draft is not None:
+            confirmed_keys = set(draft.confirmed)
+            failed_keys = set(draft.failed)
+            carried = False
         else:
-            rows = [
-                {
-                    "key": key,
-                    "section": None,
-                    "confirmed": key in confirmed_keys,
-                    "failed": key in failed_keys,
-                }
-                for key, _, _ in fitting_rows(wig)
-            ]
+            # No draft on these codes yet. Show what a first mark WOULD
+            # inherit from the user's last fitting rather than opening
+            # the session blank and then appearing to conjure fifteen
+            # verdicts out of one tap (Smart Perm carry-forward). Pure
+            # preview -- the draft still materializes on the first mark,
+            # with the identical seeds.
+            seed_confirmed, seed_failed = carry_forward_seed(wig, username)
+            confirmed_keys = set(seed_confirmed)
+            failed_keys = set(seed_failed)
+            carried = bool(confirmed_keys or failed_keys)
+        # The rows the session walks, with per-row state resolved
+        # server-side, projected from THE row source so the dialog's
+        # indexes address the same rows send and mark do. Signal wigs
+        # keep the minimal shape they always had ("signals" below is
+        # unchanged, and their rows carry section: null); matrix wigs
+        # add the checklist display facts so the dialog renders the
+        # sectioned CC1 layout without re-deriving the checklist
+        # client-side, plus any appended Changed Codes rows.
+        # The SESSION list: fitting rows plus comb suspects surfaced for
+        # proofing. The suspects can be sent and replaced; they carry no
+        # verdict and never count toward completeness, because combing
+        # stamps a receipt without rolling the hash and counting them
+        # would demote complete fittings nobody touched.
+        specs = session_row_specs(wig)
+        row_keys = {spec.key for spec in specs if not spec.advisory}
+        revertible = revertible_keys(wig)
+        matrix = wig.climate is not None
+        rows = [
+            {
+                "key": spec.key,
+                "section": spec.section,
+                "confirmed": spec.key in confirmed_keys,
+                "failed": spec.key in failed_keys,
+                "provenance": spec.provenance,
+                # A chip alone does not mean the row can go back:
+                # markers also ride in on shared wigs, and from
+                # installs that never recorded an earlier code.
+                "revertible": spec.key in revertible,
+                # Surfaced by the comb, not part of the checklist: send
+                # it, replace it if it is wrong, but do not judge it and
+                # do not count it.
+                "advisory": spec.advisory,
+                **({
+                    "mode": spec.mode,
+                    "fan": spec.fan,
+                    "swing": spec.swing,
+                    "temp": spec.temp,
+                    "temp_less": spec.temp_less,
+                    "temp_role": spec.temp_role,
+                } if matrix else {}),
+            }
+            for spec in specs
+        ]
         return {
             "filename": msg["filename"],
             "username": username,
@@ -3247,8 +3536,22 @@ async def ws_fitting_state(
             ),
             # Row keys in session order. For signal wigs this is the
             # alias list, byte-identical to the pre-0.8.8 payload.
-            "signals": [row["key"] for row in rows],
+            # Row keys in session order. Advisory rows are excluded so
+            # the pre-existing contract ("signals" is the fitting list)
+            # and every count derived from it stay exactly as they were.
+            "signals": [
+                row["key"] for row in rows if not row["advisory"]
+            ],
             "rows": rows,
+            # True when the row verdicts above are a carry-forward
+            # preview rather than a live draft, so the dialog can say
+            # where they came from instead of just showing ticks.
+            "carried": carried,
+            # How many rows DISCARD would put back. Drives both the
+            # discard button's enabled state (a session that only
+            # replaced still has something to throw away) and the
+            # warning on the confirm.
+            "pending_replaces": pending_replaces(wig, username),
             "draft": (
                 {
                     "confirmed": draft.confirmed,
@@ -3275,6 +3578,16 @@ async def ws_fitting_state(
                     "send_times_used": f.send_times_used,
                     "confirmed": len(f.confirmed),
                     "failed": len(f.failed),
+                    # The rows behind that failed count, so the ledger
+                    # can NAVIGATE into the session at the first one
+                    # (owner ruling 2026-07-30: no replace from the
+                    # ledger, because the send-and-judge loop has to
+                    # stay attached). Intersected with the current rows
+                    # so a stale fitting's dead keys never offer a link
+                    # to a row that no longer exists.
+                    "failed_keys": [
+                        key for key in f.failed if key in row_keys
+                    ],
                     "draft": f.draft,
                     "valid": fitting_is_valid(f, wig),
                     "complete": fitting_is_complete(f, wig),

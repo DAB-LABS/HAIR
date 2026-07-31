@@ -154,6 +154,70 @@ The load-bearing rules:
 - `key` and `sig` are optional. When present, `sig` is an ed25519 signature over the fitting object minus `sig` (with `key` included), serialized with sorted keys, compact separators, UTF-8. The key pair is generated on the fitting install; a valid signature means the fitting has not been altered since it was recorded there. Unsigned fittings are valid; they are simply self-reported.
 - Fittings are social proof, not cryptographic identity. The handle is what the fitter typed; the GitHub handle is checkable by asking that person; the signature proves the record is unaltered and that fittings sharing a key came from one install.
 
+## Replace: provenance and carry
+
+Added in HAIR 0.9.1. When a fitter replaces a code from the fitting session -- pasting a Pronto, or capturing one from the real remote -- HAIR records two things. Both are **optional conventions riding in `extra` maps, outside every canonical hash**, so a reader that does not know them carries them through unchanged and neither one can move a wig's identity.
+
+**The provenance marker** says where a code came from, on the thing that changed:
+
+```json
+{"alias": "Power On", "pronto": "0000 ...", "provenance": {"replaced": "captured", "date": "2026-07-31"}}
+```
+
+- It rides the **signal** object on a signal wig and the **cell** object on a matrix wig. The two matrix power codes are not cells, so their markers ride the climate block instead, under `provenance_power` keyed by `on` and `off`.
+- `replaced` is `captured` (off real hardware, through a receiver) or `pasted` (user-supplied bytes, unverified until fitted). A later release adds `rule-derived` for regenerated codes.
+- A repeat replace overwrites the marker; latest wins, and the marker never leaves the file once present.
+- A marker always implies the wig's hash rolled, because replacing a code with the identical code is refused rather than stamped. On a matrix wig, HAIR appends every marked cell the dimension checklist does not already cover to the fitting session as a **changed codes** row, so the human proves exactly what was touched; that is only safe while the implication holds.
+
+**The replaced-from record** keeps the code the row used to hold, so a repair can be undone:
+
+```json
+"replaced_from": {
+    "Power On": {"pronto": "0000 ...", "provenance": null, "by": "dab", "to": "0000 ...", "session": false}
+}
+```
+
+- One entry per replaced row, keyed by fitting row key. `pronto` and `provenance` are what the row held **before the first replace**, and later replaces never overwrite them, so putting a row back always means the code the wig came with rather than whatever a previous repair attempt left behind.
+- `to` is the code the most recent replace wrote. A put-back only proceeds while the row still holds it; anything else means the file was edited outside this machinery and the record no longer describes it.
+- `by` and `session` mark whose current session the replace belongs to. Discarding a session puts back only that user's rows; signing sets `session` to false, which closes them to a later discard without removing the record.
+- The record is **not** removed at signing, so a repair that was proved and later turned out wrong can still be undone. Putting a row back rolls the hash to what it was, which correctly marks any fitting that attested the replaced code as outdated. The entry is dropped when the row goes back, because a row holding its original code has nothing left to return to.
+- On the share paths the codes travel and the session bookkeeping does not: `by` and `session` are dropped, so a recipient can still put a row back but nobody's in-progress session follows the file to another install.
+
+**The carry map** lets the next session keep the verdicts that are still true:
+
+```json
+"carry": {"sha256:<superseded hash>": {"Power On": "9f2c1a...", "Power Off": "40b7de..."}}
+```
+
+- One entry per superseded content hash, taken at the moment that hash was replaced away from. Each value maps a fitting row key to a truncated SHA-256 of that row's normalized Pronto, so byte-identity is provable without storing the codes twice.
+- A new session seeds its verdicts from the fitter's last fitting for every row whose key and code digest both still match. Rows whose code changed, and rows whose key changed, come back untested. Without a carry entry nothing is seeded: matching on the key alone would carry a verdict onto bytes it never attested.
+- Entries no fitting references are pruned on the next replace, and the share paths drop any whose fitting was stripped: a snapshot exists to seed a session against an attestation, so it never travels without one.
+
+## The comb receipt
+
+Added in HAIR 0.9.1. **Combing** checks that a wig's codes agree with each other: frame-shape uniformity, partial row collapse, gaps in a captured temperature run, coordinate uniqueness, and duplicate-label groups. It runs at import on every wig and on demand from the closet, and it **never changes a code** -- it reports.
+
+The result is stored on `wig.extra["comb"]`, an optional extra-key convention **outside every canonical hash**, so recording a result can never move a wig's identity or invalidate a fitting:
+
+```json
+"comb": {
+    "version": 1,
+    "date": "2026-07-31",
+    "suspects": 48,
+    "counts": {"duplicated-neighbour": 1, "malformed": 34, "stray-burst": 13},
+    "findings": [
+        {"check": "malformed", "keys": ["heat/low/19"], "message": "comb.frame_short",
+         "params": {"frame": "0", "timings": "2"}}
+    ]
+}
+```
+
+- `suspects` counts findings a human should look at. **Advisories are not suspects**: a flat file legitimately puts one code under two names on a toggle remote, so `duplicate-labels` is reported and never counted.
+- `message` is a localization key and `params` its substitutions. Findings never carry prebaked English, so a diagnosis renders in the reader's language.
+- `findings` is capped at 200 entries with a `truncated` count of the remainder; `counts` and `suspects` always describe the full result.
+- **An absent `comb` key means nobody has combed the wig**, which is deliberately not the same as clean. A wig that was combed and came back empty carries a receipt with `suspects: 0`.
+- A receipt describes the codes as they were when it was written. A REPLACE changes codes without touching the receipt, so a stale receipt is expected and combing again is what refreshes it.
+
 ## For adapter authors
 
 Convert inbound only: read your source format, emit a wig. Wigs are HAIR's single canonical format, and nothing round-trips out except the wig itself. Do not bundle or redistribute another project's code database; convert files the user already holds.

@@ -173,6 +173,40 @@ export interface WigInfo {
     // states" chip, the peek summary, CLIP suppression, and the
     // fit-tick's cold blue glow.
     matrix?: MatrixSummary | null;
+    // Smart Perm: the stored comb receipt, or null when nobody has
+    // combed this wig. Drives the comb glyph's glow.
+    comb?: CombSummary | null;
+}
+
+// Combing (Smart Perm phase 2): the closet's code check.
+export interface CombFinding {
+    check: string;
+    keys: string[];
+    // A localization key plus its substitutions; the backend never ships
+    // prebaked English.
+    message: string;
+    params?: Record<string, string>;
+}
+
+// What the closet row needs to draw the comb glyph. null on a wig with no
+// receipt, which means NOBODY HAS COMBED IT -- deliberately not the same
+// as clean, which is a receipt carrying zero suspects.
+export interface CombSummary {
+    suspects: number;
+    date: string | null;
+    version: number | null;
+    // True when a duplicated neighbour is present: the class the device
+    // answers while setting the wrong state. Drives red over yellow.
+    dangerous: boolean;
+    counts: Record<string, number>;
+}
+
+export interface CombReport extends CombSummary {
+    filename: string;
+    name: string;
+    matrix: boolean;
+    findings: CombFinding[];
+    truncated?: number;
 }
 
 // Perfect Fit: the fitting layer.
@@ -203,6 +237,10 @@ export interface FittingLedgerRow {
     send_times_used?: number | null;
     confirmed: number;
     failed: number;
+    // The row keys behind the failed count, intersected with the
+    // wig's current rows (Smart Perm): the ledger navigates into the
+    // session at the first one rather than offering replace directly.
+    failed_keys?: string[];
     draft: boolean;
     valid: boolean;
     complete: boolean;
@@ -214,9 +252,27 @@ export interface FittingLedgerRow {
 // minimal shape (key = alias, section null); matrix wigs add the
 // dimension-check display facts so the dialog renders the sectioned
 // CC1 layout without re-deriving the checklist client-side.
+// Smart Perm: the replaced-marker riding a row's extra. Outside every
+// canonical hash, so showing it never moves a wig's identity.
+export interface RowProvenance {
+    replaced: "captured" | "pasted";
+    date?: string;
+}
+
 export interface FittingRow {
     key: string;
-    section: "start" | "modes" | "fan" | "swing" | "temp" | "wrap" | null;
+    // "changed" is the Smart Perm Changed Codes section: replaced cells
+    // the dimension checklist does not already cover, appended so the
+    // human proves exactly what the machine touched.
+    section:
+        | "start"
+        | "modes"
+        | "fan"
+        | "swing"
+        | "temp"
+        | "wrap"
+        | "changed"
+        | null;
     mode?: string | null;
     fan?: string | null;
     swing?: string | null;
@@ -225,7 +281,25 @@ export interface FittingRow {
     temp_role?: "min" | "max" | null;
     confirmed: boolean;
     failed: boolean;
+    provenance?: RowProvenance | null;
+    // True when an earlier code for this row is on record, so its chip
+    // can offer REVERT. A chip without this arrived with the file.
+    revertible?: boolean;
+    // A comb suspect surfaced for proofing. Sendable and replaceable,
+    // but carries no verdict and never counts toward completeness.
+    advisory?: boolean;
 }
+
+// One event from the Replace strip's listen window.
+export type FittingListenEvent =
+    | {
+          type: "fitting_capture";
+          pronto: string;
+          decoded: boolean;
+          protocol: string | null;
+          receiver: string | null;
+      }
+    | { type: "fitting_listen_timeout" };
 
 export interface FittingState {
     filename: string;
@@ -249,6 +323,11 @@ export interface FittingState {
         date: string | null;
         send_times_used?: number | null;
     } | null;
+    // True when the row verdicts are a carry-forward preview from the
+    // user's last fitting rather than a live draft on these codes.
+    carried?: boolean;
+    // How many replaced codes DISCARD would put back.
+    pending_replaces?: number;
     ledger: FittingLedgerRow[];
     summary: FittingSummary;
     // Restore value for the session's send-times control: the live

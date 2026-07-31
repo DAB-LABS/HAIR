@@ -5,6 +5,26 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-07-31 -- Smart Perm
+
+### Added
+
+- **Fix a bad code from inside the fitting.** Every fitting row grows a fourth button, REPLACE, alongside Send / Worked / Did not. Open it and a strip appears under the row with a box for a Pronto code and a LISTEN button: press LISTEN, point the real remote at one of your receivers, press the button, and the capture lands in the box for you to look at before anything is saved. On a matrix wig the strip tells you which state to set the remote to first, which is what makes a captured cell the strongest repair there is -- the remote's own display is the state, so what it sends is the cell, whole and correct. A capture that did not decode cleanly is flagged and still allowed; the button reads "Replace anyway" and the send-and-judge loop is right there to settle it.
+- **Your other verdicts survive the repair.** Replacing a code changes the wig, so its identity changes with it and fittings that attested the old codes are marked outdated. That is the tamper evidence doing its job, and it used to mean starting over. Now the session you are in follows the change, and the next session you start seeds itself from your last fitting for every row whose code is byte-for-byte what it was. Only the rows that actually changed come back untested. One bad button on a 288-signal remote is fit-one-and-re-sign, not fit-288-again.
+- **Changed codes get proved.** On a matrix wig, a replaced cell that the dimension checklist does not already sample is listed in a new **Changed codes** section at the bottom of the session, with the same four buttons as any other row. The checklist samples dimensions; this is where the cells you touched by hand get their own confirmation.
+- **And you can take a replacement back.** Every replaced row keeps the code the wig came with. Hover its chip and it offers to put that code back; click twice, and it does. It reaches past however many times the row has been replaced, so it always returns the file's own original rather than the last repair attempt, and it stays available after you have signed a fitting -- a capture you proved and later found wrong is still fixable. Putting a code back rolls the identity to what it was, which correctly marks any fitting that attested the replaced code as outdated.
+- **Discard means none of this happened.** Discarding a session now puts back the codes it replaced, not just the verdicts about them. Signing is what makes a repair permanent to the session; a row somebody else has replaced since is left alone.
+- **The ledger points at what failed.** A failed count on a ledger row is now a link: it opens the session at the first row that fitting failed, with Replace one click away.
+
+- **Combing: find out what is wrong with a file you just imported.** Five of six real SmartIR climate files carry defective codes, and they survive conversion perfectly because conversion is a transcode and transcodes are supposed to be faithful. They are invisible to a human reading the file and invisible to a fitting, which attests dimensions rather than individual cells. HAIR now **combs** every wig as it is imported and tells you what it found: frames that are short or malformed (the device silently ignores the press), a cell that sends its neighbour's code (the device responds and looks like it worked while setting the wrong state), holes in a temperature run, states nothing advertises, and duplicate coordinates. None of it needs a protocol decoder, so it works on vendors nobody has written one for.
+- **A comb in the closet row.** Every wig row grows a comb beside the download glyph, in the same quiet grey as the others. It picks up a yellow glow when combing found something and a red one when a cell is sending its neighbour's code, which is the class worth interrupting you for. Clicking it combs the wig and opens the report. A wig nobody has combed looks the same as a clean one deliberately, because absent is not the same as clean, and the tooltip says which.
+- **Bigger files can be dropped.** The drop zone accepted 1 MB of text where the format itself allows 16, so the largest climate files -- exactly the ones most likely to carry defects -- could not be imported by dropping them. That is now 4 MB. Anything larger still goes in through the `hair/wigs` folder.
+
+### Changed
+
+- Replacing a code with the code already on that row is refused rather than silently recorded, so a provenance marker in a wig file always means the codes genuinely changed.
+- SmartIR sequences that repeat one code are still folded into a send count, but the fold is now named in the import receipt instead of happening quietly. It is the one place import transforms rather than transcodes.
+
 ## [0.9.0] - 2026-07-30 -- Fine-tuned Fittings
 
 ### Added

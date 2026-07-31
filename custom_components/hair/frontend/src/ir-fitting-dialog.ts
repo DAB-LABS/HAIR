@@ -18,6 +18,15 @@
  *   signing sentence (State C), never on a button.
  * - Standard dialog size at every signal count; the list scrolls.
  *
+ * Smart Perm adds REPLACE as the fourth button on EVERY row (mockup
+ * RP2, ruled 2026-07-30): no verdict is required first, because a
+ * fitter should not have to declare failure before repairing. The
+ * strip opens inline under its row with a paste box and a LISTEN
+ * button that captures from the real remote through the Sniffer.
+ * Confirming rolls the wig's identity, so the dialog refetches state
+ * and says plainly what happened: the row returns untested, the other
+ * verdicts carried, finishing re-signs everything.
+ *
  * Two views in one dialog: the session (State B) and the signing
  * confirm (State C). Dispatches ``closed`` always, plus ``recorded``
  * with the finish result so the closet can refresh its check marks.
@@ -27,7 +36,12 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { FittingRow, FittingState, WigInfo } from "./types.js";
+import type {
+    FittingListenEvent,
+    FittingRow,
+    FittingState,
+    WigInfo,
+} from "./types.js";
 import { displayTemp, installUnit } from "./temperature.js";
 
 // Curated kind suggestions; the input accepts anything (custom kinds
@@ -43,10 +57,34 @@ interface RowFacts {
     busy: boolean;
 }
 
+/** What the Replace strip knows about the code currently in its box.
+ * Null while the box holds a hand-typed paste: the quality line
+ * describes a CAPTURE, and saying "clean capture" over text somebody
+ * pasted would be a claim nothing made. */
+interface CaptureQuality {
+    decoded: boolean;
+    protocol: string | null;
+    receiver: string | null;
+}
+
 /** Display cleanup for a prefilled GitHub handle: strip a profile URL
  * down to its account (everything up to the first remaining slash, so
  * a copied repo URL yields the owner, not owner/repo), drop a typed @.
  * Prefill only; the backend normalizes again at record time. */
+/** Row verdicts, read off the ROWS rather than the draft lists.
+ * The rows are authoritative: when a replace has rolled the hash and
+ * no draft exists on the new codes yet, they carry the carry-forward
+ * preview, and reading the (absent) draft instead would show a wiped
+ * session that then appeared to invent verdicts on the first tap. */
+function _verdictsOf(fit: FittingState): Map<number, "worked" | "failed"> {
+    const verdicts = new Map<number, "worked" | "failed">();
+    fit.rows.forEach((row, i) => {
+        if (row.failed) verdicts.set(i, "failed");
+        else if (row.confirmed) verdicts.set(i, "worked");
+    });
+    return verdicts;
+}
+
 function _cleanGithubHandle(value: string): string {
     let v = value.trim();
     v = v.replace(/^https?:\/\/(www\.)?github\.com\//i, "");
@@ -82,10 +120,31 @@ export class IrFittingDialog extends LitElement {
     @state() private _github = "";
     @state() private _note = "";
     @state() private _kind = "";
+    // Replace (Smart Perm). One strip at a time: the row whose strip
+    // is open, and everything that strip holds.
+    @state() private _replaceRow: number | null = null;
+    @state() private _replaceText = "";
+    @state() private _replaceQuality: CaptureQuality | null = null;
+    @state() private _replaceBusy = false;
+    @state() private _replaceError: string | null = null;
+    @state() private _listening = false;
+    @state() private _listenMissed = false;
+    // Which row's chip is armed for revert (two-click confirm).
+    @state() private _revertArmed: number | null = null;
+    // The post-replace line: what changed, and what it cost.
+    @state() private _notice: string | null = null;
+    private _unlisten: (() => Promise<void>) | null = null;
+    private _scrollToKey: string | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
         void this._load();
+    }
+
+    disconnectedCallback(): void {
+        super.disconnectedCallback();
+        // Closing the dialog IS cancelling the listen window.
+        void this._stopListening();
     }
 
     private async _load(): Promise<void> {
@@ -116,19 +175,13 @@ export class IrFittingDialog extends LitElement {
             // sitting behind the field's decorative @ reads as a bug.
             // The backend cleans again on record either way.
             this._github = _cleanGithubHandle(mine?.github ?? "");
-            const verdicts = new Map<number, "worked" | "failed">();
-            fit.signals.forEach((alias, i) => {
-                if (fit.draft?.failed.includes(alias))
-                    verdicts.set(i, "failed");
-                else if (fit.draft?.confirmed.includes(alias))
-                    verdicts.set(i, "worked");
-            });
+            const verdicts = _verdictsOf(fit);
             this._verdicts = verdicts;
             // Untested first, on open only; stable within each half.
             // Matrix sessions keep checklist order instead (mockup
             // CC1): the sectioned walk start / modes / fan / swing /
-            // temp / wrap IS the session's shape, and resorting by
-            // verdict would scatter rows across their headers.
+            // temp / wrap / changed IS the session's shape, and
+            // resorting by verdict would scatter rows across headers.
             const idx = fit.signals.map((_, i) => i);
             this._order = fit.matrix
                 ? idx
@@ -221,6 +274,154 @@ export class IrFittingDialog extends LitElement {
         } catch (err: any) {
             this._error = err?.message ?? String(err);
         }
+    }
+
+    // -- Replace (Smart Perm) ------------------------------------------
+
+    /** Refetch state after a replace without reshuffling the session.
+     * The untested-first sort is an ON OPEN behaviour; re-running it
+     * mid-session would slide rows out from under the fitter's cursor
+     * the moment they repaired one. Rows appended by the replace (a
+     * Changed Codes cell) join at the end, where they render. */
+    private async _refresh(): Promise<void> {
+        const fit = await this.api.fittingState(this.wig.filename);
+        this._fit = fit;
+        this._verdicts = _verdictsOf(fit);
+        if (fit.rows.length !== this._order.length) {
+            const known = new Set(this._order);
+            this._order = [
+                ...this._order.filter((i) => i < fit.rows.length),
+                ...fit.rows
+                    .map((_, i) => i)
+                    .filter((i) => !known.has(i)),
+            ];
+        }
+    }
+
+    private async _stopListening(): Promise<void> {
+        const unlisten = this._unlisten;
+        this._unlisten = null;
+        this._listening = false;
+        if (unlisten) {
+            try {
+                await unlisten();
+            } catch {
+                // The connection went away; the window is gone with it.
+            }
+        }
+    }
+
+    private async _openReplace(i: number): Promise<void> {
+        if (this._replaceRow === i) {
+            await this._closeReplace();
+            return;
+        }
+        await this._stopListening();
+        // Any other action disarms a chip left half-pressed.
+        this._revertArmed = null;
+        this._replaceRow = i;
+        this._replaceText = "";
+        this._replaceQuality = null;
+        this._replaceError = null;
+        this._listenMissed = false;
+        this._notice = null;
+    }
+
+    private async _closeReplace(): Promise<void> {
+        await this._stopListening();
+        this._replaceRow = null;
+        this._replaceText = "";
+        this._replaceQuality = null;
+        this._replaceError = null;
+        this._listenMissed = false;
+    }
+
+    private _onReplaceInput(e: Event): void {
+        this._replaceText = (e.target as HTMLTextAreaElement).value;
+        // Hand-edited text is no longer the capture the quality line
+        // described.
+        this._replaceQuality = null;
+        this._listenMissed = false;
+    }
+
+    private async _listen(): Promise<void> {
+        if (this._listening) {
+            await this._stopListening();
+            return;
+        }
+        this._replaceError = null;
+        this._listenMissed = false;
+        this._listening = true;
+        try {
+            this._unlisten = await this.api.fittingListen(
+                (event: FittingListenEvent) => {
+                    if (event.type === "fitting_capture") {
+                        this._replaceText = event.pronto;
+                        this._replaceQuality = {
+                            decoded: event.decoded,
+                            protocol: event.protocol,
+                            receiver: event.receiver,
+                        };
+                        void this._stopListening();
+                    } else {
+                        this._listenMissed = true;
+                        void this._stopListening();
+                    }
+                },
+            );
+        } catch (err: any) {
+            this._listening = false;
+            this._replaceError = err?.message ?? String(err);
+        }
+    }
+
+    private async _confirmReplace(): Promise<void> {
+        const i = this._replaceRow;
+        if (i === null || !this._replaceText.trim()) return;
+        this._replaceBusy = true;
+        this._replaceError = null;
+        const source = this._replaceQuality ? "captured" : "pasted";
+        try {
+            const result = await this.api.fittingReplace(
+                this.wig.filename,
+                i,
+                this._replaceText.trim(),
+                source,
+            );
+            await this._closeReplace();
+            await this._refresh();
+            this._notice =
+                result.carried > 0
+                    ? t("fitting.replaced_notice", {
+                          count: String(result.carried),
+                      })
+                    : t("fitting.replaced_notice_none");
+            // The closet's check marks and coverage moved with the hash.
+            this._recordedRefresh();
+        } catch (err: any) {
+            this._replaceError = err?.message ?? String(err);
+        }
+        this._replaceBusy = false;
+    }
+
+    /** A ledger row's failed count NAVIGATES (owner ruling
+     * 2026-07-30): back to the session, scrolled to the first row that
+     * fitting failed, with Replace one click away. No replace from the
+     * ledger itself -- the send-and-judge proof loop stays attached. */
+    private _navigateToFailed(keys: string[]): void {
+        this._scrollToKey = keys[0] ?? null;
+        this._view = "session";
+    }
+
+    protected updated(): void {
+        if (!this._scrollToKey || this._view !== "session") return;
+        const key = this._scrollToKey;
+        this._scrollToKey = null;
+        const index = this._fit?.rows.findIndex((r) => r.key === key) ?? -1;
+        if (index < 0) return;
+        this.renderRoot
+            ?.querySelector(`[data-row-index="${index}"]`)
+            ?.scrollIntoView({ block: "center" });
     }
 
     private async _discard(): Promise<void> {
@@ -395,6 +596,13 @@ export class IrFittingDialog extends LitElement {
             ${this._error
                 ? html`<div class="err">${this._error}</div>`
                 : nothing}
+            ${this._notice
+                ? html`<div class="notice">${this._notice}</div>`
+                : this._fit?.carried
+                  ? html`<div class="notice">
+                        ${t("fitting.carried_notice")}
+                    </div>`
+                  : nothing}
             <div class="field">
                 <label>${t("fitting.emitter")}</label>
                 <select
@@ -469,7 +677,15 @@ export class IrFittingDialog extends LitElement {
                 ${this._confirmDiscard
                     ? html`
                           <span class="discard-q"
-                              >${t("fitting.discard_confirm")}</span
+                              >${t("fitting.discard_confirm")}${this
+                                  ._fit?.pending_replaces
+                                  ? html` <span class="discard-revert"
+                                        >${tp(
+                                            "fitting.discard_reverts",
+                                            this._fit.pending_replaces,
+                                        )}</span
+                                    >`
+                                  : nothing}</span
                           >
                           <span class="spacer"></span>
                           <button
@@ -497,7 +713,8 @@ export class IrFittingDialog extends LitElement {
                           <span class="spacer"></span>
                           <button
                               class="action-btn discard-btn"
-                              ?disabled=${c.tested === 0}
+                              ?disabled=${c.tested === 0 &&
+                              !this._fit?.pending_replaces}
                               @click=${() =>
                                   (this._confirmDiscard = true)}
                           >
@@ -521,11 +738,100 @@ export class IrFittingDialog extends LitElement {
     private _renderRow(i: number) {
         const alias = this._fit!.signals[i];
         return html`
-            <div class="sig-row">
-                <span class="sig-alias" title=${alias}>${alias}</span>
+            <div class="sig-row" data-row-index=${i}>
+                <span class="sig-alias" title=${alias}
+                    >${alias}${this._renderChip(i)}</span
+                >
                 ${this._renderRowControls(i)}
             </div>
+            ${this._renderReplaceStrip(i)}
         `;
+    }
+
+    /** The provenance chip: this row's code came off a real remote, or
+     * out of somebody's clipboard, rather than out of the file as
+     * shipped.
+     *
+     * When the wig still has the row's earlier code on record the chip
+     * becomes the way back: hovering offers REVERT, and it takes two
+     * clicks, because one stray click would throw away a capture the
+     * fitter may have walked across the house for. A chip that arrived
+     * inside a shared wig has nothing on record and stays a label. */
+    /** The row's chip, sitting inside the name rather than after it: a
+     * chip placed after a flex:1 label gets pushed against the buttons and
+     * reads as a fourth control (owner bench 2026-07-31).
+     *
+     * Neutral pill in every state; the MARK carries the meaning. An amber
+     * warning glyph for a comb suspect, which is a doubt rather than a
+     * claim; a blue tick for a replaced code, captured or pasted. When an
+     * earlier code is on record the chip is also the way back: hovering
+     * swaps the tick for an undo arrow and the label for "revert", because
+     * leaving a tick in place while the word says revert would assert the
+     * state and offer the action in the same breath.
+     */
+    private _renderChip(i: number) {
+        const row = this._fit?.rows[i];
+        const marker = row?.provenance;
+        if (row?.advisory && !marker) {
+            return html`<span class="prov-chip"
+                ><span class="cmark warn">&#9888;</span
+                >${t("fitting.chip_suspect")}</span
+            >`;
+        }
+        if (!marker) return nothing;
+        const label = t(
+            marker.replaced === "captured"
+                ? "fitting.chip_replaced_captured"
+                : "fitting.chip_replaced_pasted",
+        );
+        if (!row?.revertible) {
+            return html`<span class="prov-chip" title=${marker.date ?? ""}
+                ><span class="cmark tick">&check;</span>${label}</span
+            >`;
+        }
+        const armed = this._revertArmed === i;
+        // The alternate label overlays rather than replaces, so the chip
+        // keeps its width and the row does not shift under the pointer.
+        return html`<button
+            class="prov-chip revertible ${armed ? "armed" : ""}"
+            title=${t("fitting.revert_title")}
+            @click=${() => void this._onChipClick(i)}
+        >
+            <span class="chip-face"
+                ><span class="cmark tick">&check;</span>${label}</span
+            >
+            <span class="chip-alt"
+                ><span class="cmark undo">&#8634;</span
+                >${armed
+                    ? t("fitting.revert_confirm")
+                    : t("fitting.revert")}</span
+            >
+        </button>`;
+    }
+
+    private async _onChipClick(i: number): Promise<void> {
+        if (this._revertArmed !== i) {
+            this._revertArmed = i;
+            return;
+        }
+        this._revertArmed = null;
+        this._replaceBusy = true;
+        this._error = null;
+        try {
+            const result = await this.api.fittingRevert(
+                this.wig.filename,
+                i,
+            );
+            await this._closeReplace();
+            await this._refresh();
+            this._notice = t("fitting.reverted_notice", {
+                count: String(result.carried),
+            });
+            this._recordedRefresh();
+        } catch (err: any) {
+            this._error = err?.message ?? String(err);
+        }
+        this._replaceBusy = false;
     }
 
     /** The row anatomy every session row shares (Cold Cuts): machine
@@ -535,6 +841,11 @@ export class IrFittingDialog extends LitElement {
     private _renderRowControls(i: number) {
         const verdict = this._verdicts.get(i);
         const facts = this._facts.get(i);
+        // A comb suspect is here to be tested and, if it is wrong,
+        // repaired -- not judged. It is not a checklist row, so a
+        // verdict on it would imply it counts toward completeness, and
+        // it deliberately does not (see session_row_specs).
+        const advisory = !!this._fit?.rows[i]?.advisory;
         return html`${facts?.sent
                 ? html`<span class="facts">
                       ${facts.sent > 1
@@ -559,18 +870,162 @@ export class IrFittingDialog extends LitElement {
             >
                 ${t("fitting.send")}
             </button>
+            ${advisory
+                ? nothing
+                : html`<button
+                          class="vbtn ${verdict === "worked"
+                              ? "worked-on"
+                              : ""}"
+                          @click=${() => void this._mark(i, "worked")}
+                      >
+                          ${t("fitting.worked")}
+                      </button>
+                      <button
+                          class="vbtn ${verdict === "failed"
+                              ? "failed-on"
+                              : ""}"
+                          @click=${() => void this._mark(i, "failed")}
+                      >
+                          ${t("fitting.did_not")}
+                      </button>`}
             <button
-                class="vbtn ${verdict === "worked" ? "worked-on" : ""}"
-                @click=${() => void this._mark(i, "worked")}
+                class="vbtn replace-btn ${this._replaceRow === i
+                    ? "open"
+                    : ""}"
+                title=${t("fitting.replace_title")}
+                @click=${() => void this._openReplace(i)}
             >
-                ${t("fitting.worked")}
-            </button>
-            <button
-                class="vbtn ${verdict === "failed" ? "failed-on" : ""}"
-                @click=${() => void this._mark(i, "failed")}
-            >
-                ${t("fitting.did_not")}
+                ${t("fitting.replace")}
             </button>`;
+    }
+
+    /** What to set the physical remote to before pressing it, for a
+     * matrix row. The whole reason a captured cell is the strongest
+     * repair in the pipeline: the remote's own display IS the state,
+     * so the capture is the cell, whole and correct. */
+    private _rowStateInstruction(i: number): string {
+        const row = this._fit?.rows[i];
+        if (!row || !this._fit?.matrix) return "";
+        if (row.section === "start") return t("fitting.row_on");
+        if (row.section === "wrap") return t("fitting.row_off");
+        const parts: string[] = [];
+        if (row.mode) parts.push(row.mode);
+        if (row.fan) parts.push(t("fitting.ctx_fan", { fan: row.fan }));
+        if (row.swing)
+            parts.push(t("fitting.ctx_swing", { swing: row.swing }));
+        if (row.temp != null)
+            parts.push(`${this._displayTemp(row.temp)}°`);
+        return parts.join(" · ");
+    }
+
+    private _renderQualityLine(i: number) {
+        if (this._listening) {
+            const state = this._rowStateInstruction(i);
+            return html`<div class="qline listen">
+                <span class="pulse"></span>
+                <span
+                    >${state
+                        ? t("fitting.listening_state", { state })
+                        : t("fitting.listening")}</span
+                >
+            </div>`;
+        }
+        if (this._listenMissed) {
+            return html`<div class="qline warn">
+                ${t("fitting.listen_missed")}
+            </div>`;
+        }
+        const quality = this._replaceQuality;
+        if (!quality) return nothing;
+        if (!quality.decoded) {
+            // Warn and allow (RULED): a rough capture is the fitter's
+            // call, and the send-and-judge loop is right there to
+            // settle it.
+            return html`<div class="qline warn">
+                ${t("fitting.capture_rough")}
+            </div>`;
+        }
+        // The protocol name rides OUTSIDE the sentence: it is a proper
+        // noun ("NEC", "SONY15") and it can legitimately be absent, so
+        // interpolating it would leave a hole in the translation.
+        return html`<div class="qline good">
+            &check;
+            <span
+                >${quality.receiver
+                    ? t("fitting.capture_clean_via", {
+                          receiver: this._receiverName(quality.receiver),
+                      })
+                    : t("fitting.capture_clean")}${quality.protocol
+                    ? ` · ${quality.protocol}`
+                    : ""}</span
+            >
+        </div>`;
+    }
+
+    private _receiverName(entityId: string): string {
+        const st = this.hass?.states?.[entityId];
+        return st?.attributes?.friendly_name ?? entityId;
+    }
+
+    /** The inline strip (mockup RP2): paste a Pronto, or capture one
+     * from the real remote. Nothing changes until Replace is pressed. */
+    private _renderReplaceStrip(i: number) {
+        if (this._replaceRow !== i) return nothing;
+        const rough = !!this._replaceQuality && !this._replaceQuality.decoded;
+        const ready = !!this._replaceText.trim() && !this._replaceBusy;
+        return html`
+            <div class="repstrip">
+                <div class="titleline">
+                    <span class="t">${t("fitting.replace_heading")}</span>
+                    <span class="why">${t("fitting.replace_why")}</span>
+                </div>
+                <textarea
+                    class="prontobox"
+                    spellcheck="false"
+                    placeholder="0000 006d 0022 0002 ..."
+                    .value=${this._replaceText}
+                    @input=${this._onReplaceInput}
+                ></textarea>
+                ${this._renderQualityLine(i)}
+                ${this._replaceError
+                    ? html`<div class="qline bad">
+                          ${this._replaceError}
+                      </div>`
+                    : nothing}
+                <div class="repactions">
+                    <button
+                        class="vbtn listen-btn ${this._listening
+                            ? "on"
+                            : ""}"
+                        @click=${() => void this._listen()}
+                    >
+                        ${this._listening
+                            ? t("fitting.listening_btn")
+                            : this._replaceQuality
+                              ? t("fitting.listen_again")
+                              : t("fitting.listen")}
+                    </button>
+                    <span class="rep-hint"
+                        >${t("fitting.replace_hint")}</span
+                    >
+                    <button
+                        class="vbtn"
+                        @click=${() => void this._closeReplace()}
+                    >
+                        ${t("common.cancel")}
+                    </button>
+                    <button
+                        class="vbtn replace-confirm"
+                        ?disabled=${!ready}
+                        @click=${() => void this._confirmReplace()}
+                    >
+                        ${rough
+                            ? t("fitting.replace_anyway")
+                            : t("fitting.replace")}
+                    </button>
+                </div>
+            </div>
+        `;
     }
 
     /** The dimension-check list (mockup CC1): the same scrolling list,
@@ -609,6 +1064,7 @@ export class IrFittingDialog extends LitElement {
      * row (owner ruling 2026-07-28, e.g. "in cool 23, fan auto"). */
     private _sectionNote(row: FittingRow): string {
         if (row.section === "modes") return t("fitting.sec_modes_note");
+        if (row.section === "changed") return t("fitting.sec_changed_note");
         if (
             row.section !== "fan" &&
             row.section !== "swing" &&
@@ -685,18 +1141,34 @@ export class IrFittingDialog extends LitElement {
                     : "fitting.temp_max",
                 { temp: row.temp != null ? this._displayTemp(row.temp) : "" },
             );
+        } else if (row.section === "changed") {
+            // A cell the checklist does not sample, listed so the human
+            // proves exactly what the machine touched. Its own
+            // coordinates ARE its label.
+            label = row.mode ?? row.key;
+            caps = true;
+            dim = [
+                row.fan,
+                row.swing,
+                row.temp != null
+                    ? `${this._displayTemp(row.temp)}°`
+                    : null,
+            ]
+                .filter(Boolean)
+                .join(" · ");
         }
         return html`
-            <div class="sig-row">
+            <div class="sig-row" data-row-index=${i}>
                 <span
                     class="sig-alias ${caps ? "caps" : ""}"
                     title=${row.key}
                     >${label}${dim
                         ? html` <span class="row-dim">${dim}</span>`
-                        : nothing}</span
+                        : nothing}${this._renderChip(i)}</span
                 >
                 ${this._renderRowControls(i)}
             </div>
+            ${this._renderReplaceStrip(i)}
         `;
     }
 
@@ -726,10 +1198,6 @@ export class IrFittingDialog extends LitElement {
                             total: String(total),
                         }),
                     );
-                    if (r.failed)
-                        evidence.push(
-                            tp("fitting.failed", r.failed),
-                        );
                     if (r.signals_heard)
                         evidence.push(
                             t("fitting.ledger_heard", {
@@ -792,7 +1260,31 @@ export class IrFittingDialog extends LitElement {
                                 >
                             </div>
                             <div class="led-evidence">
-                                ${evidence.join(" · ")}
+                                ${evidence.join(" · ")}${r.failed
+                                    ? html` ·
+                                          ${r.failed_keys?.length
+                                              ? html`<button
+                                                    class="led-failed"
+                                                    title=${t(
+                                                        "fitting.ledger_goto_failed",
+                                                    )}
+                                                    @click=${() =>
+                                                        this._navigateToFailed(
+                                                            r.failed_keys!,
+                                                        )}
+                                                >
+                                                    ${tp(
+                                                        "fitting.failed",
+                                                        r.failed,
+                                                    )}
+                                                </button>`
+                                              : html`<span class="fail-note"
+                                                    >${tp(
+                                                        "fitting.failed",
+                                                        r.failed,
+                                                    )}</span
+                                                >`}`
+                                    : nothing}
                             </div>
                             ${!r.valid
                                 ? html`<div class="led-invalid">
@@ -926,8 +1418,12 @@ export class IrFittingDialog extends LitElement {
     static styles = [
         dialogStyles,
         css`
+            /* Wider than the house 400px (owner bench 2026-07-30): a
+               row now carries four buttons AND can carry a provenance
+               chip, and at 440px the chip squeezed the signal's own
+               name down to nothing. */
             .fit-dialog {
-                max-width: 440px;
+                max-width: 620px;
             }
             /* Decorative @ inside the GitHub field's left edge. */
             .gh-wrap {
@@ -1151,10 +1647,18 @@ export class IrFittingDialog extends LitElement {
             .sig-alias {
                 font-weight: 500;
                 flex: 1;
-                min-width: 0;
+                min-width: 96px;
+                display: flex;
+                align-items: center;
+                gap: 7px;
                 overflow: hidden;
-                text-overflow: ellipsis;
                 white-space: nowrap;
+            }
+            /* Only the NAME truncates; the chip beside it keeps its size,
+               so a long alias never eats the row's state. */
+            .sig-alias > .row-dim,
+            .sig-alias {
+                text-overflow: ellipsis;
             }
             .facts {
                 font-size: 11px;
@@ -1208,6 +1712,215 @@ export class IrFittingDialog extends LitElement {
                 border-color: rgba(198, 40, 40, 0.5);
                 color: #e57373;
             }
+            /* The replace family is copper (RULED 2026-07-30), which is
+               the Clipper's accent: both are "you are handling the
+               codes themselves", as against the green/red of judging
+               what a code did. */
+            .vbtn.replace-btn {
+                color: #c98a4b;
+                border-color: rgba(201, 138, 75, 0.35);
+            }
+            .vbtn.replace-btn.open {
+                background: rgba(201, 138, 75, 0.15);
+                border-color: rgba(201, 138, 75, 0.6);
+            }
+            /* Theme-safe by construction: a mid-grey alpha fill reads
+               correctly on a light card and a dark one, and the marks ride
+               Home Assistant's semantic colours rather than fixed hexes, so
+               a pale blue that works on #111 cannot go invisible on white
+               (owner bench 2026-07-31). */
+            .prov-chip {
+                flex: none;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                position: relative;
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                white-space: nowrap;
+                padding: 2px 8px 2px 6px;
+                border: none;
+                border-radius: 9px;
+                background: rgba(127, 127, 127, 0.14);
+                color: var(--secondary-text-color);
+                font-family: inherit;
+            }
+            .prov-chip .cmark {
+                flex: none;
+                line-height: 1;
+            }
+            .prov-chip .cmark.warn {
+                color: var(--warning-color, #e6a23c);
+                font-size: 9.5px;
+            }
+            .prov-chip .cmark.tick {
+                color: var(--info-color, #64b5f6);
+                font-size: 10px;
+                font-weight: 700;
+            }
+            .prov-chip .cmark.undo {
+                color: var(--info-color, #64b5f6);
+                font-size: 11px;
+            }
+            .prov-chip.revertible {
+                cursor: pointer;
+            }
+            .prov-chip .chip-face,
+            .prov-chip .chip-alt {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .prov-chip .chip-alt {
+                position: absolute;
+                inset: 0;
+                justify-content: center;
+                visibility: hidden;
+            }
+            .prov-chip.revertible:hover .chip-face,
+            .prov-chip.armed .chip-face {
+                visibility: hidden;
+            }
+            .prov-chip.revertible:hover .chip-alt,
+            .prov-chip.armed .chip-alt {
+                visibility: visible;
+            }
+            /* Armed has to be unmistakable: the next click throws away a
+               capture somebody may have walked across the house for. */
+            .prov-chip.armed {
+                background: var(--info-color, #1565c0);
+                color: #fff;
+            }
+            .prov-chip.armed .cmark {
+                color: #fff;
+            }
+            .repstrip {
+                margin: 2px 12px 10px 12px;
+                background: var(--card-background-color);
+                border: 1px solid rgba(201, 138, 75, 0.35);
+                border-radius: 8px;
+                padding: 10px 12px;
+            }
+            .repstrip .titleline {
+                display: flex;
+                align-items: baseline;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 8px;
+            }
+            .repstrip .t {
+                font-size: 10.5px;
+                font-weight: 600;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #c98a4b;
+            }
+            .repstrip .why {
+                font-size: 11.5px;
+                color: var(--secondary-text-color);
+            }
+            .prontobox {
+                width: 100%;
+                box-sizing: border-box;
+                min-height: 54px;
+                background: var(--primary-background-color);
+                color: var(--primary-text-color);
+                border: 1px solid var(--divider-color);
+                border-radius: 5px;
+                font-family: ui-monospace, "SF Mono", Menlo, monospace;
+                font-size: 11px;
+                line-height: 1.5;
+                padding: 8px 10px;
+                resize: vertical;
+            }
+            .qline {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                margin-top: 7px;
+                font-size: 11.5px;
+                line-height: 1.4;
+            }
+            .qline.listen {
+                color: #64b5f6;
+            }
+            .qline.good {
+                color: #66bb6a;
+            }
+            .qline.warn {
+                color: #e6a23c;
+            }
+            .qline.bad {
+                color: var(--error-color, #c62828);
+            }
+            .pulse {
+                flex: none;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #64b5f6;
+                animation: fit-pulse 1.1s ease-in-out infinite;
+            }
+            @keyframes fit-pulse {
+                0%,
+                100% {
+                    opacity: 0.25;
+                }
+                50% {
+                    opacity: 1;
+                }
+            }
+            .repactions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-top: 10px;
+                flex-wrap: wrap;
+            }
+            .rep-hint {
+                flex: 1;
+                min-width: 120px;
+                font-size: 11px;
+                color: var(--secondary-text-color);
+            }
+            .vbtn.listen-btn {
+                color: #64b5f6;
+                border-color: rgba(100, 181, 246, 0.35);
+            }
+            .vbtn.listen-btn.on {
+                background: rgba(100, 181, 246, 0.15);
+            }
+            .vbtn.replace-confirm {
+                background: #c98a4b;
+                border-color: #c98a4b;
+                color: #fff;
+            }
+            .vbtn.replace-confirm:disabled {
+                opacity: 0.4;
+                cursor: default;
+            }
+            .notice {
+                margin: 0 0 10px;
+                padding: 8px 12px;
+                border-radius: 6px;
+                background: rgba(201, 138, 75, 0.08);
+                border: 1px solid rgba(201, 138, 75, 0.35);
+                font-size: 11.5px;
+                color: var(--secondary-text-color);
+                line-height: 1.5;
+            }
+            .led-failed {
+                background: none;
+                border: none;
+                padding: 0;
+                font: inherit;
+                cursor: pointer;
+                color: #e57373;
+                text-decoration: underline dotted;
+                text-underline-offset: 3px;
+            }
             .progress-line {
                 display: flex;
                 align-items: center;
@@ -1243,6 +1956,9 @@ export class IrFittingDialog extends LitElement {
             .discard-q {
                 font-size: 12.5px;
                 color: var(--primary-text-color);
+            }
+            .discard-revert {
+                color: #c98a4b;
             }
             .discard-btn {
                 color: var(--secondary-text-color);
