@@ -136,7 +136,7 @@ Key components:
   they attest (wig_fitting.py): the signals hash for signal wigs, the cells
   hash for matrix wigs, so a rename survives but a code change invalidates
   the fitting. Fitting sends carry their own provenance chip in the Mirror.
-- Replace (Smart Perm, v0.9.5): every fitting row carries a fourth button
+- Replace (Smart Perm, v0.9.1): every fitting row carries a fourth button
   that swaps its code, either from a pasted Pronto or from a live capture
   taken through a receiver while the session waits. Replacing stamps a
   provenance marker (captured / pasted) on the signal, cell, or matrix power
@@ -153,7 +153,7 @@ Key components:
   stale by hash, correctly). Discard puts back the codes the session replaced
   as well as its verdicts. Markers, the carry snapshot and the replaced-from
   record all ride extra maps outside every canonical hash (wig-format.md).
-- Combing (Smart Perm, v0.9.5): protocol-agnostic checks that a wig's codes
+- Combing (Smart Perm, v0.9.1): protocol-agnostic checks that a wig's codes
   agree with each other, in wig_comb.py -- frame-shape uniformity, partial row
   collapse, gaps in a captured temperature run, coordinate uniqueness, and
   duplicate-label groups (advisory only, never counted, never merged). Runs at

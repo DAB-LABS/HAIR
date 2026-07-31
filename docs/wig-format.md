@@ -156,7 +156,7 @@ The load-bearing rules:
 
 ## Replace: provenance and carry
 
-Added in HAIR 0.9.5. When a fitter replaces a code from the fitting session -- pasting a Pronto, or capturing one from the real remote -- HAIR records two things. Both are **optional conventions riding in `extra` maps, outside every canonical hash**, so a reader that does not know them carries them through unchanged and neither one can move a wig's identity.
+Added in HAIR 0.9.1. When a fitter replaces a code from the fitting session -- pasting a Pronto, or capturing one from the real remote -- HAIR records two things. Both are **optional conventions riding in `extra` maps, outside every canonical hash**, so a reader that does not know them carries them through unchanged and neither one can move a wig's identity.
 
 **The provenance marker** says where a code came from, on the thing that changed:
 
@@ -195,7 +195,7 @@ Added in HAIR 0.9.5. When a fitter replaces a code from the fitting session -- p
 
 ## The comb receipt
 
-Added in HAIR 0.9.5. **Combing** checks that a wig's codes agree with each other: frame-shape uniformity, partial row collapse, gaps in a captured temperature run, coordinate uniqueness, and duplicate-label groups. It runs at import on every wig and on demand from the closet, and it **never changes a code** -- it reports.
+Added in HAIR 0.9.1. **Combing** checks that a wig's codes agree with each other: frame-shape uniformity, partial row collapse, gaps in a captured temperature run, coordinate uniqueness, and duplicate-label groups. It runs at import on every wig and on demand from the closet, and it **never changes a code** -- it reports.
 
 The result is stored on `wig.extra["comb"]`, an optional extra-key convention **outside every canonical hash**, so recording a result can never move a wig's identity or invalidate a fitting:
 
