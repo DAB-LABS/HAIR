@@ -527,3 +527,48 @@ def comb_wig(wig: Wig) -> CombReport:
     order = {check: i for i, check in enumerate(SEVERITY_ORDER)}
     findings.sort(key=lambda f: (order.get(f.check, 99), f.keys[:1]))
     return CombReport(findings=findings)
+
+
+# ---------------------------------------------------------------------------
+# The stored receipt: writing it, reading it back
+# ---------------------------------------------------------------------------
+
+COMB_KEY = "comb"
+
+
+def stamp_receipt(wig: Wig, report: CombReport, date: str) -> None:
+    """Record a comb result on the wig, outside every canonical hash.
+
+    ``wig.extra`` is preserved through parse and serialize by the format's
+    unknown-key contract, and the canonical forms exclude it, so stamping a
+    result can never move a wig's identity or invalidate a fitting. That is
+    the whole reason combing is safe to run automatically at import.
+    """
+    wig.extra[COMB_KEY] = report.to_receipt(date)
+
+
+def receipt_summary(wig: Wig) -> dict[str, Any] | None:
+    """What the closet row needs to draw the comb glyph, or None.
+
+    None means NO RECEIPT, which is not the same as clean: nobody has
+    combed this wig, so the glyph stays plain grey and says so. A wig that
+    was combed and came back empty also draws plain grey, and the two are
+    told apart by the tooltip, not the colour (owner ruling CG3).
+    """
+    raw = wig.extra.get(COMB_KEY)
+    if not isinstance(raw, dict):
+        return None
+    counts = raw.get("counts")
+    counts = counts if isinstance(counts, dict) else {}
+    suspects = raw.get("suspects")
+    return {
+        "suspects": suspects if isinstance(suspects, int) else 0,
+        "date": raw.get("date"),
+        "version": raw.get("version"),
+        # Red versus yellow follows the taxonomy, not the count: one
+        # duplicated neighbour outranks thirty-four malformed frames,
+        # because it is the class the device answers and a human never
+        # catches unaided.
+        "dangerous": bool(counts.get(CHECK_DUPLICATED_NEIGHBOUR)),
+        "counts": counts,
+    }

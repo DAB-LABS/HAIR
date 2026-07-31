@@ -120,6 +120,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_get)
     websocket_api.async_register_command(hass, ws_wigs_update)
     websocket_api.async_register_command(hass, ws_wigs_export)
+    websocket_api.async_register_command(hass, ws_wigs_comb)
 
     # Fitting (Perfect Fit)
     websocket_api.async_register_command(hass, ws_fitting_send)
@@ -2556,6 +2557,7 @@ async def ws_wigs_list(
     def _scan() -> dict[str, Any]:
         from .code_library import get_tree, library_available
         from .wig_climate import matrix_summary
+        from .wig_comb import receipt_summary
         from .wig_fitting import fitting_summary
         from .wig_store import scan_wigs
 
@@ -2597,6 +2599,12 @@ async def ws_wigs_list(
                         if loaded.wig.climate is not None else None
                     ),
                     "fitting": fitting_summary(loaded.wig, username),
+                    # The comb glyph's state. None means NO RECEIPT --
+                    # nobody has combed this wig -- which is deliberately
+                    # not the same as clean, and the row draws the same
+                    # plain grey for both with the tooltip telling them
+                    # apart (owner ruling CG3).
+                    "comb": receipt_summary(loaded.wig),
                     "linked_devices": _wig_linked_devices(
                         loaded.wig, index
                     ),
@@ -2619,7 +2627,16 @@ async def ws_wigs_list(
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/upload",
-    vol.Required("text"): vol.All(str, vol.Length(min=2, max=1_000_000)),
+    # 4 MB, raised from 1 MB (Smart Perm). The old cap was well under the
+    # format's own 16 MB ceiling, so the two largest wigs in a real closet
+    # could not be re-dropped -- and those are exactly the big SmartIR
+    # lattices combing exists to examine. 4 MB rather than the full 16
+    # deliberately: aiohttp's WebSocket frame limit defaults to 4 MiB, so a
+    # larger schema cap would move the failure from a message we can
+    # explain to a connection drop we cannot. Anything bigger goes in
+    # through the wigs folder, which never touches a WS frame; the drop
+    # zone says so rather than just refusing.
+    vol.Required("text"): vol.All(str, vol.Length(min=2, max=4_000_000)),
     vol.Optional("filename"): vol.All(str, vol.Length(max=300)),
 })
 @websocket_api.async_response
@@ -2636,7 +2653,10 @@ async def ws_wigs_upload(
     as reasons instead of vanishing."""
 
     def _upload() -> dict[str, Any]:
+        from datetime import UTC, datetime
+
         from .wig_adapters import convert, sniff_format
+        from .wig_comb import comb_wig, receipt_summary, stamp_receipt
         from .wig_format import (
             parse_wig,
             serialize_wig,
@@ -2645,6 +2665,19 @@ async def ws_wigs_upload(
         from .wig_store import scan_wigs, write_wig_text
 
         text = msg["text"]
+        today = datetime.now(UTC).date().isoformat()
+
+        def _combed(wig) -> dict[str, Any] | None:
+            """Comb before the file lands, and stamp what was found.
+
+            Import is the cheapest moment in a wig's life to look: no
+            fittings, no signatures, no shop copies, and it is precisely
+            the moment you know a converter was involved. The receipt
+            rides in wig extra, outside every canonical hash, so this
+            never changes what the wig IS -- only what is known about it.
+            """
+            stamp_receipt(wig, comb_wig(wig), today)
+            return receipt_summary(wig)
 
         # Content hashes of everything already hanging, so a re-dropped
         # file gets a duplicate receipt (yellow, owner ruling) instead
@@ -2681,18 +2714,26 @@ async def ws_wigs_upload(
 
         result = parse_wig(text)
         if result.ok:
+            comb = _combed(result.wig)
+            # The receipt means the file written is no longer byte-for-byte
+            # what was dropped, so it goes out through the serializer -- the
+            # same shape every edit re-saves in.
             filename = write_wig_text(
-                hass.config.config_dir, text, result.wig.name
+                hass.config.config_dir, serialize_wig(result.wig),
+                result.wig.name,
             )
             if filename is None:
                 return {"success": False, "errors": ["could not write file"]}
+            entry = _entry(result.wig, filename)
+            entry["comb"] = comb
             return {
                 "success": True,
                 "filename": filename,
                 "filenames": [filename],
-                "files": [_entry(result.wig, filename)],
+                "files": [entry],
                 "format": "wig",
                 "skipped": [],
+                "folds": [],
             }
 
         # Not a wig: sniff for a foreign format before reporting the
@@ -2716,12 +2757,15 @@ async def ws_wigs_upload(
         filenames: list[str] = []
         files: list[dict[str, Any]] = []
         for wig in converted.wigs:
+            comb = _combed(wig)
             filename = write_wig_text(
                 hass.config.config_dir, serialize_wig(wig), wig.name
             )
             if filename is not None:
                 filenames.append(filename)
-                files.append(_entry(wig, filename))
+                entry = _entry(wig, filename)
+                entry["comb"] = comb
+                files.append(entry)
         if not filenames:
             return {"success": False, "errors": ["could not write files"]}
         return {
@@ -2731,11 +2775,75 @@ async def ws_wigs_upload(
             "files": files,
             "format": converted.format,
             "skipped": converted.skipped,
+            # Named, not silent: the one place import transforms rather
+            # than transcodes.
+            "folds": converted.folds,
         }
 
     connection.send_result(
         msg["id"], await hass.async_add_executor_job(_upload)
     )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/comb",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
+async def ws_wigs_comb(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Comb one wig on demand and refresh its receipt.
+
+    Import is where combing pays off most, but a wig is not static: a
+    REPLACE changes its codes, and a receipt written before that describes
+    codes which no longer exist. This is how the receipt catches up -- and
+    how the wigs that predate combing entirely get looked at at all.
+
+    Runs in the executor. A 2,689-cell Mitsubishi is real, the checks walk
+    every cell several times, and none of that belongs on the event loop.
+    """
+    manager = _fitting_manager(hass)
+    if manager is not None:
+        # Land pending fitting marks first: this rewrites the file, and a
+        # debounced write landing behind it would drop the receipt.
+        await manager.async_flush(msg["filename"])
+
+    def _comb() -> dict[str, Any] | None:
+        from datetime import UTC, datetime
+
+        from .wig_comb import comb_wig, stamp_receipt
+        from .wig_format import serialize_wig
+        from .wig_store import load_wig, safe_wig_filename, wigs_dir
+
+        filename = msg["filename"]
+        if not safe_wig_filename(filename):
+            return None
+        wig = load_wig(hass.config.config_dir, filename)
+        if wig is None:
+            return None
+        report = comb_wig(wig)
+        stamp_receipt(
+            wig, report, datetime.now(UTC).date().isoformat()
+        )
+        path = wigs_dir(hass.config.config_dir) / filename
+        if path.is_file():
+            path.write_text(serialize_wig(wig), encoding="utf-8")
+        return {
+            "filename": filename,
+            "name": wig.name,
+            "matrix": wig.climate is not None,
+            **wig.extra["comb"],
+        }
+
+    result = await hass.async_add_executor_job(_comb)
+    if result is None:
+        connection.send_error(msg["id"], "not_found", "Wig not found")
+        return
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.require_admin

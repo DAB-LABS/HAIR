@@ -50,6 +50,12 @@ class AdapterResult:
     format: str
     wigs: list[Wig] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    # Sequence-to-send_count collapses (Smart Perm). Conversion is a
+    # transcode everywhere else; this is the one place import TRANSFORMS
+    # rather than transcodes, so every fold is named rather than left to
+    # be noticed later as a signal that sends three times for no visible
+    # reason.
+    folds: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -231,6 +237,10 @@ def _convert_smartir(text: str) -> AdapterResult:
                 # exactly wig send_count, so the semantic survives
                 # intact (e.g. SmartIR "Channel 11" = digit 1 twice).
                 send_count = len(value)
+                result.folds.append(
+                    f"{alias}: {send_count} identical codes folded into "
+                    f"send_count {send_count}"
+                )
                 value = value[0]
             else:
                 # Genuinely different codes per press; wigs carry one
