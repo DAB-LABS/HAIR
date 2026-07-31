@@ -739,8 +739,10 @@ export class IrFittingDialog extends LitElement {
         const alias = this._fit!.signals[i];
         return html`
             <div class="sig-row" data-row-index=${i}>
-                <span class="sig-alias" title=${alias}>${alias}</span>
-                ${this._renderChip(i)} ${this._renderRowControls(i)}
+                <span class="sig-alias" title=${alias}
+                    >${alias}${this._renderChip(i)}</span
+                >
+                ${this._renderRowControls(i)}
             </div>
             ${this._renderReplaceStrip(i)}
         `;
@@ -755,13 +757,27 @@ export class IrFittingDialog extends LitElement {
      * clicks, because one stray click would throw away a capture the
      * fitter may have walked across the house for. A chip that arrived
      * inside a shared wig has nothing on record and stays a label. */
+    /** The row's chip, sitting inside the name rather than after it: a
+     * chip placed after a flex:1 label gets pushed against the buttons and
+     * reads as a fourth control (owner bench 2026-07-31).
+     *
+     * Neutral pill in every state; the MARK carries the meaning. An amber
+     * warning glyph for a comb suspect, which is a doubt rather than a
+     * claim; a blue tick for a replaced code, captured or pasted. When an
+     * earlier code is on record the chip is also the way back: hovering
+     * swaps the tick for an undo arrow and the label for "revert", because
+     * leaving a tick in place while the word says revert would assert the
+     * state and offer the action in the same breath.
+     */
     private _renderChip(i: number) {
         const row = this._fit?.rows[i];
         const marker = row?.provenance;
-        if (row?.advisory && !marker)
-            return html`<span class="prov-chip suspect"
+        if (row?.advisory && !marker) {
+            return html`<span class="prov-chip"
+                ><span class="cmark warn">&#9888;</span
                 >${t("fitting.chip_suspect")}</span
             >`;
+        }
         if (!marker) return nothing;
         const label = t(
             marker.replaced === "captured"
@@ -770,20 +786,22 @@ export class IrFittingDialog extends LitElement {
         );
         if (!row?.revertible) {
             return html`<span class="prov-chip" title=${marker.date ?? ""}
-                >${label}</span
+                ><span class="cmark tick">&check;</span>${label}</span
             >`;
         }
         const armed = this._revertArmed === i;
-        // The hover label overlays rather than replaces, so the chip
-        // keeps its width and the row's buttons do not jump sideways
-        // under the pointer.
+        // The alternate label overlays rather than replaces, so the chip
+        // keeps its width and the row does not shift under the pointer.
         return html`<button
             class="prov-chip revertible ${armed ? "armed" : ""}"
             title=${t("fitting.revert_title")}
             @click=${() => void this._onChipClick(i)}
         >
-            <span class="chip-label">${label}</span>
+            <span class="chip-face"
+                ><span class="cmark tick">&check;</span>${label}</span
+            >
             <span class="chip-alt"
+                ><span class="cmark undo">&#8634;</span
                 >${armed
                     ? t("fitting.revert_confirm")
                     : t("fitting.revert")}</span
@@ -1146,9 +1164,9 @@ export class IrFittingDialog extends LitElement {
                     title=${row.key}
                     >${label}${dim
                         ? html` <span class="row-dim">${dim}</span>`
-                        : nothing}</span
+                        : nothing}${this._renderChip(i)}</span
                 >
-                ${this._renderChip(i)} ${this._renderRowControls(i)}
+                ${this._renderRowControls(i)}
             </div>
             ${this._renderReplaceStrip(i)}
         `;
@@ -1407,11 +1425,6 @@ export class IrFittingDialog extends LitElement {
             .fit-dialog {
                 max-width: 620px;
             }
-            /* The name never collapses to zero. It ellipsizes instead,
-               which is the point of the title attribute beside it. */
-            .sig-alias {
-                min-width: 96px;
-            }
             /* Decorative @ inside the GitHub field's left edge. */
             .gh-wrap {
                 position: relative;
@@ -1634,10 +1647,18 @@ export class IrFittingDialog extends LitElement {
             .sig-alias {
                 font-weight: 500;
                 flex: 1;
-                min-width: 0;
+                min-width: 96px;
+                display: flex;
+                align-items: center;
+                gap: 7px;
                 overflow: hidden;
-                text-overflow: ellipsis;
                 white-space: nowrap;
+            }
+            /* Only the NAME truncates; the chip beside it keeps its size,
+               so a long alias never eats the row's state. */
+            .sig-alias > .row-dim,
+            .sig-alias {
+                text-overflow: ellipsis;
             }
             .facts {
                 font-size: 11px;
@@ -1703,52 +1724,77 @@ export class IrFittingDialog extends LitElement {
                 background: rgba(201, 138, 75, 0.15);
                 border-color: rgba(201, 138, 75, 0.6);
             }
-            .prov-chip.suspect {
-                color: #e6a23c;
-                border-color: rgba(230, 162, 60, 0.4);
-            }
+            /* Theme-safe by construction: a mid-grey alpha fill reads
+               correctly on a light card and a dark one, and the marks ride
+               Home Assistant's semantic colours rather than fixed hexes, so
+               a pale blue that works on #111 cannot go invisible on white
+               (owner bench 2026-07-31). */
             .prov-chip {
                 flex: none;
-                font-size: 9.5px;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                position: relative;
+                font-size: 9px;
                 font-weight: 600;
                 letter-spacing: 0.04em;
                 text-transform: uppercase;
-                padding: 2px 7px;
-                border-radius: 9px;
-                border: 1px solid rgba(201, 138, 75, 0.35);
-                color: #c98a4b;
                 white-space: nowrap;
-                background: none;
+                padding: 2px 8px 2px 6px;
+                border: none;
+                border-radius: 9px;
+                background: rgba(127, 127, 127, 0.14);
+                color: var(--secondary-text-color);
                 font-family: inherit;
+            }
+            .prov-chip .cmark {
+                flex: none;
+                line-height: 1;
+            }
+            .prov-chip .cmark.warn {
+                color: var(--warning-color, #e6a23c);
+                font-size: 9.5px;
+            }
+            .prov-chip .cmark.tick {
+                color: var(--info-color, #64b5f6);
+                font-size: 10px;
+                font-weight: 700;
+            }
+            .prov-chip .cmark.undo {
+                color: var(--info-color, #64b5f6);
+                font-size: 11px;
             }
             .prov-chip.revertible {
                 cursor: pointer;
-                position: relative;
             }
-            .prov-chip.revertible:hover {
-                background: rgba(201, 138, 75, 0.15);
-                border-color: rgba(201, 138, 75, 0.6);
-            }
-            .prov-chip.armed {
-                background: #c98a4b;
-                border-color: #c98a4b;
-                color: #fff;
+            .prov-chip .chip-face,
+            .prov-chip .chip-alt {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
             }
             .prov-chip .chip-alt {
                 position: absolute;
                 inset: 0;
-                display: flex;
-                align-items: center;
                 justify-content: center;
                 visibility: hidden;
             }
-            .prov-chip.revertible:hover .chip-label,
-            .prov-chip.armed .chip-label {
+            .prov-chip.revertible:hover .chip-face,
+            .prov-chip.armed .chip-face {
                 visibility: hidden;
             }
             .prov-chip.revertible:hover .chip-alt,
             .prov-chip.armed .chip-alt {
                 visibility: visible;
+            }
+            /* Armed has to be unmistakable: the next click throws away a
+               capture somebody may have walked across the house for. */
+            .prov-chip.armed {
+                background: var(--info-color, #1565c0);
+                color: #fff;
+            }
+            .prov-chip.armed .cmark {
+                color: #fff;
             }
             .repstrip {
                 margin: 2px 12px 10px 12px;
