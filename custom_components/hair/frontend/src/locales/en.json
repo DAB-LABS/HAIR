@@ -640,7 +640,7 @@
     "comb.showing": "Showing {shown} of {total}.",
     "comb.truncated": "{count} more were found but not stored.",
     "comb.tip_clean": "Combed {date}: nothing to report. Click to comb again.",
-    "comb.class.duplicated-neighbour": "Duplicated neighbour",
+    "comb.class.duplicated-neighbour": "Duplicated neighbor",
     "comb.what.duplicated-neighbour": "responds, but with the wrong state",
     "comb.class.malformed": "Malformed frame",
     "comb.what.malformed": "the device ignores the press",
