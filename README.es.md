@@ -156,6 +156,8 @@ idioma del perfil. Toda la interfaz de HAIR es multilingüe.
 
 ### HACS (recomendado)
 
+[![Abre tu instancia de Home Assistant y este repositorio en HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
 1.  Abre HACS en tu instancia de Home Assistant.
 2.  Ve a **Integraciones**.
 3.  Abre el menú de tres puntos \> **Repositorios personalizados**.
@@ -395,7 +397,21 @@ alteren o falsifiquen después, y las validaciones completas viajan
 dentro del perfil cuando lo compartes. La Colección muestra una marca
 verde en los perfiles validados ---amarilla mientras la validación está
 en curso---, filtros para validados y no validados y un historial de
-todas las validaciones acumuladas, tuyas y de otras personas.
+todas las validaciones acumuladas, tuyas y de otras personas. Desde
+v0.9.1, una fila que falla se puede reparar dentro de la propia sesión
+con **REPLACE**: pega un Pronto nuevo o pulsa **LISTEN** para capturar el
+botón del mando real, revísalo y sigue con el mismo ciclo de envío y
+comprobación. Los resultados de las filas cuyo código no ha cambiado se
+conservan byte a byte; solo hay que volver a probar lo que realmente se
+ha sustituido.
+
+**Comb (peinado automático)** - Revisa los perfiles sin depender del
+protocolo, tanto al incorporarlos a la Colección como bajo demanda, y
+señala códigos sospechosos antes de que una validación con hardware los
+dé por buenos. El resultado del peinado es información auxiliar: no
+altera la identidad criptográfica del perfil ni cuenta como prueba. Los
+sospechosos quedan para comprobarlos expresamente durante **FIT**, donde
+pueden confirmarse o repararse.
 
 **Alias de señales** - Pon un apodo a cualquier señal pulsando sobre su
 patrón de diamantes S/L y escribiendo. El alias sustituye a los
@@ -741,6 +757,14 @@ no compatible, una entrada truncada--- queda escrito en las notas del
 perfil con el motivo, de modo que una importación parcial nunca pasa
 inadvertida.
 
+Al llegar a la Colección, el perfil pasa además por **Comb**, una
+comprobación automática independiente del protocolo que busca
+inconsistencias y códigos sospechosos. El peinado también puede
+ejecutarse bajo demanda y su estado queda visible en la Colección. Es un
+diagnóstico, no una validación: sus resultados no modifican los hashes
+que identifican el perfil y cualquier sospechoso debe demostrarse con
+hardware durante **FIT** antes de contar como probado.
+
 Para utilizar una entrada, pulsa **ADOPT DEVICE** directamente en su
 fila: el conjunto se convierte en un dispositivo HAIR funcional en un
 único diálogo, cada señal pasa a ser un comando con nombre, los nombres
@@ -816,6 +840,34 @@ momento en que las haces, por lo que puedes cerrar el diálogo, reiniciar
 o volver la semana siguiente y FIT abrirá exactamente donde lo dejaste,
 con las señales aún no probadas arriba.
 
+Si una señal falla, no hace falta abandonar la sesión ni volver a
+validar todo el perfil. Cada fila dispone ahora de **REPLACE**, junto a
+SEND, WORKED y DID NOT. Al abrirlo aparece una zona de sustitución donde
+puedes pegar un código Pronto o pulsar **LISTEN**, apuntar el mando real
+a uno de tus receptores y pulsar el botón: la captura llega al cuadro
+para que puedas revisarla antes de guardar nada. En un perfil con matriz
+de estados, HAIR indica primero qué estado debes seleccionar en el mando
+real; así la propia pantalla del mando define el estado y la captura
+contiene la celda completa. Si la captura no se decodifica limpiamente,
+HAIR lo advierte pero permite continuar con **Replace anyway** y
+comprobar el resultado enviándolo.
+
+Sustituir un código cambia la identidad del perfil, por lo que las
+validaciones que certificaban los códigos anteriores quedan marcadas
+como obsoletas. Eso ya no obliga a empezar de cero: la sesión actual
+sigue adelante y la siguiente recupera los resultados de la última
+validación para cada fila cuyo código siga siendo exactamente el mismo,
+byte por byte. Solo las filas que hayan cambiado vuelven a quedar sin
+probar. **REVERT** permite deshacer una sustitución y, si descartas los
+cambios de la sesión, se restaura el código original.
+
+En perfiles con matriz, una celda sustituida que no forme parte de las
+muestras de la comprobación por dimensiones aparece al final en una
+sección **Changed codes**, con los mismos cuatro controles que cualquier
+otra fila. La comprobación por dimensiones sigue verificando los ejes de
+la matriz; esta sección obliga a demostrar además, una por una, las
+celdas que hayas modificado expresamente.
+
 Cuando todas las señales están marcadas como correctas, la línea de
 progreso lo anuncia y FINISH se vuelve verde. Registrar la validación es
 el momento de firmarla: tu nombre ---rellenado inicialmente con el
@@ -847,6 +899,23 @@ son los que pueden acabar convirtiéndose en integraciones de Home
 Assistant generadas. Si tienes el hardware correspondiente a un perfil
 de tu Colección, validarlo es una de las contribuciones más útiles que
 puedes hacer.
+
+### Peinado de un perfil (Comb)
+
+**Comb** es la revisión automática que HAIR hace de un perfil antes de
+que la prueba con hardware diga que sus códigos son buenos. Funciona sin
+depender del protocolo y se ejecuta al importar un perfil en la
+Colección; también puedes lanzarlo de nuevo bajo demanda. Su cometido es
+señalar códigos sospechosos o inconsistencias para que sepas dónde mirar
+antes de empezar una validación larga.
+
+El peinado no es una validación y no intenta hacerse pasar por ella. Sus
+resultados se guardan como información auxiliar, fuera de los hashes que
+identifican el contenido probado, y los sospechosos no cuentan como
+correctos por el mero hecho de haber sido detectados. En **FIT** aparecen
+para que los pruebes expresamente y, si uno falla, puedes repararlo con
+**REPLACE**. Al compartir un perfil, HAIR mantiene separada esta
+información de diagnóstico de la prueba firmada del hardware.
 
 ### Pestaña Mirror
 
@@ -1209,7 +1278,7 @@ MIT. Consulta [LICENSE](LICENSE) para más información.
 
 ------------------------------------------------------------------------
 
-*Traducción al español del README de HAIR, versión v0.8.9. Traducida y
+*Traducción al español del README de HAIR, versión v0.9.1. Traducida y
 revisada por [@Waterbrain](https://github.com/Waterbrain). Si quieres
 colaborar manteniendo esta traducción actualizada en futuras versiones,
 tu ayuda será bienvenida; consulta [Adding a
