@@ -23,8 +23,10 @@ from .const import (
     DEFAULT_CAPTURE_TIMEOUT,
     DOMAIN,
     EVENT_SIGNAL_UPDATED,
+    FITTING_LISTEN_TIMEOUT_S,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
+    MIRROR_DEVICE_FP,
     WS_PREFIX,
     CaptureState,
     CommandCategory,
@@ -124,6 +126,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fitting_mark)
     websocket_api.async_register_command(hass, ws_fitting_finish)
     websocket_api.async_register_command(hass, ws_fitting_discard)
+    websocket_api.async_register_command(hass, ws_fitting_replace)
+    websocket_api.async_register_command(hass, ws_fitting_listen)
     websocket_api.async_register_command(hass, ws_fitting_state)
     websocket_api.async_register_command(hass, ws_wig_make_device)
     websocket_api.async_register_command(hass, ws_wig_snapshot)
@@ -3149,6 +3153,128 @@ async def ws_fitting_discard(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/replace",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+    vol.Required("pronto"): vol.All(str, vol.Length(min=1, max=100_000)),
+    vol.Required("source"): vol.In(["captured", "pasted"]),
+})
+@websocket_api.async_response
+async def ws_fitting_replace(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Replace one fitting row's code (Smart Perm).
+
+    The wig changes in place, its identity rolls, and every fitting
+    that attested the old bytes goes stale -- by design. Only the
+    caller's own draft is carried across the roll."""
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_replace(
+        msg["filename"],
+        msg["signal_index"],
+        msg["pronto"],
+        msg["source"],
+        _fitting_username(connection),
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/listen",
+})
+@callback
+def ws_fitting_listen(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Arm the Sniffer for one capture into the Replace box.
+
+    A subscription, not a one-shot: the window has to be cancellable
+    from the dialog (Cancel, or simply closing it), and the house
+    already listens this way for capture sessions. Emits exactly one
+    ``fitting_capture`` or one ``fitting_listen_timeout``, then stops.
+
+    It rides ``signal_monitor``'s existing subscriber feed rather than
+    opening a second capture path. That feed also carries MIRROR rows,
+    which matters more than it sounds: every send HAIR makes echoes
+    back through it, so without the Mirror filter below, pressing SEND
+    on the row being replaced would land HAIR's own transmission in the
+    box and present it as the remote's.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    monitor = data["signal_monitor"]
+    signal_store = data["signal_store"]
+    msg_id = msg["id"]
+    state: dict[str, Any] = {"done": False, "timer": None}
+
+    def _finish() -> None:
+        state["done"] = True
+        monitor.unsubscribe(_on_signal)
+        timer = state.pop("timer", None)
+        if timer is not None:
+            timer.cancel()
+        connection.subscriptions.pop(msg_id, None)
+
+    @callback
+    def _on_signal(summary: dict[str, Any]) -> None:
+        if state["done"]:
+            return
+        # HAIR's own transmissions, and the foreign ones it audits: the
+        # Mirror logs what was SENT, never what a remote pressed.
+        if summary.get("device_fingerprint") == MIRROR_DEVICE_FP:
+            return
+        device = signal_store.get_device(summary.get("device_id") or "")
+        signal = (
+            device.get_signal_by_id(summary.get("signal_id") or "")
+            if device is not None else None
+        )
+        pronto = getattr(signal, "code", None)
+        if (
+            signal is None
+            or getattr(signal, "protocol", None) != "PRONTO"
+            or not pronto
+        ):
+            # Raw timings that would not encode to Pronto: nothing to
+            # put in the box, so keep listening rather than closing the
+            # window with nothing in it.
+            return
+        heard = getattr(signal, "heard_by", None) or []
+        _finish()
+        connection.send_event(msg_id, {
+            "type": "fitting_capture",
+            "pronto": pronto,
+            "decoded": bool(getattr(signal, "decoded_fingerprint", None)),
+            "protocol": getattr(signal, "decoded_protocol", None),
+            "receiver": heard[-1] if heard else None,
+        })
+
+    @callback
+    def _on_timeout() -> None:
+        if state["done"]:
+            return
+        _finish()
+        connection.send_event(msg_id, {"type": "fitting_listen_timeout"})
+
+    monitor.subscribe(_on_signal)
+    state["timer"] = hass.loop.call_later(
+        FITTING_LISTEN_TIMEOUT_S, _on_timeout
+    )
+    connection.subscriptions[msg_id] = _finish
+    connection.send_result(msg_id, {"listening": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/state",
     vol.Required("filename"): vol.All(str, vol.Length(max=300)),
 })
@@ -3176,9 +3302,10 @@ async def ws_fitting_state(
     def _read() -> dict[str, Any] | None:
         from .fitting_signing import key_fingerprint, verify_fitting
         from .wig_fitting import (
+            carry_forward_seed,
             fitting_is_complete,
             fitting_is_valid,
-            fitting_rows,
+            fitting_row_specs,
             fitting_summary,
             parse_fittings,
         )
@@ -3196,42 +3323,49 @@ async def ws_fitting_state(
             ),
             None,
         )
-        confirmed_keys = set(draft.confirmed) if draft else set()
-        failed_keys = set(draft.failed) if draft else set()
-        # The rows the session walks, with per-row state resolved
-        # server-side. Signal wigs keep the minimal shape they always
-        # had ("signals" below is unchanged, and their rows carry
-        # section: null); matrix wigs add the checklist display facts
-        # so the dialog renders the sectioned CC1 layout without
-        # re-deriving the checklist client-side.
-        if wig.climate is not None:
-            from .wig_climate import dimension_checklist
-
-            rows = [
-                {
-                    "key": r.key,
-                    "section": r.section,
-                    "mode": r.mode,
-                    "fan": r.fan,
-                    "swing": r.swing,
-                    "temp": r.temp,
-                    "temp_less": r.temp_less,
-                    "temp_role": r.temp_role,
-                    "confirmed": r.key in confirmed_keys,
-                    "failed": r.key in failed_keys,
-                }
-                for r in dimension_checklist(wig.climate)
-            ]
+        if draft is not None:
+            confirmed_keys = set(draft.confirmed)
+            failed_keys = set(draft.failed)
+            carried = False
         else:
-            rows = [
-                {
-                    "key": key,
-                    "section": None,
-                    "confirmed": key in confirmed_keys,
-                    "failed": key in failed_keys,
-                }
-                for key, _, _ in fitting_rows(wig)
-            ]
+            # No draft on these codes yet. Show what a first mark WOULD
+            # inherit from the user's last fitting rather than opening
+            # the session blank and then appearing to conjure fifteen
+            # verdicts out of one tap (Smart Perm carry-forward). Pure
+            # preview -- the draft still materializes on the first mark,
+            # with the identical seeds.
+            seed_confirmed, seed_failed = carry_forward_seed(wig, username)
+            confirmed_keys = set(seed_confirmed)
+            failed_keys = set(seed_failed)
+            carried = bool(confirmed_keys or failed_keys)
+        # The rows the session walks, with per-row state resolved
+        # server-side, projected from THE row source so the dialog's
+        # indexes address the same rows send and mark do. Signal wigs
+        # keep the minimal shape they always had ("signals" below is
+        # unchanged, and their rows carry section: null); matrix wigs
+        # add the checklist display facts so the dialog renders the
+        # sectioned CC1 layout without re-deriving the checklist
+        # client-side, plus any appended Changed Codes rows.
+        specs = fitting_row_specs(wig)
+        matrix = wig.climate is not None
+        rows = [
+            {
+                "key": spec.key,
+                "section": spec.section,
+                "confirmed": spec.key in confirmed_keys,
+                "failed": spec.key in failed_keys,
+                "provenance": spec.provenance,
+                **({
+                    "mode": spec.mode,
+                    "fan": spec.fan,
+                    "swing": spec.swing,
+                    "temp": spec.temp,
+                    "temp_less": spec.temp_less,
+                    "temp_role": spec.temp_role,
+                } if matrix else {}),
+            }
+            for spec in specs
+        ]
         return {
             "filename": msg["filename"],
             "username": username,
@@ -3249,6 +3383,10 @@ async def ws_fitting_state(
             # alias list, byte-identical to the pre-0.8.8 payload.
             "signals": [row["key"] for row in rows],
             "rows": rows,
+            # True when the row verdicts above are a carry-forward
+            # preview rather than a live draft, so the dialog can say
+            # where they came from instead of just showing ticks.
+            "carried": carried,
             "draft": (
                 {
                     "confirmed": draft.confirmed,
