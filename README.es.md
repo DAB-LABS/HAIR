@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="images/HAIR-readme-hero-v0.2.png" alt="Cartel de la barbería HAIR Full Service, con la mascota TX dando la bienvenida a la nueva mascota RX en la entrada y un bocadillo RX IS HERE sobre ellas" width="900" />
+<img src="images/HAIR-readme-hero-v0.2.png" alt="Cartel de la barbería HAIR Full Service, con la mascota TX dando la bienvenida a la nueva mascota RX en la entrada y un bocadillo RX IS HERE sobre ellas" width="900" />
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · Español ·
-  <a href="README.fr.md">Français</a> ·
-  <a href="README.ja.md">日本語</a> ·
-  <a href="README.de.md">Deutsch</a> ·
-  <a href="README.pl.md">Polski</a> ·
-  <a href="README.pt.md">Português</a> ·
-  <a href="README.nl.md">Nederlands</a> ·
-  <a href="README.it.md">Italiano</a> ·
-  <a href="README.ru.md">Русский</a>
+<a href="README.md">English</a> · Español ·
+<a href="README.fr.md">Français</a> ·
+<a href="README.ja.md">日本語</a> ·
+<a href="README.de.md">Deutsch</a> ·
+<a href="README.pl.md">Polski</a> ·
+<a href="README.pt.md">Português</a> ·
+<a href="README.nl.md">Nederlands</a> ·
+<a href="README.it.md">Italiano</a> ·
+<a href="README.ru.md">Русский</a>
 </p>
 
 # HAIR
@@ -1072,7 +1072,7 @@ Los dispositivos obtienen automáticamente entidades nativas de HA según
 su tipo:
 
 | Tipo | Entidad HA | Controles |
-|------|------------|-----------|
+|---|---|---|
 | Reproductor multimedia | `media_player` | Encendido, volumen, silencio, fuente, canales, navegación, transporte |
 | Aire acondicionado | `climate` | Modos HVAC, preajustes de temperatura o matriz completa de estados, modos de ventilador, oscilación |
 | Ventilador | `fan` | Encendido, pasos de velocidad o niveles directos (1-10), oscilación |
@@ -1154,7 +1154,6 @@ climatización, Flipper Zero, LIRC y Girr--- se convierten mediante el
 canal de importación, y una entrada de la Colección puede materializarse
 en Clipper mediante CLIP o adoptarse directamente como dispositivo.
 
-```
       Mando físico                                 Pronto hex pegado
            |                                             |
       Hardware receptor IR                               |
@@ -1198,7 +1197,6 @@ en Clipper mediante CLIP o adoptarse directamente como dispositivo.
            +-- CLIP --> materializa un mando funcional en Clipper
            |
            +-- ADOPT DEVICE --> Gestor de dispositivos (un perfil con matriz se convierte en climate con estado)
-```
 
 ## Contribuir
 
@@ -1209,7 +1207,7 @@ directrices.
 
 MIT. Consulta [LICENSE](LICENSE) para más información.
 
----
+------------------------------------------------------------------------
 
 *Traducción al español del README de HAIR, versión v0.8.9. Traducida y
 revisada por [@Waterbrain](https://github.com/Waterbrain). Si quieres
