@@ -1001,21 +1001,6 @@ class FittingManager:
                     "error": "Could not find that row's code to replace"}
         new_hash = wig_content_hash(wig)
 
-        # The snapshot the NEXT session carries forward from, plus a
-        # sweep of entries no fitting references any more (a wig
-        # replaced through ten times should not carry ten dead
-        # snapshots for the rest of its life).
-        carry = _carry_map(wig)
-        carry[old_hash] = snapshot
-        live = {
-            f.content_hash for f in parse_fittings(wig).fittings
-        }
-        carry = {h: rows for h, rows in carry.items() if h in live}
-        if carry:
-            wig.extra[CARRY_KEY] = carry
-        else:
-            wig.extra.pop(CARRY_KEY, None)
-
         # Re-bind this user's open draft (brief 4.3). Without it the
         # draft-by-hash lookups all go blind the instant the hash
         # rolls: the next mark would mint a SECOND draft and the state
@@ -1036,6 +1021,22 @@ class FittingManager:
             carried = len(
                 (set(confirmed) | set(failed)) & keys
             )
+
+        # The snapshot the NEXT session carries forward from, plus a
+        # sweep of entries no fitting references any more (a wig
+        # replaced through ten times should not carry ten dead
+        # snapshots for the rest of its life). AFTER the re-bind, so
+        # the sweep reads the hashes fittings actually point at now:
+        # a draft that just moved to the new hash is not a reason to
+        # keep a snapshot of the old one.
+        carry = _carry_map(wig)
+        carry[old_hash] = snapshot
+        live = {f.content_hash for f in parse_fittings(wig).fittings}
+        carry = {h: rows for h, rows in carry.items() if h in live}
+        if carry:
+            wig.extra[CARRY_KEY] = carry
+        else:
+            wig.extra.pop(CARRY_KEY, None)
 
         self._pending[filename] = wig
         self._schedule_write(filename)

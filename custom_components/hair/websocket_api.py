@@ -3347,6 +3347,7 @@ async def ws_fitting_state(
         # sectioned CC1 layout without re-deriving the checklist
         # client-side, plus any appended Changed Codes rows.
         specs = fitting_row_specs(wig)
+        row_keys = {spec.key for spec in specs}
         matrix = wig.climate is not None
         rows = [
             {
@@ -3421,8 +3422,7 @@ async def ws_fitting_state(
                     # so a stale fitting's dead keys never offer a link
                     # to a row that no longer exists.
                     "failed_keys": [
-                        key for key in f.failed
-                        if key in {spec.key for spec in specs}
+                        key for key in f.failed if key in row_keys
                     ],
                     "draft": f.draft,
                     "valid": fitting_is_valid(f, wig),

@@ -575,6 +575,21 @@ class TestCarryForward:
         )
 
     @pytest.mark.asyncio
+    async def test_rebound_draft_does_not_keep_the_old_snapshot_alive(
+        self, manager, wigs_dir_path
+    ):
+        """The sweep runs AFTER the re-bind. A draft that just moved to
+        the new hash is not a reason to keep a snapshot of the old one,
+        and keeping it would leave dead receipts on every replace."""
+        filename = _write_wig(wigs_dir_path, _signal_wig())
+        await manager.async_mark(filename, 1, "worked", "dab")
+        await manager.async_replace(
+            filename, 0, PRONTO_C, "captured", "dab"
+        )
+        await manager.async_flush()
+        assert CARRY_KEY not in _read_wig(wigs_dir_path).extra
+
+    @pytest.mark.asyncio
     async def test_dead_snapshot_swept_on_the_next_replace(
         self, manager, wigs_dir_path
     ):
