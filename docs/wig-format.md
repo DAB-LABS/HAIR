@@ -193,6 +193,31 @@ Added in HAIR 0.9.5. When a fitter replaces a code from the fitting session -- p
 - A new session seeds its verdicts from the fitter's last fitting for every row whose key and code digest both still match. Rows whose code changed, and rows whose key changed, come back untested. Without a carry entry nothing is seeded: matching on the key alone would carry a verdict onto bytes it never attested.
 - Entries no fitting references are pruned on the next replace, and the share paths drop any whose fitting was stripped: a snapshot exists to seed a session against an attestation, so it never travels without one.
 
+## The comb receipt
+
+Added in HAIR 0.9.5. **Combing** checks that a wig's codes agree with each other: frame-shape uniformity, partial row collapse, gaps in a captured temperature run, coordinate uniqueness, and duplicate-label groups. It runs at import on every wig and on demand from the closet, and it **never changes a code** -- it reports.
+
+The result is stored on `wig.extra["comb"]`, an optional extra-key convention **outside every canonical hash**, so recording a result can never move a wig's identity or invalidate a fitting:
+
+```json
+"comb": {
+    "version": 1,
+    "date": "2026-07-31",
+    "suspects": 48,
+    "counts": {"duplicated-neighbour": 1, "malformed": 34, "stray-burst": 13},
+    "findings": [
+        {"check": "malformed", "keys": ["heat/low/19"], "message": "comb.frame_short",
+         "params": {"frame": "0", "timings": "2"}}
+    ]
+}
+```
+
+- `suspects` counts findings a human should look at. **Advisories are not suspects**: a flat file legitimately puts one code under two names on a toggle remote, so `duplicate-labels` is reported and never counted.
+- `message` is a localization key and `params` its substitutions. Findings never carry prebaked English, so a diagnosis renders in the reader's language.
+- `findings` is capped at 200 entries with a `truncated` count of the remainder; `counts` and `suspects` always describe the full result.
+- **An absent `comb` key means nobody has combed the wig**, which is deliberately not the same as clean. A wig that was combed and came back empty carries a receipt with `suspects: 0`.
+- A receipt describes the codes as they were when it was written. A REPLACE changes codes without touching the receipt, so a stale receipt is expected and combing again is what refreshes it.
+
 ## For adapter authors
 
 Convert inbound only: read your source format, emit a wig. Wigs are HAIR's single canonical format, and nothing round-trips out except the wig itself. Do not bundle or redistribute another project's code database; convert files the user already holds.

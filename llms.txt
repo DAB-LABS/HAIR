@@ -153,6 +153,18 @@ Key components:
   stale by hash, correctly). Discard puts back the codes the session replaced
   as well as its verdicts. Markers, the carry snapshot and the replaced-from
   record all ride extra maps outside every canonical hash (wig-format.md).
+- Combing (Smart Perm, v0.9.5): protocol-agnostic checks that a wig's codes
+  agree with each other, in wig_comb.py -- frame-shape uniformity, partial row
+  collapse, gaps in a captured temperature run, coordinate uniqueness, and
+  duplicate-label groups (advisory only, never counted, never merged). Runs at
+  import on every wig and on demand via wigs/comb (executor; 2,689-cell
+  matrices are real). Never changes a code. The receipt rides wig.extra["comb"]
+  outside every canonical hash, so combing cannot invalidate a fitting. A whole
+  row collapsing to one code is CORRECT and never flagged; only a partial
+  collapse is a defect. Strict frame-shape matching applies to lattices only:
+  bi-phase protocols vary pair count by command, so flat remotes flag gross
+  outliers instead. The closet row carries a comb glyph, grey with a yellow or
+  red glow, which is also the action that opens the report.
 - Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
   from wherever you meet it. Closet wigs, library rows, Sniffer remotes,
   Clipper remotes, and Plucker blasters all carry one ADOPT DEVICE button

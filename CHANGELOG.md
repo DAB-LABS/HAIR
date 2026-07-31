@@ -16,9 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discard means none of this happened.** Discarding a session now puts back the codes it replaced, not just the verdicts about them. Signing is what makes a repair permanent to the session; a row somebody else has replaced since is left alone.
 - **The ledger points at what failed.** A failed count on a ledger row is now a link: it opens the session at the first row that fitting failed, with Replace one click away.
 
+- **Combing: find out what is wrong with a file you just imported.** Five of six real SmartIR climate files carry defective codes, and they survive conversion perfectly because conversion is a transcode and transcodes are supposed to be faithful. They are invisible to a human reading the file and invisible to a fitting, which attests dimensions rather than individual cells. HAIR now **combs** every wig as it is imported and tells you what it found: frames that are short or malformed (the device silently ignores the press), a cell that sends its neighbour's code (the device responds and looks like it worked while setting the wrong state), holes in a temperature run, states nothing advertises, and duplicate coordinates. None of it needs a protocol decoder, so it works on vendors nobody has written one for.
+- **A comb in the closet row.** Every wig row grows a comb beside the download glyph, in the same quiet grey as the others. It picks up a yellow glow when combing found something and a red one when a cell is sending its neighbour's code, which is the class worth interrupting you for. Clicking it combs the wig and opens the report. A wig nobody has combed looks the same as a clean one deliberately, because absent is not the same as clean, and the tooltip says which.
+- **Bigger files can be dropped.** The drop zone accepted 1 MB of text where the format itself allows 16, so the largest climate files -- exactly the ones most likely to carry defects -- could not be imported by dropping them. That is now 4 MB. Anything larger still goes in through the `hair/wigs` folder.
+
 ### Changed
 
 - Replacing a code with the code already on that row is refused rather than silently recorded, so a provenance marker in a wig file always means the codes genuinely changed.
+- SmartIR sequences that repeat one code are still folded into a send count, but the fold is now named in the import receipt instead of happening quietly. It is the one place import transforms rather than transcodes.
 
 ## [0.9.0] - 2026-07-30 -- Fine-tuned Fittings
 
