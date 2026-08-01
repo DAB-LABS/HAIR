@@ -23,6 +23,7 @@ import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
+import "./ir-tx-knobs.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
@@ -1606,6 +1607,12 @@ export class IrSignalMonitor extends LitElement {
                                         ?disabled=${device.dismissed}
                                         @alias-changed=${this._onAliasChanged}
                                     ></ir-signal-alias>
+                                    <ir-tx-knobs
+                                        .sendCount=${sig.send_count}
+                                        .repeatCount=${sig.repeat_count}
+                                        .decoded=${!!sig.decoded_protocol}
+                                        .sendsKey=${"mirror.sends_times"}
+                                    ></ir-tx-knobs>
                                 </div>
                                 <div class="chip-col">
                                     <ir-protocol-chip

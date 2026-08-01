@@ -31,6 +31,7 @@ import "./ir-assigned-popover.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { triggerMatchesSignal } from "./types.js";
 import "./ir-protocol-chip.js";
+import "./ir-tx-knobs.js";
 import type {
     AssignResult,
     DeviceSummary,
@@ -1200,6 +1201,12 @@ export class IrClips extends LitElement {
                         @alias-changed=${this._onAliasChanged}
                         @alias-error=${(e: CustomEvent) => (this._error = e.detail)}
                     ></ir-signal-alias>
+                    <ir-tx-knobs
+                        .sendCount=${sig.send_count}
+                        .repeatCount=${sig.repeat_count}
+                        .decoded=${!!sig.decoded_protocol}
+                        .sendsKey=${"mirror.sends_times"}
+                    ></ir-tx-knobs>
                 </div>
                 <div class="chip-col">
                     <ir-protocol-chip

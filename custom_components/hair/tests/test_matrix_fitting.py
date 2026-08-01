@@ -282,7 +282,11 @@ class _FakeMonitor:
         self.calls = []
 
     def record_send(self, command, source_label, emitter_entity_ids,
-                    decoded_fingerprint=None, heard_future=None):
+                    decoded_fingerprint=None, heard_future=None,
+                    # Accepted so the fake tracks the real signature: the
+                    # Mirror now takes the transmitted TX knobs explicitly
+                    # (send_count is a loop bound, never a Command field).
+                    send_count=None, repeat_count=None):
         self.calls.append(source_label)
         if heard_future is not None:
             heard_future.set_result("infrared.rx")

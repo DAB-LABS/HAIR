@@ -593,6 +593,10 @@ class DeviceManager:
                 f"{device.name} / {send_name}",
                 attempt_ids,
                 decoded_fingerprint=decoded_fingerprint,
+                # Passed explicitly: send_count is this method's loop
+                # bound below and is never written onto ir_cmd, so the
+                # Mirror cannot read it back off the Command.
+                send_count=send_count,
             )
 
         # Whole-frame repetition: transmit the built Command send_count times

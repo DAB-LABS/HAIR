@@ -1117,10 +1117,24 @@ class FittingManager:
             asyncio.get_running_loop().create_future()
         )
         label = f"Fitting send: {row_key}" if row_key else "Fitting send"
+
+        # The session control substitutes for the row's own send_count
+        # when set (fine-tuned-fittings). THIS call's value drives the
+        # loop -- the monotonic session record above is what gets
+        # claimed, but a fitter who lowered the control back to 1
+        # genuinely sends once.
+        #
+        # Resolved before the Mirror call rather than after, so the row
+        # can record what this send actually used. It is a loop bound,
+        # not a field on ir_cmd, so the Mirror has no other way to see it.
+        send_count = max(
+            1, min(send_times or row_send_count or 1, MAX_SEND_COUNT)
+        )
         self._monitor.record_send(
             ir_cmd, label, [emitter_entity_id],
             decoded_fingerprint=ident.decoded_fingerprint,
             heard_future=heard_future,
+            send_count=send_count,
         )
 
         from homeassistant.components.infrared import (
@@ -1130,14 +1144,6 @@ class FittingManager:
         from .const import ASSIGN_SERVICE_TIMEOUT_S, SEND_REPEAT_GAP
         from .tx_gate import gated_send
 
-        # The session control substitutes for the row's own send_count
-        # when set (fine-tuned-fittings). THIS call's value drives the
-        # loop -- the monotonic session record above is what gets
-        # claimed, but a fitter who lowered the control back to 1
-        # genuinely sends once.
-        send_count = max(
-            1, min(send_times or row_send_count or 1, MAX_SEND_COUNT)
-        )
         try:
             for i in range(send_count):
                 if i:

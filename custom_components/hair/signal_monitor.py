@@ -767,6 +767,8 @@ class SignalMonitor:
         emitter_entity_ids: list[str],
         decoded_fingerprint: str | None = None,
         heard_future: asyncio.Future[str | None] | None = None,
+        send_count: int | None = None,
+        repeat_count: int | None = None,
     ) -> None:
         """Log an outgoing HAIR transmission on the Mirror, send-time.
 
@@ -805,18 +807,24 @@ class SignalMonitor:
                 decoded_fp=decoded_fp,
                 echo_source=label,
                 reset_heard=True,
-                # What actually went out on the air, taken from the
-                # Command being transmitted rather than left at the
-                # dataclass defaults. Before this the Mirror row showed
-                # whatever someone had typed into that row's own editor,
-                # which could disagree with the command that produced it
-                # (owner-reported 2026-08-01: a command set to send
-                # twice whose Mirror row claimed three sends and three
-                # dittos). normalize_command rebuilds identity from the
-                # timings and carries no TX knobs, so they come off the
-                # Command here.
-                send_count=getattr(command, "send_count", None),
-                repeat_count=getattr(command, "repeat_count", None),
+                # What actually went out on the air, rather than the
+                # dataclass defaults the row used to keep.
+                #
+                # The caller passes these explicitly because whole-frame
+                # repetition is NOT a property of the Command: neither
+                # build_command nor build_decoded_command accepts
+                # send_count, and both transmit paths keep it as a local
+                # loop bound (`for i in range(send_count)`). Reading it
+                # off the Command therefore always returned the default,
+                # which is the bug the first version of this shipped.
+                # repeat_count IS built into the Command, so it falls
+                # back to the attribute when the caller says nothing.
+                send_count=send_count,
+                repeat_count=(
+                    repeat_count
+                    if repeat_count is not None
+                    else getattr(command, "repeat_count", None)
+                ),
             )
         )
 
@@ -2027,6 +2035,10 @@ class SignalMonitor:
         self.record_send(
             ir_cmd, label, [emitter_entity_id],
             decoded_fingerprint=signal.decoded_fingerprint,
+            # The effective knobs for THIS test send. send_count is the
+            # loop bound resolved just above; it never reaches ir_cmd.
+            send_count=send_count,
+            repeat_count=signal.repeat_count or 0,
         )
         # Route through the transmit gate: the frontend fires one test
         # call per selected emitter concurrently, and without the gate
