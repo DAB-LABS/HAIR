@@ -87,7 +87,12 @@ export class IrProtocolChip extends LitElement {
             border: 1px solid;
             background: none;
             cursor: default;
-            line-height: 1.5;
+            /* 1.05, not 1.5 (owner ruling 2026-08-01). At 9.5px the old
+               value gave a 14.25px line box, and with the padding and the
+               border that made a 20px pill against the 16px one the
+               Mirror has always used. This lands at ~16px so the chip
+               sits in a row rather than setting its height. */
+            line-height: 1.05;
             color: var(--info-color, #64b5f6);
             border-color: var(--info-color, #64b5f6);
             opacity: 0.9;

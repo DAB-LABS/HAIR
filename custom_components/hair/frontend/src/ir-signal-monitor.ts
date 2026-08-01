@@ -1626,10 +1626,14 @@ export class IrSignalMonitor extends LitElement {
                                     ${tp("sniffer.hit_word", sig.hit_count)}
                                 </div>
                                 <div class="signal-meta">
-                                    <span title=${fmtTime(sig.last_seen)}
+                                    <span
+                                        class="meta-time"
+                                        title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
-                                    <span>${Math.round(sig.frequency / 1000)} kHz</span>
+                                    <span class="meta-freq"
+                                        >${Math.round(sig.frequency / 1000)} kHz</span
+                                    >
                                 </div>
                                 ${sig.code
                                     ? html`<button
@@ -2075,8 +2079,10 @@ export class IrSignalMonitor extends LitElement {
             justify-content: center;
             align-items: center;
         }
+        /* 72px holds a four-digit count ("1000 hits") without wrapping
+           or spilling into the meta beside it. */
         .hits-col {
-            flex: 0 0 60px;
+            flex: 0 0 72px;
             text-align: center;
             font-size: 11px;
             color: var(--secondary-text-color);
@@ -2110,12 +2116,33 @@ export class IrSignalMonitor extends LitElement {
         .diamond.short {
             color: var(--warning-color, #ff9800);
         }
+        /* Fixed, centred cells for the same reason the chip and hits
+           columns are fixed (owner ruling 2026-08-01). The relative time
+           is the one string in the row whose width really moves: "5d
+           ago" measures 34px and "13h ago" 40px, and because
+           .signal-info is flex:1 it surrendered that difference, sliding
+           the chip and the hits a few pixels row to row. Nothing here
+           may size to its content.
+
+           68px is set by the LONGEST form, which is minutes rather than
+           days: relTime yields "{count} min ago" below the hour, so
+           "59 min ago" (~58px) is wider than "365d ago" or even
+           "1000d ago". Days simply keep counting, so a year-old signal
+           reads "400d ago" and still fits. */
         .signal-meta {
             display: flex;
             gap: 12px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             white-space: nowrap;
+        }
+        .meta-time {
+            flex: 0 0 68px;
+            text-align: center;
+        }
+        .meta-freq {
+            flex: 0 0 44px;
+            text-align: center;
         }
         .signal-actions {
             display: flex;

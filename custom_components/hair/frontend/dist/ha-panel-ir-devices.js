@@ -80,7 +80,12 @@ function e(e,i,t,a){var o,n=arguments.length,r=n<3?i:null===a?a=Object.getOwnPro
             border: 1px solid;
             background: none;
             cursor: default;
-            line-height: 1.5;
+            /* 1.05, not 1.5 (owner ruling 2026-08-01). At 9.5px the old
+               value gave a 14.25px line box, and with the padding and the
+               border that made a 20px pill against the 16px one the
+               Mirror has always used. This lands at ~16px so the chip
+               sits in a row rather than setting its height. */
+            line-height: 1.05;
             color: var(--info-color, #64b5f6);
             border-color: var(--info-color, #64b5f6);
             opacity: 0.9;
@@ -4537,10 +4542,14 @@ function e(e,i,t,a){var o,n=arguments.length,r=n<3?i:null===a?a=Object.getOwnPro
                                     ${$e("sniffer.hit_word",i.hit_count)}
                                 </div>
                                 <div class="signal-meta">
-                                    <span title=${ka(i.last_seen)}
+                                    <span
+                                        class="meta-time"
+                                        title=${ka(i.last_seen)}
                                         >${xa(i.last_seen)}</span
                                     >
-                                    <span>${Math.round(i.frequency/1e3)} kHz</span>
+                                    <span class="meta-freq"
+                                        >${Math.round(i.frequency/1e3)} kHz</span
+                                    >
                                 </div>
                                 ${i.code?B`<button
                                           ?disabled=${e.dismissed}
@@ -4948,8 +4957,10 @@ function e(e,i,t,a){var o,n=arguments.length,r=n<3?i:null===a?a=Object.getOwnPro
             justify-content: center;
             align-items: center;
         }
+        /* 72px holds a four-digit count ("1000 hits") without wrapping
+           or spilling into the meta beside it. */
         .hits-col {
-            flex: 0 0 60px;
+            flex: 0 0 72px;
             text-align: center;
             font-size: 11px;
             color: var(--secondary-text-color);
@@ -4983,12 +4994,33 @@ function e(e,i,t,a){var o,n=arguments.length,r=n<3?i:null===a?a=Object.getOwnPro
         .diamond.short {
             color: var(--warning-color, #ff9800);
         }
+        /* Fixed, centred cells for the same reason the chip and hits
+           columns are fixed (owner ruling 2026-08-01). The relative time
+           is the one string in the row whose width really moves: "5d
+           ago" measures 34px and "13h ago" 40px, and because
+           .signal-info is flex:1 it surrendered that difference, sliding
+           the chip and the hits a few pixels row to row. Nothing here
+           may size to its content.
+
+           68px is set by the LONGEST form, which is minutes rather than
+           days: relTime yields "{count} min ago" below the hour, so
+           "59 min ago" (~58px) is wider than "365d ago" or even
+           "1000d ago". Days simply keep counting, so a year-old signal
+           reads "400d ago" and still fits. */
         .signal-meta {
             display: flex;
             gap: 12px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             white-space: nowrap;
+        }
+        .meta-time {
+            flex: 0 0 68px;
+            text-align: center;
+        }
+        .meta-freq {
+            flex: 0 0 44px;
+            text-align: center;
         }
         .signal-actions {
             display: flex;
