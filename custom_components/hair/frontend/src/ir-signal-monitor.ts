@@ -1606,13 +1606,16 @@ export class IrSignalMonitor extends LitElement {
                                         .signal=${sig}
                                         ?disabled=${device.dismissed}
                                         @alias-changed=${this._onAliasChanged}
-                                    ></ir-signal-alias>
-                                    <ir-tx-knobs
-                                        .sendCount=${sig.send_count}
-                                        .repeatCount=${sig.repeat_count}
-                                        .decoded=${!!sig.decoded_protocol}
-                                        .sendsKey=${"mirror.sends_times"}
-                                    ></ir-tx-knobs>
+                                    >
+                                        <ir-tx-knobs
+                                            slot="trailing"
+                                            .sendCount=${sig.send_count}
+                                            .repeatCount=${sig.repeat_count}
+                                            .decoded=${!!sig.decoded_protocol}
+                                            .bypassed=${!!sig.tx_force_raw}
+                                            .sendsKey=${"mirror.sends_times"}
+                                        ></ir-tx-knobs>
+                                    </ir-signal-alias>
                                 </div>
                                 <div class="chip-col">
                                     <ir-protocol-chip
