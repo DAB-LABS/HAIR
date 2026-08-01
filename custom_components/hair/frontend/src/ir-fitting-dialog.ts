@@ -35,6 +35,7 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import "./ir-protocol-chip.js";
 import type { HairApi } from "./api.js";
 import type {
     FittingListenEvent,
@@ -126,6 +127,12 @@ export class IrFittingDialog extends LitElement {
     @state() private _replaceText = "";
     @state() private _replaceQuality: CaptureQuality | null = null;
     @state() private _replaceBusy = false;
+    // REPLACE STARTS FRESH (owner ruling 2026-08-01): a replace clears
+    // the pin, the strip shows what the NEW capture decoded as, and the
+    // fitter chooses again. The code and the flag are written in one
+    // hash roll, so the row never exists in a state where the bytes and
+    // the send decision disagree.
+    @state() private _replaceBypass = false;
     @state() private _replaceError: string | null = null;
     @state() private _listening = false;
     @state() private _listenMissed = false;
@@ -322,6 +329,7 @@ export class IrFittingDialog extends LitElement {
         this._replaceRow = i;
         this._replaceText = "";
         this._replaceQuality = null;
+        this._replaceBypass = false;
         this._replaceError = null;
         this._listenMissed = false;
         this._notice = null;
@@ -332,6 +340,7 @@ export class IrFittingDialog extends LitElement {
         this._replaceRow = null;
         this._replaceText = "";
         this._replaceQuality = null;
+        this._replaceBypass = false;
         this._replaceError = null;
         this._listenMissed = false;
     }
@@ -387,6 +396,7 @@ export class IrFittingDialog extends LitElement {
                 i,
                 this._replaceText.trim(),
                 source,
+                this._replaceBypass,
             );
             await this._closeReplace();
             await this._refresh();
@@ -742,7 +752,7 @@ export class IrFittingDialog extends LitElement {
                 <span class="sig-alias" title=${alias}
                     >${alias}${this._renderChip(i)}</span
                 >
-                ${this._renderRowControls(i)}
+                ${this._renderRowChip(i)} ${this._renderRowControls(i)}
             </div>
             ${this._renderReplaceStrip(i)}
         `;
@@ -838,6 +848,20 @@ export class IrFittingDialog extends LitElement {
      * facts, SEND, WORKED, DID NOT. Extracted verbatim from the signal
      * row so the matrix rows carry the identical controls -- only the
      * label anatomy differs between the two wig kinds. */
+    /** The row's protocol chip: same pill as the Sniffer and Clipper,
+     * but read-only. Toggling here would change a code from inside an
+     * attestation, which would roll the content hash mid-fitting. The
+     * interactive copy lives on the device command and in REPLACE. */
+    private _renderRowChip(i: number) {
+        const row = this._fit?.rows[i];
+        return html`<span class="chip-col"
+            ><ir-protocol-chip
+                .protocol=${row?.protocol ?? null}
+                .bypass=${!!row?.bypass_protocol}
+            ></ir-protocol-chip
+        ></span>`;
+    }
+
     private _renderRowControls(i: number) {
         const verdict = this._verdicts.get(i);
         const facts = this._facts.get(i);
@@ -1005,6 +1029,15 @@ export class IrFittingDialog extends LitElement {
                               ? t("fitting.listen_again")
                               : t("fitting.listen")}
                     </button>
+                    ${this._replaceQuality?.protocol
+                        ? html`<ir-protocol-chip
+                              .protocol=${this._replaceQuality.protocol}
+                              .bypass=${this._replaceBypass}
+                              interactive
+                              @toggle-bypass=${(e: CustomEvent) =>
+                                  (this._replaceBypass = e.detail.bypass)}
+                          ></ir-protocol-chip>`
+                        : nothing}
                     <span class="rep-hint"
                         >${t("fitting.replace_hint")}</span
                     >
@@ -1166,7 +1199,7 @@ export class IrFittingDialog extends LitElement {
                         ? html` <span class="row-dim">${dim}</span>`
                         : nothing}${this._renderChip(i)}</span
                 >
-                ${this._renderRowControls(i)}
+                ${this._renderRowChip(i)} ${this._renderRowControls(i)}
             </div>
             ${this._renderReplaceStrip(i)}
         `;
@@ -1659,6 +1692,18 @@ export class IrFittingDialog extends LitElement {
             .sig-alias > .row-dim,
             .sig-alias {
                 text-overflow: ellipsis;
+            }
+            /* The same fixed 96px centred column as the Sniffer and
+               Clipper, immediately left of SEND, with extra right margin:
+               the row gap alone leaves the widest label (KASEIKYO64)
+               crowding the button. Empty rather than absent on a row that
+               decoded nothing, so SEND stays on one vertical line. */
+            .chip-col {
+                flex: 0 0 96px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin-right: 10px;
             }
             .facts {
                 font-size: 11px;

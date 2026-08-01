@@ -3307,6 +3307,7 @@ async def ws_fitting_discard(
     vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
     vol.Required("pronto"): vol.All(str, vol.Length(min=1, max=100_000)),
     vol.Required("source"): vol.In(["captured", "pasted"]),
+    vol.Optional("bypass_protocol", default=False): bool,
 })
 @websocket_api.async_response
 async def ws_fitting_replace(
@@ -3329,6 +3330,7 @@ async def ws_fitting_replace(
         msg["pronto"],
         msg["source"],
         _fitting_username(connection),
+        bypass_protocol=msg.get("bypass_protocol", False),
     )
     _send_fitting_result(connection, msg["id"], result)
 
@@ -3457,6 +3459,25 @@ def ws_fitting_listen(
     vol.Required("filename"): vol.All(str, vol.Length(max=300)),
 })
 @websocket_api.async_response
+def _row_protocol(pronto: str) -> str | None:
+    """Decode one fitting row's protocol name, or None.
+
+    Wigs carry no decoded fields by design, so the name has to be
+    derived on read. Bounded work: a signal wig runs tens of rows and a
+    matrix wig runs the 12-to-20-row dimension checklist, never the full
+    lattice. Runs inside the executor read.
+    """
+    from .ir_command import ProntoCommand
+    from .protocol_decode import try_decode_identity
+
+    try:
+        timings = ProntoCommand(pronto).get_raw_timings()
+    except Exception:
+        return None
+    identity = try_decode_identity(timings)
+    return identity.protocol if identity else None
+
+
 async def ws_fitting_state(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
@@ -3550,6 +3571,12 @@ async def ws_fitting_state(
                 # it, replace it if it is wrong, but do not judge it and
                 # do not count it.
                 "advisory": spec.advisory,
+                # The chip: the protocol this row decodes as, decoded
+                # FRESH here because a wig stores no decoded fields, and
+                # whether the row is pinned to raw. Both None/False on a
+                # row nothing decodes, which renders no chip at all.
+                "protocol": _row_protocol(spec.pronto),
+                "bypass_protocol": spec.bypass_protocol,
                 **({
                     "mode": spec.mode,
                     "fan": spec.fan,

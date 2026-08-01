@@ -1096,6 +1096,40 @@ export class IrSignalMonitor extends LitElement {
         };
     }
 
+    /** Pin a catalog signal to raw replay, or unpin it (Highlights).
+     * Optimistic: the row repaints immediately and the server call
+     * follows, matching how the alias edit behaves one row over. */
+    private async _onToggleBypass(
+        deviceId: string,
+        signalId: string,
+        bypass: boolean,
+    ): Promise<void> {
+        if (this._expandedDevice) {
+            this._expandedDevice = {
+                ...this._expandedDevice,
+                signals: this._expandedDevice.signals.map((s) =>
+                    s.id === signalId ? { ...s, tx_force_raw: bypass } : s,
+                ),
+            };
+        }
+        try {
+            await this.api.setSignalTxForceRaw(deviceId, signalId, bypass);
+        } catch {
+            // Put it back: the pin changes what transmits, so a failed
+            // write must not leave the row claiming otherwise.
+            if (this._expandedDevice) {
+                this._expandedDevice = {
+                    ...this._expandedDevice,
+                    signals: this._expandedDevice.signals.map((s) =>
+                        s.id === signalId
+                            ? { ...s, tx_force_raw: !bypass }
+                            : s,
+                    ),
+                };
+            }
+        }
+    }
+
     private async _toggleExpand(deviceId: string): Promise<void> {
         if (this._expandedId === deviceId) {
             this._expandedId = null;
@@ -1312,6 +1346,8 @@ export class IrSignalMonitor extends LitElement {
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
+                      .initialTxForceRaw=${!!this._editSignal.signal
+                          .tx_force_raw}
                       .initialObservedRepeatCount=${this._editSignal.signal
                           .observed_repeat_count ?? 0}
                       .allowSnap=${true}
@@ -1571,11 +1607,25 @@ export class IrSignalMonitor extends LitElement {
                                         @alias-changed=${this._onAliasChanged}
                                     ></ir-signal-alias>
                                 </div>
+                                <div class="chip-col">
+                                    <ir-protocol-chip
+                                        .protocol=${sig.decoded_protocol ?? null}
+                                        .bypass=${!!sig.tx_force_raw}
+                                        interactive
+                                        ?disabled=${device.dismissed}
+                                        @toggle-bypass=${(e: CustomEvent) =>
+                                            this._onToggleBypass(
+                                                device.id,
+                                                sig.id,
+                                                e.detail.bypass,
+                                            )}
+                                    ></ir-protocol-chip>
+                                </div>
+                                <div class="hits-col ${isHitFlash ? "hit-flash" : ""}">
+                                    ${sig.hit_count}
+                                    ${tp("sniffer.hit_word", sig.hit_count)}
+                                </div>
                                 <div class="signal-meta">
-                                    <span class="${isHitFlash ? "hit-flash" : ""}"
-                                        >${sig.hit_count}
-                                        ${tp("sniffer.hit_word", sig.hit_count)}</span
-                                    >
                                     <span title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
@@ -2011,6 +2061,26 @@ export class IrSignalMonitor extends LitElement {
                 justify-content: flex-start;
                 flex-wrap: wrap;
             }
+        }
+        /* Fixed, centred columns (owner ruling 2026-08-01). Anchoring the
+           chip to the label would make it walk left and right down the
+           list, because rows show a diamond run until they are named and
+           an alias after. The hits move into their own column for the
+           same reason, so the two stack cleanly whatever the diamonds do.
+           A row that decoded nothing holds the column EMPTY rather than
+           absent, keeping everything after it on one vertical line. */
+        .chip-col {
+            flex: 0 0 96px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .hits-col {
+            flex: 0 0 60px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--secondary-text-color);
+            white-space: nowrap;
         }
         .signal-info {
             flex: 1;

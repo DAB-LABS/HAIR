@@ -672,5 +672,8 @@
     "comb.suspects.other": "{count} suspect codes",
     "comb.tip_suspects.one": "{count} suspect code. Click for the report.",
     "comb.tip_suspects.other": "{count} suspect codes. Click for the report.",
-    "fitting.chip_suspect": "suspect"
+    "fitting.chip_suspect": "suspect",
+    "chip.bypass": "bypass",
+    "chip.bypass_tip": "Bypassing the detected protocol, sending raw Pronto",
+    "chip.decoded_tip": "Transmitting clean decoded packet timings. Click to send the captured code as-is."
 }

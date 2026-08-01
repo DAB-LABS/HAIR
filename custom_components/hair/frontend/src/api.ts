@@ -319,6 +319,23 @@ export class HairApi {
 
     /** Comb one wig and refresh its receipt. Always re-combs rather than
      * serving the stored report: the receipt may predate a Replace. */
+    /** Pin a catalog signal to raw replay, or unpin it (Highlights,
+     * GH #78). The Sniffer / Clipper twin of the device command toggle. */
+    setSignalTxForceRaw(
+        deviceId: string,
+        signalId: string,
+        txForceRaw: boolean,
+    ): Promise<{ tx_force_raw: boolean }> {
+        return this.hass.connection.sendMessagePromise<{
+            tx_force_raw: boolean;
+        }>({
+            type: "hair/unknown/signal/set-tx-force-raw",
+            device_id: deviceId,
+            signal_id: signalId,
+            tx_force_raw: txForceRaw,
+        });
+    }
+
     wigsComb(filename: string): Promise<CombReport> {
         return this.hass.connection.sendMessagePromise<CombReport>({
             type: "hair/wigs/comb",
@@ -434,6 +451,10 @@ export class HairApi {
         signalIndex: number,
         pronto: string,
         source: "captured" | "pasted",
+        // Highlights: the new code and its send decision are written in
+        // ONE hash roll, so the row never exists in a state where the
+        // bytes and the decision about them disagree.
+        bypassProtocol = false,
     ): Promise<{
         success: boolean;
         content_hash: string;
@@ -446,6 +467,7 @@ export class HairApi {
             signal_index: signalIndex,
             pronto,
             source,
+            bypass_protocol: bypassProtocol,
         });
     }
 

@@ -288,6 +288,11 @@ export interface FittingRow {
     // A comb suspect surfaced for proofing. Sendable and replaceable,
     // but carries no verdict and never counts toward completeness.
     advisory?: boolean;
+    // The protocol this row decodes as, decoded fresh server-side (a wig
+    // stores no decoded fields). Null renders no chip at all.
+    protocol?: string | null;
+    // True when the row is pinned to raw replay.
+    bypass_protocol?: boolean;
 }
 
 // One event from the Replace strip's listen window.
@@ -476,6 +481,11 @@ export interface UnknownSignal {
     // observation surfaced as an editor hint.
     repeat_count?: number;
     send_count?: number;
+    // Send the captured Pronto verbatim instead of re-encoding from the
+    // decoded identity (Highlights, GH #78). The third knob of the same
+    // kind: set here, carried onto the command at assign, into a wig at
+    // export. A user decision that survives re-capture.
+    tx_force_raw?: boolean;
     observed_repeat_count?: number;
     // Assignment provenance (dots polish, v0.5.7; structured payloads for
     // the assigned popover, v0.6.6). Number of HAIR device commands whose

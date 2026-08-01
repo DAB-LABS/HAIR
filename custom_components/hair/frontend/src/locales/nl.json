@@ -672,5 +672,8 @@
     "comb.suspects.other": "{count} verdachte codes",
     "comb.tip_suspects.one": "{count} verdachte code. Klik voor het rapport.",
     "comb.tip_suspects.other": "{count} verdachte codes. Klik voor het rapport.",
-    "fitting.chip_suspect": "verdacht"
+    "fitting.chip_suspect": "verdacht",
+    "chip.bypass": "omzeilen",
+    "chip.bypass_tip": "Omzeilt het gedetecteerde protocol, verstuurt ruwe Pronto",
+    "chip.decoded_tip": "Verstuurt schone gedecodeerde tijden. Klik om de opgenomen code ongewijzigd te versturen."
 }

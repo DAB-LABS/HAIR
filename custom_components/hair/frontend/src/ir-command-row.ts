@@ -6,6 +6,7 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
+import "./ir-protocol-chip.js";
 import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
 
@@ -180,17 +181,15 @@ export class IrCommandRow extends LitElement {
                                   >${t("devices.state_chip")}</span
                               >`
                             : ""}
-                        ${learned && this.command?.decoded_fingerprint
-                            ? html`<button
-                                  class="tx-pill ${this.command.tx_force_raw ? "tx-raw-on" : ""}"
+                        ${learned && this.command?.decoded_protocol
+                            ? html`<ir-protocol-chip
+                                  .protocol=${this.command.decoded_protocol}
+                                  .bypass=${!!this.command.tx_force_raw}
+                                  interactive
                                   ?disabled=${this.busy}
-                                  @click=${() => this._emit("toggle-tx-raw")}
-                                  title=${this.command.tx_force_raw
-                                      ? t("cmdrow.tx_raw_on")
-                                      : t("cmdrow.tx_raw_off")}
-                              >${this.command.tx_force_raw
-                                      ? "PRONTO"
-                                      : this.command.decoded_protocol ?? "AUTO"}</button>`
+                                  @toggle-bypass=${() =>
+                                      this._emit("toggle-tx-raw")}
+                              ></ir-protocol-chip>`
                             : ""}
                         ${learned && this.command && this.command.send_count > 1
                             ? html`<span

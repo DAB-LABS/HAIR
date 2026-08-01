@@ -105,11 +105,16 @@ export class IrSignalEditor extends LitElement {
      * decoded (NEC) path. Generic across decoded protocols, not NEC-specific.
      */
     private get _dittoCountDisabled(): boolean {
-        // Signal-edit / create mode: gate on the live-validated decoded form.
+        // Signal-edit / create mode: gate on the live-validated decoded
+        // form, and honour the signal's own raw pin the same way the
+        // command branch honours the command's (Highlights, GH #78).
+        // A pinned signal transmits through build_command, so its dittos
+        // do not fire on the wire and offering the count would mislead.
         if (!this._isCommand) {
             if (!this._pronto.trim()) return true;
             if (this._validation === null) return true;
             if (!this._validation.recognized_protocol) return true;
+            if (this.initialTxForceRaw) return true;
             return false;
         }
         // Command-edit mode: gate on the command's stored decoded form AND

@@ -672,5 +672,8 @@
     "comb.tip_suspects.other": "疑わしいコード {count} 件。クリックでレポート。",
     "comb.suspects.one": "{count} 件の疑わしいコード",
     "comb.tip_suspects.one": "疑わしいコード {count} 件。クリックでレポート。",
-    "fitting.chip_suspect": "疑わしい"
+    "fitting.chip_suspect": "疑わしい",
+    "chip.bypass": "バイパス",
+    "chip.bypass_tip": "検出したプロトコルをバイパスし、生の Pronto を送信します",
+    "chip.decoded_tip": "デコード済みの整ったタイミングを送信します。クリックすると取得したコードをそのまま送信します。"
 }

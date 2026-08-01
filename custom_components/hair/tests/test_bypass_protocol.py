@@ -46,6 +46,8 @@ PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
 # A second, byte-different code: the import path collapses byte-identical
 # entries under its duplicate guard, so two rows need two codes.
 _PRONTO_B = "0000 006D 0002 0000 0030 0050 0030 0050"
+# A third distinct code, for replacing one of the two above.
+_PRONTO_C = "0000 006D 0002 0000 0040 0060 0040 0060"
 
 
 def _signal(**kw) -> UnknownSignal:
@@ -431,3 +433,87 @@ class TestPinnedRowsAreStillProved:
         before = wig_content_hash(wig)
         stamp_receipt(wig, comb_wig(wig), "2026-08-01")
         assert wig_content_hash(wig) == before
+
+
+# ---------------------------------------------------------------------------
+# REPLACE starts fresh
+# ---------------------------------------------------------------------------
+
+
+class TestReplaceStartsFresh:
+    """Owner ruling 2026-08-01. A replace clears the pin; the strip shows
+    what the NEW capture decoded as and the fitter chooses again.
+
+    The code and the decision about how to send it are written in ONE
+    hash roll, so the row never exists in a state where the bytes and
+    that decision disagree -- which is the state a fitting would then
+    attest.
+    """
+
+    @pytest.fixture
+    def wig_on_disk(self, fake_hass, tmp_path):
+        from custom_components.hair.wig_format import serialize_wig
+
+        wigs = tmp_path / "hair" / "wigs"
+        wigs.mkdir(parents=True)
+        wig = Wig(name="Dreo", signals=[
+            WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True),
+            WigSignal(alias="Mode", pronto=_PRONTO_B),
+        ])
+        (wigs / "dreo.wig.json").write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        fake_hass.config.config_dir = str(tmp_path)
+        return wigs / "dreo.wig.json"
+
+    @pytest.mark.asyncio
+    async def test_replace_without_the_pin_clears_it(
+        self, fake_hass, wig_on_disk
+    ):
+        from custom_components.hair.wig_fitting import FittingManager
+
+        manager = FittingManager(fake_hass, monitor=None)
+        result = await manager.async_replace(
+            "dreo.wig.json", 0, _PRONTO_C, "captured", "dab",
+        )
+        assert result["success"]
+        await manager.async_flush()
+
+        wig = parse_wig(wig_on_disk.read_text()).wig
+        assert wig.signals[0].bypass_protocol is False
+
+    @pytest.mark.asyncio
+    async def test_replace_can_set_the_pin_in_the_same_roll(
+        self, fake_hass, wig_on_disk
+    ):
+        from custom_components.hair.wig_fitting import FittingManager
+
+        manager = FittingManager(fake_hass, monitor=None)
+        before = parse_wig(wig_on_disk.read_text()).wig
+        result = await manager.async_replace(
+            "dreo.wig.json", 1, _PRONTO_C, "captured", "dab",
+            bypass_protocol=True,
+        )
+        assert result["success"]
+        await manager.async_flush()
+
+        wig = parse_wig(wig_on_disk.read_text()).wig
+        assert wig.signals[1].bypass_protocol is True
+        # One roll: the hash moved once, covering both the code and the
+        # decision about it.
+        assert wig_content_hash(wig) != wig_content_hash(before)
+        assert result["content_hash"] == wig_content_hash(wig)
+
+    @pytest.mark.asyncio
+    async def test_replacing_another_row_leaves_this_ones_pin_alone(
+        self, fake_hass, wig_on_disk
+    ):
+        from custom_components.hair.wig_fitting import FittingManager
+
+        manager = FittingManager(fake_hass, monitor=None)
+        await manager.async_replace(
+            "dreo.wig.json", 1, _PRONTO_C, "pasted", "dab",
+        )
+        await manager.async_flush()
+        wig = parse_wig(wig_on_disk.read_text()).wig
+        assert wig.signals[0].bypass_protocol is True

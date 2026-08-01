@@ -30,6 +30,7 @@ import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { triggerMatchesSignal } from "./types.js";
+import "./ir-protocol-chip.js";
 import type {
     AssignResult,
     DeviceSummary,
@@ -437,6 +438,23 @@ export class IrClips extends LitElement {
     }
 
     // --- Signal alias (delegated to ir-signal-alias) ---
+
+    /** Pin a clipped signal to raw replay, or unpin it. This is where
+     * kno-te met the problem: he pasted a working Pronto here, tested
+     * it, and got nothing, because the Test path re-encoded it and a
+     * clipped remote had nowhere to say otherwise. */
+    private async _onToggleBypass(
+        deviceId: string,
+        signalId: string,
+        bypass: boolean,
+    ): Promise<void> {
+        try {
+            await this.api.setSignalTxForceRaw(deviceId, signalId, bypass);
+            await this._refreshExpanded();
+        } catch (err: any) {
+            this._error = err?.message ?? String(err);
+        }
+    }
 
     private _onAliasChanged(
         e: CustomEvent<{ id: string; alias: string }>,
@@ -1183,6 +1201,19 @@ export class IrClips extends LitElement {
                         @alias-error=${(e: CustomEvent) => (this._error = e.detail)}
                     ></ir-signal-alias>
                 </div>
+                <div class="chip-col">
+                    <ir-protocol-chip
+                        .protocol=${sig.decoded_protocol ?? null}
+                        .bypass=${!!sig.tx_force_raw}
+                        interactive
+                        @toggle-bypass=${(e: CustomEvent) =>
+                            this._onToggleBypass(
+                                deviceId,
+                                sig.id,
+                                e.detail.bypass,
+                            )}
+                    ></ir-protocol-chip>
+                </div>
                 <div class="signal-meta">
                     ${isTesting && this._testResult
                         ? html`<span class="test-result">${this._testResult}</span>`
@@ -1289,6 +1320,8 @@ export class IrClips extends LitElement {
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
+                      .initialTxForceRaw=${!!this._editSignal.signal
+                          .tx_force_raw}
                       .initialObservedRepeatCount=${this._editSignal.signal
                           .observed_repeat_count ?? 0}
                       .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
@@ -1848,6 +1881,15 @@ export class IrClips extends LitElement {
         .signal-info {
             flex: 1;
             min-width: 0;
+        }
+        /* The same fixed 96px centred column the Sniffer uses, so the two
+           lists read alike. No hits column here: a clipped remote never
+           receives live signals, so frequency is the whole of its meta. */
+        .chip-col {
+            flex: 0 0 96px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .signal-meta {
             display: flex;

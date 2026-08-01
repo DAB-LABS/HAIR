@@ -672,5 +672,8 @@
     "comb.suspects.other": "{count} códigos sospechosos",
     "comb.tip_suspects.one": "{count} código sospechoso. Pulsa para ver el informe.",
     "comb.tip_suspects.other": "{count} códigos sospechosos. Pulsa para ver el informe.",
-    "fitting.chip_suspect": "sospechoso"
+    "fitting.chip_suspect": "sospechoso",
+    "chip.bypass": "omitir",
+    "chip.bypass_tip": "Omitiendo el protocolo detectado, enviando Pronto en bruto",
+    "chip.decoded_tip": "Transmitiendo tiempos decodificados limpios. Pulsa para enviar el código capturado tal cual."
 }

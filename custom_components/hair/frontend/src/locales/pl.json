@@ -706,5 +706,8 @@
     "comb.tip_suspects.few": "{count} podejrzane kody. Kliknij po raport.",
     "comb.tip_suspects.many": "{count} podejrzanych kodów. Kliknij po raport.",
     "comb.tip_suspects.other": "{count} podejrzanego kodu. Kliknij po raport.",
-    "fitting.chip_suspect": "podejrzany"
+    "fitting.chip_suspect": "podejrzany",
+    "chip.bypass": "pomiń",
+    "chip.bypass_tip": "Pomija wykryty protokół, wysyła surowy Pronto",
+    "chip.decoded_tip": "Wysyła czyste zdekodowane czasy. Kliknij, aby wysłać przechwycony kod bez zmian."
 }

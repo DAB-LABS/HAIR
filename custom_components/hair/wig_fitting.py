@@ -169,6 +169,10 @@ class FittingRowSpec:
     # fitting row. It can be sent and replaced; it carries no verdict
     # and never counts toward completeness (see session_row_specs).
     advisory: bool = False
+    # The row's raw pin (Highlights, GH #78). Signal wigs only: matrix
+    # cells have no pin, because the matrix send path is already an
+    # unconditional raw replay.
+    bypass_protocol: bool = False
 
 
 def _provenance_of(extra: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -223,6 +227,7 @@ def fitting_row_specs(wig: Wig) -> list[FittingRowSpec]:
                 pronto=sig.pronto,
                 send_count=sig.send_count,
                 provenance=_provenance_of(sig.extra),
+                bypass_protocol=sig.bypass_protocol,
             )
             for sig in wig.signals
         ]
@@ -292,7 +297,8 @@ def _row_provenance(wig: Wig, key: str) -> dict[str, Any] | None:
 
 
 def _write_row_code(
-    wig: Wig, key: str, pronto: str, marker: dict[str, Any] | None
+    wig: Wig, key: str, pronto: str, marker: dict[str, Any] | None,
+    bypass_protocol: bool | None = None,
 ) -> bool:
     """Put ``pronto`` on the row ``key`` names and stamp its provenance.
 
@@ -340,6 +346,14 @@ def _write_row_code(
     for sig in wig.signals:
         if sig.alias == key:
             sig.pronto = pronto
+            # REPLACE STARTS FRESH (owner ruling 2026-08-01): the new
+            # code and the decision about how to send it are written
+            # together, in the one hash roll, so the row never exists in
+            # a state where the bytes and that decision disagree. None
+            # means "leave it", which is the discard-revert path putting
+            # a code back exactly as it was.
+            if bypass_protocol is not None:
+                sig.bypass_protocol = bool(bypass_protocol)
             _stamp(sig.extra)
             return True
     return False
@@ -410,6 +424,7 @@ def session_row_specs(wig: Wig) -> list[FittingRowSpec]:
             pronto=source.pronto,
             send_count=source.send_count,
             section=SECTION_CHANGED,
+            bypass_protocol=getattr(source, "bypass_protocol", False),
             mode=getattr(source, "mode", None),
             fan=getattr(source, "fan", None),
             swing=getattr(source, "swing", None),
@@ -1184,6 +1199,7 @@ class FittingManager:
         pronto: str,
         source: str,
         username: str,
+        bypass_protocol: bool = False,
     ) -> dict[str, Any]:
         """Swap one fitting row's code, from a paste or a live capture.
 
@@ -1253,7 +1269,9 @@ class FittingManager:
         record["session"] = True
         wig.extra[REPLACED_FROM_KEY] = origins
 
-        if not _write_row_code(wig, row_key, new_code, marker):
+        if not _write_row_code(
+            wig, row_key, new_code, marker, bypass_protocol
+        ):
             return {"success": False, "code": "row_not_found",
                     "error": "Could not find that row's code to replace"}
         new_hash = wig_content_hash(wig)
