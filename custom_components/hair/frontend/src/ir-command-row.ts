@@ -175,16 +175,6 @@ export class IrCommandRow extends LitElement {
                                   >${t("devices.state_chip")}</span
                               >`
                             : ""}
-                        ${learned && this.command?.decoded_protocol
-                            ? html`<ir-protocol-chip
-                                  .protocol=${this.command.decoded_protocol}
-                                  .bypass=${!!this.command.tx_force_raw}
-                                  interactive
-                                  ?disabled=${this.busy}
-                                  @toggle-bypass=${() =>
-                                      this._emit("toggle-tx-raw")}
-                              ></ir-protocol-chip>`
-                            : ""}
                         ${learned && this.command
                             ? html`<ir-tx-knobs
                                   .sendCount=${this.command.send_count}
@@ -205,6 +195,20 @@ export class IrCommandRow extends LitElement {
                 <div class="actions">
                     ${learned
                         ? html`
+                              <div class="chip-col">
+                                  ${this.command?.decoded_protocol
+                                      ? html`<ir-protocol-chip
+                                            .protocol=${this.command
+                                                .decoded_protocol}
+                                            .bypass=${!!this.command
+                                                .tx_force_raw}
+                                            interactive
+                                            ?disabled=${this.busy}
+                                            @toggle-bypass=${() =>
+                                                this._emit("toggle-tx-raw")}
+                                        ></ir-protocol-chip>`
+                                      : ""}
+                              </div>
                               <button
                                   class="icon-btn edit-btn"
                                   ?disabled=${this.busy}
@@ -390,6 +394,23 @@ export class IrCommandRow extends LitElement {
         }
         .diamond.short {
             color: var(--warning-color, #ff9800);
+        }
+        /* The protocol chip sits in its own fixed cell to the left of the
+           edit glyph (owner ruling, 2026-08-01), matching the Sniffer and
+           Clipper rows. It used to sit beside the command name, which was
+           the odd one out: every other list in the panel puts the chip in
+           a column, and a name-anchored chip walks left and right down the
+           list as names change length.
+
+           88px is the same measurement the Sniffer uses, set by the widest
+           label the chip can render (SYMPHONY12, 83.5px). A command that
+           decoded nothing holds the cell EMPTY rather than absent, so the
+           buttons after it stay on one vertical line. */
+        .chip-col {
+            flex: 0 0 88px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .actions {
             display: flex;

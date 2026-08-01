@@ -619,7 +619,7 @@
     "fitting.temp_max": "{temp}° (самый тёплый)",
     "fitting.row_on": "Включено",
     "fitting.row_off": "Выключено",
-    "wigs.adopt": "Усыновить устройство",
+    "wigs.adopt": "Усыновить",
     "wigs.adopted": "{name} теперь устройство HAIR",
     "wigs.linked.one": "{count} устройство",
     "wigs.linked.few": "{count} устройства",

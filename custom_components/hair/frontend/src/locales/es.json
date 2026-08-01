@@ -593,7 +593,7 @@
     "fitting.temp_max": "{temp}° (el más cálido)",
     "fitting.row_on": "Encendido",
     "fitting.row_off": "Apagado",
-    "wigs.adopt": "Adoptar aparato",
+    "wigs.adopt": "Adoptar",
     "wigs.adopted": "{name} ya es un aparato de HAIR",
     "wigs.linked.one": "{count} aparato",
     "wigs.linked.other": "{count} aparatos",

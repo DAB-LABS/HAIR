@@ -593,7 +593,7 @@
     "fitting.temp_max": "{temp}° (il più caldo)",
     "fitting.row_on": "Acceso",
     "fitting.row_off": "Spento",
-    "wigs.adopt": "Adotta dispositivo",
+    "wigs.adopt": "Adotta",
     "wigs.adopted": "{name} ora è un dispositivo HAIR",
     "wigs.linked.one": "{count} dispositivo",
     "wigs.linked.other": "{count} dispositivi",

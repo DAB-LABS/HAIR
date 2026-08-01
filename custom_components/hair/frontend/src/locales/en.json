@@ -593,7 +593,7 @@
     "fitting.temp_max": "{temp}° (warmest)",
     "fitting.row_on": "On",
     "fitting.row_off": "Off",
-    "wigs.adopt": "Adopt Device",
+    "wigs.adopt": "Adopt",
     "wigs.adopted": "{name} is now a HAIR device",
     "wigs.linked.one": "{count} device",
     "wigs.linked.other": "{count} devices",

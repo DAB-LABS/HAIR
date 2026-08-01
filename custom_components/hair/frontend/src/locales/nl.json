@@ -593,7 +593,7 @@
     "fitting.temp_max": "{temp}° (warmste)",
     "fitting.row_on": "Aan",
     "fitting.row_off": "Uit",
-    "wigs.adopt": "Apparaat adopteren",
+    "wigs.adopt": "Adopteren",
     "wigs.adopted": "{name} is nu een HAIR-apparaat",
     "wigs.linked.one": "{count} apparaat",
     "wigs.linked.other": "{count} apparaten",

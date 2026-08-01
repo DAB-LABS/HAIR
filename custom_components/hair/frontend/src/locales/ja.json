@@ -593,7 +593,7 @@
     "fitting.temp_max": "{temp}° (最高)",
     "fitting.row_on": "オン",
     "fitting.row_off": "オフ",
-    "wigs.adopt": "デバイスにする",
+    "wigs.adopt": "採用",
     "wigs.adopted": "{name}はHAIRデバイスになりました",
     "wigs.linked.other": "{count}台のデバイス",
     "wigs.linked.one": "{count}台のデバイス",
