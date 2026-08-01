@@ -95,6 +95,30 @@ function _cleanGithubHandle(value: string): string {
     return v.trim();
 }
 
+// The comb, from images/comb.svg. The skipped chip wears the tool that
+// made the decision (owner ruling CS1, option A) in the chip's own
+// muted grey rather than a signal colour: amber means doubt, and a
+// bypassed row is not in doubt, somebody decided.
+const ICON_COMB =
+    "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853c12.245,10.304,19.264,25.259,19.264,41.024V320z";
+// mdi:repeat -- whole-frame send count, gold. Same mark the catalog
+// rows use, so the two surfaces read as one vocabulary.
+const ICON_REPEAT =
+    "M17,17H7V14L3,18L7,22V19H19V13H17M7,7H17V10L21,6L17,2V5H5V11H7V7Z";
+// mdi:dots-horizontal -- NEC dittos, blue.
+const ICON_DITTO =
+    "M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z";
+// mdi:thumb-up-outline / mdi:thumb-up, and their down twins. The
+// verdict rides the DIRECTION, so it survives colourblindness.
+const ICON_THUMB_UP_OUTLINE =
+    "M5,9V21H1V9H5M9,21A2,2 0 0,1 7,19V9C7,8.45 7.22,7.95 7.59,7.59L14.17,1L15.23,2.06C15.5,2.33 15.67,2.7 15.67,3.11L15.64,3.43L14.69,8H21C22.11,8 23,8.9 23,10V12C23,12.26 22.95,12.5 22.86,12.73L19.84,19.78C19.54,20.5 18.83,21 18,21H9M9,19H18.03L21,12V10H12.21L13.34,4.68L9,9.03V19Z";
+const ICON_THUMB_UP_SOLID =
+    "M23,10C23,8.89 22.1,8 21,8H14.68L15.64,3.43C15.66,3.33 15.67,3.22 15.67,3.11C15.67,2.7 15.5,2.32 15.23,2.05L14.17,1L7.59,7.58C7.22,7.95 7,8.45 7,9V19A2,2 0 0,0 9,21H18C18.83,21 19.54,20.5 19.84,19.78L22.86,12.73C22.95,12.5 23,12.26 23,12V10M1,21H5V9H1V21Z";
+const ICON_THUMB_DOWN_OUTLINE =
+    "M19,15V3H23V15H19M15,3A2,2 0 0,1 17,5V15C17,15.55 16.78,16.05 16.41,16.41L9.83,23L8.77,21.94C8.5,21.67 8.33,21.3 8.33,20.88L8.36,20.57L9.31,16H3C1.89,16 1,15.1 1,14V12C1,11.74 1.05,11.5 1.14,11.27L4.16,4.22C4.46,3.5 5.17,3 6,3H15M15,5H5.97L3,12V14H11.79L10.66,19.32L15,14.97V5Z";
+const ICON_THUMB_DOWN_SOLID =
+    "M19,15H23V3H19M15,3H6C5.17,3 4.46,3.5 4.16,4.22L1.14,11.27C1.05,11.5 1,11.74 1,12V14A2,2 0 0,0 3,16H9.31L8.36,20.57C8.34,20.67 8.33,20.77 8.33,20.88C8.33,21.3 8.5,21.67 8.77,21.94L9.83,23L16.41,16.41C16.78,16.05 17,15.55 17,15V5C17,3.89 16.1,3 15,3Z";
+
 @customElement("ir-fitting-dialog")
 export class IrFittingDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -124,6 +148,16 @@ export class IrFittingDialog extends LitElement {
     // Replace (Smart Perm). One strip at a time: the row whose strip
     // is open, and everything that strip holds.
     @state() private _replaceRow: number | null = null;
+    /** Ditto values tuned but not yet proven, row index -> count.
+     *
+     * Session state, mirrored server-side so TEST transmits the staged
+     * recipe. A tuned ditto cannot enter the wig without a WORKED
+     * against it, so this is the whole staging story: thumb-up commits,
+     * thumb-down leaves it staged for another try, closing discards. */
+    @state() private _stagedDittos = new Map<number, number>();
+    /** Which chip is currently expanded into its stepper. */
+    @state() private _openChip: string | null = null;
+    @state() private _applyBusy = false;
     @state() private _replaceText = "";
     @state() private _replaceQuality: CaptureQuality | null = null;
     @state() private _replaceBusy = false;
@@ -645,7 +679,17 @@ export class IrFittingDialog extends LitElement {
                     .value=${String(this._sendTimes)}
                     @input=${this._onSendTimesInput}
                 />
-                <div class="hint">${t("fitting.send_times_hint")}</div>
+                <button
+                    class="apply-btn"
+                    ?disabled=${this._applyBusy || !!this._fit?.matrix}
+                    @click=${() => void this._applySends()}
+                >
+                    ${t("fitting.apply")}
+                </button>
+                <div class="hint">
+                    ${t("fitting.send_times_hint")}
+                    <span class="hint-apply">${t("fitting.apply_hint")}</span>
+                </div>
             </div>
             <div class="sig-list">
                 ${this._fit
@@ -752,9 +796,10 @@ export class IrFittingDialog extends LitElement {
                 <span class="sig-alias" title=${alias}
                     >${alias}${this._renderChip(i)}</span
                 >
-                ${this._renderRowChip(i)} ${this._renderRowControls(i)}
+                ${this._renderTuneChips(i)} ${this._renderRowChip(i)}
+                ${this._renderRowControls(i)}
             </div>
-            ${this._renderReplaceStrip(i)}
+            ${this._renderStagedNotice(i)} ${this._renderReplaceStrip(i)}
         `;
     }
 
@@ -782,6 +827,21 @@ export class IrFittingDialog extends LitElement {
     private _renderChip(i: number) {
         const row = this._fit?.rows[i];
         const marker = row?.provenance;
+        // A row the comb deliberately did not judge. Its own glyph and
+        // its own grey: amber means doubt, and a pinned code is not in
+        // doubt, somebody decided. Without this the comb recorded the
+        // skip in the report and the receipt and NO surface said so, so
+        // a clean-looking wig implied a check that never ran.
+        if (row?.bypass_protocol && !marker) {
+            return html`<span
+                class="prov-chip"
+                title=${t("fitting.chip_comb_skipped_title")}
+                ><span class="cmark comb"
+                    ><svg viewBox="0 0 512 512">
+                        <path d=${ICON_COMB}></path></svg></span
+                >${t("fitting.chip_comb_skipped")}</span
+            >`;
+        }
         if (row?.advisory && !marker) {
             return html`<span class="prov-chip"
                 ><span class="cmark warn">&#9888;</span
@@ -862,6 +922,199 @@ export class IrFittingDialog extends LitElement {
         ></span>`;
     }
 
+
+    /** The transmit-recipe chips, left of the protocol pill.
+     *
+     * Two families that look alike and behave differently, which is the
+     * whole design: the SEND chip (gold) edits a ride-along and costs
+     * nothing, the DITTO chip (blue) stages a change to what the wig
+     * claims and can only be committed by a thumb-up. Colour and glyph
+     * come from the catalog rows so the marks read identically across
+     * the UI; grey when the value is at its default.
+     *
+     * Both sit in fixed slots. A bypassed row keeps an EMPTY ditto slot
+     * rather than collapsing it, so the gating reads as an aligned gap
+     * instead of a jog down a fourteen-row checklist.
+     */
+    /** APPLY: push the typed number onto every row's send chip.
+     *
+     * A real file edit, and harmless now that sends are unpinned --
+     * which is exactly what makes the gesture possible. Bulk-setting a
+     * device floor (the candle at 3, across the board) should not mean
+     * clicking twenty steppers, and before the recipe break it would
+     * have meant twenty hash rolls.
+     *
+     * Without applying, the control keeps its v0.9.0 role untouched:
+     * contributes at transmit, recorded as send_times_used, monotonic.
+     */
+    private async _applySends(): Promise<void> {
+        if (this._applyBusy || this._fit?.matrix) return;
+        this._applyBusy = true;
+        this._error = null;
+        try {
+            const result = await this.api.fittingSetSends(
+                this.wig.filename, null, this._sendTimes,
+            );
+            if (result.success) {
+                this._notice = t("fitting.applied_notice", {
+                    count: String(result.written),
+                });
+                await this._refresh();
+            }
+        } catch (err: any) {
+            this._error = err?.message ?? String(err);
+        }
+        this._applyBusy = false;
+    }
+
+    private _renderTuneChips(i: number) {
+        const row = this._fit?.rows[i];
+        if (!row || this._fit?.matrix) return nothing;
+        const sends = row.send_count ?? 1;
+        const staged = this._stagedDittos.get(i);
+        const dittos = staged ?? row.ditto_count ?? 0;
+        // Dittos are an encoder concept: nothing to append on a row that
+        // decoded nothing, and nothing to append on a row pinned to raw,
+        // where the repeats already live in the bytes.
+        const dittoable = !!row.protocol && !row.bypass_protocol;
+        return html`<span class="tune-cell"
+                >${this._renderTuneChip(i, "sends", sends, 1)}</span
+            ><span class="tune-cell"
+                >${dittoable
+                    ? this._renderTuneChip(i, "dittos", dittos, 0)
+                    : nothing}</span
+            >`;
+    }
+
+    private _renderTuneChip(
+        i: number,
+        kind: "sends" | "dittos",
+        value: number,
+        base: number,
+    ) {
+        const id = `${kind}:${i}`;
+        const open = this._openChip === id;
+        const at = value <= base;
+        const icon = kind === "sends" ? ICON_REPEAT : ICON_DITTO;
+        const hint =
+            kind === "dittos" ? this._fit?.rows[i]?.observed_repeat_count : null;
+        if (!open) {
+            return html`<button
+                class="tchip ${kind} ${at ? "at-default" : ""}"
+                title=${t(
+                    kind === "sends"
+                        ? "fitting.chip_sends_title"
+                        : "fitting.chip_dittos_title",
+                )}
+                @click=${() => (this._openChip = id)}
+            >
+                <ha-svg-icon .path=${icon}></ha-svg-icon>${value}
+            </button>`;
+        }
+        return html`<span class="tstep ${kind}">
+            <button
+                class="tstep-btn"
+                aria-label=${t("fitting.chip_less")}
+                @click=${() => void this._bump(i, kind, value - 1)}
+            >
+                &minus;
+            </button>
+            <span class="tstep-val">${value}</span>
+            <button
+                class="tstep-btn"
+                aria-label=${t("fitting.chip_more")}
+                @click=${() => void this._bump(i, kind, value + 1)}
+            >
+                +
+            </button>
+            ${hint
+                ? html`<span class="tstep-hint"
+                      >${t("fitting.chip_observed", {
+                          count: String(hint),
+                      })}</span
+                  >`
+                : nothing}
+        </span>`;
+    }
+
+    /** A stepper press. Sends write straight through (they are not
+     * hashed); dittos only stage, because a value nothing has proven
+     * must not reach the wig. */
+    private async _bump(
+        i: number,
+        kind: "sends" | "dittos",
+        next: number,
+    ): Promise<void> {
+        if (kind === "sends") {
+            const value = Math.max(1, Math.min(next, 10));
+            const row = this._fit?.rows[i];
+            if (!row || value === (row.send_count ?? 1)) return;
+            row.send_count = value;
+            this.requestUpdate();
+            try {
+                await this.api.fittingSetSends(this.wig.filename, i, value);
+            } catch (err: any) {
+                this._error = err?.message ?? String(err);
+            }
+            return;
+        }
+        const value = Math.max(0, Math.min(next, 20));
+        const staged = new Map(this._stagedDittos);
+        const stored = this._fit?.rows[i]?.ditto_count ?? 0;
+        if (value === stored) staged.delete(i);
+        else staged.set(i, value);
+        this._stagedDittos = staged;
+        try {
+            await this.api.fittingStageDitto(
+                this.wig.filename,
+                i,
+                value === stored ? null : value,
+            );
+        } catch (err: any) {
+            this._error = err?.message ?? String(err);
+        }
+    }
+
+    /** Thumb-up. When a staged ditto is riding this row, commit it
+     * FIRST -- one hash roll, provenance, draft re-bind, carry-forward
+     * -- and only then record the verdict, so the wig never carries a
+     * tuned value nothing proved. */
+    private async _onWorked(i: number): Promise<void> {
+        const staged = this._stagedDittos.get(i);
+        if (staged !== undefined) {
+            try {
+                const result = await this.api.fittingTune(
+                    this.wig.filename, i, staged,
+                );
+                if (!result.success) {
+                    this._error = t("fitting.tune_failed");
+                    return;
+                }
+                const next = new Map(this._stagedDittos);
+                next.delete(i);
+                this._stagedDittos = next;
+                this._notice = t("fitting.tuned_notice", {
+                    count: String(staged),
+                });
+                await this._refresh();
+            } catch (err: any) {
+                this._error = err?.message ?? String(err);
+                return;
+            }
+        }
+        await this._mark(i, "worked");
+    }
+
+    /** The staged-but-unproven notice. The chip itself stays plain
+     * (owner ruling FT3: no outline, no tint); the status lives here. */
+    private _renderStagedNotice(i: number) {
+        const staged = this._stagedDittos.get(i);
+        if (staged === undefined) return nothing;
+        return html`<div class="qline staged">
+            ${t("fitting.ditto_staged", { count: String(staged) })}
+        </div>`;
+    }
+
     private _renderRowControls(i: number) {
         const verdict = this._verdicts.get(i);
         const facts = this._facts.get(i);
@@ -885,32 +1138,44 @@ export class IrFittingDialog extends LitElement {
                   </span>`
                 : nothing}
             <button
-                class="send-btn"
+                class="vbtn test-btn"
                 ?disabled=${!this._emitter || facts?.busy}
                 title=${this._emitter
                     ? ""
                     : t("fitting.pick_emitter")}
                 @click=${() => void this._send(i)}
             >
-                ${t("fitting.send")}
+                ${t("cmdrow.test")}
             </button>
             ${advisory
                 ? nothing
                 : html`<button
-                          class="vbtn ${verdict === "worked"
-                              ? "worked-on"
+                          class="thumb up ${verdict === "worked"
+                              ? "on"
                               : ""}"
-                          @click=${() => void this._mark(i, "worked")}
+                          title=${t("fitting.worked")}
+                          aria-label=${t("fitting.worked")}
+                          @click=${() => void this._onWorked(i)}
                       >
-                          ${t("fitting.worked")}
+                          <ha-svg-icon
+                              .path=${verdict === "worked"
+                                  ? ICON_THUMB_UP_SOLID
+                                  : ICON_THUMB_UP_OUTLINE}
+                          ></ha-svg-icon>
                       </button>
                       <button
-                          class="vbtn ${verdict === "failed"
-                              ? "failed-on"
+                          class="thumb down ${verdict === "failed"
+                              ? "on"
                               : ""}"
+                          title=${t("fitting.did_not")}
+                          aria-label=${t("fitting.did_not")}
                           @click=${() => void this._mark(i, "failed")}
                       >
-                          ${t("fitting.did_not")}
+                          <ha-svg-icon
+                              .path=${verdict === "failed"
+                                  ? ICON_THUMB_DOWN_SOLID
+                                  : ICON_THUMB_DOWN_OUTLINE}
+                          ></ha-svg-icon>
                       </button>`}
             <button
                 class="vbtn replace-btn ${this._replaceRow === i
@@ -1199,7 +1464,8 @@ export class IrFittingDialog extends LitElement {
                         ? html` <span class="row-dim">${dim}</span>`
                         : nothing}${this._renderChip(i)}</span
                 >
-                ${this._renderRowChip(i)} ${this._renderRowControls(i)}
+                ${this._renderTuneChips(i)} ${this._renderRowChip(i)}
+                ${this._renderRowControls(i)}
             </div>
             ${this._renderReplaceStrip(i)}
         `;
@@ -1774,6 +2040,156 @@ export class IrFittingDialog extends LitElement {
                Home Assistant's semantic colours rather than fixed hexes, so
                a pale blue that works on #111 cannot go invisible on white
                (owner bench 2026-07-31). */
+
+            /* ---- the transmit-recipe chips (FT5) ---- */
+            /* Fixed slots, not content-sized. A bypassed row keeps an
+               empty ditto cell so the gating reads as an aligned gap
+               rather than a jog down a long checklist. */
+            .tune-cell {
+                flex: none;
+                width: 44px;
+                display: inline-flex;
+                justify-content: center;
+                align-items: center;
+            }
+            .tchip {
+                display: inline-flex;
+                align-items: center;
+                gap: 2px;
+                font-size: 9px;
+                font-weight: 600;
+                font-family: inherit;
+                line-height: 1;
+                padding: 3px 5px;
+                border: none;
+                border-radius: 8px;
+                background: rgba(127, 127, 127, 0.14);
+                cursor: pointer;
+                /* At default the chip is a fact, not a signal. It only
+                   wears its catalog colour once it carries a number
+                   somebody chose. */
+                color: var(--secondary-text-color);
+            }
+            .tchip ha-svg-icon {
+                --mdc-icon-size: 10px;
+            }
+            .tchip.sends:not(.at-default) {
+                color: var(--warning-color, #e6a23c);
+            }
+            .tchip.dittos:not(.at-default) {
+                color: var(--primary-color);
+            }
+            .tstep {
+                display: inline-flex;
+                align-items: center;
+                gap: 1px;
+                background: rgba(127, 127, 127, 0.18);
+                border-radius: 8px;
+                padding: 1px;
+            }
+            .tstep-btn {
+                /* Two side-by-side 20px targets beat stacked arrows on
+                   a wall tablet, which is where fittings actually
+                   happen. */
+                width: 20px;
+                height: 20px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: none;
+                background: none;
+                border-radius: 6px;
+                cursor: pointer;
+                color: var(--primary-text-color);
+                font-family: inherit;
+                font-size: 12px;
+                line-height: 1;
+            }
+            .tstep-btn:hover {
+                background: rgba(127, 127, 127, 0.2);
+            }
+            .tstep-val {
+                min-width: 14px;
+                text-align: center;
+                font-size: 10px;
+                font-weight: 600;
+            }
+            .tstep-hint {
+                font-size: 9px;
+                color: var(--secondary-text-color);
+                padding: 0 4px;
+                white-space: nowrap;
+            }
+            .prov-chip .cmark.comb {
+                display: inline-flex;
+                align-items: center;
+            }
+            .prov-chip .cmark.comb svg {
+                width: 10px;
+                height: 10px;
+                display: block;
+                opacity: 0.8;
+            }
+            .prov-chip .cmark.comb svg path {
+                fill: var(--secondary-text-color);
+            }
+            /* ---- thumb verdicts ---- */
+            /* The verdict rides the DIRECTION, so it survives
+               colourblindness; colour only reinforces it. The reclaimed
+               width funds the tune chips, and the row stops depending on
+               how long the verdict words are in the reader's language --
+               they were the two widest translated things in the row. */
+            .thumb {
+                flex: none;
+                width: 27px;
+                height: 27px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid var(--divider-color);
+                border-radius: 4px;
+                background: none;
+                cursor: pointer;
+                color: var(--secondary-text-color);
+                padding: 0;
+            }
+            .thumb ha-svg-icon {
+                --mdc-icon-size: 15px;
+            }
+            .thumb.up.on {
+                color: #fff;
+                background: #2e7d32;
+                border-color: #2e7d32;
+            }
+            .thumb.down.on {
+                color: #fff;
+                background: #c62828;
+                border-color: #c62828;
+            }
+            .apply-btn {
+                font-size: 10.5px;
+                font-weight: 600;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                font-family: inherit;
+                padding: 4px 10px;
+                border-radius: 4px;
+                cursor: pointer;
+                background: none;
+                color: var(--warning-color, #e6a23c);
+                border: 1px solid var(--warning-color, #e6a23c);
+            }
+            .apply-btn:disabled {
+                opacity: 0.4;
+                cursor: default;
+            }
+            .hint-apply {
+                display: block;
+                margin-top: 2px;
+            }
+            .qline.staged {
+                color: var(--secondary-text-color);
+            }
             .prov-chip {
                 flex: none;
                 display: inline-flex;

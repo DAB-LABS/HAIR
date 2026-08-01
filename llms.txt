@@ -88,7 +88,8 @@ Key components:
   "hair-wig/2" when it carries a climate state matrix; suffix
   .wig.json, documented in docs/wig-format.md): name, optional
   brand/model/notes/origin, and a signals list of alias + raw Pronto
-  (+ optional send_count). Raw Pronto is the whole payload by design -- no
+  (+ ditto_count, bypass_protocol, and an optional send_count
+  ride-along). Raw Pronto is the whole payload by design -- no
   decoded fields ship in the file, so importing decodes fresh against the
   installed decoders and a wig can never carry a stale identity. Optional
   kind (one lowercase word: "candles", "soundbar") and product identifiers
@@ -101,7 +102,7 @@ Key components:
   together by brand; CLIP materializes a wig into a Clipper remote through the
   same import path as the code-library picker, and re-clipping collapses onto
   the existing remote. Built-in library rows (rendered from the
-  infrared-protocols codes package) carry FIT, ADOPT DEVICE, and download
+  infrared-protocols codes package) carry FIT, ADOPT, and download
   alongside CLIP (v0.8.1); fitting one first snapshots it into the closet as
   a wig (origin "library", deterministic render, repeat fittings land in the
   same file by content hash). Add to Closet serializes any Sniffer, Clipper,
@@ -167,6 +168,27 @@ Key components:
   normal fitting checklist row, never an advisory one, so it still takes a
   verdict and counts toward completeness. Matrix cells do NOT carry it: the
   matrix send path is already an unconditional raw replay.
+- Transmit recipe (Highlights): the wig states everything that goes on
+  the wire. ditto_count is per-signal, always explicit, 0..20, IN the
+  content hash (dittos change the waveform and the fitting transmits
+  them); send_count is a carried ADVISORY, out of the hash, because the
+  fitting has never transmitted the row's value -- the session control
+  decides -- so no signature ever attested it. Canonical signal object
+  is exactly {alias, pronto, ditto_count, bypass_protocol}, four keys,
+  no conditional rules; cells drop send_count and carry no ditto field.
+  Format major bumps to hair-wig/3 for BOTH kinds: a pure capability
+  gate, so an older install refuses with a version message instead of
+  reporting tamper on a good file. Bypass x ditto are mutually
+  exclusive (the exporter writes 0 with a receipt; the comb raises an
+  advisory on a hand-made file carrying both). Fitting transmit is
+  max(row send_count, session send times) -- the row states the device
+  floor, the session adds headroom and can never undercut it.
+  _row_digest hashes the whole recipe (pronto|d<n>|b<0|1>), so a ditto
+  tune returns that row to untested instead of carrying its old
+  verdict. Tuning a ditto is async_tune, a separate door from
+  async_replace: replace must keep refusing an identical pronto, and
+  weakening that check would break the marker-implies-roll invariant
+  Changed Codes rows depend on.
 - TX knobs (Highlights, v0.9.2): send_count (whole-frame repetition) and
   repeat_count (NEC dittos) render through one component, ir-tx-knobs, on
   device command rows, Mirror rows, Sniffer signals and Clipper signals. The
@@ -200,7 +222,7 @@ Key components:
   red glow, which is also the action that opens the report.
 - Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
   from wherever you meet it. Closet wigs, library rows, Sniffer remotes,
-  Clipper remotes, and Plucker blasters all carry one ADOPT DEVICE button
+  Clipper remotes, and Plucker blasters all carry one ADOPT button
   (it replaced the former Make HAIR Device / Promote action). A numbered dot
   shows how many HAIR devices already run those codes, with navigation to
   each. Adopting copies every signal as a named command with protocol
@@ -217,7 +239,7 @@ Key components:
   ride alongside as ordinary buttons). Matrix wigs write hair-wig/2 with an
   optional climate.unit field ("C" or "F", default "C", the SmartIR corpus
   convention); plain wigs stay hair-wig/1 so older installs keep reading
-  them. ADOPT DEVICE on a matrix wig creates a real climate entity: every
+  them. ADOPT on a matrix wig creates a real climate entity: every
   user action resolves to exactly one cell (wig_climate.resolve_cell,
   nearest-temp snap, honest None on sparse branches -- HAIR never invents a
   cell) and transmits that cell's whole-state code. Swing and temperature

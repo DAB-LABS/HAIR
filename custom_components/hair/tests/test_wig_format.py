@@ -11,11 +11,12 @@ import json
 
 import pytest
 
-from custom_components.hair.const import MAX_SEND_COUNT
+from custom_components.hair.const import MAX_DITTO_COUNT, MAX_SEND_COUNT
 from custom_components.hair.wig_format import (
     MAX_WIG_BYTES,
     WIG_FORMAT_V1,
     WIG_FORMAT_V2,
+    WIG_FORMAT_V3,
     Wig,
     WigSignal,
     canonical_cells_json,
@@ -108,8 +109,11 @@ class TestParseRejections:
         assert not result.ok
 
     def test_future_major_version_polite_refusal(self):
-        # hair-wig/2 reads since Cold Cuts; 3 is the future now.
-        result = _parse(_wig_dict(format="hair-wig/3"))
+        # hair-wig/3 reads since the recipe break; 4 is the future now.
+        # The message must stay a version message: an old HAIR that
+        # reported TAMPER on a good file is the failure this gate exists
+        # to prevent.
+        result = _parse(_wig_dict(format="hair-wig/4"))
         assert not result.ok
         assert len(result.errors) == 1
         assert "update HAIR" in result.errors[0]
@@ -180,9 +184,16 @@ class TestSerializeRoundTrip:
         text = serialize_wig(wig)
         data = json.loads(text)
         assert list(data)[:2] == ["format", "name"]
-        assert data["format"] == WIG_FORMAT_V1
-        # send_count of 1 is the default and is omitted from files.
-        assert "send_count" not in data["signals"][0]
+        assert data["format"] == WIG_FORMAT_V3
+        sig = data["signals"][0]
+        # send_count of 1 is the default and is omitted from files. It is
+        # a ride-along now, so its presence is readability, not identity.
+        assert "send_count" not in sig
+        # Both hashed recipe fields are ALWAYS written from /3 on: the
+        # only-when-true convention died with the canonical break so the
+        # portable spec has zero conditional rules.
+        assert sig["ditto_count"] == 0
+        assert sig["bypass_protocol"] is False
         assert text.endswith("\n")
 
 
@@ -198,16 +209,25 @@ class TestCanonicalization:
         b = [WigSignal("Power", changed, 1)]
         assert signals_content_hash(a) != signals_content_hash(b)
 
-    def test_alias_and_count_participate(self):
+    def test_alias_participates_and_send_count_does_not(self):
+        """The ruling principle, as an assertion.
+
+        Renaming a signal changes the wig. Changing its stated send
+        count does NOT: the fitting never transmitted that value, so the
+        signature never attested it. Five fitters proving the same codes
+        at 3, 4, 3, 5 and 4 sends are proving the same wig.
+        """
         base = [WigSignal("Power", PRONTO, 1)]
         renamed = [WigSignal("Power On", PRONTO, 1)]
         counted = [WigSignal("Power", PRONTO, 2)]
-        hashes = {
-            signals_content_hash(base),
-            signals_content_hash(renamed),
-            signals_content_hash(counted),
-        }
-        assert len(hashes) == 3
+        assert signals_content_hash(base) != signals_content_hash(renamed)
+        assert signals_content_hash(base) == signals_content_hash(counted)
+
+    def test_ditto_count_participates(self):
+        """Dittos change the waveform and the fitting transmits them."""
+        base = [WigSignal("Power", PRONTO, 1)]
+        dittoed = [WigSignal("Power", PRONTO, 1, ditto_count=2)]
+        assert signals_content_hash(base) != signals_content_hash(dittoed)
 
     def test_unknown_signal_keys_excluded(self):
         plain = [WigSignal("Power", PRONTO, 1)]
@@ -221,9 +241,11 @@ class TestCanonicalization:
         canon = canonical_signals_json([WigSignal("Power", PRONTO, 1)])
         assert canon == (
             '[{"alias":"Power",'
-            f'"pronto":"{PRONTO_LOWER}",'
-            '"send_count":1}]'
+            '"bypass_protocol":false,'
+            '"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}}]'
         )
+        assert "send_count" not in canon
 
 
 class TestFilenames:
@@ -590,26 +612,36 @@ class TestBypassProtocol:
     arrived broken for the next person.
     """
 
-    def test_absent_flag_hashes_exactly_as_before(self):
-        """THE test that protects every wig in the wild.
+    def test_flag_is_always_explicit_now(self):
+        """The recipe break revoked the only-when-true convention.
 
-        A wig with nothing bypassed must produce the byte-identical
-        canonical string it produced before the field existed, or every
-        fitting signature ever written stops verifying at once. Pinned
-        against a literal, not against a recomputation.
+        It shipped for exactly one release and died before any external
+        verifier implemented it, which was the point of taking the break
+        in one piece. Pinned against a literal: WigFactory and any
+        upstream checker reproduce this string byte-for-byte.
+
+        Note the second signal: send_count 3 leaves NO trace in the
+        canonical form.
         """
         canon = canonical_signals_json([
             WigSignal(alias="Power", pronto=PRONTO),
             WigSignal(alias="Mode", pronto=PRONTO, send_count=3),
         ])
         assert canon == (
-            f'[{{"alias":"Power","pronto":"{PRONTO_LOWER}","send_count":1}},'
-            f'{{"alias":"Mode","pronto":"{PRONTO_LOWER}","send_count":3}}]'
+            f'[{{"alias":"Power","bypass_protocol":false,"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}},'
+            f'{{"alias":"Mode","bypass_protocol":false,"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}}]'
         )
-        assert "bypass_protocol" not in canon
+        assert "send_count" not in canon
 
     def test_explicit_false_hashes_the_same_as_absent(self):
-        """Setting it to False is not a change to the wig."""
+        """Setting it to False is not a change to the wig.
+
+        Still true after the break, for a different reason: both forms
+        now canonicalize to an explicit ``false`` rather than both
+        omitting the key.
+        """
         plain = [WigSignal(alias="A", pronto=PRONTO)]
         explicit = [
             WigSignal(alias="A", pronto=PRONTO, bypass_protocol=False)
@@ -636,11 +668,16 @@ class TestBypassProtocol:
         assert back.signals[0].bypass_protocol is True
         assert back.signals[1].bypass_protocol is False
 
-    def test_false_is_omitted_from_output(self):
-        """So a wig with nothing bypassed is byte-identical on disk to
-        one written before the field existed."""
+    def test_false_is_written_explicitly_now(self):
+        """The recipe break made both hashed fields always explicit.
+
+        Files got one key longer per signal; the canonicalization spec
+        lost its last conditional rule. That trade was the point.
+        """
         wig = Wig(name="Plain", signals=[WigSignal(alias="A", pronto=PRONTO)])
-        assert "bypass_protocol" not in serialize_wig(wig)
+        data = json.loads(serialize_wig(wig))
+        assert data["signals"][0]["bypass_protocol"] is False
+        assert data["signals"][0]["ditto_count"] == 0
 
     def test_it_does_not_fall_into_extra(self):
         """Parsed explicitly, so a round-trip cannot emit it twice."""
@@ -683,3 +720,123 @@ class TestBypassProtocol:
         out = serialize_wig(Wig(name="D", signals=[old_style]))
         assert "bypass_protocol" in out
         assert parse_wig(out).wig.signals[0].bypass_protocol is True
+
+
+class TestDittoCount:
+    """The transmit recipe's second knob: encoder repeat frames.
+
+    In the hash, always explicit, 0..MAX_DITTO_COUNT. Dittos are device
+    grammar rather than environment -- a strict receiver (the NAD
+    C320BEE of GH #14) rejects a lone NEC frame and needs the key-held
+    pattern before it commits to a press, and no amount of standing
+    closer changes that.
+    """
+
+    def test_absent_reads_zero(self):
+        result = _parse(_wig_dict(signals=[
+            {"alias": "A", "pronto": PRONTO},
+        ]))
+        assert result.ok, result.errors
+        assert result.wig.signals[0].ditto_count == 0
+
+    def test_absent_canonicalizes_as_explicit_zero(self):
+        canon = canonical_signals_json([WigSignal(alias="A", pronto=PRONTO)])
+        assert '"ditto_count":0' in canon
+
+    def test_clamped_on_read(self):
+        result = _parse(_wig_dict(signals=[
+            {"alias": "A", "pronto": PRONTO, "ditto_count": 99},
+            {"alias": "B", "pronto": PRONTO, "ditto_count": -3},
+        ]))
+        assert result.ok, result.errors
+        assert result.wig.signals[0].ditto_count == MAX_DITTO_COUNT
+        assert result.wig.signals[1].ditto_count == 0
+
+    @pytest.mark.parametrize("bad", ["2", True, False, 1.5, [], {}, None])
+    def test_a_non_int_is_refused_not_coerced(self, bad):
+        """Hashed, so a guessed value would change the signature of a
+        file the writer thought they understood."""
+        result = _parse(_wig_dict(signals=[
+            {"alias": "A", "pronto": PRONTO, "ditto_count": bad},
+        ]))
+        assert not result.ok
+        assert any("ditto_count" in e for e in result.errors)
+
+    def test_round_trip(self):
+        wig = Wig(name="NAD", signals=[
+            WigSignal(alias="Power", pronto=PRONTO, ditto_count=8),
+            WigSignal(alias="Mute", pronto=PRONTO),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert back.signals[0].ditto_count == 8
+        assert back.signals[1].ditto_count == 0
+
+    def test_it_does_not_fall_into_extra(self):
+        wig = Wig(name="D", signals=[
+            WigSignal(alias="A", pronto=PRONTO, ditto_count=2),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert "ditto_count" not in back.signals[0].extra
+        assert serialize_wig(back).count("ditto_count") == 1
+
+    def test_golden_vector(self):
+        """The portable spec, pinned. WigFactory and any upstream
+        verifier reproduce this string byte-for-byte.
+
+        Two signals, one dittoed, one bypassed, one carrying a send
+        count that must leave no trace. Four keys each, sorted, compact
+        separators, pronto normalized lowercase.
+        """
+        canon = canonical_signals_json([
+            WigSignal(alias="Power", pronto=PRONTO, ditto_count=2),
+            WigSignal(
+                alias="Mode", pronto=PRONTO, send_count=3,
+                bypass_protocol=True,
+            ),
+        ])
+        assert canon == (
+            f'[{{"alias":"Power","bypass_protocol":false,"ditto_count":2,'
+            f'"pronto":"{PRONTO_LOWER}"}},'
+            f'{{"alias":"Mode","bypass_protocol":true,"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}}]'
+        )
+
+    def test_canonical_is_byte_stable_across_runs(self):
+        sigs = [
+            WigSignal(alias="B", pronto=PRONTO, ditto_count=1),
+            WigSignal(alias="A", pronto=PRONTO_LOWER, bypass_protocol=True),
+        ]
+        assert canonical_signals_json(sigs) == canonical_signals_json(sigs)
+
+
+class TestRecipeFormatGate:
+    """The break is one atomic change, and the gate is a version
+    message rather than an accusation."""
+
+    def test_an_old_v1_file_still_parses(self):
+        """Majors <= 3 read. The file's hash is simply computed under
+        the new canonical -- a documented, deliberate roll."""
+        result = _parse(_wig_dict(format=WIG_FORMAT_V1, signals=[
+            {"alias": "A", "pronto": PRONTO, "send_count": 3},
+        ]))
+        assert result.ok, result.errors
+        sig = result.wig.signals[0]
+        assert sig.send_count == 3
+        assert sig.ditto_count == 0
+        assert '"send_count"' not in canonical_signals_json([sig])
+
+    def test_a_v2_matrix_file_still_parses(self):
+        result = _parse(_wig_dict(format=WIG_FORMAT_V2))
+        assert result.ok, result.errors
+
+    def test_new_exports_stamp_v3_for_both_kinds(self):
+        flat = Wig(name="TV", signals=[WigSignal("A", PRONTO)])
+        assert f'"format": "{WIG_FORMAT_V3}"' in serialize_wig(flat)
+
+    def test_the_refusal_never_says_tamper(self):
+        result = _parse(_wig_dict(format="hair-wig/4"))
+        assert not result.ok
+        joined = " ".join(result.errors).lower()
+        assert "update hair" in joined
+        for accusation in ("tamper", "invalid", "corrupt", "modified"):
+            assert accusation not in joined

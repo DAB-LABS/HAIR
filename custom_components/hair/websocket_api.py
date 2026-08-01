@@ -129,6 +129,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fitting_finish)
     websocket_api.async_register_command(hass, ws_fitting_discard)
     websocket_api.async_register_command(hass, ws_fitting_replace)
+    websocket_api.async_register_command(hass, ws_fitting_set_sends)
+    websocket_api.async_register_command(hass, ws_fitting_stage_ditto)
+    websocket_api.async_register_command(hass, ws_fitting_tune)
     websocket_api.async_register_command(hass, ws_fitting_revert)
     websocket_api.async_register_command(hass, ws_fitting_listen)
     websocket_api.async_register_command(hass, ws_fitting_state)
@@ -3337,6 +3340,107 @@ async def ws_fitting_replace(
 
 @websocket_api.require_admin
 @websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/set_sends",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Optional("signal_index"): vol.All(int, vol.Range(min=0)),
+    vol.Required("send_count"): vol.All(int, vol.Range(min=1)),
+    vol.Optional("all", default=False): bool,
+})
+@websocket_api.async_response
+async def ws_fitting_set_sends(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Write a row's stated send count, or every row's (APPLY).
+
+    The light path. send_count is a ride-along: out of the content hash,
+    never attested, so this rolls nothing and invalidates nobody's
+    fitting. That is what makes a bulk APPLY reasonable -- setting a
+    device floor across twenty rows would be unthinkable if each write
+    re-signed the wig.
+    """
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    index = None if msg.get("all") else msg.get("signal_index")
+    if index is None and not msg.get("all"):
+        connection.send_error(
+            msg["id"], "bad_request", "signal_index or all is required"
+        )
+        return
+    result = await manager.async_set_sends(
+        msg["filename"], index, msg["send_count"],
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/stage_ditto",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+    vol.Optional("ditto_count"): vol.Any(
+        None, vol.All(int, vol.Range(min=0)),
+    ),
+})
+@websocket_api.async_response
+async def ws_fitting_stage_ditto(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Hold a tuned ditto in the session so TEST transmits it.
+
+    Nothing reaches the wig here. A tuned value cannot enter the file
+    without a WORKED against it, so this is the staging half and
+    ``tune`` is the commit half.
+    """
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    staged = manager.stage_ditto(
+        msg["filename"], msg["signal_index"], msg.get("ditto_count"),
+    )
+    connection.send_result(msg["id"], {"success": True, "staged": staged})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/tune",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
+    vol.Required("ditto_count"): vol.All(int, vol.Range(min=0)),
+})
+@websocket_api.async_response
+async def ws_fitting_tune(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Commit a tuned ditto count into the wig (Smart Perm machinery).
+
+    Dittos are in the content hash, so this rolls identity exactly as a
+    replace does: provenance stamped, the caller's draft re-bound, every
+    row whose recipe did not move carried forward.
+    """
+    manager = _fitting_manager(hass)
+    if manager is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    result = await manager.async_tune(
+        msg["filename"],
+        msg["signal_index"],
+        msg["ditto_count"],
+        _fitting_username(connection),
+    )
+    _send_fitting_result(connection, msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/revert",
     vol.Required("filename"): vol.All(str, vol.Length(max=300)),
     vol.Required("signal_index"): vol.All(int, vol.Range(min=0)),
@@ -3577,6 +3681,15 @@ async def ws_fitting_state(
                 # row nothing decodes, which renders no chip at all.
                 "protocol": _row_protocol(spec.pronto),
                 "bypass_protocol": spec.bypass_protocol,
+                # The transmit recipe's two knobs, so a reopened dialog
+                # renders its chips from the file rather than from
+                # whatever the last session happened to remember.
+                # send_count is the row's stated floor (ride-along, out
+                # of the hash); ditto_count is device grammar and IS
+                # hashed. Any value the fitter has staged but not proven
+                # lives in the session, never here.
+                "send_count": spec.send_count,
+                "ditto_count": spec.ditto_count,
                 **({
                     "mode": spec.mode,
                     "fan": spec.fan,
@@ -3895,6 +4008,15 @@ async def ws_wig_make_device(
         # The other half of the export mapping: without this the marker
         # rides in the file and does nothing on the receiving end.
         command.tx_force_raw = sig.bypass_protocol
+        # EXACTLY the wig's value, explicit 0 included. The wig now says
+        # precisely what transmits, so the catalog default cannot be
+        # allowed to overrule it -- and it would: IRCommand.repeat_count
+        # defaults to DEFAULT_REPEAT_COUNT, which is 1, so a
+        # construct-and-forget would resurrect a ditto on a wig that
+        # says zero. That is the three-defaults mess (command 1,
+        # ProntoCommand 0, fitting send 0) collapsing at the wig
+        # boundary, and this is the line where it collapses.
+        command.repeat_count = sig.ditto_count
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1

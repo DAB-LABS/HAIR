@@ -610,7 +610,7 @@ class TestGithubNormalization:
 # Send times (fine-tuned-fittings, v0.9.0)
 # ---------------------------------------------------------------------------
 
-from unittest.mock import AsyncMock, patch  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock, patch  # noqa: E402
 
 from custom_components.hair.wig_fitting import (  # noqa: E402
     _read_send_times,
@@ -915,3 +915,301 @@ class TestFinishRefreshesVersionStamps:
         await manager.async_finish(filename, "dab", None, None, None)
         f = parse_fittings(_read_wig(wigs_dir_path)).fittings[0]
         assert f.raw["hair_version"] == "0.9.0"
+
+
+class TestTransmitRecipe:
+    """The fitting transmits what the hash pins, and the session can
+    only ever add to a row's floor."""
+
+    # A pronto that actually DECODES. The suite's small two-burst
+    # fixture does not, so the decoded branch would never be reached and
+    # the ditto assertion below would pass while proving nothing.
+    NEC = (
+        "0000 006D 0022 0000 0157 00AC 0016 0016 0016 0016 0016 0041 0016 "
+        "0016 0016 0016 0016 0016 0016 0016 0016 0016 0016 0041 0016 0041 "
+        "0016 0016 0016 0041 0016 0041 0016 0041 0016 0041 0016 0041 0016 "
+        "0016 0016 0016 0016 0016 0016 0041 0016 0016 0016 0016 0016 0016 "
+        "0016 0016 0016 0041 0016 0041 0016 0041 0016 0016 0016 0041 0016 "
+        "0041 0016 0041 0016 0041 0016 0640"
+    )
+
+    def _recipe_wig(self, wigs_dir_path, *, send_count=1, ditto=0,
+                    filename="recipe.wig.json"):
+        wig = Wig(name="Recipe", signals=[
+            WigSignal(
+                alias="Power", pronto=self.NEC,
+                send_count=send_count, ditto_count=ditto,
+            ),
+        ])
+        (wigs_dir_path / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        return filename
+
+    @pytest.mark.asyncio
+    async def test_row_ditto_reaches_the_decoded_build(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """Was hardcoded 0, so a fitting proved a ditto-less send even
+        for a device that needs them. The NAD class would have failed
+        its own fitting while the hash pinned a value nothing sent."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._recipe_wig(wigs_dir_path, ditto=2)
+        build = MagicMock(return_value=None)
+        with patch("custom_components.hair.tx_gate.gated_send", AsyncMock()), \
+             patch(
+                 "custom_components.hair.ir_command.build_decoded_command",
+                 build,
+             ):
+            await manager.async_send(filename, 0, "infrared.e")
+        assert build.call_args is not None, (
+            "decoded build was never reached; the fixture pronto must "
+            "decode or this test proves nothing"
+        )
+        assert build.call_args.kwargs["repeat_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_session_never_undercuts_the_row_floor(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """The candle case. A fitter with the global at 1 used to
+        transmit once against a row stating a floor of 3, and fail a
+        perfectly good wig."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._recipe_wig(wigs_dir_path, send_count=3)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            result = await manager.async_send(
+                filename, 0, "infrared.e", send_times=1,
+            )
+        assert result["success"]
+        assert gated.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_session_adds_headroom_above_the_floor(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._recipe_wig(wigs_dir_path, send_count=1)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=5,
+            )
+        assert gated.await_count == 5
+        # Evidence semantics are untouched: send_times_used records the
+        # session control alone, because that is what it attests.
+        assert manager.session_send_times(filename) == 5
+
+    @pytest.mark.asyncio
+    async def test_the_higher_of_the_two_wins_either_way(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._recipe_wig(wigs_dir_path, send_count=2)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=4,
+            )
+        assert gated.await_count == 4
+
+
+class TestTuneEngine:
+    """Dittos are in the hash, so tuning one is a real edit to what the
+    wig claims: one roll, one marker, carry-forward for everything the
+    change did not touch."""
+
+    NEC = TestTransmitRecipe.NEC
+
+    def _wig_file(self, wigs_dir_path, *, ditto=1, filename="tune.wig.json"):
+        wig = Wig(name="Tune", signals=[
+            WigSignal(alias="Power", pronto=self.NEC, ditto_count=ditto),
+            WigSignal(alias="Mute", pronto=PRONTO_B),
+        ])
+        (wigs_dir_path / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        return filename
+
+    @pytest.mark.asyncio
+    async def test_tune_rolls_the_hash_and_stamps_provenance(
+        self, manager, wigs_dir_path
+    ):
+        filename = self._wig_file(wigs_dir_path)
+        before = _read_wig(wigs_dir_path, filename)
+        old_hash = signals_content_hash(before.signals)
+
+        result = await manager.async_tune(filename, 0, 2, "tester")
+        assert result["success"], result
+        await manager.async_flush(filename)
+
+        after = _read_wig(wigs_dir_path, filename)
+        assert after.signals[0].ditto_count == 2
+        assert signals_content_hash(after.signals) != old_hash
+        assert after.signals[0].extra["provenance"]["tuned"] == 2
+
+    @pytest.mark.asyncio
+    async def test_a_no_op_tune_is_refused(self, manager, wigs_dir_path):
+        """Same refusal as a same-code replace, for the same reason: a
+        marker that does not imply a roll would let a Changed Codes row
+        retroactively demote every complete fitting in the ledger."""
+        filename = self._wig_file(wigs_dir_path, ditto=1)
+        result = await manager.async_tune(filename, 0, 1, "tester")
+        assert not result["success"]
+        assert result["code"] == "same_ditto"
+
+    @pytest.mark.asyncio
+    async def test_a_bypassed_row_refuses_a_tune(
+        self, manager, wigs_dir_path
+    ):
+        wig = Wig(name="Pinned", signals=[
+            WigSignal(
+                alias="Power", pronto=self.NEC, bypass_protocol=True,
+            ),
+        ])
+        (wigs_dir_path / "pin.wig.json").write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        result = await manager.async_tune("pin.wig.json", 0, 2, "tester")
+        assert not result["success"]
+        assert result["code"] == "bypassed"
+
+    @pytest.mark.asyncio
+    async def test_replace_still_refuses_the_same_code(
+        self, manager, wigs_dir_path
+    ):
+        """The invariant the separate tune door exists to protect."""
+        filename = self._wig_file(wigs_dir_path)
+        wig = _read_wig(wigs_dir_path, filename)
+        result = await manager.async_replace(
+            filename, 0, wig.signals[0].pronto, "pasted", "tester",
+        )
+        assert not result["success"]
+        assert result["code"] == "same_code"
+
+
+class TestSetSendsIsLight:
+    """send_count left the hash, so writing it is an ordinary field
+    write: no roll, no marker, nobody's fitting invalidated."""
+
+    def _wig_file(self, wigs_dir_path, filename="sends.wig.json"):
+        wig = Wig(name="Sends", signals=[
+            WigSignal(alias="Power On", pronto=PRONTO),
+            WigSignal(alias="Power Off", pronto=PRONTO_B),
+        ])
+        (wigs_dir_path / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        return filename
+
+    @pytest.mark.asyncio
+    async def test_one_row(self, manager, wigs_dir_path):
+        filename = self._wig_file(wigs_dir_path)
+        before = signals_content_hash(
+            _read_wig(wigs_dir_path, filename).signals
+        )
+        result = await manager.async_set_sends(filename, 0, 3)
+        assert result["success"]
+        await manager.async_flush(filename)
+
+        after = _read_wig(wigs_dir_path, filename)
+        assert after.signals[0].send_count == 3
+        assert after.signals[1].send_count == 1
+        # THE assertion: the file changed and its identity did not.
+        assert signals_content_hash(after.signals) == before
+
+    @pytest.mark.asyncio
+    async def test_apply_all(self, manager, wigs_dir_path):
+        """The candle case: a device floor of 3 across the board, in one
+        gesture rather than twenty steppers."""
+        filename = self._wig_file(wigs_dir_path)
+        before = signals_content_hash(
+            _read_wig(wigs_dir_path, filename).signals
+        )
+        result = await manager.async_set_sends(filename, None, 3)
+        assert result["success"]
+        assert result["written"] == 2
+        await manager.async_flush(filename)
+
+        after = _read_wig(wigs_dir_path, filename)
+        assert [s.send_count for s in after.signals] == [3, 3]
+        assert signals_content_hash(after.signals) == before
+
+    @pytest.mark.asyncio
+    async def test_an_existing_complete_fitting_survives_it(
+        self, manager, wigs_dir_path
+    ):
+        wig = Wig(name="Sends", signals=[
+            WigSignal(alias="Power On", pronto=PRONTO),
+            WigSignal(alias="Power Off", pronto=PRONTO_B),
+        ])
+        wig.extra[FITTINGS_KEY] = [_complete_fitting(wig)]
+        (wigs_dir_path / "fitted.wig.json").write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        await manager.async_set_sends("fitted.wig.json", None, 4)
+        await manager.async_flush("fitted.wig.json")
+
+        after = _read_wig(wigs_dir_path, "fitted.wig.json")
+        entry = parse_fittings(after).fittings[0]
+        assert fitting_is_valid(entry, after)
+        assert fitting_is_complete(entry, after)
+
+    @pytest.mark.asyncio
+    async def test_clamped(self, manager, wigs_dir_path):
+        filename = self._wig_file(wigs_dir_path)
+        await manager.async_set_sends(filename, None, 999)
+        await manager.async_flush(filename)
+        after = _read_wig(wigs_dir_path, filename)
+        assert all(s.send_count == 10 for s in after.signals)
+
+
+class TestRecipeDigestCarry:
+    """The carry snapshot hashes the whole transmit recipe, not just the
+    bytes.
+
+    Without this a tuned row would have carried its old verdict across
+    the very change that invalidated it, which is precisely what
+    carry-forward exists to prevent.
+    """
+
+    NEC = TestTransmitRecipe.NEC
+
+    def test_a_ditto_change_changes_the_row_digest(self):
+        from custom_components.hair.wig_fitting import carry_snapshot
+
+        plain = Wig(name="D", signals=[
+            WigSignal(alias="Power", pronto=self.NEC),
+        ])
+        tuned = Wig(name="D", signals=[
+            WigSignal(alias="Power", pronto=self.NEC, ditto_count=2),
+        ])
+        assert carry_snapshot(plain)["Power"] != carry_snapshot(tuned)["Power"]
+
+    def test_a_pin_change_changes_the_row_digest(self):
+        from custom_components.hair.wig_fitting import carry_snapshot
+
+        plain = Wig(name="D", signals=[
+            WigSignal(alias="Power", pronto=self.NEC),
+        ])
+        pinned = Wig(name="D", signals=[
+            WigSignal(alias="Power", pronto=self.NEC, bypass_protocol=True),
+        ])
+        assert (
+            carry_snapshot(plain)["Power"] != carry_snapshot(pinned)["Power"]
+        )
+
+    def test_a_send_count_change_does_not(self):
+        """Sends are delivery, not meaning. A row whose stated send
+        count moved still transmits the same waveform, so its verdict
+        carries."""
+        from custom_components.hair.wig_fitting import carry_snapshot
+
+        one = Wig(name="D", signals=[
+            WigSignal(alias="Power", pronto=self.NEC, send_count=1),
+        ])
+        three = Wig(name="D", signals=[
+            WigSignal(alias="Power", pronto=self.NEC, send_count=3),
+        ])
+        assert carry_snapshot(one)["Power"] == carry_snapshot(three)["Power"]

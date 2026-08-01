@@ -471,6 +471,64 @@ export class HairApi {
         });
     }
 
+    /** Write a row's stated send count, or every row's (APPLY).
+     *
+     * The light path: send_count is out of the content hash, so this
+     * rolls nothing and invalidates nobody's fitting. That is what
+     * makes a bulk apply reasonable. */
+    fittingSetSends(
+        filename: string,
+        signalIndex: number | null,
+        sendCount: number,
+    ): Promise<{ success: boolean; send_count: number; written: number }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/set_sends",
+            filename,
+            ...(signalIndex === null
+                ? { all: true }
+                : { signal_index: signalIndex }),
+            send_count: sendCount,
+        });
+    }
+
+    /** Hold a tuned ditto in the session so TEST transmits it.
+     *
+     * Nothing reaches the wig: a tuned value cannot enter the file
+     * without a WORKED against it. Pass null to clear. */
+    fittingStageDitto(
+        filename: string,
+        signalIndex: number,
+        dittoCount: number | null,
+    ): Promise<{ success: boolean; staged: number | null }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/stage_ditto",
+            filename,
+            signal_index: signalIndex,
+            ditto_count: dittoCount,
+        });
+    }
+
+    /** Commit a tuned ditto into the wig. Rolls the hash exactly as a
+     * replace does, so the caller refetches state afterward. */
+    fittingTune(
+        filename: string,
+        signalIndex: number,
+        dittoCount: number,
+    ): Promise<{
+        success: boolean;
+        content_hash: string;
+        row_key: string;
+        ditto_count: number;
+        carried: number;
+    }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/wigs/fitting/tune",
+            filename,
+            signal_index: signalIndex,
+            ditto_count: dittoCount,
+        });
+    }
+
     /** Put one row back to the code the wig came with. Rolls the hash
      * back, so the caller refetches state exactly as after a replace. */
     fittingRevert(

@@ -26,12 +26,15 @@ from __future__ import annotations
 import pytest
 
 from custom_components.hair.wig_comb import (
+    ADVISORY_CHECKS,
+    CHECK_BYPASS_WITH_DITTOS,
     CHECK_COORDINATE_COLLISION,
     CHECK_DUPLICATE_LABELS,
     CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FRAME_SHAPE,
     CHECK_MALFORMED,
     CHECK_MISSING_CELL,
+    CHECK_RAMP_DITTOS,
     CHECK_STRAY_BURST,
     CHECK_STRAY_CELL,
     MAX_STORED_FINDINGS,
@@ -592,3 +595,67 @@ class TestBypassIsSkipped:
         report = comb_wig(wig)
         assert report.findings == []
         assert report.skipped == []
+
+
+class TestRecipeAdvisories:
+    """Two things the recipe can encode that deserve a look rather than
+    a verdict. Both advisory forever."""
+
+    def _wig(self, **kw):
+        from custom_components.hair.wig_format import Wig, WigSignal
+
+        return Wig(name="R", signals=[WigSignal(**kw)])
+
+    def test_bypass_with_dittos_fires(self):
+        """HAIR's exporter can never write this pair, so seeing it means
+        a human hand-edited the file."""
+        report = comb_wig(self._wig(
+            alias="Power", pronto=_code([10]),
+            bypass_protocol=True, ditto_count=3,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_BYPASS_WITH_DITTOS in checks
+
+    def test_bypass_alone_is_silent(self):
+        report = comb_wig(self._wig(
+            alias="Power", pronto=_code([10]), bypass_protocol=True,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_BYPASS_WITH_DITTOS not in checks
+
+    def test_a_high_ditto_on_a_ramp_button_fires(self):
+        report = comb_wig(self._wig(
+            alias="Volume Up", pronto=_code([10]), ditto_count=8,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_RAMP_DITTOS in checks
+
+    def test_a_high_ditto_on_a_plain_button_is_silent(self):
+        """The NAD case: 8 dittos on Power is device grammar, and the
+        comb must not second-guess it."""
+        report = comb_wig(self._wig(
+            alias="Power", pronto=_code([10]), ditto_count=8,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_RAMP_DITTOS not in checks
+
+    def test_a_modest_ditto_on_a_ramp_button_is_silent(self):
+        report = comb_wig(self._wig(
+            alias="Volume Up", pronto=_code([10]), ditto_count=2,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_RAMP_DITTOS not in checks
+
+    def test_both_stay_out_of_the_suspect_population(self):
+        """Advisories never count and never light the closet chip."""
+        report = comb_wig(self._wig(
+            alias="Volume Up", pronto=_code([10]),
+            bypass_protocol=True, ditto_count=8,
+        ))
+        assert CHECK_BYPASS_WITH_DITTOS in ADVISORY_CHECKS
+        assert CHECK_RAMP_DITTOS in ADVISORY_CHECKS
+        # Both fired, and neither is a suspect.
+        assert {f.check for f in report.findings} == {
+            CHECK_BYPASS_WITH_DITTOS, CHECK_RAMP_DITTOS,
+        }
+        assert all(f.check in ADVISORY_CHECKS for f in report.findings)

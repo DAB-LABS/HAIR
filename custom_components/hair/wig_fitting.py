@@ -67,7 +67,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from .const import MAX_SEND_COUNT
+from .const import MAX_DITTO_COUNT, MAX_SEND_COUNT
 from .pronto_validator import validate_pronto
 from .wig_format import Wig, cell_key, serialize_wig, wig_content_hash
 
@@ -173,6 +173,11 @@ class FittingRowSpec:
     # cells have no pin, because the matrix send path is already an
     # unconditional raw replay.
     bypass_protocol: bool = False
+    # Encoder repeat frames this row transmits. Signal wigs only, for
+    # the same reason as the pin: a matrix cell is one long state blob
+    # with no ditto grammar. In the content hash and in the row digest,
+    # because the fitting sends it.
+    ditto_count: int = 0
 
 
 def _provenance_of(extra: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -228,6 +233,7 @@ def fitting_row_specs(wig: Wig) -> list[FittingRowSpec]:
                 send_count=sig.send_count,
                 provenance=_provenance_of(sig.extra),
                 bypass_protocol=sig.bypass_protocol,
+                ditto_count=sig.ditto_count,
             )
             for sig in wig.signals
         ]
@@ -766,17 +772,40 @@ def normalized_pronto(code: str) -> str:
     return (result.normalized if result.valid else code).lower()
 
 
-def _row_digest(pronto: str) -> str:
-    """The carry snapshot's per-row value: a truncated sha256."""
-    return hashlib.sha256(
-        normalized_pronto(pronto).encode("utf-8")
-    ).hexdigest()[:16]
+def _row_digest(
+    pronto: str, ditto_count: int = 0, bypass_protocol: bool = False
+) -> str:
+    """The carry snapshot's per-row value: a truncated sha256.
+
+    Hashes the row's whole TRANSMIT RECIPE, not just its bytes. Exact
+    form, so a reader can reproduce it: the normalized pronto, then
+    ``|d<ditto_count>``, then ``|b1`` or ``|b0``.
+
+    Bytes alone were not enough once dittos and the raw pin became part
+    of what transmits. Carry-forward exists to return a row to untested
+    when what it sends changes; a pronto-only digest could not see a
+    ditto tune, so a tuned row would have carried its old verdict across
+    the very change that invalidated it.
+
+    Every existing carry map dies with the canonical break anyway (the
+    hash roll orphans them), so this needs no migration -- but it has to
+    land in the SAME commit as the new canonical, or a half-applied
+    break forks digests across installs.
+    """
+    recipe = (
+        f"{normalized_pronto(pronto)}"
+        f"|d{int(ditto_count)}"
+        f"|b{1 if bypass_protocol else 0}"
+    )
+    return hashlib.sha256(recipe.encode("utf-8")).hexdigest()[:16]
 
 
 def carry_snapshot(wig: Wig) -> dict[str, str]:
     """Every current row as key -> code digest."""
     return {
-        spec.key: _row_digest(spec.pronto)
+        spec.key: _row_digest(
+            spec.pronto, spec.ditto_count, spec.bypass_protocol
+        )
         for spec in fitting_row_specs(wig)
     }
 
@@ -893,7 +922,9 @@ def carry_forward_seed(
     confirmed: list[str] = []
     failed: list[str] = []
     for spec in fitting_row_specs(wig):
-        if snapshot.get(spec.key) != _row_digest(spec.pronto):
+        if snapshot.get(spec.key) != _row_digest(
+            spec.pronto, spec.ditto_count, spec.bypass_protocol
+        ):
             continue
         if spec.key in confirmed_keys:
             confirmed.append(spec.key)
@@ -961,6 +992,13 @@ class FittingManager:
             # draft at mark/finish and written directly on send when
             # a draft already exists.
             "send_times": None,
+            # Ditto values the fitter has tuned but not yet proven
+            # (signal index -> count). Session state on purpose: a tuned
+            # ditto cannot enter the wig without a WORKED against it, so
+            # TEST transmits from here, a thumb-up commits through
+            # async_tune, and closing the dialog discards whatever is
+            # left. The wig is untouched until something is proven.
+            "staged_dittos": {},
         })
 
     def session_send_times(self, filename: str) -> int | None:
@@ -1052,12 +1090,16 @@ class FittingManager:
         # sendable, which is how a fitter decides whether it is really
         # wrong before replacing it.
         rows = [
-            (s.key, s.pronto, s.send_count) for s in session_row_specs(wig)
+            (s.key, s.pronto, s.send_count, s.ditto_count, s.bypass_protocol)
+            for s in session_row_specs(wig)
         ]
         if not 0 <= index < len(rows):
             return {"success": False, "code": "bad_index",
                     "error": "No such signal in this wig"}
-        row_key, row_pronto, row_send_count = rows[index]
+        (
+            row_key, row_pronto, row_send_count,
+            row_ditto, row_bypass,
+        ) = rows[index]
 
         from .wig_identity import wig_signal_identity
 
@@ -1093,13 +1135,22 @@ class FittingManager:
         # press) override the file-derived ones, mirroring test_signal.
         # The wig file itself never stores decoded state.
         extras = session["extras"].get(index) or ident.decoded_extras
+        # The staged ditto wins over the stored one: TEST exists to
+        # transmit the recipe the fitter is about to commit, and a
+        # staged value that was not sent could never be proven.
+        staged = session["staged_dittos"].get(index)
+        ditto = row_ditto if staged is None else staged
         ir_cmd = None
-        if ident.decoded_fingerprint:
+        if ident.decoded_fingerprint and not row_bypass:
             ir_cmd = build_decoded_command(
                 ident.decoded_protocol,
                 ident.decoded_address,
                 ident.decoded_command,
-                repeat_count=0,
+                # Was hardcoded 0, which meant a fitting proved a
+                # ditto-less send even for a device that needs them --
+                # the NAD class would have failed its own fitting while
+                # the hash pinned a value nothing transmitted.
+                repeat_count=max(0, min(int(ditto), MAX_DITTO_COUNT)),
                 decoded_extras=extras,
             )
         decoded_tx = ir_cmd is not None
@@ -1127,8 +1178,24 @@ class FittingManager:
         # Resolved before the Mirror call rather than after, so the row
         # can record what this send actually used. It is a loop bound,
         # not a field on ir_cmd, so the Mirror has no other way to see it.
+        # MAX, never substitute (owner design 2026-08-01). The old
+        # expression was ``send_times or row_send_count or 1``, which
+        # let the session SUBSTITUTE for the row: a fitter with the
+        # global at 1 would transmit once at a candle whose row states a
+        # floor of 3 and fail a perfectly good wig. The row states the
+        # device's floor, the session adds environmental headroom, and
+        # the session can never undercut the floor.
+        #
+        # The evidence side is deliberately untouched: send_times_used
+        # still records the session control's value alone, because that
+        # is what it attests -- the fitter's conditions, not the wig's
+        # requirements.
         send_count = max(
-            1, min(send_times or row_send_count or 1, MAX_SEND_COUNT)
+            1,
+            min(
+                max(int(row_send_count or 1), int(send_times or 1)),
+                MAX_SEND_COUNT,
+            ),
         )
         self._monitor.record_send(
             ir_cmd, label, [emitter_entity_id],
@@ -1323,6 +1390,180 @@ class FittingManager:
             "row_key": row_key,
             "carried": carried,
         }
+
+    async def async_set_sends(
+        self,
+        filename: str,
+        index: int | None,
+        send_count: int,
+    ) -> dict[str, Any]:
+        """Write a row's stated send count, or every row's at once.
+
+        The LIGHT write path. ``send_count`` is a ride-along from the
+        recipe break on: out of the content hash, never attested by a
+        signature, so setting it is an ordinary field write. No hash
+        roll, no provenance marker, no draft re-bind, no fitting
+        invalidated. That is the whole reason the session control can
+        offer APPLY as a bulk gesture -- bulk-setting a device floor
+        across twenty rows would be unthinkable if each one re-signed
+        the wig.
+
+        ``index`` of None applies to every signal, which is what APPLY
+        calls. Matrix wigs are refused: cells keep a per-cell send_count
+        but there is no per-cell tuning UI this release, and writing one
+        from the checklist would edit a lattice the checklist only
+        samples.
+        """
+        wig = await self._load(filename)
+        if wig is None:
+            return {"success": False, "code": "wig_not_found",
+                    "error": "Wig not found"}
+        if wig.climate is not None:
+            return {"success": False, "code": "matrix_wig",
+                    "error": "Matrix cells are not tunable from a fitting"}
+        value = max(1, min(int(send_count), MAX_SEND_COUNT))
+        if index is None:
+            for sig in wig.signals:
+                sig.send_count = value
+            written = len(wig.signals)
+        else:
+            specs = session_row_specs(wig)
+            if not 0 <= index < len(specs):
+                return {"success": False, "code": "bad_index",
+                        "error": "No such signal in this wig"}
+            row_key = specs[index].key
+            written = 0
+            for sig in wig.signals:
+                if sig.alias == row_key:
+                    sig.send_count = value
+                    written = 1
+                    break
+            if not written:
+                return {"success": False, "code": "row_not_found",
+                        "error": "Could not find that row"}
+        self._pending[filename] = wig
+        self._schedule_write(filename)
+        return {"success": True, "send_count": value, "written": written}
+
+    async def async_tune(
+        self,
+        filename: str,
+        index: int,
+        ditto_count: int,
+        username: str,
+    ) -> dict[str, Any]:
+        """Commit a tuned ditto count into the wig. The HEAVY path.
+
+        Dittos are IN the content hash, so this is a real edit to what
+        the wig claims: one hash roll, a provenance marker, the calling
+        user's draft re-bound, carry-forward for every row whose recipe
+        did not move. Exactly the Smart Perm machinery ``async_replace``
+        uses, at the moment the recipe is proven.
+
+        Deliberately NOT routed through ``async_replace``. That method
+        refuses a byte-identical pronto, and it has to: an appended
+        Changed Codes row is only safe to count toward completeness
+        because a provenance marker implies a hash roll, and stamping a
+        no-op would add a row to a wig whose hash never moved,
+        retroactively demoting every complete fitting in its ledger.
+        A ditto tune changes the recipe while leaving the pronto alone,
+        so it needs its own door rather than a hole cut in that one.
+
+        The WORKED gate is frontend staging by design: the backend
+        accepts any valid call, and the dialog is what refuses to commit
+        a value nothing has proven. Server-side staging would put
+        session UI state in the wig file.
+        """
+        wig = await self._load(filename)
+        if wig is None:
+            return {"success": False, "code": "wig_not_found",
+                    "error": "Wig not found"}
+        if wig.climate is not None:
+            return {"success": False, "code": "matrix_wig",
+                    "error": "Matrix cells carry no ditto count"}
+        specs = session_row_specs(wig)
+        if not 0 <= index < len(specs):
+            return {"success": False, "code": "bad_index",
+                    "error": "No such signal in this wig"}
+        spec = specs[index]
+        if spec.bypass_protocol:
+            return {"success": False, "code": "bypassed",
+                    "error": "A code pinned to raw carries its repeats "
+                             "in the bytes"}
+        value = max(0, min(int(ditto_count), MAX_DITTO_COUNT))
+        if value == spec.ditto_count:
+            # Same refusal as a same-code replace, for the same reason:
+            # a marker that does not imply a roll breaks the invariant
+            # Changed Codes rows depend on.
+            return {"success": False, "code": "same_ditto",
+                    "error": "That is already this row's ditto count"}
+
+        old_hash = wig_content_hash(wig)
+        snapshot = carry_snapshot(wig)
+        marker = {"tuned": value, "date": _today()}
+
+        target = None
+        for sig in wig.signals:
+            if sig.alias == spec.key:
+                target = sig
+                break
+        if target is None:
+            return {"success": False, "code": "row_not_found",
+                    "error": "Could not find that row"}
+        target.ditto_count = value
+        # Same key and shape as the replaced marker, so the chip and the
+        # ledger read one provenance vocabulary rather than two.
+        target.extra[PROVENANCE_KEY] = marker
+        new_hash = wig_content_hash(wig)
+
+        carried = 0
+        draft = self._find_user_draft(wig, username)
+        if draft is not None:
+            draft["content_hash"] = new_hash
+            keys = {s.key for s in fitting_row_specs(wig)}
+            confirmed = [
+                k for k in draft.get("confirmed", []) if k != spec.key
+            ]
+            failed = [k for k in draft.get("failed", []) if k != spec.key]
+            draft["confirmed"] = confirmed
+            draft["failed"] = failed
+            carried = len((set(confirmed) | set(failed)) & keys)
+
+        carry = _carry_map(wig)
+        carry[old_hash] = snapshot
+        wig.extra[CARRY_KEY] = carry
+        _prune_carry(wig)
+
+        session = self._sessions.get(filename)
+        if session is not None:
+            session["staged_dittos"].pop(index, None)
+
+        self._pending[filename] = wig
+        self._schedule_write(filename)
+        return {
+            "success": True,
+            "content_hash": new_hash,
+            "row_key": spec.key,
+            "ditto_count": value,
+            "carried": carried,
+        }
+
+    def stage_ditto(
+        self, filename: str, index: int, ditto_count: int | None
+    ) -> int | None:
+        """Hold a tuned ditto in the session until something proves it.
+
+        None clears. Session state, never the file: a tuned value cannot
+        enter the wig without a WORKED against it, and closing the
+        dialog has to discard whatever was left unproven.
+        """
+        session = self._session(filename)
+        if ditto_count is None:
+            session["staged_dittos"].pop(index, None)
+            return None
+        value = max(0, min(int(ditto_count), MAX_DITTO_COUNT))
+        session["staged_dittos"][index] = value
+        return value
 
     def _put_back(self, wig: Wig, row_key: str) -> bool:
         """Restore one row to the code the wig came with.

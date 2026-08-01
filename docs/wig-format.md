@@ -22,6 +22,8 @@ There are two versions, and the version follows the content. A wig of plain butt
         {
             "alias": "Power",
             "pronto": "0000 006d 0022 0002 ...",
+            "ditto_count": 0,
+            "bypass_protocol": false,
             "send_count": 1
         }
     ]
@@ -32,11 +34,23 @@ There are two versions, and the version follows the content. A wig of plain butt
 
 **Required fields:** `format`, `name`, and a non-empty `signals` list. Each signal requires `alias` and `pronto`. Everything else is optional. One exception: a wig with a `climate` block may have an empty or absent `signals` list -- matrix-only wigs are legal, because the matrix is the payload and flat signals are the optional extras riding alongside it.
 
-**`format`** must be `"hair-wig/1"` or `"hair-wig/2"`. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing. Write v2 only when the wig carries a `climate` block; everything else stays v1.
+**`format`** must be `"hair-wig/1"`, `"hair-wig/2"`, or `"hair-wig/3"`. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing.
+
+`hair-wig/3` (HAIR "Highlights") is a capability gate rather than a statement about the wig's kind, and current HAIR writes it for **both** kinds. It marks the one canonical break: `ditto_count` entered the signal hash, `bypass_protocol` became always-explicit, and `send_count` left the hash entirely -- flat signals and matrix cells alike. Older majors still read; readers below 3 refuse a v3 file with a version message. That refusal is the whole point of the bump. Without it an older reader would compute the previous canonical form, see a mismatch, and report what looks like tampering on a perfectly good file, which is the worst possible thing to tell someone about a file they trust.
 
 **`pronto`** carries the raw Pronto hex code, and it is the entire payload. Deliberately, there are no decoded-protocol fields in the file: the importing HAIR install decodes every signal fresh through its own decoders, so a wig can never carry a stale or wrong identity, and it benefits from decoders that shipped after the wig was written. Codes must be valid learned-format Pronto (`0000` header, correct burst-pair length math); HAIR validates each one and rejects the file with a per-signal reason if any code is malformed.
 
 **`send_count`** (optional, default 1) is how many times the whole signal transmits per press, for devices that need a repeat. Values are clamped to HAIR's supported range on import.
+
+From `hair-wig/3` it is a **ride-along**: carried, clamped, used to seed an adopted device, and deliberately **outside the content hash**. A fitting has never transmitted the row's value -- the fitting session's own send-times control decides what goes on the wire -- so no signature ever attested it, and pinning a number nobody proved was the wrong kind of protection. The consequence is intended: five people proving the same codes at 3, 4, 3, 5 and 4 sends are proving the *same wig*, so their fittings accumulate on one file instead of forking it five ways. The honest cost is that someone can edit a send count on a signed wig and the signature still verifies. That edit is loud, locally fixable, and clamped on import; the protection budget goes to the flips that can make a device silently fail while still looking certified.
+
+**`ditto_count`** (integer, added in `hair-wig/3`, always written explicitly) is how many repeat frames the encoder appends to each transmitted frame. Range 0..20, clamped on read; absent in a hand-made file reads as 0. It is **in the content hash**, because dittos change the waveform and the fitting transmits them.
+
+It is named `ditto_count` rather than `repeat_count` on purpose. Inside HAIR dittos are called `repeat_count` while humans say "repeats" for send counts, and the portable format is the one place that ambiguity can be killed. The export boundary maps a device command's `repeat_count` onto this field, exactly as it maps `tx_force_raw` onto `bypass_protocol`.
+
+Dittos are device grammar rather than environment. A strict receiver rejects a lone frame and needs the key-held pattern -- frame plus at least one repeat -- before it commits to a press, and standing closer does not change what a decoder chip demands. Send counts are the opposite: they answer "does the signal arrive", which is why one is hashed and the other is not.
+
+`ditto_count` and `bypass_protocol` are **mutually exclusive**. A raw blob has no ditto grammar -- only the encoder can render a shortened repeat frame -- so HAIR's exporter writes `ditto_count: 0` on any pinned signal and reports the drop rather than doing it quietly. A hand-made file carrying both parses, and the code checker raises an advisory.
 
 **`origin`** (optional, free-form string) records where the codes came from: `"captured"` for signals exported off real hardware, `"clipped"` for remotes assembled in HAIR's Clipper from pasted or library codes, `"device"` for a HAIR device's command set, `"converted"` or `"converted:smartir"` for adapter output that never touched hardware, `"plucked"` or `"plucked:tuya_local"` for codes extracted live from a vendor blaster. HAIR uses this to explain a wig's provenance in the UI. If you write an adapter, stamp your own: `"converted:yourtool"`.
 
@@ -57,7 +71,7 @@ It asserts nothing about protocol identity, only that these bytes are the payloa
 
 Two rules ride with it:
 
-- **It is IN the canonical hash, but only when true.** It changes what transmits, so leaving it out would let someone alter a fitted wig's send behaviour while its signature still verified. Emitting it when false would instead change every existing wig's hash at once, so writers must omit it rather than write `false`.
+- **It is IN the canonical hash, always explicitly.** It changes what transmits, so leaving it out would let someone alter a fitted wig's send behaviour while its signature still verified. HAIR 0.9.2 emitted it only when true, to avoid rolling every existing hash at once; `hair-wig/3` retired that shortcut in the same break that took the hash roll anyway, so the canonicalization spec now has zero conditional rules.
 - **An older HAIR preserves it.** A reader that predates the field parses it as an unknown per-signal key, round-trips it on export, and excludes it from the hash. That install transmits the code the old way, and its fitting reads as not matching rather than silently attesting a code it sent differently.
 
 **Unknown keys are tolerated and preserved.** A reader ignores top-level and per-signal keys it does not recognize, and an editor that re-saves a wig keeps them. This is how the format grows without breaking old installs.
@@ -108,10 +122,14 @@ A wig may carry a matrix, flat `signals`, or both. The flat signals alongside a 
 
 ## Canonical signals form
 
-Fittings (below) attach evidence to the exact codes in a wig. For a signal wig they hash the `signals` array in a canonical form, defined from v1 so every install computes identical hashes:
+Fittings (below) attach evidence to the exact codes in a wig. For a signal wig they hash the `signals` array in a canonical form, defined from v1 so every install computes identical hashes.
+
+The rule that decides what belongs here: **the hash covers what the fitting proves.** A fitting's signature certifies that this content drove the device when a named person pressed the buttons, so it covers exactly the waveform that left the blaster -- the bytes, the repeat frames appended to them, and whether the encoder was bypassed -- and nothing else. Delivery decisions such as how many times to press live outside it.
+
+The form below is the portability contract. Any tool that computes or verifies a HAIR fitting hash must reproduce it byte-for-byte:
 
 - A JSON array of objects, in the wig's signal order.
-- Each object carries exactly `alias`, `pronto`, and `send_count` (explicit even when 1); unknown keys are excluded.
+- Each object carries exactly **four** keys -- `alias`, `pronto`, `ditto_count`, `bypass_protocol` -- every field, every signal, every time. No conditional rules, no omissions. `send_count` does not appear. Unknown keys are excluded.
 - Keys sorted alphabetically, compact separators (no whitespace).
 - `pronto` whitespace-normalized (single spaces between 4-digit words) and lowercased.
 
@@ -122,7 +140,7 @@ The hash form is `sha256:<hex digest>` over the UTF-8 encoding of that string. N
 Matrix fittings bind to the matrix, so `hair-wig/2` defines a canonical form for the climate block, with the same posture as the signals form:
 
 - A JSON object carrying exactly `unit`, `off`, `on`, and `cells`.
-- `cells` is an array of objects in the wig's cell order; each object carries exactly `mode`, `fan`, `swing`, `temp`, `pronto`, and `send_count`, with absent dimensions as explicit `null` and `send_count` explicit even when 1. Unknown keys are excluded.
+- `cells` is an array of objects in the wig's cell order; each object carries exactly `mode`, `fan`, `swing`, `temp`, and `pronto`, with absent dimensions as explicit `null`. Unknown keys are excluded. `send_count` left this object in the same break that removed it from signals, for the same reason: the dimension checklist never transmitted it. Cells carry no `ditto_count` at all, because dittos are an NEC-family frame construct and an air-conditioner state blob is one long frame.
 - Every Pronto (`off`, `on`, each cell) whitespace-normalized to single spaces and lowercased; an absent `on` is `null`.
 - Keys sorted alphabetically, compact separators (no whitespace).
 - `unit` participates on purpose: the same numbers on a different scale are different states, so a 22 C lattice and a 22 F lattice can never share a fitting ledger.
@@ -159,7 +177,7 @@ The load-bearing rules:
 - `confirmed` and `failed` are row-key lists, not counts. Anything in neither list was not tested. For a signal wig the keys are aliases, exactly as before 0.8.8. For a matrix wig the keys are cell keys (`cool/auto/23` -- coordinates joined by `/`, absent dimensions omitted, whole-number temps written bare and half-degree temps with their decimal) plus the literal `on` and `off` for the power codes.
 - `content_hash` is the wig's canonical hash above (signals hash for signal wigs, cells hash for matrix wigs), computed when the fitting was made. If the hashed content changes afterward (including an alias rename on a signal wig, or any cell change on a matrix wig), the hash no longer matches and the fitting is displayed as outdated rather than silently claiming codes it never saw.
 - A fitting is **complete** when `confirmed` covers every fitting row of the wig and `failed` is empty. For a signal wig the rows are its signals, one each. For a matrix wig the rows are the **dimension checklist**: a deterministic 12-to-20-row walk derived purely from the climate block that covers the on code, one representative cell per mode, every fan speed and every swing position in the richest mode, the coldest and warmest temperatures, and the off code last. The checklist attests that each dimension works along its own axis; it does not claim every cell was individually fired, and the flat extras alongside a matrix are not rows at all. HAIR only lets complete fittings travel: its download and share paths strip incomplete or in-progress fittings, so a shared wig carries whole claims or none.
-- `send_times_used` (optional, added in HAIR 0.9.0) records how many times each signal was transmitted per press during this fitting: the value of the session's send-times control, raised when a device does not respond to a single send. It is evidence about the fitter's conditions (distance, blaster power, angle), never a rewrite of any signal's `send_count` -- it sits on the fitting entry, outside both canonical hashes, so recording it cannot invalidate anything. **Absent is not 1**: a fitting without the field predates it (or came from a tool that does not write it) and claims nothing, while an explicit `1` means the fitter had the control and one send was enough. Readers clamp the value to 1..10 on read. Consumers aggregate across complete fittings by taking the **maximum**, never the mean -- send times is a threshold ("at least N to be reliable"), and HAIR's ADOPT DEVICE seeds new commands and matrix cells from that maximum, with the wig's own `send_count` winning where higher. On a matrix wig the value attests the sampled dimension checklist, not every cell in the lattice.
+- `send_times_used` (optional, added in HAIR 0.9.0) records how many times each signal was transmitted per press during this fitting: the value of the session's send-times control, raised when a device does not respond to a single send. It is evidence about the fitter's conditions (distance, blaster power, angle), never a rewrite of any signal's `send_count` -- it sits on the fitting entry, outside both canonical hashes, so recording it cannot invalidate anything. **Absent is not 1**: a fitting without the field predates it (or came from a tool that does not write it) and claims nothing, while an explicit `1` means the fitter had the control and one send was enough. Readers clamp the value to 1..10 on read. Consumers aggregate across complete fittings by taking the **maximum**, never the mean -- send times is a threshold ("at least N to be reliable"), and HAIR's ADOPT seeds new commands and matrix cells from that maximum, with the wig's own `send_count` winning where higher. On a matrix wig the value attests the sampled dimension checklist, not every cell in the lattice.
 - `key` and `sig` are optional. When present, `sig` is an ed25519 signature over the fitting object minus `sig` (with `key` included), serialized with sorted keys, compact separators, UTF-8. The key pair is generated on the fitting install; a valid signature means the fitting has not been altered since it was recorded there. Unsigned fittings are valid; they are simply self-reported.
 - Fittings are social proof, not cryptographic identity. The handle is what the fitter typed; the GitHub handle is checkable by asking that person; the signature proves the record is unaltered and that fittings sharing a key came from one install.
 

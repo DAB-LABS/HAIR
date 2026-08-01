@@ -207,6 +207,10 @@ export interface CombReport extends CombSummary {
     matrix: boolean;
     findings: CombFinding[];
     truncated?: number;
+    // Rows the comb did not judge because they are pinned to raw. It
+    // records these in the receipt already; naming them here is what
+    // stops a clean report implying a check that never ran.
+    skipped?: string[];
 }
 
 // Perfect Fit: the fitting layer.
@@ -293,6 +297,18 @@ export interface FittingRow {
     protocol?: string | null;
     // True when the row is pinned to raw replay.
     bypass_protocol?: boolean;
+    // The transmit recipe's two knobs, as the file states them.
+    //
+    // send_count is the row's stated floor: a ride-along, out of the
+    // content hash, freely editable because no fitting ever attested
+    // it. ditto_count is device grammar, IS hashed, and can only change
+    // through a tune that something proved.
+    send_count?: number;
+    ditto_count?: number;
+    // What the original remote emitted when the code was captured, if
+    // anything recorded it. Shown as a hint in the expanded ditto
+    // stepper: the device's own answer to "how many does it send?".
+    observed_repeat_count?: number | null;
 }
 
 // One event from the Replace strip's listen window.

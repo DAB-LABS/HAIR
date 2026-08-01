@@ -112,7 +112,7 @@ export class IrCombReport extends LitElement {
                             <path d=${COMB_PATH}></path>
                         </svg>
                     </h3>
-                    ${this._renderBody()}
+                    ${this._renderBody()} ${this._renderSkipped()}
                     <div class="foot-note">${t("comb.footer")}</div>
                     <div class="dialog-actions comb-actions">
                         <button
@@ -135,6 +135,22 @@ export class IrCombReport extends LitElement {
                 </div>
             </div>
         `;
+    }
+
+    /** The rows the comb deliberately did not check.
+     *
+     * Quiet, and below the findings, because it is not a finding: a
+     * pinned code is a decision somebody made, not a defect. But a
+     * report that lists two findings and says nothing about the two
+     * rows it skipped is claiming a completeness it does not have.
+     */
+    private _renderSkipped() {
+        const keys = this._report?.skipped ?? [];
+        if (!keys.length) return nothing;
+        return html`<div class="skipline">
+            <span>${t("comb.skipped_label")}</span>
+            <span class="skipkeys">${keys.join(", ")}</span>
+        </div>`;
     }
 
     private _renderBody() {
@@ -359,6 +375,21 @@ export class IrCombReport extends LitElement {
             .clean .tick {
                 color: #66bb6a;
                 font-size: 16px;
+            }
+
+            .skipline {
+                display: flex;
+                gap: 10px;
+                align-items: baseline;
+                margin-top: 12px;
+                padding-top: 10px;
+                border-top: 1px solid var(--divider-color);
+                font-size: 12px;
+                color: var(--secondary-text-color);
+            }
+            .skipkeys {
+                color: var(--primary-text-color);
+                opacity: 0.8;
             }
             .foot-note {
                 margin-top: 14px;

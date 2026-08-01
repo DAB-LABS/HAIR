@@ -38,6 +38,7 @@ come out, and the caller decides what to do with them.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
@@ -64,6 +65,8 @@ CHECK_MISSING_CELL = "missing-cell"
 CHECK_STRAY_CELL = "stray-cell"
 CHECK_COORDINATE_COLLISION = "coordinate-collision"
 CHECK_DUPLICATE_LABELS = "duplicate-labels"
+CHECK_BYPASS_WITH_DITTOS = "bypass-with-dittos"
+CHECK_RAMP_DITTOS = "ramp-dittos"
 
 # Worst first (findings Section 3). A duplicated neighbour leads because it
 # is the only class the device responds to: the user sets 17, gets 18, and
@@ -79,13 +82,28 @@ SEVERITY_ORDER = (
     CHECK_STRAY_CELL,
     CHECK_STRAY_BURST,
     CHECK_DUPLICATE_LABELS,
+    CHECK_BYPASS_WITH_DITTOS,
+    CHECK_RAMP_DITTOS,
 )
 
 # Advisory checks never count toward the "suspect" total and never light
 # the closet chip. Same code under two names is legitimate on a toggle
 # remote ("Power On" / "Power Off" sharing one code), and a flat file has
 # no lattice to prove intent either way -- this is triage, not deduction.
-ADVISORY_CHECKS = frozenset({CHECK_DUPLICATE_LABELS})
+ADVISORY_CHECKS = frozenset({
+    CHECK_DUPLICATE_LABELS,
+    # A hand-made file can carry both a raw pin and a ditto count. HAIR
+    # never writes that pair -- the exporter drops the ditto with a
+    # receipt -- so seeing it means a human wrote the file by hand and
+    # deserves a look, not a verdict. The pin still wins at transmit.
+    CHECK_BYPASS_WITH_DITTOS,
+    # A high ditto count on a ramp-prone button is a legitimate and
+    # visible behaviour choice: some receivers step once per ditto, so
+    # "Volume Up with 8 dittos" may be exactly what the author meant.
+    # Advisory forever, by design -- this is the one way the knob
+    # encodes a surprise, and surprises get mentioned, not corrected.
+    CHECK_RAMP_DITTOS,
+})
 
 
 @dataclass(frozen=True)
@@ -498,6 +516,59 @@ def _duplicate_label_findings(wig: Wig) -> list[Finding]:
     ]
 
 
+# Buttons whose whole job is to step a value. A ditto on one of these
+# repeats the step, so a high count is a behaviour choice worth
+# mentioning rather than a defect. Token match against the alias, using
+# the same lowercase-token approach the comb already takes elsewhere.
+_RAMP_TOKENS = frozenset({
+    "vol", "volume", "ch", "channel", "bright", "brightness", "dim",
+    "temp", "temperature", "speed", "level", "zoom", "track", "seek",
+    "scroll", "tune", "warmer", "cooler", "up", "down", "plus", "minus",
+})
+
+# Above this, a ramp button's ditto count stops looking like grammar and
+# starts looking like a decision. DEFAULT_REPEAT_COUNT is 1 and matches
+# NEC spec for a single tap, so the threshold sits well clear of normal.
+_RAMP_DITTO_THRESHOLD = 4
+
+
+def _bypass_ditto_findings(wig: Wig) -> list[Finding]:
+    """Both knobs set on one signal (owner ruling: mutually exclusive).
+
+    A raw blob has no ditto grammar. Only the encoder renders a
+    shortened repeat frame, so platform-level repetition of raw bytes is
+    whole-blob repetition, which is send_count's job. HAIR's own
+    exporter can never produce this pair; a hand-edited file can.
+    """
+    return [
+        Finding(
+            check=CHECK_BYPASS_WITH_DITTOS, keys=[sig.alias],
+            message="comb.bypass_with_dittos",
+            params={"count": str(sig.ditto_count)},
+        )
+        for sig in wig.signals
+        if sig.bypass_protocol and sig.ditto_count
+    ]
+
+
+def _ramp_ditto_findings(wig: Wig) -> list[Finding]:
+    """An unusually high ditto count on a button that steps a value."""
+    findings = []
+    for sig in wig.signals:
+        if sig.ditto_count <= _RAMP_DITTO_THRESHOLD:
+            continue
+        tokens = {
+            t for t in re.split(r"[^a-z0-9]+", sig.alias.lower()) if t
+        }
+        if tokens & _RAMP_TOKENS:
+            findings.append(Finding(
+                check=CHECK_RAMP_DITTOS, keys=[sig.alias],
+                message="comb.ramp_dittos",
+                params={"count": str(sig.ditto_count)},
+            ))
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # The entry point
 # ---------------------------------------------------------------------------
@@ -545,6 +616,10 @@ def comb_wig(wig: Wig) -> CombReport:
     else:
         findings += _shape_findings(rows, strict=False)
         findings += _duplicate_label_findings(wig)
+    # Recipe advisories run on BOTH kinds' flat signal lists: a matrix
+    # wig's flat extras are ordinary signals and can carry either knob.
+    findings += _bypass_ditto_findings(wig)
+    findings += _ramp_ditto_findings(wig)
 
     order = {check: i for i, check in enumerate(SEVERITY_ORDER)}
     findings.sort(key=lambda f: (order.get(f.check, 99), f.keys[:1]))

@@ -48,6 +48,8 @@ HAIR fingerprints every captured signal using short/long (S/L) pulse-duration an
 
 When HAIR can read a captured signal as a known protocol (NEC today), it also stores the decoded form alongside the raw timings for stronger matching and cleaner transmission. Raw timings remain the source of truth, and transmit can re-encode clean timings from the decoded value instead of replaying the captured ones, which fixes a class of replay failures against destinations that expect undistorted timing.
 
+When a rebuild is the wrong thing -- some devices only answer a capture whose repeats are baked in -- any decoded signal can be pinned to send its bytes verbatim. The protocol pill on a device command, Sniffer row, or Clipper row toggles between the decoded name and BYPASS, and the choice travels: it rides assignment, export, and the wig file itself, so a code somebody repaired arrives working for the next person (see [The wig format](docs/wig-format.md)).
+
 ## Screenshots
 
 | Devices Overview | Device Detail |

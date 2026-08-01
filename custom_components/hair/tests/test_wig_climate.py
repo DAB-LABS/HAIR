@@ -36,6 +36,7 @@ from custom_components.hair.wig_format import (
     ClimateCell,
     Wig,
     WigSignal,
+    canonical_cells_json,
     cells_content_hash,
     parse_wig,
     serialize_wig,
@@ -147,7 +148,11 @@ class TestAdapter:
     def test_roundtrips_through_wig_format(self):
         wig = convert(_smartir_file()).wigs[0]
         text = serialize_wig(wig)
-        assert '"format": "hair-wig/2"' in text
+        # Both kinds stamp /3 from the recipe break on: removing
+        # send_count from the cell canonical rolled matrix hashes too, so
+        # a matrix wig has to refuse on an old install exactly as a flat
+        # one does.
+        assert '"format": "hair-wig/3"' in text
         parsed = parse_wig(text)
         assert parsed.ok, parsed.errors
         assert cells_content_hash(parsed.wig.climate) == \
@@ -419,17 +424,23 @@ class TestResolveCell:
 
 
 class TestHashRegression:
-    def test_v1_hash_unchanged_by_cold_cuts(self):
-        """Existing fittings bind to signals_content_hash; the value
-        for a signal wig must be identical before and after this
-        release. Pinned against a literal digest."""
+    def test_signal_wig_hash_pinned_after_the_recipe_break(self):
+        """A signal wig still binds to signals_content_hash, and the
+        value is pinned against a literal.
+
+        The digest CHANGED at the recipe break, deliberately and once:
+        send_count left the canonical form and both hashed recipe fields
+        became explicit. Cold Cuts left it alone; the recipe release
+        rolled it. Re-pinned here so a future accidental change to the
+        canonical form still fails loudly.
+        """
         sig = WigSignal(alias="Power", pronto=PRONTO)
         w = Wig(name="TV", signals=[sig])
         assert wig_content_hash(w) == signals_content_hash([sig])
         assert signals_content_hash([sig]) == (
             "sha256:"
-            "d4196489f8e398a7396cf46d1188ce595fea3ad6263e34d2fc8f"
-            "b37c6d8d0351"
+            "fa4a98d52f6a9fea79720a56be38b95d2eed99ed3db5a22b2a4d"
+            "d9b1665cb238"
         )
 
     def test_matrix_wig_binds_to_cells(self):
@@ -438,3 +449,30 @@ class TestHashRegression:
         # ...and is unaffected by the flat extras riding along.
         wig.signals = []
         assert wig_content_hash(wig) == cells_content_hash(wig.climate)
+
+
+class TestRecipeBreakOnCells:
+    """send_count left the cell canonical for the same reason it left
+    the signal canonical: the dimension checklist never transmitted it.
+
+    Cells carry no ditto field at all. Dittos are an NEC-family frame
+    construct and an AC state blob is one long frame, so there is
+    nothing for the concept to mean here (owner ruling).
+    """
+
+    def _matrix(self):
+        return convert(_smartir_file()).wigs[0].climate
+
+    def test_send_count_is_gone_from_the_cell_object(self):
+        canon = canonical_cells_json(self._matrix())
+        assert '"send_count"' not in canon
+        assert "ditto_count" not in canon
+
+    def test_unit_off_and_on_still_participate(self):
+        """Everything else about the cell canonical is untouched: the
+        break removed one key and changed nothing else."""
+        matrix = self._matrix()
+        base = cells_content_hash(matrix)
+
+        matrix.unit = "F" if matrix.unit == "C" else "C"
+        assert cells_content_hash(matrix) != base

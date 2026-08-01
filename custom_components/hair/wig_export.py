@@ -17,8 +17,9 @@ a signal with neither is skipped and counted, never guessed.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from .const import MAX_DITTO_COUNT
 from .ir_command import raw_to_pronto
 from .models import IRDevice, UnknownDevice
 from .wig_format import Wig, WigSignal
@@ -46,6 +47,13 @@ class WigBuild:
 
     wig: Wig | None
     skipped: int
+    # Receipts for values the export deliberately changed rather than
+    # refused. Currently only the bypass x ditto drop: a raw blob has no
+    # ditto grammar, so a nonzero ditto on a pinned command cannot ride
+    # along, and silently zeroing it would be the kind of quiet edit this
+    # format exists to prevent. Same shape as the adapters' skipped
+    # list: human strings, surfaced beside the export.
+    notes: list[str] = field(default_factory=list)
 
 
 def _pronto_for(
@@ -66,9 +74,34 @@ def _pronto_for(
     return None
 
 
+def _ditto_for_export(
+    alias: str, repeat_count: int | None, bypass: bool
+) -> tuple[int, str | None]:
+    """The wig's ditto value for one command, plus a receipt if dropped.
+
+    Bypass and dittos are mutually exclusive (owner ruling). A raw blob
+    has no ditto grammar: only the encoder can render a shortened repeat
+    frame, so platform-level repetition of raw bytes is whole-blob
+    repetition, which is send_count's job. Writing a nonzero ditto onto
+    a pinned signal would also contradict the pin's whole promise --
+    these bytes are the payload, do not improve them.
+
+    The drop is announced rather than silent. A wig that quietly lost a
+    value the author set is the failure this format exists to prevent.
+    """
+    value = max(0, min(int(repeat_count or 0), MAX_DITTO_COUNT))
+    if bypass and value:
+        return 0, (
+            f"{alias}: dittos ({value}) dropped, the code is pinned to "
+            "raw and a raw blob carries its repeats in the bytes"
+        )
+    return (0 if bypass else value), None
+
+
 def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
     """Serialize a catalog remote's signals into a wig."""
     signals: list[WigSignal] = []
+    notes: list[str] = []
     skipped = 0
     for i, sig in enumerate(device.signals, start=1):
         pronto = _pronto_for(
@@ -83,11 +116,22 @@ def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
             or (sig.decoded_fingerprint or "").strip()
             or f"Signal {i}"
         )
+        # The raw pin travels from the catalog too. Without this a
+        # Clipper remote exported as a wig arrived with the pin dropped,
+        # which is exactly the failure the pin was added to prevent --
+        # and the release notes already promise it rides "from the
+        # Sniffer or Clipper where you first meet the problem, through
+        # assigning, exporting, sharing and adopting".
+        bypass = bool(getattr(sig, "tx_force_raw", False))
+        ditto, note = _ditto_for_export(alias, sig.repeat_count, bypass)
+        if note:
+            notes.append(note)
         signals.append(WigSignal(
-            alias=alias, pronto=pronto, send_count=sig.send_count
+            alias=alias, pronto=pronto, send_count=sig.send_count,
+            ditto_count=ditto, bypass_protocol=bypass,
         ))
     if not signals:
-        return WigBuild(None, skipped)
+        return WigBuild(None, skipped, notes)
     return WigBuild(
         Wig(
             name=(device.label or "Exported Remote").strip()
@@ -96,12 +140,14 @@ def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
             origin=_ORIGIN_BY_SOURCE.get(device.source),
         ),
         skipped,
+        notes,
     )
 
 
 def build_wig_from_device(device: IRDevice) -> WigBuild:
     """Serialize a HAIR device's command set into a wig."""
     signals: list[WigSignal] = []
+    notes: list[str] = []
     skipped = 0
     for i, command in enumerate(device.commands, start=1):
         pronto = _pronto_for(
@@ -114,15 +160,21 @@ def build_wig_from_device(device: IRDevice) -> WigBuild:
             skipped += 1
             continue
         alias = (command.name or "").strip() or f"Command {i}"
+        ditto, note = _ditto_for_export(
+            alias, command.repeat_count, command.tx_force_raw,
+        )
+        if note:
+            notes.append(note)
         signals.append(WigSignal(
             alias=alias, pronto=pronto, send_count=command.send_count,
             # The raw pin travels with the codes (Highlights, GH #78).
             # Dropping it here is what made a repaired device export a
             # wig that arrived broken for the next person.
             bypass_protocol=command.tx_force_raw,
+            ditto_count=ditto,
         ))
     if not signals:
-        return WigBuild(None, skipped)
+        return WigBuild(None, skipped, notes)
     return WigBuild(
         Wig(
             name=(device.name or "Exported Device").strip()
@@ -140,4 +192,5 @@ def build_wig_from_device(device: IRDevice) -> WigBuild:
             ),
         ),
         skipped,
+        notes,
     )

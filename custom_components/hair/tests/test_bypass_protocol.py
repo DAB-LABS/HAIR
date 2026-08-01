@@ -517,3 +517,63 @@ class TestReplaceStartsFresh:
         await manager.async_flush()
         wig = parse_wig(wig_on_disk.read_text()).wig
         assert wig.signals[0].bypass_protocol is True
+
+
+class TestExportRecipeMapping:
+    """The export boundary maps IRCommand.repeat_count -> ditto_count,
+    exactly as it maps tx_force_raw -> bypass_protocol.
+
+    The rename is the point: internally HAIR calls dittos
+    ``repeat_count`` while humans say "repeats" for send counts, and the
+    portable format is the one place that ambiguity dies.
+    """
+
+    def _device(self, *, repeat_count, tx_force_raw):
+        from custom_components.hair.models import CommandCategory, IRDevice
+
+        device = IRDevice(name="Dreo", device_type="fan")
+        from custom_components.hair.models import IRCommand
+
+        command = IRCommand(
+            name="Power",
+            category=CommandCategory.CUSTOM,
+            protocol="PRONTO",
+            code=PRONTO,
+        )
+        command.repeat_count = repeat_count
+        command.tx_force_raw = tx_force_raw
+        device.commands.append(command)
+        return device
+
+    def test_repeat_count_becomes_ditto_count(self):
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        build = build_wig_from_device(
+            self._device(repeat_count=2, tx_force_raw=False)
+        )
+        assert build.wig.signals[0].ditto_count == 2
+        assert build.notes == []
+
+    def test_a_pinned_command_exports_zero_dittos_with_a_receipt(self):
+        """Bypass and dittos are mutually exclusive: a raw blob has no
+        ditto grammar, and writing one would contradict the pin's whole
+        promise. The drop is announced rather than silent."""
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        build = build_wig_from_device(
+            self._device(repeat_count=2, tx_force_raw=True)
+        )
+        sig = build.wig.signals[0]
+        assert sig.bypass_protocol is True
+        assert sig.ditto_count == 0
+        assert len(build.notes) == 1
+        assert "Power" in build.notes[0]
+
+    def test_a_pinned_command_with_no_dittos_needs_no_receipt(self):
+        from custom_components.hair.wig_export import build_wig_from_device
+
+        build = build_wig_from_device(
+            self._device(repeat_count=0, tx_force_raw=True)
+        )
+        assert build.wig.signals[0].ditto_count == 0
+        assert build.notes == []

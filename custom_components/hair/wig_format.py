@@ -32,7 +32,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from .const import MAX_SEND_COUNT
+from .const import MAX_DITTO_COUNT, MAX_SEND_COUNT
 from .pronto_validator import validate_pronto
 
 WIG_FORMAT_NAME = "hair-wig"
@@ -43,8 +43,27 @@ WIG_FORMAT_MAJOR = 1
 # read before; only matrix wigs are gated behind the version they
 # actually need.
 WIG_FORMAT_MAJOR_CLIMATE = 2
+# hair-wig/3 (Highlights, the transmit recipe): the canonical form takes
+# one complete break. ``ditto_count`` enters the signal hash,
+# ``bypass_protocol`` is promoted from only-when-true to always
+# explicit, and ``send_count`` leaves the hash entirely -- flat signals
+# AND matrix cells -- because the fitting has never transmitted it.
+#
+# Unlike the /2 bump, this major is a pure CAPABILITY gate rather than a
+# statement about the wig's kind: the parser has always decided
+# matrix-ness from the presence of the ``climate`` block, never from the
+# major, so both kinds now stamp /3. Both have to, because the break
+# changes cell hashes as well as signal hashes.
+#
+# The point of the bump is the failure message. An older HAIR reading a
+# /3 file would compute the old-style hash, see a mismatch, and report
+# what looks like TAMPERING on a perfectly good file. Refusing on the
+# version instead is the difference between "update HAIR to import it"
+# and an accusation.
+WIG_FORMAT_MAJOR_RECIPE = 3
 WIG_FORMAT_V1 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR}"
 WIG_FORMAT_V2 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_CLIMATE}"
+WIG_FORMAT_V3 = f"{WIG_FORMAT_NAME}/{WIG_FORMAT_MAJOR_RECIPE}"
 
 WIG_SUFFIX = ".wig.json"
 
@@ -135,7 +154,9 @@ def identifier_values(
     return [value] if isinstance(value, str) else list(value)
 
 
-_KNOWN_SIGNAL = {"alias", "pronto", "send_count", "bypass_protocol"}
+_KNOWN_SIGNAL = {
+    "alias", "pronto", "send_count", "ditto_count", "bypass_protocol",
+}
 
 _OPTIONAL_TOP_STRINGS = ("brand", "model", "kind", "notes", "origin")
 
@@ -146,7 +167,32 @@ class WigSignal:
 
     alias: str
     pronto: str
+    # The author's suggested per-press transmission count. A RIDE-ALONG
+    # from the recipe break onward: carried, clamped, adopt-seeded, and
+    # deliberately OUT of the content hash. The fitting has never
+    # transmitted this value -- the session's send-times control decides
+    # what goes on the wire -- so the signature never attested it, and
+    # pinning something no fitter proved was the wrong protection.
+    #
+    # The corollary is the point: five fitters proving the same codes at
+    # 3, 4, 3, 5 and 4 sends are proving THE SAME WIG, and now hash
+    # identically so their fittings accumulate on one file.
     send_count: int = 1
+    # Encoder repeat frames appended to each transmitted frame. IN the
+    # content hash, always explicit, because dittos change the waveform
+    # and the fitting transmits them.
+    #
+    # Named ditto_count rather than repeat_count on purpose: internally
+    # HAIR calls dittos ``repeat_count`` while humans say "repeats" for
+    # send counts, and the portable format is the one place that
+    # ambiguity can be killed. The export boundary maps
+    # ``IRCommand.repeat_count`` -> ``ditto_count``.
+    #
+    # Dittos are device grammar, not environment: a strict receiver (the
+    # NAD C320BEE of GH #14) rejects a lone NEC frame and needs the
+    # key-held pattern before it commits to a press. Distance does not
+    # change what a decoder chip demands.
+    ditto_count: int = 0
     # Send these bytes verbatim: do not decode and re-encode them
     # (Highlights, GH #78). It asserts nothing about protocol identity,
     # only "this is the payload, do not improve it", so unlike a decoded
@@ -301,7 +347,7 @@ def parse_wig(text: str) -> WigParseResult:
         return WigParseResult(None, [
             f'"format" is {fmt!r}, expected "hair-wig/1"'
         ])
-    if int(match.group(1)) > WIG_FORMAT_MAJOR_CLIMATE:
+    if int(match.group(1)) > WIG_FORMAT_MAJOR_RECIPE:
         return WigParseResult(None, [
             f"this wig uses {fmt}, which this version of HAIR does not "
             "read yet; update HAIR to import it"
@@ -394,6 +440,20 @@ def parse_wig(text: str) -> WigParseResult:
                     "when present"
                 )
                 bypass = False
+            # Same posture as send_count and bypass: refused rather than
+            # coerced. This one is hashed, so a guessed value would
+            # change the signature of a file the writer thought they
+            # understood.
+            ditto_count = raw.get("ditto_count", 0)
+            if (
+                not isinstance(ditto_count, int)
+                or isinstance(ditto_count, bool)
+            ):
+                errors.append(
+                    f"signals[{i}].ditto_count: must be an integer when "
+                    "present"
+                )
+                ditto_count = 0
             if len(errors) > signals_errors_before:
                 continue
             signals.append(WigSignal(
@@ -402,6 +462,7 @@ def parse_wig(text: str) -> WigParseResult:
                 # Clamp on materialize per plan; parse stores the clamp
                 # so every consumer sees one truth.
                 send_count=max(1, min(send_count, MAX_SEND_COUNT)),
+                ditto_count=max(0, min(ditto_count, MAX_DITTO_COUNT)),
                 bypass_protocol=bypass,
                 extra={k: v for k, v in raw.items() if k not in _KNOWN_SIGNAL},
             ))
@@ -575,7 +636,10 @@ def serialize_wig(wig: Wig) -> str:
     # The version follows the content: a wig with no climate block is
     # a v1 file every existing install reads; only matrix wigs demand
     # the version they need.
-    fmt = WIG_FORMAT_V2 if wig.climate is not None else WIG_FORMAT_V1
+    # Both kinds stamp /3: the break changed cell hashes as well as
+    # signal hashes, so a matrix wig has to refuse on an old install for
+    # exactly the same reason a flat one does.
+    fmt = WIG_FORMAT_V3
     out: dict = {"format": fmt, "name": wig.name}
     for key, value in (
         ("brand", wig.brand),
@@ -596,13 +660,22 @@ def serialize_wig(wig: Wig) -> str:
 
 
 def _signal_out(sig: WigSignal) -> dict:
+    """Serialize one signal.
+
+    Both recipe fields are written ALWAYS from hair-wig/3 on. The
+    only-when-true convention ``bypass_protocol`` shipped with lived for
+    exactly one release and dies here, before any external verifier ever
+    implemented it: the canonicalization spec WigFactory and any
+    upstream checker must reproduce byte-for-byte now has zero
+    conditional rules. ``send_count`` keeps its only-when-not-1
+    shorthand because it is no longer hashed, so its presence in the
+    file is a readability question rather than a correctness one.
+    """
     out: dict = {"alias": sig.alias, "pronto": sig.pronto}
     if sig.send_count != 1:
         out["send_count"] = sig.send_count
-    # Omitted when false, so a wig with nothing bypassed serializes
-    # byte-identically to one written before the field existed.
-    if sig.bypass_protocol:
-        out["bypass_protocol"] = True
+    out["ditto_count"] = sig.ditto_count
+    out["bypass_protocol"] = sig.bypass_protocol
     out.update(sig.extra)
     return out
 
@@ -649,16 +722,37 @@ def _climate_out(matrix: ClimateMatrix) -> dict:
 
 
 def canonical_signals_json(signals: list[WigSignal]) -> str:
-    """The v1 canonical form of a signals array, the fitting-hash target.
+    """The canonical form of a signals array, the fitting-hash target.
 
-    Contract (docs/wig-format.md mirrors this): a JSON array of objects
-    carrying exactly alias, pronto, send_count, plus ``bypass_protocol``
-    ONLY on signals that set it; keys sorted; separators compact;
-    ``pronto`` in its normalized form (validator whitespace
-    normalization, then lowercased hex); ``send_count`` explicit even
-    when 1; unknown per-signal keys excluded. Two wigs whose signals
-    differ only in formatting hash identically everywhere, and any
-    change to a code, alias, count, or bypass flag changes the hash.
+    Contract (docs/wig-format.md mirrors this, and WigFactory and any
+    upstream verifier must reproduce it byte-for-byte): a JSON array of
+    objects carrying EXACTLY four keys -- ``alias``, ``pronto``,
+    ``ditto_count``, ``bypass_protocol`` -- every field, every signal,
+    every time; keys sorted; separators compact; ``pronto`` in its
+    normalized form (validator whitespace normalization, then lowercased
+    hex); unknown per-signal keys excluded. Zero conditional rules.
+
+    The ruling principle: the hash covers what the fitting proves. A
+    fitting's signature certifies that this content drove the device
+    when a named person pressed the buttons, so it must cover exactly
+    the waveform that left the blaster and no more.
+
+    - ``pronto``: the bytes. Transmitted as stored.
+    - ``ditto_count``: repeat frames the encoder appends. Shapes the
+      waveform, and the fitting transmits it.
+    - ``bypass_protocol``: suppresses the re-encode. Shapes the
+      waveform.
+    - ``send_count``: ABSENT, deliberately. Whole-blob retransmission is
+      delivery, not meaning. The fitting has never transmitted the row's
+      value (the session control decides), so the signature never
+      attested it, and it has been hashed-but-unproven since
+      hair-wig/1.
+
+    The honest cost of that exclusion: someone can edit a send count on
+    a signed wig and the signature still verifies. The edit is loud,
+    locally fixable and clamped on import, and the protection budget
+    goes to the flips that make a device silently fail while looking
+    certified -- bytes, dittos, bypass -- which all stay pinned.
     """
     canon = []
     for sig in signals:
@@ -666,22 +760,12 @@ def canonical_signals_json(signals: list[WigSignal]) -> str:
         pronto = (
             result.normalized if result.valid else sig.pronto
         ).lower()
-        entry = {
+        canon.append({
             "alias": sig.alias,
             "pronto": pronto,
-            "send_count": sig.send_count,
-        }
-        # ONLY when true. A wig with nothing bypassed produces the exact
-        # three-key object it always did, so every wig and every fitting
-        # signature in the wild stays valid. Emitting ``false`` here
-        # would invalidate all of them at once.
-        #
-        # It belongs IN the hash because it changes what transmits:
-        # outside it, somebody could flip send behaviour after a wig was
-        # fitted and the signature would still verify.
-        if sig.bypass_protocol:
-            entry["bypass_protocol"] = True
-        canon.append(entry)
+            "ditto_count": sig.ditto_count,
+            "bypass_protocol": sig.bypass_protocol,
+        })
     return json.dumps(
         canon, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
@@ -700,14 +784,20 @@ def canonical_cells_json(matrix: ClimateMatrix) -> str:
     target (hair-wig/2 contract, mirrored in docs/wig-format.md).
 
     Same posture as ``canonical_signals_json``: every cell as an object
-    carrying exactly mode / fan / swing / temp / pronto / send_count
-    (absent dimensions as null, send_count explicit, pronto normalized
-    lowercase), plus off, on, and the block's unit, keys sorted,
-    separators compact. Two files whose matrices differ only in
-    formatting hash identically; any change to a code or a state key
-    changes the hash. The unit participates (2026-07-29) because the
-    same numbers on a different scale are different states -- a 22C
-    lattice and a 22F lattice must never share a fitting ledger.
+    carrying exactly mode / fan / swing / temp / pronto (absent
+    dimensions as null, pronto normalized lowercase), plus off, on, and
+    the block's unit, keys sorted, separators compact. Two files whose
+    matrices differ only in formatting hash identically; any change to a
+    code or a state key changes the hash. The unit participates
+    (2026-07-29) because the same numbers on a different scale are
+    different states -- a 22C lattice and a 22F lattice must never share
+    a fitting ledger.
+
+    ``send_count`` LEFT the cell object in the recipe break, for the
+    same reason it left the signal object: the checklist never
+    transmitted it. Cells carry no ditto field at all -- dittos are an
+    NEC-family frame construct and an AC state blob is one long frame
+    (owner ruling), so there is nothing for the concept to mean here.
     """
     def _pronto(code: str) -> str:
         result = validate_pronto(code)
@@ -724,7 +814,6 @@ def canonical_cells_json(matrix: ClimateMatrix) -> str:
                 "swing": c.swing,
                 "temp": _json_temp(c.temp) if c.temp is not None else None,
                 "pronto": _pronto(c.pronto),
-                "send_count": c.send_count,
             }
             for c in matrix.cells
         ],
