@@ -835,6 +835,12 @@ export class IrMirror extends LitElement {
         const bloom = this._bloomIds.has(sig.id);
         const actionable = !!sig.code;
         const isTesting = this._testingSignalId === sig.id;
+        // Both counts are optional on the wire and mean 1 when absent.
+        // The indicators below only render above 1, so the fallback never
+        // reaches a tooltip; binding them here is what gives TypeScript
+        // the narrowing it cannot infer from a `??` inside the guard.
+        const sendCount = sig.send_count ?? 1;
+        const repeatCount = sig.repeat_count ?? 1;
         return html`
             <div class="mrow ${bloom ? "bloom" : ""}">
                 <div class="mrow-main">
@@ -846,24 +852,24 @@ export class IrMirror extends LitElement {
                                   >${r.pill}</span
                               >`
                             : ""}
-                        ${(sig.send_count ?? 1) > 1
+                        ${sendCount > 1
                             ? html`<span
                                   class="repeat-indicator"
-                                  title=${t("mirror.sends_times", { count: sig.send_count })}
+                                  title=${t("mirror.sends_times", { count: sendCount })}
                                   ><ha-svg-icon
                                       .path=${ICON_REPEAT}
                                   ></ha-svg-icon
-                                  >${sig.send_count}</span
+                                  >${sendCount}</span
                               >`
                             : ""}
-                        ${(sig.repeat_count ?? 1) > 1 && sig.decoded_protocol
+                        ${repeatCount > 1 && sig.decoded_protocol
                             ? html`<span
                                   class="ditto-indicator"
-                                  title=${t("cmdrow.dittos", { count: sig.repeat_count })}
+                                  title=${t("cmdrow.dittos", { count: repeatCount })}
                                   ><ha-svg-icon
                                       .path=${ICON_DITTO}
                                   ></ha-svg-icon
-                                  >${sig.repeat_count}</span
+                                  >${repeatCount}</span
                               >`
                             : ""}
                     </div>

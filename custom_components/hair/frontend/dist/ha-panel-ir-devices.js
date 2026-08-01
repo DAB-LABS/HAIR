@@ -7080,7 +7080,7 @@ function e(e,i,t,a){var o,n=arguments.length,r=n<3?i:null===a?a=Object.getOwnPro
                     @input=${e=>{this._search=e.target.value}}
                 />
             </div>
-        `}_renderRow(e){const i=e.sig,t=this._bloomIds.has(i.id),a=!!i.code,o=this._testingSignalId===i.id;return B`
+        `}_renderRow(e){const i=e.sig,t=this._bloomIds.has(i.id),a=!!i.code,o=this._testingSignalId===i.id,n=i.send_count??1,r=i.repeat_count??1;return B`
             <div class="mrow ${t?"bloom":""}">
                 <div class="mrow-main">
                     <div class="mrow-title">
@@ -7089,21 +7089,21 @@ function e(e,i,t,a){var o,n=arguments.length,r=n<3?i:null===a?a=Object.getOwnPro
                                   class="pill ${e.pillRaw?"raw":""}"
                                   >${e.pill}</span
                               >`:""}
-                        ${(i.send_count??1)>1?B`<span
+                        ${n>1?B`<span
                                   class="repeat-indicator"
-                                  title=${ke("mirror.sends_times",{count:i.send_count})}
+                                  title=${ke("mirror.sends_times",{count:n})}
                                   ><ha-svg-icon
                                       .path=${"M17,17H7V14L3,18L7,22V19H19V13H17M7,7H17V10L21,6L17,2V5H5V11H7V7Z"}
                                   ></ha-svg-icon
-                                  >${i.send_count}</span
+                                  >${n}</span
                               >`:""}
-                        ${(i.repeat_count??1)>1&&i.decoded_protocol?B`<span
+                        ${r>1&&i.decoded_protocol?B`<span
                                   class="ditto-indicator"
-                                  title=${ke("cmdrow.dittos",{count:i.repeat_count})}
+                                  title=${ke("cmdrow.dittos",{count:r})}
                                   ><ha-svg-icon
                                       .path=${"M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"}
                                   ></ha-svg-icon
-                                  >${i.repeat_count}</span
+                                  >${r}</span
                               >`:""}
                     </div>
                     ${e.unknownSend?B`
