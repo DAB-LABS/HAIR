@@ -75,13 +75,15 @@ export class IrDeviceDetail extends LitElement {
 
     // Action mapping
     @state() private _actionOptions: ActionOption[] = [];
-    /** Reserved-width sizing for the action badge, recomputed whenever the
-     *  option list changes. See _measureActionBadges. */
-    @state() private _actionBadge: {
+    /** Reserved-width sizing for the action badge. Derived, not state:
+     *  recomputed during render whenever the set of labels in play changes,
+     *  and memoized on that set. See _actionBadgeMetrics. */
+    private _actionBadge: {
         sizerLabel: string;
         sizerFontPx: number;
         fontFor: Record<string, number>;
     } | null = null;
+    private _actionBadgeKey = "";
     @state() private _mappingCommandName: string | null = null;
     @state() private _popoverTop = 0;
     @state() private _popoverLeft = 0;
@@ -352,7 +354,38 @@ export class IrDeviceDetail extends LitElement {
         } catch {
             this._actionOptions = [];
         }
-        this._measureActionBadges();
+    }
+
+    /** Every label the badge can actually render for THIS device.
+     *
+     *  Not just the option list. _getActionLabel falls back to the raw
+     *  mapping key when a mapped key is absent from the device type's
+     *  options, which happens when a device carries a mapping from a type
+     *  it no longer is -- an AC on the bench still holds media_player keys
+     *  and renders POWER_TOGGLE, NAVIGATE_RIGHT and friends. Those escaped
+     *  the first version of this sizing, so the reservation came out too
+     *  narrow and the badges went ragged again. Measuring what is really
+     *  on screen closes that whole class of gap rather than the one case. */
+    private _badgeLabels(): string[] {
+        const labels = new Set<string>([t("cmdrow.actions")]);
+        for (const opt of this._actionOptions) labels.add(tv(opt.label));
+        for (const cmd of this.device?.commands ?? []) {
+            const label = this._getActionLabel(cmd.name);
+            if (label) labels.add(label);
+        }
+        return [...labels];
+    }
+
+    /** Memoized badge metrics, keyed on the label set itself so a mapping
+     *  change or a device switch recomputes and nothing else does. */
+    private _actionBadgeMetrics() {
+        const labels = this._badgeLabels();
+        const key = labels.join(" ");
+        if (key !== this._actionBadgeKey) {
+            this._actionBadgeKey = key;
+            this._actionBadge = this._measureActionBadges(labels);
+        }
+        return this._actionBadge;
     }
 
     /** Size the action badge once per device type (owner ruling,
@@ -371,12 +404,9 @@ export class IrDeviceDetail extends LitElement {
      *  that tells them apart. A device type whose longest label misses even
      *  the smallest tier keeps that tier and widens past the cap, which is
      *  a deliberate graceful failure rather than unreadable text. */
-    private _measureActionBadges(): void {
+    private _measureActionBadges(labels: string[]) {
         const ctx = document.createElement("canvas").getContext("2d");
-        if (!ctx) {
-            this._actionBadge = null;
-            return;
-        }
+        if (!ctx) return null;
         const family = getComputedStyle(this).fontFamily || "sans-serif";
         // measureText knows nothing about letter-spacing, and the badge
         // carries 0.03em; the chrome is the 10px side padding plus 1px
@@ -394,15 +424,11 @@ export class IrDeviceDetail extends LitElement {
                 (px) => widthOf(text, px) <= ACTION_BADGE_CAP_PX,
             ) ?? ACTION_BADGE_FONT_LADDER[ACTION_BADGE_FONT_LADDER.length - 1];
 
-        // The default label is a candidate too: a device type whose actions
-        // are all shorter than the word ACTIONS must not shrink below it.
-        const fallback = t("cmdrow.actions");
-        let sizerLabel = fallback;
+        let sizerLabel = t("cmdrow.actions");
         let sizerFontPx = ACTION_BADGE_FONT_LADDER[0];
-        let widest = widthOf(fallback, sizerFontPx);
+        let widest = 0;
         const fontFor: Record<string, number> = {};
-        for (const opt of this._actionOptions) {
-            const label = tv(opt.label);
+        for (const label of labels) {
             const px = tierFor(label);
             fontFor[label] = px;
             const w = widthOf(label, px);
@@ -412,7 +438,7 @@ export class IrDeviceDetail extends LitElement {
                 sizerFontPx = px;
             }
         }
-        this._actionBadge = { sizerLabel, sizerFontPx, fontFor };
+        return { sizerLabel, sizerFontPx, fontFor };
     }
 
     private async _loadTriggers() {
@@ -1452,6 +1478,7 @@ export class IrDeviceDetail extends LitElement {
 
     render() {
         const commands = this.device.commands;
+        const badge = this._actionBadgeMetrics();
         const count = commands.length;
 
         return html`
@@ -1543,14 +1570,13 @@ export class IrDeviceDetail extends LitElement {
                                           .command=${cmd}
                                           .busy=${this._busy}
                                           .actionLabel=${this._getActionLabel(cmd.name)}
-                                          .actionBadgeLabel=${this._actionBadge
-                                              ?.sizerLabel ?? null}
-                                          .actionBadgeFontPx=${this._actionBadge
-                                              ?.sizerFontPx ?? null}
-                                          .actionFontPx=${this._actionBadge
-                                              ?.fontFor[
+                                          .actionBadgeLabel=${badge?.sizerLabel ??
+                                          null}
+                                          .actionBadgeFontPx=${badge?.sizerFontPx ??
+                                          null}
+                                          .actionFontPx=${badge?.fontFor[
                                               this._getActionLabel(cmd.name) ??
-                                                  ""
+                                                  t("cmdrow.actions")
                                           ] ?? null}
                                           .hasTrigger=${this._commandHasTrigger(cmd)}
                                           .triggerCount=${this._commandTriggerCount(cmd)}
