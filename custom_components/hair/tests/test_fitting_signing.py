@@ -23,6 +23,8 @@ from custom_components.hair.fitting_signing import (
     verify_fitting,
 )
 
+PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
+
 
 def _keypair_b64() -> tuple[str, str]:
     import base64
@@ -250,3 +252,69 @@ class TestSendTimesInSignature:
         sign_fitting(entry, priv)
         entry["send_times_used"] = 3
         assert verify_fitting(entry) == SIGNED_INVALID
+
+
+class TestBypassIsSignedTransitively:
+    """Flipping ``bypass_protocol`` after a fitting breaks its signature
+    (Highlights, GH #78).
+
+    The flag is not in the fitting envelope. It is in the signals'
+    canonical form, which produces ``content_hash``, which the envelope
+    carries and the signature covers. That indirection is exactly why
+    the flag has to live inside the hash: if it sat outside, somebody
+    could change what a fitted wig transmits while its signature still
+    verified, and the attestation would be vouching for something the
+    device never receives.
+    """
+
+    def _signed(self, signals) -> dict:
+        from custom_components.hair.wig_format import signals_content_hash
+
+        priv, _pub = _keypair_b64()
+        entry = _entry()
+        entry["content_hash"] = signals_content_hash(signals)
+        sign_fitting(entry, priv)
+        return entry
+
+    def test_adding_the_flag_after_signing_invalidates(self):
+        from custom_components.hair.wig_format import (
+            WigSignal,
+            signals_content_hash,
+        )
+
+        signals = [WigSignal(alias="Power", pronto=PRONTO)]
+        entry = self._signed(signals)
+        assert verify_fitting(entry) == SIGNED_VALID
+
+        # The maintainer later decides Power needs raw replay.
+        signals[0].bypass_protocol = True
+        entry["content_hash"] = signals_content_hash(signals)
+        assert verify_fitting(entry) == SIGNED_INVALID
+
+    def test_removing_the_flag_after_signing_invalidates(self):
+        from custom_components.hair.wig_format import (
+            WigSignal,
+            signals_content_hash,
+        )
+
+        signals = [
+            WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True)
+        ]
+        entry = self._signed(signals)
+        assert verify_fitting(entry) == SIGNED_VALID
+
+        signals[0].bypass_protocol = False
+        entry["content_hash"] = signals_content_hash(signals)
+        assert verify_fitting(entry) == SIGNED_INVALID
+
+    def test_a_fitting_over_unbypassed_signals_still_verifies(self):
+        """The backward-compatibility half: adding the field to the
+        codebase must not disturb a signature over signals that never
+        use it."""
+        from custom_components.hair.wig_format import WigSignal
+
+        entry = self._signed([
+            WigSignal(alias="Power", pronto=PRONTO),
+            WigSignal(alias="Mode", pronto=PRONTO, send_count=2),
+        ])
+        assert verify_fitting(entry) == SIGNED_VALID

@@ -572,3 +572,114 @@ class TestClimateUnit:
         assert '"unit":"C"' in canonical_cells_json(c)
         assert '"unit":"F"' in canonical_cells_json(f)
         assert cells_content_hash(c) != cells_content_hash(f)
+
+
+# ---------------------------------------------------------------------------
+# bypass_protocol (Highlights, GH #78)
+# ---------------------------------------------------------------------------
+
+
+class TestBypassProtocol:
+    """Send these bytes verbatim, do not decode and re-encode them.
+
+    The flag exists because a capture whose repeats are baked in has no
+    way to declare itself: kno-te's Dreo Power code is a Symphony
+    repeat-train, HAIR re-encodes it to one clean frame, and the fan
+    ignores it. A device command could already say "send it raw"; a wig
+    could not, so the intent died at export and his wig would have
+    arrived broken for the next person.
+    """
+
+    def test_absent_flag_hashes_exactly_as_before(self):
+        """THE test that protects every wig in the wild.
+
+        A wig with nothing bypassed must produce the byte-identical
+        canonical string it produced before the field existed, or every
+        fitting signature ever written stops verifying at once. Pinned
+        against a literal, not against a recomputation.
+        """
+        canon = canonical_signals_json([
+            WigSignal(alias="Power", pronto=PRONTO),
+            WigSignal(alias="Mode", pronto=PRONTO, send_count=3),
+        ])
+        assert canon == (
+            f'[{{"alias":"Power","pronto":"{PRONTO_LOWER}","send_count":1}},'
+            f'{{"alias":"Mode","pronto":"{PRONTO_LOWER}","send_count":3}}]'
+        )
+        assert "bypass_protocol" not in canon
+
+    def test_explicit_false_hashes_the_same_as_absent(self):
+        """Setting it to False is not a change to the wig."""
+        plain = [WigSignal(alias="A", pronto=PRONTO)]
+        explicit = [
+            WigSignal(alias="A", pronto=PRONTO, bypass_protocol=False)
+        ]
+        assert signals_content_hash(plain) == signals_content_hash(explicit)
+
+    def test_true_changes_the_hash(self):
+        """It changes what transmits, so it must change identity --
+        otherwise somebody could flip send behaviour after a wig was
+        fitted and the signature would still verify."""
+        plain = [WigSignal(alias="A", pronto=PRONTO)]
+        bypassed = [
+            WigSignal(alias="A", pronto=PRONTO, bypass_protocol=True)
+        ]
+        assert signals_content_hash(plain) != signals_content_hash(bypassed)
+        assert "bypass_protocol" in canonical_signals_json(bypassed)
+
+    def test_round_trip(self):
+        wig = Wig(name="Dreo", signals=[
+            WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True),
+            WigSignal(alias="Mode", pronto=PRONTO),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert back.signals[0].bypass_protocol is True
+        assert back.signals[1].bypass_protocol is False
+
+    def test_false_is_omitted_from_output(self):
+        """So a wig with nothing bypassed is byte-identical on disk to
+        one written before the field existed."""
+        wig = Wig(name="Plain", signals=[WigSignal(alias="A", pronto=PRONTO)])
+        assert "bypass_protocol" not in serialize_wig(wig)
+
+    def test_it_does_not_fall_into_extra(self):
+        """Parsed explicitly, so a round-trip cannot emit it twice."""
+        wig = Wig(name="D", signals=[
+            WigSignal(alias="A", pronto=PRONTO, bypass_protocol=True),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert "bypass_protocol" not in back.signals[0].extra
+        assert serialize_wig(back).count("bypass_protocol") == 1
+
+    @pytest.mark.parametrize("bad", ["true", 1, 0, "yes", [], {}])
+    def test_a_non_bool_is_refused_not_coerced(self, bad):
+        """A truthy string would silently change both what the signal
+        transmits and what it hashes to, so a wrong type has to be an
+        error the writer can see rather than a value we guess at."""
+        result = _parse(_wig_dict(signals=[{
+            "alias": "A", "pronto": PRONTO, "bypass_protocol": bad,
+        }]))
+        assert not result.ok
+        assert any("bypass_protocol" in e for e in result.errors)
+
+    def test_true_and_false_are_both_accepted(self):
+        for value in (True, False):
+            result = _parse(_wig_dict(signals=[{
+                "alias": "A", "pronto": PRONTO, "bypass_protocol": value,
+            }]))
+            assert result.ok, result.errors
+            assert result.wig.signals[0].bypass_protocol is value
+
+    def test_an_old_reader_round_trips_it(self):
+        """Forward compatibility, documented in docs/wig-format.md. An
+        older HAIR parses the unknown key into ``extra``, and
+        ``_signal_out`` ends with ``out.update(sig.extra)``, so it
+        preserves the flag rather than destroying it. That install
+        transmits wrong, but its fitting reads as not matching rather
+        than silently attesting a code it sent differently."""
+        old_style = WigSignal(
+            alias="A", pronto=PRONTO, extra={"bypass_protocol": True},
+        )
+        out = serialize_wig(Wig(name="D", signals=[old_style]))
+        assert "bypass_protocol" in out
+        assert parse_wig(out).wig.signals[0].bypass_protocol is True

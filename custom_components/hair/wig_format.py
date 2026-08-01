@@ -135,7 +135,7 @@ def identifier_values(
     return [value] if isinstance(value, str) else list(value)
 
 
-_KNOWN_SIGNAL = {"alias", "pronto", "send_count"}
+_KNOWN_SIGNAL = {"alias", "pronto", "send_count", "bypass_protocol"}
 
 _OPTIONAL_TOP_STRINGS = ("brand", "model", "kind", "notes", "origin")
 
@@ -147,6 +147,19 @@ class WigSignal:
     alias: str
     pronto: str
     send_count: int = 1
+    # Send these bytes verbatim: do not decode and re-encode them
+    # (Highlights, GH #78). It asserts nothing about protocol identity,
+    # only "this is the payload, do not improve it", so unlike a decoded
+    # field it can never go stale against a better future decoder -- the
+    # reason wigs carry no decoded fields does not apply to it.
+    #
+    # Set where a code's repeats are baked into the capture: a Symphony
+    # repeat-train re-encodes to one clean frame and the device ignores
+    # it. Maps to and from the device command's ``tx_force_raw``.
+    #
+    # IN the content hash, but only when true (canonical_signals_json),
+    # because it changes what transmits.
+    bypass_protocol: bool = False
     extra: dict = field(default_factory=dict)
 
 
@@ -370,6 +383,17 @@ def parse_wig(text: str) -> WigParseResult:
                     f"signals[{i}].send_count: must be an integer when present"
                 )
                 send_count = 1
+            # Refused rather than coerced: a truthy string here would
+            # silently change what the signal transmits AND what it
+            # hashes to, so a wrong type has to be an error a writer can
+            # see, not a value we guess at.
+            bypass = raw.get("bypass_protocol", False)
+            if not isinstance(bypass, bool):
+                errors.append(
+                    f"signals[{i}].bypass_protocol: must be true or false "
+                    "when present"
+                )
+                bypass = False
             if len(errors) > signals_errors_before:
                 continue
             signals.append(WigSignal(
@@ -378,6 +402,7 @@ def parse_wig(text: str) -> WigParseResult:
                 # Clamp on materialize per plan; parse stores the clamp
                 # so every consumer sees one truth.
                 send_count=max(1, min(send_count, MAX_SEND_COUNT)),
+                bypass_protocol=bypass,
                 extra={k: v for k, v in raw.items() if k not in _KNOWN_SIGNAL},
             ))
 
@@ -574,6 +599,10 @@ def _signal_out(sig: WigSignal) -> dict:
     out: dict = {"alias": sig.alias, "pronto": sig.pronto}
     if sig.send_count != 1:
         out["send_count"] = sig.send_count
+    # Omitted when false, so a wig with nothing bypassed serializes
+    # byte-identically to one written before the field existed.
+    if sig.bypass_protocol:
+        out["bypass_protocol"] = True
     out.update(sig.extra)
     return out
 
@@ -623,12 +652,13 @@ def canonical_signals_json(signals: list[WigSignal]) -> str:
     """The v1 canonical form of a signals array, the fitting-hash target.
 
     Contract (docs/wig-format.md mirrors this): a JSON array of objects
-    carrying exactly alias, pronto, send_count; keys sorted; separators
-    compact; ``pronto`` in its normalized form (validator whitespace
+    carrying exactly alias, pronto, send_count, plus ``bypass_protocol``
+    ONLY on signals that set it; keys sorted; separators compact;
+    ``pronto`` in its normalized form (validator whitespace
     normalization, then lowercased hex); ``send_count`` explicit even
     when 1; unknown per-signal keys excluded. Two wigs whose signals
     differ only in formatting hash identically everywhere, and any
-    change to a code, alias, or count changes the hash.
+    change to a code, alias, count, or bypass flag changes the hash.
     """
     canon = []
     for sig in signals:
@@ -636,11 +666,22 @@ def canonical_signals_json(signals: list[WigSignal]) -> str:
         pronto = (
             result.normalized if result.valid else sig.pronto
         ).lower()
-        canon.append({
+        entry = {
             "alias": sig.alias,
             "pronto": pronto,
             "send_count": sig.send_count,
-        })
+        }
+        # ONLY when true. A wig with nothing bypassed produces the exact
+        # three-key object it always did, so every wig and every fitting
+        # signature in the wild stays valid. Emitting ``false`` here
+        # would invalidate all of them at once.
+        #
+        # It belongs IN the hash because it changes what transmits:
+        # outside it, somebody could flip send behaviour after a wig was
+        # fitted and the signature would still verify.
+        if sig.bypass_protocol:
+            entry["bypass_protocol"] = True
+        canon.append(entry)
     return json.dumps(
         canon, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
