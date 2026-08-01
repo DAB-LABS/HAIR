@@ -646,7 +646,6 @@ class UnknownSignal:
     # Decoded protocol identity (v0.4.0 Phase A). Populated at capture
     # when the infrared-protocols library can read the signal (NEC today),
     # and backfilled on load for older records. None when undecodable.
-    # ``tx_force_raw`` is a device-command concept and is NOT carried here.
     decoded_protocol: str | None = None
     decoded_address: int | None = None
     decoded_command: int | None = None
@@ -673,6 +672,18 @@ class UnknownSignal:
     # the new IRCommand at assign time via _apply_signal_provenance.
     repeat_count: int = DEFAULT_REPEAT_COUNT  # NEC ditto count
     send_count: int = 1  # whole-frame TX count
+    # Send the captured Pronto verbatim instead of re-encoding from the
+    # decoded identity (Highlights, GH #78). The third knob of exactly
+    # the same kind as the two above, and it exists because a capture
+    # whose repeats are baked in has no other way to declare itself: a
+    # Symphony repeat-train re-encodes to one clean frame and the device
+    # ignores it.
+    #
+    # A USER DECISION, and it survives re-capture on purpose. The capture
+    # path only touches hit_count and last_seen on an existing signal, so
+    # this rides through untouched like send_count and repeat_count
+    # already do. Do not add a refresh-on-hit that resets it.
+    tx_force_raw: bool = False
     # Mirror provenance (v0.6.6). Only ever set on rows of the synthetic
     # Mirror device: a human-readable line describing the most recent send
     # ("Test AC / Temp 22 -- via Living Room Broadlink"), and the receiver
@@ -711,6 +722,7 @@ class UnknownSignal:
             "plucked_command_name": self.plucked_command_name,
             "repeat_count": self.repeat_count,
             "send_count": self.send_count,
+            "tx_force_raw": self.tx_force_raw,
             "observed_repeat_count": self.observed_repeat_count,
             "echo_source": self.echo_source,
             "heard_by": list(self.heard_by) if self.heard_by is not None else None,
@@ -746,6 +758,7 @@ class UnknownSignal:
             plucked_command_name=data.get("plucked_command_name"),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
+            tx_force_raw=bool(data.get("tx_force_raw", False)),
             observed_repeat_count=int(data.get("observed_repeat_count", 0)),
             echo_source=data.get("echo_source"),
             heard_by=(

@@ -115,7 +115,11 @@ def build_wig_from_device(device: IRDevice) -> WigBuild:
             continue
         alias = (command.name or "").strip() or f"Command {i}"
         signals.append(WigSignal(
-            alias=alias, pronto=pronto, send_count=command.send_count
+            alias=alias, pronto=pronto, send_count=command.send_count,
+            # The raw pin travels with the codes (Highlights, GH #78).
+            # Dropping it here is what made a repaired device export a
+            # wig that arrived broken for the next person.
+            bypass_protocol=command.tx_force_raw,
         ))
     if not signals:
         return WigBuild(None, skipped)

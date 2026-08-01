@@ -103,6 +103,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_pluck_create_signal)
     websocket_api.async_register_command(hass, ws_pluck_delete_blaster)
     websocket_api.async_register_command(hass, ws_clip_create_signal)
+    websocket_api.async_register_command(hass, ws_signal_set_tx_force_raw)
     websocket_api.async_register_command(hass, ws_unknown_signal_edit_pronto)
     websocket_api.async_register_command(hass, ws_unknown_signal_snap_preview)
     websocket_api.async_register_command(hass, ws_clip_validate_pronto)
@@ -1901,6 +1902,7 @@ async def ws_clip_create_remote(
     vol.Optional("send_count"): vol.All(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
+    vol.Optional("tx_force_raw"): bool,
 })
 @websocket_api.async_response
 async def ws_clip_create_signal(
@@ -1918,6 +1920,7 @@ async def ws_clip_create_signal(
         msg["device_id"], msg["pronto"], msg.get("alias", ""),
         repeat_count=msg.get("repeat_count"),
         send_count=msg.get("send_count"),
+        tx_force_raw=msg.get("tx_force_raw"),
     )
     if not result["success"]:
         connection.send_error(
@@ -1927,6 +1930,43 @@ async def ws_clip_create_signal(
         )
         return
     connection.send_result(msg["id"], {"signal": result["signal"]})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/unknown/signal/set-tx-force-raw",
+    vol.Required("device_id"): str,
+    vol.Required("signal_id"): str,
+    vol.Required("tx_force_raw"): bool,
+})
+@websocket_api.async_response
+async def ws_signal_set_tx_force_raw(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Pin a catalog signal to raw replay, or unpin it.
+
+    The Sniffer / Clipper twin of the device command's toggle. Setting it
+    here is what lets the intent survive assign, export and adopt rather
+    than dying on the clipped remote where the user found the problem.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(
+            msg["id"], "not_configured", "HAIR not configured"
+        )
+        return
+    monitor: SignalMonitor = data["signal_monitor"]
+    ok = await monitor.set_signal_tx_force_raw(
+        msg["device_id"], msg["signal_id"], msg["tx_force_raw"]
+    )
+    if not ok:
+        connection.send_error(
+            msg["id"], "not_found", "Signal not found"
+        )
+        return
+    connection.send_result(msg["id"], {"tx_force_raw": msg["tx_force_raw"]})
 
 
 @websocket_api.require_admin
@@ -3825,6 +3865,9 @@ async def ws_wig_make_device(
         # Definition wins when higher; fitting evidence raises, never
         # lowers. Flat extras on a matrix wig ride this same loop.
         command.send_count = max(1, sig.send_count or 1, fitted_sends)
+        # The other half of the export mapping: without this the marker
+        # rides in the file and does nothing on the receiving end.
+        command.tx_force_raw = sig.bypass_protocol
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1
