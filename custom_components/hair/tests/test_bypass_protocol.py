@@ -36,6 +36,7 @@ from custom_components.hair.wig_format import (
     WigSignal,
     parse_wig,
     serialize_wig,
+    wig_content_hash,
 )
 
 from .test_capture_dittos import _infrared_mod
@@ -356,3 +357,77 @@ def test_full_chain_signal_to_adopted_command(tmp_path):
     adopted = IRCommand(name="Power", category="power")
     adopted.tx_force_raw = shared.signals[0].bypass_protocol
     assert adopted.tx_force_raw is True, "died at adopt"
+
+
+# ---------------------------------------------------------------------------
+# The fitting: a pinned row is a checklist row, not an advisory one
+# ---------------------------------------------------------------------------
+
+
+class TestPinnedRowsAreStillProved:
+    """Ruling 7.1, and the trap it names.
+
+    The comb declines to judge a bypassed row, and it would be easy to
+    let that exemption leak into the fitting as an ADVISORY row -- the
+    path comb suspects already ride, where a row is sent and tested but
+    carries no verdict and never counts toward completeness.
+
+    That would be a false pass. A bypassed code is a real button on a
+    real remote, and it is the button somebody had to go out of their
+    way to repair. If it stopped counting, a fitter could complete and
+    sign a fitting attesting every code EXCEPT the one that needed the
+    work. What the pin buys is a chip, not an exemption.
+    """
+
+    def _wig(self) -> Wig:
+        return Wig(name="Dreo Fan", signals=[
+            WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True),
+            WigSignal(alias="Mode", pronto=_PRONTO_B),
+        ])
+
+    def test_it_is_a_fitting_row(self):
+        from custom_components.hair.wig_fitting import fitting_rows
+
+        keys = [k for k, _, _ in fitting_rows(self._wig())]
+        assert keys == ["Power", "Mode"]
+
+    def test_it_is_not_advisory_in_the_session(self):
+        from custom_components.hair.wig_comb import comb_wig, stamp_receipt
+        from custom_components.hair.wig_fitting import session_row_specs
+
+        wig = self._wig()
+        stamp_receipt(wig, comb_wig(wig), "2026-08-01")
+        specs = {s.key: s for s in session_row_specs(wig)}
+        assert specs["Power"].advisory is False
+
+    def test_it_counts_toward_completeness(self):
+        """The assertion that makes the whole distinction real."""
+        from custom_components.hair.wig_fitting import (
+            fitting_is_complete,
+            parse_fittings,
+        )
+
+        wig = self._wig()
+        # Every row but the pinned one confirmed: NOT complete.
+        wig.extra["fittings"] = [{
+            "handle": "dab", "date": "2026-08-01",
+            "content_hash": wig_content_hash(wig),
+            "confirmed": ["Mode"], "failed": [],
+        }]
+        partial = parse_fittings(wig).fittings[0]
+        assert not fitting_is_complete(partial, wig)
+
+        # Add it and the fitting completes.
+        wig.extra["fittings"][0]["confirmed"] = ["Mode", "Power"]
+        full = parse_fittings(wig).fittings[0]
+        assert fitting_is_complete(full, wig)
+
+    def test_combing_a_pinned_wig_leaves_a_signed_fitting_alone(self):
+        """Combing stamps a receipt without rolling the hash, and the
+        pin does not change that."""
+        from custom_components.hair.wig_comb import comb_wig, stamp_receipt
+
+        wig = self._wig()
+        before = wig_content_hash(wig)
+        stamp_receipt(wig, comb_wig(wig), "2026-08-01")
+        assert wig_content_hash(wig) == before

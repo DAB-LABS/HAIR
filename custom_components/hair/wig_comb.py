@@ -124,6 +124,11 @@ class CombReport:
     """What a check found, ready for a receipt or a dialog."""
 
     findings: list[Finding] = field(default_factory=list)
+    # Row keys the comb declined to judge because they are pinned to raw
+    # (Highlights, GH #78). Recorded so a reader can tell "nothing wrong
+    # with this row" from "nobody looked at this row" -- the same
+    # distinction the receipt itself draws between clean and absent.
+    skipped: list[str] = field(default_factory=list)
     version: int = COMB_VERSION
 
     @property
@@ -150,6 +155,8 @@ class CombReport:
             "counts": self.counts(),
             "findings": [f.to_dict() for f in stored],
         }
+        if self.skipped:
+            receipt["skipped"] = list(self.skipped)
         if len(self.findings) > len(stored):
             receipt["truncated"] = len(self.findings) - len(stored)
         return receipt
@@ -504,8 +511,23 @@ def comb_wig(wig: Wig) -> CombReport:
     free diagnostic that something else is wrong.
     """
     findings: list[Finding] = []
+    # A bypassed signal is a deliberate repeat-train (Highlights, GH #78),
+    # so it is excluded from the shape checks entirely -- and that means
+    # BOTH halves: it is not judged, and it does not vote on what normal
+    # looks like. Skipping only the judgement would leave kno-te's
+    # seven-frame Power code in the population that decides the median for
+    # a remote whose every other button is one frame, which would silence
+    # one false positive and manufacture eight.
+    #
+    # The comb cannot have an opinion about a code somebody deliberately
+    # pinned to raw, and should not pretend to.
+    skipped = sorted(
+        sig.alias for sig in wig.signals if sig.bypass_protocol
+    )
     rows: list[tuple[str, str]] = [
-        (sig.alias, sig.pronto) for sig in wig.signals
+        (sig.alias, sig.pronto)
+        for sig in wig.signals
+        if not sig.bypass_protocol
     ]
     if wig.climate is not None:
         # The matrix and its flat extras are different populations: a
@@ -526,7 +548,7 @@ def comb_wig(wig: Wig) -> CombReport:
 
     order = {check: i for i, check in enumerate(SEVERITY_ORDER)}
     findings.sort(key=lambda f: (order.get(f.check, 99), f.keys[:1]))
-    return CombReport(findings=findings)
+    return CombReport(findings=findings, skipped=skipped)
 
 
 # ---------------------------------------------------------------------------
@@ -571,6 +593,8 @@ def receipt_summary(wig: Wig) -> dict[str, Any] | None:
         # catches unaided.
         "dangerous": bool(counts.get(CHECK_DUPLICATED_NEIGHBOUR)),
         "counts": counts,
+        # Rows the comb declined to judge because they are pinned to raw.
+        "skipped": [k for k in raw.get("skipped") or [] if isinstance(k, str)],
     }
 
 
@@ -592,6 +616,12 @@ def suspect_keys(wig: Wig) -> list[str]:
     findings = raw.get("findings")
     if not isinstance(findings, list):
         return []
+    # A bypassed row is not a suspect. The comb never judged it, so there
+    # is no doubt to surface -- and it reaches the fitting as an ordinary
+    # checklist row rather than an advisory one (7.1).
+    bypassed = {
+        sig.alias for sig in wig.signals if sig.bypass_protocol
+    }
     seen: list[str] = []
     for entry in findings:
         if not isinstance(entry, dict):
@@ -599,6 +629,7 @@ def suspect_keys(wig: Wig) -> list[str]:
         if entry.get("check") in ADVISORY_CHECKS:
             continue
         for key in entry.get("keys") or []:
-            if isinstance(key, str) and key not in seen:
+            if isinstance(key, str) and key not in seen \
+                    and key not in bypassed:
                 seen.append(key)
     return seen
