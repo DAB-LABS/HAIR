@@ -805,6 +805,18 @@ class SignalMonitor:
                 decoded_fp=decoded_fp,
                 echo_source=label,
                 reset_heard=True,
+                # What actually went out on the air, taken from the
+                # Command being transmitted rather than left at the
+                # dataclass defaults. Before this the Mirror row showed
+                # whatever someone had typed into that row's own editor,
+                # which could disagree with the command that produced it
+                # (owner-reported 2026-08-01: a command set to send
+                # twice whose Mirror row claimed three sends and three
+                # dittos). normalize_command rebuilds identity from the
+                # timings and carries no TX knobs, so they come off the
+                # Command here.
+                send_count=getattr(command, "send_count", None),
+                repeat_count=getattr(command, "repeat_count", None),
             )
         )
 
@@ -1031,8 +1043,19 @@ class SignalMonitor:
         echo_source: str,
         reset_heard: bool,
         heard: str | None = None,
+        send_count: int | None = None,
+        repeat_count: int | None = None,
     ) -> None:
-        """Create or bump a Mirror row keyed by the send's identity."""
+        """Create or bump a Mirror row keyed by the send's identity.
+
+        ``send_count`` / ``repeat_count`` are the TX knobs the outgoing
+        Command actually used. They follow last-send semantics, matching
+        every other field this method rewrites on a bump (echo_source,
+        last_seen, heard_by): a Mirror row is a log of transmissions, so
+        it reports the most recent one. Both default to None, which
+        leaves the stored values untouched -- the echo-heard path calls
+        this with no knobs and must not clear them.
+        """
         now_iso = datetime.now(UTC).isoformat()
         async with self._lock:
             device = await self._mirror_device()
@@ -1061,6 +1084,12 @@ class SignalMonitor:
             signal.hit_count += 1
             signal.last_seen = now_iso
             signal.echo_source = echo_source
+            if send_count is not None:
+                signal.send_count = max(1, int(send_count))
+            if repeat_count is not None:
+                signal.repeat_count = max(
+                    0, min(int(repeat_count), MAX_DITTO_COUNT)
+                )
             if reset_heard:
                 signal.heard_by = []
             if heard and heard not in (signal.heard_by or []):

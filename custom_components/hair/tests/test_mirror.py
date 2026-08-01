@@ -91,6 +91,112 @@ class TestRecordSend:
         assert device.signals[0].hit_count == 3
 
 
+class TestMirrorCarriesTransmittedTxKnobs:
+    """The Mirror row reports what actually went out (owner ruling,
+    2026-08-01).
+
+    Before this the row kept the dataclass defaults, so its repeat and
+    ditto glyphs showed whatever had been typed into that row's own
+    editor. A command set to send twice could sit under a Mirror row
+    claiming three sends and three dittos, and nothing on screen said
+    which one described the transmission.
+    """
+
+    @staticmethod
+    def _n():
+        from custom_components.hair import signal_monitor as sm
+
+        return sm.normalize(
+            sm.EventParser.parse(_make_event(_nec_event("0x1234")).data)
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_records_the_transmitted_counts(self):
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=True, send_count=3, repeat_count=2,
+        )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 3
+        assert row.repeat_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_later_send_overwrites_with_last_send_semantics(self):
+        """Same field discipline as echo_source and last_seen: a Mirror
+        row describes the most recent transmission, not the first."""
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        for send, repeat in ((3, 2), (1, 0)):
+            await monitor._mirror_upsert(
+                n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+                reset_heard=True, send_count=send, repeat_count=repeat,
+            )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 1
+        assert row.repeat_count == 0
+
+    @pytest.mark.asyncio
+    async def test_the_echo_heard_path_leaves_the_counts_alone(self):
+        """_mirror_mark_heard and the foreign-echo path call upsert with
+        no knobs. Defaulting those to None rather than 1/0 is what stops
+        an arriving echo from erasing what the send recorded."""
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=True, send_count=4, repeat_count=3,
+        )
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=False, heard="binary_sensor.rx",
+        )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 4
+        assert row.repeat_count == 3
+
+    @pytest.mark.asyncio
+    async def test_counts_are_clamped(self):
+        from custom_components.hair.const import MAX_DITTO_COUNT
+
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=True, send_count=0, repeat_count=MAX_DITTO_COUNT + 9,
+        )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 1
+        assert row.repeat_count == MAX_DITTO_COUNT
+
+    @pytest.mark.asyncio
+    async def test_record_send_reads_the_knobs_off_the_command(self):
+        """The wiring itself: record_send must pull send_count and
+        repeat_count from the Command being transmitted, since
+        normalize_command rebuilds identity from timings alone and
+        carries no TX knobs."""
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        from custom_components.hair import signal_monitor as sm
+
+        command = SimpleNamespace(send_count=5, repeat_count=2)
+        # Sync mock on purpose: record_send hands the coroutine to
+        # async_create_task, so the CALL is what we assert on. An async
+        # stub would leave an un-awaited coroutine and capture nothing.
+        upsert = MagicMock()
+        with patch.object(monitor, "_mirror_upsert", upsert), \
+             patch.object(sm, "normalize_command", lambda _c: n):
+            monitor.record_send(command, "Test AC / Temp 22", ["remote.blaster"])
+        assert upsert.call_args.kwargs["send_count"] == 5
+        assert upsert.call_args.kwargs["repeat_count"] == 2
+
+
 class TestEchoClaim:
 
     @pytest.mark.asyncio

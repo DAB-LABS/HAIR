@@ -2073,16 +2073,21 @@ export class IrSignalMonitor extends LitElement {
            same reason, so the two stack cleanly whatever the diamonds do.
            A row that decoded nothing holds the column EMPTY rather than
            absent, keeping everything after it on one vertical line. */
+        /* 88px, measured rather than guessed: the widest label the chip
+           can render is SYMPHONY12 at 83.5px (SAMSUNG32 is 77, BYPASS
+           54). Every pixel not spent here goes to the diamonds, because
+           .signal-info is flex:1 and takes whatever the fixed columns
+           leave. */
         .chip-col {
-            flex: 0 0 96px;
+            flex: 0 0 88px;
             display: flex;
             justify-content: center;
             align-items: center;
         }
-        /* 72px holds a four-digit count ("1000 hits") without wrapping
-           or spilling into the meta beside it. */
+        /* 52px. "9999 hits" measures 45.4px, so four digits never
+           needed the 72px an earlier pass reserved for them. */
         .hits-col {
-            flex: 0 0 72px;
+            flex: 0 0 52px;
             text-align: center;
             font-size: 11px;
             color: var(--secondary-text-color);
@@ -2124,24 +2129,28 @@ export class IrSignalMonitor extends LitElement {
            the chip and the hits a few pixels row to row. Nothing here
            may size to its content.
 
-           68px is set by the LONGEST form, which is minutes rather than
+           58px is set by the LONGEST form, which is minutes rather than
            days: relTime yields "{count} min ago" below the hour, so
-           "59 min ago" (~58px) is wider than "365d ago" or even
-           "1000d ago". Days simply keep counting, so a year-old signal
-           reads "400d ago" and still fits. */
+           "59 min ago" (55.6px) is wider than "365d ago" (46.7) or even
+           "1000d ago" (53). Days keep counting rather than rolling into
+           years, so a signal heard three years ago reads "1095d ago"
+           and still fits.
+
+           42px on the frequency covers "455 kHz" (40.9), the widest
+           carrier the decoders report; the common "38 kHz" is 34.6. */
         .signal-meta {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             white-space: nowrap;
         }
         .meta-time {
-            flex: 0 0 68px;
+            flex: 0 0 58px;
             text-align: center;
         }
         .meta-freq {
-            flex: 0 0 44px;
+            flex: 0 0 42px;
             text-align: center;
         }
         .signal-actions {
