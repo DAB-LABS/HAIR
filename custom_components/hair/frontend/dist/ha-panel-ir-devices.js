@@ -10054,7 +10054,7 @@ function e(e,i,t,a){var o,n=arguments.length,r=n<3?i:null===a?a=Object.getOwnPro
                       ></ir-add-device-dialog>
                   `:""}
 
-            <div class="version-footer">v${"0.9.1"}</div>
+            <div class="version-footer">v${"0.9.2"}</div>
             </ha-top-app-bar-fixed>
         `:B`<div class="loading">${ke("panel.loading")}</div>`}};Ka.styles=r`
         :host {

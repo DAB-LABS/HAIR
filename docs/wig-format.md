@@ -51,6 +51,15 @@ There are two versions, and the version follows the content. A wig of plain butt
 
 Identifiers are search anchors for humans, not machine identity. The codes themselves remain the strongest fingerprint a wig has: two rebadged units from the same maker share their protocol and device address no matter whose logo is on the shell, and HAIR derives that identity fresh from every wig. Fill in whatever you know; leave out what you do not.
 
+**`bypass_protocol`** (optional per-signal boolean, added in HAIR 0.9.2) says *send these bytes verbatim; do not decode and re-encode them*. Normally an importing HAIR decodes each signal fresh and transmits clean rebuilt timings, which strips receiver distortion and is almost always right. It is wrong when a capture has its repeats baked in: some devices want a burst of frames, and rebuilding one clean frame from the decoded value throws the rest away, so the device does nothing. The field exists so that intent travels with the codes instead of being rediscovered by whoever imports the wig next.
+
+It asserts nothing about protocol identity, only that these bytes are the payload. That is why it does not violate the no-decoded-fields rule: it cannot go stale against a better future decoder. `send_count` stays orthogonal (a bypassed signal can still repeat the whole blob N times), and carrier handling is unchanged. It bypasses the codec, not all processing.
+
+Two rules ride with it:
+
+- **It is IN the canonical hash, but only when true.** It changes what transmits, so leaving it out would let someone alter a fitted wig's send behaviour while its signature still verified. Emitting it when false would instead change every existing wig's hash at once, so writers must omit it rather than write `false`.
+- **An older HAIR preserves it.** A reader that predates the field parses it as an unknown per-signal key, round-trips it on export, and excludes it from the hash. That install transmits the code the old way, and its fitting reads as not matching rather than silently attesting a code it sent differently.
+
 **Unknown keys are tolerated and preserved.** A reader ignores top-level and per-signal keys it does not recognize, and an editor that re-saves a wig keeps them. This is how the format grows without breaking old installs.
 
 **Validation is all-or-nothing.** A file either validates completely or is rejected with concrete, field-level reasons (`signals[3].pronto: ...`). There is no such thing as a half-imported wig.

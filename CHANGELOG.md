@@ -5,6 +5,19 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-08-01 -- Highlights
+
+### Added
+
+- **Some codes have to be sent exactly as captured, and now a wig can say so.** When HAIR recognises a signal it rebuilds it cleanly from the decoded value instead of replaying your recording, which strips receiver noise and is almost always the right thing. It is the wrong thing when a remote's repeats are baked into the capture: a fan that wants six frames gets one and does nothing. A per-command switch for that already existed, but it lived on the device and nowhere else, so the knowledge died the moment you shared the codes. Signals now carry the choice themselves, from the Sniffer or Clipper where you first meet the problem, through assigning, exporting, sharing and adopting. A wig you repaired arrives working for the next person.
+- **The protocol chip is now everywhere the codes are.** The pill that shows what a signal decoded as, and lets you switch it to raw, has moved onto Sniffer rows, Clipper rows and fitting rows as well as device commands. It reads BYPASS when a code is pinned to raw, and it is not there at all when nothing decoded, which is the same as before. In the fitting it is read-only, because changing a code from inside an attestation would invalidate the attestation.
+- **Repair a code during a fitting and choose how it sends, in one step.** The REPLACE strip now shows what your new capture decoded as and lets you pin it to raw before you confirm. The code and that decision are saved together, so a row is never briefly in a state where the bytes and the decision about them disagree.
+
+### Fixed
+
+- **Testing a pasted code in the Clipper no longer misleads you.** The Clipper's Test rebuilt recognised codes the same way a device does, but without the escape hatch a device has, so a code that needed raw replay failed there and looked like a bad code. It now honours the same setting, which means the Clipper can finally tell you the truth about a code before you build a device on it.
+- **Combing no longer accuses a deliberate repeat-train of being broken.** A code pinned to raw is a burst of frames by design, which is exactly the shape the code checker flags. Combing now skips those rows, and, just as importantly, leaves them out of the calculation of what normal looks like for that remote, so one deliberate long code cannot make all the ordinary ones look wrong. The receipt records that the row was skipped rather than passing it off as checked. It still gets tested like any other button during a fitting.
+
 ## [0.9.1] - 2026-07-31 -- Smart Perm
 
 ### Added

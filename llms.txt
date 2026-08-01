@@ -153,6 +153,20 @@ Key components:
   stale by hash, correctly). Discard puts back the codes the session replaced
   as well as its verdicts. Markers, the carry snapshot and the replaced-from
   record all ride extra maps outside every canonical hash (wig-format.md).
+- Bypass protocol (Highlights, v0.9.2): an optional per-signal boolean in the
+  wig format, and a matching tx_force_raw knob on UnknownSignal, meaning "send
+  these bytes verbatim, do not decode and re-encode". Motivated by GH #78: a
+  Symphony repeat-train re-encodes to one clean frame and the device ignores
+  it. Settable on a device command, a sniffed signal, a clipped signal and in
+  the fitting's REPLACE strip; carried across assign, export, adopt and CLIP.
+  IN the canonical signals hash but only when true, so every pre-existing wig
+  and fitting signature stays byte-identical. The comb SKIPS bypassed rows in
+  the shape checks and excludes them from the population that defines normal
+  (a repeat-train would otherwise drag the median and condemn its honest
+  siblings), and records the skip in the receipt -- but a bypassed row is a
+  normal fitting checklist row, never an advisory one, so it still takes a
+  verdict and counts toward completeness. Matrix cells do NOT carry it: the
+  matrix send path is already an unconditional raw replay.
 - Combing (Smart Perm, v0.9.1): protocol-agnostic checks that a wig's codes
   agree with each other, in wig_comb.py -- frame-shape uniformity, partial row
   collapse, gaps in a captured temperature run, coordinate uniqueness, and
