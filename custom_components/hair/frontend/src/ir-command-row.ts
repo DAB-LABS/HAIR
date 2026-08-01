@@ -31,6 +31,19 @@ export class IrCommandRow extends LitElement {
      * Falls back to hasTrigger (0/1) when the parent doesn't supply a count. */
     @property({ type: Number }) public triggerCount = 0;
 
+    /** The widest label this device type's action list can produce, used
+     *  as an invisible sizer so the badge button never changes width when
+     *  a command is mapped. Null leaves the button sized to its content. */
+    @property({ attribute: false }) public actionBadgeLabel: string | null =
+        null;
+    /** Font size the sizer renders at, so the reserved width matches the
+     *  size that label will really be drawn at. */
+    @property({ attribute: false }) public actionBadgeFontPx: number | null =
+        null;
+    /** Font size for THIS row's visible label. Long labels step down so
+     *  they fit the reserved width; short ones stay at full size. */
+    @property({ attribute: false }) public actionFontPx: number | null = null;
+
     /** Whether to show the action-mapping ("ACTIONS") button. Hidden for
      *  device types whose platform exposes no mappable feature actions
      *  (e.g. Other / the remote platform), where the popover would be empty. */
@@ -225,7 +238,22 @@ export class IrCommandRow extends LitElement {
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("map-action")}
                                   title=${t("cmdrow.map_action")}
-                              >${this.actionLabel || t("cmdrow.actions")}</button>`
+                              >${this.actionBadgeLabel
+                                      ? html`<span
+                                            class="badge-sizer"
+                                            aria-hidden="true"
+                                            style="font-size:${this
+                                                .actionBadgeFontPx ?? 10.5}px"
+                                            >${this.actionBadgeLabel}</span
+                                        >`
+                                      : ""}<span
+                                      class="badge-label"
+                                      style=${this.actionFontPx
+                                          ? `font-size:${this.actionFontPx}px`
+                                          : ""}
+                                      >${this.actionLabel ||
+                                      t("cmdrow.actions")}</span
+                                  ></button>`
                                   : ""}
                               <button
                                   class="action-btn test-btn"
@@ -453,11 +481,33 @@ export class IrCommandRow extends LitElement {
         .action-btn.learn-btn:hover {
             background: #1b5e20;
         }
+        /* The badge reserves room for the widest label its device type can
+           produce, so mapping an action never resizes the button and never
+           shoves TEST / TRIGGER / DELETE sideways (owner ruling,
+           2026-08-01). The reservation is a hidden copy of that label
+           stacked in the same grid cell as the visible one, so the browser
+           computes the width in the font and language actually rendered
+           rather than from an arithmetic guess that a translation would
+           break.
+
+           Mapped and unmapped were never different heights, despite
+           looking it: both are 23px. The filled primary tint on a mapped
+           badge simply reads heavier than a hollow one. */
         .action-btn.badge-btn {
             color: var(--secondary-text-color, #999);
             border-color: var(--divider-color);
             min-width: 50px;
             text-align: center;
+            display: inline-grid;
+            align-items: center;
+            justify-items: center;
+        }
+        .action-btn.badge-btn > * {
+            grid-area: 1 / 1;
+        }
+        .badge-sizer {
+            visibility: hidden;
+            pointer-events: none;
         }
         .action-btn.badge-btn[data-mapped] {
             color: var(--primary-color);

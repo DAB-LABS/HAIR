@@ -10,6 +10,17 @@ import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import "./ir-command-row.js";
+
+/** Action-badge sizing constants (owner ruling, 2026-08-01).
+ *  The cap is the width the badge is allowed to reserve before its label
+ *  starts stepping down a font tier. 96px clears fan (90px) and
+ *  media_player (93px) at full size, so the common device types never
+ *  shrink at all; light is the one type that steps down. */
+const ACTION_BADGE_CAP_PX = 96;
+const ACTION_BADGE_FONT_LADDER = [10.5, 9.5, 9];
+const ACTION_BADGE_WEIGHT = 500;
+const ACTION_BADGE_TRACKING = 0.03; // letter-spacing, em
+const ACTION_BADGE_CHROME_PX = 22; // 10px padding + 1px border, both sides
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-save-wig-dialog.js";
@@ -64,6 +75,13 @@ export class IrDeviceDetail extends LitElement {
 
     // Action mapping
     @state() private _actionOptions: ActionOption[] = [];
+    /** Reserved-width sizing for the action badge, recomputed whenever the
+     *  option list changes. See _measureActionBadges. */
+    @state() private _actionBadge: {
+        sizerLabel: string;
+        sizerFontPx: number;
+        fontFor: Record<string, number>;
+    } | null = null;
     @state() private _mappingCommandName: string | null = null;
     @state() private _popoverTop = 0;
     @state() private _popoverLeft = 0;
@@ -334,6 +352,67 @@ export class IrDeviceDetail extends LitElement {
         } catch {
             this._actionOptions = [];
         }
+        this._measureActionBadges();
+    }
+
+    /** Size the action badge once per device type (owner ruling,
+     *  2026-08-01).
+     *
+     *  Every command row in one device detail draws from the same option
+     *  list, so one reserved width makes the whole list rigid: mapping an
+     *  action can no longer grow the button and shove the buttons after it
+     *  sideways. Measured once here rather than per render, and only to
+     *  choose a font tier -- the actual width is settled in CSS by a hidden
+     *  copy of the widest label, which stays correct in any language.
+     *
+     *  Labels that do not fit the cap step down a tier rather than being
+     *  truncated: the two long ones are Color Temp Warmer / Cooler, and
+     *  clipping them to "Color Temp Warm..." would destroy the only word
+     *  that tells them apart. A device type whose longest label misses even
+     *  the smallest tier keeps that tier and widens past the cap, which is
+     *  a deliberate graceful failure rather than unreadable text. */
+    private _measureActionBadges(): void {
+        const ctx = document.createElement("canvas").getContext("2d");
+        if (!ctx) {
+            this._actionBadge = null;
+            return;
+        }
+        const family = getComputedStyle(this).fontFamily || "sans-serif";
+        // measureText knows nothing about letter-spacing, and the badge
+        // carries 0.03em; the chrome is the 10px side padding plus 1px
+        // border, doubled.
+        const widthOf = (text: string, px: number): number => {
+            ctx.font = `${ACTION_BADGE_WEIGHT} ${px}px ${family}`;
+            return (
+                ctx.measureText(text).width +
+                text.length * px * ACTION_BADGE_TRACKING +
+                ACTION_BADGE_CHROME_PX
+            );
+        };
+        const tierFor = (text: string): number =>
+            ACTION_BADGE_FONT_LADDER.find(
+                (px) => widthOf(text, px) <= ACTION_BADGE_CAP_PX,
+            ) ?? ACTION_BADGE_FONT_LADDER[ACTION_BADGE_FONT_LADDER.length - 1];
+
+        // The default label is a candidate too: a device type whose actions
+        // are all shorter than the word ACTIONS must not shrink below it.
+        const fallback = t("cmdrow.actions");
+        let sizerLabel = fallback;
+        let sizerFontPx = ACTION_BADGE_FONT_LADDER[0];
+        let widest = widthOf(fallback, sizerFontPx);
+        const fontFor: Record<string, number> = {};
+        for (const opt of this._actionOptions) {
+            const label = tv(opt.label);
+            const px = tierFor(label);
+            fontFor[label] = px;
+            const w = widthOf(label, px);
+            if (w > widest) {
+                widest = w;
+                sizerLabel = label;
+                sizerFontPx = px;
+            }
+        }
+        this._actionBadge = { sizerLabel, sizerFontPx, fontFor };
     }
 
     private async _loadTriggers() {
@@ -1464,6 +1543,15 @@ export class IrDeviceDetail extends LitElement {
                                           .command=${cmd}
                                           .busy=${this._busy}
                                           .actionLabel=${this._getActionLabel(cmd.name)}
+                                          .actionBadgeLabel=${this._actionBadge
+                                              ?.sizerLabel ?? null}
+                                          .actionBadgeFontPx=${this._actionBadge
+                                              ?.sizerFontPx ?? null}
+                                          .actionFontPx=${this._actionBadge
+                                              ?.fontFor[
+                                              this._getActionLabel(cmd.name) ??
+                                                  ""
+                                          ] ?? null}
                                           .hasTrigger=${this._commandHasTrigger(cmd)}
                                           .triggerCount=${this._commandTriggerCount(cmd)}
                                           .showActionMapping=${this.device.device_type !== "other" &&
