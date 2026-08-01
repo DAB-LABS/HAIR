@@ -3453,12 +3453,6 @@ def ws_fitting_listen(
     connection.send_result(msg_id, {"listening": True})
 
 
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/state",
-    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
-})
-@websocket_api.async_response
 def _row_protocol(pronto: str) -> str | None:
     """Decode one fitting row's protocol name, or None.
 
@@ -3478,6 +3472,12 @@ def _row_protocol(pronto: str) -> str | None:
     return identity.protocol if identity else None
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/state",
+    vol.Required("filename"): vol.All(str, vol.Length(max=300)),
+})
+@websocket_api.async_response
 async def ws_fitting_state(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
