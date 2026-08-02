@@ -3956,6 +3956,19 @@ async def ws_wig_make_device(
     # fittings and resolve to 1, a no-op.
     fitted_sends = fitting_send_times_max(wig)
 
+    # A closet wig written before v0.9.5 has no identity yet. Backfill
+    # it in the file, not just in memory, so the device and the wig
+    # agree from here on. Codebook adopts render a transient wig that
+    # was never in the closet, so there is nothing to backfill and
+    # nothing to inherit.
+    adopted_wig_id: str | None = None
+    if filename:
+        from .wig_store import backfill_wig_id
+
+        adopted_wig_id = await hass.async_add_executor_job(
+            backfill_wig_id, hass.config.config_dir, filename
+        )
+
     device = IRDevice(
         name=msg["name"],
         device_type=device_type,
@@ -3963,6 +3976,16 @@ async def ws_wig_make_device(
         model=wig.model,
         emitter_entity_ids=list(msg["emitter_entity_ids"]),
         climate_matrix=matrix is not None,
+        # WHERE IT CAME FROM (v0.9.5). Adopting a closet wig records
+        # that wig's identity, and the PRESENCE of it is what later
+        # makes SAVE TO CLOSET offer "update <wig>" instead of minting
+        # a second copy of something the closet already has.
+        #
+        # Only the FILE path carries one. A codebook adopt renders a
+        # transient wig that was never in the closet and has no
+        # identity to inherit, so it stays None and saves as a new wig,
+        # which is the truth about it.
+        source_wig_id=adopted_wig_id,
     )
     if matrix is not None:
         # The matrix file lands BEFORE the device exists (Cold Cuts):

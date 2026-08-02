@@ -360,3 +360,78 @@ class TestIdentityIsMintedAtTheChokePoint:
         again = parse_wig(serialize_wig(wig)).wig
         assert again.converted_from == "living-room.json"
         assert again.converted_from_sha256 == "sha256:abc"
+
+
+class TestDeviceRemembersItsSource:
+    """SAVE TO CLOSET decides between UPDATE and CREATE from what the
+    device remembers. Getting this wrong mints a second copy of a wig
+    the closet already holds."""
+
+    def test_the_source_round_trips(self):
+        from custom_components.hair.models import IRDevice
+        device = IRDevice(name="TV", source_wig_id="u-1")
+        again = IRDevice.from_dict(device.to_dict())
+        assert again.source_wig_id == "u-1"
+
+    def test_a_device_built_from_scratch_has_none(self):
+        from custom_components.hair.models import IRDevice
+        assert IRDevice(name="TV").source_wig_id is None
+
+    def test_pre_095_devices_read_as_built_from_scratch(self):
+        """Absent on every device made before this release, which is
+        the truth about them."""
+        from custom_components.hair.models import IRDevice
+        old = {"id": "d1", "name": "TV", "device_type": "media_player"}
+        device = IRDevice.from_dict(old)
+        assert device.source_wig_id is None
+        assert device.source_file is None
+
+
+class TestBackfillingClosetIdentity:
+    """A wig already in the closet never passed through upload, so it
+    has no id. Minting only in memory would be worse than not minting:
+    the device would carry an id the file does not."""
+
+    def _closet(self, tmp_path, text: str, name="old.wig.json"):
+        from custom_components.hair.wig_store import ensure_wigs_dir
+        directory = ensure_wigs_dir(tmp_path)
+        (directory / name).write_text(text, encoding="utf-8")
+        return name
+
+    def test_it_mints_and_persists(self, tmp_path):
+        import json
+
+        from custom_components.hair.wig_store import (
+            backfill_wig_id,
+            load_wig,
+        )
+        raw = json.dumps({
+            "format": "hair-wig/1",
+            "name": "Old",
+            "signals": [{"alias": "On", "pronto": PRONTO}],
+        })
+        name = self._closet(tmp_path, raw)
+        assert load_wig(tmp_path, name).wig_id is None
+
+        minted = backfill_wig_id(tmp_path, name)
+        assert minted
+        # The FILE has it now, not just the object we handed back.
+        assert load_wig(tmp_path, name).wig_id == minted
+
+    def test_it_is_idempotent(self, tmp_path):
+        import json
+
+        from custom_components.hair.wig_store import backfill_wig_id
+        raw = json.dumps({
+            "format": "hair-wig/3",
+            "name": "Known",
+            "wig_id": "already-mine",
+            "signals": [{"alias": "On", "pronto": PRONTO}],
+        })
+        name = self._closet(tmp_path, raw, "known.wig.json")
+        assert backfill_wig_id(tmp_path, name) == "already-mine"
+        assert backfill_wig_id(tmp_path, name) == "already-mine"
+
+    def test_an_unloadable_file_is_not_an_error(self, tmp_path):
+        from custom_components.hair.wig_store import backfill_wig_id
+        assert backfill_wig_id(tmp_path, "nope.wig.json") is None

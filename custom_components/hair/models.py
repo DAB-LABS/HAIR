@@ -196,6 +196,23 @@ class IRDevice:
     # devices JSON, which storage.py rewrites wholesale on every
     # update (census worst case 7.9 MB; addendum 2.3).
     climate_matrix: bool = False
+    # WHERE THIS DEVICE CAME FROM (v0.9.5 Fitting Room). Set at adopt
+    # and never by hand.
+    #
+    # ``source_wig_id`` is the wig's UUID, and its PRESENCE is the
+    # "this is an existing wig" tag -- there is no separate flag,
+    # because a second field could disagree with the first. It is what
+    # SAVE TO CLOSET reads to decide between offering UPDATE and
+    # offering CREATE, and what the shop routes a resulting PR by.
+    #
+    # ``source_file`` is the seed filename for a device built from a
+    # converted foreign file. That is a CREATE with provenance, not an
+    # update: nothing in the closet owns the result yet.
+    #
+    # Both None for a device built from scratch by sniffing or
+    # clipping. Local renames and send-count tweaks never touch either.
+    source_wig_id: str | None = None
+    source_file: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -370,6 +387,8 @@ class IRDevice:
             "entity_config": self.entity_config.to_dict(),
             "database_id": self.database_id,
             "climate_matrix": self.climate_matrix,
+            "source_wig_id": self.source_wig_id,
+            "source_file": self.source_file,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -400,6 +419,10 @@ class IRDevice:
             database_id=data.get("database_id"),
             # Absent (pre-0.8.8 record) resolves to False = preset mode.
             climate_matrix=bool(data.get("climate_matrix", False)),
+            # Absent on every device made before v0.9.5, which reads
+            # correctly as "built from scratch here".
+            source_wig_id=data.get("source_wig_id") or None,
+            source_file=data.get("source_file") or None,
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         )
