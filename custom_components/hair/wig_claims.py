@@ -24,7 +24,7 @@ what makes "suggest the rename" a plain PR rather than new machinery.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .fitting_signing import sign_fitting
@@ -40,6 +40,25 @@ from .wig_format import (
 _LOGGER = logging.getLogger(__name__)
 
 FITTINGS_KEY = "fittings"
+
+
+@dataclass
+class RenameOutcome:
+    """What a batch of rename proposals actually did.
+
+    ``stale`` is the interesting field. A proposal that matches nothing
+    -- because the wig moved on since the dialog opened -- writes
+    nothing, which is correct, but reporting it as plain success would
+    be a silent success-shaped nothing. The save result carries these
+    back so the fitter learns their rename did not land instead of
+    assuming it did.
+    """
+
+    applied: int = 0
+    #: Matched a row that already had that name. Harmless, not stale.
+    unchanged: list[RenameProposal] = field(default_factory=list)
+    #: Matched no row at all. The wig is not what the dialog showed.
+    stale: list[RenameProposal] = field(default_factory=list)
 
 
 @dataclass
@@ -98,8 +117,8 @@ def append_claims(
 
 def apply_rename_suggestions(
     wig: Wig, proposals: list[RenameProposal]
-) -> int:
-    """Write proposed aliases. Returns how many rows moved.
+) -> RenameOutcome:
+    """Write proposed aliases. Reports what landed and what did not.
 
     THE SUGGESTION IS THE APPLIED RENAME (design ruling): names sit
     outside every digest, so writing one into the file orphans nothing
@@ -123,27 +142,36 @@ def apply_rename_suggestions(
 
     The pair is unambiguous in both directions. It is also the identity
     ``RowClaim`` already uses -- alias_at_claim plus digest -- so a
-    rename proposal and a claim now point at a row the same way.
+    rename proposal and a claim point at a row the same way.
 
     A row that is a true duplicate of another in BOTH fields is
     indistinguishable by construction; there is no way to target one,
     so both move. That is the honest behaviour rather than a silent
     pick of the first.
     """
+    outcome = RenameOutcome()
     if not proposals:
-        return 0
-    wanted = {
-        (p.digest, p.alias_at_claim): p.alias
-        for p in proposals
-    }
-    written = 0
+        return outcome
+    by_key: dict[tuple[str, str], list[RenameProposal]] = {}
+    for proposal in proposals:
+        by_key.setdefault(
+            (proposal.digest, proposal.alias_at_claim), []
+        ).append(proposal)
+
+    landed: set[int] = set()
     for signal in wig.signals:
         key = (signal_row_digest(signal), signal.alias)
-        proposed = wanted.get(key)
-        if proposed and proposed != signal.alias:
-            signal.alias = proposed
-            written += 1
-    return written
+        for i, proposal in enumerate(by_key.get(key, [])):
+            landed.add(id(proposal))
+            if proposal.alias != signal.alias:
+                signal.alias = proposal.alias
+                outcome.applied += 1
+            elif i == 0:
+                outcome.unchanged.append(proposal)
+            break
+
+    outcome.stale = [p for p in proposals if id(p) not in landed]
+    return outcome
 
 
 def signals_block(text: str) -> str:
@@ -172,8 +200,10 @@ def update_wig_with_claims(
     bundle: ClaimsBundle,
     private_key_b64: str | None = None,
     renames: list[RenameProposal] | None = None,
-) -> tuple[str, dict[str, Any]] | None:
-    """Append claims to an existing wig's text. Returns (text, entry).
+) -> tuple[str, dict[str, Any], RenameOutcome] | None:
+    """Append claims to an existing wig's text.
+
+    Returns ``(text, entry, rename_outcome)``.
 
     Parses, appends, reserializes. None when the text will not parse.
 
@@ -188,7 +218,125 @@ def update_wig_with_claims(
     if not result.ok or result.wig is None:
         return None
     wig = result.wig
-    if renames:
+    outcome = (
         apply_rename_suggestions(wig, renames)
+        if renames
+        else RenameOutcome()
+    )
     entry = append_claims(wig, bundle, private_key_b64)
-    return serialize_wig(wig), entry
+    # The outcome rides back so the save result can report a rename
+    # that did not land. A stale proposal writing nothing is correct;
+    # reporting it as plain success would not be.
+    return serialize_wig(wig), entry, outcome
+
+
+# ---------------------------------------------------------------------------
+# Matching a device's commands to a wig's rows (UPDATE)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MatchRow:
+    """One side of the match: a row identified the way claims are."""
+
+    digest: str
+    alias: str
+
+
+@dataclass
+class RowMatch:
+    """A device command paired to a wig row."""
+
+    device_index: int
+    wig_index: int
+    digest: str
+    #: True when the PAIR matched -- same bytes AND same name. False
+    #: when only the digest did, which is the legitimate rename case
+    #: and what raises the "the wig calls this On; you call it Power"
+    #: line in the dialog.
+    exact: bool
+
+
+@dataclass
+class MatchResult:
+    matched: list[RowMatch] = field(default_factory=list)
+    #: Wig rows nothing on the device covers. These feed the exclusion
+    #: picker: the fitter says not_on_device or wont_work, or leaves
+    #: them unclaimed.
+    unmatched_wig_rows: list[int] = field(default_factory=list)
+    #: Device commands the wig does not have. These feed the
+    #: content-change prompt: propose adding them, or attest the rest.
+    unmatched_device_rows: list[int] = field(default_factory=list)
+
+
+def match_device_to_wig(
+    wig_rows: list[MatchRow], device_rows: list[MatchRow]
+) -> MatchResult:
+    """Pair a device's commands with a wig's rows, 1:1 and strictly.
+
+    TWO PASSES. First the PAIR (digest and alias together), which is
+    unambiguous and settles every row whose name did not change. Then
+    digest-only, across ONLY what the first pass left over, which is
+    what lets a locally renamed command still find its row.
+
+    Pair-first matters because digest-only on its own has the
+    duplicated-payload ambiguity: distinct names over one identical
+    code, the SmartIR defect class this pipeline exists for. Running
+    the exact pass first means those rows are already claimed by their
+    true partners before the loose pass can shuffle them.
+
+    CONSUMPTION IS STRICT. Every wig row and every device command is
+    used at most once. That is what keeps the two leftover lists honest
+    -- an unmatched wig row really is uncovered, an unmatched command
+    really is absent from the wig -- so the exclusion picker and the
+    content-change prompt cannot double-count the same row into both.
+
+    Residual ties in pass two are broken by file order, and that is
+    SOUND rather than merely convenient: rows sharing a digest share a
+    waveform by definition, so whichever way a tie resolves, the bytes
+    the claim binds are identical. No tie-break can route the wrong
+    code. Order is fixed rather than genuinely arbitrary only so the
+    same inputs always produce the same output; nothing depends on
+    which one wins.
+    """
+    result = MatchResult()
+    wig_taken: set[int] = set()
+    device_taken: set[int] = set()
+
+    def _index(rows: list[MatchRow], key, skip: set[int]) -> dict:
+        out: dict = {}
+        for i, row in enumerate(rows):
+            if i not in skip:
+                out.setdefault(key(row), []).append(i)
+        return out
+
+    # Pass one: the pair.
+    by_pair = _index(wig_rows, lambda r: (r.digest, r.alias), set())
+    for j, device_row in enumerate(device_rows):
+        available = by_pair.get((device_row.digest, device_row.alias))
+        if available:
+            i = available.pop(0)
+            result.matched.append(RowMatch(j, i, device_row.digest, True))
+            wig_taken.add(i)
+            device_taken.add(j)
+
+    # Pass two: digest alone, over the remainders only.
+    by_digest = _index(wig_rows, lambda r: r.digest, wig_taken)
+    for j, device_row in enumerate(device_rows):
+        if j in device_taken:
+            continue
+        available = by_digest.get(device_row.digest)
+        if available:
+            i = available.pop(0)
+            result.matched.append(RowMatch(j, i, device_row.digest, False))
+            wig_taken.add(i)
+            device_taken.add(j)
+
+    result.matched.sort(key=lambda m: m.device_index)
+    result.unmatched_wig_rows = [
+        i for i in range(len(wig_rows)) if i not in wig_taken
+    ]
+    result.unmatched_device_rows = [
+        j for j in range(len(device_rows)) if j not in device_taken
+    ]
+    return result

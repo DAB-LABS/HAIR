@@ -478,7 +478,7 @@ class TestUpdateTouchesNothingButClaims:
             update_wig_with_claims,
         )
         before = self._wig_text()
-        after, _ = update_wig_with_claims(before, self._bundle(before))
+        after, _, _ = update_wig_with_claims(before, self._bundle(before))
         assert signals_block(after) == signals_block(before)
         assert signals_block(before) != ""
 
@@ -486,7 +486,7 @@ class TestUpdateTouchesNothingButClaims:
         from custom_components.hair.wig_claims import update_wig_with_claims
         from custom_components.hair.wig_format import parse_wig
         before = self._wig_text()
-        after, _ = update_wig_with_claims(before, self._bundle(before))
+        after, _, _ = update_wig_with_claims(before, self._bundle(before))
         assert parse_wig(after).wig.wig_id == "u-original"
 
     def test_the_bundle_is_forced_onto_this_wig(self):
@@ -494,7 +494,7 @@ class TestUpdateTouchesNothingButClaims:
         one."""
         from custom_components.hair.wig_claims import update_wig_with_claims
         before = self._wig_text()
-        _, entry = update_wig_with_claims(before, self._bundle(before))
+        _, entry, _ = update_wig_with_claims(before, self._bundle(before))
         assert entry["wig_id"] == "u-original"
 
     def test_claims_accumulate_rather_than_replace(self):
@@ -502,7 +502,7 @@ class TestUpdateTouchesNothingButClaims:
         from custom_components.hair.wig_format import parse_wig
         text = self._wig_text()
         for _ in range(3):
-            text, _ = update_wig_with_claims(text, self._bundle(text))
+            text, _, _ = update_wig_with_claims(text, self._bundle(text))
         assert len(parse_wig(text).wig.extra["fittings"]) == 3
 
     def test_send_counts_are_not_written_back(self):
@@ -510,7 +510,7 @@ class TestUpdateTouchesNothingButClaims:
         from custom_components.hair.wig_claims import update_wig_with_claims
         from custom_components.hair.wig_format import parse_wig
         before = self._wig_text()
-        after, _ = update_wig_with_claims(before, self._bundle(before))
+        after, _, _ = update_wig_with_claims(before, self._bundle(before))
         assert parse_wig(after).wig.signals[0].send_count == 3
 
     def test_unparseable_text_is_refused_not_guessed(self):
@@ -547,7 +547,7 @@ class TestSuggestedRenames:
         wig = self._wig()
         assert apply_rename_suggestions(
             wig, [self._proposal(wig, 0, "Power")]
-        ) == 1
+        ).applied == 1
         assert wig.signals[0].alias == "Power"
 
     def test_it_orphans_no_claims(self):
@@ -587,7 +587,7 @@ class TestSuggestedRenames:
         moved = apply_rename_suggestions(
             wig, [self._proposal(wig, 0, "On")]
         )
-        assert moved == 1
+        assert moved.applied == 1
         assert wig.signals[0].alias == "On"
         assert wig.signals[1].alias == "Toggle"
 
@@ -601,7 +601,7 @@ class TestSuggestedRenames:
         ])
         assert apply_rename_suggestions(
             wig, [self._proposal(wig, 0, "Renamed")]
-        ) == 2
+        ).applied == 2
 
     def test_a_stale_proposal_matches_nothing(self):
         """The wig moved on since the dialog opened. Better to write
@@ -616,7 +616,9 @@ class TestSuggestedRenames:
             alias_at_claim="WhatItUsedToBeCalled",
             alias="Power",
         )
-        assert apply_rename_suggestions(wig, [stale]) == 0
+        outcome = apply_rename_suggestions(wig, [stale])
+        assert outcome.applied == 0
+        assert outcome.stale == [stale]
         assert wig.signals[0].alias == "On"
 
     def test_a_noop_rename_is_not_counted(self):
@@ -624,4 +626,107 @@ class TestSuggestedRenames:
         wig = self._wig()
         assert apply_rename_suggestions(
             wig, [self._proposal(wig, 0, "On")]
-        ) == 0
+        ).applied == 0
+
+
+class TestMatchingDeviceCommandsToWigRows:
+    """UPDATE pairs what is on the device with what is in the wig.
+
+    Two passes, strictly 1:1. The leftovers are not cosmetic: unmatched
+    wig rows feed the exclusion picker and unmatched commands feed the
+    content-change prompt, so a row counted into both would ask the
+    fitter two contradictory questions about one thing."""
+
+    def _row(self, alias, ditto=0):
+        from custom_components.hair.wig_claims import MatchRow
+        return MatchRow(digest=row_digest(PRONTO, ditto), alias=alias)
+
+    def _match(self, wig_rows, device_rows):
+        from custom_components.hair.wig_claims import match_device_to_wig
+        return match_device_to_wig(wig_rows, device_rows)
+
+    def test_the_plain_case(self):
+        wig = [self._row("On"), self._row("Off", 1)]
+        result = self._match(wig, list(wig))
+        assert len(result.matched) == 2
+        assert all(m.exact for m in result.matched)
+        assert not result.unmatched_wig_rows
+        assert not result.unmatched_device_rows
+
+    def test_a_local_rename_still_finds_its_row(self):
+        """The whole reason pass two exists."""
+        result = self._match([self._row("On")], [self._row("Power")])
+        assert len(result.matched) == 1
+        assert result.matched[0].exact is False
+
+    def test_the_pair_wins_over_a_loose_digest_match(self):
+        """Pass one runs first so a duplicated-payload wig settles its
+        true partners before the loose pass can shuffle them."""
+        wig = [self._row("Toggle"), self._row("Power")]
+        device = [self._row("Power")]
+        result = self._match(wig, device)
+        assert result.matched[0].wig_index == 1
+        assert result.matched[0].exact is True
+        assert result.unmatched_wig_rows == [0]
+
+    def test_two_commands_one_row_consumes_once(self):
+        wig = [self._row("On")]
+        device = [self._row("On"), self._row("On")]
+        result = self._match(wig, device)
+        assert len(result.matched) == 1
+        assert result.unmatched_device_rows == [1]
+        assert not result.unmatched_wig_rows
+
+    def test_two_rows_one_command_consumes_once(self):
+        wig = [self._row("On"), self._row("On")]
+        device = [self._row("On")]
+        result = self._match(wig, device)
+        assert len(result.matched) == 1
+        assert result.unmatched_wig_rows == [1]
+        assert not result.unmatched_device_rows
+
+    def test_nothing_is_counted_twice(self):
+        """The property the two prompts depend on."""
+        wig = [self._row("A"), self._row("B"), self._row("C", 1)]
+        device = [self._row("A"), self._row("Z", 1), self._row("Q", 2)]
+        result = self._match(wig, device)
+        used_wig = [m.wig_index for m in result.matched]
+        used_dev = [m.device_index for m in result.matched]
+        assert len(used_wig) == len(set(used_wig))
+        assert len(used_dev) == len(set(used_dev))
+        assert not set(used_wig) & set(result.unmatched_wig_rows)
+        assert not set(used_dev) & set(result.unmatched_device_rows)
+        # Every index is accounted for exactly once, on one side or
+        # the other.
+        assert sorted(used_wig + result.unmatched_wig_rows) == [0, 1, 2]
+        assert sorted(used_dev + result.unmatched_device_rows) == [0, 1, 2]
+
+    def test_the_smartir_shape(self):
+        """Distinct names over one identical payload, which is the
+        defect class this pipeline was founded on. Both wig rows are
+        real rows; both device commands are real commands; each pairs
+        with its own."""
+        wig = [self._row("Power"), self._row("Toggle")]
+        device = [self._row("Toggle"), self._row("Power")]
+        result = self._match(wig, device)
+        assert len(result.matched) == 2
+        assert all(m.exact for m in result.matched)
+        pairs = {(m.device_index, m.wig_index) for m in result.matched}
+        assert pairs == {(0, 1), (1, 0)}
+        assert not result.unmatched_wig_rows
+        assert not result.unmatched_device_rows
+
+    def test_a_residual_tie_is_deterministic(self):
+        """Sound because rows sharing a digest share a waveform, so no
+        tie-break can route the wrong bytes. Fixed to file order only
+        so the same inputs always give the same answer."""
+        wig = [self._row("First"), self._row("Second")]
+        device = [self._row("Renamed")]
+        seen = {self._match(wig, device).matched[0].wig_index
+                for _ in range(5)}
+        assert seen == {0}
+
+    def test_empty_sides_are_not_errors(self):
+        assert self._match([], []).matched == []
+        assert self._match([self._row("On")], []).unmatched_wig_rows == [0]
+        assert self._match([], [self._row("On")]).unmatched_device_rows == [0]
