@@ -346,6 +346,15 @@ def _write_row_code(
         for cell in wig.climate.cells:
             if cell_key(cell) == key:
                 cell.pronto = pronto
+                # NO bypass here, deliberately. A cell's canonical form
+                # is exactly mode/fan/swing/temp/pronto, so there is
+                # nowhere to put the flag and nothing downstream would
+                # read it. This branch used to accept the argument and
+                # drop it on the floor: REPLACE offered the toggle on a
+                # matrix row, the fitter set it, and the chip came back
+                # still naming the decoded protocol because nothing had
+                # been written (owner bench 2026-08-02). The caller now
+                # refuses instead, and the dialog does not offer it.
                 _stamp(cell.extra)
                 return True
         return False
@@ -1309,6 +1318,16 @@ class FittingManager:
         if wig is None:
             return {"success": False, "code": "wig_not_found",
                     "error": "Wig not found"}
+        # Refused rather than silently dropped (owner ruling
+        # 2026-08-02). A matrix cell has no bypass field -- its
+        # canonical form is mode/fan/swing/temp/pronto and nothing else
+        # -- so accepting the flag here wrote a replace that did not do
+        # what the caller asked and gave no sign of it. Saying no is the
+        # honest answer until cells grow the field, which would be
+        # another hash break.
+        if bypass_protocol and wig.climate is not None:
+            return {"success": False, "code": "bypass_not_supported",
+                    "error": "Matrix cells cannot carry a bypass flag"}
         # Session rows: repairing a comb suspect is the whole point of
         # surfacing it. Replacing one stamps provenance and rolls the
         # hash, which is what promotes it to a real Changed Codes row.
@@ -1849,6 +1868,21 @@ class FittingManager:
         if heard_list:
             draft["signals_heard"] = len(heard_list)
         draft["date"] = _today()
+        # Advisory verdicts never enter the attestation (owner ruling
+        # 2026-08-02). Comb suspects became judgeable so a fitter can
+        # track which of 48 flagged cells they have already been
+        # through, but the fitting attests the CHECKLIST, and a signed
+        # confirmed list naming rows outside it would make the entry's
+        # own coverage line read past its total. The verdicts stay in
+        # the session and in any later draft; they just do not get
+        # signed.
+        checklist = {spec.key for spec in fitting_row_specs(wig)}
+        for verdict_list in ("confirmed", "failed"):
+            values = draft.get(verdict_list)
+            if isinstance(values, list):
+                draft[verdict_list] = [
+                    k for k in values if k in checklist
+                ]
         # Version stamps refresh at the signing moment, exactly like
         # the date (owner bench, 2026-07-30): a reopened fitting kept
         # the stamps from when its entry was FIRST created, so a

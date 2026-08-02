@@ -527,7 +527,6 @@
     "fitting.your_emitter": "お使いの送信機",
     "fitting.send": "送信",
     "fitting.sent": "送信済み",
-    "fitting.sent_n": "送信 x{count}",
     "fitting.heard": "受信",
     "fitting.worked": "動いた",
     "fitting.did_not": "動かない",

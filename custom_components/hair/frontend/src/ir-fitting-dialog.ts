@@ -100,6 +100,11 @@ function _cleanGithubHandle(value: string): string {
 // made the decision (owner ruling CS1, option A) in the chip's own
 // muted grey rather than a signal colour: amber means doubt, and a
 // bypassed row is not in doubt, somebody decided.
+/** How long TEST holds its result before settling back to its name.
+ * Five seconds (owner ruling 2026-08-02): long enough to press, look
+ * at the device across the room, and look back. */
+const FLASH_HOLD_MS = 5000;
+
 const ICON_COMB =
     "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853c12.245,10.304,19.264,25.259,19.264,41.024V320z";
 // mdi:repeat -- whole-frame send count, gold. Same mark the catalog
@@ -165,6 +170,10 @@ export class IrFittingDialog extends LitElement {
      * the compact reading. */
     @state() private _openChip: string | null = null;
     @state() private _applyBusy = false;
+    /** Rows whose TEST is currently showing its result instead of its
+     * name, and the timers that will settle them back. */
+    @state() private _flash = new Map<number, "sent" | "heard">();
+    private _flashTimers = new Map<number, number>();
     @state() private _replaceText = "";
     @state() private _replaceQuality: CaptureQuality | null = null;
     @state() private _replaceBusy = false;
@@ -199,6 +208,7 @@ export class IrFittingDialog extends LitElement {
         super.disconnectedCallback();
         this.removeEventListener("click", this._onHostClick, true);
         this.removeEventListener("keydown", this._onHostKey);
+        this._clearFlashTimers();
         // Closing the dialog IS cancelling the listen window.
         void this._stopListening();
     }
@@ -329,6 +339,10 @@ export class IrFittingDialog extends LitElement {
                 heard: facts.heard || res.heard,
                 busy: false,
             });
+            // THIS send's result, not the row's history: the button is
+            // reporting the press that just happened, so a row heard
+            // once and missed twice must not keep claiming HEARD.
+            this._flashResult(i, res.heard);
         } catch (err: any) {
             this._facts = new Map(this._facts).set(i, {
                 ...facts,
@@ -563,10 +577,28 @@ export class IrFittingDialog extends LitElement {
         );
     }
 
+    /** Progress over the CHECKLIST, and only the checklist.
+     *
+     * Comb suspects became judgeable on 2026-08-02, which put verdicts
+     * in the map for rows that are not part of the count. They have to
+     * be filtered here or the two halves of the fraction come from
+     * different populations: total is signals.length, which the backend
+     * already builds with advisory rows excluded, so counting their
+     * verdicts gave "35 of 31 tested" and fired PERFECT FIT early.
+     *
+     * The exclusion itself is older and load-bearing. Combing stamps a
+     * receipt without rolling the content hash, so if suspects counted,
+     * one person running a comb would retroactively demote every
+     * complete fitting in the ledger -- other people's included --
+     * with no code having changed anywhere. Replacing a suspect is what
+     * legitimately promotes it: that rolls the hash and makes it a
+     * Changed Codes row, which does count.
+     */
     private get _counts() {
         let worked = 0;
         let failed = 0;
-        for (const v of this._verdicts.values()) {
+        for (const [i, v] of this._verdicts) {
+            if (this._fit?.rows[i]?.advisory) continue;
             if (v === "worked") worked += 1;
             else failed += 1;
         }
@@ -837,7 +869,7 @@ export class IrFittingDialog extends LitElement {
                 ${this._renderTuneChips(i)} ${this._renderRowChip(i)}
                 ${this._renderRowControls(i)}
             </div>
-            ${this._renderFactsLine(i)} ${this._renderStagedNotice(i)}
+            ${this._renderStagedNotice(i)}
             ${this._renderReplaceStrip(i)}
         `;
     }
@@ -1159,21 +1191,73 @@ export class IrFittingDialog extends LitElement {
         await this._mark(i, "worked");
     }
 
-    /** What the last TEST on this row actually did, on its own line.
+    /** TEST, which reports its own result.
      *
-     * Below the row rather than in it, so a variable-width fact can
-     * never move a fixed control (owner ruling 2026-08-02). */
-    private _renderFactsLine(i: number) {
+     * The result used to be a separate run of text: first inline in the
+     * row, where its variable width shoved every control after it, then
+     * on a line below, where it read as orphaned from the button that
+     * produced it. It now lives ON that button (owner design
+     * 2026-08-02): press it, it says SENT, or SENT . HEARD when a
+     * receiver caught the transmission, holds for five seconds so you
+     * can look at the device and back, and collapses to TEST again. How
+     * many times the row has been tested rides in the corner dot, which
+     * is grey because it is a tally rather than a flag.
+     *
+     * The three labels are STACKED in one grid cell with only the
+     * active one visible, rather than swapped in and out. The button
+     * therefore sizes to its widest state in whatever language it is
+     * reading, and cannot change width when the label changes -- which
+     * would have reintroduced the staggering this whole pass removed.
+     * Same trick the provenance chip uses for its revert label.
+     */
+    private _renderTestButton(i: number) {
         const facts = this._facts.get(i);
-        if (!facts?.sent) return nothing;
-        return html`<div class="qline facts">
-            ${facts.sent > 1
-                ? t("fitting.sent_n", { count: String(facts.sent) })
-                : t("fitting.sent")}${facts.heard
-                ? html` &middot;
-                      <span class="heard">${t("fitting.heard")}</span>`
-                : nothing}
-        </div>`;
+        const flash = this._flash.get(i);
+        return html`<button
+            class="vbtn test-btn ${flash ? `flash ${flash}` : ""}"
+            ?disabled=${!this._emitter || facts?.busy}
+            title=${this._emitter ? "" : t("fitting.pick_emitter")}
+            @click=${() => void this._send(i)}
+        >
+            <span class="tb-stack">
+                <span class="tb-lay ${flash ? "" : "on"}"
+                    >${t("cmdrow.test")}</span
+                >
+                <span class="tb-lay ${flash === "sent" ? "on" : ""}"
+                    >${t("fitting.sent")}</span
+                >
+                <span class="tb-lay ${flash === "heard" ? "on" : ""}"
+                    >${t("fitting.sent")} &middot;
+                    ${t("fitting.heard")}</span
+                >
+            </span>
+            <ir-count-dot
+                color="grey"
+                .count=${facts?.sent ?? 0}
+            ></ir-count-dot>
+        </button>`;
+    }
+
+    /** Show a send's result on its button, then let it settle back.
+     * Re-pressing restarts the hold rather than stacking timers. */
+    private _flashResult(i: number, heard: boolean): void {
+        const existing = this._flashTimers.get(i);
+        if (existing !== undefined) clearTimeout(existing);
+        this._flash = new Map(this._flash).set(i, heard ? "heard" : "sent");
+        const timer = window.setTimeout(() => {
+            const next = new Map(this._flash);
+            next.delete(i);
+            this._flash = next;
+            this._flashTimers.delete(i);
+        }, FLASH_HOLD_MS);
+        this._flashTimers.set(i, timer);
+    }
+
+    private _clearFlashTimers(): void {
+        for (const timer of this._flashTimers.values()) {
+            clearTimeout(timer);
+        }
+        this._flashTimers.clear();
     }
 
     /** The staged-but-unproven notice. The chip itself stays plain
@@ -1188,59 +1272,42 @@ export class IrFittingDialog extends LitElement {
 
     private _renderRowControls(i: number) {
         const verdict = this._verdicts.get(i);
-        const facts = this._facts.get(i);
-        // A comb suspect is here to be tested and, if it is wrong,
-        // repaired -- not judged. It is not a checklist row, so a
-        // verdict on it would imply it counts toward completeness, and
-        // it deliberately does not (see session_row_specs).
-        const advisory = !!this._fit?.rows[i]?.advisory;
-        // The facts USED to sit here, inline. Because their width
-        // varies with what happened ("sent", "sent x3", "sent x3 .
-        // heard"), every row that had been tested pushed its own
-        // buttons sideways and the REPLACE column read as a staircase
-        // (owner bench 2026-08-02). They now render below the row, in
-        // _renderFactsLine, where they cost nothing horizontally.
+        // A comb suspect is judged like anything else now (owner
+        // ruling 2026-08-02): a matrix checklist samples 31 of 288
+        // cells, so the other 48 the comb flagged were rows you could
+        // send and repair but never tick, with no way to track which
+        // ones you had already been through. What has NOT changed is
+        // the arithmetic -- see _counts. Combing stamps a receipt
+        // without rolling the content hash, so a suspect that counted
+        // toward completeness would let one person's comb retroactively
+        // demote somebody else's signed PERFECT FIT with no code having
+        // changed anywhere.
         return html`<span class="row-tail"
-            ><button
-                class="vbtn test-btn"
-                ?disabled=${!this._emitter || facts?.busy}
-                title=${this._emitter
-                    ? ""
-                    : t("fitting.pick_emitter")}
-                @click=${() => void this._send(i)}
+            >${this._renderTestButton(i)}
+            <button
+                class="thumb up ${verdict === "worked" ? "on" : ""}"
+                title=${t("fitting.worked")}
+                aria-label=${t("fitting.worked")}
+                @click=${() => void this._onWorked(i)}
             >
-                ${t("cmdrow.test")}
+                <ha-svg-icon
+                    .path=${verdict === "worked"
+                        ? ICON_THUMB_UP_SOLID
+                        : ICON_THUMB_UP_OUTLINE}
+                ></ha-svg-icon>
             </button>
-            ${advisory
-                ? html`<span class="thumb-gap"></span>`
-                : html`<button
-                          class="thumb up ${verdict === "worked"
-                              ? "on"
-                              : ""}"
-                          title=${t("fitting.worked")}
-                          aria-label=${t("fitting.worked")}
-                          @click=${() => void this._onWorked(i)}
-                      >
-                          <ha-svg-icon
-                              .path=${verdict === "worked"
-                                  ? ICON_THUMB_UP_SOLID
-                                  : ICON_THUMB_UP_OUTLINE}
-                          ></ha-svg-icon>
-                      </button>
-                      <button
-                          class="thumb down ${verdict === "failed"
-                              ? "on"
-                              : ""}"
-                          title=${t("fitting.did_not")}
-                          aria-label=${t("fitting.did_not")}
-                          @click=${() => void this._mark(i, "failed")}
-                      >
-                          <ha-svg-icon
-                              .path=${verdict === "failed"
-                                  ? ICON_THUMB_DOWN_SOLID
-                                  : ICON_THUMB_DOWN_OUTLINE}
-                          ></ha-svg-icon>
-                      </button>`}
+            <button
+                class="thumb down ${verdict === "failed" ? "on" : ""}"
+                title=${t("fitting.did_not")}
+                aria-label=${t("fitting.did_not")}
+                @click=${() => void this._mark(i, "failed")}
+            >
+                <ha-svg-icon
+                    .path=${verdict === "failed"
+                        ? ICON_THUMB_DOWN_SOLID
+                        : ICON_THUMB_DOWN_OUTLINE}
+                ></ha-svg-icon>
+            </button>
             <button
                 class="vbtn replace-btn ${this._replaceRow === i
                     ? "open"
@@ -1363,7 +1430,7 @@ export class IrFittingDialog extends LitElement {
                         ? html`<ir-protocol-chip
                               .protocol=${this._replaceQuality.protocol}
                               .bypass=${this._replaceBypass}
-                              interactive
+                              ?interactive=${!this._fit?.matrix}
                               @toggle-bypass=${(e: CustomEvent) =>
                                   (this._replaceBypass = e.detail.bypass)}
                           ></ir-protocol-chip>`
@@ -2048,18 +2115,36 @@ export class IrFittingDialog extends LitElement {
                 gap: 8px;
                 flex: none;
             }
-            /* An advisory row carries no verdict, so it would otherwise
-               end two thumbs short and pull its REPLACE inward. The
-               slot stays, empty. */
-            .thumb-gap {
-                flex: none;
-                width: 62px;
+            /* TEST reports its own result. The three labels occupy ONE
+               grid cell, all of them laid out, only the active one
+               visible -- so the button is always as wide as its widest
+               state in the reader's language and cannot resize when the
+               label changes. Measuring would have worked too; this
+               needs no measuring and no maintenance. */
+            .test-btn {
+                position: relative;
             }
-            .qline.facts {
-                color: var(--secondary-text-color);
+            .tb-stack {
+                display: grid;
             }
-            .qline.facts .heard {
+            .tb-lay {
+                grid-area: 1 / 1;
+                visibility: hidden;
+                white-space: nowrap;
+            }
+            .tb-lay.on {
+                visibility: visible;
+            }
+            /* Sent is a fact; heard is a fact worth being pleased
+               about, and wears the same green as every other "a
+               receiver caught it" in the dialog. */
+            .vbtn.test-btn.flash {
+                color: var(--primary-text-color);
+                border-color: var(--secondary-text-color);
+            }
+            .vbtn.test-btn.flash.heard {
                 color: #66bb6a;
+                border-color: rgba(76, 175, 80, 0.5);
             }
             .send-btn {
                 background: none;

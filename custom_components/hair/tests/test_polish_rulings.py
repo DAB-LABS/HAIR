@@ -98,10 +98,39 @@ class TestRowControlsCannotStagger:
     """Anything variable in the row's flex run moves the fixed controls
     that follow it, and REPLACE drew a staircase down the list."""
 
-    def test_facts_render_below_the_row(self):
+    def test_the_result_rides_the_button_that_produced_it(self):
+        """Inline it shoved the controls; on a line below it read as
+        orphaned, and matrix rows never rendered that line at all. It
+        lives on TEST now (owner design 2026-08-02)."""
         text = _read("ir-fitting-dialog.ts")
-        assert "_renderFactsLine" in text
-        assert '<div class="qline facts">' in text
+        assert "_renderTestButton" in text
+        assert "_renderFactsLine" not in text
+        assert 'color="grey"' in text
+
+    def test_the_button_cannot_change_width_when_the_label_changes(self):
+        """All three labels laid out in one grid cell, only the active
+        one visible. A button that resized would recreate the exact
+        staggering this pass removed."""
+        text = _read("ir-fitting-dialog.ts")
+        stack = text.split(".tb-stack {", 1)[1].split("}", 1)[0]
+        assert "display: grid" in stack
+        lay = text.split("\n            .tb-lay {", 1)[1].split("}", 1)[0]
+        assert "grid-area: 1 / 1" in lay
+        assert "visibility: hidden" in lay
+
+    def test_the_hold_is_five_seconds_and_the_timers_are_cleaned_up(self):
+        text = _read("ir-fitting-dialog.ts")
+        assert "FLASH_HOLD_MS = 5000" in text
+        assert "_clearFlashTimers" in text
+        disconnect = text.split("disconnectedCallback", 1)[1]
+        disconnect = disconnect.split("\n    /**", 1)[0]
+        assert "_clearFlashTimers()" in disconnect
+
+    def test_the_flash_reports_this_send_not_the_row_history(self):
+        """A row heard once and missed twice must not keep claiming
+        HEARD."""
+        text = _read("ir-fitting-dialog.ts")
+        assert "this._flashResult(i, res.heard);" in text
 
     def test_facts_are_gone_from_the_control_run(self):
         text = _read("ir-fitting-dialog.ts")
@@ -115,11 +144,20 @@ class TestRowControlsCannotStagger:
         tail = text.split(".row-tail {", 1)[1].split("}", 1)[0]
         assert "margin-left: auto" in tail
 
-    def test_an_advisory_row_keeps_its_thumb_slot(self):
-        """No verdict on a comb suspect, but the space stays, or its
-        REPLACE pulls inward and breaks the column."""
+    def test_every_row_gets_thumbs(self):
+        """A matrix checklist samples 31 of 288 cells, so the other 48
+        the comb flagged were rows you could send and repair but never
+        tick. No reserved gap is needed any more because no row is
+        missing its thumbs (owner ruling 2026-08-02)."""
         text = _read("ir-fitting-dialog.ts")
-        assert 'class="thumb-gap"' in text
+        assert "thumb-gap" not in text
+        body = text.split(
+            "private _renderRowControls(i: number) {", 1,
+        )[1].split("\n    private ", 1)[0]
+        # The suspect CHIP still keys off advisory, correctly -- it is
+        # the warning marker. What must not come back is a branch that
+        # withholds the verdict buttons.
+        assert "advisory" not in body.split("return html", 1)[1]
 
     def test_the_dialog_widened(self):
         text = _read("ir-fitting-dialog.ts")
@@ -160,6 +198,59 @@ class TestRowButtonsAcknowledgeTheMouse:
             )
 
         assert size(apply_block) < size(vbtn_block)
+
+
+class TestJudgingSuspectsDoesNotMoveTheArithmetic:
+    """Suspects became judgeable, and that is the ONLY thing that
+    changed. Combing stamps a receipt without rolling the content hash,
+    so a suspect counting toward completeness would let one person's
+    comb retroactively demote somebody else's signed PERFECT FIT with
+    no code having changed anywhere."""
+
+    def test_the_counter_skips_advisory_verdicts(self):
+        """total comes from signals.length, which the backend builds
+        with advisory rows already excluded. Counting their verdicts
+        gave '35 of 31 tested' and fired PERFECT FIT early."""
+        text = _read("ir-fitting-dialog.ts")
+        block = text.split("private get _counts()", 1)[1]
+        block = block.split("\n    render()", 1)[0]
+        assert "advisory" in block
+        assert "continue" in block
+
+    def test_the_backend_still_excludes_them_from_the_row_list(self):
+        api = (
+            SRC.parent.parent / "websocket_api.py"
+        ).read_text(encoding="utf-8")
+        assert 'row["key"] for row in rows if not row["advisory"]' in api
+
+    def test_advisory_verdicts_are_never_signed(self):
+        """The fitting attests the checklist. A signed confirmed list
+        naming rows outside it would make the entry's own coverage line
+        read past its total."""
+        fitting = (
+            SRC.parent.parent / "wig_fitting.py"
+        ).read_text(encoding="utf-8")
+        block = fitting.split("async def async_finish", 1)[1]
+        assert "checklist = {spec.key for spec in fitting_row_specs(wig)}" in block
+        assert "if k in checklist" in block
+
+
+class TestMatrixBypassIsRefusedNotDropped:
+    """A cell's canonical form is exactly mode/fan/swing/temp/pronto,
+    so there is nowhere to put a bypass flag. The write path used to
+    accept the argument and drop it: the fitter set the toggle, the
+    replace succeeded, and the chip came back still naming the decoded
+    protocol."""
+
+    def test_the_api_says_no(self):
+        fitting = (
+            SRC.parent.parent / "wig_fitting.py"
+        ).read_text(encoding="utf-8")
+        assert '"code": "bypass_not_supported"' in fitting
+
+    def test_the_dialog_does_not_offer_it_on_a_matrix(self):
+        text = _read("ir-fitting-dialog.ts")
+        assert "?interactive=${!this._fit?.matrix}" in text
 
 
 class TestReadOnlyChipsDoNotInviteClicks:

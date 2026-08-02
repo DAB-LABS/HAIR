@@ -549,7 +549,6 @@
     "fitting.your_emitter": "ваш передатчик",
     "fitting.send": "Отправить",
     "fitting.sent": "отправлено",
-    "fitting.sent_n": "отправлено x{count}",
     "fitting.heard": "эхо",
     "fitting.worked": "Сработал",
     "fitting.did_not": "Не сработал",

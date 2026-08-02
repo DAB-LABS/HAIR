@@ -527,7 +527,6 @@
     "fitting.your_emitter": "your emitter",
     "fitting.send": "Send",
     "fitting.sent": "sent",
-    "fitting.sent_n": "sent x{count}",
     "fitting.heard": "heard",
     "fitting.worked": "Worked",
     "fitting.did_not": "Did not",

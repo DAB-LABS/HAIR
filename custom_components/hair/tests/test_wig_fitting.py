@@ -28,6 +28,7 @@ from custom_components.hair.wig_format import (
     parse_wig,
     serialize_wig,
     signals_content_hash,
+    wig_content_hash,
 )
 
 PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
@@ -1011,6 +1012,73 @@ class TestTransmitRecipe:
                 filename, 0, "infrared.e", send_times=4,
             )
         assert gated.await_count == 4
+
+
+class TestMatrixCannotCarryBypass:
+    """A cell's canonical form is exactly mode/fan/swing/temp/pronto,
+    so there is nowhere to put the flag. The write path used to accept
+    the argument and drop it, which made REPLACE offer the fitter a
+    toggle that changed nothing and said nothing (owner bench
+    2026-08-02)."""
+
+    NEC = TestTransmitRecipe.NEC
+
+    def _matrix_wig(self, wigs_dir_path, filename="ac.wig.json"):
+        from custom_components.hair.wig_format import (
+            ClimateCell,
+            ClimateMatrix,
+        )
+
+        wig = Wig(name="AC", signals=[], climate=ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=PRONTO_B,
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=20.0,
+                            pronto=PRONTO_B),
+                ClimateCell(mode="heat", fan="auto", temp=24.0,
+                            pronto=self.NEC),
+            ],
+        ))
+        (wigs_dir_path / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        return filename
+
+    @pytest.mark.asyncio
+    async def test_replace_with_bypass_is_refused(self, manager,
+                                                  wigs_dir_path):
+        filename = self._matrix_wig(wigs_dir_path)
+        result = await manager.async_replace(
+            filename, 0, self.NEC, "pasted", "tester",
+            bypass_protocol=True,
+        )
+        assert result["success"] is False
+        assert result["code"] == "bypass_not_supported"
+
+    @pytest.mark.asyncio
+    async def test_the_refusal_changes_nothing_on_disk(self, manager,
+                                                       wigs_dir_path):
+        """A refused replace must not half-apply: no new code, no
+        provenance marker, no hash roll."""
+        filename = self._matrix_wig(wigs_dir_path)
+        before = _read_wig(wigs_dir_path, filename)
+        before_hash = wig_content_hash(before)
+        await manager.async_replace(
+            filename, 0, self.NEC, "pasted", "tester",
+            bypass_protocol=True,
+        )
+        await manager.async_flush(filename)
+        after = _read_wig(wigs_dir_path, filename)
+        assert wig_content_hash(after) == before_hash
+
+    @pytest.mark.asyncio
+    async def test_a_replace_without_bypass_still_works(self, manager,
+                                                        wigs_dir_path):
+        """The refusal is about the flag, not about matrix repair."""
+        filename = self._matrix_wig(wigs_dir_path)
+        result = await manager.async_replace(
+            filename, 0, self.NEC, "pasted", "tester",
+        )
+        assert result["success"], result
 
 
 class TestSendTimesUsedIsTheEffectiveMax:

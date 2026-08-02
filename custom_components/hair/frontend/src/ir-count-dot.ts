@@ -15,11 +15,12 @@
  * Usage:
  *   <ir-count-dot color="green" .count=${sig.assignment_count ?? 0}></ir-count-dot>
  *   <ir-count-dot color="yellow" .count=${triggerCount}></ir-count-dot>
+ *   <ir-count-dot color="grey" .count=${sendCount}></ir-count-dot>
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "./decorators.js";
 
-type DotColor = "green" | "yellow";
+type DotColor = "green" | "yellow" | "grey";
 
 @customElement("ir-count-dot")
 export class IrCountDot extends LitElement {
@@ -100,6 +101,13 @@ export class IrCountDot extends LitElement {
         }
         .dot.yellow {
             background: #b89930;
+        }
+        /* Grey is the tally colour: it counts something the fitter did
+           rather than flagging something they should look at, so it
+           reads quietly next to green and yellow (owner ruling
+           2026-08-02, for the fitting's TEST button). */
+        .dot.grey {
+            background: #5f6368;
         }
     `;
 }
