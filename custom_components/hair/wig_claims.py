@@ -24,6 +24,7 @@ what makes "suggest the rename" a plain PR rather than new machinery.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from .fitting_signing import sign_fitting
@@ -39,6 +40,22 @@ from .wig_format import (
 _LOGGER = logging.getLogger(__name__)
 
 FITTINGS_KEY = "fittings"
+
+
+@dataclass
+class RenameProposal:
+    """One "the wig calls this X, I call it Y" suggestion.
+
+    Carries the SAME row identity a RowClaim does -- the current alias
+    and the row digest together -- because either one alone is
+    ambiguous, in opposite directions (see apply_rename_suggestions).
+    """
+
+    digest: str
+    #: What the wig calls the row NOW. Half the key, not decoration.
+    alias_at_claim: str
+    #: What to call it instead.
+    alias: str
 
 
 def sign_claims_bundle(
@@ -79,8 +96,10 @@ def append_claims(
     return entry
 
 
-def apply_rename_suggestions(wig: Wig, renames: dict[str, str]) -> int:
-    """Write proposed aliases, keyed by row digest. Returns how many.
+def apply_rename_suggestions(
+    wig: Wig, proposals: list[RenameProposal]
+) -> int:
+    """Write proposed aliases. Returns how many rows moved.
 
     THE SUGGESTION IS THE APPLIED RENAME (design ruling): names sit
     outside every digest, so writing one into the file orphans nothing
@@ -88,14 +107,39 @@ def apply_rename_suggestions(wig: Wig, renames: dict[str, str]) -> int:
     adjudicate like any other prose change. No separate suggestion
     channel, no new machinery.
 
-    Keyed by digest rather than by old name because the digest is what
-    survives; two rows could otherwise share a name and both move.
+    KEYED BY THE PAIR of digest AND current alias (amended 2026-08-02),
+    because each alone is ambiguous in a different direction and both
+    directions are real:
+
+    - **Name alone** breaks when two rows share a name. Renaming one
+      would move both.
+    - **Digest alone** breaks when two rows share a payload under
+      different labels -- and that is not a hypothetical. Distinct
+      names over one identical code is the SmartIR defect class this
+      whole repair pipeline was built for; the comb carries an advisory
+      for it. Those wigs are exactly the converted ones people fit
+      first, so digest-sharing rows are common precisely where this
+      code runs most.
+
+    The pair is unambiguous in both directions. It is also the identity
+    ``RowClaim`` already uses -- alias_at_claim plus digest -- so a
+    rename proposal and a claim now point at a row the same way.
+
+    A row that is a true duplicate of another in BOTH fields is
+    indistinguishable by construction; there is no way to target one,
+    so both move. That is the honest behaviour rather than a silent
+    pick of the first.
     """
-    if not renames:
+    if not proposals:
         return 0
+    wanted = {
+        (p.digest, p.alias_at_claim): p.alias
+        for p in proposals
+    }
     written = 0
     for signal in wig.signals:
-        proposed = renames.get(signal_row_digest(signal))
+        key = (signal_row_digest(signal), signal.alias)
+        proposed = wanted.get(key)
         if proposed and proposed != signal.alias:
             signal.alias = proposed
             written += 1
@@ -127,7 +171,7 @@ def update_wig_with_claims(
     original_text: str,
     bundle: ClaimsBundle,
     private_key_b64: str | None = None,
-    renames: dict[str, str] | None = None,
+    renames: list[RenameProposal] | None = None,
 ) -> tuple[str, dict[str, Any]] | None:
     """Append claims to an existing wig's text. Returns (text, entry).
 

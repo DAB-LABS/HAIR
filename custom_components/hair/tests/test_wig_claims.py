@@ -522,7 +522,19 @@ class TestUpdateTouchesNothingButClaims:
 class TestSuggestedRenames:
     """The suggestion IS the applied rename. Names sit outside every
     digest, so writing one orphans nothing and the PR diff shows the
-    change for a maintainer to adjudicate."""
+    change for a maintainer to adjudicate.
+
+    Keyed by the PAIR of digest and current alias, because each alone
+    is ambiguous in a DIFFERENT direction and both are real."""
+
+    def _proposal(self, wig, index, alias):
+        from custom_components.hair.wig_claims import RenameProposal
+        signal = wig.signals[index]
+        return RenameProposal(
+            digest=signal_row_digest(signal),
+            alias_at_claim=signal.alias,
+            alias=alias,
+        )
 
     def _wig(self):
         return Wig(name="W", signals=[
@@ -533,8 +545,9 @@ class TestSuggestedRenames:
     def test_a_rename_is_written(self):
         from custom_components.hair.wig_claims import apply_rename_suggestions
         wig = self._wig()
-        target = signal_row_digest(wig.signals[0])
-        assert apply_rename_suggestions(wig, {target: "Power"}) == 1
+        assert apply_rename_suggestions(
+            wig, [self._proposal(wig, 0, "Power")]
+        ) == 1
         assert wig.signals[0].alias == "Power"
 
     def test_it_orphans_no_claims(self):
@@ -542,24 +555,73 @@ class TestSuggestedRenames:
         from custom_components.hair.wig_claims import apply_rename_suggestions
         wig = self._wig()
         before = wig_row_digests(wig)
-        apply_rename_suggestions(wig, {before[0]: "Power"})
+        apply_rename_suggestions(wig, [self._proposal(wig, 0, "Power")])
         assert wig_row_digests(wig) == before
 
-    def test_keyed_by_digest_not_by_name(self):
-        """Two rows can share a name; keying by name would move both."""
+    def test_shared_NAMES_do_not_both_move(self):
+        """Name alone would move both. The digest disambiguates."""
         from custom_components.hair.wig_claims import apply_rename_suggestions
         wig = Wig(name="W", signals=[
             WigSignal(alias="Same", pronto=PRONTO),
             WigSignal(alias="Same", pronto=PRONTO, ditto_count=1),
         ])
-        target = signal_row_digest(wig.signals[1])
-        apply_rename_suggestions(wig, {target: "Renamed"})
+        apply_rename_suggestions(wig, [self._proposal(wig, 1, "Renamed")])
         assert wig.signals[0].alias == "Same"
         assert wig.signals[1].alias == "Renamed"
+
+    def test_shared_PAYLOADS_do_not_both_move(self):
+        """The pinned guard (plan amendment 2026-08-02). Distinct names
+        over one identical code is the SmartIR defect class this repair
+        pipeline exists for, so digest-sharing rows are common in
+        exactly the converted wigs people fit first. Digest alone would
+        have moved both."""
+        from custom_components.hair.wig_claims import apply_rename_suggestions
+        wig = Wig(name="SmartIR-ish", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+            WigSignal(alias="Toggle", pronto=PRONTO),
+        ])
+        assert signal_row_digest(wig.signals[0]) == signal_row_digest(
+            wig.signals[1]
+        ), "fixture must actually share a payload"
+
+        moved = apply_rename_suggestions(
+            wig, [self._proposal(wig, 0, "On")]
+        )
+        assert moved == 1
+        assert wig.signals[0].alias == "On"
+        assert wig.signals[1].alias == "Toggle"
+
+    def test_a_true_duplicate_in_both_fields_moves_together(self):
+        """Indistinguishable by construction: there is no way to target
+        one, so both move. Honest, rather than a silent pick."""
+        from custom_components.hair.wig_claims import apply_rename_suggestions
+        wig = Wig(name="W", signals=[
+            WigSignal(alias="Dup", pronto=PRONTO),
+            WigSignal(alias="Dup", pronto=PRONTO),
+        ])
+        assert apply_rename_suggestions(
+            wig, [self._proposal(wig, 0, "Renamed")]
+        ) == 2
+
+    def test_a_stale_proposal_matches_nothing(self):
+        """The wig moved on since the dialog opened. Better to write
+        nothing than to rename a row the fitter never looked at."""
+        from custom_components.hair.wig_claims import (
+            RenameProposal,
+            apply_rename_suggestions,
+        )
+        wig = self._wig()
+        stale = RenameProposal(
+            digest=signal_row_digest(wig.signals[0]),
+            alias_at_claim="WhatItUsedToBeCalled",
+            alias="Power",
+        )
+        assert apply_rename_suggestions(wig, [stale]) == 0
+        assert wig.signals[0].alias == "On"
 
     def test_a_noop_rename_is_not_counted(self):
         from custom_components.hair.wig_claims import apply_rename_suggestions
         wig = self._wig()
         assert apply_rename_suggestions(
-            wig, {signal_row_digest(wig.signals[0]): "On"}
+            wig, [self._proposal(wig, 0, "On")]
         ) == 0
