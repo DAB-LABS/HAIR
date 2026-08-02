@@ -2135,14 +2135,16 @@ export class IrFittingDialog extends LitElement {
             .tb-lay.on {
                 visibility: visible;
             }
-            /* Sent is a fact; heard is a fact worth being pleased
-               about, and wears the same green as every other "a
-               receiver caught it" in the dialog. */
+            /* Both results wear the same green (owner ruling
+               2026-08-02). The first cut greyed a send nothing heard
+               back, on the reasoning that only a confirmed round trip
+               had earned the colour -- but the green here means "that
+               press did something", and a send with no receiver in the
+               room is still a send. The two states are already told
+               apart by the words on the button, so the colour was
+               carrying a distinction it did not need to and made half
+               the presses look like failures. */
             .vbtn.test-btn.flash {
-                color: var(--primary-text-color);
-                border-color: var(--secondary-text-color);
-            }
-            .vbtn.test-btn.flash.heard {
                 color: #66bb6a;
                 border-color: rgba(76, 175, 80, 0.5);
             }
