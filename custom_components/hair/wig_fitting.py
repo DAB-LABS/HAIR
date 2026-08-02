@@ -61,7 +61,6 @@ not something this install can attest as complete).
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -69,7 +68,14 @@ from typing import TYPE_CHECKING, Any
 
 from .const import MAX_DITTO_COUNT, MAX_SEND_COUNT
 from .pronto_validator import validate_pronto
-from .wig_format import Wig, cell_key, serialize_wig, wig_content_hash
+from .wig_format import (
+    Wig,
+    cell_key,
+    normalized_pronto,
+    row_digest,
+    serialize_wig,
+    wig_content_hash,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -796,43 +802,18 @@ def _today() -> str:
 # 288-signal wig. Receipts territory: wig extra, outside all hashes.
 
 
-def normalized_pronto(code: str) -> str:
-    """A Pronto code in the form the canonical serializers hash.
-
-    Validator whitespace normalization, then lowercased -- byte-identical
-    to what ``canonical_signals_json`` / ``canonical_cells_json`` write,
-    so "same code" means the same thing here as it does to the hash.
-    """
-    result = validate_pronto(code)
-    return (result.normalized if result.valid else code).lower()
-
-
 def _row_digest(
     pronto: str, ditto_count: int = 0, bypass_protocol: bool = False
 ) -> str:
-    """The carry snapshot's per-row value: a truncated sha256.
+    """Deprecated alias for ``wig_format.row_digest``.
 
-    Hashes the row's whole TRANSMIT RECIPE, not just its bytes. Exact
-    form, so a reader can reproduce it: the normalized pronto, then
-    ``|d<ditto_count>``, then ``|b1`` or ``|b0``.
-
-    Bytes alone were not enough once dittos and the raw pin became part
-    of what transmits. Carry-forward exists to return a row to untested
-    when what it sends changes; a pronto-only digest could not see a
-    ditto tune, so a tuned row would have carried its old verdict across
-    the very change that invalidated it.
-
-    Every existing carry map dies with the canonical break anyway (the
-    hash roll orphans them), so this needs no migration -- but it has to
-    land in the SAME commit as the new canonical, or a half-applied
-    break forks digests across installs.
+    The digest moved to the format module in v0.9.5, where it belongs:
+    it is the canonicalization contract external verifiers reproduce,
+    not an implementation detail of the fitting engine. Kept as a thin
+    delegation so there is exactly ONE definition and no chance of the
+    two drifting apart.
     """
-    recipe = (
-        f"{normalized_pronto(pronto)}"
-        f"|d{int(ditto_count)}"
-        f"|b{1 if bypass_protocol else 0}"
-    )
-    return hashlib.sha256(recipe.encode("utf-8")).hexdigest()[:16]
+    return row_digest(pronto, ditto_count, bypass_protocol)
 
 
 def carry_snapshot(wig: Wig) -> dict[str, str]:
