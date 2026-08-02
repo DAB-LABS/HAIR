@@ -41,6 +41,7 @@ from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .trigger_manager import TriggerManager
+from .wig_format import VERDICTS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,6 +122,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_get)
     websocket_api.async_register_command(hass, ws_wigs_update)
     websocket_api.async_register_command(hass, ws_wigs_export)
+    websocket_api.async_register_command(hass, ws_wigs_save_plan)
+    websocket_api.async_register_command(hass, ws_wigs_save)
     websocket_api.async_register_command(hass, ws_wigs_comb)
 
     # Fitting (Perfect Fit)
@@ -3154,6 +3157,280 @@ async def ws_wigs_export(
         "signal_count": len(build.wig.signals),
         "skipped": build.skipped,
     })
+
+
+# ---------------------------------------------------------------------------
+# SAVE TO CLOSET (v0.9.5 Fitting Room): plan, then save
+# ---------------------------------------------------------------------------
+# Two commands, replacing the fitting family. ``save_plan`` answers what
+# the dialog should draw -- CREATE or UPDATE, which rows matched, which
+# wig rows nothing covers, what metadata to prefill. ``save`` performs
+# it with the person's explicit answers. Nothing is remembered between
+# the two: the plan is a photograph, not a session, and a save that
+# disagrees with a stale plan simply reports what it actually did.
+
+
+def _resolve_source(
+    hass: HomeAssistant, device: IRDevice
+) -> tuple[Any | None, str | None]:
+    """The closet wig this device was adopted from, and its filename.
+
+    Resolves by ``wig_id``, never by filename, so renaming a closet file
+    does not orphan a device. (None, None) when the device has no source
+    or the file is gone; the caller degrades to CREATE and says so.
+    """
+    if not device.source_wig_id:
+        return None, None
+    from .wig_store import find_wig_by_id, load_wig
+
+    filename = find_wig_by_id(hass.config.config_dir, device.source_wig_id)
+    if filename is None:
+        return None, None
+    return load_wig(hass.config.config_dir, filename), filename
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/save_plan",
+    vol.Required("device_id"): vol.All(str, vol.Length(max=100)),
+})
+@websocket_api.async_response
+async def ws_wigs_save_plan(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """What SAVE TO CLOSET is about to do, for the dialog to draw."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    device = data["store"].get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "HAIR device not found")
+        return
+
+    from .wig_save import build_save_plan
+
+    source_wig, filename = await hass.async_add_executor_job(
+        _resolve_source, hass, device
+    )
+    plan = build_save_plan(device, source_wig, filename)
+    connection.send_result(msg["id"], plan.as_dict())
+
+
+_CLAIM_SCHEMA = vol.Schema({
+    vol.Required("digest"): vol.All(str, vol.Length(max=64)),
+    vol.Required("verdict"): vol.In(list(VERDICTS)),
+})
+
+_RENAME_SCHEMA = vol.Schema({
+    vol.Required("digest"): vol.All(str, vol.Length(max=64)),
+    vol.Required("alias_at_claim"): vol.All(str, vol.Length(max=200)),
+    vol.Required("alias"): vol.All(str, vol.Length(max=200)),
+})
+
+_ATTEST_SCHEMA = vol.Schema({
+    vol.Required("claims"): [_CLAIM_SCHEMA],
+    vol.Optional("handle"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("github"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("note"): vol.All(str, vol.Length(max=2000)),
+    vol.Optional("renames"): [_RENAME_SCHEMA],
+    vol.Optional("cells_hash"): vol.All(str, vol.Length(max=64)),
+})
+
+
+def _attestation_from(msg: dict[str, Any]) -> Any | None:
+    raw = msg.get("attest")
+    if not raw:
+        return None
+    from .wig_claims import RenameProposal
+    from .wig_save import Attestation
+
+    return Attestation(
+        # Later claims about the same row win. A dialog cannot produce
+        # two verdicts for one digest, so this only bites a hand-rolled
+        # caller, and last-one-wins is the least surprising of the ways
+        # to resolve it.
+        claims={c["digest"]: c["verdict"] for c in raw["claims"]},
+        handle=(raw.get("handle") or "").strip() or None,
+        github=(raw.get("github") or "").strip() or None,
+        note=(raw.get("note") or "").strip() or None,
+        renames=[
+            RenameProposal(
+                digest=r["digest"],
+                alias_at_claim=r["alias_at_claim"],
+                alias=r["alias"].strip(),
+            )
+            for r in raw.get("renames") or []
+            if r["alias"].strip()
+        ],
+        cells_hash=raw.get("cells_hash") or None,
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/save",
+    vol.Required("device_id"): vol.All(str, vol.Length(max=100)),
+    vol.Required("mode"): vol.In(["create", "update"]),
+    vol.Optional("name"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("model"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
+    vol.Optional("kind"): vol.All(str, vol.Length(max=100)),
+    vol.Optional("fcc_id"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("upc"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("asin"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("oem"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("attest"): _ATTEST_SCHEMA,
+})
+@websocket_api.async_response
+async def ws_wigs_save(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Save a device to the closet: a new wig, or claims onto its source.
+
+    ``mode`` is the person's answer, not an inference. The dialog got a
+    plan and showed them which verb it was offering; sending the verb
+    back means a save cannot silently become the other one because a
+    file appeared or vanished while the dialog was open.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    device = data["store"].get_device(msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "HAIR device not found")
+        return
+
+    from .fitting_signing import async_get_private_key
+
+    attestation = _attestation_from(msg)
+    key = await async_get_private_key(hass) if attestation else None
+
+    if msg["mode"] == "update":
+        await _do_update(hass, connection, msg, device, attestation, key)
+    else:
+        await _do_create(hass, connection, msg, device, attestation, key)
+
+
+async def _do_update(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    device: IRDevice,
+    attestation: Any | None,
+    key: str | None,
+) -> None:
+    if attestation is None:
+        # An UPDATE with nothing to attest would rewrite the file with
+        # no change in it -- a PR that says nothing. Refused rather than
+        # written, so an empty dialog cannot produce shop noise.
+        connection.send_error(
+            msg["id"], "nothing_to_update",
+            "An update carries a fitting; there is nothing else to write",
+        )
+        return
+
+    def _write() -> dict[str, Any] | None:
+        from .wig_save import update_text
+        from .wig_store import (
+            find_wig_by_id,
+            load_wig,
+            read_wig_text,
+            wigs_dir,
+        )
+
+        filename = find_wig_by_id(
+            hass.config.config_dir, device.source_wig_id or ""
+        )
+        if filename is None:
+            return None
+        text = read_wig_text(hass.config.config_dir, filename)
+        wig = load_wig(hass.config.config_dir, filename)
+        if text is None or wig is None:
+            return None
+        written = update_text(text, wig, attestation, key)
+        if written is None:
+            return None
+        new_text, result = written
+        (wigs_dir(hass.config.config_dir) / filename).write_text(
+            new_text, encoding="utf-8"
+        )
+        result.filename = filename
+        return result.as_dict()
+
+    result = await hass.async_add_executor_job(_write)
+    if result is None:
+        connection.send_error(
+            msg["id"], "source_missing",
+            "The wig this device came from is not in the closet",
+        )
+        return
+    connection.send_result(msg["id"], result)
+
+
+async def _do_create(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    device: IRDevice,
+    attestation: Any | None,
+    key: str | None,
+) -> None:
+    from .wig_export import build_wig_from_device
+
+    build = build_wig_from_device(device)
+    if build.wig is None:
+        connection.send_error(
+            msg["id"], "no_signals", "No exportable signals on that device"
+        )
+        return
+    if msg.get("name", "").strip():
+        build.wig.name = msg["name"].strip()
+    for field_name in ("brand", "model", "notes"):
+        if msg.get(field_name, "").strip():
+            setattr(build.wig, field_name, msg[field_name].strip())
+    if msg.get("kind", "").strip():
+        from .wig_format import kind_slug
+
+        build.wig.kind = kind_slug(msg["kind"]) or build.wig.kind
+    _apply_identifier_edits(build.wig, msg)
+
+    def _write() -> dict[str, Any] | None:
+        from .wig_save import create_text
+        from .wig_store import write_wig_text
+
+        text, result = create_text(build, attestation, key)
+        filename = write_wig_text(
+            hass.config.config_dir, text, build.wig.name
+        )
+        if filename is None:
+            return None
+        result.filename = filename
+        return result.as_dict()
+
+    result = await hass.async_add_executor_job(_write)
+    if result is None:
+        connection.send_error(
+            msg["id"], "write_failed", "Could not write the wig file"
+        )
+        return
+
+    # The device now has a wig in the closet, so it remembers it: the
+    # next SAVE TO CLOSET offers UPDATE instead of minting a second copy
+    # of something that already exists. Saving as new later is still
+    # available, behind the confirm, which is where that decision
+    # belongs.
+    if result.get("wig_id"):
+        device.source_wig_id = result["wig_id"]
+        manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+        await manager.async_update_device(device)
+    connection.send_result(msg["id"], result)
 
 
 # ---------------------------------------------------------------------------

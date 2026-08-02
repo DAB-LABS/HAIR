@@ -335,6 +335,10 @@ def test_full_chain_signal_to_adopted_command(tmp_path):
     device.manufacturer = "Dreo"
     device.model = "DR-HAF004S"
     device.commands = [command]
+    # A device that was not converted from a seed file. Explicit because
+    # a MagicMock's default attribute is a Mock, and the export now
+    # reads source_file into the wig's provenance.
+    device.source_file = None
     wig = build_wig_from_device(device).wig
     assert wig.signals[0].bypass_protocol is True, "died at export"
 

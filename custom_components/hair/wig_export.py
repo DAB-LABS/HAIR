@@ -47,6 +47,13 @@ class WigBuild:
 
     wig: Wig | None
     skipped: int
+    # Which source row each built signal came from, in step with
+    # ``wig.signals``. Command id for a device export, signal id for a
+    # catalog one. The save dialog needs this because the two lists are
+    # NOT parallel: a signal with no usable Pronto is skipped, so index
+    # 4 of the wig can be command 6 of the device, and a plan row that
+    # guessed would attach a claim to the wrong command.
+    sources: list[str] = field(default_factory=list)
     # Receipts for values the export deliberately changed rather than
     # refused. Currently only the bypass x ditto drop: a raw blob has no
     # ditto grammar, so a nonzero ditto on a pinned command cannot ride
@@ -101,6 +108,7 @@ def _ditto_for_export(
 def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
     """Serialize a catalog remote's signals into a wig."""
     signals: list[WigSignal] = []
+    sources: list[str] = []
     notes: list[str] = []
     skipped = 0
     for i, sig in enumerate(device.signals, start=1):
@@ -130,8 +138,9 @@ def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
             alias=alias, pronto=pronto, send_count=sig.send_count,
             ditto_count=ditto, bypass_protocol=bypass,
         ))
+        sources.append(sig.id)
     if not signals:
-        return WigBuild(None, skipped, notes)
+        return WigBuild(None, skipped, sources, notes)
     return WigBuild(
         Wig(
             name=(device.label or "Exported Remote").strip()
@@ -140,6 +149,7 @@ def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
             origin=_ORIGIN_BY_SOURCE.get(device.source),
         ),
         skipped,
+        sources,
         notes,
     )
 
@@ -147,6 +157,7 @@ def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
 def build_wig_from_device(device: IRDevice) -> WigBuild:
     """Serialize a HAIR device's command set into a wig."""
     signals: list[WigSignal] = []
+    sources: list[str] = []
     notes: list[str] = []
     skipped = 0
     for i, command in enumerate(device.commands, start=1):
@@ -173,14 +184,22 @@ def build_wig_from_device(device: IRDevice) -> WigBuild:
             bypass_protocol=command.tx_force_raw,
             ditto_count=ditto,
         ))
+        sources.append(command.id)
     if not signals:
-        return WigBuild(None, skipped, notes)
+        return WigBuild(None, skipped, sources, notes)
     return WigBuild(
         Wig(
             name=(device.name or "Exported Device").strip()
             or "Exported Device",
             signals=signals,
             origin="device",
+            # Where the seed came from (v0.9.5, plan 5.4). A device
+            # built by converting a downloaded file says so in the wig
+            # it later becomes, so shop tooling can spot siblings whose
+            # bytes drifted. A device adopted from a closet wig carries
+            # a ``source_wig_id`` instead, and that path is an UPDATE,
+            # not a conversion.
+            converted_from=device.source_file or None,
             # Kind auto-stamp (v0.8.0): the HAIR device already knows
             # what it is for the UNAMBIGUOUS types. media_player is
             # deliberately absent (tv? soundbar? receiver?) -- the
@@ -192,5 +211,6 @@ def build_wig_from_device(device: IRDevice) -> WigBuild:
             ),
         ),
         skipped,
+        sources,
         notes,
     )
