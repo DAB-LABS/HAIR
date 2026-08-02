@@ -1014,6 +1014,119 @@ class TestTransmitRecipe:
         assert gated.await_count == 4
 
 
+class TestProvenanceClaimsAccumulate:
+    """REPLACED and TUNED are different claims about different things,
+    and a row can earn both. Both paths used to ASSIGN the marker, so
+    whichever came second erased the first: a code captured off a real
+    remote and then tuned came back reporting only the tune, and the
+    chip -- which picks its label off ``replaced`` -- then described it
+    as pasted, about a code nobody had pasted (owner bench 2026-08-02).
+    """
+
+    NEC = TestTransmitRecipe.NEC
+    OTHER = (
+        "0000 006D 0022 0000 0156 00AB 0015 0015 0015 0015 0015 0015 0015 "
+        "0015 0015 0040 0015 0015 0015 0015 0015 0015 0015 0040 0015 0040 "
+        "0015 0040 0015 0015 0015 0015 0015 0040 0015 0040 0015 0040 0015 "
+        "0015 0015 0015 0015 0040 0015 0040 0015 0040 0015 0040 0015 0015 "
+        "0015 0015 0015 0040 0015 0040 0015 0015 0015 0015 0015 0015 0015 "
+        "0015 0015 0040 0015 0040 0015 0000"
+    )
+
+    def _wig(self, wigs_dir_path, filename="prov.wig.json"):
+        wig = Wig(name="Prov", signals=[
+            WigSignal(alias="Power", pronto=self.NEC),
+        ])
+        (wigs_dir_path / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        return filename
+
+    def _marker(self, wigs_dir_path, filename):
+        wig = _read_wig(wigs_dir_path, filename)
+        return wig.signals[0].extra.get("provenance") or {}
+
+    @pytest.mark.asyncio
+    async def test_tuning_a_repaired_row_keeps_the_repair(
+        self, manager, wigs_dir_path
+    ):
+        filename = self._wig(wigs_dir_path)
+        assert (await manager.async_replace(
+            filename, 0, self.OTHER, "captured", "tester",
+        ))["success"]
+        await manager.async_flush(filename)
+        assert self._marker(wigs_dir_path, filename)["replaced"] == "captured"
+
+        assert (await manager.async_tune(filename, 0, 2, "tester"))["success"]
+        await manager.async_flush(filename)
+        marker = self._marker(wigs_dir_path, filename)
+        assert marker["tuned"] == 2
+        # The half that used to vanish.
+        assert marker["replaced"] == "captured"
+
+    @pytest.mark.asyncio
+    async def test_repairing_a_tuned_row_keeps_the_tune(
+        self, manager, wigs_dir_path
+    ):
+        """Symmetric: the replace path assigned wholesale too."""
+        filename = self._wig(wigs_dir_path)
+        assert (await manager.async_tune(filename, 0, 3, "tester"))["success"]
+        await manager.async_flush(filename)
+
+        assert (await manager.async_replace(
+            filename, 0, self.OTHER, "pasted", "tester",
+        ))["success"]
+        await manager.async_flush(filename)
+        marker = self._marker(wigs_dir_path, filename)
+        assert marker["replaced"] == "pasted"
+        assert marker["tuned"] == 3
+
+    @pytest.mark.asyncio
+    async def test_a_tuned_row_never_claims_it_was_replaced(
+        self, manager, wigs_dir_path
+    ):
+        """The display bug's root: a marker with no `replaced` key at
+        all is what the chip's ternary fell through on."""
+        filename = self._wig(wigs_dir_path)
+        assert (await manager.async_tune(filename, 0, 1, "tester"))["success"]
+        await manager.async_flush(filename)
+        marker = self._marker(wigs_dir_path, filename)
+        assert marker["tuned"] == 1
+        assert "replaced" not in marker
+
+    @pytest.mark.asyncio
+    async def test_the_date_is_the_latest_claim(
+        self, manager, wigs_dir_path
+    ):
+        filename = self._wig(wigs_dir_path)
+        assert (await manager.async_replace(
+            filename, 0, self.OTHER, "captured", "tester",
+        ))["success"]
+        assert (await manager.async_tune(filename, 0, 2, "tester"))["success"]
+        await manager.async_flush(filename)
+        marker = self._marker(wigs_dir_path, filename)
+        assert marker["date"]
+        assert set(marker) >= {"replaced", "tuned", "date"}
+
+    @pytest.mark.asyncio
+    async def test_a_revert_still_clears_the_whole_marker(
+        self, manager, wigs_dir_path
+    ):
+        """Merging must not turn the discard-revert path into a no-op:
+        a code put back exactly as it was was never replaced, and
+        leaving any marker would claim otherwise."""
+        filename = self._wig(wigs_dir_path)
+        assert (await manager.async_replace(
+            filename, 0, self.OTHER, "captured", "tester",
+        ))["success"]
+        await manager.async_flush(filename)
+        assert self._marker(wigs_dir_path, filename)
+
+        await manager.async_discard(filename, "tester")
+        await manager.async_flush(filename)
+        assert not self._marker(wigs_dir_path, filename)
+
+
 class TestMatrixCannotCarryBypass:
     """A cell's canonical form is exactly mode/fan/swing/temp/pronto,
     so there is nowhere to put the flag. The write path used to accept

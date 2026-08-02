@@ -752,13 +752,20 @@ export class IrFittingDialog extends LitElement {
                 <button
                     class="apply-btn"
                     ?disabled=${this._applyBusy || !!this._fit?.matrix}
+                    title=${this._fit?.matrix
+                        ? t("fitting.apply_matrix_hint")
+                        : ""}
                     @click=${() => void this._applySends()}
                 >
                     ${t("fitting.apply")}
                 </button>
                 <div class="hint">
                     ${t("fitting.send_times_hint")}
-                    <span class="hint-apply">${t("fitting.apply_hint")}</span>
+                    <span class="hint-apply"
+                        >${this._fit?.matrix
+                            ? t("fitting.apply_matrix_hint")
+                            : t("fitting.apply_hint")}</span
+                    >
                 </div>
             </div>
             <div class="sig-list">
@@ -920,14 +927,47 @@ export class IrFittingDialog extends LitElement {
             >`;
         }
         if (!marker) return nothing;
-        const label = t(
-            marker.replaced === "captured"
-                ? "fitting.chip_replaced_captured"
-                : "fitting.chip_replaced_pasted",
-        );
+        // THREE claims, not two, and a row can carry more than one.
+        // REPLACED says the bytes changed and where they came from;
+        // TUNED says the ditto count changed and the bytes did not.
+        // The chip used to pick its label with a single ternary off
+        // `replaced`, so a tuned row -- which has no `replaced` key at
+        // all -- fell into the else branch and announced itself as
+        // PASTED, about a code nobody had pasted (owner bench
+        // 2026-08-02).
+        const replaced =
+            marker.replaced === "captured" || marker.replaced === "pasted";
+        const tuned = typeof marker.tuned === "number";
+        // Both together is legitimate: repaired off a real remote, then
+        // retuned. Widening the chip is safe here in a way it would not
+        // be in the button tail -- this one lives inside .sig-alias,
+        // which is flex:1 and truncates, so a wider chip costs the name
+        // some characters and moves no control (owner ruling
+        // 2026-08-02).
+        const face = html`${replaced
+            ? html`<span class="cmark tick">&check;</span>${t(
+                  marker.replaced === "captured"
+                      ? "fitting.chip_replaced_captured"
+                      : "fitting.chip_replaced_pasted",
+              )}`
+            : nothing}${tuned
+            ? html`<span class="cmark dit"
+                      ><ha-svg-icon .path=${ICON_DITTO}></ha-svg-icon></span
+                  >${t("fitting.chip_tuned")}`
+            : nothing}`;
+        const title = [
+            tuned
+                ? t("fitting.chip_tuned_title", {
+                      count: String(marker.tuned),
+                  })
+                : "",
+            marker.date ?? "",
+        ]
+            .filter(Boolean)
+            .join(" · ");
         if (!row?.revertible) {
-            return html`<span class="prov-chip" title=${marker.date ?? ""}
-                ><span class="cmark tick">&check;</span>${label}</span
+            return html`<span class="prov-chip" title=${title}
+                >${face}</span
             >`;
         }
         const armed = this._revertArmed === i;
@@ -938,9 +978,7 @@ export class IrFittingDialog extends LitElement {
             title=${t("fitting.revert_title")}
             @click=${() => void this._onChipClick(i)}
         >
-            <span class="chip-face"
-                ><span class="cmark tick">&check;</span>${label}</span
-            >
+            <span class="chip-face">${face}</span>
             <span class="chip-alt"
                 ><span class="cmark undo">&#8634;</span
                 >${armed
@@ -2334,6 +2372,23 @@ export class IrFittingDialog extends LitElement {
                 color: var(--secondary-text-color);
                 padding: 0 4px;
                 white-space: nowrap;
+            }
+            /* The tuned mark wears the ditto chip's own glyph and blue,
+               so "this row was tuned" and "this row carries N dittos"
+               read as the same idea rather than two. */
+            .prov-chip .cmark.dit {
+                display: inline-flex;
+                align-items: center;
+                color: var(--primary-color);
+            }
+            .prov-chip .cmark.dit ha-svg-icon {
+                --mdc-icon-size: 10px;
+            }
+            /* Both claims on one chip need a gap between them; the
+               chip's own flex gap handles it, this just stops the tick
+               and the glyph colliding when they sit side by side. */
+            .prov-chip .cmark.tick + .cmark.dit {
+                margin-left: 3px;
             }
             .prov-chip .cmark.comb {
                 display: inline-flex;

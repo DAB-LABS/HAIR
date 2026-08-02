@@ -253,6 +253,53 @@ class TestMatrixBypassIsRefusedNotDropped:
         assert "?interactive=${!this._fit?.matrix}" in text
 
 
+class TestTheChipHasThreeWords:
+    """It had two, captured and pasted, chosen with a single ternary
+    off `replaced`. A tuned marker has no `replaced` key at all, so it
+    fell into the else branch and announced PASTED about a code nobody
+    had pasted."""
+
+    def test_the_ternary_is_gone(self):
+        text = _read("ir-fitting-dialog.ts")
+        chip = text.split("private _renderChip(i: number) {", 1)[1]
+        chip = chip.split("\n    private ", 1)[0]
+        assert "const tuned = typeof marker.tuned" in chip
+        assert "fitting.chip_tuned" in chip
+
+    def test_replaced_is_matched_explicitly_not_by_fallthrough(self):
+        text = _read("ir-fitting-dialog.ts")
+        chip = text.split("private _renderChip(i: number) {", 1)[1]
+        chip = chip.split("\n    private ", 1)[0]
+        assert 'marker.replaced === "pasted"' in chip
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_the_third_word_is_translated(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert data["fitting.chip_tuned"]
+        assert "{count}" in data["fitting.chip_tuned_title"]
+
+
+class TestApplySaysWhyItIsOff:
+    """APPLY is deliberately unavailable on a state matrix -- writing a
+    send count from a checklist that samples 31 of 288 cells would edit
+    cells nothing proved. The hint under it went on describing what it
+    would do anyway."""
+
+    def test_the_matrix_hint_replaces_the_normal_one(self):
+        text = _read("ir-fitting-dialog.ts")
+        assert "fitting.apply_matrix_hint" in text
+        assert text.count("fitting.apply_matrix_hint") >= 2
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_it_is_translated(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert data["fitting.apply_matrix_hint"]
+
+
 class TestReadOnlyChipsDoNotInviteClicks:
     """The decoded tooltip ended "Click to send the captured code
     as-is" on every surface, including the fitting rows, where toggling

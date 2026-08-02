@@ -258,8 +258,19 @@ export interface FittingLedgerRow {
 // CC1 layout without re-deriving the checklist client-side.
 // Smart Perm: the replaced-marker riding a row's extra. Outside every
 // canonical hash, so showing it never moves a wig's identity.
+/** What happened to a fitting row, and how it happened.
+ *
+ * Both claims are optional and a row can carry both: REPLACED says the
+ * bytes changed and where they came from, TUNED says the ditto count
+ * changed and the bytes did not. `replaced` was typed as REQUIRED,
+ * which is part of why the chip's captured-or-else-pasted ternary
+ * looked total when a tuned marker fell straight through it and
+ * announced PASTED about a code nobody pasted (owner bench
+ * 2026-08-02).
+ */
 export interface RowProvenance {
-    replaced: "captured" | "pasted";
+    replaced?: "captured" | "pasted";
+    tuned?: number;
     date?: string;
 }
 

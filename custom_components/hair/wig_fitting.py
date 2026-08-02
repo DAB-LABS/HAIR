@@ -180,6 +180,30 @@ class FittingRowSpec:
     ditto_count: int = 0
 
 
+def _merge_provenance(
+    existing: object, incoming: dict[str, Any]
+) -> dict[str, Any]:
+    """Fold a new provenance claim into whatever the row already had.
+
+    Both claims are true and they are about different things: REPLACED
+    says the bytes changed and where they came from, TUNED says the
+    ditto count changed. Assigning wholesale, which is what both paths
+    used to do, made the second one erase the first -- so a code
+    captured off a real remote and then tuned came back reporting only
+    the tune, and (because the chip picks its label off ``replaced``)
+    described itself as pasted (owner bench 2026-08-02).
+
+    ``date`` is the LATEST claim's, since that is when the row was last
+    touched. Nothing here is hashed: provenance rides in ``extra`` and
+    the canonical form is alias, pronto, ditto_count, bypass_protocol.
+    """
+    merged: dict[str, Any] = {}
+    if isinstance(existing, dict):
+        merged.update(existing)
+    merged.update(incoming)
+    return merged
+
+
 def _provenance_of(extra: dict[str, Any] | None) -> dict[str, Any] | None:
     """A readable ``provenance`` marker out of a signal / cell extra."""
     if not isinstance(extra, dict):
@@ -323,7 +347,9 @@ def _write_row_code(
         if marker is None:
             extra.pop(PROVENANCE_KEY, None)
         else:
-            extra[PROVENANCE_KEY] = marker
+            extra[PROVENANCE_KEY] = _merge_provenance(
+                extra.get(PROVENANCE_KEY), marker
+            )
 
     if wig.climate is not None:
         if key in ("on", "off"):
@@ -1543,8 +1569,12 @@ class FittingManager:
                     "error": "Could not find that row"}
         target.ditto_count = value
         # Same key and shape as the replaced marker, so the chip and the
-        # ledger read one provenance vocabulary rather than two.
-        target.extra[PROVENANCE_KEY] = marker
+        # ledger read one provenance vocabulary rather than two. Merged
+        # rather than assigned: a row repaired and THEN tuned is both,
+        # and overwriting made it forget where its bytes came from.
+        target.extra[PROVENANCE_KEY] = _merge_provenance(
+            target.extra.get(PROVENANCE_KEY), marker
+        )
         new_hash = wig_content_hash(wig)
 
         carried = 0
