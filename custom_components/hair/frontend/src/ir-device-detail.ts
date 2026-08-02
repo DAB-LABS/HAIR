@@ -29,6 +29,9 @@ import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+// The house wig, from images/wig.svg. Same glyph the closet wears,
+// because this button is the door into it (FR5).
+import { ICON_WIG } from "./ir-wigs.js";
 import type { HairApi } from "./api.js";
 import type {
     ActionOption,
@@ -1510,6 +1513,18 @@ export class IrDeviceDetail extends LitElement {
                           `}
                 </div>
                 <button
+                    class="stc-btn"
+                    @click=${() => (this._saveWigOpen = true)}
+                    ?disabled=${this._busy}
+                    title=${t("wigs.save_as_wig")}
+                >
+                    <ha-svg-icon
+                        class="stc-wig"
+                        .path=${ICON_WIG}
+                    ></ha-svg-icon>
+                    ${t("wigs.save_as_wig")}
+                </button>
+                <button
                     class="action-btn collapse-btn"
                     @click=${() => this.dispatchEvent(new CustomEvent("collapse", { bubbles: true, composed: true }))}
                     title=${t("common.close")}
@@ -1728,11 +1743,6 @@ export class IrDeviceDetail extends LitElement {
                         @click=${() => (this._confirmDelete = true)}
                         ?disabled=${this._busy}
                     >${t("devlist.del_device_title")}</button>
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${() => (this._saveWigOpen = true)}
-                        ?disabled=${this._busy}
-                    >${t("wigs.save_as_wig")}</button>
                 </div>
             </div>
 
@@ -1864,17 +1874,55 @@ export class IrDeviceDetail extends LitElement {
         actionChipStyles,
         popoverStyles,
         css`
-        .save-wig-btn {
-            color: #8e3b3b;
-            border-color: rgba(142, 59, 59, 0.3);
+        /* SAVE TO CLOSET, in the header (RULED, mockup FR5 variant V2).
+           It used to sit stacked under DELETE DEVICE in the bottom
+           right, which put the door into the closet next to the button
+           that destroys the device -- and buried the one action that
+           ends the workflow. It now sits hard right of the device name,
+           left of the X, matching the 0.8.8 card-header convention.
+
+           GRAYS AND WHITE ONLY AT REST: no blues, no accents. The
+           oxblood appears exclusively on hover, which keeps the
+           closet's colour tied to intent rather than decoration. Hover
+           also lifts the house gray background, the same 0.06 white
+           every other button in the panel uses, so it reads as a
+           button first and a closet second. */
+        .stc-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex: none;
+            background: none;
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            color: var(--secondary-text-color);
+            font-size: 10.5px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            font-family: inherit;
+            padding: 4px 10px;
+            cursor: pointer;
         }
-        .save-wig-btn:hover:not(:disabled) {
-            background: rgba(142, 59, 59, 0.12);
+        .stc-btn .stc-wig {
+            --mdc-icon-size: 15px;
+        }
+        .stc-btn:hover:not(:disabled) {
+            color: var(--primary-text-color);
+            border-color: #8e3b3b;
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .stc-btn:hover:not(:disabled) .stc-wig {
+            color: #b05050;
+        }
+        .stc-btn:disabled {
+            opacity: 0.4;
+            cursor: default;
         }
         .delete-row {
-            /* Right-edge column (owner layout, bench round four): the
-               left side was busy, so Delete Device sits hard right with
-               Add to Closet stacked directly beneath it. */
+            /* Right-edge column. Delete Device sits here alone since
+               SAVE TO CLOSET moved to the header (FR5) -- destructive
+               actions prefer their own company. */
             flex-basis: 100%;
             display: flex;
             flex-direction: column;
@@ -1891,7 +1939,7 @@ export class IrDeviceDetail extends LitElement {
         .header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             gap: 12px;
         }
         .header-left {
