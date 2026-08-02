@@ -36,6 +36,7 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-protocol-chip.js";
+import "./ir-test-button.js";
 import type { HairApi } from "./api.js";
 import type {
     FittingListenEvent,
@@ -100,11 +101,6 @@ function _cleanGithubHandle(value: string): string {
 // made the decision (owner ruling CS1, option A) in the chip's own
 // muted grey rather than a signal colour: amber means doubt, and a
 // bypassed row is not in doubt, somebody decided.
-/** How long TEST holds its result before settling back to its name.
- * Five seconds (owner ruling 2026-08-02): long enough to press, look
- * at the device across the room, and look back. */
-const FLASH_HOLD_MS = 5000;
-
 const ICON_COMB =
     "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853c12.245,10.304,19.264,25.259,19.264,41.024V320z";
 // mdi:repeat -- whole-frame send count, gold. Same mark the catalog
@@ -170,10 +166,6 @@ export class IrFittingDialog extends LitElement {
      * the compact reading. */
     @state() private _openChip: string | null = null;
     @state() private _applyBusy = false;
-    /** Rows whose TEST is currently showing its result instead of its
-     * name, and the timers that will settle them back. */
-    @state() private _flash = new Map<number, "sent" | "heard">();
-    private _flashTimers = new Map<number, number>();
     @state() private _replaceText = "";
     @state() private _replaceQuality: CaptureQuality | null = null;
     @state() private _replaceBusy = false;
@@ -208,7 +200,6 @@ export class IrFittingDialog extends LitElement {
         super.disconnectedCallback();
         this.removeEventListener("click", this._onHostClick, true);
         this.removeEventListener("keydown", this._onHostKey);
-        this._clearFlashTimers();
         // Closing the dialog IS cancelling the listen window.
         void this._stopListening();
     }
@@ -315,18 +306,14 @@ export class IrFittingDialog extends LitElement {
         this._sendTimes = Math.max(1, Math.min(Math.round(raw), 10));
     }
 
-    private async _send(i: number): Promise<void> {
-        if (!this._emitter || !this._fit) return;
-        const facts = this._facts.get(i) ?? {
-            sent: 0,
-            heard: false,
-            busy: false,
-        };
-        if (facts.busy) return;
-        this._facts = new Map(this._facts).set(i, {
-            ...facts,
-            busy: true,
-        });
+    /** Transmit one row and report whether a receiver heard it.
+     *
+     * Returns rather than records: the busy state, the press count and
+     * the result label all live in ir-test-button now. What stays here
+     * is the API call and the error surface, which are the dialog's.
+     */
+    private async _send(i: number): Promise<boolean> {
+        if (!this._emitter || !this._fit) return false;
         try {
             const res = await this.api.fittingSend(
                 this.wig.filename,
@@ -335,20 +322,14 @@ export class IrFittingDialog extends LitElement {
                 this._sendTimes,
             );
             this._facts = new Map(this._facts).set(i, {
-                sent: facts.sent + 1,
-                heard: facts.heard || res.heard,
+                sent: (this._facts.get(i)?.sent ?? 0) + 1,
+                heard: !!this._facts.get(i)?.heard || res.heard,
                 busy: false,
             });
-            // THIS send's result, not the row's history: the button is
-            // reporting the press that just happened, so a row heard
-            // once and missed twice must not keep claiming HEARD.
-            this._flashResult(i, res.heard);
+            return res.heard;
         } catch (err: any) {
-            this._facts = new Map(this._facts).set(i, {
-                ...facts,
-                busy: false,
-            });
             this._error = err?.message ?? String(err);
+            return false;
         }
     }
 
@@ -1231,71 +1212,18 @@ export class IrFittingDialog extends LitElement {
 
     /** TEST, which reports its own result.
      *
-     * The result used to be a separate run of text: first inline in the
-     * row, where its variable width shoved every control after it, then
-     * on a line below, where it read as orphaned from the button that
-     * produced it. It now lives ON that button (owner design
-     * 2026-08-02): press it, it says SENT, or SENT . HEARD when a
-     * receiver caught the transmission, holds for five seconds so you
-     * can look at the device and back, and collapses to TEST again. How
-     * many times the row has been tested rides in the corner dot, which
-     * is grey because it is a tally rather than a flag.
-     *
-     * The three labels are STACKED in one grid cell with only the
-     * active one visible, rather than swapped in and out. The button
-     * therefore sizes to its widest state in whatever language it is
-     * reading, and cannot change width when the label changes -- which
-     * would have reintroduced the staggering this whole pass removed.
-     * Same trick the provenance chip uses for its revert label.
+     * Extracted to ir-test-button.ts (2026-08-02) ahead of this
+     * dialog's removal: it was always a component pretending to be a
+     * method, owning flash state, a timer, its own stacked-label
+     * sizing and a count dot. The save dialog is its next home.
      */
     private _renderTestButton(i: number) {
-        const facts = this._facts.get(i);
-        const flash = this._flash.get(i);
-        return html`<button
-            class="vbtn test-btn ${flash ? `flash ${flash}` : ""}"
-            ?disabled=${!this._emitter || facts?.busy}
-            title=${this._emitter ? "" : t("fitting.pick_emitter")}
-            @click=${() => void this._send(i)}
-        >
-            <span class="tb-stack">
-                <span class="tb-lay ${flash ? "" : "on"}"
-                    >${t("cmdrow.test")}</span
-                >
-                <span class="tb-lay ${flash === "sent" ? "on" : ""}"
-                    >${t("fitting.sent")}</span
-                >
-                <span class="tb-lay ${flash === "heard" ? "on" : ""}"
-                    >${t("fitting.sent")} &middot;
-                    ${t("fitting.heard")}</span
-                >
-            </span>
-            <ir-count-dot
-                color="grey"
-                .count=${facts?.sent ?? 0}
-            ></ir-count-dot>
-        </button>`;
-    }
-
-    /** Show a send's result on its button, then let it settle back.
-     * Re-pressing restarts the hold rather than stacking timers. */
-    private _flashResult(i: number, heard: boolean): void {
-        const existing = this._flashTimers.get(i);
-        if (existing !== undefined) clearTimeout(existing);
-        this._flash = new Map(this._flash).set(i, heard ? "heard" : "sent");
-        const timer = window.setTimeout(() => {
-            const next = new Map(this._flash);
-            next.delete(i);
-            this._flash = next;
-            this._flashTimers.delete(i);
-        }, FLASH_HOLD_MS);
-        this._flashTimers.set(i, timer);
-    }
-
-    private _clearFlashTimers(): void {
-        for (const timer of this._flashTimers.values()) {
-            clearTimeout(timer);
-        }
-        this._flashTimers.clear();
+        return html`<ir-test-button
+            .send=${() => this._send(i)}
+            .disabledReason=${this._emitter
+                ? null
+                : t("fitting.pick_emitter")}
+        ></ir-test-button>`;
     }
 
     /** The staged-but-unproven notice. The chip itself stays plain
@@ -2152,39 +2080,6 @@ export class IrFittingDialog extends LitElement {
                 align-items: center;
                 gap: 8px;
                 flex: none;
-            }
-            /* TEST reports its own result. The three labels occupy ONE
-               grid cell, all of them laid out, only the active one
-               visible -- so the button is always as wide as its widest
-               state in the reader's language and cannot resize when the
-               label changes. Measuring would have worked too; this
-               needs no measuring and no maintenance. */
-            .test-btn {
-                position: relative;
-            }
-            .tb-stack {
-                display: grid;
-            }
-            .tb-lay {
-                grid-area: 1 / 1;
-                visibility: hidden;
-                white-space: nowrap;
-            }
-            .tb-lay.on {
-                visibility: visible;
-            }
-            /* Both results wear the same green (owner ruling
-               2026-08-02). The first cut greyed a send nothing heard
-               back, on the reasoning that only a confirmed round trip
-               had earned the colour -- but the green here means "that
-               press did something", and a send with no receiver in the
-               room is still a send. The two states are already told
-               apart by the words on the button, so the colour was
-               carrying a distinction it did not need to and made half
-               the presses look like failures. */
-            .vbtn.test-btn.flash {
-                color: #66bb6a;
-                border-color: rgba(76, 175, 80, 0.5);
             }
             .send-btn {
                 background: none;

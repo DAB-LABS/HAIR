@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Assign action mapping",
     "cmdrow.actions": "ACTIONS",
     "cmdrow.test": "Test",
+    "testbtn.sent": "sent",
+    "testbtn.heard": "heard",
     "cmdrow.trigger": "Trigger",
     "cmdrow.edit_trigger": "Edit trigger",
     "cmdrow.create_trigger": "Create trigger",

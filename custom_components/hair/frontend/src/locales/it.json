@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Assegna mappatura di azione",
     "cmdrow.actions": "AZIONI",
     "cmdrow.test": "Prova",
+    "testbtn.sent": "inviato",
+    "testbtn.heard": "eco",
     "cmdrow.trigger": "Trigger",
     "cmdrow.edit_trigger": "Modifica trigger",
     "cmdrow.create_trigger": "Crea trigger",

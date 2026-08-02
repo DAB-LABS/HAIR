@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Asignar una acción",
     "cmdrow.actions": "ACCIONES",
     "cmdrow.test": "Probar",
+    "testbtn.sent": "enviada",
+    "testbtn.heard": "eco",
     "cmdrow.trigger": "Disparador",
     "cmdrow.edit_trigger": "Editar disparador",
     "cmdrow.create_trigger": "Crear disparador",

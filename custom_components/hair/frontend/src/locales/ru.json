@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Назначить привязку действия",
     "cmdrow.actions": "ДЕЙСТВИЯ",
     "cmdrow.test": "Тест",
+    "testbtn.sent": "отправлено",
+    "testbtn.heard": "эхо",
     "cmdrow.trigger": "Триггер",
     "cmdrow.edit_trigger": "Изменить триггер",
     "cmdrow.create_trigger": "Создать триггер",

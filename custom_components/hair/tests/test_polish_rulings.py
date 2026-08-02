@@ -101,36 +101,59 @@ class TestRowControlsCannotStagger:
     def test_the_result_rides_the_button_that_produced_it(self):
         """Inline it shoved the controls; on a line below it read as
         orphaned, and matrix rows never rendered that line at all. It
-        lives on TEST now (owner design 2026-08-02)."""
-        text = _read("ir-fitting-dialog.ts")
-        assert "_renderTestButton" in text
-        assert "_renderFactsLine" not in text
+        lives on TEST now, and TEST is its own component (owner ruling
+        2026-08-02) ahead of the fitting dialog's removal."""
+        text = _read("ir-test-button.ts")
+        assert "_renderFactsLine" not in _read("ir-fitting-dialog.ts")
         assert 'color="grey"' in text
+        assert "testbtn.sent" in text and "testbtn.heard" in text
+
+    def test_the_host_no_longer_owns_the_flash(self):
+        """The extraction is only real if the state went with it."""
+        host = _read("ir-fitting-dialog.ts")
+        for leftover in ("FLASH_HOLD_MS", "_flashTimers", "_flashResult"):
+            assert leftover not in host
+        assert "<ir-test-button" in host
 
     def test_the_button_cannot_change_width_when_the_label_changes(self):
         """All three labels laid out in one grid cell, only the active
         one visible. A button that resized would recreate the exact
         staggering this pass removed."""
-        text = _read("ir-fitting-dialog.ts")
-        stack = text.split(".tb-stack {", 1)[1].split("}", 1)[0]
+        text = _read("ir-test-button.ts")
+        stack = text.split("\n        .stack {", 1)[1].split("}", 1)[0]
         assert "display: grid" in stack
-        lay = text.split("\n            .tb-lay {", 1)[1].split("}", 1)[0]
+        lay = text.split("\n        .lay {", 1)[1].split("}", 1)[0]
         assert "grid-area: 1 / 1" in lay
         assert "visibility: hidden" in lay
 
-    def test_the_hold_is_five_seconds_and_the_timers_are_cleaned_up(self):
-        text = _read("ir-fitting-dialog.ts")
+    def test_the_hold_is_five_seconds_and_the_timer_is_cleaned_up(self):
+        text = _read("ir-test-button.ts")
         assert "FLASH_HOLD_MS = 5000" in text
-        assert "_clearFlashTimers" in text
         disconnect = text.split("disconnectedCallback", 1)[1]
-        disconnect = disconnect.split("\n    /**", 1)[0]
-        assert "_clearFlashTimers()" in disconnect
+        disconnect = disconnect.split("\n    private", 1)[0]
+        assert "_clearTimer()" in disconnect
 
-    def test_the_flash_reports_this_send_not_the_row_history(self):
+    def test_the_flash_reports_this_press_not_the_history(self):
         """A row heard once and missed twice must not keep claiming
         HEARD."""
-        text = _read("ir-fitting-dialog.ts")
-        assert "this._flashResult(i, res.heard);" in text
+        text = _read("ir-test-button.ts")
+        assert 'this._show(heard ? "heard" : "sent");' in text
+
+    def test_the_button_never_claims_the_device_responded(self):
+        """Heard means the code went over the air, not that the fan
+        spun. The check stays the human's act -- that line is what
+        keeps this button from quietly rebuilding the fitting room."""
+        text = _read("ir-test-button.ts")
+        assert "STATELESS ABOUT PROOF" in text
+        # Assert the CONTRACT, not vocabulary: prose about verdicts is
+        # fine, an API for recording one is not. Its whole public
+        # surface is send / disabledReason / count, and the only event
+        # it raises is a failure report.
+        props = set(re.findall(r"public (\w+)", text))
+        assert props == {"send", "disabledReason", "count"}, props
+        body = text.split("*/", 1)[1]
+        assert body.count("dispatchEvent") == 1
+        assert '"test-failed"' in body
 
     def test_facts_are_gone_from_the_control_run(self):
         text = _read("ir-fitting-dialog.ts")

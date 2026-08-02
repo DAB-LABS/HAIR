@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Atribuir mapeamento de ação",
     "cmdrow.actions": "AÇÕES",
     "cmdrow.test": "Testar",
+    "testbtn.sent": "enviado",
+    "testbtn.heard": "eco",
     "cmdrow.trigger": "Gatilho",
     "cmdrow.edit_trigger": "Editar gatilho",
     "cmdrow.create_trigger": "Criar gatilho",

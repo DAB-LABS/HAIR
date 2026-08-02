@@ -112,6 +112,8 @@
     "cmdrow.map_action": "アクションマッピングを割り当て",
     "cmdrow.actions": "ACTIONS",
     "cmdrow.test": "テスト",
+    "testbtn.sent": "送信済み",
+    "testbtn.heard": "受信",
     "cmdrow.trigger": "トリガー",
     "cmdrow.edit_trigger": "トリガーを編集",
     "cmdrow.create_trigger": "トリガーを作成",

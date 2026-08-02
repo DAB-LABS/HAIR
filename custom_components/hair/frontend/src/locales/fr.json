@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Assigner un mappage d'action",
     "cmdrow.actions": "ACTIONS",
     "cmdrow.test": "Test",
+    "testbtn.sent": "envoyé",
+    "testbtn.heard": "écho",
     "cmdrow.trigger": "Déclencheur",
     "cmdrow.edit_trigger": "Modifier le déclencheur",
     "cmdrow.create_trigger": "Créer un déclencheur",

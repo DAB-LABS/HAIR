@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Aktionszuordnung zuweisen",
     "cmdrow.actions": "AKTIONEN",
     "cmdrow.test": "Testen",
+    "testbtn.sent": "gesendet",
+    "testbtn.heard": "gehört",
     "cmdrow.trigger": "Auslöser",
     "cmdrow.edit_trigger": "Auslöser bearbeiten",
     "cmdrow.create_trigger": "Auslöser erstellen",

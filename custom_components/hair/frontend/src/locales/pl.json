@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Przypisz mapowanie akcji",
     "cmdrow.actions": "AKCJE",
     "cmdrow.test": "Test",
+    "testbtn.sent": "wysłano",
+    "testbtn.heard": "echo",
     "cmdrow.trigger": "Wyzwalacz",
     "cmdrow.edit_trigger": "Edytuj wyzwalacz",
     "cmdrow.create_trigger": "Utwórz wyzwalacz",

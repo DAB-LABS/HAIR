@@ -112,6 +112,8 @@
     "cmdrow.map_action": "Actietoewijzing instellen",
     "cmdrow.actions": "ACTIES",
     "cmdrow.test": "Testen",
+    "testbtn.sent": "verstuurd",
+    "testbtn.heard": "gehoord",
     "cmdrow.trigger": "Trigger",
     "cmdrow.edit_trigger": "Trigger bewerken",
     "cmdrow.create_trigger": "Trigger aanmaken",
