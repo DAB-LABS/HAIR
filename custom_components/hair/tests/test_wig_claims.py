@@ -435,3 +435,131 @@ class TestBackfillingClosetIdentity:
     def test_an_unloadable_file_is_not_an_error(self, tmp_path):
         from custom_components.hair.wig_store import backfill_wig_id
         assert backfill_wig_id(tmp_path, "nope.wig.json") is None
+
+
+class TestUpdateTouchesNothingButClaims:
+    """Hard rule 3, and the reason it matters: an attestation PR should
+    read at a glance as "one person vouched for these rows". If UPDATE
+    also rewrote content, every attestation would arrive looking like a
+    content change and a maintainer would have to diff it to find out
+    otherwise."""
+
+    def _wig_text(self):
+        wig = Wig(
+            name="Edifier",
+            brand="Edifier",
+            signals=[
+                WigSignal(alias="Volume Up", pronto=PRONTO, send_count=3),
+                WigSignal(alias="Mute", pronto=PRONTO, ditto_count=1),
+            ],
+            wig_id="u-original",
+        )
+        return serialize_wig(wig)
+
+    def _bundle(self, text):
+        from custom_components.hair.wig_format import parse_wig
+        wig = parse_wig(text).wig
+        return ClaimsBundle(
+            wig_id="ignored-gets-forced",
+            handle="David",
+            rows=[
+                RowClaim(
+                    alias_at_claim=s.alias,
+                    digest=signal_row_digest(s),
+                    verdict=VERDICT_WORKED,
+                )
+                for s in wig.signals
+            ],
+        )
+
+    def test_the_signals_block_is_byte_identical(self):
+        from custom_components.hair.wig_claims import (
+            signals_block,
+            update_wig_with_claims,
+        )
+        before = self._wig_text()
+        after, _ = update_wig_with_claims(before, self._bundle(before))
+        assert signals_block(after) == signals_block(before)
+        assert signals_block(before) != ""
+
+    def test_identity_is_preserved_not_reminted(self):
+        from custom_components.hair.wig_claims import update_wig_with_claims
+        from custom_components.hair.wig_format import parse_wig
+        before = self._wig_text()
+        after, _ = update_wig_with_claims(before, self._bundle(before))
+        assert parse_wig(after).wig.wig_id == "u-original"
+
+    def test_the_bundle_is_forced_onto_this_wig(self):
+        """A claim naming a different wig is not a claim about this
+        one."""
+        from custom_components.hair.wig_claims import update_wig_with_claims
+        before = self._wig_text()
+        _, entry = update_wig_with_claims(before, self._bundle(before))
+        assert entry["wig_id"] == "u-original"
+
+    def test_claims_accumulate_rather_than_replace(self):
+        from custom_components.hair.wig_claims import update_wig_with_claims
+        from custom_components.hair.wig_format import parse_wig
+        text = self._wig_text()
+        for _ in range(3):
+            text, _ = update_wig_with_claims(text, self._bundle(text))
+        assert len(parse_wig(text).wig.extra["fittings"]) == 3
+
+    def test_send_counts_are_not_written_back(self):
+        """One fitter's environment stays out of everyone's file."""
+        from custom_components.hair.wig_claims import update_wig_with_claims
+        from custom_components.hair.wig_format import parse_wig
+        before = self._wig_text()
+        after, _ = update_wig_with_claims(before, self._bundle(before))
+        assert parse_wig(after).wig.signals[0].send_count == 3
+
+    def test_unparseable_text_is_refused_not_guessed(self):
+        from custom_components.hair.wig_claims import update_wig_with_claims
+        assert update_wig_with_claims("{not a wig", self._bundle(
+            self._wig_text())) is None
+
+
+class TestSuggestedRenames:
+    """The suggestion IS the applied rename. Names sit outside every
+    digest, so writing one orphans nothing and the PR diff shows the
+    change for a maintainer to adjudicate."""
+
+    def _wig(self):
+        return Wig(name="W", signals=[
+            WigSignal(alias="On", pronto=PRONTO),
+            WigSignal(alias="Off", pronto=PRONTO, ditto_count=2),
+        ], wig_id="u-1")
+
+    def test_a_rename_is_written(self):
+        from custom_components.hair.wig_claims import apply_rename_suggestions
+        wig = self._wig()
+        target = signal_row_digest(wig.signals[0])
+        assert apply_rename_suggestions(wig, {target: "Power"}) == 1
+        assert wig.signals[0].alias == "Power"
+
+    def test_it_orphans_no_claims(self):
+        """The whole reason this is safe: the digest does not move."""
+        from custom_components.hair.wig_claims import apply_rename_suggestions
+        wig = self._wig()
+        before = wig_row_digests(wig)
+        apply_rename_suggestions(wig, {before[0]: "Power"})
+        assert wig_row_digests(wig) == before
+
+    def test_keyed_by_digest_not_by_name(self):
+        """Two rows can share a name; keying by name would move both."""
+        from custom_components.hair.wig_claims import apply_rename_suggestions
+        wig = Wig(name="W", signals=[
+            WigSignal(alias="Same", pronto=PRONTO),
+            WigSignal(alias="Same", pronto=PRONTO, ditto_count=1),
+        ])
+        target = signal_row_digest(wig.signals[1])
+        apply_rename_suggestions(wig, {target: "Renamed"})
+        assert wig.signals[0].alias == "Same"
+        assert wig.signals[1].alias == "Renamed"
+
+    def test_a_noop_rename_is_not_counted(self):
+        from custom_components.hair.wig_claims import apply_rename_suggestions
+        wig = self._wig()
+        assert apply_rename_suggestions(
+            wig, {signal_row_digest(wig.signals[0]): "On"}
+        ) == 0
