@@ -2701,6 +2701,7 @@ async def ws_wigs_upload(
         from .wig_adapters import convert, sniff_format
         from .wig_comb import comb_wig, receipt_summary, stamp_receipt
         from .wig_format import (
+            drop_legacy_fittings,
             parse_wig,
             serialize_wig,
             wig_content_hash,
@@ -2757,6 +2758,16 @@ async def ws_wigs_upload(
 
         result = parse_wig(text)
         if result.ok:
+            # Pre-claims fittings are DROPPED on import (hard rule 6),
+            # keyed on the SHAPE of each entry rather than the file's
+            # major -- this branch itself wrote /3 files carrying the
+            # old whole-wig shape before claims landed, so the stamp
+            # cannot be trusted to describe the block. They cannot
+            # become claims: a whole-file hash says "all these bytes"
+            # and carries no information about which rows anybody
+            # actually proved, so converting one would manufacture
+            # evidence nobody gave.
+            dropped = drop_legacy_fittings(result.wig)
             comb = _combed(result.wig)
             # The receipt means the file written is no longer byte-for-byte
             # what was dropped, so it goes out through the serializer -- the
@@ -2769,6 +2780,7 @@ async def ws_wigs_upload(
                 return {"success": False, "errors": ["could not write file"]}
             entry = _entry(result.wig, filename)
             entry["comb"] = comb
+            entry["dropped_fittings"] = dropped
             return {
                 "success": True,
                 "filename": filename,
@@ -2777,6 +2789,7 @@ async def ws_wigs_upload(
                 "format": "wig",
                 "skipped": [],
                 "folds": [],
+                "dropped_fittings": dropped,
             }
 
         # Not a wig: sniff for a foreign format before reporting the

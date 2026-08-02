@@ -107,51 +107,52 @@ class TestWhatTheDigestDeliberatelyIgnores:
         assert signal_row_digest(a) != signal_row_digest(b)
 
 
+LEGACY_FITTING = {
+    "handle": "David",
+    "date": "2026-08-02",
+    "content_hash": "sha256:abc",
+    "confirmed": ["On"],
+    "failed": [],
+    "send_times_used": 3,
+    "key": "k",
+    "sig": "s",
+}
+NEW_BUNDLE = {
+    "wig_id": "u-1",
+    "rows": [
+        {"alias_at_claim": "On", "digest": "d1", "verdict": "worked"},
+    ],
+    "handle": "David",
+    "key": "k",
+    "sig": "s",
+}
+NEW_MATRIX_BUNDLE = {**NEW_BUNDLE, "cells_hash": "sha256:def"}
+
+
 class TestTheDiscriminator:
     """Hard rule 6. Keys on the SHAPE of the entry, never the file's
     major, because this branch itself wrote /3 files carrying old
     whole-wig fittings before the claims model landed."""
 
-    LEGACY = {
-        "handle": "David",
-        "date": "2026-08-02",
-        "content_hash": "sha256:abc",
-        "confirmed": ["On"],
-        "failed": [],
-        "send_times_used": 3,
-        "key": "k",
-        "sig": "s",
-    }
-    NEW = {
-        "wig_id": "u-1",
-        "rows": [
-            {"alias_at_claim": "On", "digest": "d1", "verdict": "worked"},
-        ],
-        "handle": "David",
-        "key": "k",
-        "sig": "s",
-    }
-    NEW_MATRIX = {**NEW, "cells_hash": "sha256:def"}
-
     def test_legacy_is_recognized(self):
-        assert is_legacy_fitting(self.LEGACY)
-        assert not is_claims_bundle(self.LEGACY)
+        assert is_legacy_fitting(LEGACY_FITTING)
+        assert not is_claims_bundle(LEGACY_FITTING)
 
     def test_a_claims_bundle_is_not_legacy(self):
-        assert not is_legacy_fitting(self.NEW)
-        assert is_claims_bundle(self.NEW)
+        assert not is_legacy_fitting(NEW_BUNDLE)
+        assert is_claims_bundle(NEW_BUNDLE)
 
     def test_a_new_matrix_bundle_is_NOT_dropped_by_the_legacy_path(self):
         """The pinned guard (hard rule 6). A matrix bundle binds a
         lattice hash too, and if that field had reused the old name
         this test would fail -- which is exactly why it is called
         cells_hash."""
-        assert not is_legacy_fitting(self.NEW_MATRIX)
-        assert is_claims_bundle(self.NEW_MATRIX)
-        assert parse_claims_bundle(self.NEW_MATRIX) is not None
+        assert not is_legacy_fitting(NEW_MATRIX_BUNDLE)
+        assert is_claims_bundle(NEW_MATRIX_BUNDLE)
+        assert parse_claims_bundle(NEW_MATRIX_BUNDLE) is not None
 
     def test_the_matrix_binding_never_uses_the_old_name(self):
-        bundle = parse_claims_bundle(self.NEW_MATRIX)
+        bundle = parse_claims_bundle(NEW_MATRIX_BUNDLE)
         out = claims_bundle_out(bundle)
         assert out["cells_hash"] == "sha256:def"
         assert "content_hash" not in out
@@ -160,15 +161,15 @@ class TestTheDiscriminator:
         """A /3 file this branch wrote before claims existed. The
         stamp says 3; the block is legacy; shape wins."""
         wig = Wig(name="W", signals=[WigSignal(alias="On", pronto=PRONTO)])
-        wig.extra["fittings"] = [dict(self.LEGACY)]
+        wig.extra["fittings"] = [dict(LEGACY_FITTING)]
         assert drop_legacy_fittings(wig) == 1
         assert "fittings" not in wig.extra
 
     def test_a_mixed_list_keeps_only_the_claims(self):
         wig = Wig(name="W", signals=[WigSignal(alias="On", pronto=PRONTO)])
-        wig.extra["fittings"] = [dict(self.LEGACY), dict(self.NEW)]
+        wig.extra["fittings"] = [dict(LEGACY_FITTING), dict(NEW_BUNDLE)]
         assert drop_legacy_fittings(wig) == 1
-        assert wig.extra["fittings"] == [self.NEW]
+        assert wig.extra["fittings"] == [NEW_BUNDLE]
 
     def test_nothing_to_drop_is_not_an_error(self):
         wig = Wig(name="W", signals=[])
@@ -236,7 +237,7 @@ class TestDerivedFacts:
             wig_id="u-1",
             rows=[
                 RowClaim(alias_at_claim="x", digest=d, verdict=v)
-                for d, v in zip(digests, verdicts)
+                for d, v in zip(digests, verdicts, strict=True)
             ],
         )
 
@@ -309,9 +310,53 @@ class TestWigIdentity:
     def test_claims_of_skips_legacy(self):
         wig = Wig(name="W", signals=[])
         wig.extra["fittings"] = [
-            TestTheDiscriminator.LEGACY,
-            TestTheDiscriminator.NEW,
+            LEGACY_FITTING,
+            NEW_BUNDLE,
         ]
         bundles = claims_of(wig)
         assert len(bundles) == 1
         assert bundles[0].wig_id == "u-1"
+
+
+class TestIdentityIsMintedAtTheChokePoint:
+    """Eight constructors across five modules build wigs. Requiring
+    each to remember an id would guarantee one eventually did not, so
+    serialize_wig -- the one path to becoming a file -- mints it."""
+
+    def test_serializing_mints_an_id(self):
+        wig = Wig(name="W", signals=[WigSignal(alias="On", pronto=PRONTO)])
+        assert wig.wig_id is None
+        serialize_wig(wig)
+        assert wig.wig_id
+
+    def test_the_id_is_stable_across_saves(self):
+        """The mutation is deliberate. Minting into the output dict
+        alone would leave the wig without an id and the next save
+        would mint a different one -- identity changing on every
+        write, the exact opposite of the point."""
+        wig = Wig(name="W", signals=[WigSignal(alias="On", pronto=PRONTO)])
+        serialize_wig(wig)
+        first = wig.wig_id
+        serialize_wig(wig)
+        assert wig.wig_id == first
+
+    def test_an_existing_id_is_never_replaced(self):
+        wig = Wig(
+            name="W",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+            wig_id="came-from-the-shop",
+        )
+        serialize_wig(wig)
+        assert wig.wig_id == "came-from-the-shop"
+
+    def test_provenance_round_trips(self):
+        from custom_components.hair.wig_format import parse_wig
+        wig = Wig(
+            name="W",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+            converted_from="living-room.json",
+            converted_from_sha256="sha256:abc",
+        )
+        again = parse_wig(serialize_wig(wig)).wig
+        assert again.converted_from == "living-room.json"
+        assert again.converted_from_sha256 == "sha256:abc"

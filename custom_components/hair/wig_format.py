@@ -515,6 +515,26 @@ def _str_or_none(value: object) -> str | None:
     return None
 
 
+def ensure_wig_id(wig: Wig) -> bool:
+    """Give a wig an identity if it has none. True if one was minted.
+
+    Called from ``serialize_wig``, which is the ONE choke point every
+    wig passes through to become a file. Eight different constructors
+    across five modules build wigs -- the adapters, the code library,
+    both export builders -- and requiring each to remember would
+    guarantee that one eventually did not.
+
+    It mutates deliberately. Minting into the output dict alone would
+    leave the in-memory wig without an id, and the next save would mint
+    a DIFFERENT one: the same wig would change identity every time it
+    was written, which is the precise opposite of the field's purpose.
+    """
+    if wig.wig_id:
+        return False
+    wig.wig_id = new_wig_id()
+    return True
+
+
 def new_wig_id() -> str:
     """Mint a wig identity.
 
@@ -679,10 +699,14 @@ def serialize_wig(wig: Wig) -> str:
     # signal hashes, so a matrix wig has to refuse on an old install for
     # exactly the same reason a flat one does.
     fmt = WIG_FORMAT_V3
-    out: dict = {"format": fmt}
+    # No wig reaches disk without an identity (v0.9.5). See
+    # ensure_wig_id for why this is here and not at each constructor.
+    ensure_wig_id(wig)
+    # Third, not second: format and name are what a human wants when
+    # they open the file. Identity is for machines and can wait a line.
+    out: dict = {"format": fmt, "name": wig.name}
     if wig.wig_id:
         out["wig_id"] = wig.wig_id
-    out["name"] = wig.name
     for key, value in (
         ("brand", wig.brand),
         ("model", wig.model),
