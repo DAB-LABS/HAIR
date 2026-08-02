@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Apelido",
     "pluckdlg.no_blasters": "Nenhum emissor compatível encontrado. Instale uma integração IR compatível (como Tuya Local) e aprenda um código primeiro.",
     "editor.ditto_disabled_cmd": "O número de dittos vale quando o comando é transmitido como NEC. Mude a pílula para NEC para ativar.",
-    "editor.ditto_disabled": "O número de dittos vale para sinais decodificados (NEC hoje). Códigos Pronto brutos são transmitidos como capturados.",
+    "editor.ditto_disabled": "O número de dittos vale para sinais que descodificam como NEC. Códigos Pronto brutos são transmitidos como capturados.",
+    "editor.ditto_disabled_protocol": "Os dittos são uma trama de repetição NEC. {protocol} não tem equivalente, por isso o número nunca seria emitido.",
     "editor.copied": "Copiado",
     "editor.press_copy": "Pressione Cmd/Ctrl+C",
     "editor.valid": "Código Pronto válido",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} dispositivo HAIR",
     "sniffer.linked.other": "{count} dispositivos HAIR",
     "wigs.upload_partial": "{count} sinais não puderam ser convertidos",
+    "wigs.upload_one_at_a_time": "{count} ficheiros de uma vez. O armário aceita um de cada vez, por isso nada foi pendurado. Largue um único ficheiro.",
     "wigs.receipt.hung": "{name} pendurado em {brand}",
     "wigs.receipt.duplicate": "{name} pendurado em {brand} (já havia um dispositivo idêntico em {brands})",
     "wigs.count.one": "{count} dispositivo",
@@ -526,7 +528,7 @@
     "fitting.send": "Enviar",
     "fitting.sent": "enviado",
     "fitting.sent_n": "enviado x{count}",
-    "fitting.heard": "eco recebido",
+    "fitting.heard": "eco",
     "fitting.worked": "Funcionou",
     "fitting.did_not": "Não funcionou",
     "fitting.progress": "{tested} de {total} testados",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "Tramas de repetição acrescentadas a cada envio. Fazem parte da peruca assinada, por isso uma alteração tem de ser provada.",
     "fitting.chip_less": "Menos um",
     "fitting.chip_more": "Mais um",
+    "fitting.chip_close": "Concluído",
     "fitting.chip_observed": "o comando envia {count}",
     "fitting.ditto_staged": "Dittos preparados em {count}. Testar transmite a nova receita; Funcionou guarda-a na peruca e volta a assinar. Fechar sem confirmar descarta-a.",
     "fitting.tuned_notice": "Dittos guardados: {count}. A peruca foi assinada de novo com a receita provada.",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "{count} dittos num botão que altera um valor. Alguns recetores avançam um passo por ditto, por isso pode ser intencional.",
     "chip.bypass": "ignorar",
     "chip.bypass_tip": "A ignorar o protocolo detetado, a enviar Pronto em bruto",
-    "chip.decoded_tip": "A transmitir tempos descodificados limpos. Clique para enviar o código capturado tal como está."
+    "chip.bypass_action": "Clique para transmitir tempos descodificados limpos.",
+    "chip.decoded_tip": "A transmitir tempos descodificados limpos.",
+    "chip.decoded_action": "Clique para enviar o código capturado tal como está."
 }

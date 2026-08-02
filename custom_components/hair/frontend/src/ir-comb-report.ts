@@ -313,18 +313,42 @@ export class IrCombReport extends LitElement {
                 padding: 4px 0;
                 max-height: 260px;
                 overflow-y: auto;
+                align-content: start;
             }
-            /* A grid, not a flex row: the key column is FIXED so every
-               diagnosis starts at the same x. With flex, a finding whose
-               key wrapped pushed its diagnosis somewhere else entirely and
-               the column read as ragged (owner bench 2026-07-31). */
-            .find {
+            /* The grid lives on the LIST, not the row, and the rows
+               join it with display:contents. That keeps the property
+               the fixed 200px column was there to protect -- every
+               diagnosis in a group starts at the same x, so the column
+               never reads as ragged (owner bench 2026-07-31) -- while
+               letting the width come from the widest key actually
+               present instead of a guess.
+               200px was about 48px wider than the longest key a real
+               lattice produces and nearly 90px wider than a short one,
+               so a name and the sentence explaining it sat on opposite
+               sides of a gutter (owner bench 2026-08-02). max-content
+               closes the gap to the 14px column gap, per group, in
+               every language. */
+            .glist {
                 display: grid;
-                grid-template-columns: 200px 1fr;
-                gap: 6px 14px;
-                padding: 7px 12px 7px 26px;
+                grid-template-columns: max-content minmax(0, 1fr);
+            }
+            .find {
+                display: contents;
+            }
+            /* Padding rides the cells, since the row itself no longer
+               generates a box. */
+            .find > * {
+                padding-top: 7px;
+                padding-bottom: 7px;
                 font-size: 12px;
                 line-height: 1.5;
+            }
+            .find > .key {
+                padding-left: 26px;
+                padding-right: 14px;
+            }
+            .find > .diag {
+                padding-right: 12px;
             }
             .find .key {
                 display: flex;
@@ -343,13 +367,28 @@ export class IrCombReport extends LitElement {
             .find .diag {
                 color: var(--secondary-text-color);
             }
+            /* Narrow: one column, the diagnosis under its key. The
+               rows leave the shared grid entirely so the key is not
+               stretched to a column it no longer shares. */
             @media (max-width: 620px) {
+                .glist {
+                    display: block;
+                }
                 .find {
-                    grid-template-columns: 1fr;
-                    gap: 2px;
+                    display: block;
+                }
+                .find > .key {
+                    padding-bottom: 0;
+                }
+                .find > .diag {
+                    padding-top: 2px;
+                    padding-left: 26px;
                 }
             }
+            /* Spans both tracks: Show all belongs to the list, not to
+               the key column it would otherwise be trapped in. */
             .more {
+                grid-column: 1 / -1;
                 padding: 7px 12px 9px 26px;
                 font-size: 11.5px;
                 color: var(--secondary-text-color);

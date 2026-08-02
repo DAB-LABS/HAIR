@@ -44,6 +44,7 @@ import type {
     WigInfo,
 } from "./types.js";
 import { displayTemp, installUnit } from "./temperature.js";
+import { isDittoable } from "./ir-tx-knobs.js";
 
 // Curated kind suggestions; the input accepts anything (custom kinds
 // welcome) and the server squashes to lowercase alphanumerics.
@@ -155,7 +156,13 @@ export class IrFittingDialog extends LitElement {
      * against it, so this is the whole staging story: thumb-up commits,
      * thumb-down leaves it staged for another try, closing discards. */
     @state() private _stagedDittos = new Map<number, number>();
-    /** Which chip is currently expanded into its stepper. */
+    /** Which chip is currently expanded into its stepper.
+     *
+     * Exactly one at a time, and it closes on its own glyph, on any
+     * click that lands outside it, and on Escape. The FT5 build opened
+     * chips and never closed them (owner bench 2026-08-02): a stepper
+     * left open on every row it had ever touched, with no way back to
+     * the compact reading. */
     @state() private _openChip: string | null = null;
     @state() private _applyBusy = false;
     @state() private _replaceText = "";
@@ -180,13 +187,44 @@ export class IrFittingDialog extends LitElement {
     connectedCallback(): void {
         super.connectedCallback();
         void this._load();
+        // Click-away for the tune steppers. Bound on the host rather
+        // than the document: a stepper is a transient reading aid, not
+        // a modal, so it should not outlive a click anywhere in the
+        // dialog -- and a document listener would fight the overlay.
+        this.addEventListener("click", this._onHostClick, true);
+        this.addEventListener("keydown", this._onHostKey);
     }
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
+        this.removeEventListener("click", this._onHostClick, true);
+        this.removeEventListener("keydown", this._onHostKey);
         // Closing the dialog IS cancelling the listen window.
         void this._stopListening();
     }
+
+    /** Any click that did not land inside the open stepper closes it.
+     * Capture phase, so the stepper's own buttons still fire first via
+     * the composed path check rather than being swallowed. */
+    private _onHostClick = (e: Event): void => {
+        if (this._openChip === null) return;
+        const path = e.composedPath();
+        const inside = path.some(
+            (node) =>
+                node instanceof HTMLElement &&
+                (node.classList?.contains("tstep") ||
+                    node.classList?.contains("tchip")),
+        );
+        if (!inside) this._openChip = null;
+    };
+
+    /** Escape closes the stepper before it closes the dialog. */
+    private _onHostKey = (e: KeyboardEvent): void => {
+        if (e.key === "Escape" && this._openChip !== null) {
+            e.stopPropagation();
+            this._openChip = null;
+        }
+    };
 
     private async _load(): Promise<void> {
         try {
@@ -799,7 +837,8 @@ export class IrFittingDialog extends LitElement {
                 ${this._renderTuneChips(i)} ${this._renderRowChip(i)}
                 ${this._renderRowControls(i)}
             </div>
-            ${this._renderStagedNotice(i)} ${this._renderReplaceStrip(i)}
+            ${this._renderFactsLine(i)} ${this._renderStagedNotice(i)}
+            ${this._renderReplaceStrip(i)}
         `;
     }
 
@@ -973,10 +1012,15 @@ export class IrFittingDialog extends LitElement {
         const sends = row.send_count ?? 1;
         const staged = this._stagedDittos.get(i);
         const dittos = staged ?? row.ditto_count ?? 0;
-        // Dittos are an encoder concept: nothing to append on a row that
-        // decoded nothing, and nothing to append on a row pinned to raw,
-        // where the repeats already live in the bytes.
-        const dittoable = !!row.protocol && !row.bypass_protocol;
+        // Dittos are the NEC repeat frame and nothing else (owner
+        // ruling 2026-08-02, measured against infrared-protocols): NEC
+        // appends a 4-entry ditto, Samsung32 and RC-5 duplicate the
+        // whole frame -- which is send_count wearing the wrong name,
+        // inside the hash -- and Sharp and Sony ignore repeat_count
+        // outright. Offering the knob anywhere else either lies or
+        // does nothing. A row pinned to raw is out too: the repeats
+        // already live in the bytes.
+        const dittoable = isDittoable(row.protocol, row.bypass_protocol);
         return html`<span class="tune-cell"
                 >${this._renderTuneChip(i, "sends", sends, 1)}</span
             ><span class="tune-cell"
@@ -1011,6 +1055,10 @@ export class IrFittingDialog extends LitElement {
                 <ha-svg-icon .path=${icon}></ha-svg-icon>${value}
             </button>`;
         }
+        // Open: bare, no pill (owner ruling 2026-08-02). The chip wore a
+        // tinted capsule to say "this is one control"; expanded, the
+        // stepper is already unmistakably one control, and the capsule
+        // only made a row look permanently edited.
         return html`<span class="tstep ${kind}">
             <button
                 class="tstep-btn"
@@ -1019,7 +1067,13 @@ export class IrFittingDialog extends LitElement {
             >
                 &minus;
             </button>
-            <span class="tstep-val">${value}</span>
+            <button
+                class="tstep-val"
+                title=${t("fitting.chip_close")}
+                @click=${() => (this._openChip = null)}
+            >
+                ${value}
+            </button>
             <button
                 class="tstep-btn"
                 aria-label=${t("fitting.chip_more")}
@@ -1105,6 +1159,23 @@ export class IrFittingDialog extends LitElement {
         await this._mark(i, "worked");
     }
 
+    /** What the last TEST on this row actually did, on its own line.
+     *
+     * Below the row rather than in it, so a variable-width fact can
+     * never move a fixed control (owner ruling 2026-08-02). */
+    private _renderFactsLine(i: number) {
+        const facts = this._facts.get(i);
+        if (!facts?.sent) return nothing;
+        return html`<div class="qline facts">
+            ${facts.sent > 1
+                ? t("fitting.sent_n", { count: String(facts.sent) })
+                : t("fitting.sent")}${facts.heard
+                ? html` &middot;
+                      <span class="heard">${t("fitting.heard")}</span>`
+                : nothing}
+        </div>`;
+    }
+
     /** The staged-but-unproven notice. The chip itself stays plain
      * (owner ruling FT3: no outline, no tint); the status lives here. */
     private _renderStagedNotice(i: number) {
@@ -1123,21 +1194,14 @@ export class IrFittingDialog extends LitElement {
         // verdict on it would imply it counts toward completeness, and
         // it deliberately does not (see session_row_specs).
         const advisory = !!this._fit?.rows[i]?.advisory;
-        return html`${facts?.sent
-                ? html`<span class="facts">
-                      ${facts.sent > 1
-                          ? t("fitting.sent_n", {
-                                count: String(facts.sent),
-                            })
-                          : t("fitting.sent")}${facts.heard
-                          ? html` &middot;
-                                <span class="heard"
-                                    >${t("fitting.heard")}</span
-                                >`
-                          : nothing}
-                  </span>`
-                : nothing}
-            <button
+        // The facts USED to sit here, inline. Because their width
+        // varies with what happened ("sent", "sent x3", "sent x3 .
+        // heard"), every row that had been tested pushed its own
+        // buttons sideways and the REPLACE column read as a staircase
+        // (owner bench 2026-08-02). They now render below the row, in
+        // _renderFactsLine, where they cost nothing horizontally.
+        return html`<span class="row-tail"
+            ><button
                 class="vbtn test-btn"
                 ?disabled=${!this._emitter || facts?.busy}
                 title=${this._emitter
@@ -1148,7 +1212,7 @@ export class IrFittingDialog extends LitElement {
                 ${t("cmdrow.test")}
             </button>
             ${advisory
-                ? nothing
+                ? html`<span class="thumb-gap"></span>`
                 : html`<button
                           class="thumb up ${verdict === "worked"
                               ? "on"
@@ -1185,7 +1249,8 @@ export class IrFittingDialog extends LitElement {
                 @click=${() => void this._openReplace(i)}
             >
                 ${t("fitting.replace")}
-            </button>`;
+            </button></span
+        >`;
     }
 
     /** What to set the physical remote to before pressing it, for a
@@ -1722,7 +1787,7 @@ export class IrFittingDialog extends LitElement {
                chip, and at 440px the chip squeezed the signal's own
                name down to nothing. */
             .fit-dialog {
-                max-width: 620px;
+                max-width: 680px;
             }
             /* Decorative @ inside the GitHub field's left edge. */
             .gh-wrap {
@@ -1971,13 +2036,29 @@ export class IrFittingDialog extends LitElement {
                 align-items: center;
                 margin-right: 10px;
             }
-            .facts {
-                font-size: 11px;
-                color: var(--secondary-text-color);
+            /* The row's controls are anchored hard right and every one
+               of them keeps its slot, so REPLACE draws a straight
+               column down the list no matter what any row has been
+               through (owner ruling 2026-08-02). Nothing variable is
+               allowed in the run any more; the facts moved out. */
+            .row-tail {
+                margin-left: auto;
+                display: flex;
+                align-items: center;
+                gap: 8px;
                 flex: none;
-                white-space: nowrap;
             }
-            .facts .heard {
+            /* An advisory row carries no verdict, so it would otherwise
+               end two thumbs short and pull its REPLACE inward. The
+               slot stays, empty. */
+            .thumb-gap {
+                flex: none;
+                width: 62px;
+            }
+            .qline.facts {
+                color: var(--secondary-text-color);
+            }
+            .qline.facts .heard {
                 color: #66bb6a;
             }
             .send-btn {
@@ -2012,6 +2093,43 @@ export class IrFittingDialog extends LitElement {
                 background: none;
                 border: 1px solid var(--divider-color);
                 color: var(--secondary-text-color);
+            }
+            /* The row buttons had no feedback states at all: TEST was
+               already gated on an emitter being picked but looked
+               identical either way, and neither TEST nor REPLACE
+               acknowledged a hover or a press (owner bench 2026-08-02).
+               A translucent grey fill on hover and a firmer one on
+               press, which is the house gesture everywhere else. */
+            .vbtn:hover:not(:disabled) {
+                background: rgba(127, 127, 127, 0.14);
+                border-color: var(--secondary-text-color);
+            }
+            .vbtn:active:not(:disabled) {
+                background: rgba(127, 127, 127, 0.26);
+            }
+            .vbtn:disabled {
+                opacity: 0.4;
+                cursor: default;
+            }
+            /* The copper family keeps its own tint on hover rather than
+               going grey, so REPLACE stays legibly the code-handling
+               action while it is being pointed at. */
+            .vbtn.replace-btn:hover:not(:disabled) {
+                background: rgba(201, 138, 75, 0.16);
+                border-color: rgba(201, 138, 75, 0.6);
+            }
+            .vbtn.replace-btn:active:not(:disabled) {
+                background: rgba(201, 138, 75, 0.28);
+            }
+            .thumb:hover:not(:disabled) {
+                background: rgba(127, 127, 127, 0.14);
+                border-color: var(--secondary-text-color);
+            }
+            .thumb.up.on:hover {
+                background: #2e7d32;
+            }
+            .thumb.down.on:hover {
+                background: #c62828;
             }
             .vbtn.worked-on {
                 background: rgba(76, 175, 80, 0.12);
@@ -2083,8 +2201,6 @@ export class IrFittingDialog extends LitElement {
                 display: inline-flex;
                 align-items: center;
                 gap: 1px;
-                background: rgba(127, 127, 127, 0.18);
-                border-radius: 8px;
                 padding: 1px;
             }
             .tstep-btn {
@@ -2108,11 +2224,23 @@ export class IrFittingDialog extends LitElement {
             .tstep-btn:hover {
                 background: rgba(127, 127, 127, 0.2);
             }
+            /* The number is also the way out: clicking it collapses the
+               stepper back to the chip. */
             .tstep-val {
                 min-width: 14px;
                 text-align: center;
                 font-size: 10px;
                 font-weight: 600;
+                border: none;
+                background: none;
+                padding: 0;
+                cursor: pointer;
+                font-family: inherit;
+                color: var(--primary-text-color);
+                line-height: 1;
+            }
+            .tstep-val:hover {
+                color: var(--secondary-text-color);
             }
             .tstep-hint {
                 font-size: 9px;
@@ -2166,18 +2294,30 @@ export class IrFittingDialog extends LitElement {
                 background: #c62828;
                 border-color: #c62828;
             }
+            /* Subordinate to the number it acts on (owner ruling
+               2026-08-02): about 30 percent tighter than the row's
+               other buttons, so it reads as a modifier attached to
+               Send times rather than a peer of TEST and REPLACE. */
             .apply-btn {
-                font-size: 10.5px;
+                font-size: 9.5px;
                 font-weight: 600;
                 letter-spacing: 0.04em;
                 text-transform: uppercase;
                 font-family: inherit;
-                padding: 4px 10px;
+                padding: 3px 7px;
+                margin-left: 4px;
                 border-radius: 4px;
                 cursor: pointer;
                 background: none;
                 color: var(--warning-color, #e6a23c);
-                border: 1px solid var(--warning-color, #e6a23c);
+                border: 1px solid rgba(230, 162, 60, 0.45);
+            }
+            .apply-btn:hover:not(:disabled) {
+                background: rgba(230, 162, 60, 0.14);
+                border-color: var(--warning-color, #e6a23c);
+            }
+            .apply-btn:active:not(:disabled) {
+                background: rgba(230, 162, 60, 0.26);
             }
             .apply-btn:disabled {
                 opacity: 0.4;
@@ -2421,8 +2561,26 @@ export class IrFittingDialog extends LitElement {
             .discard-revert {
                 color: #c98a4b;
             }
+            /* Discard is disabled until there is something to discard,
+               and the two states used to look identical (owner bench
+               2026-08-02). Armed, it says so in red text; hovering
+               fills the same red at the house opacity. */
             .discard-btn {
+                color: var(--error-color, #c62828);
+                border-color: rgba(198, 40, 40, 0.4);
+            }
+            .discard-btn:hover:not(:disabled) {
+                background: rgba(198, 40, 40, 0.14);
+                border-color: var(--error-color, #c62828);
+            }
+            .discard-btn:active:not(:disabled) {
+                background: rgba(198, 40, 40, 0.26);
+            }
+            .discard-btn:disabled {
                 color: var(--secondary-text-color);
+                border-color: var(--divider-color);
+                opacity: 0.4;
+                cursor: default;
             }
             .discard-yes {
                 color: var(--error-color, #c62828);

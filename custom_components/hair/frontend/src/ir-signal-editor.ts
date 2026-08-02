@@ -17,6 +17,7 @@ import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { ProntoValidation, UnknownSignal } from "./types.js";
+import { isDittoable } from "./ir-tx-knobs.js";
 
 // Mirrors PRONTO_SL_THRESHOLD / PRONTO_GAP_THRESHOLD in const.py. Used only
 // for the dialog's S/L preview; the stored pattern is computed server-side.
@@ -101,30 +102,38 @@ export class IrSignalEditor extends LitElement {
     }
 
     /**
-     * The Ditto count input is meaningful only when transmit will take the
-     * decoded (NEC) path. Generic across decoded protocols, not NEC-specific.
+     * The Ditto count input is meaningful only on NEC.
+     *
+     * This gate used to read "any decoded protocol", on the reasoning
+     * that dittos were generic across the rebuild tier. Measuring the
+     * library says otherwise (see isDittoable in ir-tx-knobs): NEC
+     * appends a real 4-entry repeat frame, Samsung32 and RC-5 duplicate
+     * the whole frame, and Sharp and Sony ignore repeat_count entirely.
+     * Only NEC is a ditto, so only NEC gets the knob (owner ruling
+     * 2026-08-02).
+     *
+     * A pinned raw signal is excluded on top of that, in both modes: it
+     * transmits through build_command, so its dittos never reach the
+     * wire and offering the count would mislead (GH #78).
      */
     private get _dittoCountDisabled(): boolean {
         // Signal-edit / create mode: gate on the live-validated decoded
-        // form, and honour the signal's own raw pin the same way the
-        // command branch honours the command's (Highlights, GH #78).
-        // A pinned signal transmits through build_command, so its dittos
-        // do not fire on the wire and offering the count would mislead.
+        // form, which names the protocol it recognized.
         if (!this._isCommand) {
             if (!this._pronto.trim()) return true;
             if (this._validation === null) return true;
             if (!this._validation.recognized_protocol) return true;
-            if (this.initialTxForceRaw) return true;
-            return false;
+            return !isDittoable(
+                this._validation.recognized_protocol,
+                this.initialTxForceRaw,
+            );
         }
-        // Command-edit mode: gate on the command's stored decoded form AND
-        // honor the per-command PRONTO toggle. Ditto only fires when TX takes
-        // the decoded path (build_decoded_command); a command with
-        // tx_force_raw=True goes through build_command and the dittos do not
-        // fire on the wire.
-        if (!this.initialDecodedProtocol) return true;
-        if (this.initialTxForceRaw) return true;
-        return false;
+        // Command-edit mode: gate on the command's stored decoded form
+        // and honour the per-command PRONTO toggle.
+        return !isDittoable(
+            this.initialDecodedProtocol,
+            this.initialTxForceRaw,
+        );
     }
 
     /** Tooltip for the disabled Ditto count input, by reason. */
@@ -135,6 +144,17 @@ export class IrSignalEditor extends LitElement {
             this.initialTxForceRaw
         ) {
             return t("editor.ditto_disabled_cmd");
+        }
+        // Decoded, not pinned, still no ditto: the protocol simply has
+        // no repeat frame. Name it, rather than leaving the fitter to
+        // wonder why a perfectly good decode is refused.
+        const decoded = this._isCommand
+            ? this.initialDecodedProtocol
+            : this._validation?.recognized_protocol;
+        if (decoded && !this.initialTxForceRaw) {
+            return t("editor.ditto_disabled_protocol", {
+                protocol: decoded,
+            });
         }
         return t("editor.ditto_disabled");
     }

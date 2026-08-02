@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Alias",
     "pluckdlg.no_blasters": "Aucun blaster compatible trouvé. Installez une intégration IR prise en charge (comme Tuya Local) et apprenez d'abord un code.",
     "editor.ditto_disabled_cmd": "Le nombre de dittos s'applique quand la commande est transmise en NEC. Basculez la pastille sur NEC pour l'activer.",
-    "editor.ditto_disabled": "Le nombre de dittos s'applique aux signaux décodés (NEC aujourd'hui). Les codes Pronto bruts sont transmis tels que capturés.",
+    "editor.ditto_disabled": "Le nombre de dittos s'applique aux signaux décodés en NEC. Les codes Pronto bruts sont transmis tels que capturés.",
+    "editor.ditto_disabled_protocol": "Les dittos sont une trame de répétition NEC. {protocol} n'a pas d'équivalent, le nombre ne serait donc jamais émis.",
     "editor.copied": "Copié",
     "editor.press_copy": "Appuyez sur Cmd/Ctrl+C",
     "editor.valid": "Code Pronto valide",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} appareil HAIR",
     "sniffer.linked.other": "{count} appareils HAIR",
     "wigs.upload_partial": "{count} signaux n'ont pas pu être convertis",
+    "wigs.upload_one_at_a_time": "{count} fichiers à la fois. Le placard en accepte un seul, rien n'a donc été rangé. Déposez un fichier unique.",
     "wigs.receipt.hung": "{name} accroché sous {brand}",
     "wigs.receipt.duplicate": "{name} accroché sous {brand} : un appareil identique était déjà dans {brands}",
     "wigs.count.one": "{count} appareil",
@@ -526,7 +528,7 @@
     "fitting.send": "Envoyer",
     "fitting.sent": "envoyé",
     "fitting.sent_n": "envoyé x{count}",
-    "fitting.heard": "écho reçu",
+    "fitting.heard": "écho",
     "fitting.worked": "A marché",
     "fitting.did_not": "N'a pas marché",
     "fitting.progress": "{tested} sur {total} testés",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "Trames de répétition ajoutées à chaque envoi. Elles font partie de la perruque signée, un changement doit donc être prouvé.",
     "fitting.chip_less": "Un de moins",
     "fitting.chip_more": "Un de plus",
+    "fitting.chip_close": "Terminé",
     "fitting.chip_observed": "la télécommande envoie {count}",
     "fitting.ditto_staged": "Dittos préparés à {count}. Tester transmet la nouvelle recette ; A fonctionné l'enregistre dans la perruque et la resigne. Fermer sans confirmer l'abandonne.",
     "fitting.tuned_notice": "Dittos enregistrés : {count}. La perruque a été resignée avec la recette prouvée.",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "{count} dittos sur un bouton qui fait varier une valeur. Certains récepteurs avancent d'un cran par ditto, cela peut donc être voulu.",
     "chip.bypass": "contourner",
     "chip.bypass_tip": "Contourne le protocole détecté, envoi du Pronto brut",
-    "chip.decoded_tip": "Transmission des temps décodés propres. Cliquez pour envoyer le code capturé tel quel."
+    "chip.bypass_action": "Cliquez pour transmettre des temps décodés propres.",
+    "chip.decoded_tip": "Transmission des temps décodés propres.",
+    "chip.decoded_action": "Cliquez pour envoyer le code capturé tel quel."
 }

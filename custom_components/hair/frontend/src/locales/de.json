@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Alias",
     "pluckdlg.no_blasters": "Keine kompatiblen Blaster gefunden. Installiere eine unterstützte IR-Integration (z. B. Tuya Local) und lerne zuerst einen Code.",
     "editor.ditto_disabled_cmd": "Die Ditto-Anzahl gilt, wenn der Befehl als NEC gesendet wird. Stelle die Pille auf NEC, um sie zu aktivieren.",
-    "editor.ditto_disabled": "Die Ditto-Anzahl gilt für dekodierte Signale (heute NEC). Rohe Pronto-Codes werden wie eingefangen gesendet.",
+    "editor.ditto_disabled": "Die Ditto-Anzahl gilt für Signale, die als NEC dekodiert werden. Rohe Pronto-Codes werden wie eingefangen gesendet.",
+    "editor.ditto_disabled_protocol": "Dittos sind ein NEC-Wiederholungsrahmen. {protocol} hat kein Gegenstück, die Anzahl würde also nie gesendet.",
     "editor.copied": "Kopiert",
     "editor.press_copy": "Drücke Cmd/Strg+C",
     "editor.valid": "Gültiger Pronto-Code",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} HAIR-Gerät",
     "sniffer.linked.other": "{count} HAIR-Geräte",
     "wigs.upload_partial": "{count} Signale konnten nicht konvertiert werden",
+    "wigs.upload_one_at_a_time": "{count} Dateien auf einmal. Der Schrank nimmt eine nach der anderen, es wurde nichts aufgehängt -- bitte eine einzelne Datei ablegen.",
     "wigs.receipt.hung": "{name} hängt jetzt unter {brand}",
     "wigs.receipt.duplicate": "{name} hängt jetzt unter {brand} (ein identisches Gerät war schon in {brands})",
     "wigs.count.one": "{count} Gerät",
@@ -526,7 +528,7 @@
     "fitting.send": "Senden",
     "fitting.sent": "gesendet",
     "fitting.sent_n": "gesendet x{count}",
-    "fitting.heard": "zurückgehört",
+    "fitting.heard": "gehört",
     "fitting.worked": "Ging",
     "fitting.did_not": "Ging nicht",
     "fitting.progress": "{tested} von {total} getestet",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "Wiederholungsrahmen, die an jede Sendung angehängt werden. Teil der signierten Perücke, eine Änderung muss belegt werden.",
     "fitting.chip_less": "Eins weniger",
     "fitting.chip_more": "Eins mehr",
+    "fitting.chip_close": "Fertig",
     "fitting.chip_observed": "Fernbedienung sendet {count}",
     "fitting.ditto_staged": "Dittos auf {count} vorbereitet. Testen sendet das neue Rezept; Hat funktioniert speichert es in der Perücke und signiert neu. Schließen ohne Bestätigung verwirft es.",
     "fitting.tuned_notice": "Dittos gespeichert: {count}. Die Perücke wurde mit dem belegten Rezept neu signiert.",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "{count} Dittos auf einer Taste, die einen Wert schrittweise ändert. Manche Empfänger zählen pro Ditto einen Schritt, das kann also Absicht sein.",
     "chip.bypass": "umgehen",
     "chip.bypass_tip": "Umgeht das erkannte Protokoll, sendet rohes Pronto",
-    "chip.decoded_tip": "Sendet saubere dekodierte Zeiten. Klicken, um den aufgenommenen Code unverändert zu senden."
+    "chip.bypass_action": "Klicken, um stattdessen saubere dekodierte Zeiten zu senden.",
+    "chip.decoded_tip": "Sendet saubere dekodierte Zeiten.",
+    "chip.decoded_action": "Klicken, um den aufgenommenen Code unverändert zu senden."
 }

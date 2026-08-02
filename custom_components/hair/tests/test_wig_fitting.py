@@ -997,8 +997,6 @@ class TestTransmitRecipe:
                 filename, 0, "infrared.e", send_times=5,
             )
         assert gated.await_count == 5
-        # Evidence semantics are untouched: send_times_used records the
-        # session control alone, because that is what it attests.
         assert manager.session_send_times(filename) == 5
 
     @pytest.mark.asyncio
@@ -1013,6 +1011,93 @@ class TestTransmitRecipe:
                 filename, 0, "infrared.e", send_times=4,
             )
         assert gated.await_count == 4
+
+
+class TestSendTimesUsedIsTheEffectiveMax:
+    """send_times_used attests how many times the codes were actually
+    transmitted, not what the fitter's control happened to say.
+
+    Recording the control alone understated the truth whenever a row
+    asked for more than the control did: the bench candle recorded
+    send_times_used 1 with every row stating a floor of 3, having gone
+    out three times per press (owner ruling 2026-08-02).
+    """
+
+    NEC = TestTransmitRecipe.NEC
+
+    def _wig(self, wigs_dir_path, *, send_count, filename="ev.wig.json"):
+        wig = Wig(name="Evidence", signals=[
+            WigSignal(
+                alias="Power", pronto=self.NEC, send_count=send_count,
+            ),
+        ])
+        (wigs_dir_path / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        return filename
+
+    @pytest.mark.asyncio
+    async def test_row_floor_is_recorded_when_it_beats_the_control(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """The candle: control at 1, rows at 3, wire saw 3."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._wig(wigs_dir_path, send_count=3)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=1,
+            )
+        assert gated.await_count == 3
+        assert manager.session_send_times(filename) == 3
+
+    @pytest.mark.asyncio
+    async def test_row_floor_is_recorded_with_no_control_at_all(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """No send_times rides along, so the old code recorded nothing.
+        The row's floor is evidence whether or not the control was
+        touched."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._wig(wigs_dir_path, send_count=4)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            await manager.async_send(filename, 0, "infrared.e")
+        assert gated.await_count == 4
+        assert manager.session_send_times(filename) == 4
+
+    @pytest.mark.asyncio
+    async def test_record_matches_the_wire_exactly(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """The attestation cannot drift from the transmission it
+        describes: one value, computed once, used for both."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._wig(wigs_dir_path, send_count=2)
+        gated = AsyncMock()
+        with patch("custom_components.hair.tx_gate.gated_send", gated):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=6,
+            )
+        assert gated.await_count == 6
+        assert manager.session_send_times(filename) == 6
+
+    @pytest.mark.asyncio
+    async def test_still_monotonic(
+        self, fake_hass, tmp_path, wigs_dir_path, _fast_heard_wait
+    ):
+        """Lowering the control after a high send cannot roll the claim
+        back down (owner ruling 2026-07-30, unchanged)."""
+        manager = _sending_manager(fake_hass, tmp_path)
+        filename = self._wig(wigs_dir_path, send_count=1)
+        with patch("custom_components.hair.tx_gate.gated_send", AsyncMock()):
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=7,
+            )
+            await manager.async_send(
+                filename, 0, "infrared.e", send_times=2,
+            )
+        assert manager.session_send_times(filename) == 7
 
 
 class TestTuneEngine:

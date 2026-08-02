@@ -177,7 +177,8 @@
     "pluckdlg.alias": "エイリアス",
     "pluckdlg.no_blasters": "互換性のあるブラスターが見つかりません。対応するIR統合（Tuya Localなど）をインストールし、先にコードを学習してください。",
     "editor.ditto_disabled_cmd": "ディットー数は、コマンドがNECとして送信されるときに適用されます。ピルをNECに切り替えると有効になります。",
-    "editor.ditto_disabled": "ディットー数はデコード済み信号（現在はNEC）に適用されます。RawのProntoコードはキャプチャどおりに送信されます。",
+    "editor.ditto_disabled": "ディットー数は NEC としてデコードされる信号に適用されます。Raw の Pronto コードはキャプチャどおりに送信されます。",
+    "editor.ditto_disabled_protocol": "ディットーは NEC のリピートフレームです。{protocol} には相当するものがないため、この数は送信されません。",
     "editor.copied": "コピーしました",
     "editor.press_copy": "Cmd/Ctrl+Cを押してください",
     "editor.valid": "有効なProntoコード",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} 台のHAIRデバイス",
     "sniffer.linked.other": "{count} 台のHAIRデバイス",
     "wigs.upload_partial": "{count} 件の信号は変換できませんでした",
+    "wigs.upload_one_at_a_time": "一度に {count} 件のファイル。クローゼットは1件ずつしか受け取れないため、何も追加されていません。ファイルは1つずつどうぞ。",
     "wigs.receipt.hung": "{name} を {brand} に掛けました",
     "wigs.receipt.duplicate": "{name} を {brand} に掛けました(同じデバイスが既に {brands} にあります)",
     "wigs.count.one": "{count} 台のデバイス",
@@ -526,7 +528,7 @@
     "fitting.send": "送信",
     "fitting.sent": "送信済み",
     "fitting.sent_n": "送信 x{count}",
-    "fitting.heard": "エコー受信",
+    "fitting.heard": "受信",
     "fitting.worked": "動いた",
     "fitting.did_not": "動かない",
     "fitting.progress": "{total}中{tested}をテスト済み",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "各送信に付加されるリピートフレーム。署名済みウィッグの一部なので、変更は実証が必要です。",
     "fitting.chip_less": "1つ減らす",
     "fitting.chip_more": "1つ増やす",
+    "fitting.chip_close": "完了",
     "fitting.chip_observed": "リモコンの送信数 {count}",
     "fitting.ditto_staged": "ディットーを {count} に仮設定しました。テストで新しいレシピを送信し、成功したで保存して再署名します。保存せずに閉じると破棄されます。",
     "fitting.tuned_notice": "ディットーを保存しました: {count}。実証されたレシピでウィッグを再署名しました。",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "値を増減するボタンにディットーが {count} あります。ディットーごとに1段階進む受信機もあるため、意図的な可能性があります。",
     "chip.bypass": "バイパス",
     "chip.bypass_tip": "検出したプロトコルをバイパスし、生の Pronto を送信します",
-    "chip.decoded_tip": "デコード済みの整ったタイミングを送信します。クリックすると取得したコードをそのまま送信します。"
+    "chip.bypass_action": "クリックするとデコード済みの整ったタイミングを送信します。",
+    "chip.decoded_tip": "デコード済みの整ったタイミングを送信します。",
+    "chip.decoded_action": "クリックすると取得したコードをそのまま送信します。"
 }

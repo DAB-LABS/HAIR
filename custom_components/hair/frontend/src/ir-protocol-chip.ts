@@ -53,9 +53,20 @@ export class IrProtocolChip extends LitElement {
         // pill would describe a choice that does not exist.
         if (!this.protocol) return nothing;
         const label = this.bypass ? t("chip.bypass") : this.protocol;
+        // A read-only chip describes; only a live one invites. The
+        // decoded tooltip used to end "Click to send the captured code
+        // as-is" on every surface, including the fitting rows, where
+        // toggling would roll the content hash mid-attestation and is
+        // deliberately impossible -- so the pill read as clickable and
+        // then did nothing (owner bench 2026-08-02).
+        const live = this.interactive && !this.disabled;
         const title = this.bypass
-            ? `${t("chip.bypass_tip")} · ${this.protocol}`
-            : t("chip.decoded_tip");
+            ? `${t("chip.bypass_tip")}${
+                  live ? ` · ${t("chip.bypass_action")}` : ""
+              } · ${this.protocol}`
+            : `${t("chip.decoded_tip")}${
+                  live ? ` ${t("chip.decoded_action")}` : ""
+              }`;
         return html`<button
             class="chip ${this.bypass ? "on" : ""} ${this.interactive
                 ? "live"

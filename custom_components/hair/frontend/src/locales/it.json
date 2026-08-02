@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Alias",
     "pluckdlg.no_blasters": "Nessun trasmettitore compatibile trovato. Installa un'integrazione IR supportata (come Tuya Local) e apprendi prima un codice.",
     "editor.ditto_disabled_cmd": "Il numero di ditto vale quando il comando è trasmesso come NEC. Sposta la pillola su NEC per attivarlo.",
-    "editor.ditto_disabled": "Il numero di ditto vale per i segnali decodificati (oggi NEC). I codici Pronto grezzi vengono trasmessi come catturati.",
+    "editor.ditto_disabled": "Il numero di ditto vale per i segnali decodificati come NEC. I codici Pronto grezzi vengono trasmessi come catturati.",
+    "editor.ditto_disabled_protocol": "I ditto sono un frame di ripetizione NEC. {protocol} non ha un equivalente, quindi il numero non verrebbe mai trasmesso.",
     "editor.copied": "Copiato",
     "editor.press_copy": "Premi Cmd/Ctrl+C",
     "editor.valid": "Codice Pronto valido",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} dispositivo HAIR",
     "sniffer.linked.other": "{count} dispositivi HAIR",
     "wigs.upload_partial": "{count} segnali non sono stati convertiti",
+    "wigs.upload_one_at_a_time": "{count} file insieme. L'armadio ne accetta uno per volta, quindi non è stato appeso nulla. Trascina un solo file.",
     "wigs.receipt.hung": "{name} appeso sotto {brand}",
     "wigs.receipt.duplicate": "{name} appeso sotto {brand} (un dispositivo identico era già in {brands})",
     "wigs.count.one": "{count} dispositivo",
@@ -526,7 +528,7 @@
     "fitting.send": "Invia",
     "fitting.sent": "inviato",
     "fitting.sent_n": "inviato x{count}",
-    "fitting.heard": "eco ricevuta",
+    "fitting.heard": "eco",
     "fitting.worked": "Funziona",
     "fitting.did_not": "Non funziona",
     "fitting.progress": "{tested} di {total} testati",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "Frame di ripetizione aggiunti a ogni invio. Fanno parte della parrucca firmata, quindi una modifica va dimostrata.",
     "fitting.chip_less": "Uno in meno",
     "fitting.chip_more": "Uno in più",
+    "fitting.chip_close": "Fatto",
     "fitting.chip_observed": "il telecomando invia {count}",
     "fitting.ditto_staged": "Dittos preparati a {count}. Prova trasmette la nuova ricetta; Ha funzionato la salva nella parrucca e la rifirma. Chiudere senza conferma la scarta.",
     "fitting.tuned_notice": "Dittos salvati: {count}. La parrucca è stata rifirmata con la ricetta dimostrata.",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "{count} dittos su un tasto che varia un valore. Alcuni ricevitori avanzano di un passo per ditto, quindi può essere voluto.",
     "chip.bypass": "ignora",
     "chip.bypass_tip": "Ignora il protocollo rilevato, invia Pronto grezzo",
-    "chip.decoded_tip": "Trasmette tempi decodificati puliti. Clicca per inviare il codice catturato così com'è."
+    "chip.bypass_action": "Clicca per trasmettere tempi decodificati puliti.",
+    "chip.decoded_tip": "Trasmette tempi decodificati puliti.",
+    "chip.decoded_action": "Clicca per inviare il codice catturato così com'è."
 }

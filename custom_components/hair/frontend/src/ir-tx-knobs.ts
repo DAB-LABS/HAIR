@@ -39,6 +39,36 @@ const ICON_REPEAT =
 const ICON_DITTO =
     "M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z";
 
+/**
+ * The protocol whose repeat frame a ditto actually is.
+ *
+ * Measured against infrared-protocols rather than assumed (owner call,
+ * 2026-08-02), by counting the timings each protocol emits as
+ * repeat_count goes 0, 1, 3:
+ *
+ *   NEC         67 -> 71 -> 79    a 4-entry ditto frame. The real thing.
+ *   Samsung32   67 -> 135 -> 271  duplicates the entire frame
+ *   RC-5        21 -> 43 -> 87    duplicates the entire frame
+ *   Sharp       64 -> 64 -> 64    ignores repeat_count
+ *   Sony        26 -> 26 -> 26    ignores repeat_count
+ *
+ * Only the first is a ditto. The two that duplicate are doing what
+ * send_count already does, except from inside the content hash, where
+ * a delivery detail has no business being; the two that ignore it
+ * would hash a number that never reaches the wire. So the knob is
+ * NEC-only everywhere it appears.
+ */
+export const DITTO_PROTOCOL = "NEC";
+
+/** Whether a row may carry dittos: NEC, and not pinned to raw replay. */
+export function isDittoable(
+    protocol: string | null | undefined,
+    bypassed: boolean | null | undefined,
+): boolean {
+    if (bypassed) return false;
+    return (protocol ?? "").toUpperCase() === DITTO_PROTOCOL;
+}
+
 @customElement("ir-tx-knobs")
 export class IrTxKnobs extends LitElement {
     /** Whole-frame send count. Absent on the wire means 1. */
@@ -58,6 +88,11 @@ export class IrTxKnobs extends LitElement {
         const sends = this.sendCount ?? 1;
         const dittos = this.repeatCount ?? 0;
         const showSends = sends > 1;
+        // Deliberately NOT gated to NEC, unlike the surfaces that let
+        // you SET a ditto. This glyph reports what a row already
+        // stores, and a value hidden is a value nobody can find and
+        // correct. If a wig from an older build carries a ditto on
+        // something other than NEC, the reader should see it.
         const showDittos = dittos > 1 && this.decoded && !this.bypassed;
         if (!showSends && !showDittos) return nothing;
         return html`

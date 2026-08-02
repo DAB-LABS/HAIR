@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Alias",
     "pluckdlg.no_blasters": "No compatible blasters found. Install a supported IR integration (such as Tuya Local) and learn a code first.",
     "editor.ditto_disabled_cmd": "Ditto count applies when the command transmits as NEC. Toggle the pill to NEC to enable.",
-    "editor.ditto_disabled": "Ditto count applies to decoded signals (NEC today). Raw Pronto codes transmit as captured.",
+    "editor.ditto_disabled": "Ditto count applies to signals that decode as NEC. Raw Pronto codes transmit as captured.",
+    "editor.ditto_disabled_protocol": "Dittos are an NEC repeat frame. {protocol} has no equivalent, so the count would never reach the wire.",
     "editor.copied": "Copied",
     "editor.press_copy": "Press Cmd/Ctrl+C",
     "editor.valid": "Valid Pronto code",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} HAIR device",
     "sniffer.linked.other": "{count} HAIR devices",
     "wigs.upload_partial": "{count} signals could not convert (see the wig notes)",
+    "wigs.upload_one_at_a_time": "{count} files at once. The closet takes one at a time, so nothing was hung -- drop a single file.",
     "wigs.receipt.hung": "{name} hung under {brand}",
     "wigs.receipt.duplicate": "{name} hung under {brand} -- an identical device was already in {brands}",
     "wigs.count.one": "{count} device",
@@ -526,7 +528,7 @@
     "fitting.send": "Send",
     "fitting.sent": "sent",
     "fitting.sent_n": "sent x{count}",
-    "fitting.heard": "heard back",
+    "fitting.heard": "heard",
     "fitting.worked": "Worked",
     "fitting.did_not": "Did not",
     "fitting.progress": "{tested} of {total} tested",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "Repeat frames appended to each send. Part of the signed wig, so a change has to be proven.",
     "fitting.chip_less": "One fewer",
     "fitting.chip_more": "One more",
+    "fitting.chip_close": "Done",
     "fitting.chip_observed": "remote sends {count}",
     "fitting.ditto_staged": "Dittos staged at {count}. Test transmits the new recipe; Worked saves it into the wig and re-signs. Closing without a Worked discards it.",
     "fitting.tuned_notice": "Dittos saved: {count}. The wig re-signed with the proven recipe.",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "{count} dittos on a button that steps a value. Some receivers step once per ditto, so this may be deliberate.",
     "chip.bypass": "bypass",
     "chip.bypass_tip": "Bypassing the detected protocol, sending raw Pronto",
-    "chip.decoded_tip": "Transmitting clean decoded packet timings. Click to send the captured code as-is."
+    "chip.bypass_action": "Click to transmit clean decoded timings instead.",
+    "chip.decoded_tip": "Transmitting clean decoded packet timings.",
+    "chip.decoded_action": "Click to send the captured code as-is."
 }

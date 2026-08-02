@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Alias",
     "pluckdlg.no_blasters": "Nie znaleziono zgodnych nadajników. Zainstaluj obsługiwaną integrację IR (np. Tuya Local) i najpierw naucz kod.",
     "editor.ditto_disabled_cmd": "Liczba ditto działa, gdy polecenie jest wysyłane jako NEC. Przełącz pigułkę na NEC, aby włączyć.",
-    "editor.ditto_disabled": "Liczba ditto dotyczy zdekodowanych sygnałów (obecnie NEC). Surowe kody Pronto są wysyłane tak, jak je przechwycono.",
+    "editor.ditto_disabled": "Liczba ditto dotyczy sygnałów dekodowanych jako NEC. Surowe kody Pronto są wysyłane tak, jak je przechwycono.",
+    "editor.ditto_disabled_protocol": "Ditto to ramka powtórzenia NEC. {protocol} nie ma odpowiednika, więc liczba nigdy nie trafiłaby na wyjście.",
     "editor.copied": "Skopiowano",
     "editor.press_copy": "Naciśnij Cmd/Ctrl+C",
     "editor.valid": "Prawidłowy kod Pronto",
@@ -529,6 +530,7 @@
     "sniffer.linked.many": "{count} urządzeń HAIR",
     "sniffer.linked.other": "{count} urządzenia HAIR",
     "wigs.upload_partial": "{count} sygnałów nie udało się przekonwertować",
+    "wigs.upload_one_at_a_time": "{count} plików naraz. Szafa przyjmuje po jednym, więc nic nie zostało powieszone. Upuść pojedynczy plik.",
     "wigs.receipt.hung": "{name} zawieszono pod {brand}",
     "wigs.receipt.duplicate": "{name} zawieszono pod {brand} (identyczne urządzenie było już w {brands})",
     "wigs.count.one": "{count} urządzenie",
@@ -548,7 +550,7 @@
     "fitting.send": "Wyślij",
     "fitting.sent": "wysłano",
     "fitting.sent_n": "wysłano x{count}",
-    "fitting.heard": "odebrano echo",
+    "fitting.heard": "echo",
     "fitting.worked": "Działa",
     "fitting.did_not": "Nie działa",
     "fitting.progress": "Przetestowano {tested} z {total}",
@@ -713,6 +715,7 @@
     "fitting.chip_dittos_title": "Ramki powtórzeń dołączane do każdej wysyłki. Część podpisanej peruki, więc zmianę trzeba udowodnić.",
     "fitting.chip_less": "O jeden mniej",
     "fitting.chip_more": "O jeden więcej",
+    "fitting.chip_close": "Gotowe",
     "fitting.chip_observed": "pilot wysyła {count}",
     "fitting.ditto_staged": "Ditto ustawione na {count}. Testuj wysyła nową recepturę; Zadziałało zapisuje ją w peruce i podpisuje ponownie. Zamknięcie bez potwierdzenia odrzuca zmianę.",
     "fitting.tuned_notice": "Zapisano ditto: {count}. Peruka podpisana ponownie udowodnioną recepturą.",
@@ -725,5 +728,7 @@
     "comb.ramp_dittos": "{count} ditto na przycisku zmieniającym wartość. Niektóre odbiorniki wykonują krok na każde ditto, więc może to być zamierzone.",
     "chip.bypass": "pomiń",
     "chip.bypass_tip": "Pomija wykryty protokół, wysyła surowy Pronto",
-    "chip.decoded_tip": "Wysyła czyste zdekodowane czasy. Kliknij, aby wysłać przechwycony kod bez zmian."
+    "chip.bypass_action": "Kliknij, aby zamiast tego wysłać czyste zdekodowane czasy.",
+    "chip.decoded_tip": "Wysyła czyste zdekodowane czasy.",
+    "chip.decoded_action": "Kliknij, aby wysłać przechwycony kod bez zmian."
 }

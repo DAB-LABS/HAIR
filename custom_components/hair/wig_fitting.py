@@ -1114,20 +1114,38 @@ class FittingManager:
             self._platform_of(emitter_entity_id)
             or session["emitter_platform"]
         )
-        if send_times is not None:
-            used = max(1, min(int(send_times), MAX_SEND_COUNT))
-            session["send_times"] = max(
-                session.get("send_times") or 0, used
-            )
-            if username:
-                draft = self._find_user_draft(wig, username)
-                if draft is not None:
-                    draft["send_times_used"] = max(
-                        _read_send_times(draft) or 0,
-                        session["send_times"],
-                    )
-                    self._pending[filename] = wig
-                    self._schedule_write(filename)
+        # THE EFFECTIVE MAX, not the control's value (owner ruling
+        # 2026-08-02). send_times_used attests how many times the codes
+        # in this wig were actually transmitted while being proven, and
+        # since v0.9.2 the session control can no longer undercut a
+        # row's own floor -- it is max(row, session), computed below as
+        # send_count. Recording the control alone understated the truth
+        # whenever a row asked for more than the fitter's control did:
+        # the bench candle went out at send_times_used 1 with every row
+        # stating 3, having genuinely gone out three times.
+        #
+        # Recorded on every send now, not only when a control value
+        # rides along, because the row's floor is evidence whether or
+        # not the fitter touched the control.
+        effective_sends = max(
+            1,
+            min(
+                max(int(row_send_count or 1), int(send_times or 1)),
+                MAX_SEND_COUNT,
+            ),
+        )
+        session["send_times"] = max(
+            session.get("send_times") or 0, effective_sends
+        )
+        if username:
+            draft = self._find_user_draft(wig, username)
+            if draft is not None:
+                draft["send_times_used"] = max(
+                    _read_send_times(draft) or 0,
+                    session["send_times"],
+                )
+                self._pending[filename] = wig
+                self._schedule_write(filename)
 
         from .ir_command import build_command, build_decoded_command
 
@@ -1186,17 +1204,11 @@ class FittingManager:
         # device's floor, the session adds environmental headroom, and
         # the session can never undercut the floor.
         #
-        # The evidence side is deliberately untouched: send_times_used
-        # still records the session control's value alone, because that
-        # is what it attests -- the fitter's conditions, not the wig's
-        # requirements.
-        send_count = max(
-            1,
-            min(
-                max(int(row_send_count or 1), int(send_times or 1)),
-                MAX_SEND_COUNT,
-            ),
-        )
+        # The evidence side now agrees with the wire: this is the same
+        # value recorded above as send_times_used, computed once and
+        # used for both, so the attestation cannot drift from the
+        # transmission it describes.
+        send_count = effective_sends
         self._monitor.record_send(
             ir_cmd, label, [emitter_entity_id],
             decoded_fingerprint=ident.decoded_fingerprint,

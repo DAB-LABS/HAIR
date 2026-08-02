@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Nombre",
     "pluckdlg.no_blasters": "No se encontraron emisores compatibles. Instala una integración IR compatible, como Tuya Local, y aprende primero un código.",
     "editor.ditto_disabled_cmd": "Las repeticiones NEC solo se aplican cuando el comando se transmite como NEC. Cambia a NEC para activarlas.",
-    "editor.ditto_disabled": "Las repeticiones NEC solo se aplican a señales decodificadas (actualmente NEC). Los códigos Pronto se transmiten tal y como se capturaron.",
+    "editor.ditto_disabled": "El número de dittos solo se aplica a señales que se decodifican como NEC. Los códigos Pronto se transmiten tal y como se capturaron.",
+    "editor.ditto_disabled_protocol": "Los dittos son una trama de repetición NEC. {protocol} no tiene equivalente, así que el número nunca llegaría a emitirse.",
     "editor.copied": "Copiado",
     "editor.press_copy": "Pulsa Cmd/Ctrl+C",
     "editor.valid": "Código tipo Pronto válido",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} dispositivo HAIR",
     "sniffer.linked.other": "{count} dispositivos HAIR",
     "wigs.upload_partial": "No se han podido convertir {count} señales",
+    "wigs.upload_one_at_a_time": "{count} archivos a la vez. El armario acepta uno cada vez, así que no se ha colgado nada. Suelta un solo archivo.",
     "wigs.receipt.hung": "{name} añadido bajo la marca {brand}",
     "wigs.receipt.duplicate": "{name} añadido bajo la marca {brand}: ya existía un dispositivo idéntico en {brands}",
     "wigs.count.one": "{count} dispositivo",
@@ -526,7 +528,7 @@
     "fitting.send": "Enviar",
     "fitting.sent": "enviada",
     "fitting.sent_n": "enviada x{count}",
-    "fitting.heard": "eco recibido",
+    "fitting.heard": "eco",
     "fitting.worked": "Funcionó",
     "fitting.did_not": "No funcionó",
     "fitting.progress": "{tested} de {total} probadas",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "Tramas de repetición añadidas a cada envío. Forman parte de la peluca firmada, así que un cambio debe demostrarse.",
     "fitting.chip_less": "Uno menos",
     "fitting.chip_more": "Uno más",
+    "fitting.chip_close": "Listo",
     "fitting.chip_observed": "el mando envía {count}",
     "fitting.ditto_staged": "Dittos preparados en {count}. Probar transmite la nueva receta; Funcionó la guarda en la peluca y vuelve a firmarla. Cerrar sin confirmar la descarta.",
     "fitting.tuned_notice": "Dittos guardados: {count}. La peluca se volvió a firmar con la receta demostrada.",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "{count} dittos en un botón que cambia un valor paso a paso. Algunos receptores avanzan un paso por ditto, así que puede ser intencionado.",
     "chip.bypass": "omitir",
     "chip.bypass_tip": "Omitiendo el protocolo detectado, enviando Pronto en bruto",
-    "chip.decoded_tip": "Transmitiendo tiempos decodificados limpios. Pulsa para enviar el código capturado tal cual."
+    "chip.bypass_action": "Pulsa para transmitir tiempos decodificados limpios.",
+    "chip.decoded_tip": "Transmitiendo tiempos decodificados limpios.",
+    "chip.decoded_action": "Pulsa para enviar el código capturado tal cual."
 }

@@ -177,7 +177,8 @@
     "pluckdlg.alias": "Alias",
     "pluckdlg.no_blasters": "Geen compatibele blasters gevonden. Installeer een ondersteunde IR-integratie (zoals Tuya Local) en leer eerst een code.",
     "editor.ditto_disabled_cmd": "Het aantal ditto's geldt wanneer het commando als NEC wordt verzonden. Zet de pil op NEC om het in te schakelen.",
-    "editor.ditto_disabled": "Het aantal ditto's geldt voor gedecodeerde signalen (nu NEC). Ruwe Pronto-codes worden verzonden zoals gevangen.",
+    "editor.ditto_disabled": "Het aantal ditto's geldt voor signalen die als NEC decoderen. Ruwe Pronto-codes worden verzonden zoals gevangen.",
+    "editor.ditto_disabled_protocol": "Ditto's zijn een NEC-herhalingsframe. {protocol} heeft geen equivalent, dus het aantal zou nooit verzonden worden.",
     "editor.copied": "Gekopieerd",
     "editor.press_copy": "Druk op Cmd/Ctrl+C",
     "editor.valid": "Geldige Pronto-code",
@@ -509,6 +510,7 @@
     "sniffer.linked.one": "{count} HAIR-apparaat",
     "sniffer.linked.other": "{count} HAIR-apparaten",
     "wigs.upload_partial": "{count} signalen konden niet worden geconverteerd",
+    "wigs.upload_one_at_a_time": "{count} bestanden tegelijk. De kast neemt er één per keer, dus er is niets opgehangen. Sleep één bestand.",
     "wigs.receipt.hung": "{name} hangt nu onder {brand}",
     "wigs.receipt.duplicate": "{name} hangt nu onder {brand} (er was al een identiek apparaat in {brands})",
     "wigs.count.one": "{count} apparaat",
@@ -526,7 +528,7 @@
     "fitting.send": "Verstuur",
     "fitting.sent": "verstuurd",
     "fitting.sent_n": "verstuurd x{count}",
-    "fitting.heard": "echo ontvangen",
+    "fitting.heard": "gehoord",
     "fitting.worked": "Werkte",
     "fitting.did_not": "Werkte niet",
     "fitting.progress": "{tested} van {total} getest",
@@ -679,6 +681,7 @@
     "fitting.chip_dittos_title": "Herhaalframes die aan elke verzending worden toegevoegd. Onderdeel van de ondertekende pruik, dus een wijziging moet worden bewezen.",
     "fitting.chip_less": "Eén minder",
     "fitting.chip_more": "Eén meer",
+    "fitting.chip_close": "Klaar",
     "fitting.chip_observed": "afstandsbediening stuurt {count}",
     "fitting.ditto_staged": "Ditto's klaargezet op {count}. Testen verzendt het nieuwe recept; Werkte slaat het op in de pruik en ondertekent opnieuw. Sluiten zonder bevestiging gooit het weg.",
     "fitting.tuned_notice": "Ditto's opgeslagen: {count}. De pruik is opnieuw ondertekend met het bewezen recept.",
@@ -691,5 +694,7 @@
     "comb.ramp_dittos": "{count} ditto's op een knop die een waarde verhoogt of verlaagt. Sommige ontvangers zetten per ditto een stap, dus dit kan bedoeld zijn.",
     "chip.bypass": "omzeilen",
     "chip.bypass_tip": "Omzeilt het gedetecteerde protocol, verstuurt ruwe Pronto",
-    "chip.decoded_tip": "Verstuurt schone gedecodeerde tijden. Klik om de opgenomen code ongewijzigd te versturen."
+    "chip.bypass_action": "Klik om in plaats daarvan schone gedecodeerde tijden te versturen.",
+    "chip.decoded_tip": "Verstuurt schone gedecodeerde tijden.",
+    "chip.decoded_action": "Klik om de opgenomen code ongewijzigd te versturen."
 }

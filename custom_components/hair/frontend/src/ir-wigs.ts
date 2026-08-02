@@ -221,6 +221,19 @@ export class IrWigs extends LitElement {
         }
     }
 
+    /** Open the comb ledger on a wig named by filename.
+     *
+     * The upload and adopt receipts carry a filename; the report wants
+     * the live WigInfo, so it is looked up in the list _refresh has
+     * just reloaded. Silently does nothing if the lookup misses --
+     * an unopened report is a far smaller failure than an exception
+     * thrown over a successful import. */
+    private _combAfterUpload(filename: string | undefined): void {
+        if (!filename) return;
+        const wig = this._wigs.find((w) => w.filename === filename);
+        if (wig) this._combWig = wig;
+    }
+
     private _flash(message: string, kind: "ok" | "warn" = "ok"): void {
         this._noticeKind = kind;
         this._notice = message;
@@ -563,12 +576,22 @@ export class IrWigs extends LitElement {
             this._receiptKind = anyDup ? "dup" : "ok";
             this._receipt = "files";
 
-            // No auto-jump (owner ruling): the receipt's name/brand
-            // links are the invitation; the user pulls, we don't
-            // shove. Just make sure a Library filter cannot hide the
-            // arrival if they DO click.
+            // Still no auto-jump: the receipt's name/brand links are
+            // the invitation, and the user pulls rather than being
+            // shoved down the list. Just make sure a Library filter
+            // cannot hide the arrival if they DO click.
             if (this._filter === "library") this._filter = "all";
             await this._refresh();
+            // The comb IS shown unasked, which is the one exception
+            // (owner ruling 2026-08-02) and a different thing from
+            // jumping: an arriving wig's codes have never been checked
+            // against each other on this install, and the moment to
+            // learn that 48 of them disagree is now, not after a
+            // fitting. Only when exactly one wig landed -- a foreign
+            // format can convert to five at once, and five stacked
+            // dialogs is not a report.
+            const fresh = files.filter((f) => !f.duplicate_of);
+            if (fresh.length === 1) this._combAfterUpload(fresh[0].filename);
         } catch (err) {
             this._receiptKind = "warn";
             this._receiptFiles = [];
@@ -690,14 +713,20 @@ export class IrWigs extends LitElement {
         }
     }
 
+    /** One file per drop (owner ruling 2026-08-02).
+     *
+     * The loop that used to be here hung every dropped file but wrote
+     * the receipt fresh each time, so a five-file drop reported the
+     * fifth and the other four landed with no trace. Refusing the
+     * whole drop is the honest version: nothing arrives that the
+     * fitter cannot see arrive. */
     private async _onDrop(e: DragEvent): Promise<void> {
         e.preventDefault();
         this._dragOver = false;
-        const files = e.dataTransfer?.files;
-        if (!files) return;
-        for (const file of Array.from(files)) {
-            await this._uploadText(await file.text(), file.name);
-        }
+        const files = Array.from(e.dataTransfer?.files ?? []);
+        if (files.length === 0) return;
+        if (!this._acceptsOne(files.length)) return;
+        await this._uploadText(await files[0].text(), files[0].name);
     }
 
     private _browse(): void {
@@ -705,13 +734,26 @@ export class IrWigs extends LitElement {
         input.type = "file";
         input.accept =
             ".json,.ir,.conf,.girr,.xml,application/json,text/plain";
-        input.multiple = true;
         input.onchange = async () => {
-            for (const file of Array.from(input.files ?? [])) {
-                await this._uploadText(await file.text(), file.name);
-            }
+            const files = Array.from(input.files ?? []);
+            if (files.length === 0) return;
+            if (!this._acceptsOne(files.length)) return;
+            await this._uploadText(await files[0].text(), files[0].name);
         };
         input.click();
+    }
+
+    /** Guard for both entry points: true when exactly one file came
+     * in, false after posting the refusal receipt. */
+    private _acceptsOne(count: number): boolean {
+        if (count <= 1) return true;
+        this._receiptKind = "warn";
+        this._receiptFiles = [];
+        this._receiptSuffix = "";
+        this._receipt = t("wigs.upload_one_at_a_time", {
+            count: String(count),
+        });
+        return false;
     }
 
     // --- Editor dialog ---
@@ -1199,10 +1241,19 @@ export class IrWigs extends LitElement {
     private async _onWigAdopted(): Promise<void> {
         const name =
             this._adoptWig?.name ?? this._adoptCodebook?.label ?? "";
+        // Held before the fields are cleared: the comb runs on the wig
+        // that was adopted, and only when a wig is what was adopted.
+        // The codebook path has no file to comb -- adopting from the
+        // library builds a device from catalog entries.
+        const adopted = this._adoptWig?.filename;
         this._adoptWig = null;
         this._adoptCodebook = null;
         this._flash(t("wigs.adopted", { name }), "ok");
         await this._refresh();
+        // Same reasoning as the upload: a wig becoming a live device is
+        // the last moment before its codes start being pressed in
+        // anger (owner ruling 2026-08-02).
+        this._combAfterUpload(adopted);
     }
 
     private async _onFittingRecorded(e: CustomEvent): Promise<void> {
@@ -1348,9 +1399,9 @@ export class IrWigs extends LitElement {
                               </button>`
                             : ""}
                     </span>
-                    ${row.wig
-                        ? html`<span class="glyph-slot">
-                              <button
+                    <span class="glyph-slot">
+                        ${row.wig
+                            ? html`<button
                                   class="copy-glyph"
                                   title=${this._combTitle(row.wig)}
                                   @click=${() =>
@@ -1367,9 +1418,9 @@ export class IrWigs extends LitElement {
                                   >
                                       <path d=${COMB_PATH}></path>
                                   </svg>
-                              </button>
-                          </span>`
-                        : ""}
+                              </button>`
+                            : ""}
+                    </span>
                     <span class="glyph-slot">
                         <button
                             class="copy-glyph"
@@ -1427,7 +1478,11 @@ export class IrWigs extends LitElement {
                           >
                               ${t("common.delete")}
                           </button>`
-                        : ""}
+                        : html`<span
+                              class="action-btn delete-ghost"
+                              aria-hidden="true"
+                              >${t("common.delete")}</span
+                          >`}
                 </span>
             </div>
         `;
@@ -2020,11 +2075,27 @@ export class IrWigs extends LitElement {
                sits at the same gap, exactly like the signal rows. */
             gap: 4px;
         }
+        /* Reserved, not conditional. The row's trailing controls are
+           anchored right by .row-actions{margin-left:auto}, so anything
+           missing at the end drags everything before it sideways: a
+           library row with no DELETE sat 64px right of a local one --
+           DELETE's width plus the 4px gap -- and the download icons
+           never lined up down the list (owner bench 2026-08-02). The
+           edit glyph already had a reserved slot; comb and DELETE
+           did not. */
         .glyph-slot {
             width: 30px;
             display: flex;
             justify-content: center;
             flex: none;
+        }
+        /* Holds DELETE's exact place without being DELETE. Rendered as
+           the real label rather than a fixed width, so it stays correct
+           when common.delete is LOSCHEN or a Cyrillic string, the same
+           reason the action badge was measured rather than estimated. */
+        .delete-ghost {
+            visibility: hidden;
+            pointer-events: none;
         }
         .copy-glyph {
             font-size: 14px;
