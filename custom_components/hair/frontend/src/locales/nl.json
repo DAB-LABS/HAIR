@@ -556,6 +556,8 @@
     "sniffer.linked.one": "{count} HAIR-apparaat",
     "sniffer.linked.other": "{count} HAIR-apparaten",
     "wigs.upload_partial": "{count} signalen konden niet worden geconverteerd",
+    "wigs.upload_dropped_fittings.one": "1 passessie in de oude heel-bestand-vorm is opzijgezet; ze kan geen claims per rij worden. Pas opnieuw om het bewijs te herstellen.",
+    "wigs.upload_dropped_fittings.other": "{count} passessies in de oude heel-bestand-vorm zijn opzijgezet; ze kunnen geen claims per rij worden. Pas opnieuw om het bewijs te herstellen.",
     "wigs.upload_one_at_a_time": "{count} bestanden tegelijk. De kast neemt er één per keer, dus er is niets opgehangen. Sleep één bestand.",
     "wigs.receipt.hung": "{name} hangt nu onder {brand}",
     "wigs.receipt.duplicate": "{name} hangt nu onder {brand} (er was al een identiek apparaat in {brands})",

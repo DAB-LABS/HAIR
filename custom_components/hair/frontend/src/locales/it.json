@@ -556,6 +556,8 @@
     "sniffer.linked.one": "{count} dispositivo HAIR",
     "sniffer.linked.other": "{count} dispositivi HAIR",
     "wigs.upload_partial": "{count} segnali non sono stati convertiti",
+    "wigs.upload_dropped_fittings.one": "1 prova nel vecchio formato a file intero è stata accantonata; non può diventare dichiarazioni per riga. Riprova la parrucca per ripristinare la prova.",
+    "wigs.upload_dropped_fittings.other": "{count} prove nel vecchio formato a file intero sono state accantonate; non possono diventare dichiarazioni per riga. Riprova la parrucca per ripristinare la prova.",
     "wigs.upload_one_at_a_time": "{count} file insieme. L'armadio ne accetta uno per volta, quindi non è stato appeso nulla. Trascina un solo file.",
     "wigs.receipt.hung": "{name} appeso sotto {brand}",
     "wigs.receipt.duplicate": "{name} appeso sotto {brand} (un dispositivo identico era già in {brands})",

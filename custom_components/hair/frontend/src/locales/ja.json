@@ -556,6 +556,8 @@
     "sniffer.linked.one": "{count} 台のHAIRデバイス",
     "sniffer.linked.other": "{count} 台のHAIRデバイス",
     "wigs.upload_partial": "{count} 件の信号は変換できませんでした",
+    "wigs.upload_dropped_fittings.one": "旧形式（ファイル全体）のフィッティング1件を保留しました。行ごとのクレームには変換できません。再フィッティングで証明を復元してください。",
+    "wigs.upload_dropped_fittings.other": "旧形式（ファイル全体）のフィッティング{count}件を保留しました。行ごとのクレームには変換できません。再フィッティングで証明を復元してください。",
     "wigs.upload_one_at_a_time": "一度に {count} 件のファイル。クローゼットは1件ずつしか受け取れないため、何も追加されていません。ファイルは1つずつどうぞ。",
     "wigs.receipt.hung": "{name} を {brand} に掛けました",
     "wigs.receipt.duplicate": "{name} を {brand} に掛けました(同じデバイスが既に {brands} にあります)",

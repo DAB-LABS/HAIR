@@ -316,6 +316,9 @@ export class HairApi {
             // Every closet wig holding an identical device (owner ask,
             // 2026-07-20): the receipt lists all of them, clickably.
             duplicates?: { filename: string; brand: string | null }[];
+            // Pre-claims fittings set aside on import (they cannot
+            // become per-row claims); the receipt announces the count.
+            dropped_fittings?: number;
         }[];
         format?: string;
         skipped?: string[];

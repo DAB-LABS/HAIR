@@ -556,6 +556,8 @@
     "sniffer.linked.one": "{count} HAIR device",
     "sniffer.linked.other": "{count} HAIR devices",
     "wigs.upload_partial": "{count} signals could not convert (see the wig notes)",
+    "wigs.upload_dropped_fittings.one": "1 fitting in the old whole-file form was set aside; it cannot become per-row claims. Re-fit to restore the proof.",
+    "wigs.upload_dropped_fittings.other": "{count} fittings in the old whole-file form were set aside; they cannot become per-row claims. Re-fit to restore the proof.",
     "wigs.upload_one_at_a_time": "{count} files at once. The closet takes one at a time, so nothing was hung -- drop a single file.",
     "wigs.receipt.hung": "{name} hung under {brand}",
     "wigs.receipt.duplicate": "{name} hung under {brand} -- an identical device was already in {brands}",

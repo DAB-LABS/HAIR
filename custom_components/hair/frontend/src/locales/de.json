@@ -556,6 +556,8 @@
     "sniffer.linked.one": "{count} HAIR-Gerät",
     "sniffer.linked.other": "{count} HAIR-Geräte",
     "wigs.upload_partial": "{count} Signale konnten nicht konvertiert werden",
+    "wigs.upload_dropped_fittings.one": "1 Anprobe im alten Ganzdatei-Format wurde beiseitegelegt; sie kann nicht zu zeilenweisen Angaben werden. Erneut anprobieren, um den Nachweis wiederherzustellen.",
+    "wigs.upload_dropped_fittings.other": "{count} Anproben im alten Ganzdatei-Format wurden beiseitegelegt; sie können nicht zu zeilenweisen Angaben werden. Erneut anprobieren, um den Nachweis wiederherzustellen.",
     "wigs.upload_one_at_a_time": "{count} Dateien auf einmal. Der Schrank nimmt eine nach der anderen, es wurde nichts aufgehängt -- bitte eine einzelne Datei ablegen.",
     "wigs.receipt.hung": "{name} hängt jetzt unter {brand}",
     "wigs.receipt.duplicate": "{name} hängt jetzt unter {brand} (ein identisches Gerät war schon in {brands})",

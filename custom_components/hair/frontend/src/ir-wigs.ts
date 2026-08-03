@@ -574,12 +574,23 @@ export class IrWigs extends LitElement {
             const files = result.files ?? [];
             const anyDup = files.some((f) => f.duplicate_of);
             this._receiptFiles = files;
-            this._receiptSuffix =
-                (result.skipped ?? []).length > 0
-                    ? t("wigs.upload_partial", {
-                          count: String(result.skipped!.length),
-                      })
-                    : "";
+            const suffixes: string[] = [];
+            if ((result.skipped ?? []).length > 0) {
+                suffixes.push(t("wigs.upload_partial", {
+                    count: String(result.skipped!.length),
+                }));
+            }
+            // Old whole-file fittings are set aside on import -- they
+            // cannot become per-row claims (hard rule 6), and a drop
+            // nobody is told about reads as silent data loss. The
+            // count comes from the same entries the receipt renders.
+            const dropped = files.reduce(
+                (n, f) => n + (f.dropped_fittings ?? 0), 0,
+            );
+            if (dropped > 0) {
+                suffixes.push(tp("wigs.upload_dropped_fittings", dropped));
+            }
+            this._receiptSuffix = suffixes.join(" \u00b7 ");
             this._receiptKind = anyDup ? "dup" : "ok";
             this._receipt = "files";
 

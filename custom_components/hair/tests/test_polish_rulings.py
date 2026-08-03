@@ -1089,3 +1089,23 @@ class TestDownloadsCarryTheTier:
         download = text.split("private async _download(", 1)[1]
         download = download.split("private async _downloadLibrary", 1)[0]
         assert "_tieredFilename" in download
+
+
+class TestTheLegacyDropIsAnnounced:
+    """Import sets pre-claims fittings aside (hard rule 6) and the
+    backend has always reported the count; the receipt now says it.
+    A drop nobody is told about reads as silent data loss to the one
+    person it happens to."""
+
+    def test_the_receipt_counts_dropped_fittings(self):
+        text = _read("ir-wigs.ts")
+        assert "dropped_fittings" in text
+        assert "wigs.upload_dropped_fittings" in text
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_notice(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "wigs.upload_dropped_fittings.one" in data, locale
+        assert "wigs.upload_dropped_fittings.other" in data, locale
