@@ -277,30 +277,154 @@ class TestClosetTakesOneFile:
 class TestClosetRowsLineUp:
     """.row-actions is margin-left:auto, so anything missing at the end
     drags everything before it sideways: a library row with no DELETE
-    sat 64px right of a local one and the download icons never lined
-    up down the list."""
+    sat 64px right of a local one and the download icons never lined up
+    down the list (owner bench 2026-08-02).
 
-    def test_delete_keeps_its_place_on_rows_that_have_none(self):
-        text = _read("ir-wigs.ts")
-        assert 'class="action-btn delete-ghost"' in text
-        block = text.split(".delete-ghost {", 1)[1].split("}", 1)[0]
-        assert "visibility: hidden" in block
-        assert "pointer-events: none" in block
+    The ghost that used to hold DELETE's place rendered the real
+    localized label, so the reservation stayed correct in any language.
+    That was sound reasoning right up until the polish pass made DELETE
+    an icon: a text-width ghost against an 18px can would have re-broken
+    the very alignment it was added to fix, inverted. A fixed 30px slot
+    is locale-proof by construction, so the ghost is gone and the trash
+    is the fourth slot. The invariant is unchanged; only the mechanism.
+    """
 
-    def test_the_ghost_carries_the_real_label(self):
-        """A fixed pixel width would be wrong the moment common.delete
-        is LOSCHEN or a Cyrillic string."""
-        text = _read("ir-wigs.ts")
-        ghost = text.split("delete-ghost", 1)[1].split("</span", 1)[0]
-        assert 'common.delete' in ghost
+    def test_the_ghost_is_gone(self):
+        assert "delete-ghost" not in _read("ir-wigs.ts")
 
-    def test_every_glyph_slot_is_unconditional(self):
-        """Three slots -- edit, comb, download -- and the row must
-        render all three whether or not it has a wig to put in them."""
+    def test_delete_is_the_fourth_glyph_slot(self):
+        """Edit, comb, download, trash. The row renders all four
+        whether or not it has a wig to put in them."""
         text = _read("ir-wigs.ts")
         row = text.split("_renderRow(row: ClosetRow)", 1)[1]
         row = row.split("_renderEditor", 1)[0]
-        assert row.count('<span class="glyph-slot">') == 3
+        assert row.count('<span class="glyph-slot">') == 4
+
+    def test_the_slot_is_a_fixed_width(self):
+        text = _read("ir-wigs.ts")
+        block = text.split(".glyph-slot {", 1)[1].split("}", 1)[0]
+        assert "width: 30px" in block
+        assert "flex: none" in block
+
+
+TRASH_MODULES = (
+    "ir-command-row.ts",
+    "ir-mirror.ts",
+    "ir-signal-monitor.ts",
+    "ir-clips.ts",
+    "ir-pluck.ts",
+    "ir-wigs.ts",
+)
+
+
+class TestOneTrashCanInTheTree:
+    """ICON_TRASH lived in ir-device-list.ts, which was fine while
+    exactly one surface drew a can. Nine more is how two definitions
+    drift: one gets a tweak, the other does not, and the panel quietly
+    ships two cans.
+    """
+
+    def test_the_path_has_exactly_one_home(self):
+        assert "export const ICON_TRASH" in _read("ir-icons.ts")
+        assert "const ICON_TRASH =" not in _read("ir-device-list.ts")
+
+    def test_every_consumer_imports_it(self):
+        for module in (*TRASH_MODULES, "ir-device-list.ts"):
+            assert 'from "./ir-icons.js"' in _read(module), module
+
+    def test_the_fifty_by_fifty_viewbox_travels_with_it(self):
+        """It is the owner's own drawing, not MDI's delete-outline, so
+        it is not in MDI's 24x24 box. A consumer that forgets renders a
+        speck in the corner."""
+        assert 'TRASH_VIEWBOX = "0 0 50 50"' in _read("ir-icons.ts")
+        for module in (*TRASH_MODULES, "ir-device-list.ts"):
+            text = _read(module)
+            assert text.count("ICON_TRASH") == text.count("TRASH_VIEWBOX"), (
+                module
+            )
+
+    def test_it_is_drawn_at_eighteen_not_sixteen(self):
+        """The argyle pattern fills in below about 17px, and that
+        detail is what makes it the house can rather than any can."""
+        block = _read("ir-icons.ts").split(".trash-btn ha-svg-icon {", 1)[1]
+        assert "--mdc-icon-size: 18px" in block.split("}", 1)[0]
+
+
+class TestEverythingThatDeletesIsEmber:
+    """Three delete colours were in play: ember on the text chips,
+    material red on the two trash icons that already shipped, crimson in
+    the wig dialogs. Choosing ember for the can collapsed the first two,
+    which left the two shipped icons as the odd ones out. Two
+    conventions for the same act is the exact failure the ruling avoids.
+
+    (The crimson in the wig dialogs is pre-existing drift, out of this
+    pass's scope, and now the only delete colour that is not ember.)
+    """
+
+    def test_the_shared_button_hovers_ember(self):
+        block = _read("ir-icons.ts").split(
+            ".trash-btn:hover:not(:disabled) {", 1
+        )[1].split("}", 1)[0]
+        assert "#e65100" in block
+        assert "rgba(230, 81, 0, 0.12)" in block
+
+    def test_material_red_is_gone_from_the_shipped_icons(self):
+        text = _read("ir-device-list.ts")
+        assert "#f44336" not in text
+        assert "244, 67, 54" not in text
+
+
+class TestEveryTrashIsNamed:
+    """Nine buttons lost their text label. A button whose accessible
+    name WAS its text content is anonymous the moment the text goes.
+    """
+
+    @pytest.mark.parametrize("module", TRASH_MODULES)
+    def test_each_trash_button_is_titled_and_labelled(self, module):
+        text = _read(module)
+        for block in text.split('class="trash-btn"')[1:]:
+            head = block.split(">", 1)[0]
+            assert "title=" in head, module
+            assert "aria-label=" in head, module
+
+    def test_the_trigger_trash_became_focusable(self):
+        """It shipped as a bare ha-svg-icon with a click handler, so it
+        was unreachable by keyboard for as long as it has existed."""
+        text = _read("ir-device-list.ts")
+        before, block = text.split('class="trigger-trash"', 1)
+        assert "aria-label=" in block.split(">", 1)[0]
+        # The tag it opens now, not the tag it used to open.
+        assert before.rstrip().endswith("<button")
+
+
+class TestTwoBugsFoundInTheSweepPath:
+    """Neither is polish. Both were found by reading every delete
+    control in the panel in one sitting, which is the only reason they
+    surfaced at all.
+    """
+
+    def test_plucks_clear_all_is_translatable(self):
+        """It shipped a hardcoded English string where both its
+        siblings call t(), so it has never been translated in nine
+        languages."""
+        text = _read("ir-pluck.ts")
+        assert "\n                              Clear All\n" not in text
+        assert 't("sniffer.clear_all")' in text
+
+    def test_the_device_page_has_its_own_delete_label(self):
+        """It wore devlist.del_device_title, which is a dialog HEADING
+        elsewhere. One key across two surfaces means neither can ever
+        be worded for where it sits."""
+        assert 'devlist.del_device_title' not in _read("ir-device-detail.ts")
+        assert 'devdetail.delete_device' in _read("ir-device-detail.ts")
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_both_new_keys_exist_everywhere(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "devdetail.delete_device" in data
+        assert "sniffer.clear_all" in data
 
 
 class TestTheRawPinFollowsTheBytes:
@@ -691,10 +815,10 @@ class TestEmittersHaveThreeStates:
         assert "picker.broadcast_note" not in data
 
 
-class TestTheMetadataRowIsTwoCapsules:
+class TestTheMetadataRowIsTwoColumns:
     """An 80px column reserved for two words, with the controls left
-    floating in what remained. Each control wears its own name inside
-    its own border now.
+    floating in what remained. Each label sits above its own control
+    now and each control gets the full width of its own column.
     """
 
     def test_the_label_gutter_is_gone(self):
@@ -710,12 +834,19 @@ class TestTheMetadataRowIsTwoCapsules:
             "ir-device-detail.ts"
         )
 
-    def test_both_controls_are_capsules(self):
+    def test_type_is_capped_and_emitters_take_the_rest(self):
+        """A seven-item dropdown never needed 900px."""
         text = _read("ir-device-detail.ts")
-        assert 'class="capsule type-capsule"' in text
-        assert ".capsule .cap {" in text
+        assert "grid-template-columns: 200px minmax(0, 1fr)" in text
 
-    def test_the_capsules_stack_when_narrow(self):
+    def test_the_label_sits_above_its_control(self):
+        text = _read("ir-device-detail.ts")
+        assert 'class="sl"' in text and ".stack .sl {" in text
+        picker = _read("ir-emitter-picker.ts")
+        assert "<label>" in picker
+        assert 'class="capsule"' not in picker
+
+    def test_the_columns_stack_when_narrow(self):
         text = _read("ir-device-detail.ts")
         assert "max-width: 700px" in text
 

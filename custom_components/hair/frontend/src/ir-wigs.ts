@@ -34,6 +34,11 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
@@ -1431,19 +1436,22 @@ export class IrWigs extends LitElement {
                     >
                         ${t("wigs.clip_it")}
                     </button>
-                    ${row.wig
-                        ? html`<button
-                              class="action-btn delete-btn"
-                              @click=${() =>
-                                  (this._confirmDelete = row.wig!)}
-                          >
-                              ${t("common.delete")}
-                          </button>`
-                        : html`<span
-                              class="action-btn delete-ghost"
-                              aria-hidden="true"
-                              >${t("common.delete")}</span
-                          >`}
+                    <span class="glyph-slot">
+                        ${row.wig
+                            ? html`<button
+                                  class="trash-btn"
+                                  title=${t("wigs.delete_title")}
+                                  aria-label=${t("wigs.delete_title")}
+                                  @click=${() =>
+                                      (this._confirmDelete = row.wig!)}
+                              >
+                                  <ha-svg-icon
+                                      .path=${ICON_TRASH}
+                                      .viewBox=${TRASH_VIEWBOX}
+                                  ></ha-svg-icon>
+                              </button>`
+                            : ""}
+                    </span>
                 </span>
             </div>
         `;
@@ -1649,7 +1657,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = [dialogStyles, actionChipStyles, popoverStyles, css`
+    static styles = [dialogStyles, actionChipStyles, popoverStyles, trashButtonStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -2050,14 +2058,12 @@ export class IrWigs extends LitElement {
             justify-content: center;
             flex: none;
         }
-        /* Holds DELETE's exact place without being DELETE. Rendered as
-           the real label rather than a fixed width, so it stays correct
-           when common.delete is LOSCHEN or a Cyrillic string, the same
-           reason the action badge was measured rather than estimated. */
-        .delete-ghost {
-            visibility: hidden;
-            pointer-events: none;
-        }
+        /* The ghost that used to hold DELETE's place is gone. It
+           rendered the real localized label so the reservation stayed
+           right in any language, which was sound reasoning right up
+           until DELETE stopped being a word: a text-width ghost against
+           an 18px can would have re-broken this alignment inverted.
+           A fixed 30px slot is locale-proof by construction. */
         .copy-glyph {
             font-size: 14px;
             color: var(--secondary-text-color);

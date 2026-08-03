@@ -1,5 +1,5 @@
 /**
- * Reusable multi-emitter picker: one capsule of toggle chips.
+ * Reusable multi-emitter picker: a label and a row of toggle chips.
  *
  * THE CHIPS ARE NOT A SELECTION. Every assigned emitter fires on every
  * send -- device_manager.async_send_command broadcasts to all of them,
@@ -179,15 +179,13 @@ export class IrEmitterPicker extends LitElement {
     render() {
         const emitters = this._getEmitters();
         return html`
-            <div class="capsule">
-                <span class="cap">${t("picker.emitters_label")}</span>
-                <div class="body">
-                    ${emitters.length === 0
-                        ? html`<span class="no-emitters"
-                              >${t("picker.no_emitters")}</span
-                          >`
-                        : emitters.map((em) => this._renderChip(em))}
-                </div>
+            <label>${t("picker.emitters_label")}</label>
+            <div class="chips">
+                ${emitters.length === 0
+                    ? html`<span class="no-emitters"
+                          >${t("picker.no_emitters")}</span
+                      >`
+                    : emitters.map((em) => this._renderChip(em))}
             </div>
         `;
     }
@@ -207,7 +205,7 @@ export class IrEmitterPicker extends LitElement {
         // The dot carries the state and the name carries itself. A word
         // spelled out beside every chip turned a row of three into a row
         // of six things to read, which is the opposite of what the
-        // capsule is for. The word still reaches anyone who needs it:
+        // chip row is for. The word still reaches anyone who needs it:
         // the tooltip and the accessible name both say it.
         return html`
             <button
@@ -229,42 +227,22 @@ export class IrEmitterPicker extends LitElement {
         :host {
             display: block;
         }
-        /* THE CAPSULE (comp L2). The label is welded on as a leading
-           segment inside the control's own border rather than parked in
-           a fixed 80px gutter beside it. The gutter was what made the
-           metadata row read as a form from 2004: a reserved column for
-           two words, with the controls floating in what was left. */
-        .capsule {
-            display: flex;
-            align-items: stretch;
-            border: 1px solid var(--divider-color);
-            border-radius: 5px;
-            overflow: hidden;
-        }
-        .cap {
-            display: flex;
-            align-items: center;
-            padding: 6px 10px;
-            background: rgba(127, 127, 127, 0.07);
-            border-right: 1px solid var(--divider-color);
+        /* Comp L1: the label sits ABOVE its control rather than in a
+           fixed gutter beside it. Small, quiet and out of the way, so
+           the chips are what the row is made of. */
+        label {
+            display: var(--picker-label-display, block);
             font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--secondary-text-color);
-            white-space: nowrap;
+            margin-bottom: 5px;
         }
-        /* Wrapping happens INSIDE the border, which is what makes a
-           second line of chips read as deliberate rather than as
-           something that overflowed. */
-        .body {
+        .chips {
             display: flex;
             flex-wrap: wrap;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 9px;
-            flex: 1;
-            min-width: 0;
-            background: var(--card-background-color);
+            gap: 7px;
+            padding-top: 2px;
         }
         .em {
             display: inline-flex;

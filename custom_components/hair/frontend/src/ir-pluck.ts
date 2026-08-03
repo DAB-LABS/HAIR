@@ -15,6 +15,11 @@ import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -888,7 +893,7 @@ export class IrPluck extends LitElement {
                               title=${t("pluck.clear_all_title")}
                               @click=${() => (this._confirmClearAll = true)}
                           >
-                              Clear All
+                              ${t("sniffer.clear_all")}
                           </button>
                       </div>
                   `
@@ -957,13 +962,19 @@ export class IrPluck extends LitElement {
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
                         title=${t("pluck.delete_blaster_title")}
+                        aria-label=${t("pluck.delete_blaster_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDeleteRemote(d);
                         }}
-                    >${t("common.delete")}</button>
+                    >
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
+                    </button>
                     </span>
                     <ha-svg-icon
                         class="expand-icon"
@@ -1094,13 +1105,18 @@ export class IrPluck extends LitElement {
                         ></ir-count-dot>
                     </button>
                     <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
+                        title=${t("pluck.delete_signal_title")}
+                        aria-label=${t("pluck.delete_signal_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDelete(deviceId, sig);
                         }}
                     >
-                        ${t("common.delete")}
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
                     </button>
                 </div>
             </div>
@@ -1282,7 +1298,7 @@ export class IrPluck extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;

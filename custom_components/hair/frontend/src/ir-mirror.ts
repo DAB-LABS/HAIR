@@ -34,6 +34,11 @@ import { LitElement, html, css } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
@@ -966,13 +971,19 @@ export class IrMirror extends LitElement {
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
                         title=${t("mirror.delete_title")}
+                        aria-label=${t("mirror.delete_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._deleteSignal = sig;
                         }}
-                    >${t("common.delete")}</button>
+                    >
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
+                    </button>
                     </span>
                 </div>
             </div>
@@ -1107,6 +1118,7 @@ export class IrMirror extends LitElement {
 
     static styles = [
         actionChipStyles,
+        trashButtonStyles,
         css`
             :host {
                 display: block;

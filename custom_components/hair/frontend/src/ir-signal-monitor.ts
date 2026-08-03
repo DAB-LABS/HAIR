@@ -8,6 +8,11 @@ import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -1533,12 +1538,19 @@ export class IrSignalMonitor extends LitElement {
                               }}
                           >${t("sniffer.dismiss")}</button>
                           <button
-                              class="action-btn delete-btn"
+                              class="trash-btn"
+                              title=${t("sniffer.delete_remote_title")}
+                              aria-label=${t("sniffer.delete_remote_title")}
                               @click=${(e: Event) => {
                                   e.stopPropagation();
                                   this._deleteRemote = d;
                               }}
-                          >${t("common.delete")}</button>`}
+                          >
+                              <ha-svg-icon
+                                  .path=${ICON_TRASH}
+                                  .viewBox=${TRASH_VIEWBOX}
+                              ></ha-svg-icon>
+                          </button>`}
                     </span>
                     <ha-svg-icon
                         class="expand-icon"
@@ -1693,12 +1705,19 @@ export class IrSignalMonitor extends LitElement {
                                             .count=${this._triggerCountFor(sig)}
                                         ></ir-count-dot></button>
                                     <button
-                                        class="action-btn delete-btn"
+                                        class="trash-btn"
+                                        title=${t("sniffer.delete_signal_title")}
+                                        aria-label=${t("sniffer.delete_signal_title")}
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
                                             this._openDelete(device.id, sig);
                                         }}
-                                    >${t("common.delete")}</button>
+                                    >
+                                        <ha-svg-icon
+                                            .path=${ICON_TRASH}
+                                            .viewBox=${TRASH_VIEWBOX}
+                                        ></ha-svg-icon>
+                                    </button>
                                 </div>
                             </div>
                         `;
@@ -1710,7 +1729,7 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;

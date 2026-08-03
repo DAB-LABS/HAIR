@@ -12,6 +12,11 @@ import { LitElement, html, css, type PropertyValues } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -1110,13 +1115,19 @@ export class IrClips extends LitElement {
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
                         title=${t("clips.delete_remote_title")}
+                        aria-label=${t("clips.delete_remote_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDeleteRemote(d);
                         }}
-                    >${t("common.delete")}</button>
+                    >
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
+                    </button>
                     </span>
                     <ha-svg-icon
                         class="expand-icon"
@@ -1272,12 +1283,19 @@ export class IrClips extends LitElement {
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
+                        title=${t("clips.delete_signal_title")}
+                        aria-label=${t("clips.delete_signal_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDelete(deviceId, sig);
                         }}
-                    >${t("common.delete")}</button>
+                    >
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
+                    </button>
                 </div>
             </div>
         `;
@@ -1469,7 +1487,7 @@ export class IrClips extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;

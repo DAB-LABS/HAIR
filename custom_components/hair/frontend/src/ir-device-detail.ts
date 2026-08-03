@@ -1531,10 +1531,11 @@ export class IrDeviceDetail extends LitElement {
                 >&#x2715;</button>
             </section>
 
-            <!-- Device metadata: two capsules, each wearing its own name -->
+            <!-- Device metadata: two columns, each label above its own
+                 control (comp L1) -->
             <div class="device-meta">
-                <div class="capsule type-capsule">
-                    <span class="cap">${t("devdetail.type")}</span>
+                <div class="stack">
+                    <span class="sl">${t("devdetail.type")}</span>
                     <select
                         .value=${this.device.device_type}
                         @change=${this._onTypeChanged}
@@ -1738,7 +1739,7 @@ export class IrDeviceDetail extends LitElement {
                     class="action-btn delete-btn"
                     @click=${() => (this._confirmDelete = true)}
                     ?disabled=${this._busy}
-                >${t("devlist.del_device_title")}</button>
+                >${t("devdetail.delete_device")}</button>
             </div>
 
             <!-- Dialogs -->
@@ -1998,49 +1999,33 @@ export class IrDeviceDetail extends LitElement {
             align-self: center;
         }
 
-        /* --- Metadata: capsules, not a label gutter ---
-           The 80px column reserved for two words was the thing making
-           this row read as a form from 2004. Each control wears its own
-           name inside its own border now, so the row is just two
-           objects sitting side by side. TYPE sizes to its content and
-           EMITTERS takes what is left, growing a second line of chips
-           inside its own border. */
+        /* --- Metadata: two columns, no label gutter (comp L1) ---
+           The old grid reserved a fixed 80px column for two words and
+           left the controls floating in what remained, which is what
+           made the row read as a form from 2004. Each label sits above
+           its own control now, and each control gets the full width of
+           its own column. TYPE is capped at 200px because a seven-item
+           dropdown never needed 900; emitters take the rest and wrap. */
         .device-meta {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: flex-start;
-            gap: 10px;
+            display: grid;
+            grid-template-columns: 200px minmax(0, 1fr);
+            gap: 0 22px;
+            align-items: start;
             margin: 16px 0 0;
         }
-        .device-meta ir-emitter-picker {
-            flex: 1 1 340px;
-            min-width: 0;
-        }
-        .capsule {
-            display: flex;
-            align-items: stretch;
-            border: 1px solid var(--divider-color);
-            border-radius: 5px;
-            overflow: hidden;
-        }
-        .capsule .cap {
-            display: flex;
-            align-items: center;
-            padding: 6px 10px;
-            background: rgba(127, 127, 127, 0.07);
-            border-right: 1px solid var(--divider-color);
+        .stack .sl {
+            display: block;
             font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--secondary-text-color);
-            white-space: nowrap;
+            margin-bottom: 5px;
         }
-        /* Below this the two capsules stop fitting on one line with
-           anything useful left for the chips, so they stack. */
+        /* Below this, 200px plus a useful chip column stops fitting. */
         @media (max-width: 700px) {
             .device-meta {
-                flex-direction: column;
-                align-items: stretch;
+                grid-template-columns: minmax(0, 1fr);
+                gap: 12px 0;
             }
         }
         /* The STATE MATRIX card (Cold Cuts second half, mockup CC3):
@@ -2188,11 +2173,11 @@ export class IrDeviceDetail extends LitElement {
         .action-btn.mx-cmd-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
         }
-        /* The select sizes to its content now. It is inside the
-           capsule's border, so it brings none of its own. */
-        .type-capsule select {
-            padding: 6px 9px;
-            border: 0;
+        .stack select {
+            width: 100%;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--primary-text-color);
             font-family: inherit;

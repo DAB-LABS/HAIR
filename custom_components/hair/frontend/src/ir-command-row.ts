@@ -6,6 +6,11 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import "./ir-protocol-chip.js";
 
 // The comb, from images/comb.svg -- the same mark the closet uses for
@@ -303,10 +308,17 @@ export class IrCommandRow extends LitElement {
                                       (this.hasTrigger ? 1 : 0)}
                                   ></ir-count-dot></button>
                               <button
-                                  class="action-btn delete-btn"
+                                  class="trash-btn"
+                                  title=${t("cmdrow.delete_title")}
+                                  aria-label=${t("cmdrow.delete_title")}
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("delete")}
-                              >${t("cmdrow.delete")}</button>
+                              >
+                                  <ha-svg-icon
+                                      .path=${ICON_TRASH}
+                                      .viewBox=${TRASH_VIEWBOX}
+                                  ></ha-svg-icon>
+                              </button>
                           `
                         : html`
                               <button
@@ -320,7 +332,7 @@ export class IrCommandRow extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [trashButtonStyles, css`
         :host {
             display: block;
         }
@@ -616,7 +628,7 @@ export class IrCommandRow extends LitElement {
             opacity: 0.5;
             cursor: default;
         }
-    `;
+    `];
 }
 
 declare global {
