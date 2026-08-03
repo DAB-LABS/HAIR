@@ -145,6 +145,18 @@ export class IrSaveWigDialog extends LitElement {
         );
     }
 
+    /** Typing a new name on an UPDATE renames the EXISTING wig. It does
+     * not fork a new one, and the file keeps the name it was first
+     * written under, because identity is the wig_id and renaming files
+     * would strand anything that referenced them. Said out loud,
+     * because on the bench three renamed saves read as three lost wigs
+     * when they were one wig wearing the latest name. */
+    private get _renamingWig(): boolean {
+        if (!this._isUpdate) return false;
+        const before = (this._plan?.metadata.name ?? "").trim();
+        return !!before && this._name.trim() !== before;
+    }
+
     private get _signed(): boolean {
         return this._perfect && this._oath;
     }
@@ -183,7 +195,16 @@ export class IrSaveWigDialog extends LitElement {
 
     private get _saveLabel(): string {
         if (this._busy) return t("common.saving");
-        if (!this._perfect) return t("common.save");
+        // While the toggle is armed the primary names the act, so the
+        // pressed button and the button that performs it agree. The
+        // toggle keeps ONE label and shows its state by looking
+        // pressed; swapping its text to the opposite action is what
+        // made it read as a navigation control on the bench.
+        if (!this._perfect) {
+            return this._saveAsNew
+                ? t("wigs.save.new_confirm_yes")
+                : t("common.save");
+        }
         return this._isPerfectFit
             ? t("wigs.save.save_perfect")
             : t("wigs.save.save_fitted");
@@ -472,6 +493,13 @@ export class IrSaveWigDialog extends LitElement {
                                   e.target as HTMLInputElement
                               ).value)}
                       />
+                      ${this._renamingWig
+                          ? html`<div class="rename-warn">
+                                ${t("wigs.save.rename_wig_warning", {
+                                    name: this._plan?.metadata.name ?? "",
+                                })}
+                            </div>`
+                          : ""}
                   </div>`}
             <div class="pair-grid">
                 ${this._textField(
@@ -560,6 +588,16 @@ export class IrSaveWigDialog extends LitElement {
                     <span>${t("wigs.save.perfect_label")}</span>
                 </label>
                 <div class="fit-explainer">${t("wigs.save.explainer")}</div>
+                ${this._isUpdate && (this._plan?.existing_fittings ?? 0) > 0
+                    ? html`<div class="joining">
+                          ${t("wigs.save.joining", {
+                              count: String(
+                                  this._plan?.existing_fittings ?? 0,
+                              ),
+                              name: this._plan?.source_wig_name ?? "",
+                          })}
+                      </div>`
+                    : ""}
                 ${this._perfect ? this._renderList() : ""}
                 ${this._perfect ? this._renderAttestation() : ""}
             </div>
@@ -723,15 +761,13 @@ export class IrSaveWigDialog extends LitElement {
                 </button>
                 ${this._plan?.variant === "update"
                     ? html`<button
-                          class="action-btn ${this._saveAsNew ? "on" : ""}"
+                          class="action-btn as-new-btn ${this._saveAsNew ? "on" : ""}"
                           @click=${() => {
                               this._saveAsNew = !this._saveAsNew;
                           }}
                           ?disabled=${this._busy}
                       >
-                          ${this._saveAsNew
-                              ? t("wigs.save.back_to_update")
-                              : t("wigs.save.save_as_new")}
+                          ${t("wigs.save.save_as_new")}
                       </button>`
                     : ""}
                 <button
@@ -901,7 +937,15 @@ export class IrSaveWigDialog extends LitElement {
             /* The save-as-new escape hatch. A real button, not an
                underlined link: it is one of the two things you can do
                here, and the footer is where doing things lives. It
-               stays outline-only so the primary is unambiguous. */
+               stays outline-only so the primary is unambiguous, and it
+               takes the same oxblood wash on hover that every other
+               button in the house does -- a control with no mouse-over
+               reads as decoration. */
+            .as-new-btn:hover:not(:disabled) {
+                border-color: #8e3b3b;
+                color: #fff;
+                background: rgba(142, 59, 59, 0.22);
+            }
             .action-btn.on {
                 border-color: #8e3b3b;
                 color: #fff;
@@ -911,6 +955,21 @@ export class IrSaveWigDialog extends LitElement {
                was invisible here, because browsers do not show tooltips
                on disabled buttons -- which read as "you cannot update at
                all" on the bench. */
+            /* You are joining a record, not starting one. Three
+               renamed saves read as three lost wigs on the bench when
+               they were one wig collecting three fittings. */
+            .joining {
+                font-size: 11.5px;
+                color: var(--secondary-text-color);
+                line-height: 1.45;
+                margin: 0 0 8px 24px;
+            }
+            .rename-warn {
+                font-size: 11.5px;
+                color: #d9a441;
+                line-height: 1.45;
+                margin: 4px 0 0;
+            }
             .blocked {
                 font-size: 11.5px;
                 color: #d9a441;

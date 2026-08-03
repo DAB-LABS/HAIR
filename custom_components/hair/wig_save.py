@@ -33,6 +33,7 @@ from .wig_format import (
     ClaimsBundle,
     RowClaim,
     Wig,
+    claims_of,
     serialize_wig,
     signal_row_digest,
 )
@@ -105,6 +106,10 @@ class SavePlan:
     metadata: dict[str, Any] = field(default_factory=dict)
     skipped: int = 0
     notes: list[str] = field(default_factory=list)
+    #: How many fittings the source wig already carries. Shown so an
+    #: UPDATE reads as joining a record rather than starting one -- the
+    #: bench mistook two appended fittings for two lost wigs.
+    existing_fittings: int = 0
     #: This device is a climate matrix. Its lattice lives in the climate
     #: entity, not in the command list, so the flat rows below are only
     #: its depth-0 extras -- attesting them would claim a fraction of
@@ -151,6 +156,7 @@ class SavePlan:
             "skipped": self.skipped,
             "notes": list(self.notes),
             "matrix": self.matrix,
+            "existing_fittings": self.existing_fittings,
         }
 
 
@@ -279,6 +285,7 @@ def build_save_plan(
         skipped=build.skipped,
         notes=build.notes,
         matrix=matrix,
+        existing_fittings=len(claims_of(source_wig)),
     )
 
 

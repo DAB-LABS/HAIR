@@ -395,6 +395,9 @@ export interface SavePlan {
     metadata: Record<string, string>;
     skipped: number;
     notes: string[];
+    /** How many fittings the source wig already carries. Shown so an
+     * UPDATE reads as joining a record rather than starting one. */
+    existing_fittings: number;
     /** A climate matrix device. Its lattice lives in the climate
      * entity, not the command list, so the rows above are only its
      * depth-0 extras and the perfect-fit block stays closed. */
