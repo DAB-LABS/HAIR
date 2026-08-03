@@ -383,7 +383,10 @@ export class IrDeviceDetail extends LitElement {
      *  change or a device switch recomputes and nothing else does. */
     private _actionBadgeMetrics() {
         const labels = this._badgeLabels();
-        const key = labels.join(" ");
+        // The escaped form, not a literal NUL. A raw one made git and
+        // grep treat this whole file as binary, so it never showed a
+        // diff and never matched a search. Identical at runtime.
+        const key = labels.join("\u0000");
         if (key !== this._actionBadgeKey) {
             this._actionBadgeKey = key;
             this._actionBadge = this._measureActionBadges(labels);
