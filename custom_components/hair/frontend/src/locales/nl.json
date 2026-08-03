@@ -535,6 +535,7 @@
     "wigs.save.save_perfect": "Perfecte pasvorm opslaan",
     "wigs.save.save_fitted": "Gepaste wig opslaan",
     "wigs.save.save_as_new": "Opslaan als nieuwe wig",
+    "wigs.save.back_to_saved": "Terug naar opgeslagen wig",
     "wigs.save.new_confirm_heading": "Als nieuwe wig opslaan?",
     "wigs.save.new_confirm_body": "Je slaat dit op als een volledig nieuwe wig. Je werkt {name} niet bij, de gepaste wig waar het vandaan komt.",
     "wigs.save.new_confirm_yes": "Als nieuw opslaan",

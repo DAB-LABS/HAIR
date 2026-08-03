@@ -535,6 +535,7 @@
     "wigs.save.save_perfect": "Save Perfect Fit",
     "wigs.save.save_fitted": "Save Fitted Wig",
     "wigs.save.save_as_new": "Save as New Wig",
+    "wigs.save.back_to_saved": "Back to Saved Wig",
     "wigs.save.new_confirm_heading": "Save as a new wig?",
     "wigs.save.new_confirm_body": "You are saving this as a brand new wig. You are not updating {name}, the fitted wig it came from.",
     "wigs.save.new_confirm_yes": "Save as new",

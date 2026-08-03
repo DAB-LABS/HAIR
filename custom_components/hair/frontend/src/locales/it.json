@@ -535,6 +535,7 @@
     "wigs.save.save_perfect": "Salva calzata perfetta",
     "wigs.save.save_fitted": "Salva wig calzato",
     "wigs.save.save_as_new": "Salva come nuovo wig",
+    "wigs.save.back_to_saved": "Torna al wig salvato",
     "wigs.save.new_confirm_heading": "Salvare come nuovo wig?",
     "wigs.save.new_confirm_body": "Stai salvando questo come wig completamente nuovo. Non stai aggiornando {name}, il wig calzato da cui proviene.",
     "wigs.save.new_confirm_yes": "Salva come nuovo",

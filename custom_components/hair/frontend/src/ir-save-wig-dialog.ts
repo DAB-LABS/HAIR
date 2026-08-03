@@ -186,8 +186,14 @@ export class IrSaveWigDialog extends LitElement {
         // pressed; swapping its text to the opposite action is what
         // made it read as a navigation control on the bench.
         if (!this._perfect) {
+            // The phrase lives on exactly ONE button at a time. Armed,
+            // the primary IS the act and the toggle becomes the way
+            // back; unarmed, the toggle offers the road and the primary
+            // is the ordinary save. Both wearing it at once is what
+            // made the footer read as two identical buttons, one of
+            // them mysteriously pressed (owner bench 2026-08-03).
             return this._saveAsNew
-                ? t("wigs.save.new_confirm_yes")
+                ? t("wigs.save.save_as_new")
                 : t("common.save");
         }
         return this._isPerfectFit
@@ -755,14 +761,13 @@ export class IrSaveWigDialog extends LitElement {
                           }}
                           ?disabled=${this._busy}
                       >
-                          ${t("wigs.save.save_as_new")}
+                          ${this._saveAsNew
+                              ? t("wigs.save.back_to_saved")
+                              : t("wigs.save.save_as_new")}
                       </button>`
                     : ""}
                 <button
-                    class="action-btn save-wig-btn ${this._isPerfectFit &&
-                    this._signed
-                        ? "perfect"
-                        : ""}"
+                    class="action-btn save-wig-btn"
                     @click=${this._save}
                     ?disabled=${!this._canSave}
                 >
@@ -794,10 +799,18 @@ export class IrSaveWigDialog extends LitElement {
                 margin: -5px 0 10px;
                 line-height: 1.4;
             }
+            /* GREEN IS THE GO BUTTON, in every state (owner ruling
+               2026-08-03). It used to mark one thing -- a complete
+               perfect fit about to be written -- with everything else
+               oxblood, but the LABEL already carries that distinction
+               ("Save Perfect Fit" against "Save Fitted Wig" against
+               "Save"), so the colour was saying it a second time and
+               worse. A lone red button in a green dialog reads as a
+               warning about nothing. */
             .save-wig-btn {
-                background: #8e3b3b;
+                background: #3f8a4b;
                 color: #fff;
-                border-color: #8e3b3b;
+                border-color: #3f8a4b;
             }
             .save-wig-btn:hover:not(:disabled) {
                 opacity: 0.9;
@@ -930,10 +943,6 @@ export class IrSaveWigDialog extends LitElement {
                 height: 15px;
                 cursor: pointer;
             }
-            .save-wig-btn.perfect {
-                background: #3f8a4b;
-                border-color: #3f8a4b;
-            }
             /* The save-as-new escape hatch. A real button, not an
                underlined link: it is one of the two things you can do
                here, and the footer is where doing things lives. It
@@ -941,15 +950,20 @@ export class IrSaveWigDialog extends LitElement {
                takes the same oxblood wash on hover that every other
                button in the house does -- a control with no mouse-over
                reads as decoration. */
+            /* The toggle takes the same green, but stays OUTLINE.
+               Two green fills side by side would put the mode switch
+               and the commit in the same visual weight, which is the
+               confusion this whole pass is unpicking. Same hue, less
+               weight. */
             .as-new-btn:hover:not(:disabled) {
-                border-color: #8e3b3b;
-                color: #fff;
-                background: rgba(142, 59, 59, 0.22);
+                border-color: #4f9e5a;
+                color: #6cbf78;
+                background: rgba(79, 158, 90, 0.12);
             }
-            .action-btn.on {
-                border-color: #8e3b3b;
-                color: #fff;
-                background: rgba(142, 59, 59, 0.35);
+            .as-new-btn.on {
+                border-color: #4f9e5a;
+                color: #6cbf78;
+                background: rgba(79, 158, 90, 0.16);
             }
             /* Why the primary is gray, said out loud. A title tooltip
                was invisible here, because browsers do not show tooltips

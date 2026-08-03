@@ -535,6 +535,7 @@
     "wigs.save.save_perfect": "パーフェクトフィットを保存",
     "wigs.save.save_fitted": "フィット済みウィッグを保存",
     "wigs.save.save_as_new": "新しいウィッグとして保存",
+    "wigs.save.back_to_saved": "保存済みウィッグに戻る",
     "wigs.save.new_confirm_heading": "新しいウィッグとして保存しますか?",
     "wigs.save.new_confirm_body": "これはまったく新しいウィッグとして保存されます。元になったフィット済みウィッグ {name} は更新されません。",
     "wigs.save.new_confirm_yes": "新規として保存",

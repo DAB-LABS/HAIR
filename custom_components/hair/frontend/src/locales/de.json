@@ -535,6 +535,7 @@
     "wigs.save.save_perfect": "Perfekte Passform speichern",
     "wigs.save.save_fitted": "Angepasste Wig speichern",
     "wigs.save.save_as_new": "Als neue Wig speichern",
+    "wigs.save.back_to_saved": "Zurueck zur gespeicherten Wig",
     "wigs.save.new_confirm_heading": "Als neue Wig speichern?",
     "wigs.save.new_confirm_body": "Du speicherst das als voellig neue Wig. Du aktualisierst nicht {name}, die angepasste Wig, aus der es stammt.",
     "wigs.save.new_confirm_yes": "Als neu speichern",

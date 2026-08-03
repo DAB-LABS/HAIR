@@ -535,6 +535,7 @@
     "wigs.save.save_perfect": "Enregistrer l'ajustement parfait",
     "wigs.save.save_fitted": "Enregistrer le wig ajuste",
     "wigs.save.save_as_new": "Enregistrer comme nouveau wig",
+    "wigs.save.back_to_saved": "Revenir au wig enregistre",
     "wigs.save.new_confirm_heading": "Enregistrer comme nouveau wig ?",
     "wigs.save.new_confirm_body": "Vous enregistrez ceci comme un wig entierement nouveau. Vous ne mettez pas a jour {name}, le wig ajuste dont il provient.",
     "wigs.save.new_confirm_yes": "Enregistrer comme nouveau",

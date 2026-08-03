@@ -553,6 +553,7 @@
     "wigs.save.save_perfect": "Zapisz idealne dopasowanie",
     "wigs.save.save_fitted": "Zapisz dopasowany wig",
     "wigs.save.save_as_new": "Zapisz jako nowy wig",
+    "wigs.save.back_to_saved": "Wroc do zapisanego wiga",
     "wigs.save.new_confirm_heading": "Zapisac jako nowy wig?",
     "wigs.save.new_confirm_body": "Zapisujesz to jako calkiem nowy wig. Nie aktualizujesz {name}, dopasowanego wiga, z ktorego to pochodzi.",
     "wigs.save.new_confirm_yes": "Zapisz jako nowy",
