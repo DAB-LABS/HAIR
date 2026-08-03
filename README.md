@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/HAIR-readme-hero-v0.2.png" alt="HAIR Full Service barbershop banner with the TX mascot welcoming the new RX mascot at the shop entrance, RX IS HERE speech bubble overhead" width="900" />
+  <img src="https://raw.githubusercontent.com/DAB-LABS/HAIR/main/images/HAIR-readme-hero-v0.2.png" alt="HAIR Full Service barbershop banner with the TX mascot welcoming the new RX mascot at the shop entrance, RX IS HERE speech bubble overhead" width="900" />
 </p>
 
 <p align="center">
@@ -22,6 +22,40 @@ No vendor cloud, no code-file downloads, no YAML -- just point, press, use. Pref
 
 > [!IMPORTANT]
 > **HAIR speaks ten languages, and eight of them need your help.** Spanish got its native-speaker review (thanks @Waterbrain). The French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian translations were drafted by a programming assistant and are marked "reviewer wanted" inside each dictionary file. If you use Home Assistant in one of these languages, a native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. A language we don't have yet is a two-file PR. Start here: [Adding a language](CONTRIBUTING.md#adding-a-language).
+
+## Requirements
+
+- Home Assistant **2026.4** or later
+- Python 3.12+
+- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, SMLIGHT Ultima receivers work natively since HA 2026.7, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Setup](#esphome-setup) for the YAML stub).
+- **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, SMLIGHT SLZB devices, etc.)
+
+## Installation
+
+### HACS (Recommended)
+
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
+Click the button above, then **Download**, then restart Home Assistant.
+
+Or find it by hand:
+
+1. Open **HACS** in your Home Assistant sidebar
+2. Search for **HAIR**
+3. Click it, then **Download**
+4. Restart Home Assistant
+
+### Manual
+
+1. Copy `custom_components/hair` into your HA `custom_components/` directory
+2. Restart Home Assistant
+
+## Setup
+
+1. Go to **Settings > Devices & Services**
+2. Click **Add Integration** and search for "HAIR"
+3. The config flow auto-detects your IR hardware (emitters and receivers)
+4. Once added, find **HAIR** in the sidebar
 
 ## Platform state
 
@@ -82,41 +116,7 @@ Same device as the Device Detail shot above, but after a profile-language change
 |:---:|:---:|:---:|
 | ![Assign dialog for mapping a captured signal to a device command](images/screenshots/assign-dialog.png) | ![Create Trigger dialog with S/L diamond pattern and min hits setting](images/screenshots/trigger-dialog.png) | ![Promote dialog for creating a new HAIR device from an unknown remote](images/screenshots/promote-dialog.png) |
 
-## Requirements
-
-- Home Assistant **2026.4** or later
-- Python 3.12+
-- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, SMLIGHT Ultima receivers work natively since HA 2026.7, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Setup](#esphome-setup) for the YAML stub).
-- **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, SMLIGHT SLZB devices, etc.)
-
-## Installation
-
-### HACS (Recommended)
-
-[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
-
-Click the button above, then **Download**, then restart Home Assistant.
-
-Or find it by hand:
-
-1. Open **HACS** in your Home Assistant sidebar
-2. Search for **HAIR**
-3. Click it, then **Download**
-4. Restart Home Assistant
-
-### Manual
-
-1. Copy `custom_components/hair` into your HA `custom_components/` directory
-2. Restart Home Assistant
-
-## Setup
-
-1. Go to **Settings > Devices & Services**
-2. Click **Add Integration** and search for "HAIR"
-3. The config flow auto-detects your IR hardware (emitters and receivers)
-4. Once added, find **HAIR** in the sidebar
-
-### ESPHome Setup
+## ESPHome Setup
 
 If your ESPHome device already has `remote_transmitter` and `remote_receiver` blocks, one addition registers them both on HA's native `infrared` platform, and HAIR discovers them automatically:
 

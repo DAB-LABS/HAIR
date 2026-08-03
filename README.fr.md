@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/HAIR-readme-hero-v0.2.png" alt="Bannière HAIR" width="900" />
+  <img src="https://raw.githubusercontent.com/DAB-LABS/HAIR/main/images/HAIR-readme-hero-v0.2.png" alt="Bannière HAIR" width="900" />
 </p>
 
 # HAIR
@@ -7,6 +7,15 @@
 **HAIR sort vos codes IR des clouds des fabricants, de la mémoire des blasters et des fichiers de configuration, pour les faire entrer dans Home Assistant.**
 
 Pointez n'importe quelle télécommande vers un récepteur IR, appuyez sur un bouton, et HAIR transforme ce signal en quelque chose que Home Assistant sait vraiment utiliser : un bouton sur n'importe quel tableau de bord, un déclencheur pour vos automatisations, une commande à envoyer par n'importe quel blaster de la plateforme infrarouge native de HA. Pas de YAML, pas d'applications de fabricants, pas de fichiers de codes à télécharger.
+
+## Installation
+
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
+1. Ouvrez HACS et recherchez HAIR
+2. Installez HAIR, redémarrez Home Assistant, puis ajoutez l'intégration dans Paramètres, puis Appareils et services
+
+Nécessite Home Assistant 2026.4 ou plus récent ; 2026.6+ recommandé pour les récepteurs IR natifs.
 
 ## Cinq façons de faire entrer vos codes
 
@@ -28,15 +37,6 @@ Le panneau parle votre langue. Anglais, espagnol, français, japonais, allemand,
 
 > [!IMPORTANT]
 > Cette traduction du panneau HAIR a été rédigée par un assistant de programmation et attend la relecture d'un locuteur natif. Si cela pouvait être vous, une relecture tient dans une seule pull request et votre nom entre dans le fichier. Commencez ici : [Adding a language](CONTRIBUTING.md#adding-a-language).
-
-## Installation
-
-[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
-
-1. Ouvrez HACS et recherchez HAIR
-2. Installez HAIR, redémarrez Home Assistant, puis ajoutez l'intégration dans Paramètres, puis Appareils et services
-
-Nécessite Home Assistant 2026.4 ou plus récent ; 2026.6+ recommandé pour les récepteurs IR natifs.
 
 ## Documentation complète
 
