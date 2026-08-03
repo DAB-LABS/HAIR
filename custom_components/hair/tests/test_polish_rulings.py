@@ -527,3 +527,99 @@ class TestTheLedgerClearsTheTopLayer:
         """Two bordered objects butted together read as one control."""
         text = _read("ir-save-wig-dialog.ts")
         assert ".fit-head + .fit-list" in text
+
+
+class TestClosingTheLedgerKeepsTheSaveDialog:
+    """One event name, two owners, one level apart.
+
+    The device page mounts <ir-save-wig-dialog @closed=...> and unmounts
+    it on that event. The save dialog mounts <ir-claims-ledger
+    @closed=...> and does the same. A COMPOSED event crosses shadow
+    boundaries, so closing the ledger reached the device page as well
+    and took the half-filled save form down with it (bench 2026-08-03).
+    """
+
+    def test_the_ledger_close_does_not_escape_its_shadow_root(self):
+        text = _read("ir-claims-ledger.ts")
+        assert 'new CustomEvent("closed", { bubbles: true, composed: false })' in (
+            " ".join(text.split())
+        )
+
+    def test_both_owners_still_listen_for_the_same_name(self):
+        """If either handler is ever renamed, the pairing this test
+        protects stops existing and the assertion should be revisited
+        rather than deleted."""
+        assert "@closed=" in _read("ir-save-wig-dialog.ts")
+        assert "@closed=" in _read("ir-device-detail.ts")
+
+
+class TestTheLedgerRowIsABox:
+    """The alias and its verdict came apart on the bench.
+
+    The row list was a three-column grid and each row rendered two
+    cells, because the third column existed for the orphan note that
+    most rows do not have. Every row therefore started one column
+    further along than the last. A row that owns its own children
+    cannot drift however many of them it has.
+    """
+
+    def test_the_row_is_no_longer_loose_cells(self):
+        text = _read("ir-claims-ledger.ts")
+        rows = text.split(".rows {", 1)[1]
+        assert "display: contents" not in rows
+        assert "grid-template-columns: 1fr 1fr" in rows
+
+    def test_the_row_carries_a_leader_to_its_verdict(self):
+        """A short alias and a long verdict with a hole between them
+        read as two unrelated words."""
+        text = _read("ir-claims-ledger.ts")
+        assert 'class="leader"' in text
+        assert ".leader {" in text
+
+    def test_it_falls_to_one_column_when_narrow(self):
+        text = _read("ir-claims-ledger.ts")
+        assert "max-width: 560px" in text
+
+
+class TestEveryFittingIsADisclosure:
+    """A wig that travels collects fittings, and four people at twelve
+    rows each is a wall. The closed head keeps who, signature, tier and
+    counts, which is everything anybody scans a ledger for; opening it
+    is what buys the row by row detail.
+    """
+
+    def test_the_head_is_a_button_not_a_div(self):
+        """A chevron alone is a 15px target beside 500px of dead text
+        that looks just as pressable."""
+        text = _read("ir-claims-ledger.ts")
+        assert 'class="ehead"' in text
+        assert "aria-expanded=" in text
+
+    def test_a_lone_fitting_opens_itself(self):
+        """One collapsed row is a chevron hiding the whole dialog."""
+        text = " ".join(_read("ir-claims-ledger.ts").split())
+        assert "if (entries.length === 1) return new Set([0]);" in text
+
+    def test_your_own_fitting_is_the_one_that_opens(self):
+        text = " ".join(_read("ir-claims-ledger.ts").split())
+        assert "entries.findIndex((e) => e.mine)" in text
+
+    def test_opening_one_does_not_shut_another(self):
+        """Free rather than accordion: the question people bring here is
+        who disagreed with whom about which row, and that needs two
+        entries on screen at once."""
+        text = " ".join(_read("ir-claims-ledger.ts").split())
+        assert "_flip(this._open, index)" in text
+
+    def test_the_row_cap_rose_with_the_pairing(self):
+        """Two rows per line, so 24 is twelve lines. It was 6 when the
+        rows ran one per line."""
+        text = _read("ir-claims-ledger.ts")
+        assert "const PREVIEW_ROWS = 24;" in text
+
+    def test_show_all_uses_the_plural_helper(self):
+        """claims.show_all only exists as .one and .other, so the plain
+        t() call it used to make could never resolve."""
+        text = _read("ir-claims-ledger.ts")
+        assert 'tp("claims.show_all"' in text
+        assert 't("claims.show_all"' not in text

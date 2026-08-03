@@ -30,9 +30,16 @@ import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { ClaimBundle, ClaimsLedger, WigInfo } from "./types.js";
 
-/** Rows shown inside an entry before Show all. Enough to see the shape
- * of what was claimed without a 74-row wall from a matrix checklist. */
-const PREVIEW_ROWS = 6;
+/** Rows shown inside an open entry before Show all. Two rows sit per
+ * line now, so 24 is twelve lines: a whole flat wig fits without the
+ * cap ever biting, and a 74-row matrix checklist still cannot wall you
+ * in. It was 6 when the rows ran one per line. */
+const PREVIEW_ROWS = 24;
+
+/** The same right-pointing mdi chevron ir-assigned-popover uses, so the
+ * panel keeps one glyph for "there is more behind this". It rotates a
+ * quarter turn when the entry is open. */
+const ICON_CHEVRON = "M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z";
 
 @customElement("ir-claims-ledger")
 export class IrClaimsLedger extends LitElement {
@@ -41,7 +48,10 @@ export class IrClaimsLedger extends LitElement {
 
     @state() private _ledger: ClaimsLedger | null = null;
     @state() private _error: string | null = null;
-    @state() private _expanded = new Set<number>();
+    /** Which entries are disclosed. */
+    @state() private _open = new Set<number>();
+    /** Which disclosed entries have had their row cap lifted. */
+    @state() private _showAll = new Set<number>();
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -55,9 +65,29 @@ export class IrClaimsLedger extends LitElement {
         this._error = null;
         try {
             this._ledger = await this.api.wigsClaims(this.wig.filename);
+            this._open = this._openByDefault(this._ledger);
         } catch (err: any) {
             this._error = err?.message ?? String(err);
         }
+    }
+
+    /**
+     * A single entry always opens, because one collapsed row is a
+     * chevron hiding the entire dialog. Past that, yours opens and
+     * everybody else's stays shut: a wig that has travelled collects
+     * fittings, and four people at twelve rows each is the wall this
+     * disclosure exists to prevent.
+     *
+     * Free rather than accordion, deliberately. Opening a second entry
+     * does not shut the first, because the question people bring here
+     * is usually "who disagreed with whom about which row", and that
+     * needs two entries on screen at once.
+     */
+    private _openByDefault(ledger: ClaimsLedger): Set<number> {
+        const entries = ledger.entries;
+        if (entries.length === 1) return new Set([0]);
+        const mine = entries.findIndex((e) => e.mine);
+        return mine < 0 ? new Set<number>() : new Set([mine]);
     }
 
     /**
@@ -85,18 +115,41 @@ export class IrClaimsLedger extends LitElement {
         return this.renderRoot.querySelector("dialog");
     }
 
+    /**
+     * NOT composed, and that is the whole point.
+     *
+     * The save dialog is mounted by the device page as
+     * <ir-save-wig-dialog @closed=...>, which unmounts it. The ledger
+     * is mounted by the save dialog as <ir-claims-ledger @closed=...>,
+     * which does the same one level down. Same event name, two owners.
+     *
+     * A composed event crosses shadow boundaries, so closing the ledger
+     * also reached the device page and took the save dialog down with
+     * it: you lost the form you were filling in and had to start again
+     * (bench 2026-08-03). Non-composed stops at the shadow root it was
+     * dispatched into, which is the save dialog's, where the handler
+     * that actually owns this element is listening.
+     */
     private _close(): void {
         this._native()?.close();
         this.dispatchEvent(
-            new CustomEvent("closed", { bubbles: true, composed: true }),
+            new CustomEvent("closed", { bubbles: true, composed: false }),
         );
     }
 
-    private _toggle(index: number): void {
-        const next = new Set(this._expanded);
+    private static _flip(set: Set<number>, index: number): Set<number> {
+        const next = new Set(set);
         if (next.has(index)) next.delete(index);
         else next.add(index);
-        this._expanded = next;
+        return next;
+    }
+
+    private _toggleEntry(index: number): void {
+        this._open = IrClaimsLedger._flip(this._open, index);
+    }
+
+    private _toggleRows(index: number): void {
+        this._showAll = IrClaimsLedger._flip(this._showAll, index);
     }
 
     render() {
@@ -169,72 +222,114 @@ export class IrClaimsLedger extends LitElement {
         </div>`;
     }
 
+    /**
+     * One entry, as a disclosure.
+     *
+     * The closed head still carries everything anybody scans a ledger
+     * for: who, whether they signed, what tier, and how much. Opening
+     * it is what buys you the row by row detail, and that is the part
+     * that does not scale past one person.
+     */
     private _renderEntry(entry: ClaimBundle, index: number) {
-        const open = this._expanded.has(index);
-        const shown = open ? entry.rows : entry.rows.slice(0, PREVIEW_ROWS);
+        const open = this._open.has(index);
+        return html`
+            <div class="entry ${entry.mine ? "mine" : ""} ${open ? "open" : ""}">
+                <button
+                    class="ehead"
+                    aria-expanded=${open ? "true" : "false"}
+                    @click=${() => this._toggleEntry(index)}
+                >
+                    <span class="l1">
+                        <span class="handle"
+                            >${entry.handle ?? t("claims.anonymous")}</span
+                        >
+                        ${entry.github
+                            ? html`<span class="gh"
+                                  >@${entry.github.replace(/^@/, "")}</span
+                              >`
+                            : nothing}
+                        ${this._renderSignature(entry)}
+                        <span class="spacer"></span>
+                        <span class="date">${entry.date ?? ""}</span>
+                        <ha-svg-icon
+                            class="chev"
+                            .path=${ICON_CHEVRON}
+                        ></ha-svg-icon>
+                    </span>
+                    <span class="l2">
+                        <span
+                            class="tier ${entry.complete ? "perfect" : "scoped"}"
+                            >${entry.complete
+                                ? t("claims.tier_perfect")
+                                : t("claims.tier_scoped")}</span
+                        >
+                        <span class="counts">${this._counts(entry)}</span>
+                    </span>
+                </button>
+                ${open ? this._renderEntryBody(entry, index) : nothing}
+            </div>
+        `;
+    }
+
+    private _renderEntryBody(entry: ClaimBundle, index: number) {
+        const all = this._showAll.has(index);
+        const shown = all ? entry.rows : entry.rows.slice(0, PREVIEW_ROWS);
         const hidden = entry.rows.length - shown.length;
         return html`
-            <div class="entry ${entry.mine ? "mine" : ""}">
-                <div class="ehead">
-                    <span class="handle"
-                        >${entry.handle ?? t("claims.anonymous")}</span
-                    >
-                    ${entry.github
-                        ? html`<span class="gh"
-                              >@${entry.github.replace(/^@/, "")}</span
-                          >`
-                        : nothing}
-                    ${this._renderSignature(entry)}
-                    <span class="spacer"></span>
-                    <span class="date">${entry.date ?? ""}</span>
-                </div>
-                <div class="everdict">
-                    <span class="tier ${entry.complete ? "perfect" : "scoped"}"
-                        >${entry.complete
-                            ? t("claims.tier_perfect")
-                            : t("claims.tier_scoped")}</span
-                    >
-                    <span class="counts">${this._counts(entry)}</span>
-                </div>
+            <div class="ebody">
                 ${this._renderLattice(entry)}
                 ${entry.note
                     ? html`<div class="note">&ldquo;${entry.note}&rdquo;</div>`
                     : nothing}
                 <div class="rows">
-                    ${shown.map(
-                        (row) => html`
-                            <div
-                                class="row ${row.present ? "" : "orphaned"}"
-                                title=${row.digest}
-                            >
-                                <span class="alias">${row.alias}</span>
-                                <span class="verdict v-${row.verdict}"
-                                    >${t(`claims.verdict.${row.verdict}`)}</span
-                                >
-                                ${row.present
-                                    ? nothing
-                                    : html`<span class="orphan-note"
-                                          >${t("claims.orphaned")}</span
-                                      >`}
-                            </div>
-                        `,
-                    )}
-                    ${hidden > 0
-                        ? html`<div class="more">
-                              <button @click=${() => this._toggle(index)}>
-                                  ${t("claims.show_all", {
-                                      count: String(hidden),
-                                  })}
-                              </button>
-                          </div>`
-                        : open && entry.rows.length > PREVIEW_ROWS
-                          ? html`<div class="more">
-                                <button @click=${() => this._toggle(index)}>
-                                    ${t("claims.show_fewer")}
-                                </button>
-                            </div>`
-                          : nothing}
+                    ${shown.map((row) => this._renderRow(row))}
                 </div>
+                ${hidden > 0
+                    ? html`<div class="more">
+                          <button @click=${() => this._toggleRows(index)}>
+                              ${tp("claims.show_all", hidden)}
+                          </button>
+                      </div>`
+                    : all && entry.rows.length > PREVIEW_ROWS
+                      ? html`<div class="more">
+                            <button @click=${() => this._toggleRows(index)}>
+                                ${t("claims.show_fewer")}
+                            </button>
+                        </div>`
+                      : nothing}
+            </div>
+        `;
+    }
+
+    /**
+     * THE ROW IS A BOX, and it has to be.
+     *
+     * This used to be `display: contents` spilling two loose cells into
+     * a three column grid whose third column existed for the orphan
+     * note that most rows do not have. Every row therefore shifted one
+     * column further along than the last, and by row two the alias and
+     * its verdict were on different lines in different columns (bench
+     * 2026-08-03). A row that owns its own children cannot come apart
+     * however many of them it has.
+     *
+     * The leader is what carries the eye across the gap to the verdict.
+     */
+    private _renderRow(row: ClaimBundle["rows"][number]) {
+        return html`
+            <div
+                class="row ${row.present ? "" : "orphaned"}"
+                title=${row.digest}
+            >
+                <span class="alias">${row.alias}</span>
+                <span class="leader"></span>
+                <span class="verdict v-${row.verdict}"
+                    >${t(`claims.verdict.${row.verdict}`)}</span
+                >
+                ${row.present
+                    ? nothing
+                    : html`<span class="orphan-note"
+                          >${t("claims.orphaned")}</span
+                      >`}
             </div>
         `;
     }
@@ -314,8 +409,8 @@ export class IrClaimsLedger extends LitElement {
             .entry {
                 border: 1px solid var(--divider-color);
                 border-radius: 8px;
-                padding: 10px 12px;
                 margin-bottom: 10px;
+                overflow: hidden;
             }
             /* Your own attestation, marked but not promoted: it sorts in
                file order like everybody else's, because the ledger is a
@@ -323,10 +418,50 @@ export class IrClaimsLedger extends LitElement {
             .entry.mine {
                 border-color: rgba(100, 181, 246, 0.35);
             }
+            /* The whole head is the control. A chevron alone is a 15px
+               target sitting beside 500px of dead text that looks just
+               as pressable. */
             .ehead {
+                display: block;
+                width: 100%;
+                padding: 10px 12px;
+                text-align: left;
+                background: transparent;
+                border: 0;
+                font-family: inherit;
+                color: inherit;
+                cursor: pointer;
+            }
+            .ehead:hover {
+                background: rgba(255, 255, 255, 0.03);
+            }
+            .l1 {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .chev {
+                --mdc-icon-size: 15px;
+                flex: none;
+                color: #64b5f6;
+                transition: transform 160ms ease;
+            }
+            .entry.open .chev {
+                transform: rotate(90deg);
+            }
+            /* Indented past the chevron's column so the two head lines
+               align on the left and nothing sits under the arrow. */
+            .l2 {
                 display: flex;
                 align-items: baseline;
-                gap: 8px;
+                gap: 9px;
+                margin-top: 3px;
+                padding-right: 23px;
+            }
+            .ebody {
+                border-top: 1px solid var(--divider-color);
+                background: rgba(255, 255, 255, 0.018);
+                padding: 10px 12px;
             }
             .handle {
                 font-size: 13px;
@@ -359,12 +494,6 @@ export class IrClaimsLedger extends LitElement {
                 color: #ff5252;
                 border-color: rgba(255, 82, 82, 0.4);
             }
-            .everdict {
-                display: flex;
-                align-items: baseline;
-                gap: 9px;
-                margin-top: 6px;
-            }
             .tier {
                 font-size: 11.5px;
                 font-weight: 600;
@@ -380,9 +509,11 @@ export class IrClaimsLedger extends LitElement {
                 color: var(--secondary-text-color);
                 font-variant-numeric: tabular-nums;
             }
+            /* Both sit above the rows inside an open entry, so the gap
+               they own is below them, not above. */
             .lattice-moved,
             .note {
-                margin-top: 7px;
+                margin: 0 0 9px;
                 font-size: 11.5px;
                 line-height: 1.5;
                 color: var(--secondary-text-color);
@@ -393,21 +524,32 @@ export class IrClaimsLedger extends LitElement {
             .note {
                 font-style: italic;
             }
+            /* Two rows per line. The grid holds the LINES; each row is
+               its own flex box that owns its alias, leader, verdict and
+               orphan note, so a row with a note cannot push the next
+               row's verdict into the wrong column. That is exactly what
+               the old display:contents did. */
             .rows {
-                margin-top: 9px;
-                padding-top: 8px;
-                border-top: 1px solid var(--divider-color);
                 display: grid;
-                grid-template-columns: max-content max-content minmax(0, 1fr);
-                gap: 3px 14px;
-                max-height: 260px;
+                grid-template-columns: 1fr 1fr;
+                gap: 2px 22px;
+                max-height: 280px;
                 overflow-y: auto;
                 align-content: start;
             }
-            .row {
-                display: contents;
+            /* One column when the panel is too narrow to keep an alias
+               and its verdict on the same line twice over. */
+            @media (max-width: 560px) {
+                .rows {
+                    grid-template-columns: 1fr;
+                }
             }
-            .row > * {
+            .row {
+                display: flex;
+                align-items: baseline;
+                gap: 8px;
+                min-width: 0;
+                padding: 2px 0;
                 font-size: 11.5px;
                 line-height: 1.6;
             }
@@ -416,8 +558,18 @@ export class IrClaimsLedger extends LitElement {
                 font-size: 11px;
                 word-break: break-word;
             }
+            /* The leader is what carries the eye across the gap. Without
+               it a short alias and a long verdict read as two unrelated
+               words with a hole between them. */
+            .leader {
+                flex: 1;
+                min-width: 10px;
+                border-bottom: 1px dotted rgba(127, 127, 127, 0.35);
+                transform: translateY(-3px);
+            }
             .verdict {
                 color: var(--secondary-text-color);
+                white-space: nowrap;
             }
             .verdict.v-worked {
                 color: #66bb6a;
@@ -431,10 +583,11 @@ export class IrClaimsLedger extends LitElement {
             }
             .orphan-note {
                 color: #ffc107;
+                font-size: 10px;
+                white-space: nowrap;
             }
             .more {
-                grid-column: 1 / -1;
-                padding-top: 4px;
+                padding-top: 7px;
             }
             .more button {
                 background: none;
