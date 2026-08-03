@@ -628,8 +628,6 @@ def apply_lattice(wig: Wig, device_matrix: Any, changes: list) -> int:
     """
     if wig.climate is None or device_matrix is None or not changes:
         return 0
-    from .wig_fitting import PROVENANCE_KEY, _merge_provenance
-
     device_by_coord = {_coord_key(c): c for c in device_matrix.cells}
     touched = 0
     drop: set[tuple] = set()
@@ -649,14 +647,13 @@ def apply_lattice(wig: Wig, device_matrix: Any, changes: list) -> int:
             continue
         for cell in wig.climate.cells:
             if _coord_key(cell) == coord:
+                # The bytes, and nothing else. A provenance marker used
+                # to ride along here recording that this cell had been
+                # replaced; it retired 2026-08-03 because nothing read
+                # it. The propose-change PR diff shows the repair, and
+                # the re-comb below judges the result on its bytes --
+                # both of which say more than a stamp ever did.
                 cell.pronto = source.pronto
-                # Outside every canonical form, like every other
-                # provenance marker: recording where bytes came from
-                # must never move a wig's identity.
-                cell.extra[PROVENANCE_KEY] = _merge_provenance(
-                    cell.extra.get(PROVENANCE_KEY),
-                    {"replaced": True, "date": _now_date()},
-                )
                 touched += 1
                 break
         else:

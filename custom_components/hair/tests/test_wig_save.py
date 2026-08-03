@@ -526,8 +526,16 @@ class TestLatticeDivergence:
         changes = lattice_diff(device, self._wig_matrix())
         assert [(c.kind, c.label) for c in changes] == [("deleted", "Cool 24")]
 
-    def test_propose_writes_the_repair_and_marks_it(self):
-        from custom_components.hair.wig_fitting import PROVENANCE_KEY
+    def test_propose_writes_the_repair(self):
+        """The bytes move, and nothing rides along with them.
+
+        This used to assert a provenance marker was stamped beside the
+        repair. The markers retired 2026-08-03 because nothing rendered
+        them: the propose-change diff shows the repair and the re-comb
+        judges the result on its bytes. The ABSENCE is now the contract,
+        so it is asserted rather than merely no longer checked -- a
+        stamp creeping back would be unread freight in a signed file.
+        """
         from custom_components.hair.wig_save import apply_lattice, lattice_diff
 
         device = self._wig_matrix()
@@ -536,7 +544,7 @@ class TestLatticeDivergence:
         changes = lattice_diff(device, wig.climate)
         assert apply_lattice(wig, device, changes) == 1
         assert wig.climate.cells[0].pronto == PRONTO_C
-        assert wig.climate.cells[0].extra[PROVENANCE_KEY]["replaced"] is True
+        assert "provenance" not in wig.climate.cells[0].extra
 
     def test_propose_moves_only_what_was_proposed(self):
         """Copying the device's whole lattice over the wig's would carry

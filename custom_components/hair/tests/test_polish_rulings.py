@@ -301,3 +301,83 @@ class TestClosetRowsLineUp:
         row = text.split("_renderRow(row: ClosetRow)", 1)[1]
         row = row.split("_renderEditor", 1)[0]
         assert row.count('<span class="glyph-slot">') == 3
+
+
+class TestTheRawPinFollowsTheBytes:
+    """RULED 2026-08-03, one of the two questions v0.9.5 parked.
+
+    A pin is a claim a SPECIFIC capture earned -- "these bytes break
+    when re-encoded". New bytes have not earned it, so replacing a
+    command's code clears the pin and the chip re-derives from the live
+    decode. The person re-pins deliberately.
+
+    The old ruling (2026-08-01) said REPLACE STARTS FRESH for the same
+    reason, inside the fitting dialog, where bytes and the decision
+    about them were written in one hash roll. That dialog is gone and
+    the hazard it named went with it -- per-row digests carry the
+    binding now -- but the reasoning survived the machinery.
+    """
+
+    def test_the_reset_is_keyed_on_the_code_differing(self):
+        """Not on the input event firing. Typing a character and
+        deleting it again must leave the pin alone, or an undo destroys
+        a setting nobody meant to touch."""
+        text = _read("ir-signal-editor.ts")
+        body = text.split("private _syncPinToPronto()", 1)[1]
+        body = body.split("\n    private ", 1)[0]
+        assert "this.initialPronto.trim()" in body
+        assert "this.initialTxForceRaw" in body
+
+    def test_both_real_change_paths_call_it(self):
+        """Paste and Listen. A path that changes the code without
+        syncing leaves a pin attached to bytes that never earned it."""
+        text = _read("ir-signal-editor.ts")
+        for fn in ("_onProntoInput", "_onCaptured"):
+            body = text.split(f"private {fn}", 1)[1]
+            body = body.split("\n    private ", 1)[0]
+            assert "_syncPinToPronto()" in body, fn
+
+    def test_the_carrier_snap_does_not_clear_it(self):
+        """Snapping re-times the SAME waveform to a standard frequency.
+        It is a normalisation of the capture that earned the pin, not a
+        replacement for it."""
+        text = _read("ir-signal-editor.ts")
+        body = text.split("private async _snap(", 1)[1]
+        body = body.split("\n    private ", 1)[0]
+        assert "_syncPinToPronto()" not in body
+
+
+class TestProvenanceMarkersAreGone:
+    """RULED 2026-08-03, the second parked question.
+
+    ``captured`` / ``pasted`` / ``tuned`` recorded how a row's bytes got
+    there. That was load-bearing exactly once: a marker implied a hash
+    roll, which was how a Changed Codes row could count toward
+    completeness. Per-row digests carry that binding directly now, the
+    device is the only place codes change hands, and nothing has
+    rendered a marker since the fitting dialog's chips went.
+
+    Asserted by NAME rather than by behaviour because the constants no
+    longer exist: a reintroduction would be unread freight written into
+    a file somebody signs.
+    """
+
+    @pytest.mark.parametrize("module", ["wig_save.py", "wig_fitting.py"])
+    def test_no_backend_module_writes_a_marker(self, module):
+        text = (Path(__file__).parent.parent / module).read_text(
+            encoding="utf-8"
+        )
+        # The docstring in wig_fitting explains the retirement, so the
+        # check is for the CONSTANT, not the English word.
+        assert "PROVENANCE_KEY" not in text
+        assert "PROVENANCE_POWER_KEY" not in text
+
+    def test_the_dead_writer_went_with_them(self):
+        """``_write_row_code`` had no callers left at all: its flat
+        replace caller died with the fitting dialog and nothing
+        replaced it."""
+        text = (
+            Path(__file__).parent.parent / "wig_fitting.py"
+        ).read_text(encoding="utf-8")
+        assert "_write_row_code" not in text.split('"""', 2)[2]
+        assert "_merge_provenance" not in text.split('"""', 2)[2]

@@ -232,8 +232,37 @@ export class IrSignalEditor extends LitElement {
         this._ditto = Number.isNaN(raw) ? 0 : Math.max(0, Math.min(raw, 20));
     }
 
+    /**
+     * The raw pin follows the bytes (RULED 2026-08-03).
+     *
+     * A pin is a claim a SPECIFIC capture earned: "these bytes break
+     * when re-encoded". New bytes have not earned it, so replacing a
+     * code clears it and the chip re-derives from the live decode --
+     * the protocol name, or RAW only when nothing decodes. The person
+     * re-pins by clicking the chip, deliberately, which is the only way
+     * a pin was ever meant to exist.
+     *
+     * Keyed on the code actually DIFFERING from what was opened, not on
+     * the input event firing. Typing a character and deleting it again
+     * leaves the pin exactly where it was; so does pasting back the
+     * same code. Anything less precise would make an undo destroy a
+     * setting the person never meant to touch.
+     *
+     * Deliberately NOT called from the carrier snap: snapping re-times
+     * the same waveform to a standard frequency. It is a normalisation
+     * of the capture that earned the pin, not a replacement for it.
+     */
+    private _syncPinToPronto(): void {
+        if (!this._isCommand) return;
+        this._bypass =
+            this._pronto.trim() === this.initialPronto.trim()
+                ? this.initialTxForceRaw
+                : false;
+    }
+
     private _onProntoInput(e: Event): void {
         this._pronto = (e.target as HTMLTextAreaElement).value;
+        this._syncPinToPronto();
         // Hand-edited text is no longer the capture the status line
         // described.
         this._captured = null;
@@ -421,6 +450,7 @@ export class IrSignalEditor extends LitElement {
         receiver: string | null;
     }): void {
         this._pronto = event.pronto;
+        this._syncPinToPronto();
         this._captured = {
             decoded: event.decoded,
             protocol: event.protocol,

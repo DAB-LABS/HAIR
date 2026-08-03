@@ -7,8 +7,7 @@ roll -- went with the dialog it served. Attestation is a signed bundle
 of per-row claims now, written once at SAVE TO CLOSET (wig_save.py),
 and there is nothing to keep between visits.
 
-What survives is everything that was never about the session, plus the
-two readers that replaced it:
+What is left is three readers and two constants:
 
 - ``claims_summary``: the closet row's three-tier check, DERIVED from
   the claims on the file every time it is asked. Nothing is stored.
@@ -17,11 +16,18 @@ two readers that replaced it:
   went with the session.
 - ``bundle_is_complete``: the one judgment both of the above ask, kept
   in one place so the check and the ledger cannot disagree.
-- ``_merge_provenance`` and the provenance keys: content edits record
-  where a row's bytes came from, and that is wig bookkeeping regardless
-  of who is attesting what.
-- ``_write_row_code``: the one writer that changes a row's bytes in a
-  wig, used by the propose-change path.
+
+The provenance machinery went too (RULED 2026-08-03). ``captured`` /
+``pasted`` / ``tuned`` markers recorded how a row's bytes got there, and
+for a while that mattered: a marker implied a hash roll, which was how a
+Changed Codes row could count toward completeness. Per-row digests carry
+that binding directly now, the device is the only place codes change
+hands, and nothing in the UI had rendered a marker since the fitting
+dialog's chips went. Unrendered freight is not bookkeeping, so
+``_merge_provenance``, ``_write_row_code`` (which had no callers left at
+all) and both provenance keys are gone. Markers already sitting in wig
+files are inert ``extra`` data: unread, unmigrated, and outside every
+canonical form, so they cannot move a wig's identity.
 """
 from __future__ import annotations
 
@@ -32,7 +38,6 @@ from typing import Any
 from .wig_format import (
     VERDICT_WORKED,
     Wig,
-    cell_key,
     cells_content_hash,
     claims_of,
     coverage,
@@ -45,8 +50,6 @@ from .wig_format import (
 __all__ = [
     "FITTINGS_KEY",
     "FITTING_HEARD_WAIT_S",
-    "PROVENANCE_KEY",
-    "PROVENANCE_POWER_KEY",
     "bundle_is_complete",
     "claims_ledger",
     "claims_summary",
@@ -56,112 +59,10 @@ __all__ = [
 _LOGGER = logging.getLogger(__name__)
 
 FITTINGS_KEY = "fittings"
-# Provenance rides in ``extra``, OUTSIDE every canonical form, so
-# recording where a row's bytes came from can never move a wig's
-# identity. That was true when a fitting bound a whole-file hash and it
-# is still true now that claims bind rows.
-PROVENANCE_KEY = "provenance"
-PROVENANCE_POWER_KEY = "provenance_power"
 
 # How long a send waits for its own Mirror echo before reporting that
 # nothing heard it. Read by the TEST button's SENT . HEARD line.
 FITTING_HEARD_WAIT_S = 2.0
-
-def _merge_provenance(
-    existing: object, incoming: dict[str, Any]
-) -> dict[str, Any]:
-    """Fold a new provenance claim into whatever the row already had.
-
-    Both claims are true and they are about different things: REPLACED
-    says the bytes changed and where they came from, TUNED says the
-    ditto count changed. Assigning wholesale, which is what both paths
-    used to do, made the second one erase the first -- so a code
-    captured off a real remote and then tuned came back reporting only
-    the tune, and (because the chip picks its label off ``replaced``)
-    described itself as pasted (owner bench 2026-08-02).
-
-    ``date`` is the LATEST claim's, since that is when the row was last
-    touched. Nothing here is hashed: provenance rides in ``extra`` and
-    the canonical form is alias, pronto, ditto_count, bypass_protocol.
-    """
-    merged: dict[str, Any] = {}
-    if isinstance(existing, dict):
-        merged.update(existing)
-    merged.update(incoming)
-    return merged
-
-def _write_row_code(
-    wig: Wig, key: str, pronto: str, marker: dict[str, Any] | None,
-    bypass_protocol: bool | None = None,
-) -> bool:
-    """Put ``pronto`` on the row ``key`` names and stamp its provenance.
-
-    Three destinations, because a row key means three different things:
-    a signal alias, a matrix cell coordinate, or one of the literal
-    power keys "on" / "off" -- which are not cells at all, so their
-    marker rides the matrix block instead. Repeat replaces overwrite
-    the marker (latest wins). A ``marker`` of None REMOVES it, which is
-    the discard-revert path: a code that went back to what it was was
-    never replaced, and leaving the marker would claim otherwise (and
-    on a matrix wig would leave a Changed Codes row behind it).
-    Returns False when the key addresses nothing, which means the
-    caller's row list and the wig have drifted.
-    """
-    def _stamp(extra: dict[str, Any]) -> None:
-        if marker is None:
-            extra.pop(PROVENANCE_KEY, None)
-        else:
-            extra[PROVENANCE_KEY] = _merge_provenance(
-                extra.get(PROVENANCE_KEY), marker
-            )
-
-    if wig.climate is not None:
-        if key in ("on", "off"):
-            if key == "on":
-                wig.climate.on = pronto
-            else:
-                wig.climate.off = pronto
-            block = wig.climate.extra.get(PROVENANCE_POWER_KEY)
-            if not isinstance(block, dict):
-                block = {}
-            if marker is None:
-                block.pop(key, None)
-            else:
-                block[key] = marker
-            if block:
-                wig.climate.extra[PROVENANCE_POWER_KEY] = block
-            else:
-                wig.climate.extra.pop(PROVENANCE_POWER_KEY, None)
-            return True
-        for cell in wig.climate.cells:
-            if cell_key(cell) == key:
-                cell.pronto = pronto
-                # NO bypass here, deliberately. A cell's canonical form
-                # is exactly mode/fan/swing/temp/pronto, so there is
-                # nowhere to put the flag and nothing downstream would
-                # read it. This branch used to accept the argument and
-                # drop it on the floor: REPLACE offered the toggle on a
-                # matrix row, the fitter set it, and the chip came back
-                # still naming the decoded protocol because nothing had
-                # been written (owner bench 2026-08-02). The caller now
-                # refuses instead, and the dialog does not offer it.
-                _stamp(cell.extra)
-                return True
-        return False
-    for sig in wig.signals:
-        if sig.alias == key:
-            sig.pronto = pronto
-            # REPLACE STARTS FRESH (owner ruling 2026-08-01): the new
-            # code and the decision about how to send it are written
-            # together, in the one hash roll, so the row never exists in
-            # a state where the bytes and that decision disagree. None
-            # means "leave it", which is the discard-revert path putting
-            # a code back exactly as it was.
-            if bypass_protocol is not None:
-                sig.bypass_protocol = bool(bypass_protocol)
-            _stamp(sig.extra)
-            return True
-    return False
 
 def bundle_is_complete(
     bundle: Any, wig: Wig, digests: list[str] | None = None
