@@ -122,6 +122,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_get)
     websocket_api.async_register_command(hass, ws_wigs_update)
     websocket_api.async_register_command(hass, ws_wigs_export)
+    websocket_api.async_register_command(hass, ws_command_listen)
     websocket_api.async_register_command(hass, ws_wigs_save_plan)
     websocket_api.async_register_command(hass, ws_wigs_save)
     websocket_api.async_register_command(hass, ws_wigs_comb)
@@ -3758,22 +3759,19 @@ async def ws_fitting_revert(
     _send_fitting_result(connection, msg["id"], result)
 
 
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/listen",
-})
-@callback
-def ws_fitting_listen(
+def _arm_listen(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
+    capture_event: str,
+    timeout_event: str,
 ) -> None:
-    """Arm the Sniffer for one capture into the Replace box.
+    """Arm the Sniffer for one capture into a Replace box.
 
     A subscription, not a one-shot: the window has to be cancellable
     from the dialog (Cancel, or simply closing it), and the house
     already listens this way for capture sessions. Emits exactly one
-    ``fitting_capture`` or one ``fitting_listen_timeout``, then stops.
+    capture event or one timeout event, then stops.
 
     It rides ``signal_monitor``'s existing subscriber feed rather than
     opening a second capture path. That feed also carries MIRROR rows,
@@ -3781,6 +3779,13 @@ def ws_fitting_listen(
     back through it, so without the Mirror filter below, pressing SEND
     on the row being replaced would land HAIR's own transmission in the
     box and present it as the remote's.
+
+    The event NAMES are the only thing that differs between callers,
+    because listening is genuinely context-free: it hears whatever the
+    room emits and hands back one Pronto. What the caller does with it
+    -- fill a fitting row, fill a command-edit box -- is the caller's
+    business, and pretending the subscription knew would be inventing a
+    scope it does not have.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3825,7 +3830,7 @@ def ws_fitting_listen(
         heard = getattr(signal, "heard_by", None) or []
         _finish()
         connection.send_event(msg_id, {
-            "type": "fitting_capture",
+            "type": capture_event,
             "pronto": pronto,
             "decoded": bool(getattr(signal, "decoded_fingerprint", None)),
             "protocol": getattr(signal, "decoded_protocol", None),
@@ -3837,7 +3842,7 @@ def ws_fitting_listen(
         if state["done"]:
             return
         _finish()
-        connection.send_event(msg_id, {"type": "fitting_listen_timeout"})
+        connection.send_event(msg_id, {"type": timeout_event})
 
     monitor.subscribe(_on_signal)
     state["timer"] = hass.loop.call_later(
@@ -3845,6 +3850,50 @@ def ws_fitting_listen(
     )
     connection.subscriptions[msg_id] = _finish
     connection.send_result(msg_id, {"listening": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/fitting/listen",
+})
+@callback
+def ws_fitting_listen(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Arm the Sniffer for one capture into the fitting Replace box.
+
+    Retires with the fitting dialog; the command-edit listen below is
+    where Replace lives from v0.9.5 on.
+    """
+    _arm_listen(
+        hass, connection, msg, "fitting_capture", "fitting_listen_timeout"
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/command/listen",
+})
+@callback
+def ws_command_listen(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Arm the Sniffer for one capture into the command editor.
+
+    Replace moved to where it always belonged: editing a command on
+    device detail. Grab a code live from the air or paste one, in place.
+    A heard code populates the Pronto box directly -- there is no accept
+    step, because the box IS the accept: the validation line and the
+    protocol pill re-evaluate against it, listening again re-captures,
+    and nothing commits until Save.
+    """
+    _arm_listen(
+        hass, connection, msg, "command_capture", "command_listen_timeout"
+    )
 
 
 def _row_protocol(pronto: str) -> str | None:
@@ -4218,12 +4267,20 @@ async def ws_wig_make_device(
         return
 
     from .models import CaptureResult, CommandCategory
+    from .wig_comb import suspect_keys
     from .wig_fitting import fitting_send_times_max
     from .wig_identity import wig_signal_identities
 
     identities = await hass.async_add_executor_job(
         wig_signal_identities, wig
     )
+
+    # What the comb doubted rides onto the device (v0.9.5). Read from
+    # the stored receipt, so adopting never re-combs; a wig nobody has
+    # combed simply carries no doubts. Matrix wigs bring their depth-0
+    # extras through the same loop, which is how suspect extras end up
+    # visible in the commands area rather than lost behind the lattice.
+    suspects = set(suspect_keys(wig))
 
     # Fine-tuned-fittings: the highest send-times any fitter needed
     # seeds the adopted device, so a candle that answers at three
@@ -4330,6 +4387,11 @@ async def ws_wig_make_device(
         # ProntoCommand 0, fitting send 0) collapsing at the wig
         # boundary, and this is the line where it collapses.
         command.repeat_count = sig.ditto_count
+        # Keyed by the wig's alias, which is what the comb recorded and
+        # what this command was just named after. A later rename on the
+        # device does not clear the flag: the doubt is about the code,
+        # not the label.
+        command.comb_suspect = sig.alias in suspects
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1

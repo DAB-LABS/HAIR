@@ -70,6 +70,13 @@ class IRCommand:
     # (Plucker, v0.5.0). The user-typed vendor command name; None for
     # commands not sourced from a pluck.
     plucked_command_name: str | None = None
+    # The comb doubted this row in the wig it was adopted from (v0.9.5).
+    # Carried onto the device so the comb's receipt stops being
+    # closet-only knowledge: the person can see what was doubted, test
+    # exactly those, and attest them at export like any other row. It is
+    # a note about where the code came from, not a verdict on it, so
+    # nothing in HAIR treats it as a reason to refuse a send.
+    comb_suspect: bool = False
     created_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
@@ -94,6 +101,7 @@ class IRCommand:
             else None,
             "tx_force_raw": self.tx_force_raw,
             "plucked_command_name": self.plucked_command_name,
+            "comb_suspect": self.comb_suspect,
             "created_at": self.created_at,
         }
 
@@ -118,6 +126,7 @@ class IRCommand:
             decoded_extras=data.get("decoded_extras") or None,
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
+            comb_suspect=bool(data.get("comb_suspect", False)),
             created_at=data.get("created_at") or _now_iso(),
         )
 
