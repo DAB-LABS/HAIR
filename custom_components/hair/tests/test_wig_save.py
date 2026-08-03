@@ -362,3 +362,112 @@ class TestUpdate:
         assert update_text(
             "{not json", self._wig(), Attestation(claims={"d": VERDICT_WORKED})
         ) is None
+
+
+class TestMatrix:
+    """A sampled checklist attests a lattice, so it binds the lattice.
+
+    The rows still bind their own bytes -- hard rule 1 does not get an
+    exemption here -- but a person who walked twelve sampled cells is
+    vouching for the set those twelve were drawn from, and the set is
+    what cells_hash pins.
+    """
+
+    def _matrix(self):
+        from custom_components.hair.wig_format import (
+            ClimateCell,
+            ClimateMatrix,
+        )
+
+        return ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=PRONTO_A,
+            modes=["cool", "heat"], fan_modes=["auto"],
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=16.0,
+                            pronto=PRONTO_A),
+                ClimateCell(mode="cool", fan="auto", temp=30.0,
+                            pronto=PRONTO_B),
+                ClimateCell(mode="heat", fan="auto", temp=22.0,
+                            pronto=PRONTO_C),
+            ],
+        )
+
+    def _device(self):
+        device = IRDevice(name="Bedroom AC", commands=[
+            _command("Sleep", PRONTO_C),
+        ])
+        device.climate_matrix = True
+        return device
+
+    def test_the_plan_says_it_is_a_matrix(self):
+        plan = build_save_plan(self._device(), matrix=self._matrix())
+        assert plan.matrix is True
+        assert plan.unit == "C"
+
+    def test_the_checklist_becomes_rows(self):
+        plan = build_save_plan(self._device(), matrix=self._matrix())
+        modes = {r.mode for r in plan.rows if r.section == "modes"}
+        assert modes == {"cool", "heat"}
+
+    def test_the_lattice_leads_and_the_extras_follow(self):
+        """A person reads the checklist as the device and the flat
+        extras as the leftovers, which is what they are."""
+        plan = build_save_plan(self._device(), matrix=self._matrix())
+        assert plan.rows[0].section is not None
+        assert plan.rows[-1].alias == "Sleep"
+        assert plan.rows[-1].section is None
+
+    def test_a_checklist_row_carries_no_command(self):
+        """It addresses a CELL. TEST sends by coordinate, so a command
+        id here would point at something that is not the row."""
+        plan = build_save_plan(self._device(), matrix=self._matrix())
+        cells = [r for r in plan.rows if r.section is not None]
+        assert cells and all(r.command_id == "" for r in cells)
+        assert all(r.mode or r.power for r in cells)
+
+    def test_rows_still_bind_their_own_bytes(self):
+        from custom_components.hair.wig_format import row_digest
+
+        plan = build_save_plan(self._device(), matrix=self._matrix())
+        row = next(r for r in plan.rows if r.mode == "heat")
+        assert row.digest == row_digest(PRONTO_C, 0, False)
+
+    def test_the_plan_reports_the_lattice_hash(self):
+        from custom_components.hair.wig_format import cells_content_hash
+
+        matrix = self._matrix()
+        plan = build_save_plan(self._device(), matrix=matrix)
+        assert plan.cells_hash == cells_content_hash(matrix)
+
+    def test_the_bundle_binds_the_lattice(self):
+        from custom_components.hair.wig_format import cells_content_hash
+
+        matrix = self._matrix()
+        build = build_wig_from_device(self._device(), matrix)
+        digest = signal_row_digest(build.wig.signals[0])
+        text, _ = create_text(
+            build,
+            Attestation(
+                claims={digest: VERDICT_WORKED},
+                cells_hash=cells_content_hash(matrix),
+            ),
+        )
+        bundle = json.loads(text)["fittings"][0]
+        assert bundle["cells_hash"] == cells_content_hash(matrix)
+        # Hard rule 6's naming rule: never content_hash.
+        assert "content_hash" not in bundle
+
+    def test_the_exported_wig_carries_the_lattice(self):
+        """Without this a matrix device exported only its depth-0
+        extras and the thousands of cells that ARE the device were
+        silently left behind."""
+        build = build_wig_from_device(self._device(), self._matrix())
+        assert build.wig.climate is not None
+        assert len(build.wig.climate.cells) == 3
+
+    def test_a_matrix_with_no_extras_still_exports(self):
+        device = IRDevice(name="Bare AC")
+        device.climate_matrix = True
+        build = build_wig_from_device(device, self._matrix())
+        assert build.wig is not None
+        assert build.wig.signals == []

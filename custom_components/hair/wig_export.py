@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from .const import MAX_DITTO_COUNT
 from .ir_command import raw_to_pronto
 from .models import IRDevice
-from .wig_format import Wig, WigSignal
+from .wig_format import ClimateMatrix, Wig, WigSignal
 
 # Device-type to wig kind, unambiguous mappings only. media_player
 # stays out (tv / soundbar / receiver / settopbox all live there) and
@@ -100,8 +100,17 @@ def _ditto_for_export(
 
 
 
-def build_wig_from_device(device: IRDevice) -> WigBuild:
-    """Serialize a HAIR device's command set into a wig."""
+def build_wig_from_device(
+    device: IRDevice, matrix: ClimateMatrix | None = None
+) -> WigBuild:
+    """Serialize a HAIR device's command set into a wig.
+
+    ``matrix`` is the device's climate lattice, when it has one. It
+    rides into the wig as-is. Without it a matrix device exported only
+    its depth-0 extras -- the handful of ordinary buttons beside the
+    lattice -- and the thousands of cells that ARE the device were
+    silently left behind.
+    """
     signals: list[WigSignal] = []
     sources: list[str] = []
     notes: list[str] = []
@@ -131,13 +140,14 @@ def build_wig_from_device(device: IRDevice) -> WigBuild:
             ditto_count=ditto,
         ))
         sources.append(command.id)
-    if not signals:
+    if not signals and matrix is None:
         return WigBuild(None, skipped, sources, notes)
     return WigBuild(
         Wig(
             name=(device.name or "Exported Device").strip()
             or "Exported Device",
             signals=signals,
+            climate=matrix,
             origin="device",
             # Where the seed came from (v0.9.5, plan 5.4). A device
             # built by converting a downloaded file says so in the wig

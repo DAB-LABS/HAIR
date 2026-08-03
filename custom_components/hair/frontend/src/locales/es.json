@@ -528,7 +528,6 @@
     "wigs.save.your_name": "Tu nombre",
     "wigs.save.your_github": "Usuario de GitHub",
     "wigs.save.oath": "Declaro que cada senal marcada funciona en mi dispositivo tal como esta escrita.",
-    "wigs.save.matrix_pending": "Este es un dispositivo de matriz de estados. Su malla vive en la entidad de clima y no en la lista de comandos, asi que ajustarlo aun no esta construido y los codigos de aqui son solo sus botones extra. Guardar sigue funcionando.",
     "wigs.save.rename_wig_warning": "Esto renombra {name} en si. No crea un segundo wig, y el archivo conserva el nombre con el que se guardo por primera vez.",
     "wigs.save.joining.one": "{name} ya lleva un ajuste. El tuyo se anade junto a el, no en su lugar.",
     "wigs.save.joining.other": "{name} ya lleva {count} ajustes. El tuyo se anade junto a ellos, no en su lugar.",

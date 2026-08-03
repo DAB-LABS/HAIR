@@ -3151,13 +3151,26 @@ async def ws_wigs_save_plan(
         connection.send_error(msg["id"], "not_found", "HAIR device not found")
         return
 
+
+    manager: DeviceManager = data["device_manager"]
+    matrix = (
+        await manager.async_get_matrix(device.id)
+        if device.climate_matrix else None
+    )
+    # Off the loop: resolving the source scans the closet and the
+    # checklist decodes a dozen or two prontos. Bounded, but not free,
+    # and this runs on a human's click rather than a timer.
+    plan = await hass.async_add_executor_job(
+        _build_plan, hass, device, matrix
+    )
+    connection.send_result(msg["id"], plan.as_dict())
+
+
+def _build_plan(hass: HomeAssistant, device: IRDevice, matrix: Any) -> Any:
     from .wig_save import build_save_plan
 
-    source_wig, filename = await hass.async_add_executor_job(
-        _resolve_source, hass, device
-    )
-    plan = build_save_plan(device, source_wig, filename)
-    connection.send_result(msg["id"], plan.as_dict())
+    source_wig, filename = _resolve_source(hass, device)
+    return build_save_plan(device, source_wig, filename, matrix)
 
 
 _CLAIM_SCHEMA = vol.Schema({
@@ -3177,7 +3190,6 @@ _ATTEST_SCHEMA = vol.Schema({
     vol.Optional("github"): vol.All(str, vol.Length(max=200)),
     vol.Optional("note"): vol.All(str, vol.Length(max=2000)),
     vol.Optional("renames"): [_RENAME_SCHEMA],
-    vol.Optional("cells_hash"): vol.All(str, vol.Length(max=64)),
 })
 
 
@@ -3206,7 +3218,6 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
             for r in raw.get("renames") or []
             if r["alias"].strip()
         ],
-        cells_hash=raw.get("cells_hash") or None,
     )
 
 
@@ -3252,6 +3263,19 @@ async def ws_wigs_save(
 
     attestation = _attestation_from(msg)
     key = await async_get_private_key(hass) if attestation else None
+
+    # A matrix bundle binds the lattice as a set, because a sampled
+    # checklist vouches for the set rather than for the rows it walked.
+    # STAMPED HERE, from the matrix this server just read -- never
+    # carried back from the dialog. A claim about a lattice must bind
+    # the lattice that exists, not one the caller says it saw.
+    if attestation is not None and device.climate_matrix:
+        manager: DeviceManager = data["device_manager"]
+        matrix = await manager.async_get_matrix(device.id)
+        if matrix is not None:
+            from .wig_format import cells_content_hash
+
+            attestation.cells_hash = cells_content_hash(matrix)
 
     if msg["mode"] == "update":
         await _do_update(hass, connection, msg, device, attestation, key)
@@ -3390,7 +3414,12 @@ async def _do_create(
 ) -> None:
     from .wig_export import build_wig_from_device
 
-    build = build_wig_from_device(device)
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    matrix = (
+        await manager.async_get_matrix(device.id)
+        if device.climate_matrix else None
+    )
+    build = build_wig_from_device(device, matrix)
     if build.wig is None:
         connection.send_error(
             msg["id"], "no_signals", "No exportable signals on that device"
@@ -3434,7 +3463,6 @@ async def _do_create(
     # belongs.
     if result.get("wig_id"):
         device.source_wig_id = result["wig_id"]
-        manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
         await manager.async_update_device(device)
     connection.send_result(msg["id"], result)
 

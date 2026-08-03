@@ -528,7 +528,6 @@
     "wigs.save.your_name": "Dein Name",
     "wigs.save.your_github": "GitHub-Name",
     "wigs.save.oath": "Ich bestaetige, dass jedes angehakte Signal auf meinem Geraet wie angegeben funktioniert.",
-    "wigs.save.matrix_pending": "Dies ist ein Zustandsmatrix-Geraet. Sein Gitter liegt in der Klima-Entitaet statt in der Befehlsliste, deshalb ist das Anpassen dafuer noch nicht gebaut und die Codes hier sind nur die Zusatztasten. Speichern funktioniert weiterhin.",
     "wigs.save.rename_wig_warning": "Damit wird {name} selbst umbenannt. Es entsteht keine zweite Wig, und die Datei behaelt den Namen, unter dem sie zuerst gespeichert wurde.",
     "wigs.save.joining.one": "{name} traegt bereits eine Passform. Deine kommt dazu, nicht an ihre Stelle.",
     "wigs.save.joining.other": "{name} traegt bereits {count} Passformen. Deine kommt dazu, nicht an ihre Stelle.",

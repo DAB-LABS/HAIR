@@ -372,6 +372,17 @@ export interface SavePlanRow {
     matched: boolean;
     /** Matched by bytes but not by name: the rename line. */
     renamed: boolean;
+    /** MATRIX ONLY. A checklist row addresses a cell by coordinate
+     * rather than a command by id: TEST sends these, and they compose
+     * the row's human label. */
+    section?: string | null;
+    mode?: string | null;
+    fan?: string | null;
+    swing?: string | null;
+    temp?: number | null;
+    temp_less?: boolean;
+    temp_role?: string | null;
+    power?: string | null;
 }
 
 /** A wig row nothing on the device covers. Feeds the exclusion picker. */
@@ -398,6 +409,13 @@ export interface SavePlan {
     /** How many fittings the source wig already carries. Shown so an
      * UPDATE reads as joining a record rather than starting one. */
     existing_fittings: number;
+    /** MATRIX ONLY: the lattice the checklist vouches for, and the
+     * units its temperatures are written in. The hash is display and
+     * provenance only -- the server stamps the bundle from the matrix
+     * it reads at save time, never from this. */
+    cells_hash: string | null;
+    unit: "C" | "F";
+    precision: number;
     /** A climate matrix device. Its lattice lives in the climate
      * entity, not the command list, so the rows above are only its
      * depth-0 extras and the perfect-fit block stays closed. */

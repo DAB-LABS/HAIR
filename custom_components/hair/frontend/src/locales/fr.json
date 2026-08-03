@@ -528,7 +528,6 @@
     "wigs.save.your_name": "Votre nom",
     "wigs.save.your_github": "Identifiant GitHub",
     "wigs.save.oath": "J'atteste que chaque signal coche fonctionne sur mon appareil tel qu'il est ecrit.",
-    "wigs.save.matrix_pending": "Ceci est un appareil a matrice d'etats. Sa grille vit dans l'entite climat plutot que dans la liste de commandes, donc l'ajustement n'est pas encore construit et les codes ici ne sont que ses boutons supplementaires. L'enregistrement fonctionne toujours.",
     "wigs.save.rename_wig_warning": "Ceci renomme {name} lui-meme. Cela ne cree pas un second wig, et le fichier garde le nom sous lequel il a ete enregistre la premiere fois.",
     "wigs.save.joining.one": "{name} porte deja un ajustement. Le votre s'ajoute a lui, il ne le remplace pas.",
     "wigs.save.joining.other": "{name} porte deja {count} ajustements. Le votre s'ajoute a eux, il ne les remplace pas.",

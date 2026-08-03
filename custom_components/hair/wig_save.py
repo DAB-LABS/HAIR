@@ -31,9 +31,11 @@ from .wig_export import WigBuild, build_wig_from_device
 from .wig_format import (
     VERDICTS,
     ClaimsBundle,
+    ClimateMatrix,
     RowClaim,
     Wig,
     claims_of,
+    row_digest,
     serialize_wig,
     signal_row_digest,
 )
@@ -59,6 +61,19 @@ class PlanRow:
     bypass: bool
     #: Decoded protocol for the pill, or None when the row is raw only.
     protocol: str | None = None
+    #: MATRIX ONLY. A checklist row addresses a CELL, not a command, so
+    #: TEST sends by coordinate rather than by command id and these are
+    #: what it sends. ``section`` and the coordinates also compose the
+    #: row's human label ("Cool 16 (the coldest)") in the dialog.
+    section: str | None = None
+    mode: str | None = None
+    fan: str | None = None
+    swing: str | None = None
+    temp: float | None = None
+    temp_less: bool = False
+    temp_role: str | None = None
+    #: "on" / "off" for the power rows, which have no coordinates.
+    power: str | None = None
     #: UPDATE only: the wig row this matched, if any.
     wig_index: int | None = None
     #: UPDATE only: what the WIG calls this row. Differs from ``alias``
@@ -106,6 +121,14 @@ class SavePlan:
     metadata: dict[str, Any] = field(default_factory=dict)
     skipped: int = 0
     notes: list[str] = field(default_factory=list)
+    #: MATRIX ONLY: the lattice the checklist vouches for, and the
+    #: units its temperatures are written in. The hash is stamped onto
+    #: the bundle at save time rather than carried back from the dialog:
+    #: a claim about a lattice must bind the lattice the SERVER read,
+    #: not one the caller says it saw.
+    cells_hash: str | None = None
+    unit: str = "C"
+    precision: float = 1.0
     #: How many fittings the source wig already carries. Shown so an
     #: UPDATE reads as joining a record rather than starting one -- the
     #: bench mistook two appended fittings for two lost wigs.
@@ -136,6 +159,14 @@ class SavePlan:
                     "wig_alias": row.wig_alias,
                     "matched": row.matched,
                     "renamed": row.renamed,
+                    "section": row.section,
+                    "mode": row.mode,
+                    "fan": row.fan,
+                    "swing": row.swing,
+                    "temp": row.temp,
+                    "temp_less": row.temp_less,
+                    "temp_role": row.temp_role,
+                    "power": row.power,
                 }
                 for row in self.rows
             ],
@@ -156,6 +187,9 @@ class SavePlan:
             "skipped": self.skipped,
             "notes": list(self.notes),
             "matrix": self.matrix,
+            "cells_hash": self.cells_hash,
+            "unit": self.unit,
+            "precision": self.precision,
             "existing_fittings": self.existing_fittings,
         }
 
@@ -211,10 +245,89 @@ def _wig_metadata(wig: Wig) -> dict[str, Any]:
     }
 
 
+def _lattice(matrix: ClimateMatrix | None) -> dict[str, Any]:
+    """The lattice facts every plan carries, present or absent."""
+    if matrix is None:
+        return {"matrix": False}
+    from .wig_format import cells_content_hash
+
+    return {
+        "matrix": True,
+        "cells_hash": cells_content_hash(matrix),
+        "unit": matrix.unit,
+        "precision": matrix.precision,
+    }
+
+
+def _checklist_rows(matrix: ClimateMatrix) -> list[PlanRow]:
+    """The dimension checklist, as attestation rows.
+
+    A matrix has thousands of cells and nobody presses thousands of
+    buttons, so the checklist SAMPLES it: every mode, every fan speed,
+    every swing, the ends of the temperature range. That sample is what
+    a person can actually vouch for, and it is why a matrix bundle also
+    binds ``cells_hash`` -- the claim is about the lattice these rows
+    were drawn from, not only the rows themselves.
+
+    Each row still carries a digest of its own cell's bytes, so hard
+    rule 1 holds here exactly as it does on a flat wig: a claim binds
+    bytes. The lattice hash is the extra promise, not the only one.
+    """
+    from .wig_climate import SECTION_START, SECTION_WRAP, dimension_checklist
+
+    rows: list[PlanRow] = []
+    for item in dimension_checklist(matrix):
+        power = (
+            item.key
+            if item.section in (SECTION_START, SECTION_WRAP)
+            and item.key in ("on", "off")
+            else None
+        )
+        rows.append(PlanRow(
+            # No command to send through: a cell is addressed by its
+            # coordinates, and TEST routes on those instead.
+            command_id="",
+            alias=item.key,
+            digest=row_digest(item.pronto, 0, False),
+            send_count=item.send_count,
+            ditto_count=0,
+            bypass=False,
+            protocol=_decoded_protocol(item.pronto),
+            section=item.section,
+            mode=item.mode,
+            fan=item.fan,
+            swing=item.swing,
+            temp=item.temp,
+            temp_less=item.temp_less,
+            temp_role=item.temp_role,
+            power=power,
+        ))
+    return rows
+
+
+def _decoded_protocol(pronto: str) -> str | None:
+    """The protocol name for a checklist row's pill, or None.
+
+    Wigs carry no decoded fields by design, so the name is derived on
+    read. Bounded work: the checklist is a dozen or two rows, never the
+    whole lattice.
+    """
+    from .ir_command import ProntoCommand
+    from .protocol_decode import try_decode_identity
+
+    try:
+        timings = ProntoCommand(pronto).get_raw_timings()
+    except Exception:
+        return None
+    identity = try_decode_identity(timings)
+    return identity.protocol if identity else None
+
+
 def build_save_plan(
     device: IRDevice,
     source_wig: Wig | None = None,
     source_filename: str | None = None,
+    matrix: ClimateMatrix | None = None,
 ) -> SavePlan:
     """What SAVE TO CLOSET is about to do, row by row.
 
@@ -225,12 +338,12 @@ def build_save_plan(
     set. Refusing instead would strand a working device with no way to
     save; pretending it was always new would hide that the link broke.
     """
-    matrix = bool(getattr(device, "climate_matrix", False))
-    build = build_wig_from_device(device)
+    is_matrix = matrix is not None
+    build = build_wig_from_device(device, matrix)
     if build.wig is None:
         return SavePlan(
             variant=VARIANT_CREATE, skipped=build.skipped,
-            notes=build.notes, matrix=matrix,
+            notes=build.notes, matrix=is_matrix,
         )
 
     rows = [
@@ -245,6 +358,11 @@ def build_save_plan(
         )
         for i, signal in enumerate(build.wig.signals)
     ]
+    if matrix is not None:
+        # The lattice first, then the depth-0 extras beside it. A
+        # person reads the checklist as the device and the extras as
+        # the leftovers, which is what they are.
+        rows = [*_checklist_rows(matrix), *rows]
 
     if source_wig is None:
         return SavePlan(
@@ -255,7 +373,7 @@ def build_save_plan(
             skipped=build.skipped,
             notes=build.notes,
             source_missing=bool(device.source_wig_id),
-            matrix=matrix,
+            **_lattice(matrix),
         )
 
     match = match_device_to_wig(
@@ -284,8 +402,8 @@ def build_save_plan(
         metadata=_wig_metadata(source_wig),
         skipped=build.skipped,
         notes=build.notes,
-        matrix=matrix,
         existing_fittings=len(claims_of(source_wig)),
+        **_lattice(matrix),
     )
 
 

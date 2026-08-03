@@ -32,6 +32,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
+import { displayTemp, installUnit } from "./temperature.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { SavePlan, SavePlanRow, SaveResult } from "./types.js";
@@ -48,6 +49,9 @@ export class IrSaveWigDialog extends LitElement {
     @property() public sourceName = "";
     /** True when the device has at least one emitter. TEST needs one. */
     @property({ type: Boolean }) public hasEmitter = true;
+    /** Needed only to read the install's temperature unit, so a
+     * checklist written in Celsius reads in whatever the person set. */
+    @property({ attribute: false }) public hass: any;
 
     @state() private _name = "";
     @state() private _brand = "";
@@ -275,12 +279,101 @@ export class IrSaveWigDialog extends LitElement {
     }
 
     private async _sendRow(row: SavePlanRow): Promise<boolean> {
-        if (!row.command_id) return false;
-        const result = await this.api.sendCommand(
+        if (row.command_id) {
+            const result = await this.api.sendCommand(
+                this.sourceId,
+                row.command_id,
+            );
+            return !!(result as any)?.heard;
+        }
+        if (!this._isCell(row)) return false;
+        // A cell is addressed by coordinate, not by command id, and it
+        // routes through the device's own emitters exactly as the
+        // climate entity does. The matrix send reports what it sent
+        // rather than whether anything heard it back, so this settles
+        // on SENT -- honest, and the same thing the STATE MATRIX card
+        // has always said.
+        await this.api.matrixSend(
             this.sourceId,
-            row.command_id,
+            row.power
+                ? { power: row.power as "on" | "off" }
+                : {
+                      mode: row.mode ?? undefined,
+                      fan: row.fan ?? null,
+                      swing: row.swing ?? null,
+                      temp: row.temp ?? null,
+                  },
         );
-        return !!(result as any)?.heard;
+        return false;
+    }
+
+    /** A checklist row: no command behind it, but coordinates or a
+     * power code that TEST can send. */
+    private _isCell(row: SavePlanRow): boolean {
+        return !!row.power || !!row.mode;
+    }
+
+    private _displayTemp(temp: number): string {
+        return displayTemp(
+            temp,
+            (this._plan?.unit ?? "C") as "C" | "F",
+            installUnit(this.hass),
+            this._plan?.precision ?? 1,
+        );
+    }
+
+    /**
+     * A checklist row's human label.
+     *
+     * Ported from the fitting dialog it replaces, because the labels
+     * describe the DIMENSION CHECKLIST rather than that dialog: the
+     * sample is the same sample, whoever is drawing it. Its locale keys
+     * come with it for the same reason.
+     */
+    private _rowLabel(row: SavePlanRow): string {
+        if (row.power === "on") return t("fitting.row_on");
+        if (row.power === "off") return t("fitting.row_off");
+        switch (row.section) {
+            case "modes":
+                return row.mode ?? row.alias;
+            case "fan":
+                return row.fan ?? row.alias;
+            case "swing":
+                return row.swing ?? row.alias;
+            case "temp":
+                return t(
+                    row.temp_role === "min"
+                        ? "fitting.temp_min"
+                        : "fitting.temp_max",
+                    {
+                        temp:
+                            row.temp != null
+                                ? this._displayTemp(row.temp)
+                                : "",
+                    },
+                );
+            default:
+                return row.alias;
+        }
+    }
+
+    /** The coordinates held constant on a row, for the second line.
+     * "Cool" alone does not say which cell was pressed. */
+    private _rowContext(row: SavePlanRow): string {
+        if (row.power) return "";
+        const parts = [
+            row.section === "modes" ? null : row.mode,
+            row.fan,
+            row.swing,
+            row.temp != null ? `${this._displayTemp(row.temp)}\u00b0` : null,
+        ].filter(Boolean);
+        const context = parts.join(" \u00b7 ");
+        if (row.temp_less) {
+            return [context, t("fitting.no_temp_note")]
+                .filter(Boolean)
+                .join(" ");
+        }
+        return context;
     }
 
     private _claims(): { digest: string; verdict: string }[] {
@@ -564,18 +657,6 @@ export class IrSaveWigDialog extends LitElement {
             return html`<div class="ident-hint">${t("common.loading_plain")}</div>`;
         }
         if (!this._plan) return nothing;
-        // A matrix device's lattice lives in the climate entity, not in
-        // the command list, so the rows here are only its depth-0
-        // extras. Offering the perfect-fit block over them would let
-        // somebody attest a fraction of the device and call it whole,
-        // which is worse than not offering it at all.
-        if (this._plan.matrix) {
-            return html`<div class="fit-block">
-                <div class="fit-explainer">
-                    ${t("wigs.save.matrix_pending")}
-                </div>
-            </div>`;
-        }
         return html`
             <div class="fit-block">
                 <label class="fit-check">
@@ -628,7 +709,14 @@ export class IrSaveWigDialog extends LitElement {
                     .checked=${checked}
                     @change=${() => this._toggleRow(row.digest)}
                 />
-                <span class="fit-name">${row.alias}</span>
+                <span class="fit-name">
+                    ${this._rowLabel(row)}
+                    ${this._rowContext(row)
+                        ? html`<span class="fit-context"
+                              >${this._rowContext(row)}</span
+                          >`
+                        : ""}
+                </span>
                 <ir-tx-knobs
                     .sendCount=${row.send_count}
                     .repeatCount=${row.ditto_count}
@@ -644,7 +732,7 @@ export class IrSaveWigDialog extends LitElement {
                         : ""}
                 </span>
                 <span class="test-slot">
-                    ${row.command_id
+                    ${row.command_id || this._isCell(row)
                         ? html`<ir-test-button
                               .send=${() => this._sendRow(row)}
                               .disabledReason=${this.hasEmitter
@@ -866,6 +954,17 @@ export class IrSaveWigDialog extends LitElement {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+                text-transform: capitalize;
+            }
+            /* The coordinates a checklist row holds constant. "Cool"
+               alone does not say which cell was pressed, and a person
+               attesting a lattice is entitled to know which one they
+               are vouching for. */
+            .fit-context {
+                margin-left: 6px;
+                font-size: 11px;
+                color: var(--secondary-text-color);
+                text-transform: none;
             }
             .pill-slot {
                 display: flex;
