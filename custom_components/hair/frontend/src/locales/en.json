@@ -528,7 +528,6 @@
     "wigs.save.your_name": "Your name",
     "wigs.save.your_github": "GitHub handle",
     "wigs.save.oath": "I attest every checked signal works on my device as written.",
-    "wigs.save.needs_something": "Nothing to write yet. Tick Make this a perfect fit and sign to add your fitting to {name}, or edit a metadata field above. An update adds to the wig; it never rewrites its codes.",
     "wigs.save.matrix_pending": "This is a state matrix device. Its lattice lives in the climate entity rather than the command list, so fitting one is not built yet and the codes here are only its extra buttons. Saving still works.",
     "wigs.save.rename_wig_warning": "This renames {name} itself. It does not create a second wig, and the file keeps the name it was first saved under.",
     "wigs.save.joining.one": "{name} already carries one fitting. Yours is added alongside it, not instead of it.",

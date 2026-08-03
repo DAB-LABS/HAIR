@@ -528,7 +528,6 @@
     "wigs.save.your_name": "Je naam",
     "wigs.save.your_github": "GitHub-naam",
     "wigs.save.oath": "Ik verklaar dat elk aangevinkt signaal op mijn apparaat werkt zoals beschreven.",
-    "wigs.save.needs_something": "Nog niets om te schrijven. Vink Markeer als perfecte pasvorm aan en onderteken om je pasvorm aan {name} toe te voegen, of pas hierboven een metadataveld aan. Een update vult de wig aan; hij herschrijft de codes nooit.",
     "wigs.save.matrix_pending": "Dit is een toestandsmatrix-apparaat. Het raster zit in de klimaatentiteit en niet in de commandolijst, dus passen is hiervoor nog niet gebouwd en de codes hier zijn alleen de extra knoppen. Opslaan werkt gewoon.",
     "wigs.save.rename_wig_warning": "Dit hernoemt {name} zelf. Er komt geen tweede wig bij, en het bestand houdt de naam waaronder het voor het eerst is opgeslagen.",
     "wigs.save.joining.one": "{name} draagt al een pasvorm. De jouwe komt erbij, niet in plaats daarvan.",

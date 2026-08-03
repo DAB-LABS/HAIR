@@ -83,10 +83,6 @@ export class IrSaveWigDialog extends LitElement {
     /** UPDATE only: the footer escape hatch, behind a confirm. */
     @state() private _saveAsNew = false;
     @state() private _confirmNew = false;
-    /** The person has typed or ticked something in here. Gates the
-     * gray-button explanation so it answers a question rather than
-     * pre-empting one. */
-    @state() private _touched = false;
 
     private get _isUpdate(): boolean {
         return this._plan?.variant === "update" && !this._saveAsNew;
@@ -181,32 +177,6 @@ export class IrSaveWigDialog extends LitElement {
         return true;
     }
 
-    /** Why the save button is gray, in the person's terms. Null when it
-     * is not. This lives in the footer rather than a title tooltip
-     * because browsers do not show tooltips on disabled buttons -- which
-     * is exactly how this read as "you cannot update at all" on the
-     * bench (owner report 2026-08-03). */
-    private get _blockedReason(): string | null {
-        if (this._canSave || this._busy) return null;
-        // NOT ON OPEN. An update dialog resting untouched genuinely has
-        // nothing to write, which is not a problem the person has yet:
-        // showing the sentence immediately reads as an error raised
-        // before anybody did anything wrong (owner bench 2026-08-03).
-        // It waits until they have engaged with something, which is
-        // when "why is Save gray" becomes a question worth answering.
-        if (!this._touched) return null;
-        // An unticked oath needs no sentence. The oath box is right
-        // there, it is the biggest control in the block, and its own
-        // label already says what ticking it means -- a second line
-        // repeating the instruction was reading as nagging.
-        if (this._perfect && !this._oath) return null;
-        if (this._isUpdate) {
-            return t("wigs.save.needs_something", {
-                name: this._plan?.source_wig_name ?? "",
-            });
-        }
-        return null;
-    }
 
     private get _saveLabel(): string {
         if (this._busy) return t("common.saving");
@@ -256,7 +226,6 @@ export class IrSaveWigDialog extends LitElement {
      * default claim is "all of it", and unchecking is the exception
      * path rather than the main road. */
     private _togglePerfect(e: Event): void {
-        this._touched = true;
         this._perfect = (e.target as HTMLInputElement).checked;
         if (this._perfect) {
             this._checked = new Set(this._allRows.map((r) => r.digest));
@@ -512,12 +481,10 @@ export class IrSaveWigDialog extends LitElement {
                       <input
                           type="text"
                           .value=${this._name}
-                          @input=${(e: Event) => {
-                              this._touched = true;
-                              this._name = (
+                          @input=${(e: Event) =>
+                              (this._name = (
                                   e.target as HTMLInputElement
-                              ).value;
-                          }}
+                              ).value)}
                       />
                       ${this._renamingWig
                           ? html`<div class="rename-warn">
@@ -559,10 +526,8 @@ export class IrSaveWigDialog extends LitElement {
                     type="text"
                     .value=${this._notes}
                     placeholder=${t("wigs.editor.notes_placeholder")}
-                    @input=${(e: Event) => {
-                        this._touched = true;
-                        this._notes = (e.target as HTMLInputElement).value;
-                    }}
+                    @input=${(e: Event) =>
+                        (this._notes = (e.target as HTMLInputElement).value)}
                 />
             </div>
         `;
@@ -581,10 +546,8 @@ export class IrSaveWigDialog extends LitElement {
                     type="text"
                     .value=${value}
                     placeholder=${placeholder}
-                    @input=${(e: Event) => {
-                        this._touched = true;
-                        set((e.target as HTMLInputElement).value);
-                    }}
+                    @input=${(e: Event) =>
+                        set((e.target as HTMLInputElement).value)}
                 />
             </div>
         `;
@@ -774,10 +737,8 @@ export class IrSaveWigDialog extends LitElement {
     }
 
     private _renderActions() {
-        const blocked = this._blockedReason;
         return html`
             <div class="dialog-actions">
-                <span class="blocked">${blocked ?? ""}</span>
                 <span class="spacer"></span>
                 <button
                     class="action-btn cancel-btn"
@@ -1009,15 +970,12 @@ export class IrSaveWigDialog extends LitElement {
                 line-height: 1.45;
                 margin: 4px 0 0;
             }
-            /* Muted, and beside the button it is about. Amber across
-               the full width made the resting state of an update dialog
-               look like a failure; this is a hint, not a warning. */
-            .blocked {
-                font-size: 11px;
-                color: var(--secondary-text-color);
-                line-height: 1.35;
-                max-width: 300px;
-                text-align: left;
+            /* Footer labels never break mid-phrase. The wrap only
+               showed up once something else competed for the row, but a
+               button that can stack its own words is a button waiting
+               to do it again in a longer language. */
+            .dialog-actions .action-btn {
+                white-space: nowrap;
             }
         `,
     ];
