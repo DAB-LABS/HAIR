@@ -22,6 +22,12 @@ No vendor cloud, no YAML, nothing learned into somebody else's box -- just point
 
 > [!IMPORTANT]
 > **HAIR speaks ten languages, and eight of them need your help.** Spanish got its native-speaker review (thanks @Waterbrain). The French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian translations were drafted by a programming assistant and are marked "reviewer wanted" inside each dictionary file. If you use Home Assistant in one of these languages, a native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. A language we don't have yet is a two-file PR. Start here: [Adding a language](CONTRIBUTING.md#adding-a-language).
+>
+> <details><summary>See the panel translated -- the same device detail in Spanish, the one translation with a native-speaker review</summary>
+>
+> ![Device detail rendered in Spanish with translated action badges and buttons, native-speaker reviewed by @Waterbrain](images/screenshots/device-detail-translated.png)
+>
+> </details>
 
 ## Installation
 
@@ -83,31 +89,7 @@ Some integrations go a step further and let HAIR pull codes already learned into
 |:---:|:---:|
 | ![Devices overview showing HAIR Devices, Triggers, Emitters, Receivers, and Proxies](images/screenshots/devices-overview.png) | ![Device detail with learned commands, S/L fingerprints, localized action badges, and trigger buttons](images/screenshots/device-detail.png) |
 
-| Same shop, your language |
-|:---:|
-| ![The same device detail rendered in Japanese, with translated action badges and buttons while the Sniffer, Clipper, and Mirror tab names stay put](images/screenshots/device-detail-ja.png) |
-
-Same device as the Device Detail shot above, but after a profile-language change. The complete HAIR UI is multilingual.
-
-| The Mirror |
-|:---:|
-| ![Mirror tab logging every HA-originated IR send with provenance chips, heard-by areas, and send counts](images/screenshots/mirror-tab.png) |
-
-| The Closet |
-|:---:|
-| ![Closet tab with brand shelves, count chips, the oxblood drop bar, and library and personal wigs side by side](images/screenshots/closet.png) |
-
-| Action Mapping | Sniffer |
-|:---:|:---:|
-| ![Action mapping popover with mode and fan options plus the free-form custom action entry](images/screenshots/action-mapping.png) | ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png) |
-
-| Assigned Popover | Trigger Popover |
-|:---:|:---:|
-| ![Assigned popover listing every device command a signal is bound to, with click-through navigation](images/screenshots/assigned-popover.png) | ![Trigger popover listing the automations a signal fires, with a new trigger shortcut](images/screenshots/trigger-popover.png) |
-
-| Assign Signal | Create Trigger | Adopt Device |
-|:---:|:---:|:---:|
-| ![Assign dialog for mapping a captured signal to a device command](images/screenshots/assign-dialog.png) | ![Create Trigger dialog with S/L diamond pattern and min hits setting](images/screenshots/trigger-dialog.png) | ![Adopt dialog for creating a new HAIR device from an unknown remote](images/screenshots/promote-dialog.png) |
+Every tab and dialog is pictured beside its own section in [Using HAIR](#using-hair).
 
 ## Features
 
@@ -151,11 +133,15 @@ The main view shows up to six sections (the Blasters section appears only when a
 
 The Sniffer is a passive listener that shows every IR signal your receivers pick up. Signals are grouped by source device (identified by carrier frequency and preamble fingerprint) and displayed with hit counts, signal counts, and last-seen timestamps.
 
+![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png)
+
 Each source device row can be expanded to show individual signals with their S/L diamond fingerprint. From here you can assign a signal directly to a HAIR device as a named command, or promote an unknown source device into a full HAIR device profile. Before promoting, hover over the source device's name on the row and click it to rename it -- otherwise the new device inherits the auto-generated source name (e.g., "Unknown Remote 1"). Renaming first lands the promoted device in your Devices tab already labeled correctly, though you can also rename it later from the Devices tab if you prefer to promote first.
 
 The Test button on any captured signal opens an emitter picker so you can choose which IR emitter to fire the test signal through, and broadcast through multiple emitters at once if you want. The picker remembers your selection for the session so subsequent Tests skip straight to Send.
 
-A remote whose codes already run a HAIR device shows a numbered dot on its ADOPT button; click through to see those devices, jump to any of them, or adopt another copy for a second room. You can dismiss noisy sources (like a neighbor's remote leaking through a window) and bring them back later with the "Show Dismissed" toggle (hover tooltip: "Restore previously hidden remotes"). When dismissed remotes are still firing in the background, the button quietly glows blue and shows a small dot indicator, so you can tell at a glance that there is still activity arriving from remotes you have hidden, without re-exposing those signals in the live feed. Clicking the button clears the dot and reveals the dismissed remotes so you can restore the ones you actually want back.
+A remote whose codes already run a HAIR device shows a numbered dot on its ADOPT button; click through to see those devices, jump to any of them, or adopt another copy for a second room.
+
+<p align="center"><img src="images/screenshots/assigned-popover.png" alt="Assigned popover listing every device command a signal is bound to, with click-through navigation" width="420"></p> You can dismiss noisy sources (like a neighbor's remote leaking through a window) and bring them back later with the "Show Dismissed" toggle (hover tooltip: "Restore previously hidden remotes"). When dismissed remotes are still firing in the background, the button quietly glows blue and shows a small dot indicator, so you can tell at a glance that there is still activity arriving from remotes you have hidden, without re-exposing those signals in the live feed. Clicking the button clears the dot and reveals the dismissed remotes so you can restore the ones you actually want back.
 
 You can give any signal an alias by clicking its diamond pattern and typing a name. The alias replaces the diamonds in the row, which makes it easy to tell signals apart before you assign them. Assigning a signal no longer removes it from the Sniffer either. The signal is copied into the device and stays in the list, so you can assign the same signal to several devices, or as several commands, and reuse it later -- and an assigned button keeps flashing its row when you press it, so you can always see that the remote is alive.
 
@@ -186,6 +172,8 @@ Nothing is transmitted over the air during a pluck, and your blaster keeps worki
 ### The Closet Tab
 
 The Closet is the shelf where portable code sets live. Two kinds of entries hang side by side, marked by their dot color: codebooks installed with Home Assistant's core infrared code library (slate) -- so the built-in shelf is stocked by Home Assistant itself -- and your own wig files from `/config/hair/wigs/` (oxblood), organized by brand with the unbranded shelf pinned on top. Search covers brands, names, kind, and product identifiers (UPC, FCC ID, ASIN, OEM), so a barcode typed straight off the box finds its wig; the count chips filter to library or your own, and clicking an entry's signal count peeks at the signal names inside without leaving the tab.
+
+![Closet tab with brand shelves, count chips, the oxblood drop bar, and library and personal wigs side by side](images/screenshots/closet.png)
 
 Getting things in is one gesture: drop a file anywhere on the tab (or click Browse). The drop bar reads the file, converts it if needed, and becomes the receipt -- it tells you exactly which brand the arrival hung under, with the name and brand clickable so you can jump straight to it. Dropping a file whose codes are already in the closet still files it, but the receipt turns yellow and lists every place an identical device already hangs. Five formats convert on drop:
 
@@ -247,6 +235,8 @@ Fittings are how shared wigs earn trust. A wig with fittings from several people
 
 The Mirror logs every IR transmission that originates inside Home Assistant, at the moment it is sent. A HAIR device command, a Test from any catalog tab, an automation firing a command, or another integration sending through the native `infrared` platform: each lands as a row showing what was sent (the assigned command name when there is one, otherwise the decoded protocol identity), which emitter carried it, whether a receiver heard it back and in which room, where it came from, and how many times it has been sent. A send that arrives while you are watching blooms its row silver.
 
+![Mirror tab logging every HA-originated IR send with provenance chips, heard-by areas, and send counts](images/screenshots/mirror-tab.png)
+
 The heard-back column is the part that earns the tab its place: a command that transmits but is never heard by any receiver reads "not heard", which is how you find a dead IR LED, a misaimed blaster, or an offline emitter without pointing a phone camera at anything. "Not heard" is neutral, not an alarm, because plenty of setups are transmit-only on purpose; the amber "Not heard" filter chip is there when you are actually troubleshooting. Homes with no receiver at all simply see their sends without heard-back detail. Filter chips narrow the list to one emitter, and search covers names, protocols, emitters, and origins.
 
 Every row carries the same Assign, Test, and Trigger buttons as the rest of the panel, plus the code viewer. That makes the Mirror the third road for importing codes, next to the Clipper (paste) and the Plucker (pull by name): press a button in any vendor app whose blaster transmits through the infrared platform, and if a receiver hears the transmission, the decoded code appears in the Mirror ready to assign to a HAIR device. No pasting, no vendor support file, no re-learning.
@@ -261,6 +251,8 @@ There are six ways to add a device.
 
 **From the Sniffer (sniff it from the air):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Hover over the source row's name and click it to rename it, then click Adopt. Every signal on the remote comes across as a named command (aliases and decoded names carry over), recognizable names are auto-mapped to entity actions, and the new device stays linked to its source remote across the catalog tabs. Renaming before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. You can also rename it later from the Devices tab. This path is ideal when you have the physical remote in hand and want to capture its signals first.
 
+<p align="center"><img src="images/screenshots/promote-dialog.png" alt="Adopt dialog for creating a new HAIR device from an unknown remote" width="420"></p>
+
 **From the Clipper (paste the codes in):** A remote you build by hand becomes a device the same way a sniffed one does. Paste its signals with "+ Add" and "+ Add Signal", then click Adopt on the remote; every pasted signal arrives as a command. This is the path for a device you have Pronto codes for (from a converter, datasheet, or ESPHome log) but cannot capture live.
 
 **From the Plucker (pull from a vendor blaster):** A blaster you mirror on the Plucker tab becomes a device the same way a sniffed or clipped remote does. Once you have plucked the signals you want with "+ Pluck Signal", click Adopt on the blaster. This is the path when the codes already live in a vendor blaster (such as Tuya Local) and you want them as HA entities without re-learning each one at a receiver.
@@ -272,6 +264,8 @@ There are six ways to add a device.
 ### Learning Commands
 
 Navigate to the Sniffer tab and press buttons on your physical remote. HAIR captures each signal in real time. Expand the source device row, then click on a signal to assign it to one of your HAIR devices. Pick a command name from the device-type-aware template list (e.g., "Power On," "Volume Up," "Mode: Cool") or enter a custom name. While assigning you can also set a "Send times" count for a device that needs the command repeated to register; you can change it later in the command editor.
+
+<p align="center"><img src="images/screenshots/assign-dialog.png" alt="Assign dialog for mapping a captured signal to a device command" width="420"></p>
 
 For air conditioners, command names like "Temp 22" and "Temp 24" wire themselves up: each one maps to its temperature step and the climate card grows a real thermostat bounded to your steps, snapping to the nearest one as you drag. Deleting a temp command removes its step.
 
@@ -286,6 +280,8 @@ You can also start from a device. A device's detail view has add-command buttons
 ### Action Mapping
 
 After learning commands, open a device's detail view and click the "ACTIONS" badge on any command row. A popover shows all available actions for that device type. Pick an action to bind it to that command. For example, mapping "Power On" to the `turn_on` action means the HA media_player's power button will fire that IR command. Actions already mapped to other commands are shown with their current assignment so you can reassign with a single click.
+
+<p align="center"><img src="images/screenshots/action-mapping.png" alt="Action mapping popover with mode and fan options plus the free-form custom action entry" width="420"></p>
 
 One kind of device never needs this. Adopt a stateful AC wig from the closet and everything is wired into the Home Assistant climate entity automatically: the state matrix drives the entity directly, so there is nothing to map by hand, and the Map action does not appear on those devices.
 
@@ -302,6 +298,8 @@ One thing to know about what an edit reaches: a device command is a copy of the 
 ### Triggers
 
 Triggers let you use incoming IR signals as automation triggers in Home Assistant. There are four ways to create a trigger.
+
+<p align="center"><img src="images/screenshots/trigger-dialog.png" alt="Create Trigger dialog with S/L diamond pattern and min hits setting" width="420">&nbsp;&nbsp;<img src="images/screenshots/trigger-popover.png" alt="Trigger popover listing the automations a signal fires, with a new trigger shortcut" width="380"></p>
 
 From a device command: expand a device in the Devices tab and click the trigger button on any command row. This creates a trigger linked to that command's signal. If a trigger already exists for that command, the button opens the trigger in edit mode instead.
 
