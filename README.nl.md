@@ -6,7 +6,7 @@
 
 **HAIR haalt je IR-codes uit fabrikanten-clouds, blaster-geheugens en configuratiebestanden, en brengt ze naar Home Assistant zelf.**
 
-Richt een willekeurige afstandsbediening op een IR-ontvanger, druk op een knop, en HAIR maakt van dat signaal iets waar Home Assistant echt mee kan werken: een knop op elk dashboard, een trigger voor je automatiseringen, een commando dat je door elke blaster op HA's native infraroodplatform kunt sturen. Geen YAML, geen fabrikanten-apps, geen codebestanden downloaden.
+Richt een willekeurige afstandsbediening op een IR-ontvanger, druk op een knop, en HAIR maakt van dat signaal iets waar Home Assistant echt mee kan werken: een knop op elk dashboard, een trigger voor je automatiseringen, een commando dat je door elke blaster op HA's native infraroodplatform kunt sturen. Geen YAML, geen fabrikanten-apps, niets aangeleerd in andermans kastje.
 
 ## Installatie
 

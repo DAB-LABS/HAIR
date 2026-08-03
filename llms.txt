@@ -102,11 +102,10 @@ Key components:
   together by brand; CLIP materializes a wig into a Clipper remote through the
   same import path as the code-library picker, and re-clipping collapses onto
   the existing remote. Built-in library rows (rendered from the
-  infrared-protocols codes package) carry FIT, ADOPT, and download
-  alongside CLIP (v0.8.1); fitting one first snapshots it into the closet as
-  a wig (origin "library", deterministic render, repeat fittings land in the
-  same file by content hash). Add to Closet serializes any Sniffer, Clipper,
-  or Plucker remote or HAIR device into the closet with an origin stamp
+  infrared-protocols codes package) carry ADOPT and download alongside
+  CLIP (v0.8.1); adopting one snapshots it into the closet as a wig
+  (origin "library", deterministic render). Save to Closet on a HAIR
+  device serializes it into the closet with an origin stamp
   (captured / clipped / plucked / device / library / converted:*) that the
   wig editor renders as a plain-English provenance sentence. The drop bar is
   also an import funnel: SmartIR JSON (all four encodings; climate files
@@ -120,46 +119,50 @@ Key components:
   The Add picker intermixes local wigs into the library alphabet. HAIR
   ships zero codes: wigs are the landing spot for codes that cannot or have
   not yet gone upstream.
-- Fittings (v0.8.0): a wig can be proven on real hardware and the proof
-  travels with the file. FIT on a closet wig (or library row) opens a
-  session: pick an emitter, send each signal, mark WORKED or DID NOT. Marks
-  persist into the wig file as they are made; FIT again resumes with
-  untested signals first. Complete fittings ride inside the wig on download
-  and share; partial or in-progress fittings stay local, so a shared wig
-  never carries half a claim. The closet shows a green check on fitted wigs,
-  yellow while partial, with fitted / not-fitted filter chips, and each wig
-  keeps a ledger of every fitting. Recorded fittings are signed with an
-  ed25519 key generated on the install (via the cryptography package HA
-  already ships); the ledger distinguishes signed, unsigned, and
-  signature-mismatch states, unsigned fittings stay valid as self-reported
-  records, and no Home Assistant identifier, raw or hashed, is ever written
-  into a wig (fitting_signing.py). Fittings bind to a content hash of what
-  they attest (wig_fitting.py): the signals hash for signal wigs, the cells
-  hash for matrix wigs, so a rename survives but a code change invalidates
-  the fitting. Fitting sends carry their own provenance chip in the Mirror.
-- Replace (Smart Perm, v0.9.1): every fitting row carries a fourth button
-  that swaps its code, either from a pasted Pronto or from a live capture
-  taken through a receiver while the session waits. Replacing stamps a
-  provenance marker (captured / pasted) on the signal, cell, or matrix power
-  block and rolls the wig's content hash, so the change is never quiet; the
-  identical code is refused rather than stamped. The caller's own session
-  follows the roll, and the next session seeds its verdicts from their last
-  fitting for every row whose key and normalized code both still match,
-  proven against a digest snapshot taken at replace time. On a matrix wig,
-  replaced cells the dimension checklist does not sample are appended as a
-  Changed Codes section and proved like any other row. Every replaced row
-  keeps the code the wig came with in a replaced_from record, so the row's
-  chip offers REVERT: back to the file's own original, past any number of
-  repairs, and still available after signing (the attesting fitting then goes
-  stale by hash, correctly). Discard puts back the codes the session replaced
-  as well as its verdicts. Markers, the carry snapshot and the replaced-from
-  record all ride extra maps outside every canonical hash (wig-format.md).
-- Bypass protocol (Highlights, v0.9.2): an optional per-signal boolean in the
+- Fittings (v0.8.0, remodeled 0.9.5 "The Fitting Room"): a wig is proven
+  on real hardware and the proof travels with the file. Proving happens on
+  the device: adopt the wig, live with it, and SAVE TO CLOSET (device
+  header) presents a per-command checklist with a stateless TEST button per
+  row; ticks become signed per-row claims. Each claim binds one row's
+  transmit recipe by digest -- sha256(normalized_pronto + "|d<ditto>" +
+  "|b<0|1>")[:16] -- so editing a row orphans exactly that row's claims and
+  renames are free (alias and send_count are out of the digest,
+  permanently). Exclusions are standardized verdicts, not failures:
+  not_on_device / wont_work. Matrix bundles additionally pin cells_hash
+  (never named content_hash; the legacy/claims discriminator is entry
+  SHAPE, not the format stamp). Bundles are ed25519-signed (key = raw
+  32-byte pubkey, sig over the bundle minus sig, sorted keys, compact,
+  UTF-8; the key is the install's only pseudonym -- no HA identifier, raw
+  or hashed, ever enters a wig). Wig-level verdicts are derived, never
+  stored: complete = one bundle covering every row worked; perfect fit =
+  complete with zero exclusions; coverage = the union. The closet check
+  has three tiers (none / fitted / perfect fit) matching the download
+  filename tiers exactly (name.wig.json / name.fitted.wig.json /
+  name.perfect-fit.wig.json). The read-only ledger (via the fittings-count
+  door on the save dialog) shows fitters, per-row verdicts, signature
+  states, and orphaned claims. Pre-claims fittings are dropped on import
+  with a receipt notice; they cannot become claims (a whole-file hash says
+  nothing about which rows anybody proved).
+- Replace (Smart Perm v0.9.1, moved to the device in 0.9.5): a command
+  whose code is wrong gets repaired in the command editor -- paste a
+  Pronto or LISTEN and capture one through a receiver; the heard code
+  populates the box directly and nothing commits until save. Replacing a
+  command's bytes resets its raw pin: the pin is a claim a specific
+  capture earned, so the chip re-derives from the new bytes and the user
+  re-pins deliberately. On a device adopted from a wig, SAVE TO CLOSET
+  detects content differences and offers UPDATE: renames are matched
+  pair-keyed (digest + alias, two-pass, guards the duplicate-payload
+  case), content changes are proposed explicitly, the wig re-combs on the
+  way out, and claims on unchanged rows survive by construction. The
+  0.9.1 session bookkeeping (provenance markers, replaced_from, carry
+  maps) is retired: nothing writes or reads it; old files carrying it are
+  inert extra data.
+- Bypass protocol (0.9.5): an optional per-signal boolean in the
   wig format, and a matching tx_force_raw knob on UnknownSignal, meaning "send
   these bytes verbatim, do not decode and re-encode". Motivated by GH #78: a
   Symphony repeat-train re-encodes to one clean frame and the device ignores
-  it. Settable on a device command, a sniffed signal, a clipped signal and in
-  the fitting's REPLACE strip; carried across assign, export, adopt and CLIP.
+  it. Settable on a device command, a sniffed signal and a clipped signal;
+  carried across assign, export, adopt and CLIP.
   IN the canonical signals hash but only when true, so every pre-existing wig
   and fitting signature stays byte-identical. The comb SKIPS bypassed rows in
   the shape checks and excludes them from the population that defines normal
@@ -189,7 +192,7 @@ Key components:
   async_replace: replace must keep refusing an identical pronto, and
   weakening that check would break the marker-implies-roll invariant
   Changed Codes rows depend on.
-- TX knobs (Highlights, v0.9.2): send_count (whole-frame repetition) and
+- TX knobs (0.9.5): send_count (whole-frame repetition) and
   repeat_count (NEC dittos) render through one component, ir-tx-knobs, on
   device command rows, Mirror rows, Sniffer signals and Clipper signals. The
   ditto glyph is suppressed on a bypassed row because raw replay never emits
@@ -199,7 +202,7 @@ Key components:
   AST test in test_mirror.py fails if one stops. A Mirror row records the
   counts the send actually used, last-send semantics, defaulting to None so
   the echo-heard path cannot erase them.
-- Row column discipline (Highlights, v0.9.2): the Sniffer's protocol chip,
+- Row column discipline (0.9.5): the Sniffer's protocol chip,
   hit count, relative time and frequency sit in fixed centred cells, and the
   device detail's action badge reserves the widest label its device type can
   render. Sizing is a hidden copy of that label stacked in the same CSS grid

@@ -6,7 +6,7 @@
 
 **HAIR saca tus códigos IR de las nubes de los fabricantes, de la memoria de los emisores y de los archivos de configuración, y los mete en Home Assistant.**
 
-Apunta cualquier mando a un receptor IR, pulsa un botón, y HAIR convierte esa señal en algo que Home Assistant puede usar de verdad: un botón en cualquier panel, un disparador para tus automatizaciones, un comando que puedes enviar por cualquier emisor de la plataforma infrarroja nativa de HA. Sin YAML, sin apps de fabricantes, sin descargar archivos de códigos.
+Apunta cualquier mando a un receptor IR, pulsa un botón, y HAIR convierte esa señal en algo que Home Assistant puede usar de verdad: un botón en cualquier panel, un disparador para tus automatizaciones, un comando que puedes enviar por cualquier emisor de la plataforma infrarroja nativa de HA. Sin YAML, sin apps de fabricantes, sin nada aprendido en la caja de otro.
 
 ## Instalación
 

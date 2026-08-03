@@ -6,7 +6,7 @@
 
 **HAIR tira fuori i tuoi codici IR dai cloud dei produttori, dalla memoria dei trasmettitori e dai file di configurazione, e li porta dentro Home Assistant.**
 
-Punta un telecomando qualsiasi verso un ricevitore IR, premi un tasto, e HAIR trasforma quel segnale in qualcosa che Home Assistant sa davvero usare: un pulsante su qualsiasi dashboard, un trigger per le tue automazioni, un comando da inviare attraverso qualsiasi trasmettitore della piattaforma a infrarossi nativa di HA. Niente YAML, niente app dei produttori, niente file di codici da scaricare.
+Punta un telecomando qualsiasi verso un ricevitore IR, premi un tasto, e HAIR trasforma quel segnale in qualcosa che Home Assistant sa davvero usare: un pulsante su qualsiasi dashboard, un trigger per le tue automazioni, un comando da inviare attraverso qualsiasi trasmettitore della piattaforma a infrarossi nativa di HA. Niente YAML, niente app dei produttori, niente da far imparare alla scatola di qualcun altro.
 
 ## Installazione
 
