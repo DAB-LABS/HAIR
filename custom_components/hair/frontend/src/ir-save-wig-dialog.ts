@@ -31,7 +31,7 @@
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
-import { t } from "./localize.js";
+import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { SavePlan, SavePlanRow, SaveResult } from "./types.js";
@@ -83,6 +83,10 @@ export class IrSaveWigDialog extends LitElement {
     /** UPDATE only: the footer escape hatch, behind a confirm. */
     @state() private _saveAsNew = false;
     @state() private _confirmNew = false;
+    /** The person has typed or ticked something in here. Gates the
+     * gray-button explanation so it answers a question rather than
+     * pre-empting one. */
+    @state() private _touched = false;
 
     private get _isUpdate(): boolean {
         return this._plan?.variant === "update" && !this._saveAsNew;
@@ -184,6 +188,13 @@ export class IrSaveWigDialog extends LitElement {
      * bench (owner report 2026-08-03). */
     private get _blockedReason(): string | null {
         if (this._canSave || this._busy) return null;
+        // NOT ON OPEN. An update dialog resting untouched genuinely has
+        // nothing to write, which is not a problem the person has yet:
+        // showing the sentence immediately reads as an error raised
+        // before anybody did anything wrong (owner bench 2026-08-03).
+        // It waits until they have engaged with something, which is
+        // when "why is Save gray" becomes a question worth answering.
+        if (!this._touched) return null;
         // An unticked oath needs no sentence. The oath box is right
         // there, it is the biggest control in the block, and its own
         // label already says what ticking it means -- a second line
@@ -245,6 +256,7 @@ export class IrSaveWigDialog extends LitElement {
      * default claim is "all of it", and unchecking is the exception
      * path rather than the main road. */
     private _togglePerfect(e: Event): void {
+        this._touched = true;
         this._perfect = (e.target as HTMLInputElement).checked;
         if (this._perfect) {
             this._checked = new Set(this._allRows.map((r) => r.digest));
@@ -500,10 +512,12 @@ export class IrSaveWigDialog extends LitElement {
                       <input
                           type="text"
                           .value=${this._name}
-                          @input=${(e: Event) =>
-                              (this._name = (
+                          @input=${(e: Event) => {
+                              this._touched = true;
+                              this._name = (
                                   e.target as HTMLInputElement
-                              ).value)}
+                              ).value;
+                          }}
                       />
                       ${this._renamingWig
                           ? html`<div class="rename-warn">
@@ -545,8 +559,10 @@ export class IrSaveWigDialog extends LitElement {
                     type="text"
                     .value=${this._notes}
                     placeholder=${t("wigs.editor.notes_placeholder")}
-                    @input=${(e: Event) =>
-                        (this._notes = (e.target as HTMLInputElement).value)}
+                    @input=${(e: Event) => {
+                        this._touched = true;
+                        this._notes = (e.target as HTMLInputElement).value;
+                    }}
                 />
             </div>
         `;
@@ -565,8 +581,10 @@ export class IrSaveWigDialog extends LitElement {
                     type="text"
                     .value=${value}
                     placeholder=${placeholder}
-                    @input=${(e: Event) =>
-                        set((e.target as HTMLInputElement).value)}
+                    @input=${(e: Event) => {
+                        this._touched = true;
+                        set((e.target as HTMLInputElement).value);
+                    }}
                 />
             </div>
         `;
@@ -602,12 +620,11 @@ export class IrSaveWigDialog extends LitElement {
                 <div class="fit-explainer">${t("wigs.save.explainer")}</div>
                 ${this._isUpdate && (this._plan?.existing_fittings ?? 0) > 0
                     ? html`<div class="joining">
-                          ${t("wigs.save.joining", {
-                              count: String(
-                                  this._plan?.existing_fittings ?? 0,
-                              ),
-                              name: this._plan?.source_wig_name ?? "",
-                          })}
+                          ${tp(
+                              "wigs.save.joining",
+                              this._plan?.existing_fittings ?? 0,
+                              { name: this._plan?.source_wig_name ?? "" },
+                          )}
                       </div>`
                     : ""}
                 ${this._perfect ? this._renderList() : ""}
@@ -759,10 +776,8 @@ export class IrSaveWigDialog extends LitElement {
     private _renderActions() {
         const blocked = this._blockedReason;
         return html`
-            ${blocked
-                ? html`<div class="blocked">${blocked}</div>`
-                : ""}
             <div class="dialog-actions">
+                <span class="blocked">${blocked ?? ""}</span>
                 <span class="spacer"></span>
                 <button
                     class="action-btn cancel-btn"
@@ -994,11 +1009,15 @@ export class IrSaveWigDialog extends LitElement {
                 line-height: 1.45;
                 margin: 4px 0 0;
             }
+            /* Muted, and beside the button it is about. Amber across
+               the full width made the resting state of an update dialog
+               look like a failure; this is a hint, not a warning. */
             .blocked {
-                font-size: 11.5px;
-                color: #d9a441;
-                line-height: 1.45;
-                margin: 10px 0 -2px;
+                font-size: 11px;
+                color: var(--secondary-text-color);
+                line-height: 1.35;
+                max-width: 300px;
+                text-align: left;
             }
         `,
     ];
