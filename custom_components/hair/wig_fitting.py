@@ -69,12 +69,17 @@ from typing import TYPE_CHECKING, Any
 from .const import MAX_DITTO_COUNT, MAX_SEND_COUNT
 from .pronto_validator import validate_pronto
 from .wig_format import (
+    VERDICT_WORKED,
     Wig,
     cell_key,
+    claims_of,
+    coverage,
     normalized_pronto,
+    perfect_by,
     row_digest,
     serialize_wig,
     wig_content_hash,
+    wig_row_digests,
 )
 
 if TYPE_CHECKING:
@@ -730,6 +735,68 @@ def wig_needs_share_strip(wig: Wig) -> bool:
         not (fitting_is_complete(f, wig) and fitting_is_valid(f, wig))
         for f in view.fittings
     )
+
+
+def claims_summary(wig: Wig, username: str | None) -> dict[str, Any]:
+    """The closet row's check, DERIVED from claims (RULED 2026-08-03).
+
+    Three tiers, one-to-one with the download filename tiers, because a
+    row and a filename saying different things about the same wig is a
+    contradiction somebody has to resolve by opening it:
+
+    - nothing: no attestations at all
+    - "scoped": at least one signed attestation, none of them complete
+    - "perfect": at least one person's claims cover every row
+
+    GREEN IS KEYED TO ONE PERSON'S COMPLETE COVERAGE. Union coverage
+    across fitters never inflates it: three people who each proved a
+    different third have not, between them, produced anybody who can
+    say the whole wig works on their hardware. That union is real and
+    worth knowing, but it is shop-side judgment and tooltip material,
+    not a green check.
+
+    Says nothing about the comb. The comb's glyph is a different
+    statement about different evidence -- bytes, not hardware -- and a
+    wig can honestly wear a green check and a glowing comb at once.
+    """
+    bundles = claims_of(wig)
+    digests = wig_row_digests(wig)
+    # A matrix wig's claims bind the lattice as a set rather than a
+    # list of row digests, so completeness is "they claimed the rows
+    # they were shown", which for a checklist bundle is every row in it.
+    matrix = wig.climate is not None
+
+    def _complete(bundle: Any) -> bool:
+        if matrix:
+            return bool(bundle.rows) and all(
+                row.verdict == VERDICT_WORKED for row in bundle.rows
+            )
+        return perfect_by(bundle, digests)
+
+    state: str | None = None
+    if any(_complete(b) for b in bundles):
+        state = "perfect"
+    elif bundles:
+        state = "scoped"
+
+    def _mine(bundle: Any) -> bool:
+        handle = (bundle.handle or "").strip().lower()
+        return bool(username) and handle == (username or "").strip().lower()
+
+    mine = [b for b in bundles if _mine(b)]
+    return {
+        "state": state,
+        "user_state": (
+            ("perfect" if any(_complete(b) for b in mine) else "scoped")
+            if mine else None
+        ),
+        "fitters": len(bundles),
+        "perfect_by": [
+            b.handle for b in bundles if _complete(b) and b.handle
+        ],
+        "covered": len(coverage(bundles, digests)),
+        "total": len(digests),
+    }
 
 
 def fitting_summary(wig: Wig, username: str | None) -> dict[str, Any]:

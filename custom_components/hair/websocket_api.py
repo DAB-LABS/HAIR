@@ -2675,7 +2675,7 @@ async def ws_wigs_list(
         from .code_library import get_tree, library_available
         from .wig_climate import matrix_summary
         from .wig_comb import receipt_summary
-        from .wig_fitting import fitting_summary
+        from .wig_fitting import claims_summary
         from .wig_store import scan_wigs
 
         scan = scan_wigs(hass.config.config_dir)
@@ -2715,7 +2715,7 @@ async def ws_wigs_list(
                         matrix_summary(loaded.wig.climate)
                         if loaded.wig.climate is not None else None
                     ),
-                    "fitting": fitting_summary(loaded.wig, username),
+                    "fitting": claims_summary(loaded.wig, username),
                     # The comb glyph's state. None means NO RECEIPT --
                     # nobody has combed this wig -- which is deliberately
                     # not the same as clean, and the row draws the same
@@ -4376,7 +4376,7 @@ async def ws_wig_make_device(
         return
 
     from .models import CaptureResult, CommandCategory
-    from .wig_comb import suspect_keys
+    from .wig_comb import suspect_findings
     from .wig_fitting import fitting_send_times_max
     from .wig_identity import wig_signal_identities
 
@@ -4389,7 +4389,8 @@ async def ws_wig_make_device(
     # combed simply carries no doubts. Matrix wigs bring their depth-0
     # extras through the same loop, which is how suspect extras end up
     # visible in the commands area rather than lost behind the lattice.
-    suspects = set(suspect_keys(wig))
+    findings = suspect_findings(wig)
+    suspects = set(findings)
 
     # Fine-tuned-fittings: the highest send-times any fitter needed
     # seeds the adopted device, so a candle that answers at three
@@ -4501,6 +4502,7 @@ async def ws_wig_make_device(
         # device does not clear the flag: the doubt is about the code,
         # not the label.
         command.comb_suspect = sig.alias in suspects
+        command.comb_finding = findings.get(sig.alias)
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1
@@ -4514,7 +4516,7 @@ async def ws_wig_make_device(
     # fitting dialog could replace a defective cell.
     cell_rows = 0
     if matrix is not None:
-        cell_rows = _mint_cell_rows(device, matrix, suspects)
+        cell_rows = _mint_cell_rows(device, matrix, findings)
 
     await manager.async_update_device(device)
     result = await _device_full(hass, device)
@@ -4558,7 +4560,7 @@ def _temp_label(temp: float) -> str:
 
 
 def _mint_cell_rows(
-    device: IRDevice, matrix: Any, suspects: set[str]
+    device: IRDevice, matrix: Any, findings: dict[str, str]
 ) -> int:
     """Give every comb-flagged cell a command row. Returns how many.
 
@@ -4566,12 +4568,12 @@ def _mint_cell_rows(
     by ``cell_key`` -- the comb records cell findings under exactly that
     key, so no second vocabulary is invented here.
     """
-    if not suspects:
+    if not findings:
         return 0
     from .models import CommandCategory, CommandSource, IRCommand
     from .wig_format import cell_key
 
-    flagged = [c for c in matrix.cells if cell_key(c) in suspects]
+    flagged = [c for c in matrix.cells if cell_key(c) in findings]
     minted = 0
     for cell in flagged:
         command = IRCommand(
@@ -4589,6 +4591,7 @@ def _mint_cell_rows(
                 "swing": cell.swing, "temp": cell.temp,
             },
             comb_suspect=True,
+            comb_finding=findings.get(cell_key(cell)),
         )
         # Deliberately NOT auto-mapped: these are repair portholes, not
         # buttons the entity should start offering as features.

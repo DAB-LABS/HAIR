@@ -565,7 +565,6 @@
     "wigs.chip.fitted": "Provate ({count})",
     "wigs.chip.unfitted": "Non provate ({count})",
     "wigs.fit_tick.perfect": "Vestibilità perfetta",
-    "wigs.fit_tick.partial": "Provata in parte: {confirmed} di {total}",
     "fitting.header": "Prova in corso. Invia i segnali qui sotto e dicci se il dispositivo risponde.",
     "fitting.emitter": "Emettitore",
     "fitting.pick_emitter": "Scegli un emettitore...",
@@ -743,5 +742,9 @@
     "chip.bypass_tip": "Ignora il protocollo rilevato, invia Pronto grezzo",
     "chip.bypass_action": "Clicca per trasmettere tempi decodificati puliti.",
     "chip.decoded_tip": "Trasmette tempi decodificati puliti.",
-    "chip.decoded_action": "Clicca per inviare il codice catturato così com'è."
+    "chip.decoded_action": "Clicca per inviare il codice catturato così com'è.",
+    "wigs.fit_tick.perfect_by": "Calzata perfetta di {who}",
+    "wigs.fit_tick.scoped": "Calzato da {fitters}, con esclusioni. {covered} di {total} stati provati insieme.",
+    "devdetail.del_cell_title": "Eliminare questo stato?",
+    "devdetail.del_cell_msg": "{name} esce dalla matrice di stati di questo dispositivo. Il controllo clima smette di offrirlo. Gli altri stati restano intatti."
 }

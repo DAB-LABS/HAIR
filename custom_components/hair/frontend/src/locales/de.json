@@ -565,7 +565,6 @@
     "wigs.chip.fitted": "Anprobiert ({count})",
     "wigs.chip.unfitted": "Nicht anprobiert ({count})",
     "wigs.fit_tick.perfect": "Sitzt perfekt",
-    "wigs.fit_tick.partial": "Teilweise anprobiert: {confirmed} von {total}",
     "fitting.header": "Anprobe läuft. Teste die Signale unten und sag uns, ob dein Gerät reagiert.",
     "fitting.emitter": "Sender",
     "fitting.pick_emitter": "Sender wählen...",
@@ -743,5 +742,9 @@
     "chip.bypass_tip": "Umgeht das erkannte Protokoll, sendet rohes Pronto",
     "chip.bypass_action": "Klicken, um stattdessen saubere dekodierte Zeiten zu senden.",
     "chip.decoded_tip": "Sendet saubere dekodierte Zeiten.",
-    "chip.decoded_action": "Klicken, um den aufgenommenen Code unverändert zu senden."
+    "chip.decoded_action": "Klicken, um den aufgenommenen Code unverändert zu senden.",
+    "wigs.fit_tick.perfect_by": "Perfekte Passform von {who}",
+    "wigs.fit_tick.scoped": "Angepasst von {fitters}, mit Ausnahmen. {covered} von {total} Zustaenden gemeinsam belegt.",
+    "devdetail.del_cell_title": "Diesen Zustand loeschen?",
+    "devdetail.del_cell_msg": "{name} verlaesst die Zustandsmatrix dieses Geraets. Die Klimasteuerung bietet ihn nicht mehr an. Andere Zustaende bleiben unberuehrt."
 }

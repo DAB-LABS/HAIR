@@ -565,7 +565,6 @@
     "wigs.chip.fitted": "Essayées ({count})",
     "wigs.chip.unfitted": "Non essayées ({count})",
     "wigs.fit_tick.perfect": "Ajustement parfait",
-    "wigs.fit_tick.partial": "Essai partiel : {confirmed} sur {total}",
     "fitting.header": "Essayage en cours. Testez les signaux ci-dessous et dites-nous si votre appareil répond.",
     "fitting.emitter": "Émetteur",
     "fitting.pick_emitter": "Choisir un émetteur...",
@@ -743,5 +742,9 @@
     "chip.bypass_tip": "Contourne le protocole détecté, envoi du Pronto brut",
     "chip.bypass_action": "Cliquez pour transmettre des temps décodés propres.",
     "chip.decoded_tip": "Transmission des temps décodés propres.",
-    "chip.decoded_action": "Cliquez pour envoyer le code capturé tel quel."
+    "chip.decoded_action": "Cliquez pour envoyer le code capturé tel quel.",
+    "wigs.fit_tick.perfect_by": "Ajustement parfait par {who}",
+    "wigs.fit_tick.scoped": "Ajuste par {fitters}, avec exclusions. {covered} des {total} etats prouves a eux tous.",
+    "devdetail.del_cell_title": "Supprimer cet etat ?",
+    "devdetail.del_cell_msg": "{name} quitte la matrice d'etats de cet appareil. La commande de climat cesse de le proposer. Les autres etats ne changent pas."
 }

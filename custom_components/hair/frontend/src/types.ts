@@ -69,6 +69,14 @@ export interface IRCommand {
     // person can test exactly what was doubted. Nothing refuses a send
     // because of it.
     comb_suspect?: boolean;
+    /** WHICH comb finding flagged it, e.g. "duplicated-neighbour".
+     * The marker's tooltip says what the comb found rather than a
+     * generic "suspect". */
+    comb_finding?: string | null;
+    /** A PORTHOLE to a lattice cell: every action through this row
+     * acts on the matrix, so delete removes the cell and the confirm
+     * names the coordinates. */
+    matrix_cell?: Record<string, unknown> | null;
     created_at: string;
 }
 
@@ -219,15 +227,25 @@ export interface CombReport extends CombSummary {
 }
 
 // Perfect Fit: the fitting layer.
+/**
+ * The closet row's check, derived from claims (RULED 2026-08-03).
+ *
+ * Three tiers, one-to-one with the download filename tiers: null (no
+ * attestations), "scoped" (signed attestations, none complete), and
+ * "perfect" (at least one person's claims cover every row). Green is
+ * keyed to ONE person's complete coverage -- union coverage never
+ * inflates it, and rides in the tooltip instead.
+ */
 export interface FittingSummary {
-    state: "perfect" | "partial" | null;
-    user_state: "perfect" | "partial" | null;
-    user_draft: boolean;
-    confirmed: number;
-    failed: number;
+    state: "perfect" | "scoped" | null;
+    user_state: "perfect" | "scoped" | null;
+    /** How many people have attested at all. */
+    fitters: number;
+    /** Who has a perfect fit, for the tooltip. */
+    perfect_by: string[];
+    /** Union coverage across every fitter. Tooltip material only. */
+    covered: number;
     total: number;
-    others_complete: number;
-    warnings: string[];
 }
 
 export interface FittingLedgerRow {

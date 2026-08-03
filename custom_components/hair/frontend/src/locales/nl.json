@@ -565,7 +565,6 @@
     "wigs.chip.fitted": "Gepast ({count})",
     "wigs.chip.unfitted": "Niet gepast ({count})",
     "wigs.fit_tick.perfect": "Past perfect",
-    "wigs.fit_tick.partial": "Deels gepast: {confirmed} van {total}",
     "fitting.header": "Passessie bezig. Test de signalen hieronder en laat weten of je apparaat reageert.",
     "fitting.emitter": "Zender",
     "fitting.pick_emitter": "Kies een zender...",
@@ -743,5 +742,9 @@
     "chip.bypass_tip": "Omzeilt het gedetecteerde protocol, verstuurt ruwe Pronto",
     "chip.bypass_action": "Klik om in plaats daarvan schone gedecodeerde tijden te versturen.",
     "chip.decoded_tip": "Verstuurt schone gedecodeerde tijden.",
-    "chip.decoded_action": "Klik om de opgenomen code ongewijzigd te versturen."
+    "chip.decoded_action": "Klik om de opgenomen code ongewijzigd te versturen.",
+    "wigs.fit_tick.perfect_by": "Perfecte pasvorm van {who}",
+    "wigs.fit_tick.scoped": "Gepast door {fitters}, met uitsluitingen. {covered} van {total} toestanden samen aangetoond.",
+    "devdetail.del_cell_title": "Deze toestand verwijderen?",
+    "devdetail.del_cell_msg": "{name} verdwijnt uit de toestandsmatrix van dit apparaat. De klimaatbediening biedt hem niet meer aan. Andere toestanden blijven ongemoeid."
 }

@@ -587,7 +587,6 @@
     "wigs.chip.fitted": "Przymierzone ({count})",
     "wigs.chip.unfitted": "Nieprzymierzone ({count})",
     "wigs.fit_tick.perfect": "Leży idealnie",
-    "wigs.fit_tick.partial": "Częściowo przymierzona: {confirmed} z {total}",
     "fitting.header": "Przymiarka w toku. Przetestuj poniższe sygnały i daj znać, czy urządzenie reaguje.",
     "fitting.emitter": "Nadajnik",
     "fitting.pick_emitter": "Wybierz nadajnik...",
@@ -777,5 +776,9 @@
     "chip.bypass_tip": "Pomija wykryty protokół, wysyła surowy Pronto",
     "chip.bypass_action": "Kliknij, aby zamiast tego wysłać czyste zdekodowane czasy.",
     "chip.decoded_tip": "Wysyła czyste zdekodowane czasy.",
-    "chip.decoded_action": "Kliknij, aby wysłać przechwycony kod bez zmian."
+    "chip.decoded_action": "Kliknij, aby wysłać przechwycony kod bez zmian.",
+    "wigs.fit_tick.perfect_by": "Idealne dopasowanie: {who}",
+    "wigs.fit_tick.scoped": "Dopasowane przez {fitters}, z wykluczeniami. Wspolnie potwierdzono {covered} z {total} stanow.",
+    "devdetail.del_cell_title": "Usunac ten stan?",
+    "devdetail.del_cell_msg": "{name} znika z macierzy stanow tego urzadzenia. Sterowanie klimatem przestaje go oferowac. Pozostale stany zostaja bez zmian."
 }

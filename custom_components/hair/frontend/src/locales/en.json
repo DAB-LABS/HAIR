@@ -565,7 +565,6 @@
     "wigs.chip.fitted": "Fitted ({count})",
     "wigs.chip.unfitted": "Not fitted ({count})",
     "wigs.fit_tick.perfect": "Perfect fit",
-    "wigs.fit_tick.partial": "Partially fitted: {confirmed} of {total}",
     "fitting.header": "Fitting in progress. Test the signals below and let us know if your device responds.",
     "fitting.emitter": "Emitter",
     "fitting.pick_emitter": "Pick an emitter...",
@@ -743,5 +742,9 @@
     "chip.bypass_tip": "Bypassing the detected protocol, sending raw Pronto",
     "chip.bypass_action": "Click to transmit clean decoded timings instead.",
     "chip.decoded_tip": "Transmitting clean decoded packet timings.",
-    "chip.decoded_action": "Click to send the captured code as-is."
+    "chip.decoded_action": "Click to send the captured code as-is.",
+    "wigs.fit_tick.perfect_by": "Perfect fit by {who}",
+    "wigs.fit_tick.scoped": "Fitted by {fitters}, with exclusions. {covered} of {total} states proven between them.",
+    "devdetail.del_cell_title": "Delete this state?",
+    "devdetail.del_cell_msg": "{name} leaves this device's state matrix. The climate control stops offering it. Other states are untouched."
 }

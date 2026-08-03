@@ -565,7 +565,6 @@
     "wigs.chip.fitted": "試着済み ({count})",
     "wigs.chip.unfitted": "未試着 ({count})",
     "wigs.fit_tick.perfect": "ぴったりフィット",
-    "wigs.fit_tick.partial": "一部試着済み: {total}中{confirmed}",
     "fitting.header": "試着中です。下の信号をテストして、機器が反応したか教えてください。",
     "fitting.emitter": "送信機",
     "fitting.pick_emitter": "送信機を選択...",
@@ -743,5 +742,9 @@
     "chip.bypass_tip": "検出したプロトコルをバイパスし、生の Pronto を送信します",
     "chip.bypass_action": "クリックするとデコード済みの整ったタイミングを送信します。",
     "chip.decoded_tip": "デコード済みの整ったタイミングを送信します。",
-    "chip.decoded_action": "クリックすると取得したコードをそのまま送信します。"
+    "chip.decoded_action": "クリックすると取得したコードをそのまま送信します。",
+    "wigs.fit_tick.perfect_by": "{who} によるパーフェクトフィット",
+    "wigs.fit_tick.scoped": "{fitters} 名がフィット済み（除外あり）。全体で {total} 件中 {covered} 件の状態が確認済みです。",
+    "devdetail.del_cell_title": "この状態を削除しますか?",
+    "devdetail.del_cell_msg": "{name} はこの機器のステートマトリクスから削除されます。空調コントロールはこの状態を提供しなくなります。他の状態はそのままです。"
 }

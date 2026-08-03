@@ -673,6 +673,39 @@ def receipt_summary(wig: Wig) -> dict[str, Any] | None:
     }
 
 
+def suspect_findings(wig: Wig) -> dict[str, str]:
+    """Row key -> the check class that flagged it, worst first.
+
+    ``suspect_keys`` answers WHETHER a row is doubted; this answers
+    WHY, which is what a marker's tooltip has to say. A bare "suspect"
+    tells somebody there is a problem and nothing about which problem,
+    and the comb already knows: it recorded the class.
+
+    Findings are ordered worst-first in the receipt, so the first class
+    to claim a key wins -- a row that is both a duplicated neighbour
+    and an odd frame shape leads with the one that matters.
+    """
+    raw = wig.extra.get(COMB_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    findings = raw.get("findings")
+    if not isinstance(findings, list):
+        return {}
+    bypassed = {sig.alias for sig in wig.signals if sig.bypass_protocol}
+    out: dict[str, str] = {}
+    for entry in findings:
+        if not isinstance(entry, dict):
+            continue
+        check = entry.get("check")
+        if check in ADVISORY_CHECKS or not isinstance(check, str):
+            continue
+        for key in entry.get("keys") or []:
+            if isinstance(key, str) and key not in out \
+                    and key not in bypassed:
+                out[key] = check
+    return out
+
+
 def suspect_keys(wig: Wig) -> list[str]:
     """Row keys the stored receipt flagged, worst first, deduped.
 

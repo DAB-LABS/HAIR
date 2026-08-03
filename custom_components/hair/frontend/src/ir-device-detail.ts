@@ -1786,8 +1786,16 @@ export class IrDeviceDetail extends LitElement {
             ${this._commandToDelete
                 ? html`
                       <ir-confirm-dialog
-                          title=${t("devdetail.del_cmd_title")}
-                          message=${t("devdetail.del_cmd_msg", { name: this._commandToDelete.name })}
+                          title=${this._commandToDelete.matrix_cell
+                              ? t("devdetail.del_cell_title")
+                              : t("devdetail.del_cmd_title")}
+                          message=${this._commandToDelete.matrix_cell
+                              ? t("devdetail.del_cell_msg", {
+                                    name: this._commandToDelete.name,
+                                })
+                              : t("devdetail.del_cmd_msg", {
+                                    name: this._commandToDelete.name,
+                                })}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._confirmCommandDelete}

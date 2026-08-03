@@ -7,6 +7,14 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import "./ir-protocol-chip.js";
+
+// The comb, from images/comb.svg -- the same mark the closet uses for
+// byte doubt. A row wearing it and a closet row wearing it are making
+// the same kind of statement, so they use the same symbol rather than
+// two vocabularies for one idea.
+const ICON_COMB =
+    "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853c12.245,10.304,19.264,25.259,19.264,41.024V320z";
+
 import "./ir-tx-knobs.js";
 import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
@@ -82,6 +90,21 @@ export class IrCommandRow extends LitElement {
     }
 
     /** Render diamond pattern: filled blue = Long, empty amber = Short. */
+    /**
+     * What the comb actually found on this row.
+     *
+     * NEVER a generic "suspect" (bench 2026-08-03). The comb recorded a
+     * class; saying only that something is wrong names a problem and
+     * hides which one, and the person is about to decide whether to
+     * test it, replace it, or leave it. Falls back to the plain line
+     * only for a row flagged by a build that did not record the class.
+     */
+    private _combTitle(): string {
+        const found = this.command?.comb_finding;
+        if (!found) return t("cmdrow.comb_suspect");
+        return `${t(`comb.class.${found}`)} -- ${t(`comb.what.${found}`)}`;
+    }
+
     private _renderDiamonds() {
         const cmd = this.command;
         if (!cmd || cmd.protocol?.toUpperCase() !== "PRONTO" || !cmd.code)
@@ -190,9 +213,11 @@ export class IrCommandRow extends LitElement {
                             : ""}
                         ${learned && this.command?.comb_suspect
                             ? html`<span
-                                  class="comb-dot"
-                                  title=${t("cmdrow.comb_suspect")}
-                                  >&bull;</span
+                                  class="comb-mark"
+                                  title=${this._combTitle()}
+                              ><svg viewBox="0 0 512 512"><path
+                                          d=${ICON_COMB}
+                                      ></path></svg></span
                               >`
                             : ""}
                         ${learned && this.command
@@ -381,11 +406,16 @@ export class IrCommandRow extends LitElement {
            code came from, not a verdict on it, and the row still works
            exactly as any other row does. The tooltip carries the whole
            message. */
-        .comb-dot {
-            color: #d9a441;
-            font-size: 14px;
-            line-height: 1;
+        .comb-mark {
+            display: inline-flex;
+            align-items: center;
             cursor: help;
+            flex: none;
+        }
+        .comb-mark svg {
+            width: 11px;
+            height: 11px;
+            fill: #d9a441;
         }
         .name-input {
             font-size: inherit;

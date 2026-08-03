@@ -48,6 +48,7 @@ import "./ir-promote-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
+    FittingSummary,
     MatrixSummary,
     WigInfo,
     WigInvalid,
@@ -1334,6 +1335,32 @@ export class IrWigs extends LitElement {
      * CG3); the tooltip is what separates them. Red outranks yellow by
      * taxonomy rather than count -- one duplicated neighbour is worse than
      * thirty-four malformed frames, because the device answers that one. */
+    /**
+     * The check's tooltip: the derived detail the glyph cannot carry.
+     *
+     * Three tiers only (RULED 2026-08-03), matching the download
+     * filename tiers exactly -- a row and a filename disagreeing about
+     * the same wig is a contradiction somebody has to open the file to
+     * resolve.
+     *
+     * Union coverage is reported here rather than in the colour, on
+     * purpose: three people who each proved a different third have not
+     * produced anybody who can say the whole wig works.
+     */
+    private _fitTitle(fitting: FittingSummary): string {
+        if (fitting.state === "perfect") {
+            const who = (fitting.perfect_by ?? []).filter(Boolean);
+            return who.length
+                ? t("wigs.fit_tick.perfect_by", { who: who.join(", ") })
+                : t("wigs.fit_tick.perfect");
+        }
+        return t("wigs.fit_tick.scoped", {
+            fitters: String(fitting.fitters ?? 0),
+            covered: String(fitting.covered ?? 0),
+            total: String(fitting.total ?? 0),
+        });
+    }
+
     private _combState(wig: WigInfo): string {
         const comb = wig.comb;
         if (!comb || comb.suspects === 0) return "";
@@ -1376,14 +1403,7 @@ export class IrWigs extends LitElement {
                               .wig.fitting.user_state === "perfect"
                               ? "yours"
                               : ""} ${row.wig.matrix ? "matrix" : ""}"
-                          title=${row.wig.fitting.state === "perfect"
-                              ? t("wigs.fit_tick.perfect")
-                              : t("wigs.fit_tick.partial", {
-                                    confirmed: String(
-                                        row.wig.fitting.confirmed,
-                                    ),
-                                    total: String(row.wig.fitting.total),
-                                })}
+                          title=${this._fitTitle(row.wig.fitting)}
                           >&check;</span
                       >`
                     : ""}
@@ -2141,7 +2161,10 @@ export class IrWigs extends LitElement {
                 0 0 6px rgba(102, 187, 106, 0.9),
                 0 0 12px rgba(102, 187, 106, 0.45);
         }
-        .fit-tick.partial {
+        /* The old partial-yellow reborn with a better meaning: it
+           used to say somebody stopped early. It now says a complete,
+           signed, honest attestation that carries exclusions. */
+        .fit-tick.scoped {
             color: #ffb300;
         }
         /* Matrix wigs' stateful signature (owner design 2026-07-28:

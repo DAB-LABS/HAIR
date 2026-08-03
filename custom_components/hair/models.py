@@ -85,6 +85,11 @@ class IRCommand:
     # a note about where the code came from, not a verdict on it, so
     # nothing in HAIR treats it as a reason to refuse a send.
     comb_suspect: bool = False
+    # WHICH finding flagged it: the comb's check class, e.g.
+    # "duplicated-neighbour". The marker's tooltip says what the comb
+    # actually found rather than a generic "suspect" -- the comb knows,
+    # so the row should say (bench 2026-08-03).
+    comb_finding: str | None = None
     created_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
@@ -112,6 +117,7 @@ class IRCommand:
             "matrix_cell": dict(self.matrix_cell)
             if self.matrix_cell else None,
             "comb_suspect": self.comb_suspect,
+            "comb_finding": self.comb_finding,
             "created_at": self.created_at,
         }
 
@@ -138,6 +144,7 @@ class IRCommand:
             plucked_command_name=data.get("plucked_command_name"),
             matrix_cell=data.get("matrix_cell") or None,
             comb_suspect=bool(data.get("comb_suspect", False)),
+            comb_finding=data.get("comb_finding") or None,
             created_at=data.get("created_at") or _now_iso(),
         )
 
