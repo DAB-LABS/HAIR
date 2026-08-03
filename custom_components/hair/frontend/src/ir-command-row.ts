@@ -188,6 +188,13 @@ export class IrCommandRow extends LitElement {
                                   >${t("devices.state_chip")}</span
                               >`
                             : ""}
+                        ${learned && this.command?.comb_suspect
+                            ? html`<span
+                                  class="comb-dot"
+                                  title=${t("cmdrow.comb_suspect")}
+                                  >&bull;</span
+                              >`
+                            : ""}
                         ${learned && this.command
                             ? html`<ir-tx-knobs
                                   .sendCount=${this.command.send_count}
@@ -368,6 +375,17 @@ export class IrCommandRow extends LitElement {
             color: #58a6d8;
             background: rgba(88, 166, 216, 0.12);
             border: 1px solid rgba(88, 166, 216, 0.45);
+        }
+        /* What the comb doubted, carried from the wig this command was
+           adopted from. A dot, not a badge: it is a note about where the
+           code came from, not a verdict on it, and the row still works
+           exactly as any other row does. The tooltip carries the whole
+           message. */
+        .comb-dot {
+            color: #d9a441;
+            font-size: 14px;
+            line-height: 1;
+            cursor: help;
         }
         .name-input {
             font-size: inherit;

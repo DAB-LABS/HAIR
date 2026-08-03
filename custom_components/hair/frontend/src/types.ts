@@ -64,6 +64,11 @@ export interface IRCommand {
     // reads it -- which surfaced as a TS2339 build warning.
     byte_hash?: string | null;
     tx_force_raw?: boolean;
+    // The comb doubted this row in the wig it was adopted from
+    // (v0.9.5). Display only: it colours a dot on the row so the
+    // person can test exactly what was doubted. Nothing refuses a send
+    // because of it.
+    comb_suspect?: boolean;
     created_at: string;
 }
 
@@ -332,6 +337,20 @@ export type FittingListenEvent =
           receiver: string | null;
       }
     | { type: "fitting_listen_timeout" };
+
+// One event from the command editor's Replace section. Same shape as
+// the fitting variant, its own event names: both surfaces can be open
+// at once during the release that carries them, and a shared name would
+// cross their wires.
+export type CommandListenEvent =
+    | {
+          type: "command_capture";
+          pronto: string;
+          decoded: boolean;
+          protocol: string | null;
+          receiver: string | null;
+      }
+    | { type: "command_listen_timeout" };
 
 export interface FittingState {
     filename: string;

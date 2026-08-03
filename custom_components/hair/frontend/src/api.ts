@@ -17,6 +17,7 @@ import type {
     DeleteSignalResult,
     DeviceSummary,
     CombReport,
+    CommandListenEvent,
     FittingListenEvent,
     FittingState,
     DeviceTypeId,
@@ -556,6 +557,19 @@ export class HairApi {
         return this.hass.connection.subscribeMessage<FittingListenEvent>(
             onEvent,
             { type: "hair/wigs/fitting/listen" },
+        );
+    }
+
+    /** Arm the Sniffer for one capture into the command editor's Pronto
+     * box. Emits a single command_capture or command_listen_timeout;
+     * call the returned unsubscribe on cancel or when the dialog
+     * closes. */
+    async commandListen(
+        onEvent: (event: CommandListenEvent) => void,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeMessage<CommandListenEvent>(
+            onEvent,
+            { type: "hair/command/listen" },
         );
     }
 
