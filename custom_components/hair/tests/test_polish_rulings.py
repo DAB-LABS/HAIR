@@ -1067,3 +1067,25 @@ class TestTheCombReportHandsOff:
             (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
         )
         assert "{lint}" in data["comb.explain_lead"], locale
+
+
+class TestDownloadsCarryTheTier:
+    """The download filename tiers (brief section 6, built 2026-08-03):
+    name.wig.json / name.fitted.wig.json / name.perfect-fit.wig.json,
+    derived from the same FittingSummary the row's check glyph reads.
+    A row and a filename disagreeing about the same wig would be a
+    contradiction somebody has to open the file to resolve."""
+
+    def test_the_download_derives_a_tiered_name(self):
+        text = _read("ir-wigs.ts")
+        assert "_tieredFilename" in text
+        block = text.split("private _tieredFilename", 1)[1]
+        block = block.split("private async _download", 1)[0]
+        assert '".perfect-fit"' in block
+        assert '".fitted"' in block
+
+    def test_the_download_path_uses_it(self):
+        text = _read("ir-wigs.ts")
+        download = text.split("private async _download(", 1)[1]
+        download = download.split("private async _downloadLibrary", 1)[0]
+        assert "_tieredFilename" in download

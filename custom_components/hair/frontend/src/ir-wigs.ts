@@ -985,13 +985,30 @@ export class IrWigs extends LitElement {
         }
     }
 
+    /** The downloaded file's name carries the wig's check tier --
+     * name.wig.json, name.fitted.wig.json, name.perfect-fit.wig.json --
+     * derived from the same FittingSummary the row's check glyph reads,
+     * so the filename and the row can never disagree about the same
+     * wig. The name is presentation: the file's contents are identical
+     * across tiers, and an install importing it never reads the name. */
+    private _tieredFilename(wig: WigInfo, filename: string): string {
+        const state = wig.fitting?.state ?? null;
+        if (state === null) return filename;
+        const suffix = state === "perfect" ? ".perfect-fit" : ".fitted";
+        return filename.endsWith(".wig.json")
+            ? filename.slice(0, -".wig.json".length) + suffix + ".wig.json"
+            : filename + suffix;
+    }
+
     private async _download(wig: WigInfo | null): Promise<void> {
         if (!wig) return;
         try {
             const { filename, text } = await this.api.wigsGet(
                 wig.filename,
             );
-            await this._downloadText(filename, text);
+            await this._downloadText(
+                this._tieredFilename(wig, filename), text,
+            );
         } catch (err) {
             this._flash((err as Error).message);
         }

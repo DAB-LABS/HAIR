@@ -210,6 +210,8 @@ The closet's check has three tiers, computed the same way:
 | scoped | At least one signed attestation, none of them complete. |
 | perfect | **One person's** claims cover every row. |
 
+**Downloads carry the tier in the filename.** The closet names a downloaded file for the tier its check shows: `name.wig.json` with no attestations, `name.fitted.wig.json` with signed but incomplete attestations, `name.perfect-fit.wig.json` when at least one person's claims cover every row. The name is presentation only -- the file contents are identical across tiers, an importing install never reads the name, and renaming the file changes nothing.
+
 **Green is keyed to one person's complete coverage.** Union coverage across fitters never inflates it: three people who each proved a different third have not, between them, produced anybody who can say the whole wig works on their hardware. That union is real and worth knowing, and it is tooltip material rather than a colour.
 
 ### Pre-0.9.5 fittings
