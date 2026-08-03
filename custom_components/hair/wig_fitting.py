@@ -32,7 +32,6 @@ canonical form, so they cannot move a wig's identity.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from .wig_format import (
@@ -237,6 +236,3 @@ def claims_summary(wig: Wig, username: str | None) -> dict[str, Any]:
         "covered": len(coverage(bundles, digests)),
         "total": len(digests),
     }
-
-def _today() -> str:
-    return datetime.now(UTC).date().isoformat()

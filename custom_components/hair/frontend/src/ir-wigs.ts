@@ -12,7 +12,7 @@
  *
  * Wig rows: source dot, name, signal count, then a fixed-width glyph
  * slot (copy glyph opens the editor popover, user wigs only; library
- * rows stay non-editable but carry download / FIT / ADOPT since
+ * rows stay non-editable but carry download / CLIP / ADOPT since
  * v0.8.1 via the codebook->wig snapshot primitive) and TRY ON flush
  * right. TRY ON materializes through the same import path as the
  * Clipper picker:

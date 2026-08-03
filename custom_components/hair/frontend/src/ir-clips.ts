@@ -1579,14 +1579,6 @@ export class IrClips extends LitElement {
             background: #2e7d32;
             opacity: 0.9;
         }
-
-        .save-wig-btn {
-            color: #8e3b3b;
-            border-color: rgba(142, 59, 59, 0.3);
-        }
-        .save-wig-btn:hover:not(:disabled) {
-            background: rgba(142, 59, 59, 0.12);
-        }
         .clips-root.wig-drag {
             outline: 2px dashed #8e3b3b;
             outline-offset: -2px;
