@@ -121,6 +121,7 @@ export class IrSignalAlias extends LitElement {
                     <span class="alias-label">${t("alias.tag")}</span>
                     <span class="alias-name">${sig.alias}</span>
                 </span>
+                <span class="trailing"><slot name="trailing"></slot></span>
             `;
         }
         return html`
@@ -135,9 +136,18 @@ export class IrSignalAlias extends LitElement {
                               ch === "L"
                                   ? html`<span class="diamond long">◆</span>`
                                   : html`<span class="diamond short">◇</span>`,
-                          )}</span
+                          )}<span
+                              class="trailing"
+                              @click=${(e: Event) => e.stopPropagation()}
+                              ><slot name="trailing"></slot></span
+                          ></span
                       >`
-                    : html`<span class="signal-short-label">IR Signal</span>`}
+                    : html`<span class="signal-short-label">IR Signal</span
+                          ><span
+                              class="trailing"
+                              @click=${(e: Event) => e.stopPropagation()}
+                              ><slot name="trailing"></slot></span
+                          >`}
                 <ha-svg-icon class="alias-pencil" .path=${ICON_PENCIL}></ha-svg-icon>
             </span>
         `;
@@ -166,7 +176,28 @@ export class IrSignalAlias extends LitElement {
             display: inline-flex;
             gap: 1px;
             flex-wrap: wrap;
+            align-items: center;
             line-height: 1;
+        }
+        /* The TX-knob glyphs ride INSIDE the diamond run rather than
+           beside this component (owner ruling, 2026-08-01). As an
+           outside sibling they were fine next to a short alias but fell
+           to the line below whenever the diamonds wrapped, because a
+           wrapping run fills the row and a shadow host cannot share a
+           line with its own overflow. Slotted in here they wrap with the
+           diamonds and land immediately after the last one, which is
+           where they read as belonging to the signal.
+
+           The click guard matters: the diamond area opens the alias
+           editor, and clicking a send-count glyph should not rename the
+           signal. */
+        .trailing {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 7px;
+        }
+        .trailing:empty {
+            display: none;
         }
         .diamond {
             font-size: 0.7rem;

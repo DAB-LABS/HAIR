@@ -12,13 +12,17 @@ import { LitElement, html, css, type PropertyValues } from "lit";
 import { actionChipStyles } from "./ir-action-chip-styles";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-save-wig-dialog.js";
 import "./ir-create-remote-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
@@ -30,6 +34,8 @@ import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { triggerMatchesSignal } from "./types.js";
+import "./ir-protocol-chip.js";
+import "./ir-tx-knobs.js";
 import type {
     AssignResult,
     DeviceSummary,
@@ -79,7 +85,6 @@ export class IrClips extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
     @state() private _wigDragOver = false;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
@@ -437,6 +442,23 @@ export class IrClips extends LitElement {
     }
 
     // --- Signal alias (delegated to ir-signal-alias) ---
+
+    /** Pin a clipped signal to raw replay, or unpin it. This is where
+     * kno-te met the problem: he pasted a working Pronto here, tested
+     * it, and got nothing, because the Test path re-encoded it and a
+     * clipped remote had nowhere to say otherwise. */
+    private async _onToggleBypass(
+        deviceId: string,
+        signalId: string,
+        bypass: boolean,
+    ): Promise<void> {
+        try {
+            await this.api.setSignalTxForceRaw(deviceId, signalId, bypass);
+            await this._refreshExpanded();
+        } catch (err: any) {
+            this._error = err?.message ?? String(err);
+        }
+    }
 
     private _onAliasChanged(
         e: CustomEvent<{ id: string; alias: string }>,
@@ -1093,20 +1115,19 @@ export class IrClips extends LitElement {
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = d;
-                        }}
-                    >${t("wigs.save_as_wig")}</button>
-                    <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
                         title=${t("clips.delete_remote_title")}
+                        aria-label=${t("clips.delete_remote_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDeleteRemote(d);
                         }}
-                    >${t("common.delete")}</button>
+                    >
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
+                    </button>
                     </span>
                     <ha-svg-icon
                         class="expand-icon"
@@ -1181,7 +1202,29 @@ export class IrClips extends LitElement {
                         .signal=${sig}
                         @alias-changed=${this._onAliasChanged}
                         @alias-error=${(e: CustomEvent) => (this._error = e.detail)}
-                    ></ir-signal-alias>
+                    >
+                        <ir-tx-knobs
+                            slot="trailing"
+                            .sendCount=${sig.send_count}
+                            .repeatCount=${sig.repeat_count}
+                            .decoded=${!!sig.decoded_protocol}
+                            .bypassed=${!!sig.tx_force_raw}
+                            .sendsKey=${"mirror.sends_times"}
+                        ></ir-tx-knobs>
+                    </ir-signal-alias>
+                </div>
+                <div class="chip-col">
+                    <ir-protocol-chip
+                        .protocol=${sig.decoded_protocol ?? null}
+                        .bypass=${!!sig.tx_force_raw}
+                        interactive
+                        @toggle-bypass=${(e: CustomEvent) =>
+                            this._onToggleBypass(
+                                deviceId,
+                                sig.id,
+                                e.detail.bypass,
+                            )}
+                    ></ir-protocol-chip>
                 </div>
                 <div class="signal-meta">
                     ${isTesting && this._testResult
@@ -1240,12 +1283,19 @@ export class IrClips extends LitElement {
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
+                        title=${t("clips.delete_signal_title")}
+                        aria-label=${t("clips.delete_signal_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDelete(deviceId, sig);
                         }}
-                    >${t("common.delete")}</button>
+                    >
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
+                    </button>
                 </div>
             </div>
         `;
@@ -1254,15 +1304,6 @@ export class IrClips extends LitElement {
     private _renderDialogs() {
         return html`
             ${this._renderLinkedPopover()}
-            ${this._saveWigDevice
-                ? html`<ir-save-wig-dialog
-                      .api=${this.api}
-                      source="catalog"
-                      sourceId=${this._saveWigDevice.id}
-                      sourceName=${this._saveWigDevice.label ?? ""}
-                      @closed=${() => (this._saveWigDevice = null)}
-                  ></ir-save-wig-dialog>`
-                : ""}
             ${this._createRemoteOpen
                 ? html`<ir-create-remote-dialog
                       .api=${this.api}
@@ -1289,6 +1330,8 @@ export class IrClips extends LitElement {
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
+                      .initialTxForceRaw=${!!this._editSignal.signal
+                          .tx_force_raw}
                       .initialObservedRepeatCount=${this._editSignal.signal
                           .observed_repeat_count ?? 0}
                       .hasTrigger=${this._hasTrigger(this._editSignal.signal)}
@@ -1444,7 +1487,7 @@ export class IrClips extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;
@@ -1535,14 +1578,6 @@ export class IrClips extends LitElement {
         .sp-btn.primary:hover {
             background: #2e7d32;
             opacity: 0.9;
-        }
-
-        .save-wig-btn {
-            color: #8e3b3b;
-            border-color: rgba(142, 59, 59, 0.3);
-        }
-        .save-wig-btn:hover:not(:disabled) {
-            background: rgba(142, 59, 59, 0.12);
         }
         .clips-root.wig-drag {
             outline: 2px dashed #8e3b3b;
@@ -1848,6 +1883,15 @@ export class IrClips extends LitElement {
         .signal-info {
             flex: 1;
             min-width: 0;
+        }
+        /* The same fixed 96px centred column the Sniffer uses, so the two
+           lists read alike. No hits column here: a clipped remote never
+           receives live signals, so frequency is the whole of its meta. */
+        .chip-col {
+            flex: 0 0 96px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .signal-meta {
             display: flex;

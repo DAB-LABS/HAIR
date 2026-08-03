@@ -6,19 +6,27 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
+import "./ir-protocol-chip.js";
+
+// The comb, from images/comb.svg -- the same mark the closet uses for
+// byte doubt. A row wearing it and a closet row wearing it are making
+// the same kind of statement, so they use the same symbol rather than
+// two vocabularies for one idea.
+const ICON_COMB =
+    "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853c12.245,10.304,19.264,25.259,19.264,41.024V320z";
+
+import "./ir-tx-knobs.js";
 import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
 
 // mdi:content-copy -- shared view/edit glyph (matches the signal rows).
 const ICON_COPY =
     "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
-// mdi:repeat -- whole-frame send-count indicator (orange).
-const ICON_REPEAT =
-    "M17,17H7V14L3,18L7,22V19H19V13H17M7,7H17V10L21,6L17,2V5H5V11H7V7Z";
-// mdi:dots-horizontal -- NEC ditto-count indicator (blue), paired with the
-// decoded-protocol blue diamond.
-const ICON_DITTO =
-    "M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z";
 
 @customElement("ir-command-row")
 export class IrCommandRow extends LitElement {
@@ -35,6 +43,19 @@ export class IrCommandRow extends LitElement {
     /** Number of triggers bound to this command's signal (yellow dot count).
      * Falls back to hasTrigger (0/1) when the parent doesn't supply a count. */
     @property({ type: Number }) public triggerCount = 0;
+
+    /** The widest label this device type's action list can produce, used
+     *  as an invisible sizer so the badge button never changes width when
+     *  a command is mapped. Null leaves the button sized to its content. */
+    @property({ attribute: false }) public actionBadgeLabel: string | null =
+        null;
+    /** Font size the sizer renders at, so the reserved width matches the
+     *  size that label will really be drawn at. */
+    @property({ attribute: false }) public actionBadgeFontPx: number | null =
+        null;
+    /** Font size for THIS row's visible label. Long labels step down so
+     *  they fit the reserved width; short ones stay at full size. */
+    @property({ attribute: false }) public actionFontPx: number | null = null;
 
     /** Whether to show the action-mapping ("ACTIONS") button. Hidden for
      *  device types whose platform exposes no mappable feature actions
@@ -74,6 +95,21 @@ export class IrCommandRow extends LitElement {
     }
 
     /** Render diamond pattern: filled blue = Long, empty amber = Short. */
+    /**
+     * What the comb actually found on this row.
+     *
+     * NEVER a generic "suspect" (bench 2026-08-03). The comb recorded a
+     * class; saying only that something is wrong names a problem and
+     * hides which one, and the person is about to decide whether to
+     * test it, replace it, or leave it. Falls back to the plain line
+     * only for a row flagged by a build that did not record the class.
+     */
+    private _combTitle(): string {
+        const found = this.command?.comb_finding;
+        if (!found) return t("cmdrow.comb_suspect");
+        return `${t(`comb.class.${found}`)} -- ${t(`comb.what.${found}`)}`;
+    }
+
     private _renderDiamonds() {
         const cmd = this.command;
         if (!cmd || cmd.protocol?.toUpperCase() !== "PRONTO" || !cmd.code)
@@ -180,46 +216,22 @@ export class IrCommandRow extends LitElement {
                                   >${t("devices.state_chip")}</span
                               >`
                             : ""}
-                        ${learned && this.command?.decoded_fingerprint
-                            ? html`<button
-                                  class="tx-pill ${this.command.tx_force_raw ? "tx-raw-on" : ""}"
-                                  ?disabled=${this.busy}
-                                  @click=${() => this._emit("toggle-tx-raw")}
-                                  title=${this.command.tx_force_raw
-                                      ? t("cmdrow.tx_raw_on")
-                                      : t("cmdrow.tx_raw_off")}
-                              >${this.command.tx_force_raw
-                                      ? "PRONTO"
-                                      : this.command.decoded_protocol ?? "AUTO"}</button>`
-                            : ""}
-                        ${learned && this.command && this.command.send_count > 1
+                        ${learned && this.command?.comb_suspect
                             ? html`<span
-                                  class="repeat-indicator"
-                                  title=${t("cmdrow.sends_times", { count: this.command.send_count })}
-                                  ><ha-svg-icon
-                                      .path=${ICON_REPEAT}
-                                  ></ha-svg-icon
-                                  >${this.command.send_count}</span
+                                  class="comb-mark"
+                                  title=${this._combTitle()}
+                              ><svg viewBox="0 0 512 512"><path
+                                          d=${ICON_COMB}
+                                      ></path></svg></span
                               >`
                             : ""}
-                        ${
-                            // Hide the ditto chip when tx_force_raw is set: TX
-                            // takes the raw replay path in that case and the
-                            // dittos would not fire on the wire, so showing the
-                            // chip would mislead about transmit behavior.
-                            learned &&
-                            this.command &&
-                            this.command.repeat_count > 1 &&
-                            this.command.decoded_protocol &&
-                            !this.command.tx_force_raw
-                            ? html`<span
-                                  class="ditto-indicator"
-                                  title=${t("cmdrow.dittos", { count: this.command.repeat_count })}
-                                  ><ha-svg-icon
-                                      .path=${ICON_DITTO}
-                                  ></ha-svg-icon
-                                  >${this.command.repeat_count}</span
-                              >`
+                        ${learned && this.command
+                            ? html`<ir-tx-knobs
+                                  .sendCount=${this.command.send_count}
+                                  .repeatCount=${this.command.repeat_count}
+                                  .decoded=${!!this.command.decoded_protocol}
+                                  .bypassed=${!!this.command.tx_force_raw}
+                              ></ir-tx-knobs>`
                             : ""}
                     </div>
                     <div class="meta">
@@ -233,6 +245,20 @@ export class IrCommandRow extends LitElement {
                 <div class="actions">
                     ${learned
                         ? html`
+                              <div class="chip-col">
+                                  ${this.command?.decoded_protocol
+                                      ? html`<ir-protocol-chip
+                                            .protocol=${this.command
+                                                .decoded_protocol}
+                                            .bypass=${!!this.command
+                                                .tx_force_raw}
+                                            interactive
+                                            ?disabled=${this.busy}
+                                            @toggle-bypass=${() =>
+                                                this._emit("toggle-tx-raw")}
+                                        ></ir-protocol-chip>`
+                                      : ""}
+                              </div>
                               <button
                                   class="icon-btn edit-btn"
                                   ?disabled=${this.busy}
@@ -249,7 +275,22 @@ export class IrCommandRow extends LitElement {
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("map-action")}
                                   title=${t("cmdrow.map_action")}
-                              >${this.actionLabel || t("cmdrow.actions")}</button>`
+                              >${this.actionBadgeLabel
+                                      ? html`<span
+                                            class="badge-sizer"
+                                            aria-hidden="true"
+                                            style="font-size:${this
+                                                .actionBadgeFontPx ?? 10.5}px"
+                                            >${this.actionBadgeLabel}</span
+                                        >`
+                                      : ""}<span
+                                      class="badge-label"
+                                      style=${this.actionFontPx
+                                          ? `font-size:${this.actionFontPx}px`
+                                          : ""}
+                                      >${this.actionLabel ||
+                                      t("cmdrow.actions")}</span
+                                  ></button>`
                                   : ""}
                               <button
                                   class="action-btn test-btn"
@@ -267,10 +308,17 @@ export class IrCommandRow extends LitElement {
                                       (this.hasTrigger ? 1 : 0)}
                                   ></ir-count-dot></button>
                               <button
-                                  class="action-btn delete-btn"
+                                  class="trash-btn"
+                                  title=${t("cmdrow.delete_title")}
+                                  aria-label=${t("cmdrow.delete_title")}
                                   ?disabled=${this.busy}
                                   @click=${() => this._emit("delete")}
-                              >${t("cmdrow.delete")}</button>
+                              >
+                                  <ha-svg-icon
+                                      .path=${ICON_TRASH}
+                                      .viewBox=${TRASH_VIEWBOX}
+                                  ></ha-svg-icon>
+                              </button>
                           `
                         : html`
                               <button
@@ -284,7 +332,7 @@ export class IrCommandRow extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [trashButtonStyles, css`
         :host {
             display: block;
         }
@@ -365,6 +413,22 @@ export class IrCommandRow extends LitElement {
             background: rgba(88, 166, 216, 0.12);
             border: 1px solid rgba(88, 166, 216, 0.45);
         }
+        /* What the comb doubted, carried from the wig this command was
+           adopted from. A dot, not a badge: it is a note about where the
+           code came from, not a verdict on it, and the row still works
+           exactly as any other row does. The tooltip carries the whole
+           message. */
+        .comb-mark {
+            display: inline-flex;
+            align-items: center;
+            cursor: help;
+            flex: none;
+        }
+        .comb-mark svg {
+            width: 11px;
+            height: 11px;
+            fill: #d9a441;
+        }
         .name-input {
             font-size: inherit;
             font-weight: 500;
@@ -376,35 +440,6 @@ export class IrCommandRow extends LitElement {
             outline: none;
             padding: 0 0 1px;
             min-width: 120px;
-        }
-        .repeat-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 1px;
-            font-size: 9px;
-            font-weight: 600;
-            /* Match the short-diamond orange; bare (no pill) on the name line.
-               Vertically centered in line with the pill via the name flex.
-               Slight knock-down to sit softer next to the pill. */
-            color: var(--warning-color, #ff9800);
-            opacity: 0.85;
-        }
-        .repeat-indicator ha-svg-icon {
-            --mdc-icon-size: 10px;
-        }
-        .ditto-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 1px;
-            font-size: 9px;
-            font-weight: 600;
-            /* Match the long-diamond blue (decoded protocol); same size as the
-               orange send-count indicator it sits beside. */
-            color: var(--primary-color);
-            opacity: 0.85;
-        }
-        .ditto-indicator ha-svg-icon {
-            --mdc-icon-size: 10px;
         }
         .icon-btn {
             background: none;
@@ -448,6 +483,23 @@ export class IrCommandRow extends LitElement {
         .diamond.short {
             color: var(--warning-color, #ff9800);
         }
+        /* The protocol chip sits in its own fixed cell to the left of the
+           edit glyph (owner ruling, 2026-08-01), matching the Sniffer and
+           Clipper rows. It used to sit beside the command name, which was
+           the odd one out: every other list in the panel puts the chip in
+           a column, and a name-anchored chip walks left and right down the
+           list as names change length.
+
+           88px is the same measurement the Sniffer uses, set by the widest
+           label the chip can render (SYMPHONY12, 83.5px). A command that
+           decoded nothing holds the cell EMPTY rather than absent, so the
+           buttons after it stay on one vertical line. */
+        .chip-col {
+            flex: 0 0 88px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
         .actions {
             display: flex;
             gap: 4px;
@@ -489,11 +541,33 @@ export class IrCommandRow extends LitElement {
         .action-btn.learn-btn:hover {
             background: #1b5e20;
         }
+        /* The badge reserves room for the widest label its device type can
+           produce, so mapping an action never resizes the button and never
+           shoves TEST / TRIGGER / DELETE sideways (owner ruling,
+           2026-08-01). The reservation is a hidden copy of that label
+           stacked in the same grid cell as the visible one, so the browser
+           computes the width in the font and language actually rendered
+           rather than from an arithmetic guess that a translation would
+           break.
+
+           Mapped and unmapped were never different heights, despite
+           looking it: both are 23px. The filled primary tint on a mapped
+           badge simply reads heavier than a hollow one. */
         .action-btn.badge-btn {
             color: var(--secondary-text-color, #999);
             border-color: var(--divider-color);
             min-width: 50px;
             text-align: center;
+            display: inline-grid;
+            align-items: center;
+            justify-items: center;
+        }
+        .action-btn.badge-btn > * {
+            grid-area: 1 / 1;
+        }
+        .badge-sizer {
+            visibility: hidden;
+            pointer-events: none;
         }
         .action-btn.badge-btn[data-mapped] {
             color: var(--primary-color);
@@ -554,7 +628,7 @@ export class IrCommandRow extends LitElement {
             opacity: 0.5;
             cursor: default;
         }
-    `;
+    `];
 }
 
 declare global {

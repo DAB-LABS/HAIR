@@ -15,13 +15,17 @@ import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-save-wig-dialog.js";
 import "./ir-pluck-add-remote-dialog.js";
 import "./ir-pluck-signal-dialog.js";
 import "./ir-promote-dialog.js";
@@ -67,7 +71,6 @@ export class IrPluck extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
     @state() private _expandedDevice: UnknownDevice | null = null;
@@ -890,7 +893,7 @@ export class IrPluck extends LitElement {
                               title=${t("pluck.clear_all_title")}
                               @click=${() => (this._confirmClearAll = true)}
                           >
-                              Clear All
+                              ${t("sniffer.clear_all")}
                           </button>
                       </div>
                   `
@@ -959,20 +962,19 @@ export class IrPluck extends LitElement {
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = d;
-                        }}
-                    >${t("wigs.save_as_wig")}</button>
-                    <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
                         title=${t("pluck.delete_blaster_title")}
+                        aria-label=${t("pluck.delete_blaster_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDeleteRemote(d);
                         }}
-                    >${t("common.delete")}</button>
+                    >
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
+                    </button>
                     </span>
                     <ha-svg-icon
                         class="expand-icon"
@@ -1103,13 +1105,18 @@ export class IrPluck extends LitElement {
                         ></ir-count-dot>
                     </button>
                     <button
-                        class="action-btn delete-btn"
+                        class="trash-btn"
+                        title=${t("pluck.delete_signal_title")}
+                        aria-label=${t("pluck.delete_signal_title")}
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._openDelete(deviceId, sig);
                         }}
                     >
-                        ${t("common.delete")}
+                        <ha-svg-icon
+                            .path=${ICON_TRASH}
+                            .viewBox=${TRASH_VIEWBOX}
+                        ></ha-svg-icon>
                     </button>
                 </div>
             </div>
@@ -1288,19 +1295,10 @@ export class IrPluck extends LitElement {
                   ></ir-test-emitter-dialog>`
                 : ""}
             ${this._renderLinkedPopover()}
-            ${this._saveWigDevice
-                ? html`<ir-save-wig-dialog
-                      .api=${this.api}
-                      source="catalog"
-                      sourceId=${this._saveWigDevice.id}
-                      sourceName=${this._saveWigDevice.label ?? ""}
-                      @closed=${() => (this._saveWigDevice = null)}
-                  ></ir-save-wig-dialog>`
-                : ""}
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;
@@ -1313,14 +1311,6 @@ export class IrPluck extends LitElement {
             --mdc-icon-size: 14px;
             color: var(--secondary-text-color);
             flex: none;
-        }
-
-        .save-wig-btn {
-            color: #8e3b3b;
-            border-color: rgba(142, 59, 59, 0.3);
-        }
-        .save-wig-btn:hover:not(:disabled) {
-            background: rgba(142, 59, 59, 0.12);
         }
 
         :host {

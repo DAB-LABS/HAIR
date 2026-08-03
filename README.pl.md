@@ -1,12 +1,21 @@
 <p align="center">
-  <img src="images/HAIR-readme-hero-v0.2.png" alt="Baner HAIR" width="900" />
+  <img src="https://raw.githubusercontent.com/DAB-LABS/HAIR/main/images/HAIR-readme-hero-v0.2.png" alt="Baner HAIR" width="900" />
 </p>
 
 # HAIR
 
 **HAIR wyciąga Twoje kody IR z chmur producentów, pamięci nadajników i plików konfiguracyjnych, i wprowadza je do Home Assistant.**
 
-Skieruj dowolnego pilota na odbiornik IR, naciśnij przycisk, a HAIR zamieni ten sygnał w coś, czego Home Assistant naprawdę potrafi użyć: przycisk na dowolnym dashboardzie, wyzwalacz dla Twoich automatyzacji, polecenie do wysłania przez dowolny nadajnik na natywnej platformie podczerwieni HA. Bez YAML, bez aplikacji producentów, bez pobierania plików z kodami.
+Skieruj dowolnego pilota na odbiornik IR, naciśnij przycisk, a HAIR zamieni ten sygnał w coś, czego Home Assistant naprawdę potrafi użyć: przycisk na dowolnym dashboardzie, wyzwalacz dla Twoich automatyzacji, polecenie do wysłania przez dowolny nadajnik na natywnej platformie podczerwieni HA. Bez YAML, bez aplikacji producentów, bez uczenia czyjegoś pudełka.
+
+## Instalacja
+
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
+1. Otwórz HACS i wyszukaj HAIR
+2. Zainstaluj HAIR, zrestartuj Home Assistant i dodaj integrację w Ustawienia, potem Urządzenia i usługi
+
+Wymaga Home Assistant 2026.4 lub nowszego; 2026.6+ zalecane dla natywnych odbiorników IR.
 
 ## Pięć sposobów na wprowadzenie kodów
 
@@ -29,15 +38,6 @@ Panel mówi w Twoim języku. Angielski, hiszpański, francuski, japoński, niemi
 > [!IMPORTANT]
 > To tłumaczenie panelu HAIR zostało przygotowane przez asystenta programistycznego i czeka na przegląd rodzimego użytkownika języka. Jeśli to możesz być Ty: przegląd mieści się w jednym pull requeście, a Twoje nazwisko trafia do pliku. Zacznij tutaj: [Adding a language](CONTRIBUTING.md#adding-a-language).
 
-## Instalacja
-
-[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
-
-1. Dodaj `https://github.com/DAB-LABS/HAIR` do HACS jako repozytorium niestandardowe (kategoria: Integration)
-2. Zainstaluj HAIR, zrestartuj Home Assistant i dodaj integrację w Ustawienia, potem Urządzenia i usługi
-
-Wymaga Home Assistant 2026.4 lub nowszego; 2026.6+ zalecane dla natywnych odbiorników IR.
-
 ## Pełna dokumentacja
 
 Kompletny README, z YAML-em konfiguracji, obsługiwanym sprzętem, przewodnikami po funkcjach i zrzutami ekranu, jest po angielsku:
@@ -46,4 +46,4 @@ Kompletny README, z YAML-em konfiguracji, obsługiwanym sprzętem, przewodnikami
 
 ---
 
-*Przetłumaczone z angielskiego README, stan na v0.9.1. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Przetłumaczone z angielskiego README, stan na v0.9.5. Ten plik został przygotowany przez asystenta programistycznego i jest odświeżany przy każdym wydaniu. Rodzimi użytkownicy języka są mile widziani, by przejąć nad nim opiekę; zobacz [Adding a language](CONTRIBUTING.md#adding-a-language).*

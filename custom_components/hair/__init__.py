@@ -8,7 +8,7 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .capture_orchestrator import CaptureOrchestrator
@@ -94,10 +94,6 @@ async def async_setup_entry(
     trigger_manager = TriggerManager(hass, store)
     signal_monitor = SignalMonitor(hass, signal_store, store, trigger_manager)
 
-    from .wig_fitting import FittingManager
-
-    fitting_manager = FittingManager(hass, signal_monitor)
-
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "store": store,
@@ -108,21 +104,9 @@ async def async_setup_entry(
         "signal_monitor": signal_monitor,
         "trigger_manager": trigger_manager,
         "pluckable_registry": pluckable_registry,
-        "fitting_manager": fitting_manager,
         "config_entry": entry,
     }
 
-    # Fitting marks write through to the wig file debounced; a clean HA
-    # stop must not eat the tail of a fitting session (owner ruling
-    # 2026-07-26: partials survive reboots).
-    async def _flush_fittings(_event: object) -> None:
-        await fitting_manager.async_shutdown()
-
-    entry.async_on_unload(
-        hass.bus.async_listen_once(
-            EVENT_HOMEASSISTANT_STOP, _flush_fittings
-        )
-    )
 
     async_register_websocket_commands(hass)
 
@@ -225,9 +209,6 @@ async def async_unload_entry(
         if monitor is not None:
             await monitor.async_stop()
 
-        fitting_manager = data.get("fitting_manager")
-        if fitting_manager is not None:
-            await fitting_manager.async_shutdown()
 
     if not any(
         isinstance(v, dict) and "device_manager" in v

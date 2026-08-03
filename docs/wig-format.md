@@ -1,8 +1,8 @@
-# The wig format (hair-wig/1, hair-wig/2)
+# The wig format (hair-wig/1, hair-wig/2, hair-wig/3)
 
 A wig is a portable IR code set: one JSON file describing one remote. HAIR reads wigs from `/config/hair/wigs/`, and any tool can emit them. This page is the format contract; if you build something that writes wigs, this is everything you need.
 
-There are two versions, and the version follows the content. A wig of plain button signals is `hair-wig/1`, unchanged since 0.7.0, and every install that ever read wigs keeps reading it. A wig that carries a climate state matrix (added in HAIR 0.8.8) is `hair-wig/2`: everything in v1 plus the optional `climate` block documented below. An exporter must only write v2 when the wig actually has a climate block, so files never demand a newer reader than they need.
+There are three versions, and the version follows the content. A wig of plain button signals is `hair-wig/1`, unchanged since 0.7.0, and every install that ever read wigs keeps reading it. A wig that carries a climate state matrix (added in HAIR 0.8.8) is `hair-wig/2`: everything in v1 plus the optional `climate` block documented below. An exporter must only write v2 when the wig actually has a climate block, so files never demand a newer reader than they need. `hair-wig/3` (HAIR 0.9.5) is a capability gate rather than a statement about content, and current HAIR writes it for both kinds: it marks the canonical break described under Rules, and the claims model that replaced whole-file fittings.
 
 ## A complete example
 
@@ -22,6 +22,8 @@ There are two versions, and the version follows the content. A wig of plain butt
         {
             "alias": "Power",
             "pronto": "0000 006d 0022 0002 ...",
+            "ditto_count": 0,
+            "bypass_protocol": false,
             "send_count": 1
         }
     ]
@@ -32,11 +34,25 @@ There are two versions, and the version follows the content. A wig of plain butt
 
 **Required fields:** `format`, `name`, and a non-empty `signals` list. Each signal requires `alias` and `pronto`. Everything else is optional. One exception: a wig with a `climate` block may have an empty or absent `signals` list -- matrix-only wigs are legal, because the matrix is the payload and flat signals are the optional extras riding alongside it.
 
-**`format`** must be `"hair-wig/1"` or `"hair-wig/2"`. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing. Write v2 only when the wig carries a `climate` block; everything else stays v1.
+**`format`** must be `"hair-wig/1"`, `"hair-wig/2"`, or `"hair-wig/3"`. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing.
+
+`hair-wig/3` (HAIR "Highlights") is a capability gate rather than a statement about the wig's kind, and current HAIR writes it for **both** kinds. It marks the one canonical break: `ditto_count` entered the signal hash, `bypass_protocol` became always-explicit, and `send_count` left the hash entirely -- flat signals and matrix cells alike. Older majors still read; readers below 3 refuse a v3 file with a version message. That refusal is the whole point of the bump. Without it an older reader would compute the previous canonical form, see a mismatch, and report what looks like tampering on a perfectly good file, which is the worst possible thing to tell someone about a file they trust.
 
 **`pronto`** carries the raw Pronto hex code, and it is the entire payload. Deliberately, there are no decoded-protocol fields in the file: the importing HAIR install decodes every signal fresh through its own decoders, so a wig can never carry a stale or wrong identity, and it benefits from decoders that shipped after the wig was written. Codes must be valid learned-format Pronto (`0000` header, correct burst-pair length math); HAIR validates each one and rejects the file with a per-signal reason if any code is malformed.
 
 **`send_count`** (optional, default 1) is how many times the whole signal transmits per press, for devices that need a repeat. Values are clamped to HAIR's supported range on import.
+
+From `hair-wig/3` it is a **ride-along**: carried, clamped, used to seed an adopted device, and deliberately **outside the content hash**. A claim has never attested it -- how many times a proof pressed was never part of what was proved -- and pinning a number nobody proved was the wrong kind of protection. The consequence is intended: five people proving the same codes at 3, 4, 3, 5 and 4 sends are proving the *same wig*, so their fittings accumulate on one file instead of forking it five ways. The honest cost is that someone can edit a send count on a signed wig and the signature still verifies. That edit is loud, locally fixable, and clamped on import; the protection budget goes to the flips that can make a device silently fail while still looking certified.
+
+**`ditto_count`** (integer, added in `hair-wig/3`, always written explicitly) is how many repeat frames the encoder appends to each transmitted frame. Range 0..20, clamped on read; absent in a hand-made file reads as 0. It is **in the content hash**, because dittos change the waveform and the fitting transmits them.
+
+A ditto is specifically the **NEC** repeat frame, and HAIR's editors only offer the field on a signal that decodes as NEC. The rule was measured rather than assumed, by counting the timings each protocol emits as the repeat count rises from 0 to 1 to 3: NEC goes 67, 71, 79, appending a four-entry frame each time. Samsung32 goes 67, 135, 271 and RC-5 goes 21, 43, 87 -- both duplicating the entire frame, which is what `send_count` already does, except from inside the hash where a delivery detail does not belong. Sharp and Sony do not move at all; they ignore the count, so a file carrying one would hash a number that never reaches the wire. A non-NEC signal should therefore always read 0. Files that carry otherwise still parse and still display their value, because a number hidden is a number nobody can find and correct.
+
+It is named `ditto_count` rather than `repeat_count` on purpose. Inside HAIR dittos are called `repeat_count` while humans say "repeats" for send counts, and the portable format is the one place that ambiguity can be killed. The export boundary maps a device command's `repeat_count` onto this field, exactly as it maps `tx_force_raw` onto `bypass_protocol`.
+
+Dittos are device grammar rather than environment. A strict receiver rejects a lone frame and needs the key-held pattern -- frame plus at least one repeat -- before it commits to a press, and standing closer does not change what a decoder chip demands. Send counts are the opposite: they answer "does the signal arrive", which is why one is hashed and the other is not.
+
+`ditto_count` and `bypass_protocol` are **mutually exclusive**. A raw blob has no ditto grammar -- only the encoder can render a shortened repeat frame -- so HAIR's exporter writes `ditto_count: 0` on any pinned signal and reports the drop rather than doing it quietly. A hand-made file carrying both parses, and the code checker raises an advisory.
 
 **`origin`** (optional, free-form string) records where the codes came from: `"captured"` for signals exported off real hardware, `"clipped"` for remotes assembled in HAIR's Clipper from pasted or library codes, `"device"` for a HAIR device's command set, `"converted"` or `"converted:smartir"` for adapter output that never touched hardware, `"plucked"` or `"plucked:tuya_local"` for codes extracted live from a vendor blaster. HAIR uses this to explain a wig's provenance in the UI. If you write an adapter, stamp your own: `"converted:yourtool"`.
 
@@ -50,6 +66,15 @@ There are two versions, and the version follows the content. A wig of plain butt
 - `oem`: the established manufacturer, once someone has actually established it. Kept separate from `brand` on purpose: `brand` records what the box said, `oem` records what was verified, and the two should never overwrite each other. A confidently wrong manufacturer is worse than an honest unknown.
 
 Identifiers are search anchors for humans, not machine identity. The codes themselves remain the strongest fingerprint a wig has: two rebadged units from the same maker share their protocol and device address no matter whose logo is on the shell, and HAIR derives that identity fresh from every wig. Fill in whatever you know; leave out what you do not.
+
+**`bypass_protocol`** (optional per-signal boolean, added in HAIR 0.9.2) says *send these bytes verbatim; do not decode and re-encode them*. Normally an importing HAIR decodes each signal fresh and transmits clean rebuilt timings, which strips receiver distortion and is almost always right. It is wrong when a capture has its repeats baked in: some devices want a burst of frames, and rebuilding one clean frame from the decoded value throws the rest away, so the device does nothing. The field exists so that intent travels with the codes instead of being rediscovered by whoever imports the wig next.
+
+It asserts nothing about protocol identity, only that these bytes are the payload. That is why it does not violate the no-decoded-fields rule: it cannot go stale against a better future decoder. `send_count` stays orthogonal (a bypassed signal can still repeat the whole blob N times), and carrier handling is unchanged. It bypasses the codec, not all processing.
+
+Two rules ride with it:
+
+- **It is IN the canonical hash, always explicitly.** It changes what transmits, so leaving it out would let someone alter a fitted wig's send behaviour while its signature still verified. HAIR 0.9.2 emitted it only when true, to avoid rolling every existing hash at once; `hair-wig/3` retired that shortcut in the same break that took the hash roll anyway, so the canonicalization spec now has zero conditional rules.
+- **An older HAIR preserves it.** A reader that predates the field parses it as an unknown per-signal key, round-trips it on export, and excludes it from the hash. That install transmits the code the old way, and its fitting reads as not matching rather than silently attesting a code it sent differently.
 
 **Unknown keys are tolerated and preserved.** A reader ignores top-level and per-signal keys it does not recognize, and an editor that re-saves a wig keeps them. This is how the format grows without breaking old installs.
 
@@ -99,10 +124,14 @@ A wig may carry a matrix, flat `signals`, or both. The flat signals alongside a 
 
 ## Canonical signals form
 
-Fittings (below) attach evidence to the exact codes in a wig. For a signal wig they hash the `signals` array in a canonical form, defined from v1 so every install computes identical hashes:
+A canonical form for the `signals` array, defined from v1 so every install computes identical hashes. As of 0.9.5 a flat wig's claims bind per-row digests instead (see Row digests below) and nothing in HAIR writes a wig-level signals hash any more, but the form stays specified: it is what tools built against v1 and v2 computed, and dropping the definition would leave those files undecipherable.
+
+The rule that decides what belongs here: **the hash covers what the fitting proves.** A fitting's signature certifies that this content drove the device when a named person pressed the buttons, so it covers exactly the waveform that left the blaster -- the bytes, the repeat frames appended to them, and whether the encoder was bypassed -- and nothing else. Delivery decisions such as how many times to press live outside it.
+
+The form is a portability contract. Any tool that computes or verifies one must reproduce it byte-for-byte:
 
 - A JSON array of objects, in the wig's signal order.
-- Each object carries exactly `alias`, `pronto`, and `send_count` (explicit even when 1); unknown keys are excluded.
+- Each object carries exactly **four** keys -- `alias`, `pronto`, `ditto_count`, `bypass_protocol` -- every field, every signal, every time. No conditional rules, no omissions. `send_count` does not appear. Unknown keys are excluded.
 - Keys sorted alphabetically, compact separators (no whitespace).
 - `pronto` whitespace-normalized (single spaces between 4-digit words) and lowercased.
 
@@ -113,32 +142,45 @@ The hash form is `sha256:<hex digest>` over the UTF-8 encoding of that string. N
 Matrix fittings bind to the matrix, so `hair-wig/2` defines a canonical form for the climate block, with the same posture as the signals form:
 
 - A JSON object carrying exactly `unit`, `off`, `on`, and `cells`.
-- `cells` is an array of objects in the wig's cell order; each object carries exactly `mode`, `fan`, `swing`, `temp`, `pronto`, and `send_count`, with absent dimensions as explicit `null` and `send_count` explicit even when 1. Unknown keys are excluded.
+- `cells` is an array of objects in the wig's cell order; each object carries exactly `mode`, `fan`, `swing`, `temp`, and `pronto`, with absent dimensions as explicit `null`. Unknown keys are excluded. `send_count` left this object in the same break that removed it from signals, for the same reason: the dimension checklist never transmitted it. Cells carry no `ditto_count` at all, because dittos are an NEC-family frame construct and an air-conditioner state blob is one long frame.
 - Every Pronto (`off`, `on`, each cell) whitespace-normalized to single spaces and lowercased; an absent `on` is `null`.
 - Keys sorted alphabetically, compact separators (no whitespace).
 - `unit` participates on purpose: the same numbers on a different scale are different states, so a 22 C lattice and a 22 F lattice can never share a fitting ledger.
 
 The hash form is again `sha256:<hex digest>` over the UTF-8 encoding. Which hash a fitting binds to follows the wig's type: signal wigs use the canonical signals hash, matrix wigs use the canonical cells hash. The flat extras riding alongside a matrix are outside the cells hash -- renaming an extra never invalidates a matrix fitting, and changing any cell always does.
 
-## Fittings
+## Row digests
 
-Added in HAIR 0.8.0. A fitting records that a person sent a wig's signals at real hardware and marked, signal by signal, whether the device responded. Fittings live in an optional top-level `fittings` array; readers that do not know the key carry it through unchanged under the unknown-keys rule.
+Added in HAIR 0.9.5, and the foundation everything below stands on. A **row digest** identifies one row by its transmit recipe:
+
+```
+sha256(normalized_pronto + "|d<ditto_count>" + "|b<0|1>")   truncated to 16 hex characters
+```
+
+Exact layout, so any external verifier reproduces it byte for byte: the normalized Pronto, then `|d` and the integer ditto count, then `|b1` when the encoder is bypassed or `|b0` when it is not. `normalized_pronto` is the same normalization the canonical forms use, single spaces between 4-digit words and lowercased.
+
+**`alias` is out, and must never be added.** Names are metadata, renames are free, and a claim has to survive one.
+
+**`send_count` is out, and must never be added.** How many times to press depends on the room rather than the device, so two people proving the same codes at three sends and at five are proving the same thing.
+
+What is in is exactly what changes the waveform: the bytes, the repeat frames appended to them, and whether the encoder is bypassed. That is the set a claim needs to bind, because it is the set that decides what leaves the emitter.
+
+## Claims
+
+Added in HAIR 0.9.5, replacing the whole-file fittings of 0.8.0. A **claims bundle** is one person's signed set of per-row claims, made in one sitting about one wig. Bundles live in the same optional top-level `fittings` array, and readers that do not know the key carry it through unchanged under the unknown-keys rule.
 
 ```json
 "fittings": [
     {
+        "wig_id": "0d0f2e6c-...",
         "handle": "dab",
         "github": "DAB-LABS",
-        "date": "2026-07-27",
-        "hair_version": "0.8.0",
-        "ha_version": "2026.7.2",
-        "emitter": "broadlink",
-        "receiver": "esphome",
-        "confirmed": ["Power On", "Power Off"],
-        "failed": [],
-        "signals_heard": 2,
-        "send_times_used": 3,
-        "content_hash": "sha256:...",
+        "date": "2026-08-03",
+        "note": "Tested on the 2019 model",
+        "rows": [
+            {"alias_at_claim": "Power On", "digest": "9f2c1a4b7e05d318", "verdict": "worked"},
+            {"alias_at_claim": "Sleep", "digest": "40b7de91c2a6f085", "verdict": "not_on_device"}
+        ],
         "key": "<base64 ed25519 public key>",
         "sig": "<base64 ed25519 signature>"
     }
@@ -147,51 +189,40 @@ Added in HAIR 0.8.0. A fitting records that a person sent a wig's signals at rea
 
 The load-bearing rules:
 
-- `confirmed` and `failed` are row-key lists, not counts. Anything in neither list was not tested. For a signal wig the keys are aliases, exactly as before 0.8.8. For a matrix wig the keys are cell keys (`cool/auto/23` -- coordinates joined by `/`, absent dimensions omitted, whole-number temps written bare and half-degree temps with their decimal) plus the literal `on` and `off` for the power codes.
-- `content_hash` is the wig's canonical hash above (signals hash for signal wigs, cells hash for matrix wigs), computed when the fitting was made. If the hashed content changes afterward (including an alias rename on a signal wig, or any cell change on a matrix wig), the hash no longer matches and the fitting is displayed as outdated rather than silently claiming codes it never saw.
-- A fitting is **complete** when `confirmed` covers every fitting row of the wig and `failed` is empty. For a signal wig the rows are its signals, one each. For a matrix wig the rows are the **dimension checklist**: a deterministic 12-to-20-row walk derived purely from the climate block that covers the on code, one representative cell per mode, every fan speed and every swing position in the richest mode, the coldest and warmest temperatures, and the off code last. The checklist attests that each dimension works along its own axis; it does not claim every cell was individually fired, and the flat extras alongside a matrix are not rows at all. HAIR only lets complete fittings travel: its download and share paths strip incomplete or in-progress fittings, so a shared wig carries whole claims or none.
-- `send_times_used` (optional, added in HAIR 0.9.0) records how many times each signal was transmitted per press during this fitting: the value of the session's send-times control, raised when a device does not respond to a single send. It is evidence about the fitter's conditions (distance, blaster power, angle), never a rewrite of any signal's `send_count` -- it sits on the fitting entry, outside both canonical hashes, so recording it cannot invalidate anything. **Absent is not 1**: a fitting without the field predates it (or came from a tool that does not write it) and claims nothing, while an explicit `1` means the fitter had the control and one send was enough. Readers clamp the value to 1..10 on read. Consumers aggregate across complete fittings by taking the **maximum**, never the mean -- send times is a threshold ("at least N to be reliable"), and HAIR's ADOPT DEVICE seeds new commands and matrix cells from that maximum, with the wig's own `send_count` winning where higher. On a matrix wig the value attests the sampled dimension checklist, not every cell in the lattice.
-- `key` and `sig` are optional. When present, `sig` is an ed25519 signature over the fitting object minus `sig` (with `key` included), serialized with sorted keys, compact separators, UTF-8. The key pair is generated on the fitting install; a valid signature means the fitting has not been altered since it was recorded there. Unsigned fittings are valid; they are simply self-reported.
-- Fittings are social proof, not cryptographic identity. The handle is what the fitter typed; the GitHub handle is checkable by asking that person; the signature proves the record is unaltered and that fittings sharing a key came from one install.
+- **A claim binds a row's recipe, not the file.** Each entry in `rows` carries a `digest` and a `verdict`. Editing one row leaves every other row's claim intact, which is the whole reason the model changed: a whole-file hash says "these bytes, all of them" and carries no information about which rows anybody proved.
+- `verdict` is `worked`, `not_on_device`, or `wont_work`. The last two are **exclusions rather than failures**: a row the fitter's hardware does not have, and a row they could not make work. A row with no claim at all was simply not tested.
+- `alias_at_claim` is the row's name when it was claimed. **Display context only** -- it is not in the digest, so a later rename cannot invalidate the claim, and it is what lets HAIR say "the wig calls this On, you called it Power" instead of silently orphaning a row.
+- A claim whose digest matches no row in the file is shown as **orphaned** rather than dropped. Somebody really did prove that recipe; it just is not the recipe on the file any more, and hiding that would let a ledger read as coverage it does not have.
+- **THERE IS NO WIG-LEVEL CONTENT HASH ON A FLAT WIG.** Row digests are the whole binding, and adding a file hash back would re-import the problem they exist to solve. A bundle carrying `content_hash` is a pre-0.9.5 fitting by definition, and that shape is the discriminator: the format stamp describes what a reader needs, not what is in the block, and the two demonstrably drift.
+- **A matrix bundle pins its lattice with `cells_hash`,** never `content_hash`. A dimension checklist samples a lattice, so the claim is about the set and not only the rows walked; if the lattice moved, the sample no longer describes it. This is also why the two names never overlap, so the legacy test stays a single check.
+- `key` and `sig` are optional. When present, `sig` is an ed25519 signature over the bundle minus `sig` (with `key` included), serialized with sorted keys, compact separators, UTF-8. A bad signature discredits the **attribution**, never the data: the claims are still on the file and still legible, and what is in doubt is whether this person made them.
+- Claims are social proof, not cryptographic identity. The handle is what the fitter typed, the GitHub handle is checkable by asking that person, and the signature proves the record is unaltered and that bundles sharing a key came from one install.
 
-## Replace: provenance and carry
+### Perfect fit and coverage are derived, never stored
 
-Added in HAIR 0.9.1. When a fitter replaces a code from the fitting session -- pasting a Pronto, or capturing one from the real remote -- HAIR records two things. Both are **optional conventions riding in `extra` maps, outside every canonical hash**, so a reader that does not know them carries them through unchanged and neither one can move a wig's identity.
+Nothing in the file records "this wig is proven". A bundle is **complete** when its claims cover every row of the wig: for a flat wig, every row digest; for a matrix wig, every checklist row carrying `worked`. Completeness is computed from the claims and the file in front of you, so it cannot go stale and cannot be asserted by a file that has since changed.
 
-**The provenance marker** says where a code came from, on the thing that changed:
+The closet's check has three tiers, computed the same way:
 
-```json
-{"alias": "Power On", "pronto": "0000 ...", "provenance": {"replaced": "captured", "date": "2026-07-31"}}
-```
+| Tier | What it means |
+|---|---|
+| none | No attestations at all. |
+| scoped | At least one signed attestation, none of them complete. |
+| perfect | **One person's** claims cover every row. |
 
-- It rides the **signal** object on a signal wig and the **cell** object on a matrix wig. The two matrix power codes are not cells, so their markers ride the climate block instead, under `provenance_power` keyed by `on` and `off`.
-- `replaced` is `captured` (off real hardware, through a receiver) or `pasted` (user-supplied bytes, unverified until fitted). A later release adds `rule-derived` for regenerated codes.
-- A repeat replace overwrites the marker; latest wins, and the marker never leaves the file once present.
-- A marker always implies the wig's hash rolled, because replacing a code with the identical code is refused rather than stamped. On a matrix wig, HAIR appends every marked cell the dimension checklist does not already cover to the fitting session as a **changed codes** row, so the human proves exactly what was touched; that is only safe while the implication holds.
+**Downloads carry the tier in the filename.** The closet names a downloaded file for the tier its check shows: `name.wig.json` with no attestations, `name.fitted.wig.json` with signed but incomplete attestations, `name.perfect-fit.wig.json` when at least one person's claims cover every row. The name is presentation only -- the file contents are identical across tiers, an importing install never reads the name, and renaming the file changes nothing.
 
-**The replaced-from record** keeps the code the row used to hold, so a repair can be undone:
+**Green is keyed to one person's complete coverage.** Union coverage across fitters never inflates it: three people who each proved a different third have not, between them, produced anybody who can say the whole wig works on their hardware. That union is real and worth knowing, and it is tooltip material rather than a colour.
 
-```json
-"replaced_from": {
-    "Power On": {"pronto": "0000 ...", "provenance": null, "by": "dab", "to": "0000 ...", "session": false}
-}
-```
+### Pre-0.9.5 fittings
 
-- One entry per replaced row, keyed by fitting row key. `pronto` and `provenance` are what the row held **before the first replace**, and later replaces never overwrite them, so putting a row back always means the code the wig came with rather than whatever a previous repair attempt left behind.
-- `to` is the code the most recent replace wrote. A put-back only proceeds while the row still holds it; anything else means the file was edited outside this machinery and the record no longer describes it.
-- `by` and `session` mark whose current session the replace belongs to. Discarding a session puts back only that user's rows; signing sets `session` to false, which closes them to a later discard without removing the record.
-- The record is **not** removed at signing, so a repair that was proved and later turned out wrong can still be undone. Putting a row back rolls the hash to what it was, which correctly marks any fitting that attested the replaced code as outdated. The entry is dropped when the row goes back, because a row holding its original code has nothing left to return to.
-- On the share paths the codes travel and the session bookkeeping does not: `by` and `session` are dropped, so a recipient can still put a row back but nobody's in-progress session follows the file to another install.
+Old whole-file fittings are **dropped on import**, with a notice saying how many went. They cannot be converted: a `content_hash` records that some bytes were proved, not which rows, so there is no honest way to turn one into per-row claims. Re-fitting takes a few minutes; a fabricated claim lasts forever.
 
-**The carry map** lets the next session keep the verdicts that are still true:
+## Retired conventions
 
-```json
-"carry": {"sha256:<superseded hash>": {"Power On": "9f2c1a...", "Power Off": "40b7de..."}}
-```
+HAIR 0.9.1 wrote three bookkeeping conventions into `extra` maps during fitting-session repairs: a `provenance` marker recording where a replaced code came from, a `replaced_from` record keeping the code a row used to hold, and a `carry` map seeding the next fitting session's verdicts. All three served the whole-file attestation model and were retired with it in 0.9.5 -- nothing writes them any more, and nothing reads them.
 
-- One entry per superseded content hash, taken at the moment that hash was replaced away from. Each value maps a fitting row key to a truncated SHA-256 of that row's normalized Pronto, so byte-identity is provable without storing the codes twice.
-- A new session seeds its verdicts from the fitter's last fitting for every row whose key and code digest both still match. Rows whose code changed, and rows whose key changed, come back untested. Without a carry entry nothing is seeded: matching on the key alone would carry a verdict onto bytes it never attested.
-- Entries no fitting references are pruned on the next replace, and the share paths drop any whose fitting was stripped: a snapshot exists to seed a session against an attestation, so it never travels without one.
+A file written by 0.9.1 may still carry them. They were always outside every canonical form, so they cannot move a wig's identity; a reader treats them like any other unknown `extra` data and passes them through unchanged.
 
 ## The comb receipt
 

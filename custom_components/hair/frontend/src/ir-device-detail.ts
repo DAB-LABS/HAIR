@@ -10,6 +10,17 @@ import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import "./ir-command-row.js";
+
+/** Action-badge sizing constants (owner ruling, 2026-08-01).
+ *  The cap is the width the badge is allowed to reserve before its label
+ *  starts stepping down a font tier. 96px clears fan (90px) and
+ *  media_player (93px) at full size, so the common device types never
+ *  shrink at all; light is the one type that steps down. */
+const ACTION_BADGE_CAP_PX = 96;
+const ACTION_BADGE_FONT_LADDER = [10.5, 9.5, 9];
+const ACTION_BADGE_WEIGHT = 500;
+const ACTION_BADGE_TRACKING = 0.03; // letter-spacing, em
+const ACTION_BADGE_CHROME_PX = 22; // 10px padding + 1px border, both sides
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-save-wig-dialog.js";
@@ -18,6 +29,9 @@ import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
 import { popoverStyles } from "./ir-popover-styles.js";
+// The house wig, from images/wig.svg. Same glyph the closet wears,
+// because this button is the door into it (FR5).
+import { ICON_WIG } from "./ir-wigs.js";
 import type { HairApi } from "./api.js";
 import type {
     ActionOption,
@@ -64,6 +78,15 @@ export class IrDeviceDetail extends LitElement {
 
     // Action mapping
     @state() private _actionOptions: ActionOption[] = [];
+    /** Reserved-width sizing for the action badge. Derived, not state:
+     *  recomputed during render whenever the set of labels in play changes,
+     *  and memoized on that set. See _actionBadgeMetrics. */
+    private _actionBadge: {
+        sizerLabel: string;
+        sizerFontPx: number;
+        fontFor: Record<string, number>;
+    } | null = null;
+    private _actionBadgeKey = "";
     @state() private _mappingCommandName: string | null = null;
     @state() private _popoverTop = 0;
     @state() private _popoverLeft = 0;
@@ -334,6 +357,94 @@ export class IrDeviceDetail extends LitElement {
         } catch {
             this._actionOptions = [];
         }
+    }
+
+    /** Every label the badge can actually render for THIS device.
+     *
+     *  Not just the option list. _getActionLabel falls back to the raw
+     *  mapping key when a mapped key is absent from the device type's
+     *  options, which happens when a device carries a mapping from a type
+     *  it no longer is -- an AC on the bench still holds media_player keys
+     *  and renders POWER_TOGGLE, NAVIGATE_RIGHT and friends. Those escaped
+     *  the first version of this sizing, so the reservation came out too
+     *  narrow and the badges went ragged again. Measuring what is really
+     *  on screen closes that whole class of gap rather than the one case. */
+    private _badgeLabels(): string[] {
+        const labels = new Set<string>([t("cmdrow.actions")]);
+        for (const opt of this._actionOptions) labels.add(tv(opt.label));
+        for (const cmd of this.device?.commands ?? []) {
+            const label = this._getActionLabel(cmd.name);
+            if (label) labels.add(label);
+        }
+        return [...labels];
+    }
+
+    /** Memoized badge metrics, keyed on the label set itself so a mapping
+     *  change or a device switch recomputes and nothing else does. */
+    private _actionBadgeMetrics() {
+        const labels = this._badgeLabels();
+        // The escaped form, not a literal NUL. A raw one made git and
+        // grep treat this whole file as binary, so it never showed a
+        // diff and never matched a search. Identical at runtime.
+        const key = labels.join("\u0000");
+        if (key !== this._actionBadgeKey) {
+            this._actionBadgeKey = key;
+            this._actionBadge = this._measureActionBadges(labels);
+        }
+        return this._actionBadge;
+    }
+
+    /** Size the action badge once per device type (owner ruling,
+     *  2026-08-01).
+     *
+     *  Every command row in one device detail draws from the same option
+     *  list, so one reserved width makes the whole list rigid: mapping an
+     *  action can no longer grow the button and shove the buttons after it
+     *  sideways. Measured once here rather than per render, and only to
+     *  choose a font tier -- the actual width is settled in CSS by a hidden
+     *  copy of the widest label, which stays correct in any language.
+     *
+     *  Labels that do not fit the cap step down a tier rather than being
+     *  truncated: the two long ones are Color Temp Warmer / Cooler, and
+     *  clipping them to "Color Temp Warm..." would destroy the only word
+     *  that tells them apart. A device type whose longest label misses even
+     *  the smallest tier keeps that tier and widens past the cap, which is
+     *  a deliberate graceful failure rather than unreadable text. */
+    private _measureActionBadges(labels: string[]) {
+        const ctx = document.createElement("canvas").getContext("2d");
+        if (!ctx) return null;
+        const family = getComputedStyle(this).fontFamily || "sans-serif";
+        // measureText knows nothing about letter-spacing, and the badge
+        // carries 0.03em; the chrome is the 10px side padding plus 1px
+        // border, doubled.
+        const widthOf = (text: string, px: number): number => {
+            ctx.font = `${ACTION_BADGE_WEIGHT} ${px}px ${family}`;
+            return (
+                ctx.measureText(text).width +
+                text.length * px * ACTION_BADGE_TRACKING +
+                ACTION_BADGE_CHROME_PX
+            );
+        };
+        const tierFor = (text: string): number =>
+            ACTION_BADGE_FONT_LADDER.find(
+                (px) => widthOf(text, px) <= ACTION_BADGE_CAP_PX,
+            ) ?? ACTION_BADGE_FONT_LADDER[ACTION_BADGE_FONT_LADDER.length - 1];
+
+        let sizerLabel = t("cmdrow.actions");
+        let sizerFontPx = ACTION_BADGE_FONT_LADDER[0];
+        let widest = 0;
+        const fontFor: Record<string, number> = {};
+        for (const label of labels) {
+            const px = tierFor(label);
+            fontFor[label] = px;
+            const w = widthOf(label, px);
+            if (w > widest) {
+                widest = w;
+                sizerLabel = label;
+                sizerFontPx = px;
+            }
+        }
+        return { sizerLabel, sizerFontPx, fontFor };
     }
 
     private async _loadTriggers() {
@@ -1373,6 +1484,7 @@ export class IrDeviceDetail extends LitElement {
 
     render() {
         const commands = this.device.commands;
+        const badge = this._actionBadgeMetrics();
         const count = commands.length;
 
         return html`
@@ -1404,16 +1516,29 @@ export class IrDeviceDetail extends LitElement {
                           `}
                 </div>
                 <button
+                    class="stc-btn"
+                    @click=${() => (this._saveWigOpen = true)}
+                    ?disabled=${this._busy}
+                    title=${t("wigs.save_as_wig")}
+                >
+                    <ha-svg-icon
+                        class="stc-wig"
+                        .path=${ICON_WIG}
+                    ></ha-svg-icon>
+                    ${t("wigs.save_as_wig")}
+                </button>
+                <button
                     class="action-btn collapse-btn"
                     @click=${() => this.dispatchEvent(new CustomEvent("collapse", { bubbles: true, composed: true }))}
                     title=${t("common.close")}
                 >&#x2715;</button>
             </section>
 
-            <!-- Device metadata grid -->
+            <!-- Device metadata: two columns, each label above its own
+                 control (comp L1) -->
             <div class="device-meta">
-                <span class="meta-label">${t("devdetail.type")}</span>
-                <div class="meta-value">
+                <div class="stack">
+                    <span class="sl">${t("devdetail.type")}</span>
                     <select
                         .value=${this.device.device_type}
                         @change=${this._onTypeChanged}
@@ -1431,16 +1556,13 @@ export class IrDeviceDetail extends LitElement {
                         )}
                     </select>
                 </div>
-                <span class="meta-label">${t("devlist.emitters")}</span>
-                <div class="meta-value">
-                    <ir-emitter-picker
-                        .hass=${this.hass}
-                        .api=${this.api}
-                        .value=${this.device.emitter_entity_ids ?? []}
-                        ?disabled=${this._busy}
-                        @emitters-changed=${this._onEmittersChanged}
-                    ></ir-emitter-picker>
-                </div>
+                <ir-emitter-picker
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .value=${this.device.emitter_entity_ids ?? []}
+                    ?disabled=${this._busy}
+                    @emitters-changed=${this._onEmittersChanged}
+                ></ir-emitter-picker>
             </div>
 
             ${this.device.matrix ? this._renderMatrixCard() : nothing}
@@ -1464,6 +1586,14 @@ export class IrDeviceDetail extends LitElement {
                                           .command=${cmd}
                                           .busy=${this._busy}
                                           .actionLabel=${this._getActionLabel(cmd.name)}
+                                          .actionBadgeLabel=${badge?.sizerLabel ??
+                                          null}
+                                          .actionBadgeFontPx=${badge?.sizerFontPx ??
+                                          null}
+                                          .actionFontPx=${badge?.fontFor[
+                                              this._getActionLabel(cmd.name) ??
+                                                  t("cmdrow.actions")
+                                          ] ?? null}
                                           .hasTrigger=${this._commandHasTrigger(cmd)}
                                           .triggerCount=${this._commandTriggerCount(cmd)}
                                           .showActionMapping=${this.device.device_type !== "other" &&
@@ -1608,18 +1738,11 @@ export class IrDeviceDetail extends LitElement {
                         ?disabled=${this._busy}
                     >${t("devdetail.mirrored")}</button>
                 </div>
-                <div class="delete-row">
-                    <button
-                        class="action-btn delete-btn"
-                        @click=${() => (this._confirmDelete = true)}
-                        ?disabled=${this._busy}
-                    >${t("devlist.del_device_title")}</button>
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${() => (this._saveWigOpen = true)}
-                        ?disabled=${this._busy}
-                    >${t("wigs.save_as_wig")}</button>
-                </div>
+                <button
+                    class="action-btn delete-btn"
+                    @click=${() => (this._confirmDelete = true)}
+                    ?disabled=${this._busy}
+                >${t("devdetail.delete_device")}</button>
             </div>
 
             <!-- Dialogs -->
@@ -1629,6 +1752,9 @@ export class IrDeviceDetail extends LitElement {
                       source="device"
                       sourceId=${this.device.id}
                       sourceName=${this.device.name}
+                      ?hasEmitter=${(this.device.emitter_entity_ids ?? [])
+                          .length > 0}
+                      .hass=${this.hass}
                       @closed=${() => (this._saveWigOpen = false)}
                   ></ir-save-wig-dialog>`
                 : ""}
@@ -1659,8 +1785,16 @@ export class IrDeviceDetail extends LitElement {
             ${this._commandToDelete
                 ? html`
                       <ir-confirm-dialog
-                          title=${t("devdetail.del_cmd_title")}
-                          message=${t("devdetail.del_cmd_msg", { name: this._commandToDelete.name })}
+                          title=${this._commandToDelete.matrix_cell
+                              ? t("devdetail.del_cell_title")
+                              : t("devdetail.del_cmd_title")}
+                          message=${this._commandToDelete.matrix_cell
+                              ? t("devdetail.del_cell_msg", {
+                                    name: this._commandToDelete.name,
+                                })
+                              : t("devdetail.del_cmd_msg", {
+                                    name: this._commandToDelete.name,
+                                })}
                           confirmLabel="Delete"
                           .destructive=${true}
                           @confirmed=${this._confirmCommandDelete}
@@ -1750,23 +1884,66 @@ export class IrDeviceDetail extends LitElement {
         actionChipStyles,
         popoverStyles,
         css`
-        .save-wig-btn {
-            color: #8e3b3b;
-            border-color: rgba(142, 59, 59, 0.3);
+        /* SAVE TO CLOSET, in the header (RULED, mockup FR5 variant V2).
+           It used to sit stacked under DELETE DEVICE in the bottom
+           right, which put the door into the closet next to the button
+           that destroys the device -- and buried the one action that
+           ends the workflow. It now sits hard right of the device name,
+           left of the X, matching the 0.8.8 card-header convention.
+
+           GRAYS AND WHITE ONLY AT REST: no blues, no accents. The
+           oxblood appears exclusively on hover, which keeps the
+           closet's colour tied to intent rather than decoration. Hover
+           also lifts the house gray background, the same 0.06 white
+           every other button in the panel uses, so it reads as a
+           button first and a closet second. */
+        .stc-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex: none;
+            background: none;
+            border: 1px solid var(--divider-color);
+            border-radius: 4px;
+            color: var(--secondary-text-color);
+            font-size: 10.5px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            font-family: inherit;
+            padding: 4px 10px;
+            cursor: pointer;
         }
-        .save-wig-btn:hover:not(:disabled) {
-            background: rgba(142, 59, 59, 0.12);
+        .stc-btn .stc-wig {
+            --mdc-icon-size: 15px;
         }
-        .delete-row {
-            /* Right-edge column (owner layout, bench round four): the
-               left side was busy, so Delete Device sits hard right with
-               Add to Closet stacked directly beneath it. */
-            flex-basis: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
-            margin-top: 2px;
+        .stc-btn:hover:not(:disabled) {
+            color: var(--primary-text-color);
+            border-color: #8e3b3b;
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .stc-btn:hover:not(:disabled) .stc-wig {
+            color: #b05050;
+        }
+        .stc-btn:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+        /* DELETE DEVICE, hard right of the add-signal row (owner ruling
+           2026-08-03). It used to sit on its own full-width line below,
+           which was correct when SAVE TO CLOSET was stacked above it and
+           the pair needed their own company; SAVE moved to the header
+           (FR5) and left one button alone under a mostly empty row.
+
+           PINNED WITH margin-left:auto, NOT the container's
+           justify-content. space-between distributes per WRAPPED LINE,
+           so on a card narrow enough to break the four buttons 2-and-2
+           it would spread the second line to both edges with a hole in
+           the middle. margin-left:auto puts the button at the right of
+           whatever line it lands on, which is the same result on a wide
+           card and the correct one on a phone. */
+        .footer-actions > .delete-btn {
+            margin-left: auto;
         }
 
         :host {
@@ -1777,7 +1954,7 @@ export class IrDeviceDetail extends LitElement {
         .header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             gap: 12px;
         }
         .header-left {
@@ -1825,20 +2002,34 @@ export class IrDeviceDetail extends LitElement {
             align-self: center;
         }
 
-        /* --- Metadata grid --- */
+        /* --- Metadata: two columns, no label gutter (comp L1) ---
+           The old grid reserved a fixed 80px column for two words and
+           left the controls floating in what remained, which is what
+           made the row read as a form from 2004. Each label sits above
+           its own control now, and each control gets the full width of
+           its own column. TYPE is capped at 200px because a seven-item
+           dropdown never needed 900; emitters take the rest and wrap. */
         .device-meta {
             display: grid;
-            grid-template-columns: 80px 1fr;
-            gap: 8px 12px;
+            grid-template-columns: 200px minmax(0, 1fr);
+            gap: 0 22px;
             align-items: start;
             margin: 16px 0 0;
         }
-        .meta-label {
-            font-size: 0.78rem;
+        .stack .sl {
+            display: block;
+            font-size: 0.7rem;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.06em;
             color: var(--secondary-text-color);
-            padding-top: 6px;
+            margin-bottom: 5px;
+        }
+        /* Below this, 200px plus a useful chip column stops fitting. */
+        @media (max-width: 700px) {
+            .device-meta {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 12px 0;
+            }
         }
         /* The STATE MATRIX card (Cold Cuts second half, mockup CC3):
            the cell browser in the cold-blue family (#58a6d8) -- the
@@ -1985,7 +2176,7 @@ export class IrDeviceDetail extends LitElement {
         .action-btn.mx-cmd-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
         }
-        .meta-value select {
+        .stack select {
             width: 100%;
             padding: 6px 8px;
             border-radius: 4px;
@@ -1994,9 +2185,6 @@ export class IrDeviceDetail extends LitElement {
             color: var(--primary-text-color);
             font-family: inherit;
             font-size: 0.85rem;
-        }
-        .meta-value ir-emitter-picker {
-            --picker-label-display: none;
         }
 
         /* --- Buttons --- */
@@ -2012,10 +2200,15 @@ export class IrDeviceDetail extends LitElement {
         }
 
         /* --- Commands section (Sniffer-style) --- */
+        /* The margin, the rule and the padding used to stack to nearly
+           30px of dead air between the emitters row and the word
+           "Commands" -- against a 4px rhythm inside the list itself.
+           That contrast is what read as loose; the rule alone already
+           separates the two blocks (owner ruling 2026-08-03). */
         .commands-section {
-            margin: 16px 0;
+            margin: 12px 0;
             border-top: 1px solid var(--divider-color);
-            padding-top: 12px;
+            padding-top: 9px;
         }
         .commands-header {
             display: flex;
@@ -2056,11 +2249,17 @@ export class IrDeviceDetail extends LitElement {
             font-style: italic;
             padding: 12px 0;
         }
+        /* No justify-content: it was space-between and had been inert
+           for as long as .delete-row forced its own line, since one item
+           per flex line has no free space to distribute. Leaving it
+           would read as the thing pinning DELETE right, and it is not
+           -- see .footer-actions > .delete-btn above.
+           Bottom margin is 0: the card's own 16px padding is the gap,
+           and doubling it left 32px of nothing under the row. */
         .footer-actions {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin: 16px 0;
+            margin: 11px 0 0;
             flex-wrap: wrap;
             gap: 8px;
         }
@@ -2074,10 +2273,6 @@ export class IrDeviceDetail extends LitElement {
                layout, 2026-07-20 -- the eye line runs straight down
                from the signal names into these buttons). */
             margin-left: 54px;
-        }
-        .add-label {
-            font-size: 0.8rem;
-            color: var(--secondary-text-color);
         }
 
         /* --- Toast --- */

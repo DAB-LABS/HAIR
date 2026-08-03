@@ -91,6 +91,183 @@ class TestRecordSend:
         assert device.signals[0].hit_count == 3
 
 
+class TestMirrorCarriesTransmittedTxKnobs:
+    """The Mirror row reports what actually went out (owner ruling,
+    2026-08-01).
+
+    Before this the row kept the dataclass defaults, so its repeat and
+    ditto glyphs showed whatever had been typed into that row's own
+    editor. A command set to send twice could sit under a Mirror row
+    claiming three sends and three dittos, and nothing on screen said
+    which one described the transmission.
+    """
+
+    @staticmethod
+    def _n():
+        from custom_components.hair import signal_monitor as sm
+
+        return sm.normalize(
+            sm.EventParser.parse(_make_event(_nec_event("0x1234")).data)
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_records_the_transmitted_counts(self):
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=True, send_count=3, repeat_count=2,
+        )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 3
+        assert row.repeat_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_later_send_overwrites_with_last_send_semantics(self):
+        """Same field discipline as echo_source and last_seen: a Mirror
+        row describes the most recent transmission, not the first."""
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        for send, repeat in ((3, 2), (1, 0)):
+            await monitor._mirror_upsert(
+                n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+                reset_heard=True, send_count=send, repeat_count=repeat,
+            )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 1
+        assert row.repeat_count == 0
+
+    @pytest.mark.asyncio
+    async def test_the_echo_heard_path_leaves_the_counts_alone(self):
+        """_mirror_mark_heard and the foreign-echo path call upsert with
+        no knobs. Defaulting those to None rather than 1/0 is what stops
+        an arriving echo from erasing what the send recorded."""
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=True, send_count=4, repeat_count=3,
+        )
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=False, heard="binary_sensor.rx",
+        )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 4
+        assert row.repeat_count == 3
+
+    @pytest.mark.asyncio
+    async def test_counts_are_clamped(self):
+        from custom_components.hair.const import MAX_DITTO_COUNT
+
+        store = _make_signal_store(hass := _make_hass())
+        monitor = _monitor(hass, store)
+        n = self._n()
+        await monitor._mirror_upsert(
+            n, decoded_fp=n.decoded_fingerprint, echo_source="x",
+            reset_heard=True, send_count=0, repeat_count=MAX_DITTO_COUNT + 9,
+        )
+        row = _mirror_device(store).signals[0]
+        assert row.send_count == 1
+        assert row.repeat_count == MAX_DITTO_COUNT
+
+    def _forward(self, monitor, command, **kwargs):
+        """Call record_send and return the kwargs it forwarded.
+
+        Sync mock on purpose: record_send hands the coroutine to
+        async_create_task, so the CALL is what we assert on. An async
+        stub would leave an un-awaited coroutine and capture nothing.
+        """
+        from custom_components.hair import signal_monitor as sm
+
+        upsert = MagicMock()
+        with patch.object(monitor, "_mirror_upsert", upsert), \
+             patch.object(sm, "normalize_command", lambda _c: self._n()):
+            monitor.record_send(
+                command, "Test AC / Temp 22", ["remote.blaster"], **kwargs
+            )
+        return upsert.call_args.kwargs
+
+    def test_send_count_comes_from_the_caller_not_the_command(self):
+        """The bug the first version of this shipped with.
+
+        send_count is NOT a field on the Command: neither build_command
+        nor build_decoded_command accepts one, and every transmit path
+        keeps it as a local loop bound. Reading it off the Command
+        therefore always returned the dataclass default, so a signal set
+        to send three times still logged a Mirror row saying one, which
+        is exactly what the bench saw.
+        """
+        monitor = _monitor(hass := _make_hass(), _make_signal_store(hass))
+        command = SimpleNamespace(send_count=1, repeat_count=0)
+        fwd = self._forward(monitor, command, send_count=3)
+        assert fwd["send_count"] == 3
+
+    def test_repeat_count_falls_back_to_the_command(self):
+        """Dittos ARE built into the Command (build_command takes
+        repeat_count), so a caller that says nothing still gets the
+        truth rather than a default."""
+        monitor = _monitor(hass := _make_hass(), _make_signal_store(hass))
+        command = SimpleNamespace(send_count=1, repeat_count=4)
+        fwd = self._forward(monitor, command)
+        assert fwd["repeat_count"] == 4
+
+    def test_an_explicit_repeat_count_wins(self):
+        monitor = _monitor(hass := _make_hass(), _make_signal_store(hass))
+        command = SimpleNamespace(send_count=1, repeat_count=4)
+        fwd = self._forward(monitor, command, repeat_count=2)
+        assert fwd["repeat_count"] == 2
+
+
+class TestEverySendPathReportsItsSendCount:
+    """Static guard on the call sites.
+
+    Every production caller of record_send must pass send_count, because
+    the value cannot be recovered from the Command. This is the check
+    that would have caught the first version: the code was correct in
+    _mirror_upsert and useless at every call site.
+    """
+
+    @staticmethod
+    def _callers():
+        import ast
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        found = []
+        for path in root.glob("*.py"):
+            tree = ast.parse(path.read_text(), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                fn = node.func
+                if not isinstance(fn, ast.Attribute) or fn.attr != "record_send":
+                    continue
+                found.append(
+                    (path.name, node.lineno, {k.arg for k in node.keywords})
+                )
+        return found
+
+    def test_all_call_sites_pass_send_count(self):
+        callers = self._callers()
+        # device_manager (device TX) and signal_monitor (catalog Test).
+        # There were three until v0.9.5: the fitting dialog had its own
+        # send path, and it went when testing moved onto the device and
+        # started going out through the device gate like every other
+        # press. A NEW send path must join these two.
+        assert len(callers) >= 2, f"expected every send path, saw {callers}"
+        missing = [
+            (name, line) for name, line, kw in callers if "send_count" not in kw
+        ]
+        assert not missing, (
+            "record_send call sites that would log the wrong send count "
+            f"on the Mirror: {missing}"
+        )
+
+
 class TestEchoClaim:
 
     @pytest.mark.asyncio

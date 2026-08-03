@@ -17,6 +17,7 @@ import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { ProntoValidation, UnknownSignal } from "./types.js";
+import { isDittoable } from "./ir-tx-knobs.js";
 
 // Mirrors PRONTO_SL_THRESHOLD / PRONTO_GAP_THRESHOLD in const.py. Used only
 // for the dialog's S/L preview; the stored pattern is computed server-side.
@@ -75,8 +76,21 @@ export class IrSignalEditor extends LitElement {
     @state() private _copyHint: string | null = null;
     @state() private _snapping = false;
     @state() private _snapFlash = false;
+    /** Command mode: the live bypass choice, saved on Save like the rest. */
+    @state() private _bypass = false;
+    @state() private _listening = false;
+    @state() private _listenMissed = false;
+    /** What the last capture was, for the status line. Null once the box
+     * is hand-edited: the line described a capture that is no longer
+     * what is in the box. */
+    @state() private _captured: {
+        decoded: boolean;
+        protocol: string | null;
+        receiver: string | null;
+    } | null = null;
 
     private _debounce: ReturnType<typeof setTimeout> | null = null;
+    private _unlisten: (() => Promise<void>) | null = null;
 
     private get _isCommand(): boolean {
         return this.commandId !== null;
@@ -91,7 +105,8 @@ export class IrSignalEditor extends LitElement {
             this._pronto !== this.initialPronto ||
             this._alias !== this.initialAlias ||
             this._sendCount !== this.initialSendCount ||
-            this._ditto !== this.initialDitto
+            this._ditto !== this.initialDitto ||
+            (this._isCommand && this._bypass !== this.initialTxForceRaw)
         );
     }
 
@@ -101,35 +116,63 @@ export class IrSignalEditor extends LitElement {
     }
 
     /**
-     * The Ditto count input is meaningful only when transmit will take the
-     * decoded (NEC) path. Generic across decoded protocols, not NEC-specific.
+     * The Ditto count input is meaningful only on NEC.
+     *
+     * This gate used to read "any decoded protocol", on the reasoning
+     * that dittos were generic across the rebuild tier. Measuring the
+     * library says otherwise (see isDittoable in ir-tx-knobs): NEC
+     * appends a real 4-entry repeat frame, Samsung32 and RC-5 duplicate
+     * the whole frame, and Sharp and Sony ignore repeat_count entirely.
+     * Only NEC is a ditto, so only NEC gets the knob (owner ruling
+     * 2026-08-02).
+     *
+     * A pinned raw signal is excluded on top of that, in both modes: it
+     * transmits through build_command, so its dittos never reach the
+     * wire and offering the count would mislead (GH #78).
      */
     private get _dittoCountDisabled(): boolean {
-        // Signal-edit / create mode: gate on the live-validated decoded form.
+        // Signal-edit / create mode: gate on the live-validated decoded
+        // form, which names the protocol it recognized.
         if (!this._isCommand) {
             if (!this._pronto.trim()) return true;
             if (this._validation === null) return true;
             if (!this._validation.recognized_protocol) return true;
-            return false;
+            return !isDittoable(
+                this._validation.recognized_protocol,
+                this.initialTxForceRaw,
+            );
         }
-        // Command-edit mode: gate on the command's stored decoded form AND
-        // honor the per-command PRONTO toggle. Ditto only fires when TX takes
-        // the decoded path (build_decoded_command); a command with
-        // tx_force_raw=True goes through build_command and the dittos do not
-        // fire on the wire.
-        if (!this.initialDecodedProtocol) return true;
-        if (this.initialTxForceRaw) return true;
-        return false;
+        // Command-edit mode: gate on the decoded form and honour the
+        // per-command PRONTO toggle. A code captured in this dialog has
+        // not been stored yet, so the LIVE validation wins when there is
+        // one -- otherwise replacing a raw code with a clean NEC capture
+        // would leave the ditto knob hidden until after a save and
+        // reopen.
+        const protocol =
+            this._validation?.recognized_protocol ??
+            this.initialDecodedProtocol;
+        return !isDittoable(protocol, this._bypass);
     }
 
     /** Tooltip for the disabled Ditto count input, by reason. */
     private get _dittoDisabledTooltip(): string {
-        if (
-            this._isCommand &&
-            this.initialDecodedProtocol &&
-            this.initialTxForceRaw
-        ) {
+        const stored = this._isCommand
+            ? (this._validation?.recognized_protocol ??
+              this.initialDecodedProtocol)
+            : null;
+        if (this._isCommand && stored && this._bypass) {
             return t("editor.ditto_disabled_cmd");
+        }
+        // Decoded, not pinned, still no ditto: the protocol simply has
+        // no repeat frame. Name it, rather than leaving the fitter to
+        // wonder why a perfectly good decode is refused.
+        const decoded = this._isCommand
+            ? stored
+            : this._validation?.recognized_protocol;
+        if (decoded && !this._bypass) {
+            return t("editor.ditto_disabled_protocol", {
+                protocol: decoded,
+            });
         }
         return t("editor.ditto_disabled");
     }
@@ -141,6 +184,7 @@ export class IrSignalEditor extends LitElement {
         this._alias = this.initialAlias;
         this._sendCount = this.initialSendCount;
         this._ditto = this.initialDitto;
+        this._bypass = this.initialTxForceRaw;
         if (this._pronto.trim()) {
             void this._validate();
         }
@@ -165,6 +209,9 @@ export class IrSignalEditor extends LitElement {
         if (this._debounce !== null) {
             clearTimeout(this._debounce);
         }
+        // A listen window outlives the dialog if nobody closes it, and
+        // the next one would then land a capture in a box that is gone.
+        void this._stopListening();
     }
 
     private _close(): void {
@@ -185,8 +232,41 @@ export class IrSignalEditor extends LitElement {
         this._ditto = Number.isNaN(raw) ? 0 : Math.max(0, Math.min(raw, 20));
     }
 
+    /**
+     * The raw pin follows the bytes (RULED 2026-08-03).
+     *
+     * A pin is a claim a SPECIFIC capture earned: "these bytes break
+     * when re-encoded". New bytes have not earned it, so replacing a
+     * code clears it and the chip re-derives from the live decode --
+     * the protocol name, or RAW only when nothing decodes. The person
+     * re-pins by clicking the chip, deliberately, which is the only way
+     * a pin was ever meant to exist.
+     *
+     * Keyed on the code actually DIFFERING from what was opened, not on
+     * the input event firing. Typing a character and deleting it again
+     * leaves the pin exactly where it was; so does pasting back the
+     * same code. Anything less precise would make an undo destroy a
+     * setting the person never meant to touch.
+     *
+     * Deliberately NOT called from the carrier snap: snapping re-times
+     * the same waveform to a standard frequency. It is a normalisation
+     * of the capture that earned the pin, not a replacement for it.
+     */
+    private _syncPinToPronto(): void {
+        if (!this._isCommand) return;
+        this._bypass =
+            this._pronto.trim() === this.initialPronto.trim()
+                ? this.initialTxForceRaw
+                : false;
+    }
+
     private _onProntoInput(e: Event): void {
         this._pronto = (e.target as HTMLTextAreaElement).value;
+        this._syncPinToPronto();
+        // Hand-edited text is no longer the capture the status line
+        // described.
+        this._captured = null;
+        this._listenMissed = false;
         if (this._debounce !== null) {
             clearTimeout(this._debounce);
         }
@@ -245,6 +325,18 @@ export class IrSignalEditor extends LitElement {
                     send_count: this._sendCount,
                     repeat_count: ditto,
                 });
+                // The pin rides its own command, so it is written after
+                // the content and only when it actually changed. Doing
+                // it unconditionally would stamp a provenance marker on
+                // every ordinary rename.
+                if (this._bypass !== this.initialTxForceRaw) {
+                    await this.api.setCommandTxForceRaw(
+                        this.deviceId,
+                        this.commandId as string,
+                        this._bypass,
+                    );
+                    (result as any).tx_force_raw = this._bypass;
+                }
                 this.dispatchEvent(
                     new CustomEvent("command-edited", {
                         detail: result,
@@ -317,6 +409,153 @@ export class IrSignalEditor extends LitElement {
         setTimeout(() => {
             this._copyHint = null;
         }, 2000);
+    }
+
+    /**
+     * Replace this code: grab one live off the air, in place.
+     *
+     * NO ACCEPT STEP (RULED). A heard code lands in the Pronto box
+     * directly, the validation line and the pill re-evaluate against it,
+     * and Listen again re-captures. The box IS the accept -- an extra
+     * confirm would only let a person say yes to something they can
+     * already see, edit and cancel.
+     */
+    private async _listen(): Promise<void> {
+        if (this._listening) {
+            await this._stopListening();
+            return;
+        }
+        this._error = null;
+        this._listenMissed = false;
+        this._listening = true;
+        try {
+            this._unlisten = await this.api.commandListen((event) => {
+                if (event.type === "command_capture") {
+                    this._onCaptured(event);
+                } else {
+                    this._listenMissed = true;
+                }
+                void this._stopListening();
+            });
+        } catch (err: any) {
+            this._listening = false;
+            this._error = err?.message ?? String(err);
+        }
+    }
+
+    private _onCaptured(event: {
+        pronto: string;
+        decoded: boolean;
+        protocol: string | null;
+        receiver: string | null;
+    }): void {
+        this._pronto = event.pronto;
+        this._syncPinToPronto();
+        this._captured = {
+            decoded: event.decoded,
+            protocol: event.protocol,
+            receiver: event.receiver,
+        };
+        // Dittos reset to the new decode's default on a swap; send times
+        // keep the person's setting (RULED). A ditto count describes THIS
+        // waveform's repeat frame, so carrying it across a code change
+        // would apply one code's tuning to another's bytes. Send count
+        // describes the room -- the distance, the sensor, the lamp in the
+        // way -- and the room did not change.
+        this._ditto = event.decoded ? 1 : 0;
+        void this._validate();
+    }
+
+    private async _stopListening(): Promise<void> {
+        this._listening = false;
+        const unlisten = this._unlisten;
+        this._unlisten = null;
+        if (unlisten) {
+            try {
+                await unlisten();
+            } catch {
+                // The window is closing either way; a failed unsubscribe
+                // is not something to put in front of the person.
+            }
+        }
+    }
+
+    private _renderReplace() {
+        if (!this._isCommand) return "";
+        return html`
+            <div class="replace">
+                <div class="replace-head">${t("editor.replace_title")}</div>
+                <div class="replace-row">
+                    <button
+                        class="action-btn listen-btn ${this._listening
+                            ? "on"
+                            : ""}"
+                        @click=${this._listen}
+                        ?disabled=${this._busy}
+                    >
+                        ${this._listening
+                            ? t("editor.listening")
+                            : t("editor.listen")}
+                    </button>
+                    <span class="replace-status">
+                        ${this._listening
+                            ? t("editor.listen_hint")
+                            : this._listenMissed
+                              ? t("editor.listen_missed")
+                              : this._captured
+                                ? this._capturedLine()
+                                : t("editor.replace_hint")}
+                    </span>
+                </div>
+            </div>
+        `;
+    }
+
+    private _capturedLine(): string {
+        const c = this._captured;
+        if (!c) return "";
+        const where = c.receiver ? ` · ${c.receiver}` : "";
+        // Warn-and-allow: a rough capture stays editable and saveable.
+        // The line says what it is; the person decides.
+        return c.decoded
+            ? `${t("editor.heard_clean")}${
+                  c.protocol ? ` · ${c.protocol}` : ""
+              }${where}`
+            : `${t("editor.heard_rough")}${where}`;
+    }
+
+    /**
+     * The standard one-pill, live, in command mode.
+     *
+     * Same component as every other home, so the choice reads the same
+     * here as on the row. It is live because this is where a replaced
+     * code most often needs pinning: a rough capture that will not
+     * re-encode cleanly is exactly what BYPASS is for, and making the
+     * person save, close, and toggle from the row would put two steps
+     * between the problem and its fix.
+     *
+     * The protocol shown is the LIVE decode when there is one, so a
+     * capture that has not been saved yet still names itself.
+     */
+    private _renderPill() {
+        if (!this._isCommand) return "";
+        const protocol =
+            this._validation?.recognized_protocol ??
+            this.initialDecodedProtocol;
+        if (!protocol) return "";
+        return html`
+            <div class="pill-row">
+                <ir-protocol-chip
+                    .protocol=${protocol}
+                    ?bypass=${this._bypass}
+                    interactive
+                    ?disabled=${this._busy}
+                    @toggle-bypass=${(e: CustomEvent) => {
+                        this._bypass = e.detail.bypass;
+                    }}
+                ></ir-protocol-chip>
+            </div>
+        `;
     }
 
     private _renderFeedback() {
@@ -489,7 +728,8 @@ export class IrSignalEditor extends LitElement {
                     </div>
                 </div>
 
-                ${this._renderFeedback()} ${this._renderSnap()}
+                ${this._renderReplace()} ${this._renderFeedback()}
+                ${this._renderPill()} ${this._renderSnap()}
 
                 <div class="field">
                     <label>${nameLabel}</label>
@@ -674,6 +914,47 @@ export class IrSignalEditor extends LitElement {
             margin: -4px 0 12px;
             font-size: 0.78rem;
             color: var(--secondary-text-color);
+        }
+        /* Replace this code. A divider above it rather than a box
+           around it: it is a second way to fill the field above, not a
+           separate thing the dialog does. */
+        .replace {
+            margin: 10px 0 4px;
+            padding-top: 10px;
+            border-top: 1px solid var(--divider-color);
+        }
+        .replace-head {
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            color: var(--secondary-text-color);
+            margin-bottom: 6px;
+        }
+        .replace-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .replace-status {
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
+            line-height: 1.3;
+        }
+        .listen-btn {
+            flex: 0 0 auto;
+        }
+        /* Listening is a state, not an action in progress, so it holds
+           rather than pulses: the button stays pressed-looking until a
+           code lands or the window times out. */
+        .listen-btn.on {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .pill-row {
+            display: flex;
+            align-items: center;
+            margin: 2px 0 10px;
         }
         .hint {
             margin-top: 6px;

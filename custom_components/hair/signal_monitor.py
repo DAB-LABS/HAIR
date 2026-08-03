@@ -241,6 +241,9 @@ def _apply_signal_provenance(
         command.send_count = max(1, send_count)
     else:
         command.send_count = max(1, signal.send_count or 1)
+    # The raw pin is a user decision on the catalog signal, and this is
+    # the only place it crosses onto a command (Highlights, GH #78).
+    command.tx_force_raw = signal.tx_force_raw
     command.plucked_command_name = signal.plucked_command_name
 
 
@@ -764,6 +767,8 @@ class SignalMonitor:
         emitter_entity_ids: list[str],
         decoded_fingerprint: str | None = None,
         heard_future: asyncio.Future[str | None] | None = None,
+        send_count: int | None = None,
+        repeat_count: int | None = None,
     ) -> None:
         """Log an outgoing HAIR transmission on the Mirror, send-time.
 
@@ -802,6 +807,24 @@ class SignalMonitor:
                 decoded_fp=decoded_fp,
                 echo_source=label,
                 reset_heard=True,
+                # What actually went out on the air, rather than the
+                # dataclass defaults the row used to keep.
+                #
+                # The caller passes these explicitly because whole-frame
+                # repetition is NOT a property of the Command: neither
+                # build_command nor build_decoded_command accepts
+                # send_count, and both transmit paths keep it as a local
+                # loop bound (`for i in range(send_count)`). Reading it
+                # off the Command therefore always returned the default,
+                # which is the bug the first version of this shipped.
+                # repeat_count IS built into the Command, so it falls
+                # back to the attribute when the caller says nothing.
+                send_count=send_count,
+                repeat_count=(
+                    repeat_count
+                    if repeat_count is not None
+                    else getattr(command, "repeat_count", None)
+                ),
             )
         )
 
@@ -1028,8 +1051,19 @@ class SignalMonitor:
         echo_source: str,
         reset_heard: bool,
         heard: str | None = None,
+        send_count: int | None = None,
+        repeat_count: int | None = None,
     ) -> None:
-        """Create or bump a Mirror row keyed by the send's identity."""
+        """Create or bump a Mirror row keyed by the send's identity.
+
+        ``send_count`` / ``repeat_count`` are the TX knobs the outgoing
+        Command actually used. They follow last-send semantics, matching
+        every other field this method rewrites on a bump (echo_source,
+        last_seen, heard_by): a Mirror row is a log of transmissions, so
+        it reports the most recent one. Both default to None, which
+        leaves the stored values untouched -- the echo-heard path calls
+        this with no knobs and must not clear them.
+        """
         now_iso = datetime.now(UTC).isoformat()
         async with self._lock:
             device = await self._mirror_device()
@@ -1058,6 +1092,12 @@ class SignalMonitor:
             signal.hit_count += 1
             signal.last_seen = now_iso
             signal.echo_source = echo_source
+            if send_count is not None:
+                signal.send_count = max(1, int(send_count))
+            if repeat_count is not None:
+                signal.repeat_count = max(
+                    0, min(int(repeat_count), MAX_DITTO_COUNT)
+                )
             if reset_heard:
                 signal.heard_by = []
             if heard and heard not in (signal.heard_by or []):
@@ -1947,8 +1987,14 @@ class SignalMonitor:
         # than replaying captured (receiver-distorted) ones. Mirrors
         # device_manager.async_send_command. Falls back to Pronto/raw replay
         # when undecodable.
+        # ``not signal.tx_force_raw`` mirrors the device gate at
+        # device_manager.async_send_command (Highlights, GH #78). Without
+        # it the Sniffer and Clipper Test still re-encodes, and this is
+        # where a user first meets the problem: kno-te pasted a working
+        # Pronto into the Clipper, tested it, got nothing, and reasonably
+        # concluded the code was wrong. It was the re-encode.
         ir_cmd = None
-        if signal.decoded_fingerprint:
+        if signal.decoded_fingerprint and not signal.tx_force_raw:
             ir_cmd = build_decoded_command(
                 signal.decoded_protocol,
                 signal.decoded_address,
@@ -1989,6 +2035,10 @@ class SignalMonitor:
         self.record_send(
             ir_cmd, label, [emitter_entity_id],
             decoded_fingerprint=signal.decoded_fingerprint,
+            # The effective knobs for THIS test send. send_count is the
+            # loop bound resolved just above; it never reaches ir_cmd.
+            send_count=send_count,
+            repeat_count=signal.repeat_count or 0,
         )
         # Route through the transmit gate: the frontend fires one test
         # call per selected emitter concurrently, and without the gate
@@ -2081,6 +2131,7 @@ class SignalMonitor:
         alias: str = "",
         repeat_count: int | None = None,
         send_count: int | None = None,
+        tx_force_raw: bool | None = None,
     ) -> dict[str, Any]:
         """Add a manually-pasted Pronto signal to a clipped remote.
 
@@ -2178,6 +2229,8 @@ class SignalMonitor:
                 signal.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
             if send_count is not None:
                 signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
+            if tx_force_raw is not None:
+                signal.tx_force_raw = bool(tx_force_raw)
             # New signal goes on top so the just-added clip surfaces.
             device.signals.insert(0, signal)
             device.last_seen = now_iso
@@ -2458,7 +2511,8 @@ class SignalMonitor:
 
         ``entries`` are the Clipper-ready dicts from ``code_library``: each
         ``{name, code, decoded_protocol, decoded_address, decoded_command,
-        decoded_fingerprint}`` plus an optional ``send_count`` (wig imports
+        decoded_fingerprint}`` plus an optional ``send_count`` and
+        ``bypass_protocol`` (wig imports
         carry it; library entries do not). Signals are validated,
         deduplicated within the batch, and appended in order under a single
         lock and save. Invalid or duplicate codes are skipped; returns the
@@ -2545,6 +2599,10 @@ class SignalMonitor:
                     send_count, bool
                 ):
                     send_count = 1
+                # Third of the three wig -> Clipper touch points. Miss any
+                # one and CLIP silently drops the raw pin, which is the
+                # route a shared wig most often takes into a device.
+                bypass = entry.get("bypass_protocol", False)
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     byte_hash=byte_hash,
@@ -2563,6 +2621,7 @@ class SignalMonitor:
                     source="manual",
                     alias=(entry.get("name") or "").strip(),
                     send_count=max(1, min(send_count, MAX_SEND_COUNT)),
+                    tx_force_raw=bool(bypass),
                 )
                 device.signals.append(signal)
                 imported += 1
@@ -2578,6 +2637,36 @@ class SignalMonitor:
             "duplicates": duplicates,
             "merged": not created,
         }
+
+    async def set_signal_tx_force_raw(
+        self, device_id: str, signal_id: str, tx_force_raw: bool
+    ) -> bool:
+        """Toggle a catalog signal's raw pin and persist.
+
+        The signal-side twin of
+        ``device_manager.async_set_command_tx_force_raw`` (Highlights,
+        GH #78). It exists because the flag has to be settable where the
+        user first meets the problem: kno-te pasted a working Pronto into
+        the Clipper, tested it, and got nothing, because the Test path
+        re-encoded it and there was nowhere on a clipped remote to say
+        "send it as captured."
+
+        Assign carries it onto the new command via
+        ``_apply_signal_provenance``, so setting it here is what makes it
+        travel.
+        """
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return False
+            signal = next(
+                (s for s in device.signals if s.id == signal_id), None
+            )
+            if signal is None:
+                return False
+            signal.tx_force_raw = bool(tx_force_raw)
+            await self._signal_store.async_save()
+        return True
 
     async def set_signal_alias(
         self, device_id: str, signal_id: str, alias: str

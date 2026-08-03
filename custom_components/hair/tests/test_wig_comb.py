@@ -26,12 +26,15 @@ from __future__ import annotations
 import pytest
 
 from custom_components.hair.wig_comb import (
+    ADVISORY_CHECKS,
+    CHECK_BYPASS_WITH_DITTOS,
     CHECK_COORDINATE_COLLISION,
     CHECK_DUPLICATE_LABELS,
     CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FRAME_SHAPE,
     CHECK_MALFORMED,
     CHECK_MISSING_CELL,
+    CHECK_RAMP_DITTOS,
     CHECK_STRAY_BURST,
     CHECK_STRAY_CELL,
     MAX_STORED_FINDINGS,
@@ -73,6 +76,13 @@ def test_fixture_codes_are_valid_pronto():
     be measuring the parser rather than the checks."""
     assert validate_pronto(_code([10])).valid
     assert validate_pronto(_code([10, 10], seed=3)).valid
+
+
+def _pairs_for(pronto: str):
+    """Burst pairs of a fixture code, for asserting on the population."""
+    from custom_components.hair.wig_comb import _pairs
+
+    return _pairs(pronto)
 
 
 def _signal_wig(codes: dict[str, str]) -> Wig:
@@ -472,3 +482,180 @@ class TestReport:
     ])
     def test_degenerate_wigs_are_clean(self, wig):
         assert comb_wig(wig).findings == []
+
+
+# ---------------------------------------------------------------------------
+# The comb does not judge a deliberate repeat-train
+# ---------------------------------------------------------------------------
+
+
+class TestBypassIsSkipped:
+    """A bypassed signal is a repeat-train BY DEFINITION (Highlights,
+    GH #78), which is exactly the profile the outlier check exists to
+    flag. Ship the pin without this and kno-te's wig lands in the closet
+    with a red glow claiming its Power code is broken, when it is the
+    one code on that remote that is right.
+
+    Skipping means BOTH halves: the row is not judged, and it does not
+    vote on what normal looks like. Judging-only would leave a
+    seven-frame code in the population deciding the median for a remote
+    whose every other button is one frame.
+    """
+
+    def _dreo(self, bypass: bool) -> Wig:
+        """kno-te's remote in miniature: eleven ordinary buttons and one
+        Power code that is the same frame sent seven times."""
+        wig = _signal_wig({
+            f"Button {i}": _code([11], seed=i) for i in range(11)
+        })
+        wig.signals.append(WigSignal(
+            alias="Power", pronto=_code([11] * 7, seed=40),
+            bypass_protocol=bypass,
+        ))
+        return wig
+
+    def test_unpinned_the_repeat_train_is_flagged(self):
+        """The behaviour the pin exists to suppress: without it the comb
+        is right to complain, because an unannounced seven-frame code
+        among single-frame siblings really is suspicious."""
+        report = comb_wig(self._dreo(bypass=False))
+        assert [f.keys[0] for f in report.findings] == ["Power"]
+        assert report.findings[0].check == CHECK_FRAME_SHAPE
+
+    def test_pinned_it_is_silent(self):
+        report = comb_wig(self._dreo(bypass=True))
+        assert report.findings == []
+        assert report.suspects == 0
+
+    def test_the_skip_is_recorded_not_silent(self):
+        """"Nothing wrong with this row" and "nobody looked at this row"
+        are different claims, the same distinction the receipt already
+        draws between clean and absent."""
+        report = comb_wig(self._dreo(bypass=True))
+        assert report.skipped == ["Power"]
+        receipt = report.to_receipt("2026-08-01")
+        assert receipt["skipped"] == ["Power"]
+
+    def test_a_clean_wig_records_no_skips(self):
+        wig = _signal_wig({
+            f"K{i}": _code([11], seed=i) for i in range(6)
+        })
+        report = comb_wig(wig)
+        assert report.skipped == []
+        assert "skipped" not in report.to_receipt("2026-08-01")
+
+    def test_the_pinned_row_does_not_drag_the_population(self):
+        """THE half that is easy to get wrong. With the seven-frame code
+        still voting, the median moves far enough that the eleven honest
+        single-frame buttons start looking short: one false positive
+        silenced, several manufactured."""
+        wig = self._dreo(bypass=True)
+        report = comb_wig(wig)
+        assert report.findings == []
+
+        # And the same wig with the pin removed from the population only
+        # (judgement suppressed, vote kept) would be a different answer.
+        shapes = [
+            len(_pairs_for(sig.pronto))
+            for sig in wig.signals if not sig.bypass_protocol
+        ]
+        assert len(set(shapes)) == 1, "the honest buttons agree"
+
+    def test_two_pinned_rows_both_skip(self):
+        wig = self._dreo(bypass=True)
+        wig.signals[0].bypass_protocol = True
+        report = comb_wig(wig)
+        assert report.skipped == ["Button 0", "Power"]
+        assert report.findings == []
+
+    def test_a_pinned_row_is_never_a_suspect_for_the_fitting(self):
+        """It reaches the fitting as an ordinary checklist row instead,
+        which is the point: it is a real button on a real remote and it
+        has to be proved like any other."""
+        from custom_components.hair.wig_comb import stamp_receipt, suspect_keys
+
+        wig = self._dreo(bypass=False)
+        stamp_receipt(wig, comb_wig(wig), "2026-08-01")
+        assert suspect_keys(wig) == ["Power"]
+
+        # Now pin it: the finding stops being raised at all, and even a
+        # stale receipt naming it stops surfacing it.
+        wig.signals[-1].bypass_protocol = True
+        assert suspect_keys(wig) == []
+
+    def test_matrix_cells_are_unaffected(self):
+        """Ruling 1: cells have no pin, so nothing about a matrix wig's
+        comb changes."""
+        cells = [
+            ClimateCell(mode="cool", fan="auto", temp=float(t),
+                        pronto=_code([10], seed=t))
+            for t in range(16, 22)
+        ]
+        wig = _matrix_wig(cells)
+        report = comb_wig(wig)
+        assert report.findings == []
+        assert report.skipped == []
+
+
+class TestRecipeAdvisories:
+    """Two things the recipe can encode that deserve a look rather than
+    a verdict. Both advisory forever."""
+
+    def _wig(self, **kw):
+        from custom_components.hair.wig_format import Wig, WigSignal
+
+        return Wig(name="R", signals=[WigSignal(**kw)])
+
+    def test_bypass_with_dittos_fires(self):
+        """HAIR's exporter can never write this pair, so seeing it means
+        a human hand-edited the file."""
+        report = comb_wig(self._wig(
+            alias="Power", pronto=_code([10]),
+            bypass_protocol=True, ditto_count=3,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_BYPASS_WITH_DITTOS in checks
+
+    def test_bypass_alone_is_silent(self):
+        report = comb_wig(self._wig(
+            alias="Power", pronto=_code([10]), bypass_protocol=True,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_BYPASS_WITH_DITTOS not in checks
+
+    def test_a_high_ditto_on_a_ramp_button_fires(self):
+        report = comb_wig(self._wig(
+            alias="Volume Up", pronto=_code([10]), ditto_count=8,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_RAMP_DITTOS in checks
+
+    def test_a_high_ditto_on_a_plain_button_is_silent(self):
+        """The NAD case: 8 dittos on Power is device grammar, and the
+        comb must not second-guess it."""
+        report = comb_wig(self._wig(
+            alias="Power", pronto=_code([10]), ditto_count=8,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_RAMP_DITTOS not in checks
+
+    def test_a_modest_ditto_on_a_ramp_button_is_silent(self):
+        report = comb_wig(self._wig(
+            alias="Volume Up", pronto=_code([10]), ditto_count=2,
+        ))
+        checks = {f.check for f in report.findings}
+        assert CHECK_RAMP_DITTOS not in checks
+
+    def test_both_stay_out_of_the_suspect_population(self):
+        """Advisories never count and never light the closet chip."""
+        report = comb_wig(self._wig(
+            alias="Volume Up", pronto=_code([10]),
+            bypass_protocol=True, ditto_count=8,
+        ))
+        assert CHECK_BYPASS_WITH_DITTOS in ADVISORY_CHECKS
+        assert CHECK_RAMP_DITTOS in ADVISORY_CHECKS
+        # Both fired, and neither is a suspect.
+        assert {f.check for f in report.findings} == {
+            CHECK_BYPASS_WITH_DITTOS, CHECK_RAMP_DITTOS,
+        }
+        assert all(f.check in ADVISORY_CHECKS for f in report.findings)

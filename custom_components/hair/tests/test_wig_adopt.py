@@ -1,13 +1,20 @@
 """Tests for Adopt Device (v0.8.1) and its riders.
 
-Covers the wig-side linked-device matcher (zero / one / many), the
-content-hash identity cache, and the SmartIR Base64 padding salvage.
+Covers the wig-side linked-device matcher (zero / one / many, and the
+stored pointer a matrix wig depends on), the content-hash identity
+cache, and the SmartIR Base64 padding salvage.
 """
 from __future__ import annotations
 
 from custom_components.hair.identity import SignalIdentity
+from custom_components.hair.models import IRDevice
 from custom_components.hair.websocket_api import _wig_linked_devices
-from custom_components.hair.wig_format import Wig, WigSignal
+from custom_components.hair.wig_format import (
+    ClimateCell,
+    ClimateMatrix,
+    Wig,
+    WigSignal,
+)
 from custom_components.hair.wig_identity import (
     _IDENTITY_CACHE,
     wig_signal_identities,
@@ -116,3 +123,97 @@ class TestPaddingSalvage:
         )
 
         assert _broadlink_b64_to_pronto("!!!not base64!!!") is None
+
+
+class TestAMatrixWigLinksByItsStoredPointer:
+    """A matrix wig has NO FLAT SIGNALS. Its codes are lattice cells,
+    and cells are not commands, so neither side of the identity match
+    has anything to compare: the Samsung on the bench carries 0 signals
+    and 750 cells.
+
+    Every matrix wig therefore read as adopted by nobody, forever. The
+    closet's linked chip stayed dark, the adopt popover never appeared,
+    and the comb report went on offering ADOPT to a wig already sitting
+    on a device (bench 2026-08-03).
+
+    IRDevice.source_wig_id is the wig's UUID, written at adopt and never
+    by hand. It is exact, already stored, and costs one comparison per
+    device -- against deriving an identity for several hundred cells on
+    both sides of a pairwise scan, on a call that runs every time the
+    closet lists.
+    """
+
+    @staticmethod
+    def _matrix_wig(wig_id: str | None) -> Wig:
+        return Wig(
+            name="AC",
+            signals=[],
+            wig_id=wig_id,
+            climate=ClimateMatrix(
+                min_temp=16,
+                max_temp=30,
+                off=PRONTO_A,
+                cells=[ClimateCell(mode="cool", pronto=PRONTO_B, temp=20)],
+            ),
+        )
+
+    @staticmethod
+    def _device(device_id: str, name: str, source: str | None) -> IRDevice:
+        return IRDevice(
+            id=device_id, name=name, device_type="ac",
+            source_wig_id=source,
+        )
+
+    def test_a_matrix_wig_finds_the_device_it_was_adopted_into(self):
+        wig = self._matrix_wig("wig-1")
+        devices = [self._device("d1", "Samsung AC", "wig-1")]
+        assert _wig_linked_devices(wig, [], devices) == [
+            {"device_id": "d1", "device_name": "Samsung AC"}
+        ]
+
+    def test_an_unadopted_matrix_wig_still_links_to_nothing(self):
+        """The bug was that EVERY matrix wig read as unadopted. The fix
+        must not make every matrix wig read as adopted."""
+        wig = self._matrix_wig("wig-1")
+        devices = [self._device("d1", "Someone else", "wig-2")]
+        assert _wig_linked_devices(wig, [], devices) == []
+
+    def test_a_wig_with_no_id_cannot_be_pointed_at(self):
+        """Files written before v0.9.5 have no wig_id. A None on both
+        sides must not match everything to everything."""
+        wig = self._matrix_wig(None)
+        devices = [self._device("d1", "Sniffed", None)]
+        assert _wig_linked_devices(wig, [], devices) == []
+
+    def test_many_devices_from_one_matrix_wig(self):
+        """Adopt the lattice twice and both chip up, the same way the
+        identity path already allows."""
+        wig = self._matrix_wig("wig-1")
+        devices = [
+            self._device("d1", "Living Room", "wig-1"),
+            self._device("d2", "Bedroom", "wig-1"),
+        ]
+        linked = _wig_linked_devices(wig, [], devices)
+        assert {e["device_id"] for e in linked} == {"d1", "d2"}
+
+    def test_the_two_paths_union_rather_than_shadow(self):
+        """A flat wig adopted once and matched by identity somewhere
+        else should report both, not whichever ran first."""
+        wig = Wig(
+            name="W",
+            wig_id="wig-1",
+            signals=[WigSignal(alias="S0", pronto=PRONTO_A)],
+        )
+        index = [_index_for(PRONTO_A, "d2", "Bedroom")]
+        devices = [self._device("d1", "Living Room", "wig-1")]
+        linked = _wig_linked_devices(wig, index, devices)
+        assert {e["device_id"] for e in linked} == {"d1", "d2"}
+
+    def test_the_old_signature_still_works(self):
+        """hair_devices is optional, so every existing caller that
+        passes two arguments keeps its identity-only behaviour."""
+        wig = Wig(name="W", signals=[WigSignal(alias="S0", pronto=PRONTO_A)])
+        index = [_index_for(PRONTO_A, "d1", "Living Room")]
+        assert _wig_linked_devices(wig, index) == [
+            {"device_id": "d1", "device_name": "Living Room"}
+        ]

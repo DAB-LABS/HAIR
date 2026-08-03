@@ -38,6 +38,7 @@ come out, and the caller decides what to do with them.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
@@ -64,6 +65,8 @@ CHECK_MISSING_CELL = "missing-cell"
 CHECK_STRAY_CELL = "stray-cell"
 CHECK_COORDINATE_COLLISION = "coordinate-collision"
 CHECK_DUPLICATE_LABELS = "duplicate-labels"
+CHECK_BYPASS_WITH_DITTOS = "bypass-with-dittos"
+CHECK_RAMP_DITTOS = "ramp-dittos"
 
 # Worst first (findings Section 3). A duplicated neighbour leads because it
 # is the only class the device responds to: the user sets 17, gets 18, and
@@ -79,13 +82,28 @@ SEVERITY_ORDER = (
     CHECK_STRAY_CELL,
     CHECK_STRAY_BURST,
     CHECK_DUPLICATE_LABELS,
+    CHECK_BYPASS_WITH_DITTOS,
+    CHECK_RAMP_DITTOS,
 )
 
 # Advisory checks never count toward the "suspect" total and never light
 # the closet chip. Same code under two names is legitimate on a toggle
 # remote ("Power On" / "Power Off" sharing one code), and a flat file has
 # no lattice to prove intent either way -- this is triage, not deduction.
-ADVISORY_CHECKS = frozenset({CHECK_DUPLICATE_LABELS})
+ADVISORY_CHECKS = frozenset({
+    CHECK_DUPLICATE_LABELS,
+    # A hand-made file can carry both a raw pin and a ditto count. HAIR
+    # never writes that pair -- the exporter drops the ditto with a
+    # receipt -- so seeing it means a human wrote the file by hand and
+    # deserves a look, not a verdict. The pin still wins at transmit.
+    CHECK_BYPASS_WITH_DITTOS,
+    # A high ditto count on a ramp-prone button is a legitimate and
+    # visible behaviour choice: some receivers step once per ditto, so
+    # "Volume Up with 8 dittos" may be exactly what the author meant.
+    # Advisory forever, by design -- this is the one way the knob
+    # encodes a surprise, and surprises get mentioned, not corrected.
+    CHECK_RAMP_DITTOS,
+})
 
 
 @dataclass(frozen=True)
@@ -124,6 +142,11 @@ class CombReport:
     """What a check found, ready for a receipt or a dialog."""
 
     findings: list[Finding] = field(default_factory=list)
+    # Row keys the comb declined to judge because they are pinned to raw
+    # (Highlights, GH #78). Recorded so a reader can tell "nothing wrong
+    # with this row" from "nobody looked at this row" -- the same
+    # distinction the receipt itself draws between clean and absent.
+    skipped: list[str] = field(default_factory=list)
     version: int = COMB_VERSION
 
     @property
@@ -150,6 +173,8 @@ class CombReport:
             "counts": self.counts(),
             "findings": [f.to_dict() for f in stored],
         }
+        if self.skipped:
+            receipt["skipped"] = list(self.skipped)
         if len(self.findings) > len(stored):
             receipt["truncated"] = len(self.findings) - len(stored)
         return receipt
@@ -491,6 +516,59 @@ def _duplicate_label_findings(wig: Wig) -> list[Finding]:
     ]
 
 
+# Buttons whose whole job is to step a value. A ditto on one of these
+# repeats the step, so a high count is a behaviour choice worth
+# mentioning rather than a defect. Token match against the alias, using
+# the same lowercase-token approach the comb already takes elsewhere.
+_RAMP_TOKENS = frozenset({
+    "vol", "volume", "ch", "channel", "bright", "brightness", "dim",
+    "temp", "temperature", "speed", "level", "zoom", "track", "seek",
+    "scroll", "tune", "warmer", "cooler", "up", "down", "plus", "minus",
+})
+
+# Above this, a ramp button's ditto count stops looking like grammar and
+# starts looking like a decision. DEFAULT_REPEAT_COUNT is 1 and matches
+# NEC spec for a single tap, so the threshold sits well clear of normal.
+_RAMP_DITTO_THRESHOLD = 4
+
+
+def _bypass_ditto_findings(wig: Wig) -> list[Finding]:
+    """Both knobs set on one signal (owner ruling: mutually exclusive).
+
+    A raw blob has no ditto grammar. Only the encoder renders a
+    shortened repeat frame, so platform-level repetition of raw bytes is
+    whole-blob repetition, which is send_count's job. HAIR's own
+    exporter can never produce this pair; a hand-edited file can.
+    """
+    return [
+        Finding(
+            check=CHECK_BYPASS_WITH_DITTOS, keys=[sig.alias],
+            message="comb.bypass_with_dittos",
+            params={"count": str(sig.ditto_count)},
+        )
+        for sig in wig.signals
+        if sig.bypass_protocol and sig.ditto_count
+    ]
+
+
+def _ramp_ditto_findings(wig: Wig) -> list[Finding]:
+    """An unusually high ditto count on a button that steps a value."""
+    findings = []
+    for sig in wig.signals:
+        if sig.ditto_count <= _RAMP_DITTO_THRESHOLD:
+            continue
+        tokens = {
+            t for t in re.split(r"[^a-z0-9]+", sig.alias.lower()) if t
+        }
+        if tokens & _RAMP_TOKENS:
+            findings.append(Finding(
+                check=CHECK_RAMP_DITTOS, keys=[sig.alias],
+                message="comb.ramp_dittos",
+                params={"count": str(sig.ditto_count)},
+            ))
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # The entry point
 # ---------------------------------------------------------------------------
@@ -504,8 +582,23 @@ def comb_wig(wig: Wig) -> CombReport:
     free diagnostic that something else is wrong.
     """
     findings: list[Finding] = []
+    # A bypassed signal is a deliberate repeat-train (Highlights, GH #78),
+    # so it is excluded from the shape checks entirely -- and that means
+    # BOTH halves: it is not judged, and it does not vote on what normal
+    # looks like. Skipping only the judgement would leave kno-te's
+    # seven-frame Power code in the population that decides the median for
+    # a remote whose every other button is one frame, which would silence
+    # one false positive and manufacture eight.
+    #
+    # The comb cannot have an opinion about a code somebody deliberately
+    # pinned to raw, and should not pretend to.
+    skipped = sorted(
+        sig.alias for sig in wig.signals if sig.bypass_protocol
+    )
     rows: list[tuple[str, str]] = [
-        (sig.alias, sig.pronto) for sig in wig.signals
+        (sig.alias, sig.pronto)
+        for sig in wig.signals
+        if not sig.bypass_protocol
     ]
     if wig.climate is not None:
         # The matrix and its flat extras are different populations: a
@@ -523,10 +616,14 @@ def comb_wig(wig: Wig) -> CombReport:
     else:
         findings += _shape_findings(rows, strict=False)
         findings += _duplicate_label_findings(wig)
+    # Recipe advisories run on BOTH kinds' flat signal lists: a matrix
+    # wig's flat extras are ordinary signals and can carry either knob.
+    findings += _bypass_ditto_findings(wig)
+    findings += _ramp_ditto_findings(wig)
 
     order = {check: i for i, check in enumerate(SEVERITY_ORDER)}
     findings.sort(key=lambda f: (order.get(f.check, 99), f.keys[:1]))
-    return CombReport(findings=findings)
+    return CombReport(findings=findings, skipped=skipped)
 
 
 # ---------------------------------------------------------------------------
@@ -571,7 +668,42 @@ def receipt_summary(wig: Wig) -> dict[str, Any] | None:
         # catches unaided.
         "dangerous": bool(counts.get(CHECK_DUPLICATED_NEIGHBOUR)),
         "counts": counts,
+        # Rows the comb declined to judge because they are pinned to raw.
+        "skipped": [k for k in raw.get("skipped") or [] if isinstance(k, str)],
     }
+
+
+def suspect_findings(wig: Wig) -> dict[str, str]:
+    """Row key -> the check class that flagged it, worst first.
+
+    ``suspect_keys`` answers WHETHER a row is doubted; this answers
+    WHY, which is what a marker's tooltip has to say. A bare "suspect"
+    tells somebody there is a problem and nothing about which problem,
+    and the comb already knows: it recorded the class.
+
+    Findings are ordered worst-first in the receipt, so the first class
+    to claim a key wins -- a row that is both a duplicated neighbour
+    and an odd frame shape leads with the one that matters.
+    """
+    raw = wig.extra.get(COMB_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    findings = raw.get("findings")
+    if not isinstance(findings, list):
+        return {}
+    bypassed = {sig.alias for sig in wig.signals if sig.bypass_protocol}
+    out: dict[str, str] = {}
+    for entry in findings:
+        if not isinstance(entry, dict):
+            continue
+        check = entry.get("check")
+        if check in ADVISORY_CHECKS or not isinstance(check, str):
+            continue
+        for key in entry.get("keys") or []:
+            if isinstance(key, str) and key not in out \
+                    and key not in bypassed:
+                out[key] = check
+    return out
 
 
 def suspect_keys(wig: Wig) -> list[str]:
@@ -592,6 +724,12 @@ def suspect_keys(wig: Wig) -> list[str]:
     findings = raw.get("findings")
     if not isinstance(findings, list):
         return []
+    # A bypassed row is not a suspect. The comb never judged it, so there
+    # is no doubt to surface -- and it reaches the fitting as an ordinary
+    # checklist row rather than an advisory one (7.1).
+    bypassed = {
+        sig.alias for sig in wig.signals if sig.bypass_protocol
+    }
     seen: list[str] = []
     for entry in findings:
         if not isinstance(entry, dict):
@@ -599,6 +737,7 @@ def suspect_keys(wig: Wig) -> list[str]:
         if entry.get("check") in ADVISORY_CHECKS:
             continue
         for key in entry.get("keys") or []:
-            if isinstance(key, str) and key not in seen:
+            if isinstance(key, str) and key not in seen \
+                    and key not in bypassed:
                 seen.append(key)
     return seen

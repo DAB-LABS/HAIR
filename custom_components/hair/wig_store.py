@@ -183,3 +183,54 @@ def scan_wigs(config_dir: str | Path) -> WigScan:
         else:
             invalid.append(InvalidWig(path, result.errors))
     return WigScan(wigs, invalid)
+
+
+def find_wig_by_id(config_dir: str | Path, wig_id: str) -> str | None:
+    """The closet filename holding a given ``wig_id``, or None.
+
+    A device remembers the wig it was adopted from by IDENTITY, never by
+    filename, because the file is free to be renamed, re-downloaded, or
+    replaced by a shop copy of the same wig; the id survives all three.
+    This is the lookup that turns that memory back into a file when the
+    person hits SAVE TO CLOSET.
+
+    Scans rather than indexes: the closet is tens of files, this runs on
+    a deliberate human action, and an index would be one more thing that
+    can disagree with the disk.
+    """
+    if not wig_id:
+        return None
+    for loaded in scan_wigs(config_dir).wigs:
+        if loaded.wig.wig_id == wig_id:
+            return loaded.path.name
+    return None
+
+
+def backfill_wig_id(config_dir: str | Path, filename: str) -> str | None:
+    """Give a closet wig an identity if it has none, in place.
+
+    Returns the id -- existing or freshly minted -- or None if the file
+    will not load.
+
+    Files written before v0.9.5 have no ``wig_id``. Upload mints one on
+    the way in, but a wig that was already sitting in the closet never
+    passes through that path, and without an id a device adopted from
+    it has nothing to remember: SAVE TO CLOSET would offer to mint a
+    second copy of a wig the closet already holds.
+
+    Minting in memory alone would be worse than not minting: the device
+    would carry an id the file does not, and the two would never agree
+    again. So this writes the file back, once, and every later adopt is
+    a no-op read.
+    """
+    wig = load_wig(config_dir, filename)
+    if wig is None:
+        return None
+    if wig.wig_id:
+        return wig.wig_id
+    from .wig_format import serialize_wig
+
+    text = serialize_wig(wig)  # mints as a side effect, by design
+    path = wigs_dir(config_dir) / filename
+    path.write_text(text, encoding="utf-8")
+    return wig.wig_id

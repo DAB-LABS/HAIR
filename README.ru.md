@@ -1,12 +1,21 @@
 <p align="center">
-  <img src="images/HAIR-readme-hero-v0.2.png" alt="Баннер HAIR" width="900" />
+  <img src="https://raw.githubusercontent.com/DAB-LABS/HAIR/main/images/HAIR-readme-hero-v0.2.png" alt="Баннер HAIR" width="900" />
 </p>
 
 # HAIR
 
 **HAIR забирает ваши ИК-коды из облаков производителей, памяти передатчиков и файлов конфигурации и приводит их в сам Home Assistant.**
 
-Направьте любой пульт на ИК-приёмник, нажмите кнопку, и HAIR превратит этот сигнал в то, чем Home Assistant действительно умеет пользоваться: кнопку на любой панели, триггер для ваших автоматизаций, команду, которую можно отправить через любой передатчик на родной инфракрасной платформе HA. Без YAML, без приложений производителей, без скачивания файлов с кодами.
+Направьте любой пульт на ИК-приёмник, нажмите кнопку, и HAIR превратит этот сигнал в то, чем Home Assistant действительно умеет пользоваться: кнопку на любой панели, триггер для ваших автоматизаций, команду, которую можно отправить через любой передатчик на родной инфракрасной платформе HA. Без YAML, без приложений производителей, ничего не обучается в чужой коробке.
+
+## Установка
+
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
+1. Откройте HACS и найдите HAIR
+2. Установите HAIR, перезапустите Home Assistant и добавьте интеграцию в Настройки, затем Устройства и службы
+
+Требуется Home Assistant 2026.4 или новее; для родных ИК-приёмников рекомендуется 2026.6+.
 
 ## Пять способов завести свои коды
 
@@ -29,15 +38,6 @@
 > [!IMPORTANT]
 > Этот перевод панели HAIR подготовлен ассистентом программирования и ждёт вычитки носителем языка. Если этим человеком можете стать вы: вычитка умещается в один pull request, а ваше имя остаётся в файле. Начните здесь: [Adding a language](CONTRIBUTING.md#adding-a-language).
 
-## Установка
-
-[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
-
-1. Добавьте `https://github.com/DAB-LABS/HAIR` в HACS как пользовательский репозиторий (категория: Integration)
-2. Установите HAIR, перезапустите Home Assistant и добавьте интеграцию в Настройки, затем Устройства и службы
-
-Требуется Home Assistant 2026.4 или новее; для родных ИК-приёмников рекомендуется 2026.6+.
-
 ## Полная документация
 
 Полный README, с YAML для настройки, поддерживаемым оборудованием, руководствами по функциям и скриншотами, на английском:
@@ -46,4 +46,4 @@
 
 ---
 
-*Переведено с английского README, по состоянию на v0.9.1. Этот файл подготовлен ассистентом программирования и обновляется с каждым выпуском. Носители языка могут взять его под свою опеку; см. [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Переведено с английского README, по состоянию на v0.9.5. Этот файл подготовлен ассистентом программирования и обновляется с каждым выпуском. Носители языка могут взять его под свою опеку; см. [Adding a language](CONTRIBUTING.md#adding-a-language).*

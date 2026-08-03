@@ -424,7 +424,12 @@ async def test_send_command_success(fake_hass):
         conn,
         {"id": 6, "type": "hair/command/send", "device_id": "d1", "command_id": "c1"},
     )
-    conn.send_result.assert_called_once_with(6, {"sent": True})
+    # Nothing echoed back through a mocked manager, so heard is false
+    # after the wait. A send nothing hears is still a send: heard is a
+    # bonus fact the TEST button reads, never a condition on success.
+    conn.send_result.assert_called_once_with(
+        6, {"sent": True, "heard": False, "receiver": None}
+    )
 
 
 @pytest.mark.asyncio
@@ -452,6 +457,8 @@ async def test_send_command_not_found(fake_hass):
 async def test_delete_command_success(fake_hass):
     manager = MagicMock()
     manager.async_remove_command = AsyncMock(return_value=True)
+    # The delete path now asks whether the row is a lattice porthole.
+    manager.get_device = MagicMock(return_value=None)
     _wire_hass(fake_hass, manager=manager)
 
     conn = _make_connection()
@@ -467,6 +474,7 @@ async def test_delete_command_success(fake_hass):
 async def test_delete_command_not_found(fake_hass):
     manager = MagicMock()
     manager.async_remove_command = AsyncMock(return_value=False)
+    manager.get_device = MagicMock(return_value=None)
     _wire_hass(fake_hass, manager=manager)
 
     conn = _make_connection()
@@ -2077,3 +2085,99 @@ class TestWigsUploadDuplicateReceipt:
         again = await self._upload(fake_hass, text)
         assert again["success"] is True
         assert again["files"][0]["duplicate_of"] == first["filename"]
+
+
+class TestEveryRegisteredCommandIsDecorated:
+    """Every handler registered with HA must carry the
+    ``@websocket_api.websocket_command`` decorator in the source.
+
+    This exists because of a real outage on the test box. A helper
+    function was inserted BETWEEN a decorator stack and the handler it
+    belonged to, so the decorators landed on the helper and the handler
+    was left bare. Home Assistant raises ``AttributeError: 'function'
+    object has no attribute '_ws_command'`` at registration,
+    ``async_setup_entry`` fails, and the ENTIRE INTEGRATION does not
+    load. One misplaced insert took HAIR off the box completely.
+
+    Nothing in this suite could see it. Every other test calls the
+    handlers directly, where an undecorated function behaves exactly the
+    same, and ``homeassistant`` is stubbed here so the decorator is a
+    no-op at test time. Only real registration cares. So the check is
+    STATIC: read the source, not the runtime.
+    """
+
+    @staticmethod
+    def _parse():
+        import ast
+        import pathlib
+
+        src = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "websocket_api.py"
+        ).read_text(encoding="utf-8")
+        return ast.parse(src)
+
+    @staticmethod
+    def _is_ws_command(dec) -> bool:
+        import ast
+
+        func = dec.func if isinstance(dec, ast.Call) else dec
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr == "websocket_command"
+        )
+
+    def _decorated_names(self) -> set[str]:
+        import ast
+
+        tree = self._parse()
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(
+                node, ast.AsyncFunctionDef | ast.FunctionDef
+            ) and any(
+                self._is_ws_command(d) for d in node.decorator_list
+            ):
+                names.add(node.name)
+        return names
+
+    def _registered_names(self) -> list[str]:
+        import ast
+
+        tree = self._parse()
+        found: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr == "async_register_command"
+                and len(node.args) == 2
+                and isinstance(node.args[1], ast.Name)
+            ):
+                found.append(node.args[1].id)
+        return found
+
+    def test_every_registered_handler_is_decorated(self):
+        registered = self._registered_names()
+        assert registered, "no registrations found; the parse is wrong"
+        decorated = self._decorated_names()
+        bare = sorted(set(registered) - decorated)
+        assert not bare, (
+            "these handlers are registered but carry no "
+            "@websocket_api.websocket_command decorator, which makes "
+            f"async_setup_entry fail and the integration not load: {bare}"
+        )
+
+    def test_no_decorator_stack_landed_on_a_helper(self):
+        """The other half of the same accident. A decorated function
+        whose name does not look like a handler means a stack came to
+        rest on the wrong def, which also leaves a real handler bare."""
+        odd = sorted(
+            n for n in self._decorated_names() if not n.startswith("ws_")
+        )
+        assert not odd, (
+            "these are decorated as WebSocket commands but are not named "
+            f"like handlers; a decorator stack likely slipped: {odd}"
+        )

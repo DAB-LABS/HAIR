@@ -8,13 +8,17 @@ import { actionChipStyles } from "./ir-action-chip-styles";
 import { popoverStyles } from "./ir-popover-styles.js";
 import { customElement, property, state } from "./decorators.js";
 import { formatLanguage, t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-save-wig-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
@@ -23,6 +27,7 @@ import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-trigger-popover.js";
 import "./ir-assigned-popover.js";
+import "./ir-tx-knobs.js";
 import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
@@ -112,7 +117,6 @@ export class IrSignalMonitor extends LitElement {
     @state() private _devices: UnknownDeviceSummary[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
     @state() private _deleteRemote: UnknownDeviceSummary | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
@@ -1096,6 +1100,40 @@ export class IrSignalMonitor extends LitElement {
         };
     }
 
+    /** Pin a catalog signal to raw replay, or unpin it (Highlights).
+     * Optimistic: the row repaints immediately and the server call
+     * follows, matching how the alias edit behaves one row over. */
+    private async _onToggleBypass(
+        deviceId: string,
+        signalId: string,
+        bypass: boolean,
+    ): Promise<void> {
+        if (this._expandedDevice) {
+            this._expandedDevice = {
+                ...this._expandedDevice,
+                signals: this._expandedDevice.signals.map((s) =>
+                    s.id === signalId ? { ...s, tx_force_raw: bypass } : s,
+                ),
+            };
+        }
+        try {
+            await this.api.setSignalTxForceRaw(deviceId, signalId, bypass);
+        } catch {
+            // Put it back: the pin changes what transmits, so a failed
+            // write must not leave the row claiming otherwise.
+            if (this._expandedDevice) {
+                this._expandedDevice = {
+                    ...this._expandedDevice,
+                    signals: this._expandedDevice.signals.map((s) =>
+                        s.id === signalId
+                            ? { ...s, tx_force_raw: !bypass }
+                            : s,
+                    ),
+                };
+            }
+        }
+    }
+
     private async _toggleExpand(deviceId: string): Promise<void> {
         if (this._expandedId === deviceId) {
             this._expandedId = null;
@@ -1280,15 +1318,6 @@ export class IrSignalMonitor extends LitElement {
                       @closed=${() => (this._deleteRemote = null)}
                   ></ir-confirm-dialog>`
                 : ""}
-            ${this._saveWigDevice
-                ? html`<ir-save-wig-dialog
-                      .api=${this.api}
-                      source="catalog"
-                      sourceId=${this._saveWigDevice.id}
-                      sourceName=${this._saveWigDevice.label ?? ""}
-                      @closed=${() => (this._saveWigDevice = null)}
-                  ></ir-save-wig-dialog>`
-                : ""}
 
             ${this._deleteSignal
                 ? html`
@@ -1312,6 +1341,8 @@ export class IrSignalMonitor extends LitElement {
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
+                      .initialTxForceRaw=${!!this._editSignal.signal
+                          .tx_force_raw}
                       .initialObservedRepeatCount=${this._editSignal.signal
                           .observed_repeat_count ?? 0}
                       .allowSnap=${true}
@@ -1490,14 +1521,7 @@ export class IrSignalMonitor extends LitElement {
                           >${t("wigs.adopt")}<ir-count-dot
                                   color="green"
                                   .count=${d.linked_devices?.length ?? 0}
-                              ></ir-count-dot></button>
-                          <button
-                              class="action-btn save-wig-btn"
-                              @click=${(e: Event) => {
-                                  e.stopPropagation();
-                                  this._saveWigDevice = d;
-                              }}
-                          >${t("wigs.save_as_wig")}</button>`}
+                              ></ir-count-dot></button>`}
                     ${d.dismissed
                         ? html`<button
                               class="action-btn device-dismiss-btn"
@@ -1514,12 +1538,19 @@ export class IrSignalMonitor extends LitElement {
                               }}
                           >${t("sniffer.dismiss")}</button>
                           <button
-                              class="action-btn delete-btn"
+                              class="trash-btn"
+                              title=${t("sniffer.delete_remote_title")}
+                              aria-label=${t("sniffer.delete_remote_title")}
                               @click=${(e: Event) => {
                                   e.stopPropagation();
                                   this._deleteRemote = d;
                               }}
-                          >${t("common.delete")}</button>`}
+                          >
+                              <ha-svg-icon
+                                  .path=${ICON_TRASH}
+                                  .viewBox=${TRASH_VIEWBOX}
+                              ></ha-svg-icon>
+                          </button>`}
                     </span>
                     <ha-svg-icon
                         class="expand-icon"
@@ -1569,17 +1600,44 @@ export class IrSignalMonitor extends LitElement {
                                         .signal=${sig}
                                         ?disabled=${device.dismissed}
                                         @alias-changed=${this._onAliasChanged}
-                                    ></ir-signal-alias>
+                                    >
+                                        <ir-tx-knobs
+                                            slot="trailing"
+                                            .sendCount=${sig.send_count}
+                                            .repeatCount=${sig.repeat_count}
+                                            .decoded=${!!sig.decoded_protocol}
+                                            .bypassed=${!!sig.tx_force_raw}
+                                            .sendsKey=${"mirror.sends_times"}
+                                        ></ir-tx-knobs>
+                                    </ir-signal-alias>
+                                </div>
+                                <div class="chip-col">
+                                    <ir-protocol-chip
+                                        .protocol=${sig.decoded_protocol ?? null}
+                                        .bypass=${!!sig.tx_force_raw}
+                                        interactive
+                                        ?disabled=${device.dismissed}
+                                        @toggle-bypass=${(e: CustomEvent) =>
+                                            this._onToggleBypass(
+                                                device.id,
+                                                sig.id,
+                                                e.detail.bypass,
+                                            )}
+                                    ></ir-protocol-chip>
+                                </div>
+                                <div class="hits-col ${isHitFlash ? "hit-flash" : ""}">
+                                    ${sig.hit_count}
+                                    ${tp("sniffer.hit_word", sig.hit_count)}
                                 </div>
                                 <div class="signal-meta">
-                                    <span class="${isHitFlash ? "hit-flash" : ""}"
-                                        >${sig.hit_count}
-                                        ${tp("sniffer.hit_word", sig.hit_count)}</span
-                                    >
-                                    <span title=${fmtTime(sig.last_seen)}
+                                    <span
+                                        class="meta-time"
+                                        title=${fmtTime(sig.last_seen)}
                                         >${relTime(sig.last_seen)}</span
                                     >
-                                    <span>${Math.round(sig.frequency / 1000)} kHz</span>
+                                    <span class="meta-freq"
+                                        >${Math.round(sig.frequency / 1000)} kHz</span
+                                    >
                                 </div>
                                 ${sig.code
                                     ? html`<button
@@ -1647,12 +1705,19 @@ export class IrSignalMonitor extends LitElement {
                                             .count=${this._triggerCountFor(sig)}
                                         ></ir-count-dot></button>
                                     <button
-                                        class="action-btn delete-btn"
+                                        class="trash-btn"
+                                        title=${t("sniffer.delete_signal_title")}
+                                        aria-label=${t("sniffer.delete_signal_title")}
                                         @click=${(e: Event) => {
                                             e.stopPropagation();
                                             this._openDelete(device.id, sig);
                                         }}
-                                    >${t("common.delete")}</button>
+                                    >
+                                        <ha-svg-icon
+                                            .path=${ICON_TRASH}
+                                            .viewBox=${TRASH_VIEWBOX}
+                                        ></ha-svg-icon>
+                                    </button>
                                 </div>
                             </div>
                         `;
@@ -1664,7 +1729,7 @@ export class IrSignalMonitor extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;
@@ -1677,14 +1742,6 @@ export class IrSignalMonitor extends LitElement {
             --mdc-icon-size: 14px;
             color: var(--secondary-text-color);
             flex: none;
-        }
-
-        .save-wig-btn {
-            color: #8e3b3b;
-            border-color: rgba(142, 59, 59, 0.3);
-        }
-        .save-wig-btn:hover:not(:disabled) {
-            background: rgba(142, 59, 59, 0.12);
         }
 
         :host {
@@ -2012,6 +2069,33 @@ export class IrSignalMonitor extends LitElement {
                 flex-wrap: wrap;
             }
         }
+        /* Fixed, centred columns (owner ruling 2026-08-01). Anchoring the
+           chip to the label would make it walk left and right down the
+           list, because rows show a diamond run until they are named and
+           an alias after. The hits move into their own column for the
+           same reason, so the two stack cleanly whatever the diamonds do.
+           A row that decoded nothing holds the column EMPTY rather than
+           absent, keeping everything after it on one vertical line. */
+        /* 88px, measured rather than guessed: the widest label the chip
+           can render is SYMPHONY12 at 83.5px (SAMSUNG32 is 77, BYPASS
+           54). Every pixel not spent here goes to the diamonds, because
+           .signal-info is flex:1 and takes whatever the fixed columns
+           leave. */
+        .chip-col {
+            flex: 0 0 88px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* 52px. "9999 hits" measures 45.4px, so four digits never
+           needed the 72px an earlier pass reserved for them. */
+        .hits-col {
+            flex: 0 0 52px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+        }
         .signal-info {
             flex: 1;
             min-width: 0;
@@ -2040,12 +2124,37 @@ export class IrSignalMonitor extends LitElement {
         .diamond.short {
             color: var(--warning-color, #ff9800);
         }
+        /* Fixed, centred cells for the same reason the chip and hits
+           columns are fixed (owner ruling 2026-08-01). The relative time
+           is the one string in the row whose width really moves: "5d
+           ago" measures 34px and "13h ago" 40px, and because
+           .signal-info is flex:1 it surrendered that difference, sliding
+           the chip and the hits a few pixels row to row. Nothing here
+           may size to its content.
+
+           58px is set by the LONGEST form, which is minutes rather than
+           days: relTime yields "{count} min ago" below the hour, so
+           "59 min ago" (55.6px) is wider than "365d ago" (46.7) or even
+           "1000d ago" (53). Days keep counting rather than rolling into
+           years, so a signal heard three years ago reads "1095d ago"
+           and still fits.
+
+           42px on the frequency covers "455 kHz" (40.9), the widest
+           carrier the decoders report; the common "38 kHz" is 34.6. */
         .signal-meta {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             white-space: nowrap;
+        }
+        .meta-time {
+            flex: 0 0 58px;
+            text-align: center;
+        }
+        .meta-freq {
+            flex: 0 0 42px;
+            text-align: center;
         }
         .signal-actions {
             display: flex;

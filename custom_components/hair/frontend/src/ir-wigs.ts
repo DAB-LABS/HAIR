@@ -12,7 +12,7 @@
  *
  * Wig rows: source dot, name, signal count, then a fixed-width glyph
  * slot (copy glyph opens the editor popover, user wigs only; library
- * rows stay non-editable but carry download / FIT / ADOPT since
+ * rows stay non-editable but carry download / CLIP / ADOPT since
  * v0.8.1 via the codebook->wig snapshot primitive) and TRY ON flush
  * right. TRY ON materializes through the same import path as the
  * Clipper picker:
@@ -34,6 +34,11 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    trashButtonStyles,
+} from "./ir-icons.js";
 import { HairApi } from "./api.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
@@ -43,11 +48,12 @@ import "./ir-comb-report.js";
 import { displayTemp, installUnit } from "./temperature.js";
 import "./ir-confirm-dialog.js";
 import "./ir-count-dot.js";
-import "./ir-fitting-dialog.js";
+import "./ir-claims-ledger.js";
 import "./ir-promote-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
+    FittingSummary,
     MatrixSummary,
     WigInfo,
     WigInvalid,
@@ -77,7 +83,7 @@ const UNBRANDED_KEY = "_unbranded";
 
 // Wig (SVG Repo, owner-supplied images/wig.svg), scaled to the 24x24
 // tool-icon box like the clippers, mirror, and tweezers before it.
-const ICON_WIG =
+export const ICON_WIG =
     "M 2.45,21.37 C 1.74,20.36 1.30,18.28 0.95,18.06 C 0.59,17.83 0.40,15.85 0.57,15.36 C 0.74,14.87 0.11,13.99 0.01,13.26 C -0.08,12.53 0.44,11.84 0.42,11.52 C 0.41,11.20 0.22,9.08 1.02,7.47 C 1.45,6.62 2.67,5.28 3.93,4.70 C 5.05,4.18 6.23,4.38 6.31,4.25 C 6.46,3.98 7.34,2.27 7.95,2.45 C 7.11,3.28 7.24,4.21 7.24,4.21 C 7.24,4.21 10.07,2.34 12.34,2.45 C 14.61,2.56 19.16,5.47 19.31,5.56 C 19.46,5.66 18.97,4.63 18.11,3.50 C 18.97,3.54 20.34,6.20 20.51,6.35 C 20.68,6.50 20.79,6.37 20.51,5.23 C 21.09,5.30 21.33,6.87 21.63,7.44 C 21.93,8.00 22.79,8.02 22.72,10.13 C 24.03,10.21 24.22,14.05 23.80,14.78 C 23.63,17.29 23.21,18.34 22.79,19.31 C 22.37,20.29 21.82,21.56 21.82,21.56 C 21.82,21.56 21.95,17.42 21.24,14.39 C 20.74,12.26 19.60,10.98 18.71,10.79 C 16.55,10.34 12.30,10.70 11.81,11.30 C 10.72,11.69 5.38,9.87 4.28,10.73 C 3.64,11.24 2.89,13.16 2.90,14.67 C 2.91,15.73 3.57,15.53 3.61,16.58 C 3.63,17.16 3.06,17.54 2.75,18.45 C 2.50,19.18 2.50,20.39 2.45,21.37";
 
 // Shared expand chevrons -- the same mdi paths the Sniffer/Clipper
@@ -142,10 +148,10 @@ export class IrWigs extends LitElement {
     @state() private _bloomId: string | null = null;
     private _pendingScrollId: string | null = null;
     @state() private _busyId: string | null = null;
-    // The fitting dialog (Perfect Fit): the row's Fit button opens
-    // straight into the session; reopening resumes (marks live in the
-    // wig file, owner rulings 2026-07-26).
-    @state() private _fittingWig: WigInfo | null = null;
+    // The claims ledger: the row's check opens the record of who
+    // attested what. Read only -- attesting happens on the device, at
+    // SAVE TO CLOSET (v0.9.5).
+    @state() private _ledgerWig: WigInfo | null = null;
     // Smart Perm: the wig whose comb report is open.
     @state() private _combWig: WigInfo | null = null;
     // Adopt Device (v0.8.1): the wig the promote dialog is open for.
@@ -200,9 +206,10 @@ export class IrWigs extends LitElement {
      * spinner while loading, so a normal refresh removes every open
      * dialog from the DOM and rebuilds it from scratch. That is fine
      * for refreshes that follow a dialog closing, and wrong for one
-     * that happens WHILE a dialog is open -- a replace mid-fitting
-     * used to reset the session's emitter and send-times picks
-     * (owner bench 2026-07-30). */
+     * that happens WHILE a dialog is open -- rebuilding it would throw
+     * away whatever the person has typed into it (owner bench
+     * 2026-07-30, when a replace mid-fitting reset the session's
+     * emitter and send-times picks). */
     private async _refresh(quiet = false): Promise<void> {
         this._loading = !quiet;
         try {
@@ -219,6 +226,19 @@ export class IrWigs extends LitElement {
         } finally {
             this._loading = false;
         }
+    }
+
+    /** Open the comb ledger on a wig named by filename.
+     *
+     * The upload and adopt receipts carry a filename; the report wants
+     * the live WigInfo, so it is looked up in the list _refresh has
+     * just reloaded. Silently does nothing if the lookup misses --
+     * an unopened report is a far smaller failure than an exception
+     * thrown over a successful import. */
+    private _combAfterUpload(filename: string | undefined): void {
+        if (!filename) return;
+        const wig = this._wigs.find((w) => w.filename === filename);
+        if (wig) this._combWig = wig;
     }
 
     private _flash(message: string, kind: "ok" | "warn" = "ok"): void {
@@ -554,21 +574,42 @@ export class IrWigs extends LitElement {
             const files = result.files ?? [];
             const anyDup = files.some((f) => f.duplicate_of);
             this._receiptFiles = files;
-            this._receiptSuffix =
-                (result.skipped ?? []).length > 0
-                    ? t("wigs.upload_partial", {
-                          count: String(result.skipped!.length),
-                      })
-                    : "";
+            const suffixes: string[] = [];
+            if ((result.skipped ?? []).length > 0) {
+                suffixes.push(t("wigs.upload_partial", {
+                    count: String(result.skipped!.length),
+                }));
+            }
+            // Old whole-file fittings are set aside on import -- they
+            // cannot become per-row claims (hard rule 6), and a drop
+            // nobody is told about reads as silent data loss. The
+            // count comes from the same entries the receipt renders.
+            const dropped = files.reduce(
+                (n, f) => n + (f.dropped_fittings ?? 0), 0,
+            );
+            if (dropped > 0) {
+                suffixes.push(tp("wigs.upload_dropped_fittings", dropped));
+            }
+            this._receiptSuffix = suffixes.join(" \u00b7 ");
             this._receiptKind = anyDup ? "dup" : "ok";
             this._receipt = "files";
 
-            // No auto-jump (owner ruling): the receipt's name/brand
-            // links are the invitation; the user pulls, we don't
-            // shove. Just make sure a Library filter cannot hide the
-            // arrival if they DO click.
+            // Still no auto-jump: the receipt's name/brand links are
+            // the invitation, and the user pulls rather than being
+            // shoved down the list. Just make sure a Library filter
+            // cannot hide the arrival if they DO click.
             if (this._filter === "library") this._filter = "all";
             await this._refresh();
+            // The comb IS shown unasked, which is the one exception
+            // (owner ruling 2026-08-02) and a different thing from
+            // jumping: an arriving wig's codes have never been checked
+            // against each other on this install, and the moment to
+            // learn that 48 of them disagree is now, not after a
+            // fitting. Only when exactly one wig landed -- a foreign
+            // format can convert to five at once, and five stacked
+            // dialogs is not a report.
+            const fresh = files.filter((f) => !f.duplicate_of);
+            if (fresh.length === 1) this._combAfterUpload(fresh[0].filename);
         } catch (err) {
             this._receiptKind = "warn";
             this._receiptFiles = [];
@@ -690,14 +731,20 @@ export class IrWigs extends LitElement {
         }
     }
 
+    /** One file per drop (owner ruling 2026-08-02).
+     *
+     * The loop that used to be here hung every dropped file but wrote
+     * the receipt fresh each time, so a five-file drop reported the
+     * fifth and the other four landed with no trace. Refusing the
+     * whole drop is the honest version: nothing arrives that the
+     * fitter cannot see arrive. */
     private async _onDrop(e: DragEvent): Promise<void> {
         e.preventDefault();
         this._dragOver = false;
-        const files = e.dataTransfer?.files;
-        if (!files) return;
-        for (const file of Array.from(files)) {
-            await this._uploadText(await file.text(), file.name);
-        }
+        const files = Array.from(e.dataTransfer?.files ?? []);
+        if (files.length === 0) return;
+        if (!this._acceptsOne(files.length)) return;
+        await this._uploadText(await files[0].text(), files[0].name);
     }
 
     private _browse(): void {
@@ -705,13 +752,26 @@ export class IrWigs extends LitElement {
         input.type = "file";
         input.accept =
             ".json,.ir,.conf,.girr,.xml,application/json,text/plain";
-        input.multiple = true;
         input.onchange = async () => {
-            for (const file of Array.from(input.files ?? [])) {
-                await this._uploadText(await file.text(), file.name);
-            }
+            const files = Array.from(input.files ?? []);
+            if (files.length === 0) return;
+            if (!this._acceptsOne(files.length)) return;
+            await this._uploadText(await files[0].text(), files[0].name);
         };
         input.click();
+    }
+
+    /** Guard for both entry points: true when exactly one file came
+     * in, false after posting the refusal receipt. */
+    private _acceptsOne(count: number): boolean {
+        if (count <= 1) return true;
+        this._receiptKind = "warn";
+        this._receiptFiles = [];
+        this._receiptSuffix = "";
+        this._receipt = t("wigs.upload_one_at_a_time", {
+            count: String(count),
+        });
+        return false;
     }
 
     // --- Editor dialog ---
@@ -936,13 +996,30 @@ export class IrWigs extends LitElement {
         }
     }
 
+    /** The downloaded file's name carries the wig's check tier --
+     * name.wig.json, name.fitted.wig.json, name.perfect-fit.wig.json --
+     * derived from the same FittingSummary the row's check glyph reads,
+     * so the filename and the row can never disagree about the same
+     * wig. The name is presentation: the file's contents are identical
+     * across tiers, and an install importing it never reads the name. */
+    private _tieredFilename(wig: WigInfo, filename: string): string {
+        const state = wig.fitting?.state ?? null;
+        if (state === null) return filename;
+        const suffix = state === "perfect" ? ".perfect-fit" : ".fitted";
+        return filename.endsWith(".wig.json")
+            ? filename.slice(0, -".wig.json".length) + suffix + ".wig.json"
+            : filename + suffix;
+    }
+
     private async _download(wig: WigInfo | null): Promise<void> {
         if (!wig) return;
         try {
             const { filename, text } = await this.api.wigsGet(
                 wig.filename,
             );
-            await this._downloadText(filename, text);
+            await this._downloadText(
+                this._tieredFilename(wig, filename), text,
+            );
         } catch (err) {
             this._flash((err as Error).message);
         }
@@ -956,32 +1033,6 @@ export class IrWigs extends LitElement {
             await this._downloadText(filename, text);
         } catch (err) {
             this._flash((err as Error).message, "warn");
-        }
-    }
-
-    /** FIT on a library row (v0.8.1): fittings live in wig files, so
-     * snapshot the codebook into the closet first (content-hash dedup
-     * lands repeats in the one existing file), then open the fitting
-     * dialog on that wig. The receipt names the file either way. */
-    private async _fitLibrary(row: ClosetRow): Promise<void> {
-        this._busyId = row.id;
-        try {
-            const snap = await this.api.wigSnapshot(row.id);
-            this._flash(t(
-                snap.existed
-                    ? "wigs.snapshot_existing"
-                    : "wigs.snapshot_saved",
-                { filename: snap.filename },
-            ));
-            await this._refresh();
-            const wig = this._wigs.find(
-                (w) => w.filename === snap.filename,
-            );
-            if (wig) this._fittingWig = wig;
-        } catch (err) {
-            this._flash((err as Error).message, "warn");
-        } finally {
-            this._busyId = null;
         }
     }
 
@@ -1182,16 +1233,23 @@ export class IrWigs extends LitElement {
                       .wig=${this._combWig}
                       @combed=${() => void this._refresh(true)}
                       @closed=${() => (this._combWig = null)}
+                      @adopt-wig=${(e: CustomEvent) => {
+                          // The report's handoff offers ADOPT when the
+                          // wig is on no device yet. It hands the wig
+                          // straight to the dialog the closet row's own
+                          // ADOPT would have opened, so there is one
+                          // adopt path and not two.
+                          this._combWig = null;
+                          this._adoptWig = e.detail as WigInfo;
+                      }}
                   ></ir-comb-report>`
                 : ""}
-            ${this._fittingWig
-                ? html`<ir-fitting-dialog
+            ${this._ledgerWig
+                ? html`<ir-claims-ledger
                       .api=${this.api}
-                      .hass=${this.hass}
-                      .wig=${this._fittingWig}
-                      @closed=${() => (this._fittingWig = null)}
-                      @recorded=${this._onFittingRecorded}
-                  ></ir-fitting-dialog>`
+                      .wig=${this._ledgerWig}
+                      @closed=${() => (this._ledgerWig = null)}
+                  ></ir-claims-ledger>`
                 : ""}
         `;
     }
@@ -1199,34 +1257,19 @@ export class IrWigs extends LitElement {
     private async _onWigAdopted(): Promise<void> {
         const name =
             this._adoptWig?.name ?? this._adoptCodebook?.label ?? "";
+        // Held before the fields are cleared: the comb runs on the wig
+        // that was adopted, and only when a wig is what was adopted.
+        // The codebook path has no file to comb -- adopting from the
+        // library builds a device from catalog entries.
+        const adopted = this._adoptWig?.filename;
         this._adoptWig = null;
         this._adoptCodebook = null;
         this._flash(t("wigs.adopted", { name }), "ok");
         await this._refresh();
-    }
-
-    private async _onFittingRecorded(e: CustomEvent): Promise<void> {
-        const result = e.detail as {
-            state: "perfect" | "partial";
-            confirmed: number;
-            total: number;
-        } | null;
-        if (result) {
-            this._flash(
-                result.state === "perfect"
-                    ? t("fitting.recorded_perfect")
-                    : t("fitting.recorded_partial", {
-                          confirmed: String(result.confirmed),
-                          total: String(result.total),
-                      }),
-                "ok",
-            );
-        }
-        // Refresh so the row's check mark and the filter counts pick
-        // up the new fitting state. Quiet when the dialog is still
-        // open (a replace, not a finish): rebuilding it would throw
-        // away the session the fitter is in the middle of.
-        await this._refresh(this._fittingWig !== null);
+        // Same reasoning as the upload: a wig becoming a live device is
+        // the last moment before its codes start being pressed in
+        // anger (owner ruling 2026-08-02).
+        this._combAfterUpload(adopted);
     }
 
     private _renderBrand(brand: BrandRow) {
@@ -1283,6 +1326,32 @@ export class IrWigs extends LitElement {
      * CG3); the tooltip is what separates them. Red outranks yellow by
      * taxonomy rather than count -- one duplicated neighbour is worse than
      * thirty-four malformed frames, because the device answers that one. */
+    /**
+     * The check's tooltip: the derived detail the glyph cannot carry.
+     *
+     * Three tiers only (RULED 2026-08-03), matching the download
+     * filename tiers exactly -- a row and a filename disagreeing about
+     * the same wig is a contradiction somebody has to open the file to
+     * resolve.
+     *
+     * Union coverage is reported here rather than in the colour, on
+     * purpose: three people who each proved a different third have not
+     * produced anybody who can say the whole wig works.
+     */
+    private _fitTitle(fitting: FittingSummary): string {
+        if (fitting.state === "perfect") {
+            const who = (fitting.perfect_by ?? []).filter(Boolean);
+            return who.length
+                ? t("wigs.fit_tick.perfect_by", { who: who.join(", ") })
+                : t("wigs.fit_tick.perfect");
+        }
+        return t("wigs.fit_tick.scoped", {
+            fitters: String(fitting.fitters ?? 0),
+            covered: String(fitting.covered ?? 0),
+            total: String(fitting.total ?? 0),
+        });
+    }
+
     private _combState(wig: WigInfo): string {
         const comb = wig.comb;
         if (!comb || comb.suspects === 0) return "";
@@ -1320,21 +1389,16 @@ export class IrWigs extends LitElement {
                         : tp("wigs.signals", row.signalCount)}
                 </button>
                 ${row.wig?.fitting?.state
-                    ? html`<span
+                    ? html`<button
                           class="fit-tick ${row.wig.fitting.state} ${row
                               .wig.fitting.user_state === "perfect"
                               ? "yours"
                               : ""} ${row.wig.matrix ? "matrix" : ""}"
-                          title=${row.wig.fitting.state === "perfect"
-                              ? t("wigs.fit_tick.perfect")
-                              : t("wigs.fit_tick.partial", {
-                                    confirmed: String(
-                                        row.wig.fitting.confirmed,
-                                    ),
-                                    total: String(row.wig.fitting.total),
-                                })}
-                          >&check;</span
-                      >`
+                          title=${this._fitTitle(row.wig.fitting)}
+                          @click=${() => (this._ledgerWig = row.wig!)}
+                      >
+                          &check;
+                      </button>`
                     : ""}
                 <span class="row-actions">
                     <span class="glyph-slot">
@@ -1348,9 +1412,9 @@ export class IrWigs extends LitElement {
                               </button>`
                             : ""}
                     </span>
-                    ${row.wig
-                        ? html`<span class="glyph-slot">
-                              <button
+                    <span class="glyph-slot">
+                        ${row.wig
+                            ? html`<button
                                   class="copy-glyph"
                                   title=${this._combTitle(row.wig)}
                                   @click=${() =>
@@ -1367,9 +1431,9 @@ export class IrWigs extends LitElement {
                                   >
                                       <path d=${COMB_PATH}></path>
                                   </svg>
-                              </button>
-                          </span>`
-                        : ""}
+                              </button>`
+                            : ""}
+                    </span>
                     <span class="glyph-slot">
                         <button
                             class="copy-glyph"
@@ -1403,31 +1467,28 @@ export class IrWigs extends LitElement {
                         ></ir-count-dot>
                     </button>
                     <button
-                        class="action-btn fit-btn"
-                        ?disabled=${this._busyId === row.id}
-                        @click=${() =>
-                            row.wig
-                                ? (this._fittingWig = row.wig)
-                                : void this._fitLibrary(row)}
-                    >
-                        ${t("wigs.fit_it")}
-                    </button>
-                    <button
                         class="action-btn clip-btn"
                         ?disabled=${this._busyId === row.id}
                         @click=${() => this._onClipClick(row)}
                     >
                         ${t("wigs.clip_it")}
                     </button>
-                    ${row.wig
-                        ? html`<button
-                              class="action-btn delete-btn"
-                              @click=${() =>
-                                  (this._confirmDelete = row.wig!)}
-                          >
-                              ${t("common.delete")}
-                          </button>`
-                        : ""}
+                    <span class="glyph-slot">
+                        ${row.wig
+                            ? html`<button
+                                  class="trash-btn"
+                                  title=${t("wigs.delete_title")}
+                                  aria-label=${t("wigs.delete_title")}
+                                  @click=${() =>
+                                      (this._confirmDelete = row.wig!)}
+                              >
+                                  <ha-svg-icon
+                                      .path=${ICON_TRASH}
+                                      .viewBox=${TRASH_VIEWBOX}
+                                  ></ha-svg-icon>
+                              </button>`
+                            : ""}
+                    </span>
                 </span>
             </div>
         `;
@@ -1633,7 +1694,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = [dialogStyles, actionChipStyles, popoverStyles, css`
+    static styles = [dialogStyles, actionChipStyles, popoverStyles, trashButtonStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -2020,12 +2081,26 @@ export class IrWigs extends LitElement {
                sits at the same gap, exactly like the signal rows. */
             gap: 4px;
         }
+        /* Reserved, not conditional. The row's trailing controls are
+           anchored right by .row-actions{margin-left:auto}, so anything
+           missing at the end drags everything before it sideways: a
+           library row with no DELETE sat 64px right of a local one --
+           DELETE's width plus the 4px gap -- and the download icons
+           never lined up down the list (owner bench 2026-08-02). The
+           edit glyph already had a reserved slot; comb and DELETE
+           did not. */
         .glyph-slot {
             width: 30px;
             display: flex;
             justify-content: center;
             flex: none;
         }
+        /* The ghost that used to hold DELETE's place is gone. It
+           rendered the real localized label so the reservation stayed
+           right in any language, which was sound reasoning right up
+           until DELETE stopped being a word: a text-width ghost against
+           an 18px can would have re-broken this alignment inverted.
+           A fixed 30px slot is locale-proof by construction. */
         .copy-glyph {
             font-size: 14px;
             color: var(--secondary-text-color);
@@ -2037,26 +2112,30 @@ export class IrWigs extends LitElement {
             color: var(--wigs-accent);
         }
         /* Row-button palette (owner re-ruling 2026-07-28, consistency
-           pass): ADOPT green, FIT blue, CLIP gold/copper, DELETE last.
-           Border alpha stays quieter than the text across the family
-           (owner bench note 2026-07-27). Library rows carry FIT too
-           (v0.8.1): FIT there snapshots the codebook into the closet
-           first, since fittings live in wig files. */
-        .action-btn.fit-btn {
-            color: var(--primary-color, #2196f3);
-            border-color: rgba(33, 150, 243, 0.35);
-        }
-        .action-btn.fit-btn:hover:not(:disabled) {
-            background: rgba(33, 150, 243, 0.08);
-        }
-        /* The row's fitting check (owner ruling 2026-07-26): green
-           check = fitted, yellow check = partial, nothing = unfitted.
-           Coverage detail lives in the tooltip. */
+           pass): ADOPT green, CLIP gold/copper, DELETE last. Border
+           alpha stays quieter than the text across the family (owner
+           bench note 2026-07-27). FIT was the blue one between ADOPT
+           and CLIP; it went in v0.9.5 (ruled 2026-08-03), because
+           proving a wig now means adopting it and pressing the buttons
+           on the device. ADOPT is the path. */
+
+        /* The row's check (owner ruling 2026-07-26, re-ruled
+           2026-08-03 to three tiers): green = somebody proved the
+           whole wig, amber = signed but scoped, nothing = no
+           attestations. Coverage detail lives in the tooltip, and the
+           check itself opens the ledger. */
         .fit-tick {
             font-size: 13px;
             font-weight: 700;
             flex: none;
-            cursor: default;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0 2px;
+            line-height: 1;
+        }
+        .fit-tick:hover {
+            filter: brightness(1.25);
         }
         .fit-tick.perfect {
             color: #66bb6a;
@@ -2070,7 +2149,10 @@ export class IrWigs extends LitElement {
                 0 0 6px rgba(102, 187, 106, 0.9),
                 0 0 12px rgba(102, 187, 106, 0.45);
         }
-        .fit-tick.partial {
+        /* The old partial-yellow reborn with a better meaning: it
+           used to say somebody stopped early. It now says a complete,
+           signed, honest attestation that carries exclusions. */
+        .fit-tick.scoped {
             color: #ffb300;
         }
         /* Matrix wigs' stateful signature (owner design 2026-07-28:

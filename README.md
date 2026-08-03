@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/HAIR-readme-hero-v0.2.png" alt="HAIR Full Service barbershop banner with the TX mascot welcoming the new RX mascot at the shop entrance, RX IS HERE speech bubble overhead" width="900" />
+  <img src="https://raw.githubusercontent.com/DAB-LABS/HAIR/main/images/HAIR-readme-hero-v0.2.png" alt="HAIR Full Service barbershop banner with the TX mascot welcoming the new RX mascot at the shop entrance, RX IS HERE speech bubble overhead" width="900" />
 </p>
 
 <p align="center">
@@ -18,10 +18,44 @@
 
 ***HAIR moves your IR codes out of vendor clouds, blaster memory, and config files, and into Home Assistant itself.*** Point any remote at an ESPHome IR receiver, press a button, and HAIR turns that signal into a native HA entity. A button you can fire from any dashboard. An event that ***triggers automations***. A command broadcast through any blaster on HA's native `infrared` platform, whether that is an ESPHome IR LED, a [Tuya Local](https://github.com/make-all/tuya-local) IR blaster, a Broadlink RM, an SMLIGHT SLZB, or anything else that adopts the platform.
 
-No vendor cloud, no code-file downloads, no YAML -- just point, press, use. Prefer a head start? An optional manufacturer and model picker in the Clipper can pre-fill a remote from your installed code library.
+No vendor cloud, no YAML, nothing learned into somebody else's box -- just point, press, use. Prefer a head start? Drop code files onto the Closet -- shared wigs, SmartIR JSON, Flipper Zero `.ir`, LIRC configs, Girr exports -- or let the optional manufacturer and model picker in the Clipper pre-fill a remote from your installed code library.
 
 > [!IMPORTANT]
 > **HAIR speaks ten languages, and eight of them need your help.** Spanish got its native-speaker review (thanks @Waterbrain). The French, Japanese, German, Polish, Portuguese, Dutch, Italian, and Russian translations were drafted by a programming assistant and are marked "reviewer wanted" inside each dictionary file. If you use Home Assistant in one of these languages, a native-speaker pass over one file is all it takes, and your name goes in the file as its reviewer. A language we don't have yet is a two-file PR. Start here: [Adding a language](CONTRIBUTING.md#adding-a-language).
+
+## Requirements
+
+- Home Assistant **2026.4** or later
+- Python 3.12+
+- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, SMLIGHT Ultima receivers work natively since HA 2026.7, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Setup](#esphome-setup) for the YAML stub).
+- **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, SMLIGHT SLZB devices, etc.)
+
+## Installation
+
+### HACS (Recommended)
+
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
+Click the button above, then **Download**, then restart Home Assistant.
+
+Or find it by hand:
+
+1. Open **HACS** in your Home Assistant sidebar
+2. Search for **HAIR**
+3. Click it, then **Download**
+4. Restart Home Assistant
+
+### Manual
+
+1. Copy `custom_components/hair` into your HA `custom_components/` directory
+2. Restart Home Assistant
+
+## Setup
+
+1. Go to **Settings > Devices & Services**
+2. Click **Add Integration** and search for "HAIR"
+3. The config flow auto-detects your IR hardware (emitters and receivers)
+4. Once added, find **HAIR** in the sidebar
 
 ## Platform state
 
@@ -47,6 +81,8 @@ Some integrations go a step further and let HAIR pull codes already learned into
 HAIR fingerprints every captured signal using short/long (S/L) pulse-duration analysis. Each pulse is classified short or long, producing a pattern that identifies the signal regardless of minor timing jitter between presses. S/L works across NEC, Samsung, JVC, LG, Sony, and RC-5/RC-6 without needing to decode the protocol. The Sniffer groups signals by source remote, deduplicates repeated presses, filters held-button repeat frames, and tracks hit counts, all in real time.
 
 When HAIR can read a captured signal as a known protocol (NEC today), it also stores the decoded form alongside the raw timings for stronger matching and cleaner transmission. Raw timings remain the source of truth, and transmit can re-encode clean timings from the decoded value instead of replaying the captured ones, which fixes a class of replay failures against destinations that expect undistorted timing.
+
+When a rebuild is the wrong thing -- some devices only answer a capture whose repeats are baked in -- any decoded signal can be pinned to send its bytes verbatim. The protocol pill on a device command, Sniffer row, or Clipper row toggles between the decoded name and BYPASS, and the choice travels: it rides assignment, export, and the wig file itself, so a code somebody repaired arrives working for the next person (see [The wig format](docs/wig-format.md)).
 
 ## Screenshots
 
@@ -80,43 +116,7 @@ Same device as the Device Detail shot above, but after a profile-language change
 |:---:|:---:|:---:|
 | ![Assign dialog for mapping a captured signal to a device command](images/screenshots/assign-dialog.png) | ![Create Trigger dialog with S/L diamond pattern and min hits setting](images/screenshots/trigger-dialog.png) | ![Promote dialog for creating a new HAIR device from an unknown remote](images/screenshots/promote-dialog.png) |
 
-## Requirements
-
-- Home Assistant **2026.4** or later
-- Python 3.12+
-- **For capture (RX):** any integration that exposes HA's native `InfraredReceiverEntity` (HA 2026.6+) -- ESPHome IR receivers work day-one, SMLIGHT Ultima receivers work natively since HA 2026.7, and any other integration that adopts the receiver entity works automatically. On HA 2026.4-2026.5, HAIR falls back to the legacy ESPHome event-bus bridge (see [ESPHome Setup](#esphome-setup) for the YAML stub).
-- **For send (TX):** at least one integration on HA's native infrared platform (ESPHome infrared entities, [Tuya Local](https://github.com/make-all/tuya-local) IR blasters, Broadlink RM series, SMLIGHT SLZB devices, etc.)
-
-## Installation
-
-### HACS (Recommended)
-
-[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
-
-Click the button above, then **Download**, then restart Home Assistant.
-
-Or add it by hand:
-
-1. Open HACS in your Home Assistant instance
-2. Go to **Integrations**
-3. Click the three-dot menu > **Custom repositories**
-4. Add `https://github.com/DAB-LABS/HAIR` with category **Integration**
-5. Search for "HAIR" and install
-6. Restart Home Assistant
-
-### Manual
-
-1. Copy `custom_components/hair` into your HA `custom_components/` directory
-2. Restart Home Assistant
-
-## Setup
-
-1. Go to **Settings > Devices & Services**
-2. Click **Add Integration** and search for "HAIR"
-3. The config flow auto-detects your IR hardware (emitters and receivers)
-4. Once added, find **HAIR** in the sidebar
-
-### ESPHome Setup
+## ESPHome Setup
 
 If your ESPHome device already has `remote_transmitter` and `remote_receiver` blocks, one addition registers them both on HA's native `infrared` platform, and HAIR discovers them automatically:
 
@@ -215,9 +215,9 @@ When you upgrade to 2026.6+, add the `infrared` platform receiver entry shown ab
 
 **HAIR Mirror** - See what your house transmits. Every IR command sent through Home Assistant appears as a row on the Mirror tab, whether anything heard it or not: HAIR device commands, catalog tests, automations, and other integrations sending through the native `infrared` platform. Each row shows the send's identity, which emitter carried it, whether a receiver heard it back and in which room, how it originated, and a running send count. Because Mirror rows carry the same Assign, Test, and Trigger actions as everywhere else, the Mirror is also a third road for getting codes into HAIR alongside the Clipper and the Plucker: press a button in any vendor app whose blaster transmits through the infrared platform, and if a receiver hears the transmission, the code lands in the Mirror one Assign away from living in HAIR. The Mirror also gates triggers, so the house's own sends never fire them.
 
-**HAIR Closet** - Portable code sets, called wigs: prefab hair someone else grew that you just put on. A wig is one JSON file (`.wig.json`), one remote, raw Pronto as the payload, in a small documented format anyone can write (see [The wig format](docs/wig-format.md)). The Closet tab is where they hang: every codebook in the installed infrared code library and every wig file in `/config/hair/wigs/` on one shelf, organized by brand, searchable, with a drop bar for adding files straight from the browser. The drop bar takes more than wigs -- drop a SmartIR JSON, a Flipper Zero `.ir`, a LIRC `lircd.conf`, or a Girr export from IrScrutinizer and HAIR converts it into a wig on the spot, with anything it could not convert noted on the wig itself. Clip any closet entry and it lands on the Clipper as a working remote, decoded fresh against whatever decoders your install has. Going the other way, Add to Closet on any Sniffer, Clipper, or Plucker remote (and on HAIR devices) serializes it into a file you can share, with an origin stamp so an untested conversion never masquerades as hardware-proven codes. HAIR ships zero codes itself: the closet holds what you capture, convert, or collect, and codes that graduate to the upstream library simply appear on the same shelf.
+**HAIR Closet** - Portable code sets, called wigs: prefab hair someone else grew that you just put on. A wig is one JSON file (`.wig.json`), one remote, raw Pronto as the payload, in a small documented format anyone can write (see [The wig format](docs/wig-format.md)). The Closet tab is where they hang: every codebook in the installed infrared code library and every wig file in `/config/hair/wigs/` on one shelf, organized by brand, searchable, with a drop bar for adding files straight from the browser. The drop bar takes more than wigs -- drop a SmartIR JSON, a Flipper Zero `.ir`, a LIRC `lircd.conf`, or a Girr export from IrScrutinizer and HAIR converts it into a wig on the spot, with anything it could not convert noted on the wig itself. Clip any closet entry and it lands on the Clipper as a working remote, decoded fresh against whatever decoders your install has. Going the other way, **Save to Closet** on a HAIR device serializes it into a file you can share, with an origin stamp so an untested conversion never masquerades as hardware-proven codes. The device is the one road out on purpose: adopt or promote first, live with the result, and save it once it is real. HAIR ships zero codes itself: the closet holds what you capture, convert, or collect, and codes that graduate to the upstream library simply appear on the same shelf.
 
-**Perfect Fit (Fittings)** - Prove a wig on real hardware, and let the proof travel with the file. Press **FIT** on any of your wigs and HAIR opens a fitting session: pick an emitter, send each signal, and mark whether the device actually responded. Your marks save into the wig file as you go, so a long remote can be fitted across as many sittings as you like and a reboot loses nothing; pressing FIT again picks up right where you left off. When every signal is marked working, the session turns green and you record the fitting under your name, with an optional GitHub handle for credit if the wig ever becomes a Home Assistant integration. Recorded fittings are signed with a key generated on your install, so a fitting cannot be altered or forged after the fact, and complete fittings ride inside the wig when you share it -- a downloaded wig carries its proof. The closet shows a green check on fitted wigs (yellow while a fitting is in progress) with fitted and not-fitted filter chips, and each wig keeps a ledger of every fitting it has accumulated, from you and from others. A session can also repair what it finds: every row carries a REPLACE button that takes a pasted Pronto code or captures one live off the real remote, so a single bad button on a long remote is fixed and re-signed rather than abandoned, and your other verdicts carry forward instead of starting over.
+**Perfect Fit (Fittings)** - Prove a wig on real hardware, and let the proof travel with the file. Proving is not a ceremony in a dialog; it is living with a device that works, and then saying so. Adopt the wig, use the device, and when you press **Save to Closet** the dialog shows every command as a checklist: tick what you proved (a TEST button sits on each row for the ones you have not pressed lately), and exclude the rest honestly -- *not on my device* for a button your hardware does not have, *could not make it work* for one it refuses to answer. When every row is accounted for, the perfect-fit banner arms and you sign under your name, with an optional GitHub handle for credit. An attestation is a set of per-row claims, each binding one row's transmit recipe by digest -- the bytes, the repeat frames, the raw pin -- so fixing one code later orphans one claim instead of invalidating everybody's attestation of everything else, and renaming a command touches nothing. Claims are signed with a key generated on your install, so a fitting cannot be altered or forged after the fact, and they ride inside the wig when you share it: a downloaded wig carries its proof, and its filename says how proven it is. The closet shows a green check when one person's claims cover every row, the fittings count on the save dialog is a door into the ledger of who attested what, and a claim about a row whose bytes later changed is shown as orphaned rather than quietly dropped, because somebody really did prove that recipe.
 
 **Combing** - Find out what is wrong with a set of codes before you trust it. A converted file carries whatever was wrong in the source, because a conversion is a faithful transcode and a faithful transcode of a broken code produces a broken code. Of six real SmartIR climate files examined during development, five carried defects: frames a few timings short, so the device silently ignores the press; a cell sending its neighbor's code, so the device responds and looks like it worked while setting the wrong state; gaps in a temperature run that leave a control doing nothing; and states nothing in the file advertises. None of that is visible reading the file, and a fitting does not catch it either, because fitting a state matrix proves each dimension along its own axis rather than every individual cell. HAIR combs every wig as it arrives and reports what it found. Combing never changes a code, it reports, and the result is stamped on the wig so the closet can show it: each row carries a comb in the same quiet grey as its other icons, glowing yellow when something was found and red when a cell is sending its neighbor's code, which is the one class worth interrupting you for. Click it to comb again and read the report. Every check is arithmetic on the codes themselves rather than protocol decoding, so it works on vendors nobody has written a decoder for.
 
@@ -275,11 +275,11 @@ Each source device row can be expanded to show individual signals with their S/L
 
 The Test button on any captured signal opens an emitter picker so you can choose which IR emitter to fire the test signal through, and broadcast through multiple emitters at once if you want. The picker remembers your selection for the session so subsequent Tests skip straight to Send.
 
-A remote whose codes already run a HAIR device shows a numbered dot on its ADOPT DEVICE button; click through to see those devices, jump to any of them, or adopt another copy for a second room. You can dismiss noisy sources (like a neighbor's remote leaking through a window) and bring them back later with the "Show Dismissed" toggle (hover tooltip: "Restore previously hidden remotes"). When dismissed remotes are still firing in the background, the button quietly glows blue and shows a small dot indicator, so you can tell at a glance that there is still activity arriving from remotes you have hidden, without re-exposing those signals in the live feed. Clicking the button clears the dot and reveals the dismissed remotes so you can restore the ones you actually want back.
+A remote whose codes already run a HAIR device shows a numbered dot on its ADOPT button; click through to see those devices, jump to any of them, or adopt another copy for a second room. You can dismiss noisy sources (like a neighbor's remote leaking through a window) and bring them back later with the "Show Dismissed" toggle (hover tooltip: "Restore previously hidden remotes"). When dismissed remotes are still firing in the background, the button quietly glows blue and shows a small dot indicator, so you can tell at a glance that there is still activity arriving from remotes you have hidden, without re-exposing those signals in the live feed. Clicking the button clears the dot and reveals the dismissed remotes so you can restore the ones you actually want back.
 
 You can give any signal an alias by clicking its diamond pattern and typing a name. The alias replaces the diamonds in the row, which makes it easy to tell signals apart before you assign them. Assigning a signal no longer removes it from the Sniffer either. The signal is copied into the device and stays in the list, so you can assign the same signal to several devices, or as several commands, and reuse it later -- and an assigned button keeps flashing its row when you press it, so you can always see that the remote is alive.
 
-The whole-remote actions sit in the card header: ADOPT DEVICE, ADD TO CLOSET, DISMISS, and a bare DELETE, delete last; a dismissed row carries a lone RESTORE instead. Delete on a remote (or on a single signal row) clears it, but anything a receiver hears again comes right back -- Dismiss is the tool for keeping a remote hidden. Clear All, at the tab level, empties the list the same come-back-when-heard way.
+The whole-remote actions sit in the card header: ADOPT, ADD TO CLOSET, DISMISS, and a bare DELETE, delete last; a dismissed row carries a lone RESTORE instead. Delete on a remote (or on a single signal row) clears it, but anything a receiver hears again comes right back -- Dismiss is the tool for keeping a remote hidden. Clear All, at the tab level, empties the list the same come-back-when-heard way.
 
 Remotes and signals are yours to arrange. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. The order you set is remembered, and a newly seen remote or signal appears at the top until you move it.
 
@@ -289,7 +289,7 @@ The Clipper tab is for building remotes by hand, for when you cannot or do not w
 
 Click "+ Add" to make a named remote, then expand it and click "+ Add Signal" to add a signal. Paste the Pronto code into the dialog. As you paste, HAIR validates the code and shows a green or red check, the detected carrier frequency, the burst pair count, and the same S/L diamond fingerprint you see in the Sniffer, along with a specific message if anything is wrong (a header that is not `0000`, a truncated code, non-hex characters, or an unusual carrier frequency). Press Enter or click Create once it validates, and give it an alias up front if you like. Pasting a code that is already on the remote is refused, so a remote never ends up with two identical signals.
 
-From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it. The whole-remote actions sit in the card header next to ADOPT DEVICE: Add to Closet, and a Delete that removes the remote and all of its signals in one step.
+From there a clipped signal is identical to a sniffed one. Test it through an emitter, create a trigger from it, assign it to an existing HAIR device, or promote the whole remote into a new device. Clipped remotes are never aged out automatically, so anything you build here stays until you delete it. Drag the grip handle on a remote to reorder your remotes, and drag the grip on a signal row to reorder the signals inside a remote. Hover over a remote name to rename it inline, and click an existing signal alias to rename or clear it. The whole-remote actions sit in the card header next to ADOPT: a Delete that removes the remote and all of its signals in one step. To share a clipped remote as a wig, ADOPT it into a device and use Save to Closet there.
 
 Pronto is the only paste format. Raw timings, Broadlink base64, and protocol-plus-command entry are not supported.
 
@@ -317,11 +317,11 @@ Getting things in is one gesture: drop a file anywhere on the tab (or click Brow
 
 Anything a conversion has to skip -- an unsupported protocol, a truncated entry -- is written into the wig's notes with a reason, so a partial import is never silent. Every arrival is also combed on the way in, which is a different question from whether its codes work: combing reports codes that disagree with each other, and it is how a defect that survived conversion intact gets noticed before you build a device on it. See [Combing a wig](#combing-a-wig).
 
-To use an entry, click **ADOPT DEVICE** right on the row: the set becomes a working HAIR device in one dialog, every signal a named command with recognizable names already mapped to entity actions, and a matrix wig becomes a fully-controlled air conditioner (see [Stateful air conditioners](#stateful-air-conditioners)). If you would rather test the codes first, **CLIP** materializes the wig on the Clipper as a working remote, each signal decoded fresh against your install's decoders, ready to test and assign before you adopt from there; clipping the same wig again updates the existing clipped remote instead of minting a duplicate. To share or archive your own work, use **Add to Closet** on any Sniffer, Clipper, or Plucker remote, or on a HAIR device: it saves a wig file carrying the name, brand, model, notes, and an origin stamp that records whether the codes came from live capture, hand entry, a pluck, or a conversion. The wig editor also takes product identifiers (FCC ID, UPC, ASIN, verified OEM) and a **kind** ("candles", "soundbar", "tv") so an off-brand device stays findable even when its brand and model mean little; see [The wig format](docs/wig-format.md).
+To use an entry, click **ADOPT** right on the row: the set becomes a working HAIR device in one dialog, every signal a named command with recognizable names already mapped to entity actions, and a matrix wig becomes a fully-controlled air conditioner (see [Stateful air conditioners](#stateful-air-conditioners)). If you would rather test the codes first, **CLIP** materializes the wig on the Clipper as a working remote, each signal decoded fresh against your install's decoders, ready to test and assign before you adopt from there; clipping the same wig again updates the existing clipped remote instead of minting a duplicate. To share or archive your own work, use **Save to Closet** on the device: it saves a wig file carrying the name, brand, model, notes, and an origin stamp that records whether the codes came from live capture, hand entry, a pluck, or a conversion. The wig editor also takes product identifiers (FCC ID, UPC, ASIN, verified OEM) and a **kind** ("candles", "soundbar", "tv") so an off-brand device stays findable even when its brand and model mean little; see [The wig format](docs/wig-format.md).
 
 ### Stateful air conditioners
 
-An AC remote does not send buttons, it sends states: every press transmits the complete mode / fan / swing / temperature the unit should be in. HAIR handles those devices as what they are. Drop a SmartIR climate file on the closet and it converts into a wig carrying the full state matrix; the closet row counts its states and peeks the shape of the lattice instead of listing hundreds of cell names. Click ADOPT DEVICE and you get a fully-controlled climate entity: change the temperature on the thermostat card and HAIR looks up that exact state's code and transmits it whole, with swing and temperature controls appearing only when the matrix actually has those dimensions. Temperatures follow your install's unit on every display while the file's native numbers stay untouched underneath.
+An AC remote does not send buttons, it sends states: every press transmits the complete mode / fan / swing / temperature the unit should be in. HAIR handles those devices as what they are. Drop a SmartIR climate file on the closet and it converts into a wig carrying the full state matrix; the closet row counts its states and peeks the shape of the lattice instead of listing hundreds of cell names. Click ADOPT and you get a fully-controlled climate entity: change the temperature on the thermostat card and HAIR looks up that exact state's code and transmits it whole, with swing and temperature controls appearing only when the matrix actually has those dimensions. Temperatures follow your install's unit on every display while the file's native numbers stay untouched underneath.
 
 The device's detail page grows a STATE MATRIX card in cold blue: browse the lattice one branch at a time, see which state the entity last transmitted, send any state directly, or press "+ Command" to save a state you use often as a named command -- it lands in the commands list with a STATE chip and works everywhere a command works, in dashboards and automations included. Fitting a matrix wig uses a dimension check: 12 to 20 sends that walk every mode, fan speed, swing position, and the temperature extremes stand in for the whole lattice, and a fitted matrix wig wears the green check with a cold blue glow.
 
@@ -349,21 +349,15 @@ The result is stored on the wig as a receipt with the date, so the closet can sh
 
 ### Fitting a wig
 
-A wig in the closet is a saved set of codes; a fitting is that set validated on real hardware. Press **FIT** on any of your wigs and the fitting session opens: choose an emitter, then go signal by signal, pressing SEND and watching the device, and mark each one WORKED or DID NOT. There is no rush and no order to follow. Your marks are saved into the wig file the moment you make them, so you can close the dialog, reboot, or come back next week, and FIT reopens exactly where you left off with the untested signals sorted to the top.
+A wig in the closet is a saved set of codes; a fitting is that set proven on real hardware. The proving ground is the device, not a dialog: **adopt the wig**, and its codes become commands you press in the course of actually using the thing. When the device has earned your trust, press **Save to Closet** in its header.
 
-When every signal is marked working, the progress line announces it and FINISH turns green. Recording the fitting is the signing moment: your name (prefilled from your Home Assistant user), an optional GitHub handle that gives you credit if the wig is ever fitted to a Home Assistant integration, an optional note, and, if the wig does not have one yet, a quick question about what kind of device this is. The fitting is then signed with a cryptographic key generated on your install, which means nobody can alter your verdicts or forge a fitting in your name. Complete fittings travel inside the wig file when it is downloaded or shared; partial fittings stay on your install until they are complete, so a shared wig never carries half a claim.
+The save dialog shows every command as a checklist row. Tick the ones you proved; a **TEST** button sits on each row for anything you have not pressed lately, and it reports SENT, or SENT and HEARD when one of your receivers caught the transmission. A row you cannot vouch for gets excluded honestly rather than left hanging: *not on my device* for a button your hardware does not have, *could not make it work* for one it refuses to answer. Both exclusions are recorded on the claim in standard form, so three people excluding the same row is a pattern a reviewer can count rather than three sentences someone has to read. When every row is accounted for, the perfect-fit banner arms, and signing records the attestation under your name (prefilled options for a GitHub handle and a note ride along) with a key generated on your install, so nobody can alter your verdicts or forge a fitting in your name.
 
-Every row also carries a fourth button, **REPLACE**, and it does not wait for you to declare failure first. It opens a strip under the row with a box for a Pronto code and a **LISTEN** button: press LISTEN, point the real remote at one of your receivers and press the button, and the capture lands in the box for you to look at before anything is saved. On a state matrix the strip tells you which state to set the remote to first, which is what makes a captured cell the strongest repair available, since the remote's own display is the state and what it sends is that state's code, whole and correct. A capture that did not decode cleanly is flagged and still allowed, because sending it and watching the device settles it faster than any warning can.
+An attestation is a set of per-row claims, not a verdict on the file. Each claim binds one row's transmit recipe by digest: the bytes, the repeat frames appended to them, and whether the code is pinned raw. Fix one bad code later and only that row's claims are orphaned -- everything everyone else proved still stands, and the orphaned claim stays visible in the ledger, because somebody really did prove that recipe. Renames are free; names were never in the digest.
 
-Replacing a code changes the wig, so its identity changes with it and fittings that attested the old codes are marked outdated. That is the tamper evidence doing its job, and it used to mean starting over. Now the session you are in follows the change, and your next session seeds itself from your last fitting for every row whose code is byte for byte what it was, so only the rows that actually changed come back untested. One bad button on a 288-signal remote is fit-one-and-re-sign rather than fit-288-again.
+Repairs happen where the buttons are. A command that does not work gets its code replaced in the command editor: paste a Pronto, or press **LISTEN** and capture it off the real remote. If the device came from a wig, Save to Closet notices the difference and offers the repair upstream as an update, re-combed on the way out. Codes the comb flagged arrive on the device as ordinary rows wearing a comb glyph so you know which ones deserve suspicion; repair one and it becomes just another row you can claim. One habit makes all of this go smoothly: be slow and deliberate. Simple devices can miss a command that arrives right on the heels of the previous one, so give the device a beat between presses and a moment to visibly react before you judge.
 
-Every replaced row also keeps the code the wig came with. Its chip offers to put that code back, and two clicks does it, reaching past however many repairs the row has had so it always returns the file's own original rather than the last attempt. That stays available after you have signed, because a capture you proved and later found wrong is still worth fixing, and discarding a session puts back the codes it replaced as well as the verdicts about them.
-
-If combing found something on this wig, those codes appear in the session too, under **Changed codes** with a suspect chip. You can send them, to decide whether they are really wrong, and replace them if they are. They carry no verdict and they do not count toward the fitting, because combing is arithmetic and only you and the device can settle whether a code actually works. Replace one and it becomes an ordinary row that does count.
-
-Two habits make fittings go smoothly. First, be slow and deliberate: simple devices (candle lights, cheap fans) can miss a command that arrives right on the heels of the previous one, so give the device a beat between sends and a moment to visibly react before you judge the verdict. Second, name your signals the way you want them read forever before you start fitting, because a fitting binds to the exact signals it tested, and renaming one afterward retires the fitting honestly rather than letting it claim codes it never saw.
-
-Fittings are how shared wigs earn trust. A wig with fittings from several people is both the most proven and the most used thing on the shelf, and fitted wigs are what can graduate into generated Home Assistant integrations. If you have the hardware for a wig in your closet, fitting it is one of the most useful contributions you can make.
+Fittings are how shared wigs earn trust. A wig with fittings from several people is both the most proven and the most used thing on the shelf, its download filename says what it has earned, and fitted wigs are what can graduate into generated Home Assistant integrations. If you have the hardware for a wig in your closet, fitting it is one of the most useful contributions you can make.
 
 ### The Mirror Tab
 
@@ -381,13 +375,13 @@ There are six ways to add a device.
 
 **From scratch:** Click the "+ Add" button in the tab bar on the Devices tab. Enter a name, pick a device type, and select which IR emitters should broadcast commands for this device. HAIR creates the device profile and the corresponding HA entities immediately.
 
-**From the Sniffer (sniff it from the air):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Hover over the source row's name and click it to rename it, then click Adopt Device. Every signal on the remote comes across as a named command (aliases and decoded names carry over), recognizable names are auto-mapped to entity actions, and the new device stays linked to its source remote across the catalog tabs. Renaming before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. You can also rename it later from the Devices tab. This path is ideal when you have the physical remote in hand and want to capture its signals first.
+**From the Sniffer (sniff it from the air):** When HAIR detects a remote it doesn't recognize, it appears in the Sniffer as an unknown source device. Hover over the source row's name and click it to rename it, then click Adopt. Every signal on the remote comes across as a named command (aliases and decoded names carry over), recognizable names are auto-mapped to entity actions, and the new device stays linked to its source remote across the catalog tabs. Renaming before promoting means your new device shows up in the Devices tab already labeled the way you want it, instead of carrying the auto-generated "Unknown Remote N" name forward. You can also rename it later from the Devices tab. This path is ideal when you have the physical remote in hand and want to capture its signals first.
 
-**From the Clipper (paste the codes in):** A remote you build by hand becomes a device the same way a sniffed one does. Paste its signals with "+ Add" and "+ Add Signal", then click Adopt Device on the remote; every pasted signal arrives as a command. This is the path for a device you have Pronto codes for (from a converter, datasheet, or ESPHome log) but cannot capture live.
+**From the Clipper (paste the codes in):** A remote you build by hand becomes a device the same way a sniffed one does. Paste its signals with "+ Add" and "+ Add Signal", then click Adopt on the remote; every pasted signal arrives as a command. This is the path for a device you have Pronto codes for (from a converter, datasheet, or ESPHome log) but cannot capture live.
 
-**From the Plucker (pull from a vendor blaster):** A blaster you mirror on the Plucker tab becomes a device the same way a sniffed or clipped remote does. Once you have plucked the signals you want with "+ Pluck Signal", click Adopt Device on the blaster. This is the path when the codes already live in a vendor blaster (such as Tuya Local) and you want them as HA entities without re-learning each one at a receiver.
+**From the Plucker (pull from a vendor blaster):** A blaster you mirror on the Plucker tab becomes a device the same way a sniffed or clipped remote does. Once you have plucked the signals you want with "+ Pluck Signal", click Adopt on the blaster. This is the path when the codes already live in a vendor blaster (such as Tuya Local) and you want them as HA entities without re-learning each one at a receiver.
 
-**From the Closet (start from a code set):** Find your device's brand on the Closet tab -- or drop in a wig, SmartIR, Flipper, LIRC, or Girr file -- and click Adopt Device right on the row; the device is created with every button named. If you want to test the codes first, click CLIP to land the set on the Clipper as a working remote, confirm a couple of sends really drive your hardware, then adopt from there. This is the path when someone has already done the capturing for you. A SmartIR climate file adopts as a fully-controlled air conditioner; see [Stateful air conditioners](#stateful-air-conditioners).
+**From the Closet (start from a code set):** Find your device's brand on the Closet tab -- or drop in a wig, SmartIR, Flipper, LIRC, or Girr file -- and click Adopt right on the row; the device is created with every button named. If you want to test the codes first, click CLIP to land the set on the Clipper as a working remote, confirm a couple of sends really drive your hardware, then adopt from there. This is the path when someone has already done the capturing for you. A SmartIR climate file adopts as a fully-controlled air conditioner; see [Stateful air conditioners](#stateful-air-conditioners).
 
 **From an existing device (duplicate):** Click the duplicate icon in the top-right corner of any device card. HAIR opens a dialog pre-filled with `<original name> (Copy)` so you can rename the clone before it lands. All of the original device's commands, action mappings, and emitter assignments are copied across; triggers stay attached to the original. This path is ideal when you have several remotes of the same model (a stack of similar AC units, two identical TVs in different rooms) or when you want a sandbox copy to experiment with action mappings without breaking the working device.
 
@@ -399,7 +393,7 @@ For air conditioners, command names like "Temp 22" and "Temp 24" wire themselves
 
 When you don't have the physical remote to hand, build the command in the Clipper instead: paste the button's Pronto code on the Clipper tab, then Assign it to a device exactly as you would a sniffed signal. Sniffed and clipped signals are interchangeable once captured.
 
-When the code already lives in a vendor blaster (such as Tuya Local), use the Plucker tab to pull it into HAIR by name without re-learning it at a receiver. Register the blaster with "+ Add Blaster", then "+ Pluck Signal" with the command name you used in the vendor's app, and the resulting signal is interchangeable with sniffed and clipped ones for assignment, alias, trigger, and Adopt Device.
+When the code already lives in a vendor blaster (such as Tuya Local), use the Plucker tab to pull it into HAIR by name without re-learning it at a receiver. Register the blaster with "+ Add Blaster", then "+ Pluck Signal" with the command name you used in the vendor's app, and the resulting signal is interchangeable with sniffed and clipped ones for assignment, alias, trigger, and Adopt.
 
 And when the send happens anyway, let the Mirror catch it: press the button in the vendor's own app, and if a receiver hears the blaster fire, the code lands on the Mirror tab with an Assign button on it. See [The Mirror Tab](#the-mirror-tab).
 
@@ -520,7 +514,7 @@ Four signal sources feed one catalog: live capture (Sniffer), manual Pronto past
         |
         +-- CLIP --> materializes on the Clipper as a working remote
         |
-        +-- ADOPT DEVICE --> Device Manager (a matrix wig becomes a stateful AC climate entity)
+        +-- ADOPT --> Device Manager (a matrix wig becomes a stateful AC climate entity)
 ```
 
 ## Contributing

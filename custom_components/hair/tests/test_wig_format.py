@@ -11,11 +11,12 @@ import json
 
 import pytest
 
-from custom_components.hair.const import MAX_SEND_COUNT
+from custom_components.hair.const import MAX_DITTO_COUNT, MAX_SEND_COUNT
 from custom_components.hair.wig_format import (
     MAX_WIG_BYTES,
     WIG_FORMAT_V1,
     WIG_FORMAT_V2,
+    WIG_FORMAT_V3,
     Wig,
     WigSignal,
     canonical_cells_json,
@@ -108,8 +109,11 @@ class TestParseRejections:
         assert not result.ok
 
     def test_future_major_version_polite_refusal(self):
-        # hair-wig/2 reads since Cold Cuts; 3 is the future now.
-        result = _parse(_wig_dict(format="hair-wig/3"))
+        # hair-wig/3 reads since the recipe break; 4 is the future now.
+        # The message must stay a version message: an old HAIR that
+        # reported TAMPER on a good file is the failure this gate exists
+        # to prevent.
+        result = _parse(_wig_dict(format="hair-wig/4"))
         assert not result.ok
         assert len(result.errors) == 1
         assert "update HAIR" in result.errors[0]
@@ -180,9 +184,16 @@ class TestSerializeRoundTrip:
         text = serialize_wig(wig)
         data = json.loads(text)
         assert list(data)[:2] == ["format", "name"]
-        assert data["format"] == WIG_FORMAT_V1
-        # send_count of 1 is the default and is omitted from files.
-        assert "send_count" not in data["signals"][0]
+        assert data["format"] == WIG_FORMAT_V3
+        sig = data["signals"][0]
+        # send_count of 1 is the default and is omitted from files. It is
+        # a ride-along now, so its presence is readability, not identity.
+        assert "send_count" not in sig
+        # Both hashed recipe fields are ALWAYS written from /3 on: the
+        # only-when-true convention died with the canonical break so the
+        # portable spec has zero conditional rules.
+        assert sig["ditto_count"] == 0
+        assert sig["bypass_protocol"] is False
         assert text.endswith("\n")
 
 
@@ -198,16 +209,25 @@ class TestCanonicalization:
         b = [WigSignal("Power", changed, 1)]
         assert signals_content_hash(a) != signals_content_hash(b)
 
-    def test_alias_and_count_participate(self):
+    def test_alias_participates_and_send_count_does_not(self):
+        """The ruling principle, as an assertion.
+
+        Renaming a signal changes the wig. Changing its stated send
+        count does NOT: the fitting never transmitted that value, so the
+        signature never attested it. Five fitters proving the same codes
+        at 3, 4, 3, 5 and 4 sends are proving the same wig.
+        """
         base = [WigSignal("Power", PRONTO, 1)]
         renamed = [WigSignal("Power On", PRONTO, 1)]
         counted = [WigSignal("Power", PRONTO, 2)]
-        hashes = {
-            signals_content_hash(base),
-            signals_content_hash(renamed),
-            signals_content_hash(counted),
-        }
-        assert len(hashes) == 3
+        assert signals_content_hash(base) != signals_content_hash(renamed)
+        assert signals_content_hash(base) == signals_content_hash(counted)
+
+    def test_ditto_count_participates(self):
+        """Dittos change the waveform and the fitting transmits them."""
+        base = [WigSignal("Power", PRONTO, 1)]
+        dittoed = [WigSignal("Power", PRONTO, 1, ditto_count=2)]
+        assert signals_content_hash(base) != signals_content_hash(dittoed)
 
     def test_unknown_signal_keys_excluded(self):
         plain = [WigSignal("Power", PRONTO, 1)]
@@ -221,9 +241,11 @@ class TestCanonicalization:
         canon = canonical_signals_json([WigSignal("Power", PRONTO, 1)])
         assert canon == (
             '[{"alias":"Power",'
-            f'"pronto":"{PRONTO_LOWER}",'
-            '"send_count":1}]'
+            '"bypass_protocol":false,'
+            '"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}}]'
         )
+        assert "send_count" not in canon
 
 
 class TestFilenames:
@@ -466,50 +488,83 @@ class TestKind:
         ).wig.kind is None
 
 
-class TestKindAtSigning:
-    @pytest.mark.asyncio
-    async def test_finish_sets_kind_once(self, fake_hass, tmp_path):
-        from custom_components.hair.tests.test_wig_fitting import (
-            _read_wig,
-            _write_wig,
-        )
-        from custom_components.hair.wig_fitting import FittingManager
+class TestKindAtSave:
+    """Where the human answers the kind question.
 
-        fake_hass.config.config_dir = str(tmp_path)
-        wigs = tmp_path / "hair" / "wigs"
-        wigs.mkdir(parents=True)
-        filename = _write_wig(wigs)
-        manager = FittingManager(fake_hass, monitor=None)
-        await manager.async_mark(filename, 0, "worked", "dab")
-        await manager.async_finish(
-            filename, "dab", None, None, None, kind="Candles",
+    It used to be the signing prompt at the end of a fitting session,
+    which is why the export stamp above only fires when the device type
+    is unambiguous: something had to ask. v0.9.5 moved the question into
+    the SAVE TO CLOSET dialog, where the field sits beside brand and
+    model and the person is already looking at it.
+
+    The old rule was "first finish wins, a later one does not
+    overwrite", because a session had no other way to tell a correction
+    apart from a stale default. The save dialog does: it prefills from
+    the wig and reports back only what DIFFERS, so a correction is a
+    correction and an untouched field is nothing at all.
+    """
+
+    def test_the_dialog_stamps_the_kind_on_create(self):
+        from custom_components.hair.const import DeviceType
+        from custom_components.hair.models import IRCommand, IRDevice
+        from custom_components.hair.wig_export import build_wig_from_device
+        from custom_components.hair.wig_format import kind_slug
+
+        device = IRDevice(
+            name="X", device_type=DeviceType.MEDIA_PLAYER,
+            commands=[IRCommand(
+                id="c1", name="Power", protocol="PRONTO", code=PRONTO,
+            )],
         )
-        wig = _read_wig(wigs)
+        wig = build_wig_from_device(device).wig
+        assert wig.kind is None  # ambiguous type: nothing stamped
+        # ...and this is the line _do_create runs on the answer.
+        wig.kind = kind_slug("Candles") or wig.kind
         assert wig.kind == "candles"  # slugged
-        # A later finish with a different kind does NOT overwrite.
-        await manager.async_mark(filename, 1, "worked", "dab")
-        await manager.async_finish(
-            filename, "dab", None, None, None, kind="fan",
-        )
-        assert _read_wig(wigs).kind == "candles"
 
-    def test_share_strip_preserves_kind_and_identifiers(self):
-        """Regression: shared_wig_text rebuilt the Wig without the
-        v0.8.0 fields, silently dropping them on stripped shares."""
+    def test_an_untouched_kind_is_not_a_metadata_edit(self):
+        """The dialog sends every field back, so "present" cannot mean
+        "changed" -- an attestation-only save must not look like a
+        metadata change."""
+        from custom_components.hair.websocket_api import _metadata_edits
+
+        wig = Wig(name="Dreo", kind="candles", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+        ])
+        assert _metadata_edits(wig, {"name": "Dreo", "kind": "candles"}) == {}
+
+    def test_a_corrected_kind_is_an_edit_and_applies(self):
+        from custom_components.hair.websocket_api import (
+            _apply_metadata,
+            _metadata_edits,
+        )
+
+        wig = Wig(name="Dreo", kind="candles", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+        ])
+        edits = _metadata_edits(wig, {"kind": "Fan"})
+        assert edits == {"kind": "Fan"}
+        _apply_metadata(wig, edits)
+        assert wig.kind == "fan"
+
+    def test_kind_and_identifiers_survive_a_round_trip(self):
+        """Regression, from the days of the share strip: a path that
+        rebuilt the Wig instead of re-serializing it dropped the v0.8.0
+        fields silently. The strip is gone, but the fields still have to
+        make it through the format."""
         import json as _json
 
-        from custom_components.hair.tests.test_wig_fitting import (
-            _complete_fitting,
-            _wig,
-        )
-        from custom_components.hair.wig_fitting import shared_wig_text
-
-        wig = _wig([_complete_fitting(_wig(), draft=True)])
+        wig = Wig(name="Dreo", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+        ])
         wig.kind = "candles"
         wig.identifiers = {"upc": "794969274724"}
-        shared = _json.loads(shared_wig_text(wig))
-        assert shared["kind"] == "candles"
-        assert shared["identifiers"] == {"upc": "794969274724"}
+        out = _json.loads(serialize_wig(wig))
+        assert out["kind"] == "candles"
+        assert out["identifiers"] == {"upc": "794969274724"}
+        back = parse_wig(serialize_wig(wig)).wig
+        assert back.kind == "candles"
+        assert back.identifiers == {"upc": "794969274724"}
 
 
 class TestClimateUnit:
@@ -572,3 +627,249 @@ class TestClimateUnit:
         assert '"unit":"C"' in canonical_cells_json(c)
         assert '"unit":"F"' in canonical_cells_json(f)
         assert cells_content_hash(c) != cells_content_hash(f)
+
+
+# ---------------------------------------------------------------------------
+# bypass_protocol (Highlights, GH #78)
+# ---------------------------------------------------------------------------
+
+
+class TestBypassProtocol:
+    """Send these bytes verbatim, do not decode and re-encode them.
+
+    The flag exists because a capture whose repeats are baked in has no
+    way to declare itself: kno-te's Dreo Power code is a Symphony
+    repeat-train, HAIR re-encodes it to one clean frame, and the fan
+    ignores it. A device command could already say "send it raw"; a wig
+    could not, so the intent died at export and his wig would have
+    arrived broken for the next person.
+    """
+
+    def test_flag_is_always_explicit_now(self):
+        """The recipe break revoked the only-when-true convention.
+
+        It shipped for exactly one release and died before any external
+        verifier implemented it, which was the point of taking the break
+        in one piece. Pinned against a literal: WigFactory and any
+        upstream checker reproduce this string byte-for-byte.
+
+        Note the second signal: send_count 3 leaves NO trace in the
+        canonical form.
+        """
+        canon = canonical_signals_json([
+            WigSignal(alias="Power", pronto=PRONTO),
+            WigSignal(alias="Mode", pronto=PRONTO, send_count=3),
+        ])
+        assert canon == (
+            f'[{{"alias":"Power","bypass_protocol":false,"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}},'
+            f'{{"alias":"Mode","bypass_protocol":false,"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}}]'
+        )
+        assert "send_count" not in canon
+
+    def test_explicit_false_hashes_the_same_as_absent(self):
+        """Setting it to False is not a change to the wig.
+
+        Still true after the break, for a different reason: both forms
+        now canonicalize to an explicit ``false`` rather than both
+        omitting the key.
+        """
+        plain = [WigSignal(alias="A", pronto=PRONTO)]
+        explicit = [
+            WigSignal(alias="A", pronto=PRONTO, bypass_protocol=False)
+        ]
+        assert signals_content_hash(plain) == signals_content_hash(explicit)
+
+    def test_true_changes_the_hash(self):
+        """It changes what transmits, so it must change identity --
+        otherwise somebody could flip send behaviour after a wig was
+        fitted and the signature would still verify."""
+        plain = [WigSignal(alias="A", pronto=PRONTO)]
+        bypassed = [
+            WigSignal(alias="A", pronto=PRONTO, bypass_protocol=True)
+        ]
+        assert signals_content_hash(plain) != signals_content_hash(bypassed)
+        assert "bypass_protocol" in canonical_signals_json(bypassed)
+
+    def test_round_trip(self):
+        wig = Wig(name="Dreo", signals=[
+            WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True),
+            WigSignal(alias="Mode", pronto=PRONTO),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert back.signals[0].bypass_protocol is True
+        assert back.signals[1].bypass_protocol is False
+
+    def test_false_is_written_explicitly_now(self):
+        """The recipe break made both hashed fields always explicit.
+
+        Files got one key longer per signal; the canonicalization spec
+        lost its last conditional rule. That trade was the point.
+        """
+        wig = Wig(name="Plain", signals=[WigSignal(alias="A", pronto=PRONTO)])
+        data = json.loads(serialize_wig(wig))
+        assert data["signals"][0]["bypass_protocol"] is False
+        assert data["signals"][0]["ditto_count"] == 0
+
+    def test_it_does_not_fall_into_extra(self):
+        """Parsed explicitly, so a round-trip cannot emit it twice."""
+        wig = Wig(name="D", signals=[
+            WigSignal(alias="A", pronto=PRONTO, bypass_protocol=True),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert "bypass_protocol" not in back.signals[0].extra
+        assert serialize_wig(back).count("bypass_protocol") == 1
+
+    @pytest.mark.parametrize("bad", ["true", 1, 0, "yes", [], {}])
+    def test_a_non_bool_is_refused_not_coerced(self, bad):
+        """A truthy string would silently change both what the signal
+        transmits and what it hashes to, so a wrong type has to be an
+        error the writer can see rather than a value we guess at."""
+        result = _parse(_wig_dict(signals=[{
+            "alias": "A", "pronto": PRONTO, "bypass_protocol": bad,
+        }]))
+        assert not result.ok
+        assert any("bypass_protocol" in e for e in result.errors)
+
+    def test_true_and_false_are_both_accepted(self):
+        for value in (True, False):
+            result = _parse(_wig_dict(signals=[{
+                "alias": "A", "pronto": PRONTO, "bypass_protocol": value,
+            }]))
+            assert result.ok, result.errors
+            assert result.wig.signals[0].bypass_protocol is value
+
+    def test_an_old_reader_round_trips_it(self):
+        """Forward compatibility, documented in docs/wig-format.md. An
+        older HAIR parses the unknown key into ``extra``, and
+        ``_signal_out`` ends with ``out.update(sig.extra)``, so it
+        preserves the flag rather than destroying it. That install
+        transmits wrong, but its fitting reads as not matching rather
+        than silently attesting a code it sent differently."""
+        old_style = WigSignal(
+            alias="A", pronto=PRONTO, extra={"bypass_protocol": True},
+        )
+        out = serialize_wig(Wig(name="D", signals=[old_style]))
+        assert "bypass_protocol" in out
+        assert parse_wig(out).wig.signals[0].bypass_protocol is True
+
+
+class TestDittoCount:
+    """The transmit recipe's second knob: encoder repeat frames.
+
+    In the hash, always explicit, 0..MAX_DITTO_COUNT. Dittos are device
+    grammar rather than environment -- a strict receiver (the NAD
+    C320BEE of GH #14) rejects a lone NEC frame and needs the key-held
+    pattern before it commits to a press, and no amount of standing
+    closer changes that.
+    """
+
+    def test_absent_reads_zero(self):
+        result = _parse(_wig_dict(signals=[
+            {"alias": "A", "pronto": PRONTO},
+        ]))
+        assert result.ok, result.errors
+        assert result.wig.signals[0].ditto_count == 0
+
+    def test_absent_canonicalizes_as_explicit_zero(self):
+        canon = canonical_signals_json([WigSignal(alias="A", pronto=PRONTO)])
+        assert '"ditto_count":0' in canon
+
+    def test_clamped_on_read(self):
+        result = _parse(_wig_dict(signals=[
+            {"alias": "A", "pronto": PRONTO, "ditto_count": 99},
+            {"alias": "B", "pronto": PRONTO, "ditto_count": -3},
+        ]))
+        assert result.ok, result.errors
+        assert result.wig.signals[0].ditto_count == MAX_DITTO_COUNT
+        assert result.wig.signals[1].ditto_count == 0
+
+    @pytest.mark.parametrize("bad", ["2", True, False, 1.5, [], {}, None])
+    def test_a_non_int_is_refused_not_coerced(self, bad):
+        """Hashed, so a guessed value would change the signature of a
+        file the writer thought they understood."""
+        result = _parse(_wig_dict(signals=[
+            {"alias": "A", "pronto": PRONTO, "ditto_count": bad},
+        ]))
+        assert not result.ok
+        assert any("ditto_count" in e for e in result.errors)
+
+    def test_round_trip(self):
+        wig = Wig(name="NAD", signals=[
+            WigSignal(alias="Power", pronto=PRONTO, ditto_count=8),
+            WigSignal(alias="Mute", pronto=PRONTO),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert back.signals[0].ditto_count == 8
+        assert back.signals[1].ditto_count == 0
+
+    def test_it_does_not_fall_into_extra(self):
+        wig = Wig(name="D", signals=[
+            WigSignal(alias="A", pronto=PRONTO, ditto_count=2),
+        ])
+        back = parse_wig(serialize_wig(wig)).wig
+        assert "ditto_count" not in back.signals[0].extra
+        assert serialize_wig(back).count("ditto_count") == 1
+
+    def test_golden_vector(self):
+        """The portable spec, pinned. WigFactory and any upstream
+        verifier reproduce this string byte-for-byte.
+
+        Two signals, one dittoed, one bypassed, one carrying a send
+        count that must leave no trace. Four keys each, sorted, compact
+        separators, pronto normalized lowercase.
+        """
+        canon = canonical_signals_json([
+            WigSignal(alias="Power", pronto=PRONTO, ditto_count=2),
+            WigSignal(
+                alias="Mode", pronto=PRONTO, send_count=3,
+                bypass_protocol=True,
+            ),
+        ])
+        assert canon == (
+            f'[{{"alias":"Power","bypass_protocol":false,"ditto_count":2,'
+            f'"pronto":"{PRONTO_LOWER}"}},'
+            f'{{"alias":"Mode","bypass_protocol":true,"ditto_count":0,'
+            f'"pronto":"{PRONTO_LOWER}"}}]'
+        )
+
+    def test_canonical_is_byte_stable_across_runs(self):
+        sigs = [
+            WigSignal(alias="B", pronto=PRONTO, ditto_count=1),
+            WigSignal(alias="A", pronto=PRONTO_LOWER, bypass_protocol=True),
+        ]
+        assert canonical_signals_json(sigs) == canonical_signals_json(sigs)
+
+
+class TestRecipeFormatGate:
+    """The break is one atomic change, and the gate is a version
+    message rather than an accusation."""
+
+    def test_an_old_v1_file_still_parses(self):
+        """Majors <= 3 read. The file's hash is simply computed under
+        the new canonical -- a documented, deliberate roll."""
+        result = _parse(_wig_dict(format=WIG_FORMAT_V1, signals=[
+            {"alias": "A", "pronto": PRONTO, "send_count": 3},
+        ]))
+        assert result.ok, result.errors
+        sig = result.wig.signals[0]
+        assert sig.send_count == 3
+        assert sig.ditto_count == 0
+        assert '"send_count"' not in canonical_signals_json([sig])
+
+    def test_a_v2_matrix_file_still_parses(self):
+        result = _parse(_wig_dict(format=WIG_FORMAT_V2))
+        assert result.ok, result.errors
+
+    def test_new_exports_stamp_v3_for_both_kinds(self):
+        flat = Wig(name="TV", signals=[WigSignal("A", PRONTO)])
+        assert f'"format": "{WIG_FORMAT_V3}"' in serialize_wig(flat)
+
+    def test_the_refusal_never_says_tamper(self):
+        result = _parse(_wig_dict(format="hair-wig/4"))
+        assert not result.ok
+        joined = " ".join(result.errors).lower()
+        assert "update hair" in joined
+        for accusation in ("tamper", "invalid", "corrupt", "modified"):
+            assert accusation not in joined

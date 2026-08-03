@@ -16,9 +16,9 @@ import type {
     CommandTemplate,
     DeleteSignalResult,
     DeviceSummary,
+    ClaimsLedger,
     CombReport,
-    FittingListenEvent,
-    FittingState,
+    CommandListenEvent,
     DeviceTypeId,
     DismissActivityEvent,
     IRCommand,
@@ -29,6 +29,8 @@ import type {
     PluckVendor,
     ProntoValidation,
     ReceiverInfo,
+    SavePlan,
+    SaveResult,
     SignalRemovedEvent,
     SignalSourceId,
     SignalUpdatedEvent,
@@ -170,8 +172,18 @@ export class HairApi {
         });
     }
 
-    sendCommand(deviceId: string, commandId: string): Promise<{ sent: boolean }> {
-        return this.hass.connection.sendMessagePromise<{ sent: boolean }>({
+    /** Transmit one command. ``heard`` reports whether the Mirror
+     * caught this send's own echo within its wait -- the TEST button's
+     * SENT . HEARD reading. A send nothing hears is still a send. */
+    sendCommand(
+        deviceId: string,
+        commandId: string,
+    ): Promise<{ sent: boolean; heard: boolean; receiver: string | null }> {
+        return this.hass.connection.sendMessagePromise<{
+            sent: boolean;
+            heard: boolean;
+            receiver: string | null;
+        }>({
             type: "hair/command/send",
             device_id: deviceId,
             command_id: commandId,
@@ -304,6 +316,9 @@ export class HairApi {
             // Every closet wig holding an identical device (owner ask,
             // 2026-07-20): the receipt lists all of them, clickably.
             duplicates?: { filename: string; brand: string | null }[];
+            // Pre-claims fittings set aside on import (they cannot
+            // become per-row claims); the receipt announces the count.
+            dropped_fittings?: number;
         }[];
         format?: string;
         skipped?: string[];
@@ -319,6 +334,23 @@ export class HairApi {
 
     /** Comb one wig and refresh its receipt. Always re-combs rather than
      * serving the stored report: the receipt may predate a Replace. */
+    /** Pin a catalog signal to raw replay, or unpin it (Highlights,
+     * GH #78). The Sniffer / Clipper twin of the device command toggle. */
+    setSignalTxForceRaw(
+        deviceId: string,
+        signalId: string,
+        txForceRaw: boolean,
+    ): Promise<{ tx_force_raw: boolean }> {
+        return this.hass.connection.sendMessagePromise<{
+            tx_force_raw: boolean;
+        }>({
+            type: "hair/unknown/signal/set-tx-force-raw",
+            device_id: deviceId,
+            signal_id: signalId,
+            tx_force_raw: txForceRaw,
+        });
+    }
+
     wigsComb(filename: string): Promise<CombReport> {
         return this.hass.connection.sendMessagePromise<CombReport>({
             type: "hair/wigs/comb",
@@ -361,129 +393,78 @@ export class HairApi {
         });
     }
 
-    // --- Fitting (Perfect Fit) ---
+    // --- Attestation (read side) ---
 
-    fittingState(filename: string): Promise<FittingState> {
-        return this.hass.connection.sendMessagePromise<FittingState>({
-            type: "hair/wigs/fitting/state",
+    /** The ledger: who attested what about this wig, in full detail.
+     *
+     * A pure read, and the only claims command there is. Attesting
+     * happens through wigsSave, on the device that was tested; there
+     * is nothing here to write with. */
+    wigsClaims(filename: string): Promise<ClaimsLedger> {
+        return this.hass.connection.sendMessagePromise<ClaimsLedger>({
+            type: "hair/wigs/claims",
             filename,
         });
     }
 
-    fittingSend(
-        filename: string,
-        signalIndex: number,
-        emitter: string,
-        sendTimes?: number,
-    ): Promise<{ success: boolean; heard: boolean; decoded: boolean }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/send",
-            filename,
-            signal_index: signalIndex,
-            emitter,
-            ...(sendTimes ? { send_times: sendTimes } : {}),
+    /** What SAVE TO CLOSET is about to do, for the dialog to draw:
+     * CREATE or UPDATE, the rows, what matched, what to prefill. A
+     * photograph, not a session -- nothing is held between this and the
+     * save that follows. */
+    wigsSavePlan(deviceId: string): Promise<SavePlan> {
+        return this.hass.connection.sendMessagePromise<SavePlan>({
+            type: "hair/wigs/save_plan",
+            device_id: deviceId,
         });
     }
 
-    fittingMark(
-        filename: string,
-        signalIndex: number,
-        verdict: "worked" | "failed" | "untested",
-    ): Promise<{
-        success: boolean;
-        confirmed: number;
-        failed: number;
-        total: number;
-        perfect_ready: boolean;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/mark",
-            filename,
-            signal_index: signalIndex,
-            verdict,
+    /** Save a device to the closet. ``mode`` is the person's answer,
+     * not an inference: the dialog showed them which verb it offered,
+     * so sending it back means a save cannot silently become the other
+     * one because a file appeared or vanished mid-dialog. */
+    wigsSave(payload: {
+        device_id: string;
+        mode: "create" | "update";
+        name?: string;
+        brand?: string;
+        model?: string;
+        notes?: string;
+        kind?: string;
+        fcc_id?: string;
+        upc?: string;
+        asin?: string;
+        oem?: string;
+        attest?: {
+            claims: { digest: string; verdict: string }[];
+            handle?: string;
+            github?: string;
+            note?: string;
+            renames?: {
+                digest: string;
+                alias_at_claim: string;
+                alias: string;
+            }[];
+        };
+        /** MATRIX UPDATE: send the repaired lattice upstream. */
+        propose_lattice?: boolean;
+    }): Promise<SaveResult> {
+        return this.hass.connection.sendMessagePromise<SaveResult>({
+            type: "hair/wigs/save",
+            ...payload,
         });
     }
 
-    fittingFinish(
-        filename: string,
-        extras: Partial<{
-            handle: string;
-            github: string;
-            note: string;
-            kind: string;
-        }>,
-    ): Promise<{
-        success: boolean;
-        state: "perfect" | "partial";
-        confirmed: number;
-        failed: number;
-        total: number;
-        signed: boolean;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/finish",
-            filename,
-            ...extras,
-        });
-    }
-
-    /** Swap one fitting row's code (Smart Perm). The wig changes in
-     * place and its identity rolls, so the caller refetches state. */
-    fittingReplace(
-        filename: string,
-        signalIndex: number,
-        pronto: string,
-        source: "captured" | "pasted",
-    ): Promise<{
-        success: boolean;
-        content_hash: string;
-        row_key: string;
-        carried: number;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/replace",
-            filename,
-            signal_index: signalIndex,
-            pronto,
-            source,
-        });
-    }
-
-    /** Put one row back to the code the wig came with. Rolls the hash
-     * back, so the caller refetches state exactly as after a replace. */
-    fittingRevert(
-        filename: string,
-        signalIndex: number,
-    ): Promise<{
-        success: boolean;
-        content_hash: string;
-        row_key: string;
-        carried: number;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/revert",
-            filename,
-            signal_index: signalIndex,
-        });
-    }
-
-    /** Arm the Sniffer for one capture into the Replace box. Emits a
-     * single fitting_capture or fitting_listen_timeout; call the
-     * returned unsubscribe on cancel or when the dialog closes. */
-    async fittingListen(
-        onEvent: (event: FittingListenEvent) => void,
+    /** Arm the Sniffer for one capture into the command editor's Pronto
+     * box. Emits a single command_capture or command_listen_timeout;
+     * call the returned unsubscribe on cancel or when the dialog
+     * closes. */
+    async commandListen(
+        onEvent: (event: CommandListenEvent) => void,
     ): Promise<() => Promise<void>> {
-        return this.hass.connection.subscribeMessage<FittingListenEvent>(
+        return this.hass.connection.subscribeMessage<CommandListenEvent>(
             onEvent,
-            { type: "hair/wigs/fitting/listen" },
+            { type: "hair/command/listen" },
         );
-    }
-
-    fittingDiscard(filename: string): Promise<{ success: boolean }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/discard",
-            filename,
-        });
     }
 
     wigMakeDevice(
@@ -503,15 +484,6 @@ export class HairApi {
         });
     }
 
-    wigSnapshot(
-        codebookId: string,
-    ): Promise<{ filename: string; name: string; existed: boolean }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/snapshot",
-            codebook_id: codebookId,
-        });
-    }
-
     wigRender(
         codebookId: string,
     ): Promise<{ text: string; name: string; filename: string }> {
@@ -521,26 +493,6 @@ export class HairApi {
         });
     }
 
-    wigsExport(
-        source: "catalog" | "device",
-        sourceId: string,
-        extras?: Partial<{
-            brand: string;
-            model: string;
-            notes: string;
-            fcc_id: string;
-            upc: string;
-            asin: string;
-            oem: string;
-        }>,
-    ): Promise<{ filename: string; signal_count: number; skipped: number }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/export",
-            source,
-            source_id: sourceId,
-            ...(extras ?? {}),
-        });
-    }
 
     /**
      * Start a capture session and stream events to ``onEvent``.

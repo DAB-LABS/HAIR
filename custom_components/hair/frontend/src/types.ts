@@ -64,6 +64,19 @@ export interface IRCommand {
     // reads it -- which surfaced as a TS2339 build warning.
     byte_hash?: string | null;
     tx_force_raw?: boolean;
+    // The comb doubted this row in the wig it was adopted from
+    // (v0.9.5). Display only: it colours a dot on the row so the
+    // person can test exactly what was doubted. Nothing refuses a send
+    // because of it.
+    comb_suspect?: boolean;
+    /** WHICH comb finding flagged it, e.g. "duplicated-neighbour".
+     * The marker's tooltip says what the comb found rather than a
+     * generic "suspect". */
+    comb_finding?: string | null;
+    /** A PORTHOLE to a lattice cell: every action through this row
+     * acts on the matrix, so delete removes the cell and the confirm
+     * names the coordinates. */
+    matrix_cell?: Record<string, unknown> | null;
     created_at: string;
 }
 
@@ -207,133 +220,206 @@ export interface CombReport extends CombSummary {
     matrix: boolean;
     findings: CombFinding[];
     truncated?: number;
+    // Rows the comb did not judge because they are pinned to raw. It
+    // records these in the receipt already; naming them here is what
+    // stops a clean report implying a check that never ran.
+    skipped?: string[];
 }
 
-// Perfect Fit: the fitting layer.
+// Attestation: claims about wigs.
+/**
+ * The closet row's check, derived from claims (RULED 2026-08-03).
+ *
+ * Three tiers, one-to-one with the download filename tiers: null (no
+ * attestations), "scoped" (signed attestations, none complete), and
+ * "perfect" (at least one person's claims cover every row). Green is
+ * keyed to ONE person's complete coverage -- union coverage never
+ * inflates it, and rides in the tooltip instead.
+ */
 export interface FittingSummary {
-    state: "perfect" | "partial" | null;
-    user_state: "perfect" | "partial" | null;
-    user_draft: boolean;
-    confirmed: number;
-    failed: number;
+    state: "perfect" | "scoped" | null;
+    user_state: "perfect" | "scoped" | null;
+    /** How many people have attested at all. */
+    fitters: number;
+    /** Who has a perfect fit, for the tooltip. */
+    perfect_by: string[];
+    /** Union coverage across every fitter. Tooltip material only. */
+    covered: number;
     total: number;
-    others_complete: number;
-    warnings: string[];
 }
 
-export interface FittingLedgerRow {
-    handle: string;
+/** One row inside one person's attestation, as the ledger shows it. */
+export interface ClaimRow {
+    /** What the row was called WHEN CLAIMED. Display context: the alias
+     * is not in the digest, so a rename never orphans a claim. */
+    alias: string;
+    digest: string;
+    verdict: "worked" | "not_on_device" | "wont_work";
+    /** False when the wig no longer has a row with this digest: the
+     * recipe was edited after somebody proved it. Not an error and not
+     * hidden -- it is the most useful thing the ledger can say. */
+    present: boolean;
+}
+
+/** One signed attestation: one person, one sitting, one wig. */
+export interface ClaimBundle {
+    handle: string | null;
     github: string | null;
     date: string | null;
-    hair_version: string | null;
-    ha_version: string | null;
-    emitter: string | null;
-    receiver: string | null;
-    signals_heard: number | null;
     note: string | null;
-    // Send times the fitter recorded (fine-tuned-fittings). null =
-    // absent = unknown (pre-field fitting), which renders as nothing.
-    // Absent is not 1.
-    send_times_used?: number | null;
-    confirmed: number;
-    failed: number;
-    // The row keys behind the failed count, intersected with the
-    // wig's current rows (Smart Perm): the ledger navigates into the
-    // session at the first one rather than offering replace directly.
-    failed_keys?: string[];
-    draft: boolean;
-    valid: boolean;
-    complete: boolean;
+    /** null = unsigned. A bad signature discredits the ATTRIBUTION,
+     * never the data, and the wording has to say which. */
     signed: "valid" | "invalid" | null;
     key_fingerprint: string | null;
+    complete: boolean;
+    worked: number;
+    excluded: number;
+    orphaned: number;
+    /** Matrix only: the lattice this checklist vouched for. */
+    cells_hash: string | null;
+    /** Matrix only, null on a flat wig: whether that lattice is still
+     * the one on the file. */
+    lattice_current: boolean | null;
+    mine: boolean;
+    rows: ClaimRow[];
 }
 
-// Cold Cuts (v0.8.8): one fitting-session row. Signal wigs carry the
-// minimal shape (key = alias, section null); matrix wigs add the
-// dimension-check display facts so the dialog renders the sectioned
-// CC1 layout without re-deriving the checklist client-side.
-// Smart Perm: the replaced-marker riding a row's extra. Outside every
-// canonical hash, so showing it never moves a wig's identity.
-export interface RowProvenance {
-    replaced: "captured" | "pasted";
-    date?: string;
+/** The read-only ledger (hair/wigs/claims).
+ *
+ * It replaced a tab inside the fitting dialog. There is deliberately
+ * no write command paired with this one: attestation happens once, at
+ * SAVE TO CLOSET, on the device that was actually tested.
+ */
+export interface ClaimsLedger {
+    filename: string;
+    name: string;
+    wig_id: string | null;
+    matrix: boolean;
+    /** Flat rows on the wig. 0 for a matrix wig, whose claims bind the
+     * lattice as a set rather than a list of digests. */
+    total: number;
+    /** Union coverage across every attestation. */
+    covered: number;
+    entries: ClaimBundle[];
 }
 
-export interface FittingRow {
-    key: string;
-    // "changed" is the Smart Perm Changed Codes section: replaced cells
-    // the dimension checklist does not already cover, appended so the
-    // human proves exactly what the machine touched.
-    section:
-        | "start"
-        | "modes"
-        | "fan"
-        | "swing"
-        | "temp"
-        | "wrap"
-        | "changed"
-        | null;
-    mode?: string | null;
-    fan?: string | null;
-    swing?: string | null;
-    temp?: number | null;
-    temp_less?: boolean;
-    temp_role?: "min" | "max" | null;
-    confirmed: boolean;
-    failed: boolean;
-    provenance?: RowProvenance | null;
-    // True when an earlier code for this row is on record, so its chip
-    // can offer REVERT. A chip without this arrived with the file.
-    revertible?: boolean;
-    // A comb suspect surfaced for proofing. Sendable and replaceable,
-    // but carries no verdict and never counts toward completeness.
-    advisory?: boolean;
-}
-
-// One event from the Replace strip's listen window.
-export type FittingListenEvent =
+// One event from the command editor's Replace section. Same shape as
+// the fitting variant, its own event names: both surfaces can be open
+// at once during the release that carries them, and a shared name would
+// cross their wires.
+export type CommandListenEvent =
     | {
-          type: "fitting_capture";
+          type: "command_capture";
           pronto: string;
           decoded: boolean;
           protocol: string | null;
           receiver: string | null;
       }
-    | { type: "fitting_listen_timeout" };
+    | { type: "command_listen_timeout" };
 
-export interface FittingState {
-    filename: string;
-    username: string;
-    kind: string | null;
-    // True when this wig fits through the dimension check (Cold Cuts).
+/** One line of the attestation list, as the dialog draws it. */
+export interface SavePlanRow {
+    /** The device command this row came from. TEST sends through this;
+     * claims come back keyed by digest. Both ends agree on which
+     * physical command is meant, which they would not if the row were
+     * identified by position -- a command with no usable Pronto never
+     * becomes a wig signal, so the two lists are not parallel. */
+    command_id: string;
+    alias: string;
+    digest: string;
+    send_count: number;
+    ditto_count: number;
+    bypass: boolean;
+    protocol: string | null;
+    wig_index: number | null;
+    /** UPDATE only: what the WIG calls this row. */
+    wig_alias: string | null;
+    matched: boolean;
+    /** Matched by bytes but not by name: the rename line. */
+    renamed: boolean;
+    /** MATRIX ONLY. A checklist row addresses a cell by coordinate
+     * rather than a command by id: TEST sends these, and they compose
+     * the row's human label. */
+    section?: string | null;
+    mode?: string | null;
+    fan?: string | null;
+    swing?: string | null;
+    temp?: number | null;
+    temp_less?: boolean;
+    temp_role?: string | null;
+    power?: string | null;
+}
+
+/** A wig row nothing on the device covers. Feeds the exclusion picker. */
+export interface SavePlanMissingRow {
+    wig_index: number;
+    alias: string;
+    digest: string;
+}
+
+/** One way the device's lattice differs from the wig it came from. */
+export interface CellChange {
+    /** "changed" | "deleted" | "added". */
+    kind: string;
+    /** Coordinate name, matching what the porthole row on the device
+     * calls the same cell. */
+    label: string;
+    mode: string | null;
+    fan: string | null;
+    swing: string | null;
+    temp: number | null;
+}
+
+export interface SavePlan {
+    variant: "create" | "update";
+    rows: SavePlanRow[];
+    missing_rows: SavePlanMissingRow[];
+    source_filename: string | null;
+    source_wig_id: string | null;
+    source_wig_name: string | null;
+    /** The device remembers a wig the closet no longer holds. The save
+     * falls back to CREATE and says so. */
+    source_missing: boolean;
+    converted_from: string | null;
+    metadata: Record<string, string>;
+    skipped: number;
+    notes: string[];
+    /** How many fittings the source wig already carries. Shown so an
+     * UPDATE reads as joining a record rather than starting one. */
+    existing_fittings: number;
+    /** MATRIX ONLY: the lattice the checklist vouches for, and the
+     * units its temperatures are written in. The hash is display and
+     * provenance only -- the server stamps the bundle from the matrix
+     * it reads at save time, never from this. */
+    cells_hash: string | null;
+    unit: "C" | "F";
+    precision: number;
+    /** MATRIX UPDATE only: how the device's lattice differs from the
+     * wig's. Non-empty blocks the matrix attestation, because a
+     * checklist bundle binds cells_hash, a SET -- signing a diverged
+     * lattice would bind bytes the fitter never tested. */
+    cell_changes: CellChange[];
+    lattice_diverged: boolean;
+    /** A climate matrix device. Its lattice lives in the climate
+     * entity, not the command list, so the rows above are only its
+     * depth-0 extras and the perfect-fit block stays closed. */
     matrix: boolean;
-    // Matrix wigs only, null for signal wigs (unit ruling 2026-07-29):
-    // the matrix's native unit and precision. Row temps stay native;
-    // the dialog converts labels for display with these two facts.
-    unit?: "C" | "F" | null;
-    precision?: number | null;
-    // Row keys in session order; for signal wigs this is the alias
-    // list, byte-identical to the pre-0.8.8 payload.
-    signals: string[];
-    rows: FittingRow[];
-    draft: {
-        confirmed: string[];
-        failed: string[];
-        heard: string[];
-        date: string | null;
-        send_times_used?: number | null;
-    } | null;
-    // True when the row verdicts are a carry-forward preview from the
-    // user's last fitting rather than a live draft on these codes.
-    carried?: boolean;
-    // How many replaced codes DISCARD would put back.
-    pending_replaces?: number;
-    ledger: FittingLedgerRow[];
-    summary: FittingSummary;
-    // Restore value for the session's send-times control: the live
-    // session where one exists, else the draft's persisted record.
-    // null = fresh session, control starts at 1.
-    send_times?: number | null;
+}
+
+export interface SaveResult {
+    filename: string | null;
+    wig_id: string | null;
+    signal_count: number;
+    skipped: number;
+    attested: number;
+    variant: "create" | "update";
+    notes: string[];
+    /** Renames that matched nothing. Reported, never silent. */
+    stale_renames: string[];
+    /** What the fresh comb receipt says about the file just written. */
+    suspects: number;
+    /** Lattice cells this save proposed upstream. */
+    cells_proposed: number;
 }
 
 export interface WigInvalid {
@@ -476,6 +562,11 @@ export interface UnknownSignal {
     // observation surfaced as an editor hint.
     repeat_count?: number;
     send_count?: number;
+    // Send the captured Pronto verbatim instead of re-encoding from the
+    // decoded identity (Highlights, GH #78). The third knob of the same
+    // kind: set here, carried onto the command at assign, into a wig at
+    // export. A user decision that survives re-capture.
+    tx_force_raw?: boolean;
     observed_repeat_count?: number;
     // Assignment provenance (dots polish, v0.5.7; structured payloads for
     // the assigned popover, v0.6.6). Number of HAIR device commands whose

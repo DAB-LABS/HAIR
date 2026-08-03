@@ -70,6 +70,26 @@ class IRCommand:
     # (Plucker, v0.5.0). The user-typed vendor command name; None for
     # commands not sourced from a pluck.
     plucked_command_name: str | None = None
+    # A PORTHOLE TO A LATTICE CELL (v0.9.5). Present only on the
+    # coordinate-named rows a matrix device grows for cells the comb
+    # doubted: {"mode", "fan", "swing", "temp"}. Every action through
+    # such a row acts on the lattice rather than on this record -- TEST
+    # sends the cell, edit rewrites it, delete removes it -- so the row
+    # is a view, not a second copy that could drift from the matrix
+    # store behind it.
+    matrix_cell: dict[str, Any] | None = None
+    # The comb doubted this row in the wig it was adopted from (v0.9.5).
+    # Carried onto the device so the comb's receipt stops being
+    # closet-only knowledge: the person can see what was doubted, test
+    # exactly those, and attest them at export like any other row. It is
+    # a note about where the code came from, not a verdict on it, so
+    # nothing in HAIR treats it as a reason to refuse a send.
+    comb_suspect: bool = False
+    # WHICH finding flagged it: the comb's check class, e.g.
+    # "duplicated-neighbour". The marker's tooltip says what the comb
+    # actually found rather than a generic "suspect" -- the comb knows,
+    # so the row should say (bench 2026-08-03).
+    comb_finding: str | None = None
     created_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> dict[str, Any]:
@@ -94,6 +114,10 @@ class IRCommand:
             else None,
             "tx_force_raw": self.tx_force_raw,
             "plucked_command_name": self.plucked_command_name,
+            "matrix_cell": dict(self.matrix_cell)
+            if self.matrix_cell else None,
+            "comb_suspect": self.comb_suspect,
+            "comb_finding": self.comb_finding,
             "created_at": self.created_at,
         }
 
@@ -118,6 +142,9 @@ class IRCommand:
             decoded_extras=data.get("decoded_extras") or None,
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
+            matrix_cell=data.get("matrix_cell") or None,
+            comb_suspect=bool(data.get("comb_suspect", False)),
+            comb_finding=data.get("comb_finding") or None,
             created_at=data.get("created_at") or _now_iso(),
         )
 
@@ -196,6 +223,23 @@ class IRDevice:
     # devices JSON, which storage.py rewrites wholesale on every
     # update (census worst case 7.9 MB; addendum 2.3).
     climate_matrix: bool = False
+    # WHERE THIS DEVICE CAME FROM (v0.9.5 Fitting Room). Set at adopt
+    # and never by hand.
+    #
+    # ``source_wig_id`` is the wig's UUID, and its PRESENCE is the
+    # "this is an existing wig" tag -- there is no separate flag,
+    # because a second field could disagree with the first. It is what
+    # SAVE TO CLOSET reads to decide between offering UPDATE and
+    # offering CREATE, and what the shop routes a resulting PR by.
+    #
+    # ``source_file`` is the seed filename for a device built from a
+    # converted foreign file. That is a CREATE with provenance, not an
+    # update: nothing in the closet owns the result yet.
+    #
+    # Both None for a device built from scratch by sniffing or
+    # clipping. Local renames and send-count tweaks never touch either.
+    source_wig_id: str | None = None
+    source_file: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -370,6 +414,8 @@ class IRDevice:
             "entity_config": self.entity_config.to_dict(),
             "database_id": self.database_id,
             "climate_matrix": self.climate_matrix,
+            "source_wig_id": self.source_wig_id,
+            "source_file": self.source_file,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -400,6 +446,10 @@ class IRDevice:
             database_id=data.get("database_id"),
             # Absent (pre-0.8.8 record) resolves to False = preset mode.
             climate_matrix=bool(data.get("climate_matrix", False)),
+            # Absent on every device made before v0.9.5, which reads
+            # correctly as "built from scratch here".
+            source_wig_id=data.get("source_wig_id") or None,
+            source_file=data.get("source_file") or None,
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         )
@@ -646,7 +696,6 @@ class UnknownSignal:
     # Decoded protocol identity (v0.4.0 Phase A). Populated at capture
     # when the infrared-protocols library can read the signal (NEC today),
     # and backfilled on load for older records. None when undecodable.
-    # ``tx_force_raw`` is a device-command concept and is NOT carried here.
     decoded_protocol: str | None = None
     decoded_address: int | None = None
     decoded_command: int | None = None
@@ -673,6 +722,18 @@ class UnknownSignal:
     # the new IRCommand at assign time via _apply_signal_provenance.
     repeat_count: int = DEFAULT_REPEAT_COUNT  # NEC ditto count
     send_count: int = 1  # whole-frame TX count
+    # Send the captured Pronto verbatim instead of re-encoding from the
+    # decoded identity (Highlights, GH #78). The third knob of exactly
+    # the same kind as the two above, and it exists because a capture
+    # whose repeats are baked in has no other way to declare itself: a
+    # Symphony repeat-train re-encodes to one clean frame and the device
+    # ignores it.
+    #
+    # A USER DECISION, and it survives re-capture on purpose. The capture
+    # path only touches hit_count and last_seen on an existing signal, so
+    # this rides through untouched like send_count and repeat_count
+    # already do. Do not add a refresh-on-hit that resets it.
+    tx_force_raw: bool = False
     # Mirror provenance (v0.6.6). Only ever set on rows of the synthetic
     # Mirror device: a human-readable line describing the most recent send
     # ("Test AC / Temp 22 -- via Living Room Broadlink"), and the receiver
@@ -711,6 +772,7 @@ class UnknownSignal:
             "plucked_command_name": self.plucked_command_name,
             "repeat_count": self.repeat_count,
             "send_count": self.send_count,
+            "tx_force_raw": self.tx_force_raw,
             "observed_repeat_count": self.observed_repeat_count,
             "echo_source": self.echo_source,
             "heard_by": list(self.heard_by) if self.heard_by is not None else None,
@@ -746,6 +808,7 @@ class UnknownSignal:
             plucked_command_name=data.get("plucked_command_name"),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
+            tx_force_raw=bool(data.get("tx_force_raw", False)),
             observed_repeat_count=int(data.get("observed_repeat_count", 0)),
             echo_source=data.get("echo_source"),
             heard_by=(

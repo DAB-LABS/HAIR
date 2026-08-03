@@ -292,7 +292,8 @@ def materialize_wig(
                 wanted.add(int(index))
 
     def _entry(
-        name: str, pronto: str, send_count: int
+        name: str, pronto: str, send_count: int,
+        bypass_protocol: bool = False,
     ) -> dict[str, Any] | None:
         result = validate_pronto(pronto)
         if not result.valid:
@@ -307,6 +308,9 @@ def materialize_wig(
             "name": name,
             "code": code,
             "send_count": send_count,
+            # Wig imports carry it; library codebooks have no bypass
+            # intent to carry, the same asymmetry send_count already has.
+            "bypass_protocol": bypass_protocol,
             "decoded_protocol": identity.protocol if identity else None,
             "decoded_address": identity.address if identity else None,
             "decoded_command": identity.command if identity else None,
@@ -320,7 +324,9 @@ def materialize_wig(
     for i, sig in enumerate(wig.signals):
         if wanted is not None and i not in wanted:
             continue
-        entry = _entry(sig.alias, sig.pronto, sig.send_count)
+        entry = _entry(
+            sig.alias, sig.pronto, sig.send_count, sig.bypass_protocol
+        )
         if entry is not None:
             entries.append(entry)
 

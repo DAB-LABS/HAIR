@@ -11,6 +11,7 @@
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
+import { ICON_TRASH, TRASH_VIEWBOX } from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
@@ -69,10 +70,6 @@ const ICON_PROXY =
 // MDI: flash (lightning bolt) for triggers
 const ICON_TRIGGER =
     "M7,2V13H10V22L17,10H13L17,2H7Z";
-
-// MDI: delete-outline (trash icon)
-const ICON_TRASH =
-    "M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z";
 
 // MDI: content-copy (duplicate icon)
 const ICON_COPY =
@@ -746,7 +743,10 @@ export class IrDeviceList extends LitElement {
                                           @click=${(e: Event) =>
                                               this._requestDeleteDevice(device, e)}
                                       >
-                                          <ha-svg-icon .path=${ICON_TRASH}></ha-svg-icon>
+                                          <ha-svg-icon
+                                              .path=${ICON_TRASH}
+                                              .viewBox=${TRASH_VIEWBOX}
+                                          ></ha-svg-icon>
                                       </button>
                                       <div class="card-header">
                                           <ha-svg-icon
@@ -842,12 +842,17 @@ export class IrDeviceList extends LitElement {
                                               class="badge trigger-toggle ${trig.enabled ? "trigger-enabled" : "trigger-off"}"
                                               @click=${(e: Event) => this._toggleTriggerEnabled(trig, e)}
                                           >${trig.enabled ? t("devlist.on") : t("devlist.off")}</span>
-                                          <ha-svg-icon
+                                          <button
                                               class="trigger-trash"
-                                              .path=${ICON_TRASH}
                                               title=${t("devlist.delete_trigger")}
+                                              aria-label=${t("devlist.delete_trigger")}
                                               @click=${(e: Event) => this._requestDeleteTrigger(trig, e)}
-                                          ></ha-svg-icon>
+                                          >
+                                              <ha-svg-icon
+                                                  .path=${ICON_TRASH}
+                                                  .viewBox=${TRASH_VIEWBOX}
+                                              ></ha-svg-icon>
+                                          </button>
                                       </div>
                                   </div>
                               `,
@@ -1362,9 +1367,14 @@ export class IrDeviceList extends LitElement {
             color: var(--disabled-text-color, #999);
             opacity: 0.55;
         }
+        /* EMBER, not material red (owner ruling 2026-08-03). Ember is
+           already the panel's delete colour on every text chip, and the
+           trash sweep put it on nine more cans; these two shipped in
+           red and were suddenly the odd ones out. Two conventions for
+           the same act is the exact failure the ruling avoids. */
         .delete-action:hover {
-            background: rgba(244, 67, 54, 0.12);
-            color: #f44336;
+            background: rgba(230, 81, 0, 0.12);
+            color: #e65100;
             opacity: 1;
         }
 
@@ -1454,8 +1464,14 @@ export class IrDeviceList extends LitElement {
         }
         /* Matches the device-card .delete-action palette so the trigger
            trash and the device-card trash read as the same control. */
+        /* A real button, not a bare icon with a click handler: it was
+           unreachable by keyboard for as long as it has shipped. */
         .trigger-trash {
             --mdc-icon-size: 16px;
+            display: inline-flex;
+            align-items: center;
+            background: none;
+            border: none;
             color: var(--disabled-text-color, #999);
             cursor: pointer;
             margin-left: auto;
@@ -1465,8 +1481,8 @@ export class IrDeviceList extends LitElement {
             transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
         }
         .trigger-trash:hover {
-            background: rgba(244, 67, 54, 0.12);
-            color: #f44336;
+            background: rgba(230, 81, 0, 0.12);
+            color: #e65100;
             opacity: 1;
         }
     `;

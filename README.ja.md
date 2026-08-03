@@ -1,12 +1,21 @@
 <p align="center">
-  <img src="images/HAIR-readme-hero-v0.2.png" alt="HAIRバナー" width="900" />
+  <img src="https://raw.githubusercontent.com/DAB-LABS/HAIR/main/images/HAIR-readme-hero-v0.2.png" alt="HAIRバナー" width="900" />
 </p>
 
 # HAIR
 
 **HAIRは、あなたのIRコードをメーカーのクラウドやブラスターのメモリ、設定ファイルから取り出し、Home Assistantの中へ持ち込みます。**
 
-どんなリモコンでもIRレシーバーに向けてボタンを押せば、HAIRがその信号をHome Assistantが本当に使えるものに変えます。どのダッシュボードにも置けるボタン、オートメーションのトリガー、HAのネイティブ赤外線プラットフォーム上のどのブラスターからでも送信できるコマンド。YAMLなし、メーカーアプリなし、コードファイルのダウンロードなし。
+どんなリモコンでもIRレシーバーに向けてボタンを押せば、HAIRがその信号をHome Assistantが本当に使えるものに変えます。どのダッシュボードにも置けるボタン、オートメーションのトリガー、HAのネイティブ赤外線プラットフォーム上のどのブラスターからでも送信できるコマンド。YAMLなし、メーカーアプリなし、他社のボックスに学習させる必要もなし。
+
+## インストール
+
+[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
+
+1. HACSを開いてHAIRを検索
+2. HAIRをインストールしてHome Assistantを再起動し、設定→デバイスとサービスから統合を追加
+
+Home Assistant 2026.4以降が必要。ネイティブIRレシーバーには2026.6以降を推奨。
 
 ## コードを取り込む5つの方法
 
@@ -29,15 +38,6 @@
 > [!IMPORTANT]
 > このHAIRパネルの翻訳はプログラミングアシスタントが下書きしたもので、ネイティブスピーカーのレビューを待っています。あなたがその人になれるなら、レビューはプルリクエスト1件で済み、あなたの名前がファイルに刻まれます。ここから始めてください：[Adding a language](CONTRIBUTING.md#adding-a-language)
 
-## インストール
-
-[![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
-
-1. HACSのカスタムリポジトリに `https://github.com/DAB-LABS/HAIR` を追加（カテゴリ：Integration）
-2. HAIRをインストールしてHome Assistantを再起動し、設定→デバイスとサービスから統合を追加
-
-Home Assistant 2026.4以降が必要。ネイティブIRレシーバーには2026.6以降を推奨。
-
 ## 完全なドキュメント
 
 セットアップ用YAML、対応ハードウェア、機能ガイド、スクリーンショットを含む完全なREADMEは英語です：
@@ -46,4 +46,4 @@ Home Assistant 2026.4以降が必要。ネイティブIRレシーバーには202
 
 ---
 
-*英語版READMEからの翻訳、v0.9.1時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
+*英語版READMEからの翻訳、v0.9.5時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
