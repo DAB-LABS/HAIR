@@ -35,6 +35,7 @@ from .wig_format import (
     RowClaim,
     Wig,
     claims_of,
+    normalized_pronto,
     row_digest,
     serialize_wig,
     signal_row_digest,
@@ -138,6 +139,11 @@ class SavePlan:
     #: its depth-0 extras -- attesting them would claim a fraction of
     #: the device and call it whole. The dialog says so instead.
     matrix: bool = False
+    #: MATRIX UPDATE only: how the device's lattice differs from the
+    #: wig's. Non-empty means the checklist cannot be attested as-is --
+    #: a bundle binds cells_hash, which is a SET, so signing a diverged
+    #: lattice would bind bytes the fitter never tested.
+    cell_changes: list[CellChange] = field(default_factory=list)
     #: Set when the device remembers a wig the closet no longer holds.
     #: The save falls back to CREATE, and says so rather than pretending
     #: the source never existed.
@@ -191,6 +197,8 @@ class SavePlan:
             "unit": self.unit,
             "precision": self.precision,
             "existing_fittings": self.existing_fittings,
+            "cell_changes": [c.as_dict() for c in self.cell_changes],
+            "lattice_diverged": bool(self.cell_changes),
         }
 
 
@@ -403,8 +411,118 @@ def build_save_plan(
         skipped=build.skipped,
         notes=build.notes,
         existing_fittings=len(claims_of(source_wig)),
+        cell_changes=lattice_diff(matrix, source_wig.climate),
         **_lattice(matrix),
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Lattice divergence (matrix UPDATE)
+# ---------------------------------------------------------------------------
+
+CELL_CHANGED = "changed"
+CELL_DELETED = "deleted"
+CELL_ADDED = "added"
+
+
+@dataclass
+class CellChange:
+    """One way the device's lattice differs from the wig's."""
+
+    kind: str
+    label: str
+    mode: str | None = None
+    fan: str | None = None
+    swing: str | None = None
+    temp: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind, "label": self.label, "mode": self.mode,
+            "fan": self.fan, "swing": self.swing, "temp": self.temp,
+        }
+
+
+def _coord_key(cell: Any) -> tuple:
+    """Coordinates as a comparable tuple.
+
+    Temperature is floated rather than formatted, because a value that
+    round-tripped through JSON as 24 rather than 24.0 is the same cell
+    and a string key would say otherwise.
+    """
+    return (
+        cell.mode,
+        cell.fan or None,
+        cell.swing or None,
+        None if cell.temp is None else float(cell.temp),
+    )
+
+
+def _coord_label(cell: Any, siblings: list[Any]) -> str:
+    """What the content-change prompt calls a cell.
+
+    The SAME rule the porthole rows use on the device: mode and
+    temperature, with fan and swing joining only when two of the cells
+    on show would otherwise read alike. The person should recognize the
+    prompt's "Cool 24" as the row they just repaired, so the two
+    surfaces have to name a cell the same way.
+    """
+    base = [cell.mode.capitalize() if cell.mode else "Cell"]
+    if cell.temp is not None:
+        base.append(
+            str(int(cell.temp))
+            if float(cell.temp).is_integer() else str(cell.temp)
+        )
+    same = [
+        c for c in siblings
+        if c is not cell
+        and c.mode == cell.mode
+        and (c.temp is None) == (cell.temp is None)
+        and (c.temp is None or abs(float(c.temp) - float(cell.temp)) < 1e-6)
+    ]
+    if not same:
+        return " ".join(base)
+    extra = [v for v in (cell.fan, cell.swing) if v]
+    return " ".join([*base, *extra]) if extra else " ".join(base)
+
+
+def lattice_diff(device_matrix: Any, wig_matrix: Any) -> list[CellChange]:
+    """How the device's lattice differs from the wig it came from.
+
+    Cell by cell, by COORDINATE. A repair rewrote bytes at a coordinate
+    the wig also has (changed); a delete through a porthole row removed
+    a coordinate the wig still carries (deleted). Additions are reported
+    for completeness even though no current flow produces one.
+
+    This is what the content-change prompt lists and what the matrix
+    attestation gate reads. Order is deterministic -- the wig's own cell
+    order, then any additions -- so the same divergence always reads the
+    same way.
+    """
+    if wig_matrix is None or device_matrix is None:
+        return []
+    device_by_coord = {_coord_key(c): c for c in device_matrix.cells}
+    wig_by_coord = {_coord_key(c): c for c in wig_matrix.cells}
+    found: list[tuple[str, Any, tuple]] = []
+    for coord, wig_cell in wig_by_coord.items():
+        device_cell = device_by_coord.get(coord)
+        if device_cell is None:
+            found.append((CELL_DELETED, wig_cell, coord))
+        elif normalized_pronto(device_cell.pronto) != normalized_pronto(
+            wig_cell.pronto
+        ):
+            found.append((CELL_CHANGED, device_cell, coord))
+    for coord, device_cell in device_by_coord.items():
+        if coord not in wig_by_coord:
+            found.append((CELL_ADDED, device_cell, coord))
+    # Labels last, so collision-awareness sees only the cells actually
+    # on show rather than the whole lattice.
+    shown = [cell for _, cell, _ in found]
+    return [
+        CellChange(kind, _coord_label(cell, shown), *coord)
+        for kind, cell, coord in found
+    ]
 
 
 @dataclass
@@ -470,6 +588,88 @@ def build_bundle(
     )
 
 
+
+def recomb(wig: Wig) -> int:
+    """Re-comb an outgoing wig and stamp a fresh receipt. Returns suspects.
+
+    Suspects are DERIVED FROM BYTES, never stored as taint, so a
+    repaired wig cures itself the next time anybody combs it. The
+    re-comb exists so the file describes ITSELF rather than its
+    ancestor: without it, a receipt written when the wig was imported
+    broken rides out on the fixed file and the next person sees doubts
+    that no longer apply.
+
+    It also cuts the other way, and that is the point of keeping the
+    two independent. Attesting a row never silences the comb -- only
+    changing the bytes does. The comb doubts bytes; a person vouches
+    for hardware; a row can honestly carry both.
+    """
+    from .wig_comb import comb_wig, stamp_receipt
+
+    report = comb_wig(wig)
+    stamp_receipt(wig, report, _now_date())
+    return report.suspects
+
+
+def apply_lattice(wig: Wig, device_matrix: Any, changes: list) -> int:
+    """Write the device's lattice into the wig. Returns cells touched.
+
+    THE PROPOSE-CHANGE PATH for a matrix, and it is what that path
+    exists for rather than an exception to hard rule 3: the person
+    repaired cells on the device and explicitly asked to send the
+    repair upstream. Changed cells take the device's bytes and a
+    provenance marker; deleted cells leave the lattice, which stays
+    legal because sparse lattices already are.
+
+    Only the coordinates in ``changes`` move. Copying the device's
+    whole lattice over the wig's would also carry differences nobody
+    proposed -- a send_count tuned locally, a cell the device never had
+    -- and turn a targeted repair into a wholesale overwrite.
+    """
+    if wig.climate is None or device_matrix is None or not changes:
+        return 0
+    from .wig_fitting import PROVENANCE_KEY, _merge_provenance
+
+    device_by_coord = {_coord_key(c): c for c in device_matrix.cells}
+    touched = 0
+    drop: set[tuple] = set()
+    for change in changes:
+        coord = (
+            change.mode,
+            change.fan or None,
+            change.swing or None,
+            None if change.temp is None else float(change.temp),
+        )
+        if change.kind == CELL_DELETED:
+            drop.add(coord)
+            touched += 1
+            continue
+        source = device_by_coord.get(coord)
+        if source is None:
+            continue
+        for cell in wig.climate.cells:
+            if _coord_key(cell) == coord:
+                cell.pronto = source.pronto
+                # Outside every canonical form, like every other
+                # provenance marker: recording where bytes came from
+                # must never move a wig's identity.
+                cell.extra[PROVENANCE_KEY] = _merge_provenance(
+                    cell.extra.get(PROVENANCE_KEY),
+                    {"replaced": True, "date": _now_date()},
+                )
+                touched += 1
+                break
+        else:
+            if change.kind == CELL_ADDED:
+                wig.climate.cells.append(source)
+                touched += 1
+    if drop:
+        wig.climate.cells = [
+            c for c in wig.climate.cells if _coord_key(c) not in drop
+        ]
+    return touched
+
+
 @dataclass
 class SaveResult:
     filename: str | None = None
@@ -481,6 +681,10 @@ class SaveResult:
     notes: list[str] = field(default_factory=list)
     #: Renames that matched nothing. Reported, never silent.
     stale_renames: list[str] = field(default_factory=list)
+    #: What the fresh comb receipt says about the file just written.
+    suspects: int = 0
+    #: Lattice cells this save proposed upstream. UPDATE only.
+    cells_proposed: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -492,6 +696,8 @@ class SaveResult:
             "variant": self.variant,
             "notes": list(self.notes),
             "stale_renames": list(self.stale_renames),
+            "suspects": self.suspects,
+            "cells_proposed": self.cells_proposed,
         }
 
 
@@ -525,6 +731,11 @@ def create_text(
         bundle = build_bundle(wig.wig_id or "", aliases, attestation)
         append_claims(wig, bundle, private_key_b64)
         result.attested = len(bundle.rows)
+    # A fresh receipt on the way out, so the file describes itself. A
+    # new wig has no inherited receipt to go stale, but it would leave
+    # the closet with NO receipt at all -- which reads as "nobody has
+    # combed this", deliberately not the same as clean.
+    result.suspects = recomb(wig)
     return serialize_wig(wig), result
 
 
@@ -534,6 +745,8 @@ def update_text(
     attestation: Attestation | None = None,
     private_key_b64: str | None = None,
     mutate: Any | None = None,
+    device_matrix: Any | None = None,
+    cell_changes: list | None = None,
 ) -> tuple[str, SaveResult] | None:
     """UPDATE: append the bundle, touch no CONTENT (hard rule 3).
 
@@ -574,17 +787,43 @@ def update_text(
         if attestation is not None
         else None
     )
+    proposed = 0
+    suspects = 0
+
+    def _mutate(wig: Wig) -> None:
+        nonlocal proposed, suspects
+        if mutate is not None:
+            mutate(wig)
+        if cell_changes:
+            proposed = apply_lattice(wig, device_matrix, cell_changes)
+            # The repaired lattice is new bytes, so the receipt that
+            # came in with the file is about a wig that no longer
+            # exists. Re-combed only when content actually moved: an
+            # attestation-only update rewrites nothing, so its receipt
+            # is still true.
+            suspects = recomb(wig)
+            # Bind the lattice AS PROPOSED, not as it arrived. The
+            # bundle was assembled before this ran, so the hash goes on
+            # the bundle itself -- stamping the attestation here would
+            # be writing to an object nothing reads again.
+            if bundle is not None and wig.climate is not None:
+                from .wig_format import cells_content_hash
+
+                bundle.cells_hash = cells_content_hash(wig.climate)
+
     written = update_wig_with_claims(
         original_text,
         bundle,
         private_key_b64,
         renames or None,
-        mutate,
+        _mutate,
     )
     if written is None:
         return None
     text, _entry, outcome = written
     return text, SaveResult(
+        suspects=suspects,
+        cells_proposed=proposed,
         wig_id=source_wig.wig_id,
         signal_count=len(source_wig.signals),
         attested=len(bundle.rows) if bundle else 0,

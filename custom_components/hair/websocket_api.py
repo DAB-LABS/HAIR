@@ -3279,6 +3279,9 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
     vol.Optional("asin"): vol.All(str, vol.Length(max=200)),
     vol.Optional("oem"): vol.All(str, vol.Length(max=200)),
     vol.Optional("attest"): _ATTEST_SCHEMA,
+    #: MATRIX UPDATE: send the repaired lattice upstream. Explicit,
+    #: because a content proposal is a different act from attesting.
+    vol.Optional("propose_lattice"): bool,
 })
 @websocket_api.async_response
 async def ws_wigs_save(
@@ -3334,8 +3337,14 @@ async def _do_update(
     attestation: Any | None,
     key: str | None,
 ) -> None:
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    device_matrix = (
+        await manager.async_get_matrix(device.id)
+        if device.climate_matrix else None
+    )
+
     def _write() -> dict[str, Any] | str:
-        from .wig_save import update_text
+        from .wig_save import lattice_diff, update_text
         from .wig_store import (
             find_wig_by_id,
             load_wig,
@@ -3357,8 +3366,19 @@ async def _do_update(
         # they ride the PR as reviewed changes), so an update carries
         # them even with no fitting attached. What hard rule 3 protects
         # is the SIGNALS block; a brand correction touches none of it.
+        changes = lattice_diff(device_matrix, wig.climate)
+        propose = bool(msg.get("propose_lattice")) and bool(changes)
+
+        # THE GATE. A checklist bundle binds cells_hash, which is a
+        # SET, so a lattice that has moved away from the wig's cannot
+        # be attested as-is: signing would bind bytes the fitter never
+        # tested. Proposing the repair resolves it, because then the
+        # lattice being bound is the one going into the file.
+        if attestation is not None and changes and not propose:
+            return "lattice_diverged"
+
         edits = _metadata_edits(wig, msg)
-        if attestation is None and not edits:
+        if attestation is None and not propose and not edits:
             # NOW the refusal is honest: nothing was attested and
             # nothing was changed, so writing would produce a shop PR
             # that says nothing.
@@ -3367,6 +3387,8 @@ async def _do_update(
         written = update_text(
             text, wig, attestation, key,
             mutate=(lambda w: _apply_metadata(w, edits)) if edits else None,
+            device_matrix=device_matrix,
+            cell_changes=changes if propose else None,
         )
         if written is None:
             return "source_missing"
@@ -3384,12 +3406,23 @@ async def _do_update(
     if isinstance(result, str):
         connection.send_error(
             msg["id"], result,
-            "The wig this device came from is not in the closet"
-            if result == "source_missing"
-            else "Nothing to write: no fitting, and no metadata changed",
+            _UPDATE_REFUSALS.get(
+                result, "Nothing to write: no fitting, and nothing changed"
+            ),
         )
         return
     connection.send_result(msg["id"], result)
+
+
+_UPDATE_REFUSALS = {
+    "source_missing":
+        "The wig this device came from is not in the closet",
+    "lattice_diverged":
+        "This device's states no longer match the wig's. Propose the "
+        "changes, save as a new wig, or save without attesting.",
+    "nothing_to_update":
+        "Nothing to write: no fitting, and nothing changed",
+}
 
 
 #: Metadata the save dialog may edit on an UPDATE. Identifiers ride

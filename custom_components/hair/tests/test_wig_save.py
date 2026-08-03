@@ -471,3 +471,130 @@ class TestMatrix:
         build = build_wig_from_device(device, self._matrix())
         assert build.wig is not None
         assert build.wig.signals == []
+
+
+class TestLatticeDivergence:
+    """A checklist bundle binds cells_hash, which is a SET. So a device
+    whose lattice has moved away from the wig's cannot sign the wig's
+    checklist: doing so would bind bytes the fitter never tested.
+    """
+
+    def _wig_matrix(self):
+        from custom_components.hair.wig_format import (
+            ClimateCell,
+            ClimateMatrix,
+        )
+
+        return ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=PRONTO_A,
+            modes=["cool"], fan_modes=["auto"],
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=24.0,
+                            pronto=PRONTO_A),
+                ClimateCell(mode="cool", fan="auto", temp=25.0,
+                            pronto=PRONTO_B),
+            ],
+        )
+
+    def _source_wig(self):
+        return Wig(
+            name="AC", wig_id="u-source", signals=[],
+            climate=self._wig_matrix(),
+        )
+
+    def test_matching_lattices_do_not_diverge(self):
+        from custom_components.hair.wig_save import lattice_diff
+
+        assert lattice_diff(self._wig_matrix(), self._wig_matrix()) == []
+
+    def test_a_repaired_cell_reads_as_changed(self):
+        from custom_components.hair.wig_save import lattice_diff
+
+        device = self._wig_matrix()
+        device.cells[0].pronto = PRONTO_C
+        changes = lattice_diff(device, self._wig_matrix())
+        assert [(c.kind, c.label) for c in changes] == [("changed", "Cool 24")]
+
+    def test_a_deleted_cell_reads_as_deleted(self):
+        """Delete through a porthole row removes the cell, and that is
+        ordinary lattice divergence at save -- through the same propose
+        gate as a repair."""
+        from custom_components.hair.wig_save import lattice_diff
+
+        device = self._wig_matrix()
+        device.cells.pop(0)
+        changes = lattice_diff(device, self._wig_matrix())
+        assert [(c.kind, c.label) for c in changes] == [("deleted", "Cool 24")]
+
+    def test_propose_writes_the_repair_and_marks_it(self):
+        from custom_components.hair.wig_fitting import PROVENANCE_KEY
+        from custom_components.hair.wig_save import apply_lattice, lattice_diff
+
+        device = self._wig_matrix()
+        device.cells[0].pronto = PRONTO_C
+        wig = self._source_wig()
+        changes = lattice_diff(device, wig.climate)
+        assert apply_lattice(wig, device, changes) == 1
+        assert wig.climate.cells[0].pronto == PRONTO_C
+        assert wig.climate.cells[0].extra[PROVENANCE_KEY]["replaced"] is True
+
+    def test_propose_moves_only_what_was_proposed(self):
+        """Copying the device's whole lattice over the wig's would carry
+        differences nobody proposed and turn a targeted repair into a
+        wholesale overwrite."""
+        from custom_components.hair.wig_save import apply_lattice, lattice_diff
+
+        device = self._wig_matrix()
+        device.cells[0].pronto = PRONTO_C
+        device.cells[1].pronto = PRONTO_C
+        wig = self._source_wig()
+        only_first = [
+            c for c in lattice_diff(device, wig.climate) if c.temp == 24.0
+        ]
+        apply_lattice(wig, device, only_first)
+        assert wig.climate.cells[0].pronto == PRONTO_C
+        assert wig.climate.cells[1].pronto == PRONTO_B
+
+    def test_propose_binds_the_new_lattice_hash(self):
+        from custom_components.hair.wig_format import cells_content_hash
+        from custom_components.hair.wig_save import lattice_diff, update_text
+
+        device = self._wig_matrix()
+        device.cells[0].pronto = PRONTO_C
+        wig = self._source_wig()
+        text = serialize_wig(wig)
+        changes = lattice_diff(device, wig.climate)
+        new_text, result = update_text(
+            text, wig,
+            Attestation(claims={"d" * 16: VERDICT_WORKED}),
+            device_matrix=device, cell_changes=changes,
+        )
+        data = json.loads(new_text)
+        assert result.cells_proposed == 1
+        expected = self._wig_matrix()
+        expected.cells[0].pronto = PRONTO_C
+        assert data["fittings"][0]["cells_hash"] == cells_content_hash(expected)
+
+    def test_a_proposing_save_re_combs(self):
+        from custom_components.hair.wig_save import lattice_diff, update_text
+
+        device = self._wig_matrix()
+        device.cells[0].pronto = PRONTO_C
+        wig = self._source_wig()
+        new_text, _ = update_text(
+            serialize_wig(wig), wig, None,
+            device_matrix=device,
+            cell_changes=lattice_diff(device, wig.climate),
+        )
+        assert "comb" in json.loads(new_text)
+
+    def test_an_attestation_only_update_leaves_the_receipt_alone(self):
+        """Its content did not move, so its receipt is still true."""
+        wig = self._source_wig()
+        wig.extra["comb"] = {"version": 1, "date": "2026-01-01",
+                             "suspects": 3, "counts": {}, "findings": []}
+        new_text, _ = update_text(
+            serialize_wig(wig), wig,
+            Attestation(claims={"d" * 16: VERDICT_WORKED}),
+        )
+        assert json.loads(new_text)["comb"]["date"] == "2026-01-01"

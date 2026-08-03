@@ -360,3 +360,136 @@ async def test_a_device_with_no_usable_codes_refuses(
         },
     )
     assert conn.send_error.call_args[0][1] == "no_signals"
+
+
+def _matrix(pronto_a=PRONTO_A, pronto_b=PRONTO_B):
+    from custom_components.hair.wig_format import ClimateCell, ClimateMatrix
+
+    return ClimateMatrix(
+        min_temp=16.0, max_temp=30.0, off=pronto_a,
+        modes=["cool"], fan_modes=["auto"],
+        cells=[
+            ClimateCell(mode="cool", fan="auto", temp=24.0, pronto=pronto_a),
+            ClimateCell(mode="cool", fan="auto", temp=25.0, pronto=pronto_b),
+        ],
+    )
+
+
+def _wire_matrix(fake_hass, tmp_path, device, device_matrix):
+    manager = _wire(fake_hass, tmp_path, device)
+    manager.async_get_matrix = AsyncMock(return_value=device_matrix)
+    return manager
+
+
+def _matrix_wig(matrix):
+    return Wig(name="AC", wig_id="u-source", signals=[], climate=matrix)
+
+
+@pytest.mark.asyncio
+async def test_a_diverged_lattice_blocks_matrix_attestation(
+    fake_hass, tmp_path, _no_signing
+):
+    """A checklist bundle binds cells_hash, a SET. Signing while the
+    device's lattice has moved would bind bytes the fitter never
+    tested, so it refuses and names the three ways out."""
+    wig = _matrix_wig(_matrix())
+    _closet_wig(tmp_path, wig)
+    repaired = _matrix()
+    repaired.cells[0].pronto = "0000 006D 0002 0000 0050 0040 0020 0040"
+    device = IRDevice(
+        name="AC", commands=[], source_wig_id="u-source",
+        climate_matrix=True,
+    )
+    _wire_matrix(fake_hass, tmp_path, device, repaired)
+    conn = _conn()
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "update",
+        "attest": {"claims": [{"digest": "d" * 16,
+                               "verdict": VERDICT_WORKED}]},
+    })
+    assert conn.send_error.call_args[0][1] == "lattice_diverged"
+    assert "Propose" in conn.send_error.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_propose_then_attest_succeeds_and_binds_the_new_lattice(
+    fake_hass, tmp_path, _no_signing
+):
+    from custom_components.hair.wig_format import cells_content_hash
+
+    wig = _matrix_wig(_matrix())
+    path = _closet_wig(tmp_path, wig)
+    repaired = _matrix()
+    repaired.cells[0].pronto = "0000 006D 0002 0000 0050 0040 0020 0040"
+    device = IRDevice(
+        name="AC", commands=[], source_wig_id="u-source",
+        climate_matrix=True,
+    )
+    _wire_matrix(fake_hass, tmp_path, device, repaired)
+    conn = _conn()
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "update", "propose_lattice": True,
+        "attest": {"claims": [{"digest": "d" * 16,
+                               "verdict": VERDICT_WORKED}]},
+    })
+    conn.send_error.assert_not_called()
+    result = conn.send_result.call_args[0][1]
+    assert result["cells_proposed"] == 1
+    after = json.loads(path.read_text())
+    assert after["fittings"][0]["cells_hash"] == cells_content_hash(repaired)
+    # And the file describes itself: a fresh receipt, not the one that
+    # arrived with the broken lattice.
+    assert "comb" in after
+
+
+@pytest.mark.asyncio
+async def test_a_matching_lattice_attests_without_proposing(
+    fake_hass, tmp_path, _no_signing
+):
+    wig = _matrix_wig(_matrix())
+    path = _closet_wig(tmp_path, wig)
+    device = IRDevice(
+        name="AC", commands=[], source_wig_id="u-source",
+        climate_matrix=True,
+    )
+    _wire_matrix(fake_hass, tmp_path, device, _matrix())
+    conn = _conn()
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "update",
+        "attest": {"claims": [{"digest": "d" * 16,
+                               "verdict": VERDICT_WORKED}]},
+    })
+    conn.send_error.assert_not_called()
+    assert json.loads(path.read_text())["fittings"]
+
+
+@pytest.mark.asyncio
+async def test_proposing_without_attesting_is_allowed(
+    fake_hass, tmp_path, _no_signing
+):
+    """Save without attesting is one of the three ways out, so a
+    proposal on its own has to be writable."""
+    wig = _matrix_wig(_matrix())
+    path = _closet_wig(tmp_path, wig)
+    repaired = _matrix()
+    repaired.cells[0].pronto = "0000 006D 0002 0000 0050 0040 0020 0040"
+    device = IRDevice(
+        name="AC", commands=[], source_wig_id="u-source",
+        climate_matrix=True,
+    )
+    _wire_matrix(fake_hass, tmp_path, device, repaired)
+    conn = _conn()
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "update", "propose_lattice": True,
+    })
+    conn.send_error.assert_not_called()
+    after = json.loads(path.read_text())
+    assert "fittings" not in after
+    assert (
+        after["climate"]["cells"][0]["pronto"]
+        == "0000 006D 0002 0000 0050 0040 0020 0040"
+    )
