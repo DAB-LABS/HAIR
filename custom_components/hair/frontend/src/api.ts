@@ -16,10 +16,9 @@ import type {
     CommandTemplate,
     DeleteSignalResult,
     DeviceSummary,
+    ClaimsLedger,
     CombReport,
     CommandListenEvent,
-    FittingListenEvent,
-    FittingState,
     DeviceTypeId,
     DismissActivityEvent,
     IRCommand,
@@ -391,185 +390,18 @@ export class HairApi {
         });
     }
 
-    // --- Fitting (Perfect Fit) ---
+    // --- Attestation (read side) ---
 
-    fittingState(filename: string): Promise<FittingState> {
-        return this.hass.connection.sendMessagePromise<FittingState>({
-            type: "hair/wigs/fitting/state",
-            filename,
-        });
-    }
-
-    fittingSend(
-        filename: string,
-        signalIndex: number,
-        emitter: string,
-        sendTimes?: number,
-    ): Promise<{ success: boolean; heard: boolean; decoded: boolean }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/send",
-            filename,
-            signal_index: signalIndex,
-            emitter,
-            ...(sendTimes ? { send_times: sendTimes } : {}),
-        });
-    }
-
-    fittingMark(
-        filename: string,
-        signalIndex: number,
-        verdict: "worked" | "failed" | "untested",
-    ): Promise<{
-        success: boolean;
-        confirmed: number;
-        failed: number;
-        total: number;
-        perfect_ready: boolean;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/mark",
-            filename,
-            signal_index: signalIndex,
-            verdict,
-        });
-    }
-
-    fittingFinish(
-        filename: string,
-        extras: Partial<{
-            handle: string;
-            github: string;
-            note: string;
-            kind: string;
-        }>,
-    ): Promise<{
-        success: boolean;
-        state: "perfect" | "partial";
-        confirmed: number;
-        failed: number;
-        total: number;
-        signed: boolean;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/finish",
-            filename,
-            ...extras,
-        });
-    }
-
-    /** Swap one fitting row's code (Smart Perm). The wig changes in
-     * place and its identity rolls, so the caller refetches state. */
-    fittingReplace(
-        filename: string,
-        signalIndex: number,
-        pronto: string,
-        source: "captured" | "pasted",
-        // Highlights: the new code and its send decision are written in
-        // ONE hash roll, so the row never exists in a state where the
-        // bytes and the decision about them disagree.
-        bypassProtocol = false,
-    ): Promise<{
-        success: boolean;
-        content_hash: string;
-        row_key: string;
-        carried: number;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/replace",
-            filename,
-            signal_index: signalIndex,
-            pronto,
-            source,
-            bypass_protocol: bypassProtocol,
-        });
-    }
-
-    /** Write a row's stated send count, or every row's (APPLY).
+    /** The ledger: who attested what about this wig, in full detail.
      *
-     * The light path: send_count is out of the content hash, so this
-     * rolls nothing and invalidates nobody's fitting. That is what
-     * makes a bulk apply reasonable. */
-    fittingSetSends(
-        filename: string,
-        signalIndex: number | null,
-        sendCount: number,
-    ): Promise<{ success: boolean; send_count: number; written: number }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/set_sends",
+     * A pure read, and the only claims command there is. Attesting
+     * happens through wigsSave, on the device that was tested; there
+     * is nothing here to write with. */
+    wigsClaims(filename: string): Promise<ClaimsLedger> {
+        return this.hass.connection.sendMessagePromise<ClaimsLedger>({
+            type: "hair/wigs/claims",
             filename,
-            ...(signalIndex === null
-                ? { all: true }
-                : { signal_index: signalIndex }),
-            send_count: sendCount,
         });
-    }
-
-    /** Hold a tuned ditto in the session so TEST transmits it.
-     *
-     * Nothing reaches the wig: a tuned value cannot enter the file
-     * without a WORKED against it. Pass null to clear. */
-    fittingStageDitto(
-        filename: string,
-        signalIndex: number,
-        dittoCount: number | null,
-    ): Promise<{ success: boolean; staged: number | null }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/stage_ditto",
-            filename,
-            signal_index: signalIndex,
-            ditto_count: dittoCount,
-        });
-    }
-
-    /** Commit a tuned ditto into the wig. Rolls the hash exactly as a
-     * replace does, so the caller refetches state afterward. */
-    fittingTune(
-        filename: string,
-        signalIndex: number,
-        dittoCount: number,
-    ): Promise<{
-        success: boolean;
-        content_hash: string;
-        row_key: string;
-        ditto_count: number;
-        carried: number;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/tune",
-            filename,
-            signal_index: signalIndex,
-            ditto_count: dittoCount,
-        });
-    }
-
-    /** Put one row back to the code the wig came with. Rolls the hash
-     * back, so the caller refetches state exactly as after a replace. */
-    fittingRevert(
-        filename: string,
-        signalIndex: number,
-    ): Promise<{
-        success: boolean;
-        content_hash: string;
-        row_key: string;
-        carried: number;
-    }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/revert",
-            filename,
-            signal_index: signalIndex,
-        });
-    }
-
-    /** Arm the Sniffer for one capture into the Replace box. Emits a
-     * single fitting_capture or fitting_listen_timeout; call the
-     * returned unsubscribe on cancel or when the dialog closes. */
-    async fittingListen(
-        onEvent: (event: FittingListenEvent) => void,
-    ): Promise<() => Promise<void>> {
-        return this.hass.connection.subscribeMessage<FittingListenEvent>(
-            onEvent,
-            { type: "hair/wigs/fitting/listen" },
-        );
     }
 
     /** What SAVE TO CLOSET is about to do, for the dialog to draw:
@@ -632,13 +464,6 @@ export class HairApi {
         );
     }
 
-    fittingDiscard(filename: string): Promise<{ success: boolean }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/fitting/discard",
-            filename,
-        });
-    }
-
     wigMakeDevice(
         source: { filename: string } | { codebookId: string },
         name: string,
@@ -653,15 +478,6 @@ export class HairApi {
             name,
             device_type: deviceType,
             emitter_entity_ids: emitterEntityIds,
-        });
-    }
-
-    wigSnapshot(
-        codebookId: string,
-    ): Promise<{ filename: string; name: string; existed: boolean }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/snapshot",
-            codebook_id: codebookId,
         });
     }
 

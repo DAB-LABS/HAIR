@@ -488,50 +488,83 @@ class TestKind:
         ).wig.kind is None
 
 
-class TestKindAtSigning:
-    @pytest.mark.asyncio
-    async def test_finish_sets_kind_once(self, fake_hass, tmp_path):
-        from custom_components.hair.tests.test_wig_fitting import (
-            _read_wig,
-            _write_wig,
-        )
-        from custom_components.hair.wig_fitting import FittingManager
+class TestKindAtSave:
+    """Where the human answers the kind question.
 
-        fake_hass.config.config_dir = str(tmp_path)
-        wigs = tmp_path / "hair" / "wigs"
-        wigs.mkdir(parents=True)
-        filename = _write_wig(wigs)
-        manager = FittingManager(fake_hass, monitor=None)
-        await manager.async_mark(filename, 0, "worked", "dab")
-        await manager.async_finish(
-            filename, "dab", None, None, None, kind="Candles",
+    It used to be the signing prompt at the end of a fitting session,
+    which is why the export stamp above only fires when the device type
+    is unambiguous: something had to ask. v0.9.5 moved the question into
+    the SAVE TO CLOSET dialog, where the field sits beside brand and
+    model and the person is already looking at it.
+
+    The old rule was "first finish wins, a later one does not
+    overwrite", because a session had no other way to tell a correction
+    apart from a stale default. The save dialog does: it prefills from
+    the wig and reports back only what DIFFERS, so a correction is a
+    correction and an untouched field is nothing at all.
+    """
+
+    def test_the_dialog_stamps_the_kind_on_create(self):
+        from custom_components.hair.const import DeviceType
+        from custom_components.hair.models import IRCommand, IRDevice
+        from custom_components.hair.wig_export import build_wig_from_device
+        from custom_components.hair.wig_format import kind_slug
+
+        device = IRDevice(
+            name="X", device_type=DeviceType.MEDIA_PLAYER,
+            commands=[IRCommand(
+                id="c1", name="Power", protocol="PRONTO", code=PRONTO,
+            )],
         )
-        wig = _read_wig(wigs)
+        wig = build_wig_from_device(device).wig
+        assert wig.kind is None  # ambiguous type: nothing stamped
+        # ...and this is the line _do_create runs on the answer.
+        wig.kind = kind_slug("Candles") or wig.kind
         assert wig.kind == "candles"  # slugged
-        # A later finish with a different kind does NOT overwrite.
-        await manager.async_mark(filename, 1, "worked", "dab")
-        await manager.async_finish(
-            filename, "dab", None, None, None, kind="fan",
-        )
-        assert _read_wig(wigs).kind == "candles"
 
-    def test_share_strip_preserves_kind_and_identifiers(self):
-        """Regression: shared_wig_text rebuilt the Wig without the
-        v0.8.0 fields, silently dropping them on stripped shares."""
+    def test_an_untouched_kind_is_not_a_metadata_edit(self):
+        """The dialog sends every field back, so "present" cannot mean
+        "changed" -- an attestation-only save must not look like a
+        metadata change."""
+        from custom_components.hair.websocket_api import _metadata_edits
+
+        wig = Wig(name="Dreo", kind="candles", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+        ])
+        assert _metadata_edits(wig, {"name": "Dreo", "kind": "candles"}) == {}
+
+    def test_a_corrected_kind_is_an_edit_and_applies(self):
+        from custom_components.hair.websocket_api import (
+            _apply_metadata,
+            _metadata_edits,
+        )
+
+        wig = Wig(name="Dreo", kind="candles", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+        ])
+        edits = _metadata_edits(wig, {"kind": "Fan"})
+        assert edits == {"kind": "Fan"}
+        _apply_metadata(wig, edits)
+        assert wig.kind == "fan"
+
+    def test_kind_and_identifiers_survive_a_round_trip(self):
+        """Regression, from the days of the share strip: a path that
+        rebuilt the Wig instead of re-serializing it dropped the v0.8.0
+        fields silently. The strip is gone, but the fields still have to
+        make it through the format."""
         import json as _json
 
-        from custom_components.hair.tests.test_wig_fitting import (
-            _complete_fitting,
-            _wig,
-        )
-        from custom_components.hair.wig_fitting import shared_wig_text
-
-        wig = _wig([_complete_fitting(_wig(), draft=True)])
+        wig = Wig(name="Dreo", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+        ])
         wig.kind = "candles"
         wig.identifiers = {"upc": "794969274724"}
-        shared = _json.loads(shared_wig_text(wig))
-        assert shared["kind"] == "candles"
-        assert shared["identifiers"] == {"upc": "794969274724"}
+        out = _json.loads(serialize_wig(wig))
+        assert out["kind"] == "candles"
+        assert out["identifiers"] == {"upc": "794969274724"}
+        back = parse_wig(serialize_wig(wig)).wig
+        assert back.kind == "candles"
+        assert back.identifiers == {"upc": "794969274724"}
 
 
 class TestClimateUnit:

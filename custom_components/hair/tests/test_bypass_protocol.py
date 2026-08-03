@@ -36,11 +36,11 @@ from custom_components.hair.wig_format import (
     WigSignal,
     parse_wig,
     serialize_wig,
-    wig_content_hash,
 )
 
 from .test_capture_dittos import _infrared_mod
 from .test_capture_dittos import _monitor as _make_monitor
+from .test_device_manager import manager  # noqa: F401  (pytest fixture)
 
 PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
 # A second, byte-different code: the import path collapses byte-identical
@@ -366,7 +366,7 @@ def test_full_chain_signal_to_adopted_command(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The fitting: a pinned row is a checklist row, not an advisory one
+# The claim: a pinned row is a checklist row, not an advisory one
 # ---------------------------------------------------------------------------
 
 
@@ -374,153 +374,157 @@ class TestPinnedRowsAreStillProved:
     """Ruling 7.1, and the trap it names.
 
     The comb declines to judge a bypassed row, and it would be easy to
-    let that exemption leak into the fitting as an ADVISORY row -- the
-    path comb suspects already ride, where a row is sent and tested but
-    carries no verdict and never counts toward completeness.
+    let that exemption leak into the save checklist as an ADVISORY row
+    -- the path comb suspects already ride, where a row is listed and
+    testable but carries no verdict and never counts toward coverage.
 
     That would be a false pass. A bypassed code is a real button on a
     real remote, and it is the button somebody had to go out of their
-    way to repair. If it stopped counting, a fitter could complete and
-    sign a fitting attesting every code EXCEPT the one that needed the
-    work. What the pin buys is a chip, not an exemption.
+    way to repair. If it stopped counting, a fitter could sign a bundle
+    attesting every code EXCEPT the one that needed the work. What the
+    pin buys is a chip, not an exemption.
+
+    v0.9.5 moved where this is decided -- the checklist is the SAVE
+    plan's rows now, and completeness is derived from the bundle -- but
+    the ruling it has to satisfy did not move with it.
     """
 
     def _wig(self) -> Wig:
-        return Wig(name="Dreo Fan", signals=[
+        return Wig(name="Dreo Fan", wig_id="w-dreo", signals=[
             WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True),
             WigSignal(alias="Mode", pronto=_PRONTO_B),
         ])
 
-    def test_it_is_a_fitting_row(self):
-        from custom_components.hair.wig_fitting import fitting_rows
+    def _device(self):
+        from custom_components.hair.models import (
+            CommandCategory,
+            IRCommand,
+            IRDevice,
+        )
 
-        keys = [k for k, _, _ in fitting_rows(self._wig())]
-        assert keys == ["Power", "Mode"]
+        device = IRDevice(name="Dreo Fan", device_type="fan")
+        for name, code, pin in (
+            ("Power", PRONTO, True), ("Mode", _PRONTO_B, False),
+        ):
+            command = IRCommand(
+                name=name, category=CommandCategory.CUSTOM,
+                protocol="PRONTO", code=code,
+            )
+            command.repeat_count = 0
+            command.tx_force_raw = pin
+            device.commands.append(command)
+        return device
 
-    def test_it_is_not_advisory_in_the_session(self):
-        from custom_components.hair.wig_comb import comb_wig, stamp_receipt
-        from custom_components.hair.wig_fitting import session_row_specs
+    def test_it_is_a_checklist_row(self):
+        """The save plan lists it like any other row."""
+        from custom_components.hair.wig_save import build_save_plan
+
+        plan = build_save_plan(self._device())
+        assert [row.alias for row in plan.rows] == ["Power", "Mode"]
+        assert plan.rows[0].bypass is True
+
+    def test_it_is_not_advisory(self):
+        """The comb has no verdict for it, and that is where the
+        exemption stops. ``suspect_findings`` is the only thing the
+        comb's silence reaches; the checklist never consults it."""
+        from custom_components.hair.wig_comb import suspect_findings
 
         wig = self._wig()
-        stamp_receipt(wig, comb_wig(wig), "2026-08-01")
-        specs = {s.key: s for s in session_row_specs(wig)}
-        assert specs["Power"].advisory is False
+        assert "Power" not in suspect_findings(wig)
 
-    def test_it_counts_toward_completeness(self):
+    def test_it_counts_toward_coverage(self):
         """The assertion that makes the whole distinction real."""
-        from custom_components.hair.wig_fitting import (
-            fitting_is_complete,
-            parse_fittings,
+        from custom_components.hair.wig_format import (
+            ClaimsBundle,
+            RowClaim,
+            perfect_by,
+            signal_row_digest,
+            wig_row_digests,
         )
 
         wig = self._wig()
-        # Every row but the pinned one confirmed: NOT complete.
-        wig.extra["fittings"] = [{
-            "handle": "dab", "date": "2026-08-01",
-            "content_hash": wig_content_hash(wig),
-            "confirmed": ["Mode"], "failed": [],
-        }]
-        partial = parse_fittings(wig).fittings[0]
-        assert not fitting_is_complete(partial, wig)
+        digests = wig_row_digests(wig)
+        mode = signal_row_digest(wig.signals[1])
+        power = signal_row_digest(wig.signals[0])
 
-        # Add it and the fitting completes.
-        wig.extra["fittings"][0]["confirmed"] = ["Mode", "Power"]
-        full = parse_fittings(wig).fittings[0]
-        assert fitting_is_complete(full, wig)
+        # Every row but the pinned one claimed: NOT a perfect fit.
+        partial = ClaimsBundle(wig_id=wig.wig_id, handle="dab", rows=[
+            RowClaim(alias_at_claim="Mode", digest=mode, verdict="worked"),
+        ])
+        assert not perfect_by(partial, digests)
 
-    def test_combing_a_pinned_wig_leaves_a_signed_fitting_alone(self):
-        """Combing stamps a receipt without rolling the hash, and the
-        pin does not change that."""
-        from custom_components.hair.wig_comb import comb_wig, stamp_receipt
+        # Add it and the bundle completes.
+        partial.rows.append(
+            RowClaim(alias_at_claim="Power", digest=power, verdict="worked")
+        )
+        assert perfect_by(partial, digests)
 
-        wig = self._wig()
-        before = wig_content_hash(wig)
-        stamp_receipt(wig, comb_wig(wig), "2026-08-01")
-        assert wig_content_hash(wig) == before
+    def test_the_pin_is_in_the_digest_a_claim_binds(self):
+        """Unpinning a proved row does not carry its claim across.
+
+        The bypass bit is inside the row digest, so the repaired row and
+        the unrepaired one are different rows to the claims model. That
+        is what stops a fitting signed against the working recipe from
+        vouching for a recipe nobody sent.
+        """
+        from custom_components.hair.wig_format import signal_row_digest
+
+        pinned = WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True)
+        plain = WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=False)
+        assert signal_row_digest(pinned) != signal_row_digest(plain)
 
 
-# ---------------------------------------------------------------------------
-# REPLACE starts fresh
-# ---------------------------------------------------------------------------
+class TestPinSurvivesTheDeviceEdit:
+    """The pin lives on the device now, and the device is what gets
+    saved. Editing a command's OTHER knobs must not disturb it.
 
-
-class TestReplaceStartsFresh:
-    """Owner ruling 2026-08-01. A replace clears the pin; the strip shows
-    what the NEW capture decoded as and the fitter chooses again.
-
-    The code and the decision about how to send it are written in ONE
-    hash roll, so the row never exists in a state where the bytes and
-    that decision disagree -- which is the state a fitting would then
-    attest.
+    The old fitting dialog could replace a wig row's code in place and
+    cleared the pin when it did (ruling 2026-08-01), because a fitting
+    then bound a whole file and the row could not be allowed to exist
+    in a state where its bytes and the decision about them disagreed.
+    v0.9.5 deleted that editor: replacement happens on the device, and
+    a claim binds a per-row digest that already carries the pin. What is
+    left to protect is that a rename or a ditto change, which have
+    nothing to do with how the frame goes out, leave it alone.
     """
 
-    @pytest.fixture
-    def wig_on_disk(self, fake_hass, tmp_path):
-        from custom_components.hair.wig_format import serialize_wig
-
-        wigs = tmp_path / "hair" / "wigs"
-        wigs.mkdir(parents=True)
-        wig = Wig(name="Dreo", signals=[
-            WigSignal(alias="Power", pronto=PRONTO, bypass_protocol=True),
-            WigSignal(alias="Mode", pronto=_PRONTO_B),
-        ])
-        (wigs / "dreo.wig.json").write_text(
-            serialize_wig(wig), encoding="utf-8"
+    def _device(self):
+        from custom_components.hair.models import (
+            CommandCategory,
+            IRCommand,
+            IRDevice,
         )
-        fake_hass.config.config_dir = str(tmp_path)
-        return wigs / "dreo.wig.json"
+
+        device = IRDevice(name="Dreo", device_type="fan")
+        command = IRCommand(
+            id="cmd-power", name="Power", category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=PRONTO,
+        )
+        command.tx_force_raw = True
+        device.commands.append(command)
+        return device
 
     @pytest.mark.asyncio
-    async def test_replace_without_the_pin_clears_it(
-        self, fake_hass, wig_on_disk
-    ):
-        from custom_components.hair.wig_fitting import FittingManager
+    async def test_rename_and_retune_leave_the_pin_alone(self, manager):  # noqa: F811
+        manager._entity_factory.async_update_entities = AsyncMock()
+        device = self._device()
+        manager._store.add_device(device)
 
-        manager = FittingManager(fake_hass, monitor=None)
-        result = await manager.async_replace(
-            "dreo.wig.json", 0, _PRONTO_C, "captured", "dab",
+        result = await manager.async_update_command(
+            device.id, "cmd-power", name="Power Toggle", repeat_count=3,
         )
         assert result["success"]
-        await manager.async_flush()
+        updated = manager._store.get_device(device.id).get_command("cmd-power")
+        assert updated.tx_force_raw is True
+        assert updated.repeat_count == 3
 
-        wig = parse_wig(wig_on_disk.read_text()).wig
-        assert wig.signals[0].bypass_protocol is False
+    def test_the_pin_reaches_the_wig_through_export(self):
+        """And the export boundary is what carries it out of the
+        device, which is the only road to a claim."""
+        from custom_components.hair.wig_export import build_wig_from_device
 
-    @pytest.mark.asyncio
-    async def test_replace_can_set_the_pin_in_the_same_roll(
-        self, fake_hass, wig_on_disk
-    ):
-        from custom_components.hair.wig_fitting import FittingManager
-
-        manager = FittingManager(fake_hass, monitor=None)
-        before = parse_wig(wig_on_disk.read_text()).wig
-        result = await manager.async_replace(
-            "dreo.wig.json", 1, _PRONTO_C, "captured", "dab",
-            bypass_protocol=True,
-        )
-        assert result["success"]
-        await manager.async_flush()
-
-        wig = parse_wig(wig_on_disk.read_text()).wig
-        assert wig.signals[1].bypass_protocol is True
-        # One roll: the hash moved once, covering both the code and the
-        # decision about it.
-        assert wig_content_hash(wig) != wig_content_hash(before)
-        assert result["content_hash"] == wig_content_hash(wig)
-
-    @pytest.mark.asyncio
-    async def test_replacing_another_row_leaves_this_ones_pin_alone(
-        self, fake_hass, wig_on_disk
-    ):
-        from custom_components.hair.wig_fitting import FittingManager
-
-        manager = FittingManager(fake_hass, monitor=None)
-        await manager.async_replace(
-            "dreo.wig.json", 1, _PRONTO_C, "pasted", "dab",
-        )
-        await manager.async_flush()
-        wig = parse_wig(wig_on_disk.read_text()).wig
-        assert wig.signals[0].bypass_protocol is True
+        build = build_wig_from_device(self._device())
+        assert build.wig.signals[0].bypass_protocol is True
 
 
 class TestExportRecipeMapping:

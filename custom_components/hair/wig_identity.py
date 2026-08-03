@@ -98,10 +98,15 @@ def wig_signal_identity(pronto: str) -> WigSignalIdentity | None:
 # Cached whole-wig identity (Adopt Device, v0.8.1)
 # ---------------------------------------------------------------------------
 
-# Keyed by signals_content_hash: the fitting machinery guarantees a
-# wig's signals cannot change without the hash changing, so entries
-# never go stale. Small LRU-ish cap; a closet scan touches every wig,
-# and decoding a 300-signal wig per scan would otherwise be felt.
+# Keyed by signals_content_hash, which is a pure function of the four
+# fields that shape a waveform: an edit that could change a decoded
+# identity necessarily changes the key, so an entry cannot go stale
+# while remaining reachable. (That used to be argued from the fitting
+# machinery holding the signals still. It never needed to be -- the
+# guarantee is in the hash, and v0.9.5 removing the whole-wig fitting
+# hash left it exactly as true.) Small LRU-ish cap; a closet scan
+# touches every wig, and decoding a 300-signal wig per scan would
+# otherwise be felt.
 _IDENTITY_CACHE: dict[str, list[WigSignalIdentity | None]] = {}
 _IDENTITY_CACHE_MAX = 128
 

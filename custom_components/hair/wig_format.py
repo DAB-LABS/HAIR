@@ -19,9 +19,14 @@ Deliberate format rules, restated from the plan:
 - ``format`` gates parsing on its MAJOR version only: ``hair-wig/2``
   refuses politely with an update-HAIR message rather than guessing.
 - Canonicalization of the ``signals`` array is part of the v1 contract
-  (``canonical_signals_json`` / ``signals_content_hash``) even though
-  nothing in core consumes it yet: future fittings bind to this exact
-  form, and defining it later would fork hashes across installs.
+  (``canonical_signals_json`` / ``signals_content_hash``). It was
+  defined as the target a flat wig's FITTING would bind to; v0.9.5
+  moved that job to per-row digests (``row_digest``), because a
+  whole-file hash cannot say which rows anybody actually proved. The
+  canonical form stayed, and is still the definition of "the same
+  codes": the duplicate-drop detector and the identity cache both read
+  it. What it no longer does is appear in a file or bind a signature on
+  a flat wig, which is hard rule 2.
 
 Blocking I/O lives in wig_store, not here; this module is pure.
 """
@@ -790,7 +795,7 @@ def _climate_out(matrix: ClimateMatrix) -> dict:
 
 
 def canonical_signals_json(signals: list[WigSignal]) -> str:
-    """The canonical form of a signals array, the fitting-hash target.
+    """The canonical form of a signals array: "the same codes", exactly.
 
     Contract (docs/wig-format.md mirrors this, and WigFactory and any
     upstream verifier must reproduce it byte-for-byte): a JSON array of
@@ -800,27 +805,28 @@ def canonical_signals_json(signals: list[WigSignal]) -> str:
     normalized form (validator whitespace normalization, then lowercased
     hex); unknown per-signal keys excluded. Zero conditional rules.
 
-    The ruling principle: the hash covers what the fitting proves. A
-    fitting's signature certifies that this content drove the device
-    when a named person pressed the buttons, so it must cover exactly
-    the waveform that left the blaster and no more.
+    The four keys are the ones that shape the waveform, and that was
+    chosen when this form was a fitting's binding target: a signature
+    certifying that this content drove the device had to cover exactly
+    what left the blaster and no more.
 
     - ``pronto``: the bytes. Transmitted as stored.
     - ``ditto_count``: repeat frames the encoder appends. Shapes the
-      waveform, and the fitting transmits it.
+      waveform.
     - ``bypass_protocol``: suppresses the re-encode. Shapes the
       waveform.
     - ``send_count``: ABSENT, deliberately. Whole-blob retransmission is
-      delivery, not meaning. The fitting has never transmitted the row's
-      value (the session control decides), so the signature never
-      attested it, and it has been hashed-but-unproven since
-      hair-wig/1.
+      delivery, not meaning.
 
-    The honest cost of that exclusion: someone can edit a send count on
-    a signed wig and the signature still verifies. The edit is loud,
-    locally fixable and clamped on import, and the protection budget
-    goes to the flips that make a device silently fail while looking
-    certified -- bytes, dittos, bypass -- which all stay pinned.
+    v0.9.5 moved attestation onto per-row digests (``row_digest``,
+    which keeps exactly these axes minus the alias), so nothing signs
+    this form any more. It survives as the DEDUPLICATION identity: two
+    wigs with the same canonical signals are the same codes under
+    possibly different names, which is what the duplicate-drop receipt
+    and the identity cache each need to know. Both are local judgments
+    about local files, so the old worry about forking hashes across
+    installs no longer bites -- but the form is contract anyway,
+    because docs/wig-format.md publishes it.
     """
     canon = []
     for sig in signals:
@@ -840,7 +846,14 @@ def canonical_signals_json(signals: list[WigSignal]) -> str:
 
 
 def signals_content_hash(signals: list[WigSignal]) -> str:
-    """``sha256:<hex>`` over the canonical signals form."""
+    """``sha256:<hex>`` over the canonical signals form.
+
+    NEVER WRITTEN TO A FLAT WIG (hard rule 2). Nothing on disk carries
+    this: a flat wig's claims bind row digests, one per row, so that
+    editing one code orphans one claim instead of invalidating
+    everybody's attestation of every other row. This is an in-memory
+    identity for local bookkeeping and nothing else.
+    """
     digest = hashlib.sha256(
         canonical_signals_json(signals).encode("utf-8")
     ).hexdigest()
@@ -900,11 +913,15 @@ def cells_content_hash(matrix: ClimateMatrix) -> str:
 
 
 def wig_content_hash(wig: Wig) -> str:
-    """The hash fittings bind to for THIS wig.
+    """"Are these two wigs the same codes?", for either shape.
 
-    Signal wigs keep the v1 signals hash byte-for-byte (existing
-    fittings in the wild must stay valid); matrix wigs bind to the
-    matrix, which is what the dimension check actually attests.
+    NOT an attestation binding, despite the name it kept from when it
+    was one. Claims bind row digests on a flat wig and ``cells_hash`` on
+    a matrix wig; neither reads this. It answers the duplicate-drop
+    question, and it dispatches on SHAPE because a matrix wig's codes
+    live in its lattice: hashing only the (empty) signals list made
+    every matrix wig collide with every other one, so a Mitsubishi drop
+    reported itself as already in Toyotomi (owner bench 2026-07-28).
     """
     if wig.climate is not None:
         return cells_content_hash(wig.climate)

@@ -253,9 +253,12 @@ class TestEverySendPathReportsItsSendCount:
 
     def test_all_call_sites_pass_send_count(self):
         callers = self._callers()
-        # device_manager (device TX), signal_monitor (catalog Test),
-        # wig_fitting (fitting send). A new send path must join them.
-        assert len(callers) >= 3, f"expected every send path, saw {callers}"
+        # device_manager (device TX) and signal_monitor (catalog Test).
+        # There were three until v0.9.5: the fitting dialog had its own
+        # send path, and it went when testing moved onto the device and
+        # started going out through the device gate like every other
+        # press. A NEW send path must join these two.
+        assert len(callers) >= 2, f"expected every send path, saw {callers}"
         missing = [
             (name, line) for name, line, kw in callers if "send_count" not in kw
         ]

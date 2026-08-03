@@ -44,22 +44,16 @@ class TestDittoIsNecOnly:
         body = body.split("}", 1)[0]
         assert "if (bypassed) return false;" in body
 
-    @pytest.mark.parametrize(
-        "module", ["ir-fitting-dialog.ts", "ir-signal-editor.ts"],
-    )
-    def test_both_edit_surfaces_use_the_shared_predicate(self, module):
-        """Not a hand-rolled copy in each file: two gates that can
-        drift apart is how the fitting came to offer dittos on
-        protocols the editor already refused."""
-        text = _read(module)
+    def test_the_edit_surface_uses_the_shared_predicate(self):
+        """Not a hand-rolled copy: two gates that could drift apart is
+        how the fitting dialog came to offer dittos on protocols the
+        editor already refused. That dialog was the second surface and
+        it is gone (v0.9.5); the shared predicate stays, because the
+        next surface to grow a ditto knob must reach for it rather
+        than write the gate again."""
+        text = _read("ir-signal-editor.ts")
         assert 'from "./ir-tx-knobs.js"' in text
         assert "isDittoable(" in text
-
-    def test_the_fitting_no_longer_gates_on_bare_truthiness(self):
-        """The old gate was `!!row.protocol && !row.bypass_protocol`,
-        which admitted every decoded protocol."""
-        text = _read("ir-fitting-dialog.ts")
-        assert "!!row.protocol && !row.bypass_protocol" not in text
 
     def test_the_display_glyph_is_deliberately_not_gated(self):
         """A stored value hidden is a value nobody can find and
@@ -70,47 +64,30 @@ class TestDittoIsNecOnly:
         assert "const showDittos = dittos > 1 && this.decoded" in render
 
 
-class TestTuneChipCloses:
-    """The FT5 build opened a stepper and had no way back: no
-    click-away, no toggle, no Escape. _openChip was assigned in exactly
-    one place and cleared in none."""
-
-    def test_click_away_and_escape_are_bound(self):
-        text = _read("ir-fitting-dialog.ts")
-        assert "_onHostClick" in text
-        assert "_onHostKey" in text
-        assert 'this.addEventListener("click", this._onHostClick' in text
-        assert "removeEventListener" in text
-
-    def test_the_open_chip_is_cleared_somewhere(self):
-        text = _read("ir-fitting-dialog.ts")
-        assert text.count("_openChip = null") >= 3
-
-    def test_the_stepper_wears_no_pill(self):
-        """Expanded, the control is already unmistakably one control;
-        the capsule only made a row look permanently edited."""
-        text = _read("ir-fitting-dialog.ts")
-        block = text.split(".tstep {", 1)[1].split("}", 1)[0]
-        assert "background" not in block
-
-
 class TestRowControlsCannotStagger:
-    """Anything variable in the row's flex run moves the fixed controls
-    that follow it, and REPLACE drew a staircase down the list."""
+    """Anything variable in a row's flex run moves the fixed controls
+    that follow it, and REPLACE drew a staircase down the list.
+
+    The dialog those staircases appeared in is gone (v0.9.5). What the
+    pass produced that outlived it is ir-test-button: the send result
+    was extracted onto the button that produced it, as its own
+    component, and the save dialog inherited it. These guards follow
+    the component.
+    """
 
     def test_the_result_rides_the_button_that_produced_it(self):
         """Inline it shoved the controls; on a line below it read as
         orphaned, and matrix rows never rendered that line at all. It
         lives on TEST now, and TEST is its own component (owner ruling
-        2026-08-02) ahead of the fitting dialog's removal."""
+        2026-08-02), which is why it survived the dialog."""
         text = _read("ir-test-button.ts")
-        assert "_renderFactsLine" not in _read("ir-fitting-dialog.ts")
         assert 'color="grey"' in text
         assert "testbtn.sent" in text and "testbtn.heard" in text
 
-    def test_the_host_no_longer_owns_the_flash(self):
-        """The extraction is only real if the state went with it."""
-        host = _read("ir-fitting-dialog.ts")
+    def test_the_host_does_not_own_the_flash(self):
+        """The extraction is only real if the state went with it: the
+        surface that USES the button holds none of the flash's."""
+        host = _read("ir-save-wig-dialog.ts")
         for leftover in ("FLASH_HOLD_MS", "_flashTimers", "_flashResult"):
             assert leftover not in host
         assert "<ir-test-button" in host
@@ -155,172 +132,42 @@ class TestRowControlsCannotStagger:
         assert body.count("dispatchEvent") == 1
         assert '"test-failed"' in body
 
-    def test_facts_are_gone_from_the_control_run(self):
-        text = _read("ir-fitting-dialog.ts")
-        controls = text.split("_renderRowControls", 1)[1]
-        controls = controls.split("_rowStateInstruction", 1)[0]
-        assert '<span class="facts"' not in controls
-
-    def test_the_tail_is_anchored_right(self):
-        text = _read("ir-fitting-dialog.ts")
-        assert 'class="row-tail"' in text
-        tail = text.split(".row-tail {", 1)[1].split("}", 1)[0]
-        assert "margin-left: auto" in tail
-
-    def test_every_row_gets_thumbs(self):
-        """A matrix checklist samples 31 of 288 cells, so the other 48
-        the comb flagged were rows you could send and repair but never
-        tick. No reserved gap is needed any more because no row is
-        missing its thumbs (owner ruling 2026-08-02)."""
-        text = _read("ir-fitting-dialog.ts")
-        assert "thumb-gap" not in text
-        body = text.split(
-            "private _renderRowControls(i: number) {", 1,
-        )[1].split("\n    private ", 1)[0]
-        # The suspect CHIP still keys off advisory, correctly -- it is
-        # the warning marker. What must not come back is a branch that
-        # withholds the verdict buttons.
-        assert "advisory" not in body.split("return html", 1)[1]
-
-    def test_the_dialog_widened(self):
-        text = _read("ir-fitting-dialog.ts")
-        block = text.split(".fit-dialog {", 1)[1].split("}", 1)[0]
-        assert "max-width: 680px" in block
-
 
 class TestRowButtonsAcknowledgeTheMouse:
     """TEST was already gated on an emitter being picked but looked
     identical either way, and nothing in the row answered a hover or a
-    press."""
+    press.
+
+    The verdict buttons, APPLY and DISCARD that carried the rest of
+    these guards were the fitting session's, and went with it. What the
+    ruling is really about -- a control that can act says so under the
+    mouse, and a control that cannot says THAT -- outlived them, so it
+    is asserted here against the button every surface now shares and
+    against the save dialog that replaced the row run.
+    """
 
     @pytest.mark.parametrize(
         "selector",
-        [".vbtn:hover:not(:disabled)", ".vbtn:active:not(:disabled)",
-         ".vbtn:disabled", ".apply-btn:hover:not(:disabled)",
-         ".discard-btn:hover:not(:disabled)", ".discard-btn:disabled"],
+        [".tbtn:hover:not(:disabled)", ".tbtn:active:not(:disabled)"],
     )
-    def test_state_rule_exists(self, selector):
-        assert selector in _read("ir-fitting-dialog.ts")
+    def test_the_shared_test_button_answers_the_mouse(self, selector):
+        assert selector in _read("ir-test-button.ts")
 
-    def test_discard_is_red_when_it_can_act(self):
-        text = _read("ir-fitting-dialog.ts")
-        block = text.split(".discard-btn {", 1)[1].split("}", 1)[0]
-        assert "--error-color" in block
+    def test_a_disabled_test_says_why(self):
+        """The gate that started this: a TEST with no emitter behind it
+        looked exactly like one that would fire."""
+        text = _read("ir-test-button.ts")
+        assert "disabledReason" in text
+        assert "title=" in text
 
-    def test_apply_is_subordinate_to_the_number_it_acts_on(self):
-        """Smaller and tighter than the row's other buttons, or it
-        reads as a peer of TEST and REPLACE."""
-        text = _read("ir-fitting-dialog.ts")
-        apply_block = text.split(".apply-btn {", 1)[1].split("}", 1)[0]
-        vbtn_block = text.split("\n            .vbtn {", 1)[1]
-        vbtn_block = vbtn_block.split("}", 1)[0]
-
-        def size(block: str) -> float:
-            return float(
-                re.search(r"font-size:\s*([\d.]+)px", block).group(1)
-            )
-
-        assert size(apply_block) < size(vbtn_block)
-
-
-class TestJudgingSuspectsDoesNotMoveTheArithmetic:
-    """Suspects became judgeable, and that is the ONLY thing that
-    changed. Combing stamps a receipt without rolling the content hash,
-    so a suspect counting toward completeness would let one person's
-    comb retroactively demote somebody else's signed PERFECT FIT with
-    no code having changed anywhere."""
-
-    def test_the_counter_skips_advisory_verdicts(self):
-        """total comes from signals.length, which the backend builds
-        with advisory rows already excluded. Counting their verdicts
-        gave '35 of 31 tested' and fired PERFECT FIT early."""
-        text = _read("ir-fitting-dialog.ts")
-        block = text.split("private get _counts()", 1)[1]
-        block = block.split("\n    render()", 1)[0]
-        assert "advisory" in block
-        assert "continue" in block
-
-    def test_the_backend_still_excludes_them_from_the_row_list(self):
-        api = (
-            SRC.parent.parent / "websocket_api.py"
-        ).read_text(encoding="utf-8")
-        assert 'row["key"] for row in rows if not row["advisory"]' in api
-
-    def test_advisory_verdicts_are_never_signed(self):
-        """The fitting attests the checklist. A signed confirmed list
-        naming rows outside it would make the entry's own coverage line
-        read past its total."""
-        fitting = (
-            SRC.parent.parent / "wig_fitting.py"
-        ).read_text(encoding="utf-8")
-        block = fitting.split("async def async_finish", 1)[1]
-        assert "checklist = {spec.key for spec in fitting_row_specs(wig)}" in block
-        assert "if k in checklist" in block
-
-
-class TestMatrixBypassIsRefusedNotDropped:
-    """A cell's canonical form is exactly mode/fan/swing/temp/pronto,
-    so there is nowhere to put a bypass flag. The write path used to
-    accept the argument and drop it: the fitter set the toggle, the
-    replace succeeded, and the chip came back still naming the decoded
-    protocol."""
-
-    def test_the_api_says_no(self):
-        fitting = (
-            SRC.parent.parent / "wig_fitting.py"
-        ).read_text(encoding="utf-8")
-        assert '"code": "bypass_not_supported"' in fitting
-
-    def test_the_dialog_does_not_offer_it_on_a_matrix(self):
-        text = _read("ir-fitting-dialog.ts")
-        assert "?interactive=${!this._fit?.matrix}" in text
-
-
-class TestTheChipHasThreeWords:
-    """It had two, captured and pasted, chosen with a single ternary
-    off `replaced`. A tuned marker has no `replaced` key at all, so it
-    fell into the else branch and announced PASTED about a code nobody
-    had pasted."""
-
-    def test_the_ternary_is_gone(self):
-        text = _read("ir-fitting-dialog.ts")
-        chip = text.split("private _renderChip(i: number) {", 1)[1]
-        chip = chip.split("\n    private ", 1)[0]
-        assert "const tuned = typeof marker.tuned" in chip
-        assert "fitting.chip_tuned" in chip
-
-    def test_replaced_is_matched_explicitly_not_by_fallthrough(self):
-        text = _read("ir-fitting-dialog.ts")
-        chip = text.split("private _renderChip(i: number) {", 1)[1]
-        chip = chip.split("\n    private ", 1)[0]
-        assert 'marker.replaced === "pasted"' in chip
-
-    @pytest.mark.parametrize("locale", LOCALE_NAMES)
-    def test_the_third_word_is_translated(self, locale):
-        data = json.loads(
-            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
-        )
-        assert data["fitting.chip_tuned"]
-        assert "{count}" in data["fitting.chip_tuned_title"]
-
-
-class TestApplySaysWhyItIsOff:
-    """APPLY is deliberately unavailable on a state matrix -- writing a
-    send count from a checklist that samples 31 of 288 cells would edit
-    cells nothing proved. The hint under it went on describing what it
-    would do anyway."""
-
-    def test_the_matrix_hint_replaces_the_normal_one(self):
-        text = _read("ir-fitting-dialog.ts")
-        assert "fitting.apply_matrix_hint" in text
-        assert text.count("fitting.apply_matrix_hint") >= 2
-
-    @pytest.mark.parametrize("locale", LOCALE_NAMES)
-    def test_it_is_translated(self, locale):
-        data = json.loads(
-            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
-        )
-        assert data["fitting.apply_matrix_hint"]
+    def test_the_save_dialogs_actions_answer_the_mouse(self):
+        text = _read("ir-save-wig-dialog.ts")
+        for selector in (
+            ".save-wig-btn:hover:not(:disabled)",
+            ".as-new-btn:hover:not(:disabled)",
+            ".reason-btn:hover",
+        ):
+            assert selector in text, selector
 
 
 class TestReadOnlyChipsDoNotInviteClicks:

@@ -332,8 +332,13 @@ export class IrMirror extends LitElement {
         const testPrefix = ["Manual test send", "Catalog test"].find((p) =>
             label.startsWith(p),
         );
-        // A fitting-session send (Perfect Fit): its own provenance
-        // chip so a 300-signal fitting never reads as mystery traffic.
+        // A fitting-session send: its own provenance chip so a
+        // 300-signal fitting never read as mystery traffic. Nothing
+        // writes this source any more -- the fitting dialog had its own
+        // send path and v0.9.5 deleted it, so testing now goes out
+        // through the device gate like every other press. The reader
+        // stays for the rows already on disk: a stored Mirror row does
+        // not get relabelled because the code that made it retired.
         const fittingPrefix = label.startsWith("Fitting send")
             ? "Fitting send"
             : undefined;

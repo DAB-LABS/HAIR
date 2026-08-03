@@ -226,7 +226,7 @@ export interface CombReport extends CombSummary {
     skipped?: string[];
 }
 
-// Perfect Fit: the fitting layer.
+// Attestation: claims about wigs.
 /**
  * The closet row's check, derived from claims (RULED 2026-08-03).
  *
@@ -248,113 +248,60 @@ export interface FittingSummary {
     total: number;
 }
 
-export interface FittingLedgerRow {
-    handle: string;
+/** One row inside one person's attestation, as the ledger shows it. */
+export interface ClaimRow {
+    /** What the row was called WHEN CLAIMED. Display context: the alias
+     * is not in the digest, so a rename never orphans a claim. */
+    alias: string;
+    digest: string;
+    verdict: "worked" | "not_on_device" | "wont_work";
+    /** False when the wig no longer has a row with this digest: the
+     * recipe was edited after somebody proved it. Not an error and not
+     * hidden -- it is the most useful thing the ledger can say. */
+    present: boolean;
+}
+
+/** One signed attestation: one person, one sitting, one wig. */
+export interface ClaimBundle {
+    handle: string | null;
     github: string | null;
     date: string | null;
-    hair_version: string | null;
-    ha_version: string | null;
-    emitter: string | null;
-    receiver: string | null;
-    signals_heard: number | null;
     note: string | null;
-    // Send times the fitter recorded (fine-tuned-fittings). null =
-    // absent = unknown (pre-field fitting), which renders as nothing.
-    // Absent is not 1.
-    send_times_used?: number | null;
-    confirmed: number;
-    failed: number;
-    // The row keys behind the failed count, intersected with the
-    // wig's current rows (Smart Perm): the ledger navigates into the
-    // session at the first one rather than offering replace directly.
-    failed_keys?: string[];
-    draft: boolean;
-    valid: boolean;
-    complete: boolean;
+    /** null = unsigned. A bad signature discredits the ATTRIBUTION,
+     * never the data, and the wording has to say which. */
     signed: "valid" | "invalid" | null;
     key_fingerprint: string | null;
+    complete: boolean;
+    worked: number;
+    excluded: number;
+    orphaned: number;
+    /** Matrix only: the lattice this checklist vouched for. */
+    cells_hash: string | null;
+    /** Matrix only, null on a flat wig: whether that lattice is still
+     * the one on the file. */
+    lattice_current: boolean | null;
+    mine: boolean;
+    rows: ClaimRow[];
 }
 
-// Cold Cuts (v0.8.8): one fitting-session row. Signal wigs carry the
-// minimal shape (key = alias, section null); matrix wigs add the
-// dimension-check display facts so the dialog renders the sectioned
-// CC1 layout without re-deriving the checklist client-side.
-// Smart Perm: the replaced-marker riding a row's extra. Outside every
-// canonical hash, so showing it never moves a wig's identity.
-/** What happened to a fitting row, and how it happened.
+/** The read-only ledger (hair/wigs/claims).
  *
- * Both claims are optional and a row can carry both: REPLACED says the
- * bytes changed and where they came from, TUNED says the ditto count
- * changed and the bytes did not. `replaced` was typed as REQUIRED,
- * which is part of why the chip's captured-or-else-pasted ternary
- * looked total when a tuned marker fell straight through it and
- * announced PASTED about a code nobody pasted (owner bench
- * 2026-08-02).
+ * It replaced a tab inside the fitting dialog. There is deliberately
+ * no write command paired with this one: attestation happens once, at
+ * SAVE TO CLOSET, on the device that was actually tested.
  */
-export interface RowProvenance {
-    replaced?: "captured" | "pasted";
-    tuned?: number;
-    date?: string;
+export interface ClaimsLedger {
+    filename: string;
+    name: string;
+    wig_id: string | null;
+    matrix: boolean;
+    /** Flat rows on the wig. 0 for a matrix wig, whose claims bind the
+     * lattice as a set rather than a list of digests. */
+    total: number;
+    /** Union coverage across every attestation. */
+    covered: number;
+    entries: ClaimBundle[];
 }
-
-export interface FittingRow {
-    key: string;
-    // "changed" is the Smart Perm Changed Codes section: replaced cells
-    // the dimension checklist does not already cover, appended so the
-    // human proves exactly what the machine touched.
-    section:
-        | "start"
-        | "modes"
-        | "fan"
-        | "swing"
-        | "temp"
-        | "wrap"
-        | "changed"
-        | null;
-    mode?: string | null;
-    fan?: string | null;
-    swing?: string | null;
-    temp?: number | null;
-    temp_less?: boolean;
-    temp_role?: "min" | "max" | null;
-    confirmed: boolean;
-    failed: boolean;
-    provenance?: RowProvenance | null;
-    // True when an earlier code for this row is on record, so its chip
-    // can offer REVERT. A chip without this arrived with the file.
-    revertible?: boolean;
-    // A comb suspect surfaced for proofing. Sendable and replaceable,
-    // but carries no verdict and never counts toward completeness.
-    advisory?: boolean;
-    // The protocol this row decodes as, decoded fresh server-side (a wig
-    // stores no decoded fields). Null renders no chip at all.
-    protocol?: string | null;
-    // True when the row is pinned to raw replay.
-    bypass_protocol?: boolean;
-    // The transmit recipe's two knobs, as the file states them.
-    //
-    // send_count is the row's stated floor: a ride-along, out of the
-    // content hash, freely editable because no fitting ever attested
-    // it. ditto_count is device grammar, IS hashed, and can only change
-    // through a tune that something proved.
-    send_count?: number;
-    ditto_count?: number;
-    // What the original remote emitted when the code was captured, if
-    // anything recorded it. Shown as a hint in the expanded ditto
-    // stepper: the device's own answer to "how many does it send?".
-    observed_repeat_count?: number | null;
-}
-
-// One event from the Replace strip's listen window.
-export type FittingListenEvent =
-    | {
-          type: "fitting_capture";
-          pronto: string;
-          decoded: boolean;
-          protocol: string | null;
-          receiver: string | null;
-      }
-    | { type: "fitting_listen_timeout" };
 
 // One event from the command editor's Replace section. Same shape as
 // the fitting variant, its own event names: both surfaces can be open
@@ -473,41 +420,6 @@ export interface SaveResult {
     suspects: number;
     /** Lattice cells this save proposed upstream. */
     cells_proposed: number;
-}
-
-export interface FittingState {
-    filename: string;
-    username: string;
-    kind: string | null;
-    // True when this wig fits through the dimension check (Cold Cuts).
-    matrix: boolean;
-    // Matrix wigs only, null for signal wigs (unit ruling 2026-07-29):
-    // the matrix's native unit and precision. Row temps stay native;
-    // the dialog converts labels for display with these two facts.
-    unit?: "C" | "F" | null;
-    precision?: number | null;
-    // Row keys in session order; for signal wigs this is the alias
-    // list, byte-identical to the pre-0.8.8 payload.
-    signals: string[];
-    rows: FittingRow[];
-    draft: {
-        confirmed: string[];
-        failed: string[];
-        heard: string[];
-        date: string | null;
-        send_times_used?: number | null;
-    } | null;
-    // True when the row verdicts are a carry-forward preview from the
-    // user's last fitting rather than a live draft on these codes.
-    carried?: boolean;
-    // How many replaced codes DISCARD would put back.
-    pending_replaces?: number;
-    ledger: FittingLedgerRow[];
-    summary: FittingSummary;
-    // Restore value for the session's send-times control: the live
-    // session where one exists, else the draft's persisted record.
-    // null = fresh session, control starts at 1.
-    send_times?: number | null;
 }
 
 export interface WigInvalid {
