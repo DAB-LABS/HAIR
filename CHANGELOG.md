@@ -5,6 +5,36 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-08-03 -- The Fitting Room
+
+### Added
+
+- **Proving a wig is now something you do on the device, not in a dialog.** The old fitting room was a separate session with its own row of controls, its own send button and its own idea of what "worked" meant, and it sat between you and the device rather than on it. It is gone. You adopt a wig, press the buttons on the real device the way you would use it, and sign once at SAVE TO CLOSET. The attestation is a checklist of the rows you are claiming, next to the tick that arms it.
+- **An attestation is now a set of claims about rows, not a claim about a file.** Every row carries a digest of its transmit recipe -- the bytes, the repeat frames, and whether the encoder is bypassed -- and a claim binds to that. Edit one code and every other claim on the file survives, where before a single change invalidated the whole attestation. Renaming a row survives too, because names were never in the digest.
+- **A row you do not have is no longer a row you failed.** A claim can say a code worked, or that it is not on your device, or that you could not make it work. The last two are exclusions rather than failures, so a person with the two-button version of a remote can honestly attest the buttons they have.
+- **The fittings count on the save dialog is a door.** It said how many people had proved the wig and left them unreachable. Clicking it opens the ledger: who attested what, when, whether they signed, and per-row verdicts including the rows they deliberately excluded. A claim about a row whose bytes were edited afterwards is shown as orphaned rather than quietly dropped, because somebody really did prove that recipe.
+- **The comb report leads with what a finding does to you.** Three buckets, worst present first: will do the wrong thing, will be ignored, cosmetic. Only one class of finding makes a device answer a press and land in the wrong state, and it now says so instead of sitting in a card that looks like all the others. An empty bucket does not render, because a card reading "0 will do the wrong thing" is reassurance wearing the costume of a warning. The count carries a denominator, since 48 findings is catastrophic on a seven-button remote and unremarkable on a 750-cell lattice.
+- **Combing a class opens into facts rather than repetitions.** Twenty-two frame-shape findings on one air conditioner turned out to be three facts: eleven codes sending one burst pair too many, ten sending two, one sending three. Findings that say the same thing are now grouped under that sentence once, with their coordinates listed beneath it.
+- **The comb report says where the flagged codes actually are.** Under the footer there is now a line telling you either to adopt the wig, and that every flagged code becomes a row on the device wearing a comb glyph, or that they are already rows on a named device, with a button that takes you there. That a comb suspect surfaces as an ordinary command row is the thing nobody would guess.
+
+### Changed
+
+- **Emitters are cards you turn on and off.** The dropdown that spent a chip announcing what it had just added is gone. Every emitter you have is shown, and being assigned is simply the chip being on. They were never a choice between blasters -- HAIR broadcasts to all of them and succeeds if one lands -- and the old shape said otherwise.
+- **An unreachable blaster now says so.** Home Assistant already knew which emitters were unavailable and HAIR already skipped them when sending, and the panel had never mentioned it: a device could list a blaster that had been unplugged for a week with nothing on screen to say why nothing happened. An assigned emitter that is not answering is amber now.
+- **Row-level DELETE is a trash can.** Nine of them, in the Sniffer, Clipper, Plucker, Mirror, closet and device rows, where a word cost more room than it earned among four other controls. Everything that deletes is now the same ember colour whether it wears a word or a can. The seven page-level and dialog deletes keep their words, and so do the three CLEAR ALLs, which mean something different.
+- **The device page's type and emitters stopped looking like a form from 2004.** An 80px column was reserved for two words, leaving the controls floating in whatever was left. Each label sits above its own control now.
+- **The install instructions moved above the fold in all ten READMEs,** and HAIR is in the HACS default store as of 2026-08-01, so they no longer tell you to add a custom repository.
+
+### Fixed
+
+- **A matrix wig could never show which device it was adopted into.** The match between a wig and its devices walked the wig's flat signals, and an air conditioner wig has none -- its codes are lattice cells, and cells are not commands, so there was nothing on either side to compare. Every matrix wig read as adopted by nobody, forever: the closet's linked chip stayed dark and the adopt popover never appeared, no matter how many times you had adopted it. Devices have recorded which wig they came from since 0.9.5, and the match now uses it.
+- **Exporting a matrix device dropped the lattice.** A device export of an air conditioner wrote the flat extras and left the state matrix behind, so the file described a remote with a power button and nothing else. **Anything you exported from an air conditioner before this build should be exported again.**
+- **The ledger opened behind the dialog that opened it.** Home Assistant 2026.7 moved its dialogs into the browser's top layer, which sits above every z-index there is, so the ledger was both invisible and unclickable. Closing it also used to close the save dialog with it, losing the form you were filling in.
+- **The Plucker's CLEAR ALL was never translated.** It shipped a hardcoded English string where both its siblings did the right thing, so it read "Clear All" in nine languages.
+- **The device page's DELETE DEVICE wore a dialog heading's label,** which meant neither surface could ever be worded for where it sits.
+- **The trigger trash in the device list was not a button,** just an icon with a click handler, so it had been unreachable by keyboard for as long as it had shipped.
+- **A comb report on a large lattice ran off the bottom of the screen** with nowhere to scroll, losing both ends of itself on a laptop.
+
 ## [0.9.2] - 2026-08-01 -- Highlights
 
 ### Added
