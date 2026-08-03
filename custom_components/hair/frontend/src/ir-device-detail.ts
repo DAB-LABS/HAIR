@@ -1531,10 +1531,10 @@ export class IrDeviceDetail extends LitElement {
                 >&#x2715;</button>
             </section>
 
-            <!-- Device metadata grid -->
+            <!-- Device metadata: two capsules, each wearing its own name -->
             <div class="device-meta">
-                <span class="meta-label">${t("devdetail.type")}</span>
-                <div class="meta-value">
+                <div class="capsule type-capsule">
+                    <span class="cap">${t("devdetail.type")}</span>
                     <select
                         .value=${this.device.device_type}
                         @change=${this._onTypeChanged}
@@ -1552,16 +1552,13 @@ export class IrDeviceDetail extends LitElement {
                         )}
                     </select>
                 </div>
-                <span class="meta-label">${t("devlist.emitters")}</span>
-                <div class="meta-value">
-                    <ir-emitter-picker
-                        .hass=${this.hass}
-                        .api=${this.api}
-                        .value=${this.device.emitter_entity_ids ?? []}
-                        ?disabled=${this._busy}
-                        @emitters-changed=${this._onEmittersChanged}
-                    ></ir-emitter-picker>
-                </div>
+                <ir-emitter-picker
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .value=${this.device.emitter_entity_ids ?? []}
+                    ?disabled=${this._busy}
+                    @emitters-changed=${this._onEmittersChanged}
+                ></ir-emitter-picker>
             </div>
 
             ${this.device.matrix ? this._renderMatrixCard() : nothing}
@@ -2001,20 +1998,50 @@ export class IrDeviceDetail extends LitElement {
             align-self: center;
         }
 
-        /* --- Metadata grid --- */
+        /* --- Metadata: capsules, not a label gutter ---
+           The 80px column reserved for two words was the thing making
+           this row read as a form from 2004. Each control wears its own
+           name inside its own border now, so the row is just two
+           objects sitting side by side. TYPE sizes to its content and
+           EMITTERS takes what is left, growing a second line of chips
+           inside its own border. */
         .device-meta {
-            display: grid;
-            grid-template-columns: 80px 1fr;
-            gap: 8px 12px;
-            align-items: start;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 10px;
             margin: 16px 0 0;
         }
-        .meta-label {
-            font-size: 0.78rem;
+        .device-meta ir-emitter-picker {
+            flex: 1 1 340px;
+            min-width: 0;
+        }
+        .capsule {
+            display: flex;
+            align-items: stretch;
+            border: 1px solid var(--divider-color);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .capsule .cap {
+            display: flex;
+            align-items: center;
+            padding: 6px 10px;
+            background: rgba(127, 127, 127, 0.07);
+            border-right: 1px solid var(--divider-color);
+            font-size: 0.7rem;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.06em;
             color: var(--secondary-text-color);
-            padding-top: 6px;
+            white-space: nowrap;
+        }
+        /* Below this the two capsules stop fitting on one line with
+           anything useful left for the chips, so they stack. */
+        @media (max-width: 700px) {
+            .device-meta {
+                flex-direction: column;
+                align-items: stretch;
+            }
         }
         /* The STATE MATRIX card (Cold Cuts second half, mockup CC3):
            the cell browser in the cold-blue family (#58a6d8) -- the
@@ -2161,18 +2188,15 @@ export class IrDeviceDetail extends LitElement {
         .action-btn.mx-cmd-btn:hover:not(:disabled) {
             background: rgba(184, 115, 51, 0.08);
         }
-        .meta-value select {
-            width: 100%;
-            padding: 6px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
+        /* The select sizes to its content now. It is inside the
+           capsule's border, so it brings none of its own. */
+        .type-capsule select {
+            padding: 6px 9px;
+            border: 0;
             background: var(--card-background-color);
             color: var(--primary-text-color);
             font-family: inherit;
             font-size: 0.85rem;
-        }
-        .meta-value ir-emitter-picker {
-            --picker-label-display: none;
         }
 
         /* --- Buttons --- */

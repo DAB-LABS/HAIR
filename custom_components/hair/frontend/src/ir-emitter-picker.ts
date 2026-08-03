@@ -1,9 +1,32 @@
 /**
- * Reusable multi-emitter picker with chip-based UI.
+ * Reusable multi-emitter picker: one capsule of toggle chips.
  *
- * Shows selected emitters as removable chips and a dropdown to add
- * from available infrared.* entities. Auto-selects when only one
- * emitter exists.
+ * THE CHIPS ARE NOT A SELECTION. Every assigned emitter fires on every
+ * send -- device_manager.async_send_command broadcasts to all of them,
+ * staggered by tx_gate, and succeeds if at least one lands. They are
+ * redundancy, not a choice between blasters. The old dropdown-plus-
+ * removable-chips shape said the opposite: it read as "pick one, then
+ * maybe another", and it spent a chip to announce what it had just
+ * added. Every emitter renders now, and being assigned is simply the
+ * chip's on state.
+ *
+ * THREE STATES, and the third is the point. HA already knows which
+ * emitters are unreachable, and device_manager skips `unavailable` and
+ * `unknown` ones at send time. This picker was reading the very same
+ * state object for the friendly name and throwing the rest away, so a
+ * device could sit there listing a blaster that had been unplugged for
+ * a week with nothing to show for it.
+ *
+ *   assigned + reachable  -> green border, lit dot,  "On"
+ *   not assigned          -> divider border, dead dot, "Off"
+ *   assigned + unreachable-> amber border, flat dot, "Unavailable"
+ *
+ * The state word is not printed beside the name. The dot is the state,
+ * which is what keeps a row of three emitters reading as three things
+ * rather than six. The word still reaches anyone who needs it, through
+ * the tooltip and the accessible name. Where it is spoken it is "On"
+ * and not "Sending": a chip reading Sending on an idle emitter claims
+ * a transmission that is not happening.
  *
  * Usage:
  *   <ir-emitter-picker
@@ -12,7 +35,10 @@
  *       @emitters-changed=${(e) => this._ids = e.detail.value}
  *   ></ir-emitter-picker>
  *
- * Fires `emitters-changed` with detail: { value: string[] }
+ * Fires `emitters-changed` with detail: { value: string[] }. The
+ * contract is unchanged from the dropdown era, which is why
+ * ir-add-device-dialog, ir-assign-signal-dialog and ir-promote-dialog
+ * inherited this for free.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -22,7 +48,13 @@ import type { HairApi } from "./api.js";
 interface EmitterInfo {
     entity_id: string;
     name: string;
+    /** HA's own verdict. device_manager.py skips these at send time and
+     * the panel never used to say so. */
+    available: boolean;
 }
+
+/** The two states HA uses for "this entity is not answering". */
+const DEAD_STATES = new Set(["unavailable", "unknown"]);
 
 @customElement("ir-emitter-picker")
 export class IrEmitterPicker extends LitElement {
@@ -31,7 +63,7 @@ export class IrEmitterPicker extends LitElement {
     /**
      * HAIR API client. When provided, the picker fetches the list of
      * native ``InfraredReceiverEntity`` instances and excludes them from
-     * the dropdown -- so RX-only entities can't be picked as an emitter
+     * the chips -- so RX-only entities can't be picked as an emitter
      * by mistake. Optional for backward compatibility.
      */
     @property({ attribute: false }) public api?: HairApi;
@@ -42,7 +74,7 @@ export class IrEmitterPicker extends LitElement {
     /** Disable all interactions. */
     @property({ type: Boolean }) public disabled = false;
 
-    /** Entity IDs to exclude from the dropdown (e.g. extra hand-picked exclusions). */
+    /** Entity IDs to exclude entirely (e.g. extra hand-picked exclusions). */
     @property({ attribute: false }) public excludeEntityIds: string[] = [];
 
     @state() private _didAutoSelect = false;
@@ -64,9 +96,9 @@ export class IrEmitterPicker extends LitElement {
         //   2. ``value`` is empty and exactly one emitter is available --
         //      auto-pick it as a convenience for first-time setup.
         // Either way, once ``_didAutoSelect`` flips true, we leave the
-        // picker alone. Clicking X to clear the last chip then leaves the
-        // field empty, instead of the auto-fill snapping it back to the
-        // only option (the bug this guard fixes).
+        // picker alone. Turning the last chip off then leaves the field
+        // empty, instead of the auto-fill snapping it back to the only
+        // option (the bug this guard fixes).
         if (!this._didAutoSelect) {
             if (this.value.length > 0) {
                 this._didAutoSelect = true;
@@ -96,6 +128,7 @@ export class IrEmitterPicker extends LitElement {
             string,
             {
                 entity_id: string;
+                state?: string;
                 attributes: { friendly_name?: string; hair_observer?: boolean };
             }
         >;
@@ -111,28 +144,25 @@ export class IrEmitterPicker extends LitElement {
                 emitters.push({
                     entity_id: entityId,
                     name: st.attributes.friendly_name ?? entityId,
+                    available: !DEAD_STATES.has(st.state ?? ""),
                 });
             }
         }
         return emitters;
     }
 
-    private _emitterName(entityId: string): string {
-        const stateObj = this.hass?.states?.[entityId];
-        return stateObj?.attributes?.friendly_name ?? entityId;
-    }
-
-    private _onAdd(e: Event): void {
-        const select = e.target as HTMLSelectElement;
-        const entityId = select.value;
-        if (!entityId) return;
-        select.value = "";
-        if (this.value.includes(entityId)) return;
-        this._fireChange([...this.value, entityId]);
-    }
-
-    private _onRemove(entityId: string): void {
-        this._fireChange(this.value.filter((id) => id !== entityId));
+    /**
+     * One control where there were two. Adding used to mean choosing
+     * from a dropdown and removing used to mean hitting an x on a chip;
+     * both were the same question asked of the same list.
+     */
+    private _toggle(entityId: string): void {
+        if (this.disabled) return;
+        this._fireChange(
+            this.value.includes(entityId)
+                ? this.value.filter((id) => id !== entityId)
+                : [...this.value, entityId],
+        );
     }
 
     private _fireChange(newValue: string[]): void {
@@ -147,56 +177,51 @@ export class IrEmitterPicker extends LitElement {
     }
 
     render() {
-        const allEmitters = this._getEmitters();
-        const available = allEmitters.filter(
-            (em) => !this.value.includes(em.entity_id),
-        );
-
+        const emitters = this._getEmitters();
         return html`
-            <label>${t("picker.emitters_label")}</label>
+            <div class="capsule">
+                <span class="cap">${t("picker.emitters_label")}</span>
+                <div class="body">
+                    ${emitters.length === 0
+                        ? html`<span class="no-emitters"
+                              >${t("picker.no_emitters")}</span
+                          >`
+                        : emitters.map((em) => this._renderChip(em))}
+                </div>
+            </div>
+        `;
+    }
 
-            ${this.value.length > 0
-                ? html`
-                      <div class="chips">
-                          ${this.value.map(
-                              (id) => html`
-                                  <span class="chip">
-                                      <span class="chip-name">${this._emitterName(id)}</span>
-                                      ${!this.disabled
-                                          ? html`<button
-                                                class="chip-remove"
-                                                @click=${() => this._onRemove(id)}
-                                                title=${t("common.remove")}
-                                            >&times;</button>`
-                                          : ""}
-                                  </span>
-                              `,
-                          )}
-                      </div>
-                  `
-                : ""}
-
-            ${allEmitters.length === 0
-                ? html`<div class="no-emitters">${t("picker.no_emitters")}</div>`
-                : available.length > 0
-                  ? html`
-                        <select
-                            @change=${this._onAdd}
-                            ?disabled=${this.disabled}
-                        >
-                            <option value="">${t("picker.add_emitter")}</option>
-                            ${available.map(
-                                (em) => html`
-                                    <option value=${em.entity_id}>
-                                        ${em.name}
-                                    </option>
-                                `,
-                            )}
-                        </select>
-                    `
-                  : this.value.length > 0
-                    ? html`<div class="all-selected">${t("picker.all_emitters_selected")}</div>`
-                    : ""}
+    private _renderChip(em: EmitterInfo) {
+        const on = this.value.includes(em.entity_id);
+        // Only an emitter being ASKED to send has anything to say about
+        // being unreachable. An unassigned one that happens to be down
+        // is simply off, because nothing is expected of it.
+        const down = on && !em.available;
+        const cls = down ? "down" : on ? "on" : "";
+        const word = down
+            ? t("picker.state_unavailable")
+            : on
+              ? t("picker.state_on")
+              : t("picker.state_off");
+        // The dot carries the state and the name carries itself. A word
+        // spelled out beside every chip turned a row of three into a row
+        // of six things to read, which is the opposite of what the
+        // capsule is for. The word still reaches anyone who needs it:
+        // the tooltip and the accessible name both say it.
+        return html`
+            <button
+                class="em ${cls}"
+                role="switch"
+                aria-checked=${on ? "true" : "false"}
+                aria-label="${em.name}, ${word}"
+                ?disabled=${this.disabled}
+                title="${em.entity_id} \u00b7 ${word}"
+                @click=${() => this._toggle(em.entity_id)}
+            >
+                <span class="dot"></span>
+                <span class="em-name">${em.name}</span>
+            </button>
         `;
     }
 
@@ -204,69 +229,102 @@ export class IrEmitterPicker extends LitElement {
         :host {
             display: block;
         }
-        label {
-            display: var(--picker-label-display, block);
-            font-size: 0.78rem;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: var(--secondary-text-color);
-            margin-bottom: 6px;
+        /* THE CAPSULE (comp L2). The label is welded on as a leading
+           segment inside the control's own border rather than parked in
+           a fixed 80px gutter beside it. The gutter was what made the
+           metadata row read as a form from 2004: a reserved column for
+           two words, with the controls floating in what was left. */
+        .capsule {
+            display: flex;
+            align-items: stretch;
+            border: 1px solid var(--divider-color);
+            border-radius: 5px;
+            overflow: hidden;
         }
-        .chips {
+        .cap {
+            display: flex;
+            align-items: center;
+            padding: 6px 10px;
+            background: rgba(127, 127, 127, 0.07);
+            border-right: 1px solid var(--divider-color);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+        }
+        /* Wrapping happens INSIDE the border, which is what makes a
+           second line of chips read as deliberate rather than as
+           something that overflowed. */
+        .body {
             display: flex;
             flex-wrap: wrap;
+            align-items: center;
             gap: 6px;
-            margin-bottom: 8px;
+            padding: 5px 9px;
+            flex: 1;
+            min-width: 0;
+            background: var(--card-background-color);
         }
-        .chip {
+        .em {
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            background: var(--secondary-background-color);
-            color: #ff9800;
-            font-size: 0.82rem;
-            font-weight: 500;
-            padding: 4px 8px;
-            border-radius: 4px;
-            line-height: 1;
+            gap: 7px;
+            padding: 4px 11px 4px 9px;
+            border: 1px solid var(--divider-color);
+            border-radius: 14px;
+            background: none;
+            font-family: inherit;
+            font-size: 12px;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            transition: border-color 140ms ease, background 140ms ease,
+                color 140ms ease;
         }
-        .chip-name {
+        .em:hover:not(:disabled) {
+            border-color: var(--secondary-text-color);
+        }
+        .em:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+        .em-name {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 200px;
         }
-        .chip-remove {
-            background: none;
-            border: none;
-            color: inherit;
-            font-size: 1rem;
-            cursor: pointer;
-            padding: 0 2px;
-            line-height: 1;
-            opacity: 0.65;
-            transition: opacity 120ms ease;
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #4d5359;
+            flex: none;
         }
-        .chip-remove:hover {
-            opacity: 1;
-        }
-        select {
-            width: 100%;
-            padding: 6px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
+        /* ON. Green, and the dot glows, because this one is live. */
+        .em.on {
+            border-color: rgba(79, 158, 90, 0.5);
+            background: rgba(79, 158, 90, 0.12);
             color: var(--primary-text-color);
-            font-family: inherit;
-            font-size: 0.85rem;
+        }
+        .em.on .dot {
+            background: #6cbf78;
+            box-shadow: 0 0 5px rgba(108, 191, 120, 0.6);
+        }
+        /* ASSIGNED BUT DOWN. Amber edge and a warm name, and the dot
+           does NOT glow: the glow is the panel's mark for something
+           that is working, and this is the one case where the device is
+           asking an emitter to fire and HA will skip it. */
+        .em.down {
+            border-color: rgba(217, 164, 65, 0.45);
+            color: #e8dcc2;
+        }
+        .em.down .dot {
+            background: #d9a441;
+            box-shadow: none;
         }
         .no-emitters {
             font-size: 0.85rem;
-            color: var(--secondary-text-color);
-            font-style: italic;
-        }
-        .all-selected {
-            font-size: 0.8rem;
             color: var(--secondary-text-color);
             font-style: italic;
         }

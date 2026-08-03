@@ -623,3 +623,106 @@ class TestEveryFittingIsADisclosure:
         text = _read("ir-claims-ledger.ts")
         assert 'tp("claims.show_all"' in text
         assert 't("claims.show_all"' not in text
+
+
+class TestEmittersHaveThreeStates:
+    """Assigned-and-reachable, off, and assigned-but-down.
+
+    The third one is the whole point. HA knows, device_manager skips
+    unavailable and unknown emitters at send time, and the picker was
+    reading that very state object for the friendly name and throwing
+    the rest away. A device could list a blaster unplugged for a week
+    with nothing on screen to say so.
+    """
+
+    def test_the_picker_reads_availability(self):
+        text = _read("ir-emitter-picker.ts")
+        assert "unavailable" in text and "unknown" in text
+        assert "available" in text
+
+    def test_all_three_states_are_rendered(self):
+        text = _read("ir-emitter-picker.ts")
+        for key in (
+            "picker.state_on",
+            "picker.state_off",
+            "picker.state_unavailable",
+        ):
+            assert key in text, key
+
+    def test_only_an_assigned_emitter_reports_being_down(self):
+        """An unassigned emitter that happens to be unreachable is
+        simply off. Nothing is expected of it, so it has nothing to
+        complain about."""
+        text = " ".join(_read("ir-emitter-picker.ts").split())
+        assert "const down = on && !em.available;" in text
+
+    def test_the_state_word_is_not_printed_beside_the_name(self):
+        """The dot is the state. A word spelled out beside every chip
+        turns a row of three emitters into a row of six things to read,
+        which is the opposite of what the capsule is for."""
+        text = _read("ir-emitter-picker.ts")
+        assert 'class="st"' not in text
+        # It still reaches anyone who needs it.
+        assert "aria-label=" in text and "title=" in text
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_four_new_keys(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key in (
+            "picker.state_on",
+            "picker.state_off",
+            "picker.state_unavailable",
+        ):
+            assert key in data, f"{locale} missing {key}"
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_the_dropdown_keys_are_gone(self, locale):
+        """There is no dropdown to add from and no all-selected state,
+        because every emitter is always on screen. The broadcast note
+        went with them: the rule is true, but a permanent line of prose
+        under a control nobody asked a question of is furniture."""
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "picker.add_emitter" not in data
+        assert "picker.all_emitters_selected" not in data
+        assert "picker.broadcast_note" not in data
+
+
+class TestTheMetadataRowIsTwoCapsules:
+    """An 80px column reserved for two words, with the controls left
+    floating in what remained. Each control wears its own name inside
+    its own border now.
+    """
+
+    def test_the_label_gutter_is_gone(self):
+        text = _read("ir-device-detail.ts")
+        assert "grid-template-columns: 80px 1fr" not in text
+        assert ".meta-label" not in text
+        assert ".meta-value" not in text
+
+    def test_the_picker_gets_its_label_back(self):
+        """It was suppressed because the gutter already carried one.
+        There is no gutter."""
+        assert "--picker-label-display: none" not in _read(
+            "ir-device-detail.ts"
+        )
+
+    def test_both_controls_are_capsules(self):
+        text = _read("ir-device-detail.ts")
+        assert 'class="capsule type-capsule"' in text
+        assert ".capsule .cap {" in text
+
+    def test_the_capsules_stack_when_narrow(self):
+        text = _read("ir-device-detail.ts")
+        assert "max-width: 700px" in text
+
+    def test_the_toggle_kept_the_event_contract(self):
+        """Add and remove collapsed into one toggle, but the event the
+        three embedding dialogs listen for is byte-identical, which is
+        why none of them needed touching."""
+        text = _read("ir-emitter-picker.ts")
+        assert 'new CustomEvent("emitters-changed"' in text
+        assert "_onAdd" not in text and "_onRemove" not in text
