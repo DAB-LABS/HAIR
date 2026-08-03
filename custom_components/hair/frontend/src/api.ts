@@ -673,26 +673,6 @@ export class HairApi {
         });
     }
 
-    wigsExport(
-        source: "catalog" | "device",
-        sourceId: string,
-        extras?: Partial<{
-            brand: string;
-            model: string;
-            notes: string;
-            fcc_id: string;
-            upc: string;
-            asin: string;
-            oem: string;
-        }>,
-    ): Promise<{ filename: string; signal_count: number; skipped: number }> {
-        return this.hass.connection.sendMessagePromise({
-            type: "hair/wigs/export",
-            source,
-            source_id: sourceId,
-            ...(extras ?? {}),
-        });
-    }
 
     /**
      * Start a capture session and stream events to ``onEvent``.

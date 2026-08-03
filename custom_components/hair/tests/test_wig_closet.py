@@ -20,11 +20,8 @@ from custom_components.hair.code_library import (
 from custom_components.hair.models import (
     IRCommand,
     IRDevice,
-    UnknownDevice,
-    UnknownSignal,
 )
 from custom_components.hair.wig_export import (
-    build_wig_from_catalog,
     build_wig_from_device,
 )
 from custom_components.hair.wig_format import parse_wig, serialize_wig
@@ -271,42 +268,30 @@ class TestMaterializeMatrix:
         assert [e["name"] for e in entries] == ["Power", "Mute"]
 
 
-def _catalog_remote() -> UnknownDevice:
-    device = UnknownDevice(label="Foxtel IQ", source="sniffed")
-    device.signals.append(UnknownSignal(
-        fingerprint="S1L2", protocol="PRONTO", code=PRONTO,
-        alias="Power", send_count=2,
+def _export_device() -> IRDevice:
+    """A device with one good code, one raw-only, and one ghost.
+
+    The catalog remote this used to be retired with the Sniffer,
+    Clipper and Plucker export buttons (2026-08-03): wigs are born from
+    devices now, so the round trip has to be exercised from one.
+    """
+    device = IRDevice(name="Foxtel IQ")
+    device.commands.append(IRCommand(
+        id="c1", name="Power", protocol="PRONTO", code=PRONTO,
+        send_count=2, repeat_count=0,
     ))
-    device.signals.append(UnknownSignal(
-        fingerprint="S3L4", protocol=None, code=None,
+    device.commands.append(IRCommand(
+        id="c2", name="Signal 2", protocol=None, code=None,
         raw_timings=[9000, -4500, 560, -560, 560, -1690, 560],
-        frequency=38000, alias="",
+        frequency=38000, repeat_count=0,
     ))
-    device.signals.append(UnknownSignal(
-        fingerprint="S5L6", protocol=None, code=None, raw_timings=[],
-        alias="Ghost",
+    device.commands.append(IRCommand(
+        id="c3", name="Ghost", protocol=None, code=None, raw_timings=None,
     ))
     return device
 
 
 class TestExport:
-    def test_catalog_export_shapes_and_origin(self):
-        build = build_wig_from_catalog(_catalog_remote())
-        assert build.skipped == 1  # the codeless, timing-less ghost
-        wig = build.wig
-        assert wig.origin == "captured"
-        assert wig.name == "Foxtel IQ"
-        assert [s.alias for s in wig.signals] == ["Power", "Signal 2"]
-        assert wig.signals[0].send_count == 2
-
-    def test_clipped_and_plucked_origins(self):
-        for source, origin in (
-            ("manual", "clipped"), ("plucked", "plucked"),
-        ):
-            remote = _catalog_remote()
-            remote.source = source
-            assert build_wig_from_catalog(remote).wig.origin == origin
-
     def test_device_export(self):
         device = IRDevice(name="Living Room TV")
         device.commands.append(IRCommand(
@@ -324,14 +309,13 @@ class TestExport:
         assert build.wig.signals[0].send_count == 4
 
     def test_empty_export_returns_none(self):
-        device = UnknownDevice(label="Empty", source="sniffed")
-        build = build_wig_from_catalog(device)
+        build = build_wig_from_device(IRDevice(name="Empty"))
         assert build.wig is None
 
     def test_round_trip_invariant(self, tmp_path):
         """Export then import on a clean install yields identical aliases,
         normalized codes, and identities (wigs.md section 7)."""
-        build = build_wig_from_catalog(_catalog_remote())
+        build = build_wig_from_device(_export_device())
         text = serialize_wig(build.wig)
         result = parse_wig(text)
         assert result.ok

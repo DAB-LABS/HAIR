@@ -228,6 +228,72 @@ async def test_update_appends_to_the_source_file(
 
 
 @pytest.mark.asyncio
+async def test_a_metadata_only_update_is_allowed(
+    fake_hass, tmp_path, _no_signing
+):
+    """Editing brand on a shop wig is a content PR, not an attestation.
+
+    The plan rules that metadata edits ride the PR as reviewed changes,
+    so gating them behind the oath would have made the prefilled fields
+    read-only decoration. Hard rule 3 protects the SIGNALS block, and a
+    brand correction touches none of it.
+    """
+    wig = Wig(
+        name="Edifier", brand="Edifier", wig_id="u-source",
+        signals=[WigSignal(alias="On", pronto=PRONTO_A)],
+    )
+    path = _closet_wig(tmp_path, wig)
+    before = path.read_text()
+    device = IRDevice(
+        name="Speakers", commands=[_command("On", PRONTO_A)],
+        source_wig_id="u-source",
+    )
+    _wire(fake_hass, tmp_path, device)
+    conn = _conn()
+    await ws_wigs_save(
+        fake_hass, conn,
+        {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "update", "brand": "Edifier International",
+        },
+    )
+    conn.send_error.assert_not_called()
+    after = json.loads(path.read_text())
+    assert after["brand"] == "Edifier International"
+    assert "fittings" not in after
+    assert after["signals"] == json.loads(before)["signals"]
+
+
+@pytest.mark.asyncio
+async def test_unchanged_metadata_is_not_a_change(
+    fake_hass, tmp_path, _no_signing
+):
+    """The dialog prefills every field from the wig and sends them all
+    back. Treating present as changed would let an untouched dialog
+    write a metadata PR that changes nothing -- which is precisely the
+    shape an attestation must never be confused with."""
+    wig = Wig(
+        name="Edifier", brand="Edifier", wig_id="u-source",
+        signals=[WigSignal(alias="On", pronto=PRONTO_A)],
+    )
+    _closet_wig(tmp_path, wig)
+    device = IRDevice(
+        name="Speakers", commands=[_command("On", PRONTO_A)],
+        source_wig_id="u-source",
+    )
+    _wire(fake_hass, tmp_path, device)
+    conn = _conn()
+    await ws_wigs_save(
+        fake_hass, conn,
+        {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "update", "name": "Edifier", "brand": "Edifier",
+        },
+    )
+    assert conn.send_error.call_args[0][1] == "nothing_to_update"
+
+
+@pytest.mark.asyncio
 async def test_update_with_nothing_to_attest_refuses(
     fake_hass, tmp_path, _no_signing
 ):

@@ -547,6 +547,8 @@
     "wigs.save.your_github": "Nazwa na GitHubie",
     "wigs.save.oath": "Oswiadczam, ze kazdy zaznaczony sygnal dziala na moim urzadzeniu tak, jak zapisano.",
     "wigs.save.needs_oath": "Zaznacz oswiadczenie, aby podpisac to dopasowanie.",
+    "wigs.save.needs_something": "Nie ma jeszcze nic do zapisania. Zaznacz Oznacz jako idealne dopasowanie i podpisz, aby dodac swoje dopasowanie do {name}, albo zmien powyzej pole metadanych. Aktualizacja dopisuje do wiga; nigdy nie przepisuje jego kodow.",
+    "wigs.save.matrix_pending": "To urzadzenie z macierza stanow. Jego siatka mieszka w encji klimatu, a nie na liscie polecen, wiec dopasowanie nie jest jeszcze zbudowane, a kody tutaj to tylko przyciski dodatkowe. Zapis dziala normalnie.",
     "wigs.save.save_perfect": "Zapisz idealne dopasowanie",
     "wigs.save.save_fitted": "Zapisz dopasowany wig",
     "wigs.save.save_as_new": "Zapisz zamiast tego jako nowy wig",

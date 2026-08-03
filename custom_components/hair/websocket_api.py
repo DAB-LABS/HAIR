@@ -121,7 +121,6 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_delete)
     websocket_api.async_register_command(hass, ws_wigs_get)
     websocket_api.async_register_command(hass, ws_wigs_update)
-    websocket_api.async_register_command(hass, ws_wigs_export)
     websocket_api.async_register_command(hass, ws_command_listen)
     websocket_api.async_register_command(hass, ws_wigs_save_plan)
     websocket_api.async_register_command(hass, ws_wigs_save)
@@ -3101,93 +3100,6 @@ async def ws_wigs_update(
     )
 
 
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): f"{WS_PREFIX}/wigs/export",
-    vol.Required("source"): vol.In(["catalog", "device"]),
-    vol.Required("source_id"): vol.All(str, vol.Length(max=100)),
-    vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
-    vol.Optional("model"): vol.All(str, vol.Length(max=200)),
-    vol.Optional("notes"): vol.All(str, vol.Length(max=2000)),
-    vol.Optional("kind"): vol.All(str, vol.Length(max=100)),
-    vol.Optional("fcc_id"): vol.All(str, vol.Length(max=200)),
-    vol.Optional("upc"): vol.All(str, vol.Length(max=200)),
-    vol.Optional("asin"): vol.All(str, vol.Length(max=200)),
-    vol.Optional("oem"): vol.All(str, vol.Length(max=200)),
-})
-@websocket_api.async_response
-async def ws_wigs_export(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Save as wig: serialize a catalog remote or a HAIR device into the
-    closet and confirm with the filename. The export dialog's brand ask
-    exists to keep the Unbranded bucket small (wigs.md section 5)."""
-    data = _get_first_entry_data(hass)
-    if data is None:
-        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
-        return
-
-    from .wig_export import build_wig_from_catalog, build_wig_from_device
-
-    if msg["source"] == "catalog":
-        signal_store = data["signal_store"]
-        device = signal_store.get_device(msg["source_id"])
-        if device is None:
-            connection.send_error(
-                msg["id"], "not_found", "Catalog remote not found"
-            )
-            return
-        build = build_wig_from_catalog(device)
-    else:
-        store = data["store"]
-        device = store.get_device(msg["source_id"])
-        if device is None:
-            connection.send_error(
-                msg["id"], "not_found", "HAIR device not found"
-            )
-            return
-        build = build_wig_from_device(device)
-
-    if build.wig is None:
-        connection.send_error(
-            msg["id"], "no_signals",
-            "No exportable signals on that remote",
-        )
-        return
-    for key in ("brand", "model", "notes"):
-        if key in msg and msg[key].strip():
-            setattr(build.wig, key, msg[key].strip())
-    if msg.get("kind", "").strip():
-        from .wig_format import kind_slug
-
-        build.wig.kind = kind_slug(msg["kind"]) or build.wig.kind
-    _apply_identifier_edits(build.wig, msg)
-
-    def _write() -> str | None:
-        from .wig_format import serialize_wig
-        from .wig_store import write_wig_text
-
-        return write_wig_text(
-            hass.config.config_dir,
-            serialize_wig(build.wig),
-            build.wig.name,
-        )
-
-    filename = await hass.async_add_executor_job(_write)
-    if filename is None:
-        connection.send_error(
-            msg["id"], "write_failed", "Could not write the wig file"
-        )
-        return
-    connection.send_result(msg["id"], {
-        "filename": filename,
-        "signal_count": len(build.wig.signals),
-        "skipped": build.skipped,
-    })
-
-
 # ---------------------------------------------------------------------------
 # SAVE TO CLOSET (v0.9.5 Fitting Room): plan, then save
 # ---------------------------------------------------------------------------
@@ -3355,17 +3267,7 @@ async def _do_update(
     attestation: Any | None,
     key: str | None,
 ) -> None:
-    if attestation is None:
-        # An UPDATE with nothing to attest would rewrite the file with
-        # no change in it -- a PR that says nothing. Refused rather than
-        # written, so an empty dialog cannot produce shop noise.
-        connection.send_error(
-            msg["id"], "nothing_to_update",
-            "An update carries a fitting; there is nothing else to write",
-        )
-        return
-
-    def _write() -> dict[str, Any] | None:
+    def _write() -> dict[str, Any] | str:
         from .wig_save import update_text
         from .wig_store import (
             find_wig_by_id,
@@ -3378,29 +3280,104 @@ async def _do_update(
             hass.config.config_dir, device.source_wig_id or ""
         )
         if filename is None:
-            return None
+            return "source_missing"
         text = read_wig_text(hass.config.config_dir, filename)
         wig = load_wig(hass.config.config_dir, filename)
         if text is None or wig is None:
-            return None
-        written = update_text(text, wig, attestation, key)
+            return "source_missing"
+
+        # Metadata edits are a legitimate content PR (plan Section 4:
+        # they ride the PR as reviewed changes), so an update carries
+        # them even with no fitting attached. What hard rule 3 protects
+        # is the SIGNALS block; a brand correction touches none of it.
+        edits = _metadata_edits(wig, msg)
+        if attestation is None and not edits:
+            # NOW the refusal is honest: nothing was attested and
+            # nothing was changed, so writing would produce a shop PR
+            # that says nothing.
+            return "nothing_to_update"
+
+        written = update_text(
+            text, wig, attestation, key,
+            mutate=(lambda w: _apply_metadata(w, edits)) if edits else None,
+        )
         if written is None:
-            return None
+            return "source_missing"
         new_text, result = written
         (wigs_dir(hass.config.config_dir) / filename).write_text(
             new_text, encoding="utf-8"
         )
         result.filename = filename
+        result.notes = [*result.notes, *(
+            [f"metadata: {', '.join(sorted(edits))}"] if edits else []
+        )]
         return result.as_dict()
 
     result = await hass.async_add_executor_job(_write)
-    if result is None:
+    if isinstance(result, str):
         connection.send_error(
-            msg["id"], "source_missing",
-            "The wig this device came from is not in the closet",
+            msg["id"], result,
+            "The wig this device came from is not in the closet"
+            if result == "source_missing"
+            else "Nothing to write: no fitting, and no metadata changed",
         )
         return
     connection.send_result(msg["id"], result)
+
+
+#: Metadata the save dialog may edit on an UPDATE. Identifiers ride
+#: separately through _apply_identifier_edits, which owns the
+#: comma-to-list parsing every other surface already uses.
+_META_FIELDS = ("name", "brand", "model", "notes", "kind")
+_IDENT_FIELDS = _WS_IDENTIFIER_KEYS
+
+
+def _metadata_edits(wig: Any, msg: dict[str, Any]) -> dict[str, str]:
+    """Which submitted metadata fields DIFFER from what the wig says.
+
+    Compared rather than assumed, because the dialog prefills from the
+    wig and sends every field back. Treating "present" as "changed"
+    would make an untouched dialog claim a metadata change, and the one
+    thing an attestation PR must not look like is a content change.
+    """
+    edits: dict[str, str] = {}
+    for key in _META_FIELDS:
+        if key not in msg:
+            continue
+        value = msg[key].strip()
+        current = getattr(wig, key, None) or ""
+        if key == "name" and not value:
+            # A wig with no name is not a thing the format allows, so a
+            # cleared box means "leave it", not "erase it".
+            continue
+        if value != current:
+            edits[key] = value
+    identifiers = wig.identifiers or {}
+    for key in _IDENT_FIELDS:
+        if key not in msg:
+            continue
+        value = msg[key].strip()
+        current = identifiers.get(key)
+        current = ", ".join(current) if isinstance(current, list) else (
+            current or ""
+        )
+        if value != current:
+            edits[key] = value
+    return edits
+
+
+def _apply_metadata(wig: Any, edits: dict[str, str]) -> None:
+    for key in _META_FIELDS:
+        if key not in edits:
+            continue
+        if key == "kind":
+            from .wig_format import kind_slug
+
+            wig.kind = kind_slug(edits[key]) or None
+        else:
+            setattr(wig, key, edits[key] or None)
+    if any(key in edits for key in _IDENT_FIELDS):
+        _apply_identifier_edits(wig, edits)
 
 
 async def _do_create(

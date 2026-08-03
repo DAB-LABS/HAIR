@@ -1,15 +1,16 @@
-"""Save as wig: serialize catalog remotes and HAIR devices into wigs.
+"""Save as wig: serialize a HAIR device's command set into a wig.
 
-Export scope (owner rulings, wigs.md sections 7 and 13): catalog remotes
-from all three acquisition roads (sniffed, clipped, plucked) AND HAIR
-device command sets (ruled into v1 on 2026-07-20). The wig gets an
-``origin`` stamp describing which road produced it, driving the editor
-popover's plain-English origin sentence:
+Export scope narrowed to DEVICES ONLY (owner ruling 2026-08-03).
+Sniffer, Clipper and Plucker remotes no longer export directly; they
+go through Make Device first, so a wig is always born from something
+somebody could actually press. That is what makes an attestation
+possible at birth: a catalog remote has no emitter routing, so nobody
+could have tested the codes they were about to vouch for.
 
-- ``captured`` -- exported from signals sniffed off real hardware
-- ``clipped`` -- assembled in the Clipper (pasted or library codes)
-- ``plucked`` -- vendor codes extracted live through the Plucker
-- ``device`` -- a HAIR device's command set
+The wig keeps its ``origin`` stamp, which now always reads ``device``
+for a fresh export. The other three values (``captured``, ``clipped``,
+``plucked``) still arrive on wigs written by earlier versions and by
+other tools, and the editor popover still explains them.
 
 Raw Pronto is the payload. Signals that carry a Pronto code ship it
 verbatim; raw-timing-only signals convert through ``raw_to_pronto``;
@@ -21,7 +22,7 @@ from dataclasses import dataclass, field
 
 from .const import MAX_DITTO_COUNT
 from .ir_command import raw_to_pronto
-from .models import IRDevice, UnknownDevice
+from .models import IRDevice
 from .wig_format import Wig, WigSignal
 
 # Device-type to wig kind, unambiguous mappings only. media_player
@@ -33,13 +34,6 @@ _KIND_BY_DEVICE_TYPE = {
     "light": "light",
     "screen": "screen",
 }
-
-_ORIGIN_BY_SOURCE = {
-    "sniffed": "captured",
-    "manual": "clipped",
-    "plucked": "plucked",
-}
-
 
 @dataclass
 class WigBuild:
@@ -104,54 +98,6 @@ def _ditto_for_export(
         )
     return (0 if bypass else value), None
 
-
-def build_wig_from_catalog(device: UnknownDevice) -> WigBuild:
-    """Serialize a catalog remote's signals into a wig."""
-    signals: list[WigSignal] = []
-    sources: list[str] = []
-    notes: list[str] = []
-    skipped = 0
-    for i, sig in enumerate(device.signals, start=1):
-        pronto = _pronto_for(
-            sig.protocol, sig.code, sig.raw_timings, sig.frequency
-        )
-        if pronto is None:
-            skipped += 1
-            continue
-        alias = (
-            sig.alias.strip()
-            or (sig.plucked_command_name or "").strip()
-            or (sig.decoded_fingerprint or "").strip()
-            or f"Signal {i}"
-        )
-        # The raw pin travels from the catalog too. Without this a
-        # Clipper remote exported as a wig arrived with the pin dropped,
-        # which is exactly the failure the pin was added to prevent --
-        # and the release notes already promise it rides "from the
-        # Sniffer or Clipper where you first meet the problem, through
-        # assigning, exporting, sharing and adopting".
-        bypass = bool(getattr(sig, "tx_force_raw", False))
-        ditto, note = _ditto_for_export(alias, sig.repeat_count, bypass)
-        if note:
-            notes.append(note)
-        signals.append(WigSignal(
-            alias=alias, pronto=pronto, send_count=sig.send_count,
-            ditto_count=ditto, bypass_protocol=bypass,
-        ))
-        sources.append(sig.id)
-    if not signals:
-        return WigBuild(None, skipped, sources, notes)
-    return WigBuild(
-        Wig(
-            name=(device.label or "Exported Remote").strip()
-            or "Exported Remote",
-            signals=signals,
-            origin=_ORIGIN_BY_SOURCE.get(device.source),
-        ),
-        skipped,
-        sources,
-        notes,
-    )
 
 
 def build_wig_from_device(device: IRDevice) -> WigBuild:

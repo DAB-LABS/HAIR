@@ -2,10 +2,14 @@
  * Save to Closet: one dialog, two verbs.
  *
  * Started life as the small metadata ask shared by every export surface
- * (v0.7.0 Big Wig). It still is that for catalog remotes. From v0.9.5
- * it is also where FITTING happens, because fitting stopped being a
- * ceremony in the closet and became what it physically is: living with
- * a device that works, and then saying so once, with your name on it.
+ * (v0.7.0 Big Wig). From v0.9.5 it belongs to DEVICES ALONE and it is
+ * where fitting happens, because fitting stopped being a ceremony in
+ * the closet and became what it physically is: living with a device
+ * that works, and then saying so once, with your name on it.
+ *
+ * Sniffer, Clipper and Plucker no longer save wigs directly. Everything
+ * goes through Make Device first (owner ruling 2026-08-03), so a wig is
+ * always born from something somebody could actually press.
  *
  * Two variants, chosen by the backend's plan, not by this dialog:
  *
@@ -40,7 +44,6 @@ type Verdict = "worked" | "not_on_device" | "wont_work";
 @customElement("ir-save-wig-dialog")
 export class IrSaveWigDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
-    @property() public source: "catalog" | "device" = "catalog";
     @property() public sourceId = "";
     @property() public sourceName = "";
     /** True when the device has at least one emitter. TEST needs one. */
@@ -80,10 +83,6 @@ export class IrSaveWigDialog extends LitElement {
     /** UPDATE only: the footer escape hatch, behind a confirm. */
     @state() private _saveAsNew = false;
     @state() private _confirmNew = false;
-
-    private get _isDevice(): boolean {
-        return this.source === "device";
-    }
 
     private get _isUpdate(): boolean {
         return this._plan?.variant === "update" && !this._saveAsNew;
@@ -125,14 +124,61 @@ export class IrSaveWigDialog extends LitElement {
         return rows.length > 0 && this._checkedCount === rows.length;
     }
 
+    /** Metadata the person actually changed, against what the plan
+     * prefilled. Compared rather than assumed: the dialog fills every
+     * field from the wig and sends them all back, so treating "filled"
+     * as "changed" would make an untouched dialog claim an edit. */
+    private get _metaDirty(): boolean {
+        const before = this._plan?.metadata ?? {};
+        const pairs: [string, string][] = [
+            ["name", this._name],
+            ["brand", this._brand],
+            ["model", this._model],
+            ["notes", this._notes],
+            ["fcc_id", this._fccId],
+            ["upc", this._upc],
+            ["asin", this._asin],
+            ["oem", this._oem],
+        ];
+        return pairs.some(
+            ([key, value]) => value.trim() !== (before[key] ?? "").trim(),
+        );
+    }
+
+    private get _signed(): boolean {
+        return this._perfect && this._oath;
+    }
+
     private get _canSave(): boolean {
         if (this._busy) return false;
-        // An UPDATE carries a fitting and nothing else. Without the
-        // oath there is nothing to write, so the button says so instead
-        // of producing a shop PR that says nothing.
-        if (this._isUpdate && !(this._perfect && this._oath)) return false;
+        // An attestation is not signed until the oath is ticked, in
+        // either verb. Hard rule 4: prefill fills fields, it never
+        // pre-checks the oath, and nothing signs without it.
         if (this._perfect && !this._oath) return false;
+        // An UPDATE writes a fitting, edited metadata, or both. With
+        // neither there is nothing to write, so it refuses rather than
+        // producing a shop PR that says nothing. A CREATE always has
+        // something to write: the whole wig.
+        if (this._isUpdate && !this._signed && !this._metaDirty) {
+            return false;
+        }
         return true;
+    }
+
+    /** Why the save button is gray, in the person's terms. Null when it
+     * is not. This lives in the footer rather than a title tooltip
+     * because browsers do not show tooltips on disabled buttons -- which
+     * is exactly how this read as "you cannot update at all" on the
+     * bench (owner report 2026-08-03). */
+    private get _blockedReason(): string | null {
+        if (this._canSave || this._busy) return null;
+        if (this._perfect && !this._oath) return t("wigs.save.needs_oath");
+        if (this._isUpdate) {
+            return t("wigs.save.needs_something", {
+                name: this._plan?.source_wig_name ?? "",
+            });
+        }
+        return null;
     }
 
     private get _saveLabel(): string {
@@ -144,7 +190,6 @@ export class IrSaveWigDialog extends LitElement {
     }
 
     async firstUpdated(): Promise<void> {
-        if (!this._isDevice) return;
         this._loading = true;
         try {
             const plan = await this.api.wigsSavePlan(this.sourceId);
@@ -263,9 +308,7 @@ export class IrSaveWigDialog extends LitElement {
         this._busy = true;
         this._error = null;
         try {
-            const result = this._isDevice
-                ? await this._saveDevice()
-                : await this._saveCatalog();
+            const result = await this._saveDevice();
             this.dispatchEvent(
                 new CustomEvent("wig-saved", {
                     detail: result,
@@ -317,16 +360,6 @@ export class IrSaveWigDialog extends LitElement {
             ...this._metadata(),
             ...(attest ? { attest } : {}),
         });
-    }
-
-    private async _saveCatalog(): Promise<SaveResult> {
-        const extras = this._metadata();
-        delete extras.name;
-        return this.api.wigsExport(
-            this.source,
-            this.sourceId,
-            extras,
-        ) as unknown as Promise<SaveResult>;
     }
 
     // --- Rendering -----------------------------------------------------
@@ -429,8 +462,7 @@ export class IrSaveWigDialog extends LitElement {
 
     private _renderMetadata() {
         return html`
-            ${this._isDevice
-                ? html`<div class="field">
+            ${html`<div class="field">
                       <label>${t("common.name")}</label>
                       <input
                           type="text"
@@ -440,8 +472,7 @@ export class IrSaveWigDialog extends LitElement {
                                   e.target as HTMLInputElement
                               ).value)}
                       />
-                  </div>`
-                : ""}
+                  </div>`}
             <div class="pair-grid">
                 ${this._textField(
                     t("wigs.editor.brand"),
@@ -502,11 +533,22 @@ export class IrSaveWigDialog extends LitElement {
     }
 
     private _renderFitting() {
-        if (!this._isDevice) return nothing;
         if (this._loading) {
             return html`<div class="ident-hint">${t("common.loading_plain")}</div>`;
         }
         if (!this._plan) return nothing;
+        // A matrix device's lattice lives in the climate entity, not in
+        // the command list, so the rows here are only its depth-0
+        // extras. Offering the perfect-fit block over them would let
+        // somebody attest a fraction of the device and call it whole,
+        // which is worse than not offering it at all.
+        if (this._plan.matrix) {
+            return html`<div class="fit-block">
+                <div class="fit-explainer">
+                    ${t("wigs.save.matrix_pending")}
+                </div>
+            </div>`;
+        }
         return html`
             <div class="fit-block">
                 <label class="fit-check">
@@ -665,20 +707,13 @@ export class IrSaveWigDialog extends LitElement {
     }
 
     private _renderActions() {
+        const blocked = this._blockedReason;
         return html`
+            ${blocked
+                ? html`<div class="blocked">${blocked}</div>`
+                : ""}
             <div class="dialog-actions">
-                ${this._plan?.variant === "update"
-                    ? html`<button
-                          class="link-btn"
-                          @click=${() => {
-                              this._saveAsNew = !this._saveAsNew;
-                          }}
-                      >
-                          ${this._saveAsNew
-                              ? t("wigs.save.back_to_update")
-                              : t("wigs.save.save_as_new")}
-                      </button>`
-                    : html`<span class="spacer"></span>`}
+                <span class="spacer"></span>
                 <button
                     class="action-btn cancel-btn"
                     @click=${this._close}
@@ -686,11 +721,26 @@ export class IrSaveWigDialog extends LitElement {
                 >
                     ${t("common.cancel")}
                 </button>
+                ${this._plan?.variant === "update"
+                    ? html`<button
+                          class="action-btn ${this._saveAsNew ? "on" : ""}"
+                          @click=${() => {
+                              this._saveAsNew = !this._saveAsNew;
+                          }}
+                          ?disabled=${this._busy}
+                      >
+                          ${this._saveAsNew
+                              ? t("wigs.save.back_to_update")
+                              : t("wigs.save.save_as_new")}
+                      </button>`
+                    : ""}
                 <button
-                    class="action-btn save-wig-btn"
+                    class="action-btn save-wig-btn ${this._isPerfectFit &&
+                    this._signed
+                        ? "perfect"
+                        : ""}"
                     @click=${this._save}
                     ?disabled=${!this._canSave}
-                    title=${this._canSave ? "" : t("wigs.save.needs_oath")}
                 >
                     ${this._saveLabel}
                 </button>
@@ -832,18 +882,40 @@ export class IrSaveWigDialog extends LitElement {
                 align-items: flex-start;
                 line-height: 1.4;
             }
-            .link-btn {
-                background: none;
-                border: none;
-                color: var(--secondary-text-color);
-                font-size: 12px;
-                text-decoration: underline;
+            /* GREEN IS THE HOUSE COLOUR FOR "this one is good"
+               (owner ruling 2026-08-03), so every check in the
+               attestation list wears it and so does the button that
+               ships a complete one. Fitted-but-partial stays oxblood:
+               the colour is the difference between the two outcomes,
+               and painting both green would spend it. */
+            input[type="checkbox"] {
+                accent-color: #4f9e5a;
+                width: 15px;
+                height: 15px;
                 cursor: pointer;
-                margin-right: auto;
-                padding: 0;
             }
-            .link-btn:hover {
-                color: var(--primary-text-color);
+            .save-wig-btn.perfect {
+                background: #3f8a4b;
+                border-color: #3f8a4b;
+            }
+            /* The save-as-new escape hatch. A real button, not an
+               underlined link: it is one of the two things you can do
+               here, and the footer is where doing things lives. It
+               stays outline-only so the primary is unambiguous. */
+            .action-btn.on {
+                border-color: #8e3b3b;
+                color: #fff;
+                background: rgba(142, 59, 59, 0.35);
+            }
+            /* Why the primary is gray, said out loud. A title tooltip
+               was invisible here, because browsers do not show tooltips
+               on disabled buttons -- which read as "you cannot update at
+               all" on the bench. */
+            .blocked {
+                font-size: 11.5px;
+                color: #d9a441;
+                line-height: 1.45;
+                margin: 10px 0 -2px;
             }
         `,
     ];

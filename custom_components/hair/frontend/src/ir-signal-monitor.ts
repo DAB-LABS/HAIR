@@ -14,7 +14,6 @@ import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-save-wig-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
@@ -113,7 +112,6 @@ export class IrSignalMonitor extends LitElement {
     @state() private _devices: UnknownDeviceSummary[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
     @state() private _deleteRemote: UnknownDeviceSummary | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
@@ -1315,15 +1313,6 @@ export class IrSignalMonitor extends LitElement {
                       @closed=${() => (this._deleteRemote = null)}
                   ></ir-confirm-dialog>`
                 : ""}
-            ${this._saveWigDevice
-                ? html`<ir-save-wig-dialog
-                      .api=${this.api}
-                      source="catalog"
-                      sourceId=${this._saveWigDevice.id}
-                      sourceName=${this._saveWigDevice.label ?? ""}
-                      @closed=${() => (this._saveWigDevice = null)}
-                  ></ir-save-wig-dialog>`
-                : ""}
 
             ${this._deleteSignal
                 ? html`
@@ -1527,14 +1516,7 @@ export class IrSignalMonitor extends LitElement {
                           >${t("wigs.adopt")}<ir-count-dot
                                   color="green"
                                   .count=${d.linked_devices?.length ?? 0}
-                              ></ir-count-dot></button>
-                          <button
-                              class="action-btn save-wig-btn"
-                              @click=${(e: Event) => {
-                                  e.stopPropagation();
-                                  this._saveWigDevice = d;
-                              }}
-                          >${t("wigs.save_as_wig")}</button>`}
+                              ></ir-count-dot></button>`}
                     ${d.dismissed
                         ? html`<button
                               class="action-btn device-dismiss-btn"

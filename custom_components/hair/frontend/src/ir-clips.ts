@@ -18,7 +18,6 @@ import Sortable from "sortablejs";
 import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-save-wig-dialog.js";
 import "./ir-create-remote-dialog.js";
 import "./ir-promote-dialog.js";
 import "./ir-signal-alias.js";
@@ -81,7 +80,6 @@ export class IrClips extends LitElement {
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
-    @state() private _saveWigDevice: UnknownDeviceSummary | null = null;
     @state() private _wigDragOver = false;
     @state() private _error: string | null = null;
     @state() private _expandedId: string | null = null;
@@ -1112,13 +1110,6 @@ export class IrClips extends LitElement {
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
                     <button
-                        class="action-btn save-wig-btn"
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._saveWigDevice = d;
-                        }}
-                    >${t("wigs.save_as_wig")}</button>
-                    <button
                         class="action-btn delete-btn"
                         title=${t("clips.delete_remote_title")}
                         @click=${(e: Event) => {
@@ -1295,15 +1286,6 @@ export class IrClips extends LitElement {
     private _renderDialogs() {
         return html`
             ${this._renderLinkedPopover()}
-            ${this._saveWigDevice
-                ? html`<ir-save-wig-dialog
-                      .api=${this.api}
-                      source="catalog"
-                      sourceId=${this._saveWigDevice.id}
-                      sourceName=${this._saveWigDevice.label ?? ""}
-                      @closed=${() => (this._saveWigDevice = null)}
-                  ></ir-save-wig-dialog>`
-                : ""}
             ${this._createRemoteOpen
                 ? html`<ir-create-remote-dialog
                       .api=${this.api}

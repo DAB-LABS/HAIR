@@ -395,6 +395,10 @@ export interface SavePlan {
     metadata: Record<string, string>;
     skipped: number;
     notes: string[];
+    /** A climate matrix device. Its lattice lives in the climate
+     * entity, not the command list, so the rows above are only its
+     * depth-0 extras and the perfect-fit block stays closed. */
+    matrix: boolean;
 }
 
 export interface SaveResult {

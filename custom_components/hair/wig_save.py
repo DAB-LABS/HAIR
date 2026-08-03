@@ -105,6 +105,11 @@ class SavePlan:
     metadata: dict[str, Any] = field(default_factory=dict)
     skipped: int = 0
     notes: list[str] = field(default_factory=list)
+    #: This device is a climate matrix. Its lattice lives in the climate
+    #: entity, not in the command list, so the flat rows below are only
+    #: its depth-0 extras -- attesting them would claim a fraction of
+    #: the device and call it whole. The dialog says so instead.
+    matrix: bool = False
     #: Set when the device remembers a wig the closet no longer holds.
     #: The save falls back to CREATE, and says so rather than pretending
     #: the source never existed.
@@ -145,6 +150,7 @@ class SavePlan:
             "metadata": dict(self.metadata),
             "skipped": self.skipped,
             "notes": list(self.notes),
+            "matrix": self.matrix,
         }
 
 
@@ -213,10 +219,12 @@ def build_save_plan(
     set. Refusing instead would strand a working device with no way to
     save; pretending it was always new would hide that the link broke.
     """
+    matrix = bool(getattr(device, "climate_matrix", False))
     build = build_wig_from_device(device)
     if build.wig is None:
         return SavePlan(
-            variant=VARIANT_CREATE, skipped=build.skipped, notes=build.notes
+            variant=VARIANT_CREATE, skipped=build.skipped,
+            notes=build.notes, matrix=matrix,
         )
 
     rows = [
@@ -241,6 +249,7 @@ def build_save_plan(
             skipped=build.skipped,
             notes=build.notes,
             source_missing=bool(device.source_wig_id),
+            matrix=matrix,
         )
 
     match = match_device_to_wig(
@@ -269,6 +278,7 @@ def build_save_plan(
         metadata=_wig_metadata(source_wig),
         skipped=build.skipped,
         notes=build.notes,
+        matrix=matrix,
     )
 
 
@@ -396,10 +406,19 @@ def create_text(
 def update_text(
     original_text: str,
     source_wig: Wig,
-    attestation: Attestation,
+    attestation: Attestation | None = None,
     private_key_b64: str | None = None,
+    mutate: Any | None = None,
 ) -> tuple[str, SaveResult] | None:
-    """UPDATE: append the bundle, touch nothing else (hard rule 3).
+    """UPDATE: append the bundle, touch no CONTENT (hard rule 3).
+
+    ``attestation`` may be None: a metadata-only update is a legitimate
+    content PR, not an attestation, and the plan already rules that
+    metadata edits ride the PR as reviewed changes. What hard rule 3
+    protects is the SIGNALS block -- the codes, their order, their
+    aliases, their send counts -- so a brand correction is free to land
+    while an attestation PR still reads at a glance as one person
+    vouching for rows nobody rewrote.
 
     The aliases carried into the claims are the WIG's, not the device's.
     A claim's ``alias_at_claim`` is meant to read as "the row the wig
@@ -412,8 +431,9 @@ def update_text(
     and a later reader would conclude the rename happened after the
     claim, which is the one thing alias_at_claim exists to tell them.
     """
+    renames = attestation.renames if attestation else []
     proposed = {
-        (p.digest, p.alias_at_claim): p.alias for p in attestation.renames
+        (p.digest, p.alias_at_claim): p.alias for p in renames
     }
     # Keyed by digest alone, which collapses rows that share one. That
     # is right here: claims are themselves keyed by digest, so such rows
@@ -424,12 +444,17 @@ def update_text(
         )
         for s in source_wig.signals
     }
-    bundle = build_bundle(source_wig.wig_id or "", aliases, attestation)
+    bundle = (
+        build_bundle(source_wig.wig_id or "", aliases, attestation)
+        if attestation is not None
+        else None
+    )
     written = update_wig_with_claims(
         original_text,
         bundle,
         private_key_b64,
-        attestation.renames or None,
+        renames or None,
+        mutate,
     )
     if written is None:
         return None
@@ -437,7 +462,7 @@ def update_text(
     return text, SaveResult(
         wig_id=source_wig.wig_id,
         signal_count=len(source_wig.signals),
-        attested=len(bundle.rows),
+        attested=len(bundle.rows) if bundle else 0,
         variant=VARIANT_UPDATE,
         stale_renames=[p.alias_at_claim for p in outcome.stale],
     )

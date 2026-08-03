@@ -24,6 +24,7 @@ what makes "suggest the rename" a plain PR rather than new machinery.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -197,13 +198,22 @@ def signals_block(text: str) -> str:
 
 def update_wig_with_claims(
     original_text: str,
-    bundle: ClaimsBundle,
+    bundle: ClaimsBundle | None,
     private_key_b64: str | None = None,
     renames: list[RenameProposal] | None = None,
-) -> tuple[str, dict[str, Any], RenameOutcome] | None:
+    mutate: Callable[[Wig], None] | None = None,
+) -> tuple[str, dict[str, Any] | None, RenameOutcome] | None:
     """Append claims to an existing wig's text.
 
-    Returns ``(text, entry, rename_outcome)``.
+    Returns ``(text, entry, rename_outcome)``. ``entry`` is None when
+    there was no bundle to append -- a metadata-only update, which is a
+    legitimate content PR rather than an attestation.
+
+    ``mutate`` runs against the parsed wig before serialization and is
+    how metadata edits reach the file. It is deliberately a callback:
+    identifier parsing (commas to the format's list form) lives in the
+    websocket layer beside every other surface that does it, and
+    duplicating it here is how the two would drift.
 
     Parses, appends, reserializes. None when the text will not parse.
 
@@ -223,7 +233,13 @@ def update_wig_with_claims(
         if renames
         else RenameOutcome()
     )
-    entry = append_claims(wig, bundle, private_key_b64)
+    if mutate is not None:
+        mutate(wig)
+    entry = (
+        append_claims(wig, bundle, private_key_b64)
+        if bundle is not None
+        else None
+    )
     # The outcome rides back so the save result can report a rename
     # that did not land. A stale proposal writing nothing is correct;
     # reporting it as plain success would not be.

@@ -529,6 +529,8 @@
     "wigs.save.your_github": "Identifiant GitHub",
     "wigs.save.oath": "J'atteste que chaque signal coche fonctionne sur mon appareil tel qu'il est ecrit.",
     "wigs.save.needs_oath": "Cochez l'attestation pour signer cet ajustement.",
+    "wigs.save.needs_something": "Rien a ecrire pour l'instant. Cochez Marquer comme ajustement parfait et signez pour ajouter votre ajustement a {name}, ou modifiez un champ de metadonnees ci-dessus. Une mise a jour complete le wig ; elle ne reecrit jamais ses codes.",
+    "wigs.save.matrix_pending": "Ceci est un appareil a matrice d'etats. Sa grille vit dans l'entite climat plutot que dans la liste de commandes, donc l'ajustement n'est pas encore construit et les codes ici ne sont que ses boutons supplementaires. L'enregistrement fonctionne toujours.",
     "wigs.save.save_perfect": "Enregistrer l'ajustement parfait",
     "wigs.save.save_fitted": "Enregistrer le wig ajuste",
     "wigs.save.save_as_new": "Enregistrer plutot comme nouveau wig",
