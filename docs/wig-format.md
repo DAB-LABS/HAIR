@@ -216,44 +216,11 @@ The closet's check has three tiers, computed the same way:
 
 Old whole-file fittings are **dropped on import**, with a notice saying how many went. They cannot be converted: a `content_hash` records that some bytes were proved, not which rows, so there is no honest way to turn one into per-row claims. Re-fitting takes a few minutes; a fabricated claim lasts forever.
 
-## Replace: provenance and carry
+## Retired conventions
 
-Added in HAIR 0.9.1. When a fitter replaces a code from the fitting session -- pasting a Pronto, or capturing one from the real remote -- HAIR records two things. Both are **optional conventions riding in `extra` maps, outside every canonical hash**, so a reader that does not know them carries them through unchanged and neither one can move a wig's identity.
+HAIR 0.9.1 wrote three bookkeeping conventions into `extra` maps during fitting-session repairs: a `provenance` marker recording where a replaced code came from, a `replaced_from` record keeping the code a row used to hold, and a `carry` map seeding the next fitting session's verdicts. All three served the whole-file attestation model and were retired with it in 0.9.5 -- nothing writes them any more, and nothing reads them.
 
-**The provenance marker** says where a code came from, on the thing that changed:
-
-```json
-{"alias": "Power On", "pronto": "0000 ...", "provenance": {"replaced": "captured", "date": "2026-07-31"}}
-```
-
-- It rides the **signal** object on a signal wig and the **cell** object on a matrix wig. The two matrix power codes are not cells, so their markers ride the climate block instead, under `provenance_power` keyed by `on` and `off`.
-- `replaced` is `captured` (off real hardware, through a receiver) or `pasted` (user-supplied bytes, unverified until fitted). A later release adds `rule-derived` for regenerated codes.
-- A repeat replace overwrites the marker; latest wins, and the marker never leaves the file once present.
-- A marker always implies the wig's hash rolled, because replacing a code with the identical code is refused rather than stamped. On a matrix wig, HAIR appends every marked cell the dimension checklist does not already cover to the fitting session as a **changed codes** row, so the human proves exactly what was touched; that is only safe while the implication holds.
-
-**The replaced-from record** keeps the code the row used to hold, so a repair can be undone:
-
-```json
-"replaced_from": {
-    "Power On": {"pronto": "0000 ...", "provenance": null, "by": "dab", "to": "0000 ...", "session": false}
-}
-```
-
-- One entry per replaced row, keyed by fitting row key. `pronto` and `provenance` are what the row held **before the first replace**, and later replaces never overwrite them, so putting a row back always means the code the wig came with rather than whatever a previous repair attempt left behind.
-- `to` is the code the most recent replace wrote. A put-back only proceeds while the row still holds it; anything else means the file was edited outside this machinery and the record no longer describes it.
-- `by` and `session` mark whose current session the replace belongs to. Discarding a session puts back only that user's rows; signing sets `session` to false, which closes them to a later discard without removing the record.
-- The record is **not** removed at signing, so a repair that was proved and later turned out wrong can still be undone. Putting a row back rolls the hash to what it was, which correctly marks any fitting that attested the replaced code as outdated. The entry is dropped when the row goes back, because a row holding its original code has nothing left to return to.
-- On the share paths the codes travel and the session bookkeeping does not: `by` and `session` are dropped, so a recipient can still put a row back but nobody's in-progress session follows the file to another install.
-
-**The carry map** lets the next session keep the verdicts that are still true:
-
-```json
-"carry": {"sha256:<superseded hash>": {"Power On": "9f2c1a...", "Power Off": "40b7de..."}}
-```
-
-- One entry per superseded content hash, taken at the moment that hash was replaced away from. Each value maps a fitting row key to a truncated SHA-256 of that row's normalized Pronto, so byte-identity is provable without storing the codes twice.
-- A new session seeds its verdicts from the fitter's last fitting for every row whose key and code digest both still match. Rows whose code changed, and rows whose key changed, come back untested. Without a carry entry nothing is seeded: matching on the key alone would carry a verdict onto bytes it never attested.
-- Entries no fitting references are pruned on the next replace, and the share paths drop any whose fitting was stripped: a snapshot exists to seed a session against an attestation, so it never travels without one.
+A file written by 0.9.1 may still carry them. They were always outside every canonical form, so they cannot move a wig's identity; a reader treats them like any other unknown `extra` data and passes them through unchanged.
 
 ## The comb receipt
 
