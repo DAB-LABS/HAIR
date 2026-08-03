@@ -198,23 +198,33 @@ class TestReadOnlyChipsDoNotInviteClicks:
 
 class TestCombKeysAbutTheirDiagnosis:
     """A fixed 200px key column left a name and the sentence explaining
-    it on opposite sides of a gutter."""
+    it on opposite sides of a gutter (owner bench 2026-08-02).
 
-    def test_the_grid_moved_to_the_list(self):
-        text = _read("ir-comb-report.ts")
-        assert "grid-template-columns: max-content" in text
-        block = text.split(".find {\n                display: contents;", 1)
-        assert len(block) == 2, "the finding rows must join the list grid"
+    The two-column grid that replaced it is itself gone now: a class
+    opens into findings GROUPED BY DIAGNOSIS, so the sentence is a
+    heading printed once and the keys are chips beneath it. There is no
+    gutter left to be ragged, which is the strongest form of the fix.
+    The invariant survives its mechanism: a coordinate and the words
+    about it are never separated by dead space.
+    """
 
     def test_the_fixed_column_is_gone(self):
         text = _read("ir-comb-report.ts")
         assert "grid-template-columns: 200px 1fr" not in text
+        assert "grid-template-columns: max-content" not in text
 
-    def test_show_all_spans_both_tracks(self):
-        """A grid child with no span lands in the key column."""
+    def test_the_diagnosis_is_a_heading_over_its_own_keys(self):
         text = _read("ir-comb-report.ts")
-        block = text.split("\n            .more {", 1)[1].split("}", 1)[0]
-        assert "grid-column: 1 / -1" in block
+        assert ".dh {" in text and ".keys {" in text
+        # The heading owns the sentence; the chips sit under it.
+        assert 'class="dh"' in text and 'class="keys"' in text
+
+    def test_the_chips_wrap_rather_than_column(self):
+        """Ninety coordinates in a fixed column is the wall this whole
+        pass exists to remove."""
+        block = _read("ir-comb-report.ts").split("\n            .keys {", 1)[1]
+        block = block.split("}", 1)[0]
+        assert "flex-wrap: wrap" in block
 
 
 class TestCombOpensOnArrival:
@@ -857,3 +867,203 @@ class TestTheMetadataRowIsTwoColumns:
         text = _read("ir-emitter-picker.ts")
         assert 'new CustomEvent("emitters-changed"' in text
         assert "_onAdd" not in text and "_onRemove" not in text
+
+
+class TestTheCombReportLeadsWithConsequence:
+    """It used to group by check class and give every class an identical
+    card, which is the backend's ordering rendered faithfully and made a
+    wig with nine cosmetic artefacts look exactly as alarming as one
+    carrying a code that answers a press and sets the wrong state. The
+    ranking existed; it was not visible in the first two seconds, which
+    is the only part most people read.
+    """
+
+    def test_every_suspect_class_has_a_bucket(self):
+        """A class with no bucket renders NOWHERE AT ALL, so a check
+        added server-side must fail here until the frontend places it.
+        That is the point of reading the backend's own tuple."""
+        from custom_components.hair.wig_comb import (
+            ADVISORY_CHECKS,
+            SEVERITY_ORDER,
+        )
+
+        block = _read("ir-comb-report.ts").split("const CONSEQUENCE", 1)[1]
+        block = block.split("};", 1)[0]
+        for check in SEVERITY_ORDER:
+            if check in ADVISORY_CHECKS:
+                continue
+            assert check in block, check
+
+    def test_the_buckets_are_worst_first(self):
+        text = _read("ir-comb-report.ts")
+        assert 'BUCKETS = ["wrong", "ignored", "cosmetic"]' in text
+
+    def test_an_empty_bucket_is_omitted_not_shown_at_zero(self):
+        """A card reading "0 will do the wrong thing" is reassurance
+        wearing the costume of a warning."""
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert "if (classes.length) out.push([bucket, classes]);" in text
+
+    def test_the_tally_carries_a_denominator(self):
+        """48 findings is catastrophic on a seven-button remote and
+        unremarkable on a 288-cell lattice, and it is the same 48."""
+        text = _read("ir-comb-report.ts")
+        assert "comb.tally" in text
+        assert "private get _total()" in text
+
+    def test_the_tally_is_what_the_buckets_add_up_to(self):
+        """It is deliberately NOT report.suspects. duplicate-labels is
+        advisory server-side so it never counts as a suspect, a correct
+        call, but it still earns a cosmetic bucket here. A report that
+        lists a finding and leaves it out of its own total is arguing
+        with itself in front of the reader."""
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert "const total = this._flagged(buckets);" in text
+        assert "this._report.suspects" not in text
+
+    def test_the_classes_inside_a_bucket_still_use_the_backend_order(self):
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert "SEVERITY_ORDER.filter(" in text
+
+
+class TestTheCombReportOpensOnAChevron:
+    """Today every group gets a Show all whether it has three findings
+    or twenty-two, and opening one closes nothing but reveals the same
+    sentence printed nineteen times."""
+
+    def test_a_single_finding_gets_no_chevron(self):
+        """Its summary line already IS the finding. There is nothing
+        behind the chevron to show."""
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert "const openable = findings.length > 1;" in text
+
+    def test_several_classes_can_be_open_at_once(self):
+        """Comparing frame shape against malformed frame should not
+        mean shutting one of them."""
+        text = _read("ir-comb-report.ts")
+        assert "_expanded = new Set<string>()" in text
+
+    def test_the_whole_row_is_the_target(self):
+        """Not a 16px chevron beside 500px of text that looks just as
+        pressable."""
+        text = _read("ir-comb-report.ts")
+        assert ".srow.can {" in text
+        assert "cursor: pointer" in text.split(".srow.can {", 1)[1]
+
+    def test_the_retired_preview_keys_are_gone(self):
+        text = _read("ir-comb-report.ts")
+        assert "comb.show_all" not in text
+        assert "comb.showing" not in text
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_no_locale_still_carries_them(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "comb.show_all" not in data
+        assert "comb.showing" not in data
+
+
+class TestFindingsGroupByDiagnosis:
+    """Frame shape on the Samsung has twenty-two findings and two facts
+    in it: nineteen codes send one burst pair too many, three send two
+    too many. Printing the same sentence nineteen times was never
+    nineteen facts.
+    """
+
+    def test_the_key_is_an_array_not_a_concatenation(self):
+        """Joining the message key and the params with a separator
+        means picking a character that cannot appear in either, and
+        getting that wrong silently merges two different facts."""
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert "JSON.stringify([f.message, sorted])" in text
+
+    def test_param_keys_are_sorted(self):
+        """JSON.stringify follows insertion order, and two findings
+        carrying the same params in a different order are the same
+        fact."""
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert "Object.keys(params) .sort()" in text or (
+            "Object.keys(params).sort()" in text
+        )
+
+    def test_row_identity_never_rides_in_params(self):
+        """The whole merge depends on it: identity lives in Finding.keys
+        and params carries only the diagnostic substitutions. If a check
+        ever puts a row key in params, every finding becomes its own
+        group and this degrades silently rather than loudly."""
+        src = (
+            Path(__file__).parent.parent / "wig_comb.py"
+        ).read_text(encoding="utf-8")
+        for line in src.splitlines():
+            if "params={" in line or "params = {" in line:
+                assert "keys" not in line.split("params", 1)[1], line
+
+
+class TestTheCombReportHandsOff:
+    """The footer says only a fitting proves them ON THE DEVICE. The
+    handoff is the way to the device, so the two read as one thought.
+    It is also the only place the panel says that a comb suspect
+    surfaces as an ordinary command row wearing a comb glyph, which is
+    the thing nobody would guess.
+    """
+
+    def test_it_can_reach_the_device(self):
+        text = _read("ir-comb-report.ts")
+        assert "navigate-device" in text
+
+    def test_the_navigate_event_matches_the_existing_contract(self):
+        """A bare device_id detail, the same shape ir-wigs already
+        dispatches and the panel already handles. Zero new plumbing."""
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert "detail: device.device_id," in text
+
+    def test_the_adopt_offer_reaches_the_closets_own_dialog(self):
+        """One adopt path, not two."""
+        assert "adopt-wig" in _read("ir-comb-report.ts")
+        assert "@adopt-wig=" in _read("ir-wigs.ts")
+
+    def test_a_clean_comb_offers_nothing(self):
+        """There is nothing to go and fix."""
+        text = " ".join(_read("ir-comb-report.ts").split())
+        assert (
+            "if (!this._report || !this._buckets().length) return nothing;"
+            in text
+        )
+
+    def test_the_glyph_appears_once_and_it_is_in_the_explainer(self):
+        """It used to decorate a heading that already says Combing."""
+        text = _read("ir-comb-report.ts")
+        assert "combmark" not in text
+        assert 'class="explain"' in text
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_new_vocabulary(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key in (
+            "comb.explain_lead",
+            "comb.explain_lint",
+            "comb.tally",
+            "comb.bucket_wrong",
+            "comb.bucket_ignored",
+            "comb.bucket_cosmetic",
+            "comb.sev_wrong",
+            "comb.sev_ignored",
+            "comb.sev_cosmetic",
+            "comb.handoff_adopt",
+            "comb.handoff_adopt_body",
+            "comb.handoff_open_body",
+            "comb.open_device",
+        ):
+            assert key in data, f"{locale} missing {key}"
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_the_lead_keeps_its_placeholder(self, locale):
+        """The render splits on {lint} to bold the joke. A translation
+        that drops it loses the bold and half the sentence."""
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "{lint}" in data["comb.explain_lead"], locale

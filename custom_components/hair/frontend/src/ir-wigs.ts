@@ -1205,6 +1205,15 @@ export class IrWigs extends LitElement {
                       .wig=${this._combWig}
                       @combed=${() => void this._refresh(true)}
                       @closed=${() => (this._combWig = null)}
+                      @adopt-wig=${(e: CustomEvent) => {
+                          // The report's handoff offers ADOPT when the
+                          // wig is on no device yet. It hands the wig
+                          // straight to the dialog the closet row's own
+                          // ADOPT would have opened, so there is one
+                          // adopt path and not two.
+                          this._combWig = null;
+                          this._adoptWig = e.detail as WigInfo;
+                      }}
                   ></ir-comb-report>`
                 : ""}
             ${this._ledgerWig

@@ -2708,7 +2708,7 @@ async def ws_wigs_list(
                     # apart (owner ruling CG3).
                     "comb": receipt_summary(loaded.wig),
                     "linked_devices": _wig_linked_devices(
-                        loaded.wig, index
+                        loaded.wig, index, hair_devices
                     ),
                 }
                 for loaded in scan.wigs
@@ -3716,17 +3716,43 @@ def _row_protocol(pronto: str) -> str | None:
 def _wig_linked_devices(
     wig: Any,
     assignment_index: list[tuple[SignalIdentity, dict[str, str]]],
+    hair_devices: list[IRDevice] | None = None,
 ) -> list[dict[str, str]]:
-    """The HAIR devices this wig's codes already live in, by identity.
+    """The HAIR devices this wig's codes already live in.
 
-    The wig-side sibling of ``_linked_hair_devices``: no stored promote
-    pointer (wigs are files, not store records), so the identity match
-    IS the whole union. Many-to-many falls out the same way -- adopt
-    one wig twice (living room and bedroom) and both devices chip up.
+    The wig-side sibling of ``_linked_hair_devices``. Two ways in, and
+    a matrix wig needs the second one:
+
+    IDENTITY. Every flat signal in the wig, matched pairwise against
+    every HAIR command. Many-to-many falls out of this for free -- adopt
+    one wig twice, living room and bedroom, and both devices chip up.
+
+    THE STORED POINTER. ``IRDevice.source_wig_id`` is the wig's UUID,
+    written at adopt and never by hand. This used to say there was no
+    such pointer, which stopped being true in v0.9.5.
+
+    Adding it is not a nicety. A MATRIX WIG HAS NO FLAT SIGNALS -- its
+    codes are lattice cells, and cells are not commands, so neither side
+    of the identity match has anything to compare (Samsung AR: 0
+    signals, 750 cells). Every matrix wig therefore read as adopted by
+    nobody, forever: the closet's linked chip stayed dark, the adopt
+    popover never appeared, and the comb report went on offering ADOPT
+    to a wig already sitting on a device (bench 2026-08-03).
+
+    Matching the lattice by identity instead would mean deriving an
+    identity for several hundred cells on both sides of a pairwise scan,
+    on a call that runs every time the closet lists. The pointer is
+    exact, already written, and costs one comparison per device.
     """
+    linked: dict[str, str] = {}
+    wig_id = getattr(wig, "wig_id", None)
+    if wig_id:
+        for device in hair_devices or []:
+            if device.source_wig_id == wig_id:
+                linked[device.id] = device.name
+
     from .wig_identity import wig_signal_identities
 
-    linked: dict[str, str] = {}
     for ident in wig_signal_identities(wig):
         if ident is None:
             continue
