@@ -437,7 +437,10 @@ class DeviceManager:
         return entry.get("signal_monitor")
 
     async def async_send_command(
-        self, device_id: str, command_id: str
+        self,
+        device_id: str,
+        command_id: str,
+        heard_future: Any | None = None,
     ) -> None:
         """Send a stored IR command via all configured emitters (broadcast).
 
@@ -497,6 +500,7 @@ class DeviceManager:
                 command.decoded_fingerprint
                 if not command.tx_force_raw else None
             ),
+            heard_future=heard_future,
         )
 
         # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
@@ -536,6 +540,7 @@ class DeviceManager:
         *,
         send_count: int = 1,
         decoded_fingerprint: str | None = None,
+        heard_future: Any | None = None,
     ) -> set[str]:
         """The shared all-emitters transmit path (GH #65 semantics).
 
@@ -597,6 +602,12 @@ class DeviceManager:
                 # bound below and is never written onto ir_cmd, so the
                 # Mirror cannot read it back off the Command.
                 send_count=send_count,
+                # The caller's echo hook, when it wants one. The TEST
+                # button's SENT . HEARD reading comes from here: the
+                # Mirror already attributes this send's own loopback,
+                # so reporting whether it came back costs one future
+                # rather than a second capture path.
+                heard_future=heard_future,
             )
 
         # Whole-frame repetition: transmit the built Command send_count times

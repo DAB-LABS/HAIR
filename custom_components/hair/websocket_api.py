@@ -402,16 +402,44 @@ async def ws_send_command(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     manager: DeviceManager = data["device_manager"]
+    # The echo hook behind the TEST button's SENT . HEARD reading. The
+    # Mirror already attributes this send's own loopback; waiting on it
+    # briefly turns that into an answer the button can show. A send that
+    # nothing hears is still a send -- heard is a bonus fact, never a
+    # condition -- so a timeout reports heard=false rather than failing.
+    import asyncio
+
+    from .wig_fitting import FITTING_HEARD_WAIT_S
+
+    heard_future: asyncio.Future[str | None] = (
+        asyncio.get_running_loop().create_future()
+    )
     try:
-        await manager.async_send_command(msg["device_id"], msg["command_id"])
+        await manager.async_send_command(
+            msg["device_id"], msg["command_id"], heard_future=heard_future,
+        )
     except KeyError as err:
+        heard_future.cancel()
         connection.send_error(msg["id"], "not_found", str(err))
         return
     except Exception as err:
+        heard_future.cancel()
         _LOGGER.error("Send command failed: %s", err, exc_info=True)
         connection.send_error(msg["id"], "send_failed", str(err))
         return
-    connection.send_result(msg["id"], {"sent": True})
+
+    receiver: str | None = None
+    try:
+        receiver = await asyncio.wait_for(
+            heard_future, FITTING_HEARD_WAIT_S
+        )
+        heard = True
+    except (TimeoutError, asyncio.CancelledError):
+        heard_future.cancel()
+        heard = False
+    connection.send_result(
+        msg["id"], {"sent": True, "heard": heard, "receiver": receiver}
+    )
 
 
 @websocket_api.require_admin

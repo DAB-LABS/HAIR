@@ -1753,6 +1753,8 @@ export class IrDeviceDetail extends LitElement {
                       source="device"
                       sourceId=${this.device.id}
                       sourceName=${this.device.name}
+                      ?hasEmitter=${(this.device.emitter_entity_ids ?? [])
+                          .length > 0}
                       @closed=${() => (this._saveWigOpen = false)}
                   ></ir-save-wig-dialog>`
                 : ""}

@@ -424,7 +424,12 @@ async def test_send_command_success(fake_hass):
         conn,
         {"id": 6, "type": "hair/command/send", "device_id": "d1", "command_id": "c1"},
     )
-    conn.send_result.assert_called_once_with(6, {"sent": True})
+    # Nothing echoed back through a mocked manager, so heard is false
+    # after the wait. A send nothing hears is still a send: heard is a
+    # bonus fact the TEST button reads, never a condition on success.
+    conn.send_result.assert_called_once_with(
+        6, {"sent": True, "heard": False, "receiver": None}
+    )
 
 
 @pytest.mark.asyncio

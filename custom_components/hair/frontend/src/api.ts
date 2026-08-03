@@ -30,6 +30,8 @@ import type {
     PluckVendor,
     ProntoValidation,
     ReceiverInfo,
+    SavePlan,
+    SaveResult,
     SignalRemovedEvent,
     SignalSourceId,
     SignalUpdatedEvent,
@@ -171,8 +173,18 @@ export class HairApi {
         });
     }
 
-    sendCommand(deviceId: string, commandId: string): Promise<{ sent: boolean }> {
-        return this.hass.connection.sendMessagePromise<{ sent: boolean }>({
+    /** Transmit one command. ``heard`` reports whether the Mirror
+     * caught this send's own echo within its wait -- the TEST button's
+     * SENT . HEARD reading. A send nothing hears is still a send. */
+    sendCommand(
+        deviceId: string,
+        commandId: string,
+    ): Promise<{ sent: boolean; heard: boolean; receiver: string | null }> {
+        return this.hass.connection.sendMessagePromise<{
+            sent: boolean;
+            heard: boolean;
+            receiver: string | null;
+        }>({
             type: "hair/command/send",
             device_id: deviceId,
             command_id: commandId,
@@ -558,6 +570,52 @@ export class HairApi {
             onEvent,
             { type: "hair/wigs/fitting/listen" },
         );
+    }
+
+    /** What SAVE TO CLOSET is about to do, for the dialog to draw:
+     * CREATE or UPDATE, the rows, what matched, what to prefill. A
+     * photograph, not a session -- nothing is held between this and the
+     * save that follows. */
+    wigsSavePlan(deviceId: string): Promise<SavePlan> {
+        return this.hass.connection.sendMessagePromise<SavePlan>({
+            type: "hair/wigs/save_plan",
+            device_id: deviceId,
+        });
+    }
+
+    /** Save a device to the closet. ``mode`` is the person's answer,
+     * not an inference: the dialog showed them which verb it offered,
+     * so sending it back means a save cannot silently become the other
+     * one because a file appeared or vanished mid-dialog. */
+    wigsSave(payload: {
+        device_id: string;
+        mode: "create" | "update";
+        name?: string;
+        brand?: string;
+        model?: string;
+        notes?: string;
+        kind?: string;
+        fcc_id?: string;
+        upc?: string;
+        asin?: string;
+        oem?: string;
+        attest?: {
+            claims: { digest: string; verdict: string }[];
+            handle?: string;
+            github?: string;
+            note?: string;
+            renames?: {
+                digest: string;
+                alias_at_claim: string;
+                alias: string;
+            }[];
+            cells_hash?: string;
+        };
+    }): Promise<SaveResult> {
+        return this.hass.connection.sendMessagePromise<SaveResult>({
+            type: "hair/wigs/save",
+            ...payload,
+        });
     }
 
     /** Arm the Sniffer for one capture into the command editor's Pronto

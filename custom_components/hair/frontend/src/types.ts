@@ -352,6 +352,63 @@ export type CommandListenEvent =
       }
     | { type: "command_listen_timeout" };
 
+/** One line of the attestation list, as the dialog draws it. */
+export interface SavePlanRow {
+    /** The device command this row came from. TEST sends through this;
+     * claims come back keyed by digest. Both ends agree on which
+     * physical command is meant, which they would not if the row were
+     * identified by position -- a command with no usable Pronto never
+     * becomes a wig signal, so the two lists are not parallel. */
+    command_id: string;
+    alias: string;
+    digest: string;
+    send_count: number;
+    ditto_count: number;
+    bypass: boolean;
+    protocol: string | null;
+    wig_index: number | null;
+    /** UPDATE only: what the WIG calls this row. */
+    wig_alias: string | null;
+    matched: boolean;
+    /** Matched by bytes but not by name: the rename line. */
+    renamed: boolean;
+}
+
+/** A wig row nothing on the device covers. Feeds the exclusion picker. */
+export interface SavePlanMissingRow {
+    wig_index: number;
+    alias: string;
+    digest: string;
+}
+
+export interface SavePlan {
+    variant: "create" | "update";
+    rows: SavePlanRow[];
+    missing_rows: SavePlanMissingRow[];
+    source_filename: string | null;
+    source_wig_id: string | null;
+    source_wig_name: string | null;
+    /** The device remembers a wig the closet no longer holds. The save
+     * falls back to CREATE and says so. */
+    source_missing: boolean;
+    converted_from: string | null;
+    metadata: Record<string, string>;
+    skipped: number;
+    notes: string[];
+}
+
+export interface SaveResult {
+    filename: string | null;
+    wig_id: string | null;
+    signal_count: number;
+    skipped: number;
+    attested: number;
+    variant: "create" | "update";
+    notes: string[];
+    /** Renames that matched nothing. Reported, never silent. */
+    stale_renames: string[];
+}
+
 export interface FittingState {
     filename: string;
     username: string;
