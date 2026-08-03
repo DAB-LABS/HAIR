@@ -516,6 +516,7 @@
     "wigs.saved_skipped": "Opgeslagen als {filename} ({skipped} signalen zonder code zijn weggelaten)",
     "wigs.save.perfect_label": "Markeer als perfecte pasvorm",
     "wigs.save.explainer": "Een perfecte pasvorm is jouw ondertekende verklaring dat elke code hier op je eigen apparaat werkt. Hij reist mee met de wig, zodat de volgende persoon weet dat iemand het op echte hardware heeft aangetoond. Je kunt hem delen of als bewijs naar de Wig Shop uploaden.",
+    "wigs.save.nothing_to_attest": "Er valt nog niets te verklaren: dit apparaat heeft geen codes en geen toestandsmatrix. Voeg er eerst een paar toe.",
     "wigs.save.update_heading": "{name} bijwerken",
     "wigs.save.source_missing": "Dit apparaat komt van een wig die niet meer in de kast staat, dus er wordt een nieuwe opgeslagen.",
     "wigs.save.downgrade": "{checked} van {total} aangevinkt. Dit wordt opgeslagen als beperkte pasvorm, niet als perfecte.",

@@ -516,6 +516,7 @@
     "wigs.saved_skipped": "Saved as {filename} ({skipped} signals had no code and were left out)",
     "wigs.save.perfect_label": "Make this a perfect fit",
     "wigs.save.explainer": "A perfect fit is your signed claim that every code here works on your own device. It travels with the wig, so the next person knows somebody proved it on real hardware. You can share it or upload it to the Wig Shop as evidence for others.",
+    "wigs.save.nothing_to_attest": "There is nothing to attest yet: this device has no codes and no state matrix. Add some, then come back.",
     "wigs.save.update_heading": "Update {name}",
     "wigs.save.source_missing": "This device came from a wig that is no longer in the closet, so this will save a new one.",
     "wigs.save.downgrade": "{checked} of {total} checked. This saves as a scoped fitting rather than a perfect fit.",

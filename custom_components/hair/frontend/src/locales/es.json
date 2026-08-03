@@ -516,6 +516,7 @@
     "wigs.saved_skipped": "Guardado como {filename}. Se han omitido {skipped} señales porque no contenían ningún código.",
     "wigs.save.perfect_label": "Marcar como ajuste perfecto",
     "wigs.save.explainer": "Un ajuste perfecto es tu declaracion firmada de que todos estos codigos funcionan en tu propio dispositivo. Viaja con el wig, para que la siguiente persona sepa que alguien lo probo en hardware real. Puedes compartirlo o subirlo a la Wig Shop como evidencia para los demas.",
+    "wigs.save.nothing_to_attest": "Todavia no hay nada que declarar: este dispositivo no tiene codigos ni matriz de estados. Anade algunos y vuelve.",
     "wigs.save.update_heading": "Actualizar {name}",
     "wigs.save.source_missing": "Este dispositivo procede de un wig que ya no esta en el armario, asi que se guardara uno nuevo.",
     "wigs.save.downgrade": "{checked} de {total} marcados. Se guardara como ajuste parcial, no como ajuste perfecto.",

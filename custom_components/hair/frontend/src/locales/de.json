@@ -516,6 +516,7 @@
     "wigs.saved_skipped": "Gespeichert als {filename} ({skipped} Signale ohne Code wurden ausgelassen)",
     "wigs.save.perfect_label": "Als perfekte Passform kennzeichnen",
     "wigs.save.explainer": "Eine perfekte Passform ist deine signierte Aussage, dass jeder Code hier auf deinem eigenen Geraet funktioniert. Sie reist mit der Wig mit, damit die naechste Person weiss, dass es jemand an echter Hardware belegt hat. Du kannst sie teilen oder als Nachweis in den Wig Shop hochladen.",
+    "wigs.save.nothing_to_attest": "Es gibt noch nichts zu bestaetigen: Dieses Geraet hat weder Codes noch eine Zustandsmatrix. Fuege welche hinzu und komm zurueck.",
     "wigs.save.update_heading": "{name} aktualisieren",
     "wigs.save.source_missing": "Dieses Geraet stammt aus einer Wig, die nicht mehr im Schrank liegt. Es wird daher eine neue gespeichert.",
     "wigs.save.downgrade": "{checked} von {total} angehakt. Wird als eingeschraenkte Passform gespeichert, nicht als perfekte.",

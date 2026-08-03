@@ -516,6 +516,7 @@
     "wigs.saved_skipped": "Salvato come {filename} ({skipped} segnali senza codice sono stati esclusi)",
     "wigs.save.perfect_label": "Segna come calzata perfetta",
     "wigs.save.explainer": "Una calzata perfetta e la tua dichiarazione firmata che ogni codice qui funziona sul tuo dispositivo. Viaggia insieme al wig, cosi la persona successiva sa che qualcuno lo ha provato su hardware reale. Puoi condividerla o caricarla sul Wig Shop come prova per gli altri.",
+    "wigs.save.nothing_to_attest": "Non c'e ancora nulla da dichiarare: questo dispositivo non ha codici ne matrice di stati. Aggiungine e torna qui.",
     "wigs.save.update_heading": "Aggiorna {name}",
     "wigs.save.source_missing": "Questo dispositivo proviene da un wig che non e piu nell'armadio, quindi ne verra salvato uno nuovo.",
     "wigs.save.downgrade": "{checked} su {total} selezionate. Verra salvata come calzata parziale, non perfetta.",

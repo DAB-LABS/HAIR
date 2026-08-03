@@ -161,6 +161,14 @@ export class IrSaveWigDialog extends LitElement {
         return !!before && this._name.trim() !== before;
     }
 
+    /** A device with no codes and no lattice has nothing to vouch for.
+     * Offering the box anyway produced "0 of 0 checked. This saves as a
+     * scoped fitting rather than a perfect fit" over an empty list --
+     * an invitation to attest nothing, phrased as a downgrade. */
+    private get _nothingToAttest(): boolean {
+        return !!this._plan && this._allRows.length === 0;
+    }
+
     private get _signed(): boolean {
         return this._perfect && this._oath;
     }
@@ -663,10 +671,16 @@ export class IrSaveWigDialog extends LitElement {
                     <input
                         type="checkbox"
                         .checked=${this._perfect}
+                        ?disabled=${this._nothingToAttest}
                         @change=${this._togglePerfect}
                     />
                     <span>${t("wigs.save.perfect_label")}</span>
                 </label>
+                ${this._nothingToAttest
+                    ? html`<div class="fit-explainer">
+                          ${t("wigs.save.nothing_to_attest")}
+                      </div>`
+                    : ""}
                 <div class="fit-explainer">${t("wigs.save.explainer")}</div>
                 ${this._isUpdate && (this._plan?.existing_fittings ?? 0) > 0
                     ? html`<div class="joining">
@@ -677,8 +691,12 @@ export class IrSaveWigDialog extends LitElement {
                           )}
                       </div>`
                     : ""}
-                ${this._perfect ? this._renderList() : ""}
-                ${this._perfect ? this._renderAttestation() : ""}
+                ${this._perfect && !this._nothingToAttest
+                    ? this._renderList()
+                    : ""}
+                ${this._perfect && !this._nothingToAttest
+                    ? this._renderAttestation()
+                    : ""}
             </div>
         `;
     }
