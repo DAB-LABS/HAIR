@@ -31,7 +31,7 @@ Requiere Home Assistant 2026.4 o posterior; se recomienda 2026.6+ para receptore
 - **Convierte los botones del mando en disparadores.** Cualquier botón de cualquier mando físico puede lanzar tus automatizaciones. Pulsa el botón rojo del viejo mando de la TV para ejecutar tu escena de noche de cine. Los disparadores saben qué habitación oyó la pulsación, así que el mismo mando puede hacer cosas distintas en habitaciones distintas. Ninguna otra integración hace esto.
 - **Observa el Mirror.** Una auditoría en vivo de todo lo que transmite tu casa: qué comando salió, por qué emisor, y qué receptor lo oyó de vuelta. Si algo infrarrojo se porta mal a las 2 de la mañana, el Mirror lo vio.
 - **Prueba y pule todo.** Dispara cualquier señal por cualquier emisor para verificarla antes de fiarte de ella, ponles apodos a las señales, edita un código Pronto en el sitio, y deja que HAIR decodifique los protocolos reconocidos (NEC, Sony, RC-5, Samsung y más) para una transmisión más limpia.
-- **Pruébatela.** Demuestra una peluca con hardware real: envía cada señal, marca lo que funcionó, y la prueba firmada viaja dentro del archivo de la peluca cuando la compartes. Las pelucas con prueba completa llevan una marca verde en el armario.
+- **Pruébatela.** Demuestra una peluca con hardware real: adóptala como dispositivo, convive con ella, y al guardarla en el armario confirma señal por señal lo que funcionó. La prueba firmada viaja dentro del archivo de la peluca cuando la compartes, y una peluca totalmente demostrada lleva una marca verde en el armario.
 
 El panel habla tu idioma. Inglés, español, francés, japonés, alemán, polaco, portugués, neerlandés, italiano y ruso, siguiendo automáticamente el idioma de tu perfil de Home Assistant.
 

@@ -31,7 +31,7 @@ Requer Home Assistant 2026.4 ou mais recente; 2026.6+ recomendado para receptore
 - **Transforme botões de controle em gatilhos.** Qualquer botão de qualquer controle físico pode disparar suas automações. Pressione o botão vermelho do velho controle da TV para rodar sua cena de noite de cinema. Os gatilhos sabem qual cômodo ouviu o toque, então o mesmo controle pode fazer coisas diferentes em cômodos diferentes. Nenhuma outra integração faz isso.
 - **Observe o Mirror.** Uma auditoria ao vivo de tudo que sua casa transmite: qual comando saiu, por qual emissor, e qual receptor o ouviu de volta. Se algo infravermelho se comportar mal às 2 da manhã, o Mirror viu.
 - **Teste e lapide tudo.** Dispare qualquer sinal por qualquer emissor para verificar antes de confiar, dê apelidos aos sinais, edite um código Pronto na hora, e deixe o HAIR decodificar os protocolos reconhecidos (NEC, Sony, RC-5, Samsung e mais) para uma transmissão mais limpa.
-- **Prove-a.** Comprove uma peruca em hardware real: envie cada sinal, marque o que funcionou, e a prova assinada viaja dentro do arquivo da peruca quando você a compartilha. Perucas com prova completa levam uma marca verde no armário.
+- **Prove-a.** Comprove uma peruca em hardware real: adote-a como dispositivo, conviva com ela, e ao salvar no armário confirme sinal por sinal o que funcionou. A prova assinada viaja dentro do arquivo da peruca quando você a compartilha, e uma peruca totalmente comprovada leva uma marca verde no armário.
 
 O painel fala o seu idioma. Inglês, espanhol, francês, japonês, alemão, polonês, português, holandês, italiano e russo, seguindo automaticamente o idioma do seu perfil no Home Assistant.
 

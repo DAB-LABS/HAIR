@@ -31,7 +31,7 @@ Vereist Home Assistant 2026.4 of nieuwer; 2026.6+ aanbevolen voor native IR-ontv
 - **Maak van afstandsbedieningsknoppen triggers.** Elke knop van elke fysieke afstandsbediening kan je automatiseringen starten. Druk op de rode knop van de oude tv-afstandsbediening om je filmavond-scène te starten. Triggers weten welke kamer de druk hoorde, dus dezelfde afstandsbediening kan in verschillende kamers verschillende dingen doen. Geen enkele andere integratie doet dit.
 - **Kijk in de Mirror.** Een live audit van alles wat je huis uitzendt: welk commando eruit ging, door welke blaster, en welke ontvanger het terughoorde. Als iets infraroods zich om 2 uur 's nachts misdraagt, heeft de Mirror het gezien.
 - **Test en polijst alles.** Vuur elk signaal door elke blaster om het te controleren voordat je erop vertrouwt, geef signalen bijnamen, bewerk een Pronto-code ter plekke, en laat HAIR herkende protocollen decoderen (NEC, Sony, RC-5, Samsung en meer) voor schonere overdracht.
-- **Pas hem.** Bewijs een pruik op echte hardware: verstuur elk signaal, markeer wat werkte, en het ondertekende bewijs reist mee in het pruikbestand wanneer je hem deelt. Volledig gepaste pruiken dragen een groen vinkje in de kast.
+- **Pas hem.** Bewijs een pruik op echte hardware: adopteer hem als apparaat, leef ermee, en bevestig bij het opslaan in de kast signaal voor signaal wat werkte. Het ondertekende bewijs reist mee in het pruikbestand wanneer je hem deelt, en een volledig bewezen pruik draagt een groen vinkje in de kast.
 
 Het paneel spreekt jouw taal. Engels, Spaans, Frans, Japans, Duits, Pools, Portugees, Nederlands, Italiaans en Russisch, automatisch volgens de taal van je Home Assistant-profiel.
 

@@ -31,7 +31,7 @@ Wymaga Home Assistant 2026.4 lub nowszego; 2026.6+ zalecane dla natywnych odbior
 - **Zamień przyciski pilota w wyzwalacze.** Dowolny przycisk dowolnego fizycznego pilota może uruchamiać Twoje automatyzacje. Naciśnij czerwony przycisk starego pilota od telewizora, aby uruchomić scenę wieczoru filmowego. Wyzwalacze wiedzą, który pokój usłyszał naciśnięcie, więc ten sam pilot może robić różne rzeczy w różnych pokojach. Żadna inna integracja tego nie potrafi.
 - **Obserwuj Mirror.** Audyt na żywo wszystkiego, co nadaje Twój dom: jakie polecenie wyszło, przez który nadajnik i który odbiornik je usłyszał. Jeśli coś podczerwonego zachowa się źle o 2 w nocy, Mirror to widział.
 - **Testuj i szlifuj wszystko.** Wystrzel dowolny sygnał przez dowolny nadajnik, aby go sprawdzić, zanim mu zaufasz, nadawaj sygnałom przydomki, edytuj kod Pronto na miejscu, a rozpoznane protokoły (NEC, Sony, RC-5, Samsung i inne) HAIR zdekoduje dla czystszej transmisji.
-- **Przymierz ją.** Udowodnij perukę na prawdziwym sprzęcie: wyślij każdy sygnał, oznacz co zadziałało, a podpisany dowód podróżuje w pliku peruki, gdy ją udostępniasz. W pełni przymierzone peruki noszą w szafie zielony znacznik.
+- **Przymierz ją.** Udowodnij perukę na prawdziwym sprzęcie: przyjmij ją jako urządzenie, żyj z nią, a przy zapisie do szafy potwierdź sygnał po sygnale, co zadziałało. Podpisany dowód podróżuje w pliku peruki, gdy ją udostępniasz, a w pełni udowodniona peruka nosi w szafie zielony znacznik.
 
 Panel mówi w Twoim języku. Angielski, hiszpański, francuski, japoński, niemiecki, polski, portugalski, niderlandzki, włoski i rosyjski, automatycznie według języka Twojego profilu Home Assistant.
 
