@@ -381,3 +381,35 @@ class TestProvenanceMarkersAreGone:
         ).read_text(encoding="utf-8")
         assert "_write_row_code" not in text.split('"""', 2)[2]
         assert "_merge_provenance" not in text.split('"""', 2)[2]
+
+
+class TestTheFooterIsOneRow:
+    """DELETE DEVICE moved up beside the add buttons (owner 2026-08-03).
+
+    It sat on its own full-width line, which was right when SAVE TO
+    CLOSET was stacked above it; SAVE moved to the header in FR5 and
+    left one button alone under a mostly empty row.
+
+    The pin has to be margin-left:auto and NOT the container's
+    justify-content. space-between distributes per WRAPPED LINE, so a
+    card narrow enough to break the four buttons 2-and-2 would spread
+    the second line to both edges with a hole in the middle.
+    """
+
+    def test_the_full_width_break_is_gone(self):
+        text = _read("ir-device-detail.ts")
+        # The class may survive in a comment explaining its removal;
+        # what must not survive is a rule or an element using it.
+        assert ".delete-row {" not in text
+        assert 'class="delete-row"' not in text
+
+    def test_the_button_is_pinned_not_distributed(self):
+        text = _read("ir-device-detail.ts")
+        pin = text.split(".footer-actions > .delete-btn {", 1)[1]
+        assert "margin-left: auto" in pin.split("}", 1)[0]
+        foot = text.split("\n        .footer-actions {", 1)[1]
+        assert "space-between" not in foot.split("}", 1)[0]
+
+    def test_the_dead_label_rule_went(self):
+        """.add-label was styled and never rendered."""
+        assert ".add-label" not in _read("ir-device-detail.ts")

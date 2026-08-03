@@ -1737,13 +1737,11 @@ export class IrDeviceDetail extends LitElement {
                         ?disabled=${this._busy}
                     >${t("devdetail.mirrored")}</button>
                 </div>
-                <div class="delete-row">
-                    <button
-                        class="action-btn delete-btn"
-                        @click=${() => (this._confirmDelete = true)}
-                        ?disabled=${this._busy}
-                    >${t("devlist.del_device_title")}</button>
-                </div>
+                <button
+                    class="action-btn delete-btn"
+                    @click=${() => (this._confirmDelete = true)}
+                    ?disabled=${this._busy}
+                >${t("devlist.del_device_title")}</button>
             </div>
 
             <!-- Dialogs -->
@@ -1930,16 +1928,21 @@ export class IrDeviceDetail extends LitElement {
             opacity: 0.4;
             cursor: default;
         }
-        .delete-row {
-            /* Right-edge column. Delete Device sits here alone since
-               SAVE TO CLOSET moved to the header (FR5) -- destructive
-               actions prefer their own company. */
-            flex-basis: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 8px;
-            margin-top: 2px;
+        /* DELETE DEVICE, hard right of the add-signal row (owner ruling
+           2026-08-03). It used to sit on its own full-width line below,
+           which was correct when SAVE TO CLOSET was stacked above it and
+           the pair needed their own company; SAVE moved to the header
+           (FR5) and left one button alone under a mostly empty row.
+
+           PINNED WITH margin-left:auto, NOT the container's
+           justify-content. space-between distributes per WRAPPED LINE,
+           so on a card narrow enough to break the four buttons 2-and-2
+           it would spread the second line to both edges with a hole in
+           the middle. margin-left:auto puts the button at the right of
+           whatever line it lands on, which is the same result on a wide
+           card and the correct one on a phone. */
+        .footer-actions > .delete-btn {
+            margin-left: auto;
         }
 
         :host {
@@ -2185,10 +2188,15 @@ export class IrDeviceDetail extends LitElement {
         }
 
         /* --- Commands section (Sniffer-style) --- */
+        /* The margin, the rule and the padding used to stack to nearly
+           30px of dead air between the emitters row and the word
+           "Commands" -- against a 4px rhythm inside the list itself.
+           That contrast is what read as loose; the rule alone already
+           separates the two blocks (owner ruling 2026-08-03). */
         .commands-section {
-            margin: 16px 0;
+            margin: 12px 0;
             border-top: 1px solid var(--divider-color);
-            padding-top: 12px;
+            padding-top: 9px;
         }
         .commands-header {
             display: flex;
@@ -2229,11 +2237,17 @@ export class IrDeviceDetail extends LitElement {
             font-style: italic;
             padding: 12px 0;
         }
+        /* No justify-content: it was space-between and had been inert
+           for as long as .delete-row forced its own line, since one item
+           per flex line has no free space to distribute. Leaving it
+           would read as the thing pinning DELETE right, and it is not
+           -- see .footer-actions > .delete-btn above.
+           Bottom margin is 0: the card's own 16px padding is the gap,
+           and doubling it left 32px of nothing under the row. */
         .footer-actions {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin: 16px 0;
+            margin: 11px 0 0;
             flex-wrap: wrap;
             gap: 8px;
         }
@@ -2247,10 +2261,6 @@ export class IrDeviceDetail extends LitElement {
                layout, 2026-07-20 -- the eye line runs straight down
                from the signal names into these buttons). */
             margin-left: 54px;
-        }
-        .add-label {
-            font-size: 0.8rem;
-            color: var(--secondary-text-color);
         }
 
         /* --- Toast --- */
