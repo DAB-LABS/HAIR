@@ -528,7 +528,6 @@
     "wigs.save.your_name": "O seu nome",
     "wigs.save.your_github": "Utilizador do GitHub",
     "wigs.save.oath": "Declaro que cada sinal assinalado funciona no meu aparelho tal como esta escrito.",
-    "wigs.save.needs_oath": "Assinale a declaracao para assinar este encaixe.",
     "wigs.save.needs_something": "Ainda nao ha nada para escrever. Assinale Marcar como encaixe perfeito e assine para adicionar o seu encaixe a {name}, ou edite um campo de metadados acima. Uma atualizacao acrescenta a wig; nunca reescreve os seus codigos.",
     "wigs.save.matrix_pending": "Este e um aparelho de matriz de estados. A sua grelha vive na entidade de clima e nao na lista de comandos, por isso o encaixe ainda nao esta construido e os codigos aqui sao apenas os botoes extra. Guardar continua a funcionar.",
     "wigs.save.rename_wig_warning": "Isto muda o nome da propria {name}. Nao cria uma segunda wig, e o ficheiro mantem o nome com que foi guardado pela primeira vez.",

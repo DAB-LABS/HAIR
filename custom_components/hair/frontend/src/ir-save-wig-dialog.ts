@@ -184,7 +184,11 @@ export class IrSaveWigDialog extends LitElement {
      * bench (owner report 2026-08-03). */
     private get _blockedReason(): string | null {
         if (this._canSave || this._busy) return null;
-        if (this._perfect && !this._oath) return t("wigs.save.needs_oath");
+        // An unticked oath needs no sentence. The oath box is right
+        // there, it is the biggest control in the block, and its own
+        // label already says what ticking it means -- a second line
+        // repeating the instruction was reading as nagging.
+        if (this._perfect && !this._oath) return null;
         if (this._isUpdate) {
             return t("wigs.save.needs_something", {
                 name: this._plan?.source_wig_name ?? "",
@@ -921,10 +925,22 @@ export class IrSaveWigDialog extends LitElement {
             .attest {
                 margin-top: 10px;
             }
+            /* THE OATH BOX IS HALF AGAIN AS BIG as the row checks
+               (owner ruling 2026-08-03). It is the one control in this
+               dialog that turns a list of ticks into a signed claim, so
+               it should not look like the thirty ticks above it. Its
+               sentence centres against it rather than sitting at the
+               top, because at this size a top-aligned label reads as
+               having slipped. */
             .oath {
-                margin-top: 4px;
-                align-items: flex-start;
+                margin-top: 8px;
+                align-items: center;
                 line-height: 1.4;
+            }
+            .oath input[type="checkbox"] {
+                width: 22px;
+                height: 22px;
+                flex: none;
             }
             /* GREEN IS THE HOUSE COLOUR FOR "this one is good"
                (owner ruling 2026-08-03), so every check in the

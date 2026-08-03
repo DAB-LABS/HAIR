@@ -528,7 +528,6 @@
     "wigs.save.your_name": "Il tuo nome",
     "wigs.save.your_github": "Nome utente GitHub",
     "wigs.save.oath": "Dichiaro che ogni segnale selezionato funziona sul mio dispositivo come scritto.",
-    "wigs.save.needs_oath": "Spunta la dichiarazione per firmare questa calzata.",
     "wigs.save.needs_something": "Non c'e ancora nulla da scrivere. Spunta Segna come calzata perfetta e firma per aggiungere la tua calzata a {name}, oppure modifica un campo di metadati sopra. Un aggiornamento aggiunge al wig; non riscrive mai i suoi codici.",
     "wigs.save.matrix_pending": "Questo e un dispositivo a matrice di stati. Il suo reticolo vive nell'entita clima e non nell'elenco comandi, quindi la calzata non e ancora stata costruita e i codici qui sono solo i suoi pulsanti extra. Il salvataggio funziona comunque.",
     "wigs.save.rename_wig_warning": "Questo rinomina {name} stesso. Non crea un secondo wig, e il file mantiene il nome con cui e stato salvato la prima volta.",
