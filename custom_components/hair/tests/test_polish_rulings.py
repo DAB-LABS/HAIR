@@ -413,3 +413,117 @@ class TestTheFooterIsOneRow:
     def test_the_dead_label_rule_went(self):
         """.add-label was styled and never rendered."""
         assert ".add-label" not in _read("ir-device-detail.ts")
+
+
+class TestThePerfectFitBanner:
+    """The one control that turns a save into a signed claim was a bare
+    checkbox under a hairline rule, at the same weight as the form
+    labels above it. Nothing marked the boundary between DESCRIBING a
+    wig and MAKING A CLAIM about it, and those are different acts.
+    """
+
+    def test_it_is_dashed_at_rest_and_solid_when_armed(self):
+        text = _read("ir-save-wig-dialog.ts")
+        rest = text.split("\n            .fit-block {", 1)[1].split("}", 1)[0]
+        assert "dashed" in rest
+        armed = text.split(".fit-block.on {", 1)[1].split("}", 1)[0]
+        assert "border-style: solid" in armed
+
+    def test_only_the_head_is_clickable(self):
+        """Once armed this block holds thirty ticks and a signature
+        form. A stray click in that region disarming it would throw
+        away work somebody just did."""
+        text = _read("ir-save-wig-dialog.ts")
+        assert '@click=${this._onHeadClick}' in text
+        head = text.split("\n            .fit-head {", 1)[1].split("}", 1)[0]
+        assert "cursor: pointer" in head
+
+    def test_the_label_stops_its_own_bubble(self):
+        """A click on the label toggles the checkbox natively and would
+        then bubble to the head handler, which toggles it back. Every
+        label click would net to nothing."""
+        text = _read("ir-save-wig-dialog.ts")
+        block = text.split('class="fit-check"', 1)[1].split("</label>", 1)[0]
+        assert "stopPropagation" in block
+
+    def test_the_refusal_sits_with_the_control_it_refuses(self):
+        """The lattice gate explains why the tick is disabled. It used
+        to live under the propose control, which is where the REMEDY
+        is; the question it answers is asked at the tick."""
+        text = _read("ir-save-wig-dialog.ts")
+        head = text.split('@click=${this._onHeadClick}', 1)[1]
+        head = head.split("_renderJoining()", 1)[0]
+        assert "lattice_blocks_attestation" in head
+
+
+class TestTheFittingsLineIsADoor:
+    """Closes the item parked during v0.9.5. The count was grey text
+    under a grey paragraph and the people behind it were unreachable.
+    """
+
+    def test_it_opens_the_ledger(self):
+        text = _read("ir-save-wig-dialog.ts")
+        assert "ir-claims-ledger" in text
+        assert "_ledgerOpen" in text
+
+    def test_the_copy_is_cardinal_not_ordinal(self):
+        """The first draft read "you would be the {n}rd person", which
+        is right for 3 and wrong for 2, 4 and 21. Fixing it properly
+        needs an ordinal plural ruleset tp() does not have, and ja/ru/pl
+        have no such construction at all."""
+        text = _read("ir-save-wig-dialog.ts")
+        assert "joining_ordinal" not in text
+        assert "joining_proven" in text
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_no_locale_bakes_an_ordinal_suffix(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key, value in data.items():
+            if key.startswith("wigs.save.joining_proven"):
+                assert "{count}rd" not in value
+                assert "{count}th" not in value
+                assert "{n}rd" not in value
+
+
+class TestTheLedgerClearsTheTopLayer:
+    """The door opened and nothing appeared to happen.
+
+    As of HA 2026.7 <ha-dialog> wraps <wa-dialog>, which opens a real
+    <dialog> with showModal(). That promotes it to the browser's TOP
+    LAYER, which sits above the entire z-index scale and makes
+    everything outside it inert. The ledger's overlay carried
+    z-index 100 from the shared dialog styles and was both invisible
+    and unclickable behind the save dialog (bench 2026-08-03).
+
+    Only another modal dialog stacks above a modal dialog, so the
+    ledger opens one of its own. Verified in the live frontend: with a
+    modal ha-dialog open, the element at the viewport centre is the
+    ledger.
+    """
+
+    def test_the_ledger_opens_a_native_modal(self):
+        text = _read("ir-claims-ledger.ts")
+        assert "showModal()" in text
+        assert "<dialog" in text
+
+    def test_the_carrier_keeps_the_panel_cosmetics(self):
+        """The native element buys the top layer and draws nothing:
+        every visible pixel still comes from .overlay and .dialog, so
+        the ledger matches the panel's other pop-ups."""
+        text = _read("ir-claims-ledger.ts")
+        assert "dialog.top-layer" in text
+        assert "dialog.top-layer::backdrop" in text
+        assert 'class="overlay"' in text
+
+    def test_escape_and_the_backdrop_close_it(self):
+        """A native dialog closes itself on Escape without telling the
+        parent, which would leave _ledgerOpen true and the door dead."""
+        text = _read("ir-claims-ledger.ts")
+        assert "@cancel=" in text
+
+    def test_the_checklist_does_not_touch_the_door(self):
+        """Two bordered objects butted together read as one control."""
+        text = _read("ir-save-wig-dialog.ts")
+        assert ".fit-head + .fit-list" in text

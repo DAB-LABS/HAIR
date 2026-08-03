@@ -60,7 +60,33 @@ export class IrClaimsLedger extends LitElement {
         }
     }
 
+    /**
+     * THE TOP LAYER, and why this dialog is a native one.
+     *
+     * The ledger is opened from inside the save dialog, and as of
+     * HA 2026.7 <ha-dialog> is a wrapper around <wa-dialog>, which
+     * opens a real <dialog> with showModal(). A modal dialog is
+     * promoted to the browser's TOP LAYER, which sits above the whole
+     * z-index scale -- there is no number large enough to paint over
+     * it, and everything outside it is inert besides, so the ledger
+     * was both invisible and unclickable (bench 2026-08-03).
+     *
+     * The only thing that stacks above a modal dialog is another modal
+     * dialog: the top layer is a stack, last opened on top. So the
+     * ledger opens one of its own and keeps the panel's own overlay
+     * cosmetics inside it. Escape and the backdrop are wired back to
+     * the same close path the button uses.
+     */
+    firstUpdated(): void {
+        this._native()?.showModal();
+    }
+
+    private _native(): HTMLDialogElement | null {
+        return this.renderRoot.querySelector("dialog");
+    }
+
     private _close(): void {
+        this._native()?.close();
         this.dispatchEvent(
             new CustomEvent("closed", { bubbles: true, composed: true }),
         );
@@ -75,27 +101,35 @@ export class IrClaimsLedger extends LitElement {
 
     render() {
         return html`
-            <div class="overlay" @click=${this._close}>
-                <div
-                    class="dialog ledger-dialog"
-                    @click=${(e: Event) => e.stopPropagation()}
-                >
-                    <h3 class="heading">
-                        ${t("claims.heading", { name: this.wig.name })}
-                    </h3>
-                    ${this._renderBody()}
-                    <div class="foot-note">${t("claims.footer")}</div>
-                    <div class="dialog-actions">
-                        <span class="spacer"></span>
-                        <button
-                            class="action-btn cancel-btn"
-                            @click=${this._close}
-                        >
-                            ${t("common.close")}
-                        </button>
+            <dialog
+                class="top-layer"
+                @cancel=${(e: Event) => {
+                    e.preventDefault();
+                    this._close();
+                }}
+            >
+                <div class="overlay" @click=${this._close}>
+                    <div
+                        class="dialog ledger-dialog"
+                        @click=${(e: Event) => e.stopPropagation()}
+                    >
+                        <h3 class="heading">
+                            ${t("claims.heading", { name: this.wig.name })}
+                        </h3>
+                        ${this._renderBody()}
+                        <div class="foot-note">${t("claims.footer")}</div>
+                        <div class="dialog-actions">
+                            <span class="spacer"></span>
+                            <button
+                                class="action-btn cancel-btn"
+                                @click=${this._close}
+                            >
+                                ${t("common.close")}
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </dialog>
         `;
     }
 
@@ -249,6 +283,26 @@ export class IrClaimsLedger extends LitElement {
     static styles = [
         dialogStyles,
         css`
+            /* The native dialog is a carrier and nothing else: it buys
+               the top layer, and every pixel people see still comes
+               from .overlay and .dialog, so the ledger matches the rest
+               of the panel's pop-ups. The user-agent chrome and the
+               user-agent backdrop are both stripped, since .overlay
+               already draws the scrim. */
+            dialog.top-layer {
+                margin: 0;
+                padding: 0;
+                border: 0;
+                max-width: none;
+                max-height: none;
+                width: 100%;
+                height: 100%;
+                background: transparent;
+                overflow: visible;
+            }
+            dialog.top-layer::backdrop {
+                background: transparent;
+            }
             .ledger-dialog {
                 max-width: 620px;
             }

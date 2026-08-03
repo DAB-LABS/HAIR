@@ -521,7 +521,7 @@
     "wigs.save.lattice_blocks_attestation": "Eine Passform buergt fuer den gesamten Satz an Zustaenden und kann daher nicht signiert werden, solange deiner abweicht. Schlage die Aenderungen oben vor, speichere als neue Wig, oder speichere ohne Bestaetigung.",
     "wigs.save.cells_proposed.one": "Ein Zustand wurde der Wig vorgeschlagen.",
     "wigs.save.cells_proposed.other": "{count} Zustaende wurden der Wig vorgeschlagen.",
-    "wigs.save.explainer": "Eine perfekte Passform ist deine signierte Aussage, dass jeder Code hier auf deinem eigenen Geraet funktioniert. Sie reist mit der Wig mit, damit die naechste Person weiss, dass es jemand an echter Hardware belegt hat. Du kannst sie teilen oder als Nachweis in den Wig Shop hochladen.",
+    "wigs.save.explainer": "Eine perfekte Passform ist deine signierte Aussage, dass jeder Code hier auf deinem eigenen Geraet funktioniert. Sie reist mit der Wig mit, damit die naechste Person weiss, dass es jemand an echter Hardware belegt hat.",
     "wigs.save.nothing_to_attest": "Es gibt noch nichts zu bestaetigen: Dieses Geraet hat weder Codes noch eine Zustandsmatrix. Fuege welche hinzu und komm zurueck.",
     "wigs.save.update_heading": "{name} aktualisieren",
     "wigs.save.source_missing": "Dieses Geraet stammt aus einer Wig, die nicht mehr im Schrank liegt. Es wird daher eine neue gespeichert.",
@@ -536,8 +536,6 @@
     "wigs.save.your_github": "GitHub-Name",
     "wigs.save.oath": "Ich bestaetige, dass jedes angehakte Signal auf meinem Geraet wie angegeben funktioniert.",
     "wigs.save.rename_wig_warning": "Damit wird {name} selbst umbenannt. Es entsteht keine zweite Wig, und die Datei behaelt den Namen, unter dem sie zuerst gespeichert wurde.",
-    "wigs.save.joining.one": "{name} traegt bereits eine Passform. Deine kommt dazu, nicht an ihre Stelle.",
-    "wigs.save.joining.other": "{name} traegt bereits {count} Passformen. Deine kommt dazu, nicht an ihre Stelle.",
     "wigs.save.save_perfect": "Perfekte Passform speichern",
     "wigs.save.save_fitted": "Angepasste Wig speichern",
     "wigs.save.save_as_new": "Als neue Wig speichern",
@@ -665,5 +663,9 @@
     "claims.orphaned_count.one": "{count} seitdem geändert",
     "claims.orphaned_count.other": "{count} seitdem geändert",
     "claims.show_all.one": "Einen weiteren anzeigen",
-    "claims.show_all.other": "{count} weitere anzeigen"
+    "claims.show_all.other": "{count} weitere anzeigen",
+    "wigs.save.joining_proven.one": "Eine Person hat diese Perücke bereits bestätigt. Du wärst die nächste.",
+    "wigs.save.joining_proven.other": "{count} Personen haben diese Perücke bereits bestätigt. Du wärst die nächste.",
+    "wigs.save.joining_see.one": "Die vorhandene Passform ansehen",
+    "wigs.save.joining_see.other": "Die {count} vorhandenen Passformen ansehen"
 }

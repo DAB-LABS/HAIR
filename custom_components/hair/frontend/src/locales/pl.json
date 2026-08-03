@@ -539,7 +539,7 @@
     "wigs.save.lattice_blocks_attestation": "Dopasowanie reczy za caly zbior stanow, wiec nie mozna go podpisac, dopoki twoj sie rozni. Zaproponuj zmiany powyzej, zapisz jako nowy wig albo zapisz bez oswiadczenia.",
     "wigs.save.cells_proposed.one": "Zaproponowano wigowi jeden stan.",
     "wigs.save.cells_proposed.other": "Zaproponowano wigowi {count} stanow.",
-    "wigs.save.explainer": "Idealne dopasowanie to twoje podpisane oswiadczenie, ze kazdy kod tutaj dziala na twoim wlasnym urzadzeniu. Podrozuje razem z wigiem, wiec kolejna osoba wie, ze ktos sprawdzil to na prawdziwym sprzecie. Mozesz je udostepnic lub wyslac do Wig Shop jako dowod dla innych.",
+    "wigs.save.explainer": "Idealne dopasowanie to twoje podpisane oswiadczenie, ze kazdy kod tutaj dziala na twoim wlasnym urzadzeniu. Podrozuje razem z wigiem, wiec kolejna osoba wie, ze ktos sprawdzil to na prawdziwym sprzecie.",
     "wigs.save.nothing_to_attest": "Nie ma jeszcze czego oswiadczac: to urzadzenie nie ma kodow ani macierzy stanow. Dodaj je i wroc.",
     "wigs.save.update_heading": "Zaktualizuj {name}",
     "wigs.save.source_missing": "To urzadzenie pochodzi z wiga, ktorego juz nie ma w szafie, wiec zapisany zostanie nowy.",
@@ -554,8 +554,6 @@
     "wigs.save.your_github": "Nazwa na GitHubie",
     "wigs.save.oath": "Oswiadczam, ze kazdy zaznaczony sygnal dziala na moim urzadzeniu tak, jak zapisano.",
     "wigs.save.rename_wig_warning": "To zmienia nazwe samego {name}. Nie powstaje drugi wig, a plik zachowuje nazwe, pod ktora zapisano go po raz pierwszy.",
-    "wigs.save.joining.one": "{name} ma juz jedno dopasowanie. Twoje dochodzi do niego, a nie zastepuje go.",
-    "wigs.save.joining.other": "{name} ma juz {count} dopasowan. Twoje dochodzi do nich, a nie zastepuje ich.",
     "wigs.save.save_perfect": "Zapisz idealne dopasowanie",
     "wigs.save.save_fitted": "Zapisz dopasowany wig",
     "wigs.save.save_as_new": "Zapisz jako nowy wig",
@@ -703,5 +701,13 @@
     "claims.show_all.one": "Pokaż jeszcze jeden",
     "claims.show_all.few": "Pokaż jeszcze {count}",
     "claims.show_all.many": "Pokaż jeszcze {count}",
-    "claims.show_all.other": "Pokaż jeszcze {count}"
+    "claims.show_all.other": "Pokaż jeszcze {count}",
+    "wigs.save.joining_proven.one": "Jedna osoba już sprawdziła tę perukę. Ty byłbyś następny.",
+    "wigs.save.joining_proven.few": "{count} osoby już sprawdziły tę perukę. Ty byłbyś następny.",
+    "wigs.save.joining_proven.many": "{count} osób już sprawdziło tę perukę. Ty byłbyś następny.",
+    "wigs.save.joining_proven.other": "{count} osób już sprawdziło tę perukę. Ty byłbyś następny.",
+    "wigs.save.joining_see.one": "Zobacz istniejące dopasowanie",
+    "wigs.save.joining_see.few": "Zobacz {count} istniejące dopasowania",
+    "wigs.save.joining_see.many": "Zobacz {count} istniejących dopasowań",
+    "wigs.save.joining_see.other": "Zobacz {count} istniejących dopasowań"
 }

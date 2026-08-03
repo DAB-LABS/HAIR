@@ -521,7 +521,7 @@
     "wigs.save.lattice_blocks_attestation": "Un ajustement repond de l'ensemble des etats, il ne peut donc pas etre signe tant que le votre differe. Proposez les changements ci-dessus, enregistrez comme nouveau wig, ou enregistrez sans attester.",
     "wigs.save.cells_proposed.one": "Un etat propose au wig.",
     "wigs.save.cells_proposed.other": "{count} etats proposes au wig.",
-    "wigs.save.explainer": "Un ajustement parfait est votre declaration signee que chaque code ici fonctionne sur votre propre appareil. Elle voyage avec le wig, pour que la personne suivante sache que quelqu'un l'a prouve sur du materiel reel. Vous pouvez la partager ou la deposer sur la Wig Shop comme preuve pour les autres.",
+    "wigs.save.explainer": "Un ajustement parfait est votre declaration signee que chaque code ici fonctionne sur votre propre appareil. Elle voyage avec le wig, pour que la personne suivante sache que quelqu'un l'a prouve sur du materiel reel.",
     "wigs.save.nothing_to_attest": "Il n'y a encore rien a attester : cet appareil n'a ni codes ni matrice d'etats. Ajoutez-en, puis revenez.",
     "wigs.save.update_heading": "Mettre a jour {name}",
     "wigs.save.source_missing": "Cet appareil vient d'un wig qui n'est plus dans le placard, un nouveau sera donc enregistre.",
@@ -536,8 +536,6 @@
     "wigs.save.your_github": "Identifiant GitHub",
     "wigs.save.oath": "J'atteste que chaque signal coche fonctionne sur mon appareil tel qu'il est ecrit.",
     "wigs.save.rename_wig_warning": "Ceci renomme {name} lui-meme. Cela ne cree pas un second wig, et le fichier garde le nom sous lequel il a ete enregistre la premiere fois.",
-    "wigs.save.joining.one": "{name} porte deja un ajustement. Le votre s'ajoute a lui, il ne le remplace pas.",
-    "wigs.save.joining.other": "{name} porte deja {count} ajustements. Le votre s'ajoute a eux, il ne les remplace pas.",
     "wigs.save.save_perfect": "Enregistrer l'ajustement parfait",
     "wigs.save.save_fitted": "Enregistrer le wig ajuste",
     "wigs.save.save_as_new": "Enregistrer comme nouveau wig",
@@ -665,5 +663,9 @@
     "claims.orphaned_count.one": "{count} modifiée depuis",
     "claims.orphaned_count.other": "{count} modifiées depuis",
     "claims.show_all.one": "Afficher une de plus",
-    "claims.show_all.other": "Afficher {count} de plus"
+    "claims.show_all.other": "Afficher {count} de plus",
+    "wigs.save.joining_proven.one": "Une personne a déjà éprouvé cette perruque. Vous seriez la suivante.",
+    "wigs.save.joining_proven.other": "{count} personnes ont déjà éprouvé cette perruque. Vous seriez la suivante.",
+    "wigs.save.joining_see.one": "Voir l'ajustement qu'elle porte déjà",
+    "wigs.save.joining_see.other": "Voir les {count} ajustements qu'elle porte déjà"
 }

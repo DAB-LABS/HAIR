@@ -39,6 +39,7 @@ import type { SavePlan, SavePlanRow, SaveResult } from "./types.js";
 import "./ir-protocol-chip.js";
 import "./ir-test-button.js";
 import "./ir-tx-knobs.js";
+import "./ir-claims-ledger.js";
 
 type Verdict = "worked" | "not_on_device" | "wont_work";
 
@@ -91,6 +92,9 @@ export class IrSaveWigDialog extends LitElement {
      * because proposing a content change is a different act from
      * attesting that codes work. */
     @state() private _proposeLattice = false;
+    /** The ledger, opened from the joining line. Read only; it cannot
+     * change anything this dialog is about to save. */
+    @state() private _ledgerOpen = false;
 
     private get _isUpdate(): boolean {
         return this._plan?.variant === "update" && !this._saveAsNew;
@@ -266,7 +270,18 @@ export class IrSaveWigDialog extends LitElement {
             (e.target as HTMLInputElement).checked = false;
             return;
         }
-        this._perfect = (e.target as HTMLInputElement).checked;
+        this._setPerfect((e.target as HTMLInputElement).checked);
+    }
+
+    /**
+     * Arming the banner, from the tick or from the banner itself.
+     *
+     * Split out of ``_togglePerfect`` so the banner head can drive it
+     * without inventing a fake input event. The tick still owns the
+     * checkbox; this owns what arming MEANS.
+     */
+    private _setPerfect(on: boolean): void {
+        this._perfect = on;
         if (this._perfect) {
             this._checked = new Set(this._allRows.map((r) => r.digest));
             this._reasons = new Map();
@@ -543,6 +558,16 @@ export class IrSaveWigDialog extends LitElement {
                 ${this._renderMetadata()} ${this._renderFitting()}
                 ${this._renderActions()}
             </ha-dialog>
+            ${this._ledgerOpen && this._plan?.source_filename
+                ? html`<ir-claims-ledger
+                      .api=${this.api}
+                      .wig=${{
+                          filename: this._plan.source_filename,
+                          name: this._plan.source_wig_name ?? "",
+                      } as any}
+                      @closed=${() => (this._ledgerOpen = false)}
+                  ></ir-claims-ledger>`
+                : ""}
         `;
     }
 
@@ -700,6 +725,60 @@ export class IrSaveWigDialog extends LitElement {
         `;
     }
 
+    /**
+     * The banner's HEAD is the click target, not the whole banner.
+     *
+     * Generous enough that nobody has to hit a 15px checkbox, and
+     * bounded so it stops before the row list. Once armed, this block
+     * holds thirty ticks and a signature form; a stray click in that
+     * region disarming the whole thing would throw away work somebody
+     * just did. The head is the part that means "do you want to do
+     * this at all", so the head is what answers it.
+     *
+     * The label stops propagation itself: a click there toggles the
+     * checkbox natively and would then bubble here and toggle it back,
+     * netting to nothing.
+     */
+    private _onHeadClick(): void {
+        if (this._nothingToAttest || this._attestBlocked) return;
+        this._setPerfect(!this._perfect);
+    }
+
+    /**
+     * You would be joining a record, not starting one.
+     *
+     * Three renamed saves read as three lost wigs on the bench when
+     * they were one wig collecting three fittings, so this line has
+     * always been here. What it never was is a DOOR: the count sat as
+     * grey text under a grey paragraph, and the people behind it were
+     * unreachable. It opens the ledger now.
+     *
+     * Cardinal, not ordinal. The first draft read "you would be the
+     * 3rd person" and the English was broken by its own template:
+     * "{n}rd" is right for 3 and wrong for 2, 4 and 21, and fixing it
+     * properly needs an ordinal plural ruleset that tp() does not have,
+     * plus ja/ru/pl having no such construction at all. A cardinal
+     * count is one ordinary plural key that translates everywhere.
+     */
+    private _renderJoining() {
+        const n = this._plan?.existing_fittings ?? 0;
+        if (!this._isUpdate || n < 1) return "";
+        return html`
+            <button
+                class="joining"
+                @click=${(e: Event) => {
+                    e.stopPropagation();
+                    this._ledgerOpen = true;
+                }}
+            >
+                <span class="j-line">${tp("wigs.save.joining_proven", n)}</span>
+                <span class="j-see"
+                    ><u>${tp("wigs.save.joining_see", n)}</u> &rsaquo;</span
+                >
+            </button>
+        `;
+    }
+
     private _renderFitting() {
         if (this._loading) {
             return html`<div class="ident-hint">${t("common.loading_plain")}</div>`;
@@ -707,32 +786,36 @@ export class IrSaveWigDialog extends LitElement {
         if (!this._plan) return nothing;
         return html`
             ${this._renderLatticeChanges()}
-            <div class="fit-block">
-                <label class="fit-check">
-                    <input
-                        type="checkbox"
-                        .checked=${this._perfect}
-                        ?disabled=${this._nothingToAttest ||
-                        this._attestBlocked}
-                        @change=${this._togglePerfect}
-                    />
-                    <span>${t("wigs.save.perfect_label")}</span>
-                </label>
-                ${this._nothingToAttest
-                    ? html`<div class="fit-explainer">
-                          ${t("wigs.save.nothing_to_attest")}
-                      </div>`
-                    : ""}
-                <div class="fit-explainer">${t("wigs.save.explainer")}</div>
-                ${this._isUpdate && (this._plan?.existing_fittings ?? 0) > 0
-                    ? html`<div class="joining">
-                          ${tp(
-                              "wigs.save.joining",
-                              this._plan?.existing_fittings ?? 0,
-                              { name: this._plan?.source_wig_name ?? "" },
-                          )}
-                      </div>`
-                    : ""}
+            <div class="fit-block ${this._perfect ? "on" : ""}">
+                <div class="fit-head" @click=${this._onHeadClick}>
+                    <label
+                        class="fit-check"
+                        @click=${(e: Event) => e.stopPropagation()}
+                    >
+                        <input
+                            type="checkbox"
+                            .checked=${this._perfect}
+                            ?disabled=${this._nothingToAttest ||
+                            this._attestBlocked}
+                            @change=${this._togglePerfect}
+                        />
+                        <span>${t("wigs.save.perfect_label")}</span>
+                    </label>
+                    ${this._nothingToAttest
+                        ? html`<div class="fit-explainer">
+                              ${t("wigs.save.nothing_to_attest")}
+                          </div>`
+                        : ""}
+                    <div class="fit-explainer">
+                        ${t("wigs.save.explainer")}
+                    </div>
+                    ${this._attestBlocked
+                        ? html`<div class="fit-gate">
+                              ${t("wigs.save.lattice_blocks_attestation")}
+                          </div>`
+                        : ""}
+                    ${this._renderJoining()}
+                </div>
                 ${this._perfect && !this._nothingToAttest
                     ? this._renderList()
                     : ""}
@@ -1062,10 +1145,53 @@ export class IrSaveWigDialog extends LitElement {
                 line-height: 1.45;
                 margin-top: 7px;
             }
+            /* THE BOUNDARY between describing the wig and making a
+               claim about it. Those are different acts and the dialog
+               never said so: the one control that turns a save into a
+               signed claim was a bare checkbox under a hairline rule,
+               at the same weight as the form labels above it.
+
+               DASHED at rest so it reads as an offer; SOLID the moment
+               it is armed. Blue, not green: green is already carrying
+               the row checks and the Save button, and a green frame
+               here would compete with the thing it leads up to. Blue is
+               the panel's informational colour already (the comb glyph,
+               every link). */
             .fit-block {
-                margin-top: 10px;
-                padding-top: 10px;
-                border-top: 1px solid var(--divider-color);
+                margin-top: 14px;
+                padding: 13px 15px;
+                border: 1.5px dashed rgba(100, 181, 246, 0.45);
+                border-radius: 8px;
+                background: rgba(100, 181, 246, 0.035);
+                transition: border-color 180ms ease, background 180ms ease,
+                    box-shadow 180ms ease;
+            }
+            .fit-block:hover {
+                border-color: rgba(100, 181, 246, 0.7);
+            }
+            .fit-block.on {
+                border-style: solid;
+                border-color: #64b5f6;
+                background: rgba(100, 181, 246, 0.09);
+                box-shadow:
+                    0 0 0 1px rgba(100, 181, 246, 0.18),
+                    0 2px 14px rgba(100, 181, 246, 0.09);
+            }
+            /* Only the head is clickable. Generous enough that nobody
+               hits a 15px checkbox, bounded so a stray click among the
+               thirty ticks below cannot disarm the block and throw the
+               work away. */
+            .fit-head {
+                cursor: pointer;
+            }
+            /* Why the tick is refused, next to the tick it refuses.
+               It used to sit under the propose control, which is where
+               the REMEDY is; the question it answers is asked here. */
+            .fit-gate {
+                font-size: 11.5px;
+                color: #d9a441;
+                line-height: 1.45;
+                margin: 6px 0 0 24px;
             }
             .fit-check {
                 display: flex;
@@ -1086,6 +1212,13 @@ export class IrSaveWigDialog extends LitElement {
                 border: 1px solid var(--divider-color);
                 border-radius: 6px;
                 padding: 4px 6px;
+            }
+            /* Two bordered objects should not touch. The explainer's own
+               8px is enough when it is the last thing in the head, but
+               the fittings door is a card, and a card butted straight
+               against the checklist reads as one control. */
+            .fit-head + .fit-list {
+                margin-top: 11px;
             }
             /* COLUMN DISCIPLINE. The pill sits in a fixed slot sized to
                the widest protocol name and the value chips sit in fixed
@@ -1225,11 +1358,43 @@ export class IrSaveWigDialog extends LitElement {
             /* You are joining a record, not starting one. Three
                renamed saves read as three lost wigs on the bench when
                they were one wig collecting three fittings. */
+            /* A DOOR, not a footnote. The count was grey text under a
+               grey paragraph and the people behind it were unreachable;
+               it opens the ledger now. Sized and bordered so it reads
+               as something you can press. */
             .joining {
+                display: block;
+                width: calc(100% - 24px);
+                margin: 11px 0 0 24px;
+                padding: 9px 12px;
+                text-align: left;
+                font-family: inherit;
+                color: inherit;
+                background: rgba(100, 181, 246, 0.05);
+                border: 1px solid rgba(100, 181, 246, 0.28);
+                border-radius: 7px;
+                cursor: pointer;
+                transition: background 150ms ease, border-color 150ms ease;
+            }
+            .joining:hover {
+                background: rgba(100, 181, 246, 0.12);
+                border-color: rgba(100, 181, 246, 0.55);
+            }
+            .joining .j-line {
+                display: block;
+                font-size: 13px;
+                line-height: 1.5;
+            }
+            .joining .j-see {
+                display: block;
                 font-size: 11.5px;
                 color: var(--secondary-text-color);
-                line-height: 1.45;
-                margin: 0 0 8px 24px;
+                margin-top: 4px;
+            }
+            .joining .j-see u {
+                color: #64b5f6;
+                text-decoration: underline dotted;
+                text-underline-offset: 3px;
             }
             .rename-warn {
                 font-size: 11.5px;

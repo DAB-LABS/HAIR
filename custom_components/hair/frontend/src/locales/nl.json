@@ -521,7 +521,7 @@
     "wigs.save.lattice_blocks_attestation": "Een pasvorm staat in voor de hele set toestanden en kan dus niet ondertekend worden zolang de jouwe afwijkt. Stel de wijzigingen hierboven voor, sla op als nieuwe wig, of sla op zonder te verklaren.",
     "wigs.save.cells_proposed.one": "Een toestand voorgesteld aan de wig.",
     "wigs.save.cells_proposed.other": "{count} toestanden voorgesteld aan de wig.",
-    "wigs.save.explainer": "Een perfecte pasvorm is jouw ondertekende verklaring dat elke code hier op je eigen apparaat werkt. Hij reist mee met de wig, zodat de volgende persoon weet dat iemand het op echte hardware heeft aangetoond. Je kunt hem delen of als bewijs naar de Wig Shop uploaden.",
+    "wigs.save.explainer": "Een perfecte pasvorm is jouw ondertekende verklaring dat elke code hier op je eigen apparaat werkt. Hij reist mee met de wig, zodat de volgende persoon weet dat iemand het op echte hardware heeft aangetoond.",
     "wigs.save.nothing_to_attest": "Er valt nog niets te verklaren: dit apparaat heeft geen codes en geen toestandsmatrix. Voeg er eerst een paar toe.",
     "wigs.save.update_heading": "{name} bijwerken",
     "wigs.save.source_missing": "Dit apparaat komt van een wig die niet meer in de kast staat, dus er wordt een nieuwe opgeslagen.",
@@ -536,8 +536,6 @@
     "wigs.save.your_github": "GitHub-naam",
     "wigs.save.oath": "Ik verklaar dat elk aangevinkt signaal op mijn apparaat werkt zoals beschreven.",
     "wigs.save.rename_wig_warning": "Dit hernoemt {name} zelf. Er komt geen tweede wig bij, en het bestand houdt de naam waaronder het voor het eerst is opgeslagen.",
-    "wigs.save.joining.one": "{name} draagt al een pasvorm. De jouwe komt erbij, niet in plaats daarvan.",
-    "wigs.save.joining.other": "{name} draagt al {count} pasvormen. De jouwe komt erbij, niet in plaats daarvan.",
     "wigs.save.save_perfect": "Perfecte pasvorm opslaan",
     "wigs.save.save_fitted": "Gepaste wig opslaan",
     "wigs.save.save_as_new": "Opslaan als nieuwe wig",
@@ -665,5 +663,9 @@
     "claims.orphaned_count.one": "{count} sindsdien gewijzigd",
     "claims.orphaned_count.other": "{count} sindsdien gewijzigd",
     "claims.show_all.one": "Nog één tonen",
-    "claims.show_all.other": "Nog {count} tonen"
+    "claims.show_all.other": "Nog {count} tonen",
+    "wigs.save.joining_proven.one": "Eén persoon heeft deze pruik al bewezen. Jij zou de volgende zijn.",
+    "wigs.save.joining_proven.other": "{count} personen hebben deze pruik al bewezen. Jij zou de volgende zijn.",
+    "wigs.save.joining_see.one": "Bekijk de pasvorm die er al is",
+    "wigs.save.joining_see.other": "Bekijk de {count} pasvormen die er al zijn"
 }

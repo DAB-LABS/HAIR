@@ -521,7 +521,7 @@
     "wigs.save.lattice_blocks_attestation": "フィットは状態の集合全体を保証するため、あなたの状態が異なる間は署名できません。上の変更を提案するか、新しいウィッグとして保存するか、申告せずに保存してください。",
     "wigs.save.cells_proposed.one": "1 件の状態をウィッグに提案しました。",
     "wigs.save.cells_proposed.other": "{count} 件の状態をウィッグに提案しました。",
-    "wigs.save.explainer": "パーフェクトフィットは、ここにあるすべてのコードが自分の機器で動くという署名付きの申告です。ウィッグと一緒に travel し、次の人は誰かが実機で確かめたと分かります。共有したり、他の人のための証拠として Wig Shop にアップロードできます。",
+    "wigs.save.explainer": "パーフェクトフィットは、ここにあるすべてのコードが自分の機器で動くという署名付きの申告です。ウィッグと一緒に運ばれるので、次の人は誰かが実機で確かめたと分かります。",
     "wigs.save.nothing_to_attest": "まだ申告できるものがありません。この機器にはコードもステートマトリクスもありません。追加してから戻ってきてください。",
     "wigs.save.update_heading": "{name} を更新",
     "wigs.save.source_missing": "この機器の元になったウィッグはクローゼットにもうありません。新しいウィッグとして保存します。",
@@ -536,8 +536,6 @@
     "wigs.save.your_github": "GitHub ハンドル",
     "wigs.save.oath": "チェックしたすべての信号が、記載どおり自分の機器で動作することを申告します。",
     "wigs.save.rename_wig_warning": "これは {name} 自体の名前を変更します。2つ目のウィッグは作られず、ファイル名は最初に保存したときのままです。",
-    "wigs.save.joining.one": "{name} にはすでに 1 件のフィットがあります。あなたのフィットは置き換えではなく追加されます。",
-    "wigs.save.joining.other": "{name} にはすでに {count} 件のフィットがあります。あなたのフィットは置き換えではなく追加されます。",
     "wigs.save.save_perfect": "パーフェクトフィットを保存",
     "wigs.save.save_fitted": "フィット済みウィッグを保存",
     "wigs.save.save_as_new": "新しいウィッグとして保存",
@@ -665,5 +663,9 @@
     "claims.orphaned_count.one": "{count} 件はその後変更",
     "claims.orphaned_count.other": "{count} 件はその後変更",
     "claims.show_all.one": "さらに 1 件表示",
-    "claims.show_all.other": "さらに {count} 件表示"
+    "claims.show_all.other": "さらに {count} 件表示",
+    "wigs.save.joining_proven.one": "1 人がすでにこのウィッグを検証しています。あなたが次になります。",
+    "wigs.save.joining_proven.other": "{count} 人がすでにこのウィッグを検証しています。あなたが次になります。",
+    "wigs.save.joining_see.one": "すでにあるフィットを見る",
+    "wigs.save.joining_see.other": "すでにある {count} 件のフィットを見る"
 }

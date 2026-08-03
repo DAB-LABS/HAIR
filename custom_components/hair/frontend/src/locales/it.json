@@ -521,7 +521,7 @@
     "wigs.save.lattice_blocks_attestation": "Una calzata risponde dell'intero insieme di stati, quindi non puo essere firmata finche il tuo differisce. Proponi le modifiche sopra, salva come nuovo wig, oppure salva senza dichiarare.",
     "wigs.save.cells_proposed.one": "Uno stato proposto al wig.",
     "wigs.save.cells_proposed.other": "{count} stati proposti al wig.",
-    "wigs.save.explainer": "Una calzata perfetta e la tua dichiarazione firmata che ogni codice qui funziona sul tuo dispositivo. Viaggia insieme al wig, cosi la persona successiva sa che qualcuno lo ha provato su hardware reale. Puoi condividerla o caricarla sul Wig Shop come prova per gli altri.",
+    "wigs.save.explainer": "Una calzata perfetta e la tua dichiarazione firmata che ogni codice qui funziona sul tuo dispositivo. Viaggia insieme al wig, cosi la persona successiva sa che qualcuno lo ha provato su hardware reale.",
     "wigs.save.nothing_to_attest": "Non c'e ancora nulla da dichiarare: questo dispositivo non ha codici ne matrice di stati. Aggiungine e torna qui.",
     "wigs.save.update_heading": "Aggiorna {name}",
     "wigs.save.source_missing": "Questo dispositivo proviene da un wig che non e piu nell'armadio, quindi ne verra salvato uno nuovo.",
@@ -536,8 +536,6 @@
     "wigs.save.your_github": "Nome utente GitHub",
     "wigs.save.oath": "Dichiaro che ogni segnale selezionato funziona sul mio dispositivo come scritto.",
     "wigs.save.rename_wig_warning": "Questo rinomina {name} stesso. Non crea un secondo wig, e il file mantiene il nome con cui e stato salvato la prima volta.",
-    "wigs.save.joining.one": "{name} porta gia una calzata. La tua si aggiunge a essa, non la sostituisce.",
-    "wigs.save.joining.other": "{name} porta gia {count} calzate. La tua si aggiunge a esse, non le sostituisce.",
     "wigs.save.save_perfect": "Salva calzata perfetta",
     "wigs.save.save_fitted": "Salva wig calzato",
     "wigs.save.save_as_new": "Salva come nuovo wig",
@@ -665,5 +663,9 @@
     "claims.orphaned_count.one": "{count} modificata da allora",
     "claims.orphaned_count.other": "{count} modificate da allora",
     "claims.show_all.one": "Mostra un'altra",
-    "claims.show_all.other": "Mostra altre {count}"
+    "claims.show_all.other": "Mostra altre {count}",
+    "wigs.save.joining_proven.one": "Una persona ha già provato questa parrucca. Tu saresti la prossima.",
+    "wigs.save.joining_proven.other": "{count} persone hanno già provato questa parrucca. Tu saresti la prossima.",
+    "wigs.save.joining_see.one": "Vedi la calzata che porta già",
+    "wigs.save.joining_see.other": "Vedi le {count} calzate che porta già"
 }
