@@ -609,8 +609,9 @@ export class HairApi {
                 alias_at_claim: string;
                 alias: string;
             }[];
-            cells_hash?: string;
         };
+        /** MATRIX UPDATE: send the repaired lattice upstream. */
+        propose_lattice?: boolean;
     }): Promise<SaveResult> {
         return this.hass.connection.sendMessagePromise<SaveResult>({
             type: "hair/wigs/save",

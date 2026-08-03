@@ -392,6 +392,19 @@ export interface SavePlanMissingRow {
     digest: string;
 }
 
+/** One way the device's lattice differs from the wig it came from. */
+export interface CellChange {
+    /** "changed" | "deleted" | "added". */
+    kind: string;
+    /** Coordinate name, matching what the porthole row on the device
+     * calls the same cell. */
+    label: string;
+    mode: string | null;
+    fan: string | null;
+    swing: string | null;
+    temp: number | null;
+}
+
 export interface SavePlan {
     variant: "create" | "update";
     rows: SavePlanRow[];
@@ -416,6 +429,12 @@ export interface SavePlan {
     cells_hash: string | null;
     unit: "C" | "F";
     precision: number;
+    /** MATRIX UPDATE only: how the device's lattice differs from the
+     * wig's. Non-empty blocks the matrix attestation, because a
+     * checklist bundle binds cells_hash, a SET -- signing a diverged
+     * lattice would bind bytes the fitter never tested. */
+    cell_changes: CellChange[];
+    lattice_diverged: boolean;
     /** A climate matrix device. Its lattice lives in the climate
      * entity, not the command list, so the rows above are only its
      * depth-0 extras and the perfect-fit block stays closed. */
@@ -432,6 +451,10 @@ export interface SaveResult {
     notes: string[];
     /** Renames that matched nothing. Reported, never silent. */
     stale_renames: string[];
+    /** What the fresh comb receipt says about the file just written. */
+    suspects: number;
+    /** Lattice cells this save proposed upstream. */
+    cells_proposed: number;
 }
 
 export interface FittingState {

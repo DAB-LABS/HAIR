@@ -87,6 +87,10 @@ export class IrSaveWigDialog extends LitElement {
     /** UPDATE only: the footer escape hatch, behind a confirm. */
     @state() private _saveAsNew = false;
     @state() private _confirmNew = false;
+    /** MATRIX UPDATE: send the repaired lattice upstream. Explicit,
+     * because proposing a content change is a different act from
+     * attesting that codes work. */
+    @state() private _proposeLattice = false;
 
     private get _isUpdate(): boolean {
         return this._plan?.variant === "update" && !this._saveAsNew;
@@ -169,6 +173,20 @@ export class IrSaveWigDialog extends LitElement {
         return !!this._plan && this._allRows.length === 0;
     }
 
+    /** The device's lattice has moved away from the wig's -- a repair
+     * through a porthole row, or a cell deleted through one. */
+    private get _diverged(): boolean {
+        return this._isUpdate && !!this._plan?.lattice_diverged;
+    }
+
+    /** A checklist bundle binds cells_hash, which is a SET, so a
+     * diverged lattice cannot be attested as it stands: signing would
+     * bind bytes the fitter never tested. Proposing resolves it,
+     * because then the lattice being bound is the one going in. */
+    private get _attestBlocked(): boolean {
+        return this._diverged && !this._proposeLattice;
+    }
+
     private get _signed(): boolean {
         return this._perfect && this._oath;
     }
@@ -244,6 +262,10 @@ export class IrSaveWigDialog extends LitElement {
      * default claim is "all of it", and unchecking is the exception
      * path rather than the main road. */
     private _togglePerfect(e: Event): void {
+        if (this._attestBlocked) {
+            (e.target as HTMLInputElement).checked = false;
+            return;
+        }
         this._perfect = (e.target as HTMLInputElement).checked;
         if (this._perfect) {
             this._checked = new Set(this._allRows.map((r) => r.digest));
@@ -257,6 +279,13 @@ export class IrSaveWigDialog extends LitElement {
             // from being stranded in create mode with no way back.
             this._saveAsNew = false;
         }
+    }
+
+    private _toggleProposeLattice(e: Event): void {
+        this._proposeLattice = (e.target as HTMLInputElement).checked;
+        // Withdrawing the proposal re-blocks the attestation, so an
+        // armed block cannot outlive the thing that unblocked it.
+        if (!this._proposeLattice) this._perfect = false;
     }
 
     private _toggleRow(digest: string): void {
@@ -480,6 +509,9 @@ export class IrSaveWigDialog extends LitElement {
             mode: this._isUpdate ? "update" : "create",
             ...this._metadata(),
             ...(attest ? { attest } : {}),
+            ...(this._isUpdate && this._proposeLattice
+                ? { propose_lattice: true }
+                : {}),
         });
     }
 
@@ -536,6 +568,14 @@ export class IrSaveWigDialog extends LitElement {
                 @closed=${this._close}
             >
                 <div class="saved-line">${line}</div>
+                ${done.cells_proposed
+                    ? html`<div class="saved-line">
+                          ${tp(
+                              "wigs.save.cells_proposed",
+                              done.cells_proposed,
+                          )}
+                      </div>`
+                    : ""}
                 ${done.stale_renames?.length
                     ? html`<ha-alert alert-type="warning"
                           >${t("wigs.save.stale_renames", {
@@ -666,12 +706,14 @@ export class IrSaveWigDialog extends LitElement {
         }
         if (!this._plan) return nothing;
         return html`
+            ${this._renderLatticeChanges()}
             <div class="fit-block">
                 <label class="fit-check">
                     <input
                         type="checkbox"
                         .checked=${this._perfect}
-                        ?disabled=${this._nothingToAttest}
+                        ?disabled=${this._nothingToAttest ||
+                        this._attestBlocked}
                         @change=${this._togglePerfect}
                     />
                     <span>${t("wigs.save.perfect_label")}</span>
@@ -696,6 +738,54 @@ export class IrSaveWigDialog extends LitElement {
                     : ""}
                 ${this._perfect && !this._nothingToAttest
                     ? this._renderAttestation()
+                    : ""}
+            </div>
+        `;
+    }
+
+
+    /**
+     * The content-change prompt for a matrix.
+     *
+     * Cells the person repaired or deleted through a porthole row on
+     * the device. They are named by coordinate with the same rule the
+     * rows use, so the "Cool 24" here is recognizably the row they just
+     * worked on.
+     *
+     * Proposing is a CONTENT change and attesting is a claim about
+     * hardware; keeping them separate ticks is what stops one from
+     * being mistaken for the other.
+     */
+    private _renderLatticeChanges() {
+        const changes = this._plan?.cell_changes ?? [];
+        if (!this._isUpdate || changes.length === 0) return "";
+        return html`
+            <div class="lattice-block">
+                <div class="lattice-head">
+                    ${tp("wigs.save.lattice_changed", changes.length, {
+                        name: this._plan?.source_wig_name ?? "",
+                    })}
+                </div>
+                <div class="lattice-list">
+                    ${changes.map(
+                        (change) => html`<span
+                            class="cell-chip ${change.kind}"
+                            >${change.label}</span
+                        >`,
+                    )}
+                </div>
+                <label class="fit-check propose">
+                    <input
+                        type="checkbox"
+                        .checked=${this._proposeLattice}
+                        @change=${this._toggleProposeLattice}
+                    />
+                    <span>${t("wigs.save.propose_lattice")}</span>
+                </label>
+                ${this._attestBlocked
+                    ? html`<div class="lattice-gate">
+                          ${t("wigs.save.lattice_blocks_attestation")}
+                      </div>`
                     : ""}
             </div>
         `;
@@ -925,6 +1015,52 @@ export class IrSaveWigDialog extends LitElement {
                 padding: 8px 0 4px;
                 font-size: 13.5px;
                 line-height: 1.5;
+            }
+            /* The content-change prompt. Above the attestation block
+               on purpose: what the wig is about to BECOME has to be
+               settled before anybody vouches for it. */
+            .lattice-block {
+                margin-top: 10px;
+                padding: 8px 10px;
+                border: 1px solid rgba(217, 164, 65, 0.45);
+                border-radius: 6px;
+                background: rgba(217, 164, 65, 0.06);
+            }
+            .lattice-head {
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            .lattice-list {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 5px;
+                margin: 7px 0;
+            }
+            .cell-chip {
+                font-size: 11px;
+                padding: 1px 7px;
+                border-radius: 4px;
+                border: 1px solid var(--divider-color);
+                color: var(--secondary-text-color);
+            }
+            .cell-chip.changed {
+                border-color: rgba(217, 164, 65, 0.6);
+                color: #d9a441;
+            }
+            /* A deleted cell reads as gone, not as edited. */
+            .cell-chip.deleted {
+                text-decoration: line-through;
+                opacity: 0.75;
+            }
+            .propose {
+                font-size: 12.5px;
+                margin-top: 2px;
+            }
+            .lattice-gate {
+                font-size: 11.5px;
+                color: #d9a441;
+                line-height: 1.45;
+                margin-top: 7px;
             }
             .fit-block {
                 margin-top: 10px;
