@@ -97,14 +97,12 @@ Same device as the Device Detail shot above, but after a profile-language change
 
 Click the button above, then **Download**, then restart Home Assistant.
 
-Or add it by hand:
+Or find it by hand:
 
-1. Open HACS in your Home Assistant instance
-2. Go to **Integrations**
-3. Click the three-dot menu > **Custom repositories**
-4. Add `https://github.com/DAB-LABS/HAIR` with category **Integration**
-5. Search for "HAIR" and install
-6. Restart Home Assistant
+1. Open **HACS** in your Home Assistant sidebar
+2. Search for **HAIR**
+3. Click it, then **Download**
+4. Restart Home Assistant
 
 ### Manual
 

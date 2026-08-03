@@ -33,7 +33,7 @@ Het paneel spreekt jouw taal. Engels, Spaans, Frans, Japans, Duits, Pools, Portu
 
 [![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
 
-1. Voeg `https://github.com/DAB-LABS/HAIR` toe aan HACS als aangepaste repository (categorie: Integration)
+1. Open HACS en zoek naar HAIR
 2. Installeer HAIR, herstart Home Assistant en voeg de integratie toe onder Instellingen, dan Apparaten en diensten
 
 Vereist Home Assistant 2026.4 of nieuwer; 2026.6+ aanbevolen voor native IR-ontvangers.

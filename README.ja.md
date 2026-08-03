@@ -33,7 +33,7 @@
 
 [![Open your Home Assistant instance and open the HAIR repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=DAB-LABS&repository=HAIR&category=integration)
 
-1. HACSのカスタムリポジトリに `https://github.com/DAB-LABS/HAIR` を追加（カテゴリ：Integration）
+1. HACSを開いてHAIRを検索
 2. HAIRをインストールしてHome Assistantを再起動し、設定→デバイスとサービスから統合を追加
 
 Home Assistant 2026.4以降が必要。ネイティブIRレシーバーには2026.6以降を推奨。
