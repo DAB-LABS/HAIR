@@ -553,7 +553,7 @@
     "wigs.save.joining": "У {name} уже есть посадок: {count}. Ваша добавляется к ним, а не вместо них.",
     "wigs.save.save_perfect": "Сохранить идеальную посадку",
     "wigs.save.save_fitted": "Сохранить подогнанный вижок",
-    "wigs.save.save_as_new": "Вместо этого сохранить как новый вижок",
+    "wigs.save.save_as_new": "Сохранить как новый вижок",
     "wigs.save.new_confirm_heading": "Сохранить как новый вижок?",
     "wigs.save.new_confirm_body": "Вы сохраняете это как совершенно новый вижок. Вы не обновляете {name}, подогнанный вижок, из которого он получен.",
     "wigs.save.new_confirm_yes": "Сохранить как новый",

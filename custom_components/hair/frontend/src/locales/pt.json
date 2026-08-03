@@ -535,7 +535,7 @@
     "wigs.save.joining": "{name} ja tem {count} encaixe(s). O seu e acrescentado a eles, nao em vez deles.",
     "wigs.save.save_perfect": "Guardar encaixe perfeito",
     "wigs.save.save_fitted": "Guardar wig ajustada",
-    "wigs.save.save_as_new": "Guardar antes como nova wig",
+    "wigs.save.save_as_new": "Guardar como nova wig",
     "wigs.save.new_confirm_heading": "Guardar como nova wig?",
     "wigs.save.new_confirm_body": "Esta a guardar isto como uma wig completamente nova. Nao esta a atualizar {name}, a wig ajustada de onde veio.",
     "wigs.save.new_confirm_yes": "Guardar como nova",

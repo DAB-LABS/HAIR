@@ -245,6 +245,14 @@ export class IrSaveWigDialog extends LitElement {
         if (this._perfect) {
             this._checked = new Set(this._allRows.map((r) => r.digest));
             this._reasons = new Map();
+            // Attesting means attesting the wig you came from, so
+            // arming the block returns to UPDATE and the save-as-new
+            // toggle goes away (owner ruling 2026-08-03). Save as new
+            // is the copy-the-metadata-into-a-fresh-wig road; it is not
+            // a thing you reach for halfway through signing. Clearing
+            // it here rather than only hiding it is what stops someone
+            // from being stranded in create mode with no way back.
+            this._saveAsNew = false;
         }
     }
 
@@ -759,7 +767,7 @@ export class IrSaveWigDialog extends LitElement {
                 >
                     ${t("common.cancel")}
                 </button>
-                ${this._plan?.variant === "update"
+                ${this._plan?.variant === "update" && !this._perfect
                     ? html`<button
                           class="action-btn as-new-btn ${this._saveAsNew ? "on" : ""}"
                           @click=${() => {

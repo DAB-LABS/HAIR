@@ -535,7 +535,7 @@
     "wigs.save.joining": "{name} porte deja {count} ajustement(s). Le votre s'ajoute a eux, il ne les remplace pas.",
     "wigs.save.save_perfect": "Enregistrer l'ajustement parfait",
     "wigs.save.save_fitted": "Enregistrer le wig ajuste",
-    "wigs.save.save_as_new": "Enregistrer plutot comme nouveau wig",
+    "wigs.save.save_as_new": "Enregistrer comme nouveau wig",
     "wigs.save.new_confirm_heading": "Enregistrer comme nouveau wig ?",
     "wigs.save.new_confirm_body": "Vous enregistrez ceci comme un wig entierement nouveau. Vous ne mettez pas a jour {name}, le wig ajuste dont il provient.",
     "wigs.save.new_confirm_yes": "Enregistrer comme nouveau",

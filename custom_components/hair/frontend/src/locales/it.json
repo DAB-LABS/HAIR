@@ -535,7 +535,7 @@
     "wigs.save.joining": "{name} porta gia {count} calzata/e. La tua si aggiunge alle altre, non le sostituisce.",
     "wigs.save.save_perfect": "Salva calzata perfetta",
     "wigs.save.save_fitted": "Salva wig calzato",
-    "wigs.save.save_as_new": "Salva invece come nuovo wig",
+    "wigs.save.save_as_new": "Salva come nuovo wig",
     "wigs.save.new_confirm_heading": "Salvare come nuovo wig?",
     "wigs.save.new_confirm_body": "Stai salvando questo come wig completamente nuovo. Non stai aggiornando {name}, il wig calzato da cui proviene.",
     "wigs.save.new_confirm_yes": "Salva come nuovo",
