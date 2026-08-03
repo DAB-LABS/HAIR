@@ -441,6 +441,24 @@ async def ws_send_command(
     )
 
 
+def _porthole_cell(
+    manager: DeviceManager, device_id: str, command_id: str
+) -> dict[str, Any] | None:
+    """The lattice coordinates behind a command row, or None.
+
+    None means an ordinary command, which is every row on a device that
+    is not a matrix and every row on a matrix device except the handful
+    the comb doubted.
+    """
+    device = manager.get_device(device_id)
+    if device is None:
+        return None
+    command = device.get_command(command_id)
+    if command is None:
+        return None
+    return command.matrix_cell or None
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/command/delete",
@@ -471,6 +489,13 @@ async def ws_delete_command(
             sig_fp = EventParser.signal_fingerprint(
                 cmd.protocol, cmd.code, cmd.raw_timings
             )
+    # The row is a porthole, so deleting it deletes the CELL. Sparse
+    # lattices are already legal, so what is left is a working matrix
+    # that simply stops offering that state.
+    cell = _porthole_cell(manager, msg["device_id"], msg["command_id"])
+    if cell is not None:
+        await manager.async_delete_cell(msg["device_id"], cell)
+
     removed = await manager.async_remove_command(
         msg["device_id"], msg["command_id"]
     )
@@ -2117,6 +2142,24 @@ async def ws_command_update(
         return
     device_manager: DeviceManager = data["device_manager"]
     trigger_manager: TriggerManager = data["trigger_manager"]
+
+    # A porthole row edits the LATTICE, not just this record. Written
+    # first: if the cell is gone the row is stale, and updating the
+    # command anyway would leave a row claiming bytes no cell carries.
+    cell = _porthole_cell(device_manager, msg["device_id"], msg["command_id"])
+    if (
+        cell is not None
+        and msg.get("pronto")
+        and not await device_manager.async_replace_cell(
+            msg["device_id"], cell, msg["pronto"]
+        )
+    ):
+        connection.send_error(
+            msg["id"], "cell_missing",
+            "That cell is no longer in the device's matrix",
+        )
+        return
+
     result = await device_manager.async_update_command(
         msg["device_id"],
         msg["command_id"],
@@ -4429,12 +4472,96 @@ async def ws_wig_make_device(
         manager._auto_map_command(device, command)
         copied += 1
 
+    # THE PORTHOLE ROWS (v0.9.5). A flagged lattice cell gets a
+    # coordinate-named command row so the full command toolset reaches
+    # it: TEST sends it, edit rewrites it, delete removes it. ONLY
+    # flagged cells -- the healthy thousands stay in the lattice where
+    # they belong, and a commands area listing them all would be
+    # useless. Without this the release would regress v0.9.1, whose
+    # fitting dialog could replace a defective cell.
+    cell_rows = 0
+    if matrix is not None:
+        cell_rows = _mint_cell_rows(device, matrix, suspects)
+
     await manager.async_update_device(device)
     result = await _device_full(hass, device)
     result["copied"] = copied
     result["skipped"] = skipped
+    result["cell_rows"] = cell_rows
     result["matrix_cells"] = len(matrix.cells) if matrix is not None else 0
     connection.send_result(msg["id"], result)
+
+
+
+def _cell_row_name(cell: Any, others: list[Any]) -> str:
+    """A flagged cell's row name: "Cool 24", coordinates only as needed.
+
+    Mode and temperature read as a state a person can set on their
+    remote, which is the whole point -- the row's name IS the
+    set-your-remote-to-this instruction. Fan and swing join only when
+    two flagged cells would otherwise wear the same name, because a
+    lattice usually carries several fan speeds per temperature and two
+    identical rows help nobody.
+    """
+    base = [cell.mode.capitalize() if cell.mode else "Cell"]
+    if cell.temp is not None:
+        base.append(_temp_label(cell.temp))
+    short = " ".join(base)
+    clashes = [
+        c for c in others
+        if c is not cell
+        and c.mode == cell.mode
+        and (c.temp is None) == (cell.temp is None)
+        and (c.temp is None or abs(float(c.temp) - float(cell.temp)) < 1e-6)
+    ]
+    if not clashes:
+        return short
+    extra = [v for v in (cell.fan, cell.swing) if v]
+    return " ".join([*base, *extra]) if extra else short
+
+
+def _temp_label(temp: float) -> str:
+    return str(int(temp)) if float(temp).is_integer() else str(temp)
+
+
+def _mint_cell_rows(
+    device: IRDevice, matrix: Any, suspects: set[str]
+) -> int:
+    """Give every comb-flagged cell a command row. Returns how many.
+
+    Keyed off the same suspect set the flat rows use, matched to cells
+    by ``cell_key`` -- the comb records cell findings under exactly that
+    key, so no second vocabulary is invented here.
+    """
+    if not suspects:
+        return 0
+    from .models import CommandCategory, CommandSource, IRCommand
+    from .wig_format import cell_key
+
+    flagged = [c for c in matrix.cells if cell_key(c) in suspects]
+    minted = 0
+    for cell in flagged:
+        command = IRCommand(
+            name=_cell_row_name(cell, flagged),
+            category=CommandCategory.CUSTOM,
+            source=CommandSource.MATRIX,
+            protocol="PRONTO",
+            code=cell.pronto,
+            send_count=max(1, cell.send_count or 1),
+            # Cells carry no dittos (plan 5.5), and an inherited catalog
+            # default would invent one.
+            repeat_count=0,
+            matrix_cell={
+                "mode": cell.mode, "fan": cell.fan,
+                "swing": cell.swing, "temp": cell.temp,
+            },
+            comb_suspect=True,
+        )
+        # Deliberately NOT auto-mapped: these are repair portholes, not
+        # buttons the entity should start offering as features.
+        device.add_command(command)
+        minted += 1
+    return minted
 
 
 @websocket_api.require_admin

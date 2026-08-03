@@ -457,6 +457,8 @@ async def test_send_command_not_found(fake_hass):
 async def test_delete_command_success(fake_hass):
     manager = MagicMock()
     manager.async_remove_command = AsyncMock(return_value=True)
+    # The delete path now asks whether the row is a lattice porthole.
+    manager.get_device = MagicMock(return_value=None)
     _wire_hass(fake_hass, manager=manager)
 
     conn = _make_connection()
@@ -472,6 +474,7 @@ async def test_delete_command_success(fake_hass):
 async def test_delete_command_not_found(fake_hass):
     manager = MagicMock()
     manager.async_remove_command = AsyncMock(return_value=False)
+    manager.get_device = MagicMock(return_value=None)
     _wire_hass(fake_hass, manager=manager)
 
     conn = _make_connection()

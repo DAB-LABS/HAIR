@@ -436,6 +436,83 @@ class DeviceManager:
             return None
         return entry.get("signal_monitor")
 
+    # --- The cell porthole (v0.9.5) --------------------------------
+    #
+    # A matrix device grows coordinate-named command rows for the cells
+    # the comb doubted. Those rows are VIEWS of lattice cells, so an
+    # edit or a delete through one has to reach the matrix store rather
+    # than the command record -- otherwise the row and the lattice drift
+    # apart and the climate entity keeps transmitting the code the
+    # person just replaced.
+    #
+    # Both writers go through here so the cache invalidation cannot be
+    # forgotten at a call site: async_get_matrix caches, and a stale
+    # cache is exactly the bug that looks fixed on the bench and comes
+    # back at the next restart.
+
+    async def async_write_matrix(
+        self, device_id: str, matrix: ClimateMatrix
+    ) -> None:
+        """Persist a device's lattice and refresh what everything reads."""
+        from .matrix_store import write_matrix
+
+        await self._hass.async_add_executor_job(
+            write_matrix, self._hass.config.config_dir, device_id, matrix
+        )
+        self._matrix_cache[device_id] = matrix
+
+    @staticmethod
+    def _cell_matches(cell: Any, coords: dict[str, Any]) -> bool:
+        """Does this cell sit at those coordinates?
+
+        Compared field by field rather than by cell_key, because a key
+        is a formatted string and a temperature that round-tripped
+        through JSON as 23 rather than 23.0 would stop matching its own
+        row. The numeric compare does not care.
+        """
+        if cell.mode != coords.get("mode"):
+            return False
+        if (cell.fan or None) != (coords.get("fan") or None):
+            return False
+        if (cell.swing or None) != (coords.get("swing") or None):
+            return False
+        a, b = cell.temp, coords.get("temp")
+        if a is None or b is None:
+            return a is None and b is None
+        return abs(float(a) - float(b)) < 1e-6
+
+    async def async_replace_cell(
+        self, device_id: str, coords: dict[str, Any], pronto: str
+    ) -> bool:
+        """Write new bytes into one lattice cell. False if it is gone."""
+        matrix = await self.async_get_matrix(device_id)
+        if matrix is None:
+            return False
+        for cell in matrix.cells:
+            if self._cell_matches(cell, coords):
+                cell.pronto = pronto
+                await self.async_write_matrix(device_id, matrix)
+                return True
+        return False
+
+    async def async_delete_cell(
+        self, device_id: str, coords: dict[str, Any]
+    ) -> bool:
+        """Remove one cell from the lattice. False if it is already gone.
+
+        Sparse lattices are legal, so this leaves a working matrix: the
+        climate entity simply stops offering that state.
+        """
+        matrix = await self.async_get_matrix(device_id)
+        if matrix is None:
+            return False
+        keep = [c for c in matrix.cells if not self._cell_matches(c, coords)]
+        if len(keep) == len(matrix.cells):
+            return False
+        matrix.cells = keep
+        await self.async_write_matrix(device_id, matrix)
+        return True
+
     async def async_send_command(
         self,
         device_id: str,

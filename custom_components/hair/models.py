@@ -70,6 +70,14 @@ class IRCommand:
     # (Plucker, v0.5.0). The user-typed vendor command name; None for
     # commands not sourced from a pluck.
     plucked_command_name: str | None = None
+    # A PORTHOLE TO A LATTICE CELL (v0.9.5). Present only on the
+    # coordinate-named rows a matrix device grows for cells the comb
+    # doubted: {"mode", "fan", "swing", "temp"}. Every action through
+    # such a row acts on the lattice rather than on this record -- TEST
+    # sends the cell, edit rewrites it, delete removes it -- so the row
+    # is a view, not a second copy that could drift from the matrix
+    # store behind it.
+    matrix_cell: dict[str, Any] | None = None
     # The comb doubted this row in the wig it was adopted from (v0.9.5).
     # Carried onto the device so the comb's receipt stops being
     # closet-only knowledge: the person can see what was doubted, test
@@ -101,6 +109,8 @@ class IRCommand:
             else None,
             "tx_force_raw": self.tx_force_raw,
             "plucked_command_name": self.plucked_command_name,
+            "matrix_cell": dict(self.matrix_cell)
+            if self.matrix_cell else None,
             "comb_suspect": self.comb_suspect,
             "created_at": self.created_at,
         }
@@ -126,6 +136,7 @@ class IRCommand:
             decoded_extras=data.get("decoded_extras") or None,
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
+            matrix_cell=data.get("matrix_cell") or None,
             comb_suspect=bool(data.get("comb_suspect", False)),
             created_at=data.get("created_at") or _now_iso(),
         )
