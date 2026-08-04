@@ -3043,17 +3043,35 @@ async def ws_wigs_get(
     already something somebody signed and meant. Handing back the
     original bytes is therefore both simpler and more honest, and it
     keeps hand-authored formatting intact on an ordinary download."""
-    from .wig_store import read_wig_text
+    def _read() -> tuple[str | None, str | None]:
+        from .wig_format import download_filename, parse_wig
+        from .wig_store import read_wig_text
 
-    text = await hass.async_add_executor_job(
-        read_wig_text, hass.config.config_dir, msg["filename"]
-    )
+        text = read_wig_text(hass.config.config_dir, msg["filename"])
+        if text is None:
+            return None, None
+        # The download name comes from the wig's own fields (v0.9.7), so
+        # it needs the parsed wig. A file that will not parse still
+        # downloads under its on-disk name rather than failing the share.
+        result = parse_wig(text)
+        dl = (
+            download_filename(result.wig)
+            if result.wig is not None else msg["filename"]
+        )
+        return text, dl
+
+    text, dl = await hass.async_add_executor_job(_read)
     if text is None:
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
 
     connection.send_result(
-        msg["id"], {"filename": msg["filename"], "text": text}
+        msg["id"],
+        {
+            "filename": msg["filename"],
+            "text": text,
+            "download_filename": dl,
+        },
     )
 
 

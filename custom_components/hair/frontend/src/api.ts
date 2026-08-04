@@ -365,10 +365,15 @@ export class HairApi {
         });
     }
 
-    wigsGet(filename: string): Promise<{ filename: string; text: string }> {
+    wigsGet(filename: string): Promise<{
+        filename: string;
+        text: string;
+        download_filename: string;
+    }> {
         return this.hass.connection.sendMessagePromise<{
             filename: string;
             text: string;
+            download_filename: string;
         }>({ type: "hair/wigs/get", filename });
     }
 

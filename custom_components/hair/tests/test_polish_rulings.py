@@ -1077,25 +1077,28 @@ class TestTheCombReportHandsOff:
 
 
 class TestDownloadsCarryTheTier:
-    """The download filename tiers (brief section 6, built 2026-08-03):
-    name.wig.json / name.fitted.wig.json / name.perfect-fit.wig.json,
-    derived from the same FittingSummary the row's check glyph reads.
-    A row and a filename disagreeing about the same wig would be a
-    contradiction somebody has to open the file to resolve."""
+    """The download filename now comes from the SERVER, composed from the
+    wig's own fields (v0.9.7 Second Fitting). The client no longer builds
+    a name at all: ``_tieredFilename`` is gone and ``_download`` uses the
+    server's ``download_filename`` verbatim. A row and a filename still
+    can never disagree, because both read the same claims -- and the
+    dotted suffix that failed the shop's upload is gone with the client
+    composer. The field-derived naming logic is proven against the pure
+    function in test_supersession.py."""
 
-    def test_the_download_derives_a_tiered_name(self):
+    def test_the_client_no_longer_composes_a_name(self):
         text = _read("ir-wigs.ts")
-        assert "_tieredFilename" in text
-        block = text.split("private _tieredFilename", 1)[1]
-        block = block.split("private async _download", 1)[0]
-        assert '".perfect-fit"' in block
-        assert '".fitted"' in block
+        assert "_tieredFilename" not in text
+        # The dotted suffixes went with it.
+        assert '".perfect-fit"' not in text
+        assert '".fitted"' not in text
 
-    def test_the_download_path_uses_it(self):
+    def test_the_download_uses_the_server_name(self):
         text = _read("ir-wigs.ts")
         download = text.split("private async _download(", 1)[1]
         download = download.split("private async _downloadLibrary", 1)[0]
-        assert "_tieredFilename" in download
+        assert "download_filename" in download
+        assert "_tieredFilename" not in download
 
 
 class TestTheLegacyDropIsAnnounced:

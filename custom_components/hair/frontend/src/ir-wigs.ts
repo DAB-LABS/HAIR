@@ -996,30 +996,18 @@ export class IrWigs extends LitElement {
         }
     }
 
-    /** The downloaded file's name carries the wig's check tier --
-     * name.wig.json, name.fitted.wig.json, name.perfect-fit.wig.json --
-     * derived from the same FittingSummary the row's check glyph reads,
-     * so the filename and the row can never disagree about the same
-     * wig. The name is presentation: the file's contents are identical
-     * across tiers, and an install importing it never reads the name. */
-    private _tieredFilename(wig: WigInfo, filename: string): string {
-        const state = wig.fitting?.state ?? null;
-        if (state === null) return filename;
-        const suffix = state === "perfect" ? ".perfect-fit" : ".fitted";
-        return filename.endsWith(".wig.json")
-            ? filename.slice(0, -".wig.json".length) + suffix + ".wig.json"
-            : filename + suffix;
-    }
-
     private async _download(wig: WigInfo | null): Promise<void> {
         if (!wig) return;
         try {
-            const { filename, text } = await this.api.wigsGet(
+            // The tier now rides in the name the server composes from the
+            // wig's own fields (<brand>-<kind>-<model>[-<tier>]), so the
+            // filename and the row's check glyph can never disagree and
+            // the client no longer composes a name at all. Hyphenated,
+            // never dotted -- the dot was what failed the shop's upload.
+            const { download_filename, text } = await this.api.wigsGet(
                 wig.filename,
             );
-            await this._downloadText(
-                this._tieredFilename(wig, filename), text,
-            );
+            await this._downloadText(download_filename, text);
         } catch (err) {
             this._flash((err as Error).message);
         }

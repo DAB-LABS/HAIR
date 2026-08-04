@@ -993,12 +993,25 @@ def wig_content_hash(wig: Wig) -> str:
     return signals_content_hash(wig.signals)
 
 
+def _slug_part(text: str) -> str:
+    """One filename part, slugified: lowercase, runs of non-alphanumerics
+    collapse to a single hyphen, ends trimmed.
+
+    The single rule ``wig_filename`` and the field-derived download name
+    both share, so ``TH-05`` becomes ``th-05`` in each (owner ruling).
+    Returns "" when nothing survives.
+    """
+    return re.sub(
+        r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text.lower())
+    ).strip("-")
+
+
 def wig_filename(name: str, taken: set[str] | None = None) -> str:
     """Slugify ``name`` into a ``.wig.json`` filename, dodging ``taken``.
 
     "Foxtel IQ" -> "foxtel-iq.wig.json"; on collision, "-2", "-3", ...
     """
-    slug = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", name.lower())).strip("-")
+    slug = _slug_part(name)
     if not slug:
         slug = "wig"
     taken = taken or set()
@@ -1008,6 +1021,49 @@ def wig_filename(name: str, taken: set[str] | None = None) -> str:
         candidate = f"{slug}-{n}{WIG_SUFFIX}"
         n += 1
     return candidate
+
+
+# Download-name tier suffixes (v0.9.7 Second Fitting). HYPHENATED, never
+# dotted: a dot in the stem fails the shop's filename rule, which was the
+# whole reason a fitted download would not upload. An unproven wig gets
+# no suffix.
+_DOWNLOAD_TIER_SUFFIX = {"perfect": "-perfect-fit", "scoped": "-fitted"}
+
+
+def download_filename(wig: Wig) -> str:
+    """The suggested download name, composed from the wig's own fields.
+
+    ``<brand>-<kind>-<model>[-<tier>].wig.json``. Each part is slugified
+    by the ``wig_filename`` rule (``TH-05`` -> ``th-05``), skipping any
+    part the wig does not carry. Brand is the anchor of the repo naming
+    convention, so when the wig has no brand the stem falls back to the
+    slug of its name -- exactly what a plain download produced before
+    this existed.
+
+    The tier comes from the wig's OWN claims via ``claims_summary``:
+    ``perfect`` appends ``-perfect-fit``, ``scoped`` appends ``-fitted``,
+    an unproven wig appends nothing. Hyphenated, never dotted. Pure and
+    WS-free so it is testable on its own and reusable if another surface
+    ever needs the same name.
+    """
+    # Local import: wig_fitting imports this module, so a module-level
+    # import would be circular. The tier is claims-derived and belongs to
+    # the ledger, but the composition belongs here beside wig_filename.
+    from .wig_fitting import claims_summary
+
+    if wig.brand and wig.brand.strip():
+        stem = "-".join(
+            _slug_part(part)
+            for part in (wig.brand, wig.kind, wig.model)
+            if part and part.strip()
+        )
+    else:
+        stem = _slug_part(wig.name)
+    if not stem:
+        stem = "wig"
+    tier = claims_summary(wig, None).get("state")
+    stem += _DOWNLOAD_TIER_SUFFIX.get(tier or "", "")
+    return f"{stem}{WIG_SUFFIX}"
 
 
 # ---------------------------------------------------------------------------
