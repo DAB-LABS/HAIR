@@ -5,6 +5,13 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-08-04 -- Hotfix: unknown is not down
+
+### Fixed
+
+- **A fresh install could not send its first command, ever.** An infrared emitter's state is the timestamp of its last send, which means it reads "unknown" until the first command goes out. HAIR's emitter pre-skip treated "unknown" like "unavailable" and skipped it, so on a clean setup every emitter was skipped and every send failed with "All emitters unavailable" -- the first command could never happen because no command had happened yet. Existing setups hit the same wall after a restart. Only genuinely unavailable emitters are skipped now; a never-used emitter gets its chance, and an emitter that is actually dead is still caught by the per-send guard that was always the real protection. Reported by @Lilian877 and @Warpshock (GH #83), whose cross-hardware reports made the diagnosis quick.
+- **The emitter picker painted never-used blasters amber.** The same wrong assumption in the panel: a brand-new emitter showed as Unavailable before it had ever been asked to send anything. It now shows as On, which is the truth -- unproven is not broken.
+
 ## [0.9.5] - 2026-08-03 -- The Fitting Room
 
 ### Added

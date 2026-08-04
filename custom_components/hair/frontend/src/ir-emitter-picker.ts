@@ -53,8 +53,12 @@ interface EmitterInfo {
     available: boolean;
 }
 
-/** The two states HA uses for "this entity is not answering". */
-const DEAD_STATES = new Set(["unavailable", "unknown"]);
+/** The one state that means "this entity is not answering".
+ * "unknown" is deliberately NOT here: an emitter's state is its
+ * last-send timestamp, unknown until the first send, so a brand-new
+ * blaster in "unknown" is unproven, not down -- painting it amber
+ * told every fresh install its hardware was broken (GH #83). */
+const DEAD_STATES = new Set(["unavailable"]);
 
 @customElement("ir-emitter-picker")
 export class IrEmitterPicker extends LitElement {
