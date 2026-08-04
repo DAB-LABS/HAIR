@@ -3520,8 +3520,25 @@ async def _do_create(
     _apply_identifier_edits(build.wig, msg)
 
     def _write() -> dict[str, Any] | None:
+        from .wig_format import compose_supersedes
         from .wig_save import create_text
         from .wig_store import write_wig_text
+
+        # SUPERSESSION STAMP (v0.9.7 Second Fitting). A sourced device
+        # saved as new is a successor: its ancestry is the source id,
+        # then the source file's own ancestry when that file still
+        # resolves locally (the chain extends), or the source id alone
+        # when it does not (source_missing -- the one link still known to
+        # be true). A from-scratch device (no source) stamps nothing. The
+        # head is the DEVICE's source id, never the resolved file's
+        # current id: the two differ once the closet copy is itself
+        # replaced, and the device's pointer is the honest parent.
+        if device.source_wig_id:
+            source_wig, _ = _resolve_source(hass, device)
+            build.wig.supersedes = compose_supersedes(
+                device.source_wig_id,
+                source_wig.supersedes if source_wig is not None else None,
+            )
 
         text, result = create_text(build, attestation, key)
         filename = write_wig_text(

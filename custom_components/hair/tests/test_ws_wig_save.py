@@ -158,6 +158,117 @@ async def test_create_writes_the_file_and_the_device_remembers_it(
     manager.async_update_device.assert_awaited_once()
 
 
+class TestSaveAsNewStampsLineage:
+    """Save as new (v0.9.7 Second Fitting): the successor carries its
+    ancestry automatically.
+
+    A sourced device saved with mode=create mints a successor. Its
+    ``supersedes`` is stamped from the DEVICE's source id then the source
+    file's own ancestry -- the whole authoring story, with the person
+    never thinking about lineage. From-scratch saves stamp nothing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sourced_save_extends_the_ancestry_in_order(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        # Source file already two generations deep: its own ancestry is
+        # [A, B]. The successor prepends the source id -> [source, A, B].
+        wig = Wig(
+            name="Fan XYZ", wig_id="u-source",
+            supersedes=["A", "B"],
+            signals=[WigSignal(alias="On", pronto=PRONTO_A)],
+        )
+        _closet_wig(tmp_path, wig)
+        device = IRDevice(
+            name="Fan", commands=[_command("On", PRONTO_A)],
+            source_wig_id="u-source",
+        )
+        _wire(fake_hass, tmp_path, device)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "create", "name": "Fan XYZ v2",
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        written = json.loads(
+            (wigs_dir(tmp_path) / result["filename"]).read_text()
+        )
+        assert written["supersedes"] == ["u-source", "A", "B"]
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_source_stamps_the_single_link(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        # The device points at a source no longer on the shelf. The one
+        # link still known to be true is the source id itself.
+        device = IRDevice(
+            name="Fan", commands=[_command("On", PRONTO_A)],
+            source_wig_id="u-gone",
+        )
+        _wire(fake_hass, tmp_path, device)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "create", "name": "Orphan",
+        })
+        result = conn.send_result.call_args[0][1]
+        written = json.loads(
+            (wigs_dir(tmp_path) / result["filename"]).read_text()
+        )
+        assert written["supersedes"] == ["u-gone"]
+
+    @pytest.mark.asyncio
+    async def test_from_scratch_stamps_nothing(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        device = IRDevice(name="Fan", commands=[_command("On", PRONTO_A)])
+        _wire(fake_hass, tmp_path, device)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "create", "name": "Bench Fan",
+        })
+        result = conn.send_result.call_args[0][1]
+        written = json.loads(
+            (wigs_dir(tmp_path) / result["filename"]).read_text()
+        )
+        assert "supersedes" not in written
+
+    @pytest.mark.asyncio
+    async def test_head_is_the_devices_source_not_the_closet_current_id(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        # The closet copy of the source lineage was itself replaced: the
+        # file now on the shelf is a successor with a DIFFERENT id that
+        # supersedes the device's source. find_wig_by_id(source) finds
+        # nothing, so the stamp is the device's source id alone -- never
+        # the successor's id, which the device never pointed at.
+        successor = Wig(
+            name="Fan XYZ v2", wig_id="u-successor",
+            supersedes=["u-source"],
+            signals=[WigSignal(alias="On", pronto=PRONTO_A)],
+        )
+        _closet_wig(tmp_path, successor)
+        device = IRDevice(
+            name="Fan", commands=[_command("On", PRONTO_A)],
+            source_wig_id="u-source",
+        )
+        _wire(fake_hass, tmp_path, device)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "create", "name": "Fan XYZ v3",
+        })
+        result = conn.send_result.call_args[0][1]
+        written = json.loads(
+            (wigs_dir(tmp_path) / result["filename"]).read_text()
+        )
+        assert written["supersedes"] == ["u-source"]
+        assert "u-successor" not in written["supersedes"]
+
+
 @pytest.mark.asyncio
 async def test_create_carries_the_attestation(
     fake_hass, tmp_path, _no_signing
