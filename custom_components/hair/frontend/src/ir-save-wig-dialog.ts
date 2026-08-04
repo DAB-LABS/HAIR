@@ -124,15 +124,31 @@ export class IrSaveWigDialog extends LitElement {
         return [...plan.rows, ...missing];
     }
 
-    private get _checkedCount(): number {
-        return this._allRows.filter((r) => this._checked.has(r.digest))
-            .length;
+    /** On UPDATE a device command with no matching wig row carries no
+     * wig_index: it lives on the device but is not in the current Wig,
+     * so it travels only via Save as new and can never be attested into
+     * this file. (v0.9.7 Second Fitting.) */
+    private _isDeviceOnly(row: SavePlanRow): boolean {
+        return this._isUpdate && row.wig_index == null;
     }
 
-    /** Perfect fit requires every row checked. The dialog says so
-     * rather than hiding the button (RULED). */
+    /** Rows that can actually be attested. Device-only rows are excluded,
+     * so one extra local button never blocks a perfect fit of the Wig's
+     * own rows. */
+    private get _attestableRows(): SavePlanRow[] {
+        return this._allRows.filter((r) => !this._isDeviceOnly(r));
+    }
+
+    private get _checkedCount(): number {
+        return this._attestableRows.filter((r) =>
+            this._checked.has(r.digest),
+        ).length;
+    }
+
+    /** Perfect fit requires every attestable row checked. The dialog says
+     * so rather than hiding the button (RULED). */
     private get _isPerfectFit(): boolean {
-        const rows = this._allRows;
+        const rows = this._attestableRows;
         return rows.length > 0 && this._checkedCount === rows.length;
     }
 
@@ -283,7 +299,9 @@ export class IrSaveWigDialog extends LitElement {
     private _setPerfect(on: boolean): void {
         this._perfect = on;
         if (this._perfect) {
-            this._checked = new Set(this._allRows.map((r) => r.digest));
+            this._checked = new Set(
+                this._attestableRows.map((r) => r.digest),
+            );
             this._reasons = new Map();
             // Attesting means attesting the wig you came from, so
             // arming the block returns to UPDATE and the save-as-new
@@ -431,6 +449,10 @@ export class IrSaveWigDialog extends LitElement {
     private _claims(): { digest: string; verdict: string }[] {
         const out: { digest: string; verdict: string }[] = [];
         for (const row of this._allRows) {
+            // A device-only row is not in the current Wig, so it can carry
+            // no claim about this file -- the server drops one anyway, but
+            // the client never offers it.
+            if (this._isDeviceOnly(row)) continue;
             if (this._checked.has(row.digest)) {
                 out.push({ digest: row.digest, verdict: "worked" });
                 continue;
@@ -876,6 +898,7 @@ export class IrSaveWigDialog extends LitElement {
 
     private _renderList() {
         const rows = this._allRows;
+        const deviceOnly = rows.filter((r) => this._isDeviceOnly(r)).length;
         return html`
             <div class="fit-list">
                 ${rows.map((row) => this._renderRow(row))}
@@ -885,13 +908,84 @@ export class IrSaveWigDialog extends LitElement {
                 : html`<div class="downgrade">
                       ${t("wigs.save.downgrade", {
                           checked: String(this._checkedCount),
-                          total: String(rows.length),
+                          total: String(this._attestableRows.length),
                       })}
                   </div>`}
+            ${deviceOnly > 0 ? this._renderNudge(deviceOnly) : ""}
+        `;
+    }
+
+    /** The quiet line under the checklist when the device carries commands
+     * the current Wig does not. It points at Save as new (the same
+     * dotted-underline treatment the joining line uses) and the whole
+     * line arms it; it never renders unless a device-only row exists. */
+    private _renderNudge(count: number) {
+        const arm = () => {
+            this._saveAsNew = true;
+        };
+        return html`
+            <div
+                class="nudge-line"
+                role="button"
+                tabindex="0"
+                @click=${arm}
+                @keydown=${(e: KeyboardEvent) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        arm();
+                    }
+                }}
+            >
+                <span>${tp("wigs.save.not_in_wig_nudge", count)}</span>
+                <u>${t("wigs.save.save_as_new")}</u>
+            </div>
+        `;
+    }
+
+    /** A device command that is not in the current Wig: no checkbox (a
+     * dash holds the column so the grid does not reflow), a neutral marker
+     * chip, the full sentence on its own line, TEST still live since the
+     * command is real on the device. It is dimmed with a left rail,
+     * distinct from the strikethrough of a declined claim. */
+    private _renderDeviceOnlyRow(row: SavePlanRow) {
+        return html`
+            <div class="fit-row device-only">
+                <span class="no-check">&ndash;</span>
+                <span class="fit-name">
+                    ${this._rowLabel(row)}
+                    <span class="row-chip">${t("wigs.save.row_not_in_wig")}</span>
+                </span>
+                <ir-tx-knobs
+                    .sendCount=${row.send_count}
+                    .repeatCount=${row.ditto_count}
+                    .decoded=${!!row.protocol}
+                    .bypassed=${row.bypass}
+                ></ir-tx-knobs>
+                <span class="pill-slot">
+                    ${row.protocol
+                        ? html`<ir-protocol-chip
+                              .protocol=${row.protocol}
+                              ?bypass=${row.bypass}
+                          ></ir-protocol-chip>`
+                        : ""}
+                </span>
+                <span class="test-slot">
+                    ${row.command_id
+                        ? html`<ir-test-button
+                              .send=${() => this._sendRow(row)}
+                              .disabledReason=${this.hasEmitter
+                                  ? null
+                                  : t("wigs.save.no_emitter")}
+                          ></ir-test-button>`
+                        : ""}
+                </span>
+            </div>
+            <div class="row-note">${t("wigs.save.row_not_in_wig_note")}</div>
         `;
     }
 
     private _renderRow(row: SavePlanRow) {
+        if (this._isDeviceOnly(row)) return this._renderDeviceOnlyRow(row);
         const checked = this._checked.has(row.digest);
         return html`
             <div class="fit-row ${checked ? "" : "off"}">
@@ -1296,6 +1390,63 @@ export class IrSaveWigDialog extends LitElement {
                 color: #d9a441;
                 margin: 8px 0 2px;
                 line-height: 1.4;
+            }
+            /* A device-only row (v0.9.7): dimmed as a whole with a thin
+               neutral rail on the left, distinct from the strikethrough
+               .fit-row.off uses for a declined claim -- this row was never
+               offered a claim to decline. The dash holds the checkbox
+               column so the grid does not reflow around the missing tick. */
+            .fit-row.device-only {
+                opacity: 0.72;
+                border-left: 2px solid rgba(255, 255, 255, 0.14);
+                margin-left: -2px;
+                padding-left: 4px;
+            }
+            .fit-row.device-only .no-check {
+                text-align: center;
+                font-size: 13px;
+                color: var(--secondary-text-color);
+            }
+            .row-chip {
+                display: inline-flex;
+                margin-left: 7px;
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: 0.03em;
+                text-transform: uppercase;
+                padding: 1.5px 6px;
+                border-radius: 4px;
+                border: 1px solid var(--divider-color);
+                color: var(--secondary-text-color);
+                background: rgba(255, 255, 255, 0.03);
+                white-space: nowrap;
+                vertical-align: 1px;
+                cursor: default;
+            }
+            .row-note {
+                font-size: 11px;
+                color: var(--secondary-text-color);
+                line-height: 1.4;
+                padding: 5px 4px 7px 30px;
+                border-top: 1px solid rgba(255, 255, 255, 0.04);
+            }
+            /* The quiet nudge under the checklist. Secondary weight, no
+               border, no icon: it points at a future action, it does not
+               warn about this one. The whole line arms Save as new; only
+               the words carry the dotted-underline link treatment the
+               joining line already uses. */
+            .nudge-line {
+                font-size: 11.5px;
+                color: var(--secondary-text-color);
+                line-height: 1.55;
+                margin: 9px 0 2px;
+                cursor: pointer;
+            }
+            .nudge-line u {
+                color: #64b5f6;
+                text-decoration: underline dotted;
+                text-underline-offset: 3px;
+                margin-left: 3px;
             }
             .attest {
                 margin-top: 10px;

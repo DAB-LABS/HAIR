@@ -1119,3 +1119,42 @@ class TestTheLegacyDropIsAnnounced:
         )
         assert "wigs.upload_dropped_fittings.one" in data, locale
         assert "wigs.upload_dropped_fittings.other" in data, locale
+
+
+class TestDeviceOnlyRowStopsGhostClaims:
+    """v0.9.7 Second Fitting: a device command not in the current Wig
+    renders as a marked, uncheckable row and is excluded from the
+    perfect-fit denominator, so a tick can never be born orphaned. The
+    server-side belt-and-suspenders is proven in test_supersession /
+    test_ws_wig_save."""
+
+    def test_device_only_rows_are_detected_on_update(self):
+        text = _read("ir-save-wig-dialog.ts")
+        assert "_isDeviceOnly" in text
+        # Keyed on the wig_index the backend leaves unset for such rows.
+        assert "wig_index == null" in text
+
+    def test_device_only_row_has_no_checkbox(self):
+        text = _read("ir-save-wig-dialog.ts")
+        block = text.split("private _renderDeviceOnlyRow", 1)[1].split(
+            "private _renderRow", 1
+        )[0]
+        assert "no-check" in block
+        assert 'type="checkbox"' not in block
+        # TEST stays live: the command is real on the device.
+        assert "ir-test-button" in block
+
+    def test_perfect_fit_excludes_device_only_rows(self):
+        text = _read("ir-save-wig-dialog.ts")
+        assert "_attestableRows" in text
+        # The attestable subset filters device-only rows out.
+        assert "!this._isDeviceOnly" in text
+
+    def test_the_nudge_points_at_save_as_new(self):
+        text = _read("ir-save-wig-dialog.ts")
+        assert "not_in_wig_nudge" in text
+        nudge = text.split("_renderNudge", 1)[1].split(
+            "_renderDeviceOnlyRow", 1
+        )[0]
+        # The whole line arms Save as new.
+        assert "_saveAsNew = true" in nudge

@@ -30,7 +30,12 @@ from custom_components.hair.wig_format import (
     signal_row_digest,
     wig_row_digests,
 )
-from custom_components.hair.wig_save import detect_supersession
+from custom_components.hair.wig_save import (
+    Attestation,
+    _allowed_claim_digests,
+    detect_supersession,
+    drop_ghost_claims,
+)
 from custom_components.hair.wig_store import ensure_wigs_dir, wigs_dir
 
 PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
@@ -384,3 +389,43 @@ class TestDetectSupersession:
         assert len(block["devices"]) == 1
         assert block["devices"][0]["name"] == "Living Room Fan"
         assert block["devices"][0]["missing_commands"] == 1
+
+
+class TestDropGhostClaims:
+    """A claim whose digest the wig does not carry never reaches the
+    bundle (v0.9.7): a device-only row's tick would bind bytes not in the
+    file. Server-side belt-and-suspenders behind the dialog no longer
+    offering it.
+    """
+
+    def test_foreign_digest_dropped_real_kept(self):
+        s1 = WigSignal("On", PRONTO)
+        wig = Wig(name="Fan", wig_id="w", signals=[s1])
+        real = signal_row_digest(s1)
+        att = Attestation(
+            claims={real: "worked", "f" * 16: "worked"}, handle="David"
+        )
+        out = drop_ghost_claims(att, wig)
+        assert out.claims == {real: "worked"}
+        # Everything else on the attestation is untouched.
+        assert out.handle == "David"
+
+    def test_all_real_returns_the_same_object(self):
+        s1 = WigSignal("On", PRONTO)
+        wig = Wig(name="Fan", wig_id="w", signals=[s1])
+        att = Attestation(claims={signal_row_digest(s1): "worked"})
+        # Nothing filtered -> no copy, the caller's object comes straight
+        # back.
+        assert drop_ghost_claims(att, wig) is att
+
+    def test_matrix_checklist_digest_is_allowed(self):
+        # A matrix wig's dimension-checklist cells are legitimate claims;
+        # a foreign digest is still dropped.
+        matrix_wig = _parse(_matrix_dict()).wig
+        allowed = _allowed_claim_digests(matrix_wig)
+        assert allowed
+        good = next(iter(allowed))
+        att = Attestation(claims={good: "worked", "f" * 16: "worked"})
+        out = drop_ghost_claims(att, matrix_wig)
+        assert good in out.claims
+        assert "f" * 16 not in out.claims

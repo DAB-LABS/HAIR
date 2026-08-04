@@ -15,7 +15,7 @@ fitter's back is state nobody signed.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,6 +39,7 @@ from .wig_format import (
     row_digest,
     serialize_wig,
     signal_row_digest,
+    wig_row_digests,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -588,6 +589,39 @@ def build_bundle(
     )
 
 
+def _allowed_claim_digests(wig: Wig) -> set[str]:
+    """Every digest a save checklist may legitimately claim on this wig:
+    its flat rows, plus a matrix wig's dimension-checklist cells. A claim
+    digest outside this set belongs to no row the file carries.
+    """
+    allowed = set(wig_row_digests(wig))
+    if wig.climate is not None:
+        allowed |= {row.digest for row in _checklist_rows(wig.climate)}
+    return allowed
+
+
+def drop_ghost_claims(attestation: Attestation, wig: Wig) -> Attestation:
+    """Drop claims whose digest the wig does not carry (v0.9.7).
+
+    Belt-and-suspenders on the server: a device-only row (a command on
+    the device that never entered the wig) has bytes that are not in the
+    file, so a tick on it would be a claim born orphaned -- signed, but
+    binding a digest no reader can find. The save dialog stops OFFERING
+    the tick on UPDATE, but a stale client must not be able to sign a
+    ghost either, so the bundle builder never sees a digest the wig lacks.
+    Returns the attestation unchanged when nothing is filtered.
+    """
+    allowed = _allowed_claim_digests(wig)
+    kept = {
+        digest: verdict
+        for digest, verdict in attestation.claims.items()
+        if digest in allowed
+    }
+    if len(kept) == len(attestation.claims):
+        return attestation
+    return replace(attestation, claims=kept)
+
+
 
 def recomb(wig: Wig) -> int:
     """Re-comb an outgoing wig and stamp a fresh receipt. Returns suspects.
@@ -779,6 +813,11 @@ def update_text(
         )
         for s in source_wig.signals
     }
+    # Ghost claims never reach the bundle (v0.9.7): a tick on a
+    # device-only row binds bytes the file does not carry. The dialog
+    # stops offering it, and this stops a stale client signing one anyway.
+    if attestation is not None:
+        attestation = drop_ghost_claims(attestation, source_wig)
     bundle = (
         build_bundle(source_wig.wig_id or "", aliases, attestation)
         if attestation is not None

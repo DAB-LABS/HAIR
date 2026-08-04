@@ -825,3 +825,40 @@ class TestSupersessionDoorways:
         assert result["supersession"]["old_filename"] == "old.wig.json"
         # Identical shape to the upload doorway.
         assert set(result["supersession"]) == _BLOCK_KEYS
+
+
+@pytest.mark.asyncio
+async def test_update_drops_a_foreign_digest_claim(
+    fake_hass, tmp_path, _no_signing
+):
+    """The checklist stops signing ghosts (v0.9.7): a claim whose digest
+    the wig does not carry never enters the bundle, even from a stale
+    client that still offered the tick."""
+    wig = Wig(
+        name="Edifier", wig_id="u-source",
+        signals=[WigSignal(alias="On", pronto=PRONTO_A)],
+    )
+    path = _closet_wig(tmp_path, wig)
+    device = IRDevice(
+        name="Speakers", commands=[_command("On", PRONTO_A)],
+        source_wig_id="u-source",
+    )
+    _wire(fake_hass, tmp_path, device)
+    conn = _conn()
+    real = signal_row_digest(wig.signals[0])
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "update",
+        "attest": {
+            "claims": [
+                {"digest": real, "verdict": VERDICT_WORKED},
+                {"digest": "f" * 16, "verdict": VERDICT_WORKED},
+            ],
+            "handle": "David",
+        },
+    })
+    conn.send_error.assert_not_called()
+    after = json.loads(path.read_text())
+    digests = [r["digest"] for r in after["fittings"][0]["rows"]]
+    # The ghost never entered the bundle; the real claim is untouched.
+    assert digests == [real]
