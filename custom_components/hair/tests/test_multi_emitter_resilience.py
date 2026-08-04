@@ -12,7 +12,8 @@ community-feedback/github-issue-65-rvgfox.md:
   landed" (a logical press happened), exactly once -- not on "loop
   finished without raising", which desynced state when a late emitter
   failed after the device already got the frame.
-- Emitters whose HA state is unavailable/unknown are pre-skipped; the
+- Emitters whose HA state is unavailable are pre-skipped (unknown is
+  never-used, not down -- GH #83); the
   send-time guard remains the backstop.
 """
 from __future__ import annotations
@@ -228,6 +229,50 @@ class TestPreSkip:
                 pytest.raises(RuntimeError, match="All emitters for Fan"):
             await manager.async_send_command(dev.id, "c1")
         ir_send.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_never_used_emitter_is_attempted_not_skipped(
+        self, manager, fake_hass
+    ):
+        """GH #83 (Lilian877 + Warpshock): an infrared emitter's state
+        is its last-send timestamp -- "unknown" until the FIRST send.
+        Pre-skipping "unknown" therefore made a fresh install unable to
+        ever send its first command: every emitter skipped, "All
+        emitters unavailable" on a clean setup. Never-used must be
+        attempted; only "unavailable" is down."""
+        dev = _dyson_device(["infrared.brand_new"])
+        manager._store.add_device(dev)
+        fake_hass.states.get = MagicMock(
+            return_value=MagicMock(state="unknown")
+        )
+        ir_send = _failing_sender(set())
+        with patch.object(_infrared_mod, "async_send_command", ir_send), \
+                patch(_BDC, return_value=object()):
+            await manager.async_send_command(dev.id, "c1")
+        sent_to = [c.args[1] for c in ir_send.call_args_list]
+        assert sent_to == ["infrared.brand_new"]
+
+    @pytest.mark.asyncio
+    async def test_mixed_unknown_and_unavailable_sends_via_unknown(
+        self, manager, fake_hass
+    ):
+        """The fresh blaster carries the send while the dead one stays
+        skipped -- GH #65 resilience and the GH #83 fix, together."""
+        dev = _dyson_device(["infrared.down", "infrared.brand_new"])
+        manager._store.add_device(dev)
+
+        def _state(entity_id):
+            if entity_id == "infrared.down":
+                return MagicMock(state="unavailable")
+            return MagicMock(state="unknown")
+
+        fake_hass.states.get = MagicMock(side_effect=_state)
+        ir_send = _failing_sender(set())
+        with patch.object(_infrared_mod, "async_send_command", ir_send), \
+                patch(_BDC, return_value=object()):
+            await manager.async_send_command(dev.id, "c1")
+        sent_to = [c.args[1] for c in ir_send.call_args_list]
+        assert sent_to == ["infrared.brand_new"]
 
 
 _PN = "homeassistant.components.persistent_notification"

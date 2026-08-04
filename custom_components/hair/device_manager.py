@@ -651,9 +651,16 @@ class DeviceManager:
         attempt_ids: list[str] = []
         for emitter_id in device.emitter_entity_ids:
             state = self._hass.states.get(emitter_id)
-            if state is not None and state.state in (
-                "unavailable", "unknown",
-            ):
+            # "unavailable" is down. "unknown" is merely NEVER USED: an
+            # infrared emitter's state is the timestamp of its last
+            # send, None until the first one -- so skipping "unknown"
+            # made a fresh install unable to send its first command
+            # ever (GH #83, Lilian877 + Warpshock: every emitter
+            # pre-skipped, "All emitters unavailable" on a clean
+            # setup). The per-send guard below catches an emitter that
+            # is actually dead but not yet marked, exactly as the
+            # comment above has always said.
+            if state is not None and state.state == "unavailable":
                 skipped[emitter_id] = state.state
                 continue
             attempt_ids.append(emitter_id)

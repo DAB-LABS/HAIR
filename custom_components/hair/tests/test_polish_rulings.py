@@ -771,8 +771,15 @@ class TestEmittersHaveThreeStates:
 
     def test_the_picker_reads_availability(self):
         text = _read("ir-emitter-picker.ts")
-        assert "unavailable" in text and "unknown" in text
         assert "available" in text
+        # GH #83: "unknown" means never-used, not down. The dead set
+        # must contain exactly "unavailable" -- painting a brand-new
+        # emitter amber told every fresh install its hardware was
+        # broken.
+        dead = text.split("const DEAD_STATES = new Set(", 1)[1]
+        dead = dead.split(")", 1)[0]
+        assert '"unavailable"' in dead
+        assert '"unknown"' not in dead
 
     def test_all_three_states_are_rendered(self):
         text = _read("ir-emitter-picker.ts")
