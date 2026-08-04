@@ -119,6 +119,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_list)
     websocket_api.async_register_command(hass, ws_wigs_upload)
     websocket_api.async_register_command(hass, ws_wigs_delete)
+    websocket_api.async_register_command(hass, ws_wigs_supersede)
     websocket_api.async_register_command(hass, ws_wigs_get)
     websocket_api.async_register_command(hass, ws_wigs_claims)
     websocket_api.async_register_command(hass, ws_wigs_update)
@@ -2840,7 +2841,7 @@ async def ws_wigs_upload(
             entry = _entry(result.wig, filename)
             entry["comb"] = comb
             entry["dropped_fittings"] = dropped
-            return {
+            out: dict[str, Any] = {
                 "success": True,
                 "filename": filename,
                 "filenames": [filename],
@@ -2850,6 +2851,18 @@ async def ws_wigs_upload(
                 "folds": [],
                 "dropped_fittings": dropped,
             }
+            # SUPERSESSION (v0.9.7 Second Fitting). The file is written --
+            # it arrived, it files. When it names an ancestor still in
+            # this closet, the response also carries the replace-flow
+            # invitation. The block is an invitation, not a hold.
+            from .wig_save import detect_supersession
+
+            supersession = detect_supersession(
+                hass.config.config_dir, result.wig, devices
+            )
+            if supersession is not None:
+                out["supersession"] = supersession
+            return out
 
         # Not a wig: sniff for a foreign format before reporting the
         # wig-schema errors (a SmartIR file failing wig validation is
@@ -2895,6 +2908,11 @@ async def ws_wigs_upload(
             "folds": converted.folds,
         }
 
+    # Fetched on the loop and handed to the executor job: the arriving
+    # wig's ancestry is matched against the devices this closet holds.
+    data = _get_first_entry_data(hass)
+    store = data.get("store") if data else None
+    devices = list(store.get_all_devices()) if store is not None else []
     connection.send_result(
         msg["id"], await hass.async_add_executor_job(_upload)
     )
@@ -2974,6 +2992,136 @@ async def ws_wigs_delete(
         delete_wig, hass.config.config_dir, msg["filename"]
     )
     connection.send_result(msg["id"], {"deleted": deleted})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/supersede",
+    vol.Required("new_filename"): vol.All(str, vol.Length(max=300)),
+    vol.Required("old_filename"): vol.All(str, vol.Length(max=300)),
+    vol.Optional("relink", default=True): bool,
+    vol.Optional("topup_device_ids", default=list): [
+        vol.All(str, vol.Length(max=100))
+    ],
+})
+@websocket_api.async_response
+async def ws_wigs_supersede(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Perform the replace a superseding wig invites (v0.9.7).
+
+    Delete the superseded file, repoint its devices to the successor, and
+    top up each chosen device with the arrival's rows it lacks. The pair
+    is RE-VERIFIED first -- the old file's id must still appear in the new
+    file's ancestry -- because the closet can change while the dialog is
+    open, and a stale confirm must refuse rather than delete the wrong
+    file. Rows a device already has (by digest) are never touched.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    manager: DeviceManager = data["device_manager"]
+
+    def _load() -> tuple[Any, Any]:
+        from .wig_store import load_wig
+
+        return (
+            load_wig(hass.config.config_dir, msg["new_filename"]),
+            load_wig(hass.config.config_dir, msg["old_filename"]),
+        )
+
+    new_wig, old_wig = await hass.async_add_executor_job(_load)
+    if new_wig is None or old_wig is None:
+        connection.send_error(msg["id"], "not_found", "Wig not found")
+        return
+
+    old_id = old_wig.wig_id
+    new_id = new_wig.wig_id
+    # The pair re-verify: the old file's id must still be in the new
+    # file's ancestry, or the closet changed under the dialog and this
+    # confirm is stale. Refuse cleanly rather than delete the wrong file.
+    if not old_id or old_id not in new_wig.supersedes:
+        connection.send_error(
+            msg["id"], "pair_changed",
+            "These wigs are no longer a supersession pair",
+        )
+        return
+
+    def _delete() -> bool:
+        from .wig_store import delete_wig
+
+        return delete_wig(hass.config.config_dir, msg["old_filename"])
+
+    deleted = await hass.async_add_executor_job(_delete)
+
+    from .wig_format import signal_row_digest, wig_row_digests
+
+    relink = bool(msg.get("relink", True))
+    topup_ids = set(msg.get("topup_device_ids") or [])
+
+    identities: list[Any] | None = None
+    findings: dict[str, Any] = {}
+    suspects: set[str] = set()
+    if topup_ids:
+        from .wig_comb import suspect_findings
+        from .wig_identity import wig_signal_identities
+
+        identities = await hass.async_add_executor_job(
+            wig_signal_identities, new_wig
+        )
+        findings = suspect_findings(new_wig)
+        suspects = set(findings)
+
+    receipts: list[dict[str, Any]] = []
+    for device in store.get_all_devices():
+        do_relink = relink and device.source_wig_id == old_id
+        do_topup = device.id in topup_ids
+        if not (do_relink or do_topup):
+            continue
+        relinked = False
+        if do_relink:
+            device.source_wig_id = new_id
+            relinked = True
+        added = 0
+        if do_topup and identities is not None:
+            from .wig_export import build_wig_from_device
+
+            build = build_wig_from_device(device)
+            have = (
+                set(wig_row_digests(build.wig))
+                if build.wig is not None else set()
+            )
+            for i, (sig, ident) in enumerate(
+                zip(new_wig.signals, identities, strict=True), start=1
+            ):
+                # Only the delta: a row the device already has, by digest,
+                # is never re-minted (no twin commands on a top-up).
+                if ident is None or signal_row_digest(sig) in have:
+                    continue
+                command = _command_from_wig_signal(
+                    sig, ident, suspects, findings, i
+                )
+                device.add_command(command)
+                manager._auto_map_command(device, command)
+                added += 1
+        await manager.async_update_device(device)
+        receipts.append({
+            "id": device.id,
+            "name": device.name,
+            "relinked": relinked,
+            "commands_added": added,
+        })
+
+    connection.send_result(msg["id"], {
+        "deleted": deleted,
+        "old_filename": msg["old_filename"],
+        "new_filename": msg["new_filename"],
+        "devices": receipts,
+    })
 
 
 @websocket_api.require_admin
@@ -3515,7 +3663,10 @@ async def _do_create(
 ) -> None:
     from .wig_export import build_wig_from_device
 
-    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    data = _get_first_entry_data(hass)
+    manager: DeviceManager = data["device_manager"]
+    store = data.get("store")
+    devices = list(store.get_all_devices()) if store is not None else []
     matrix = (
         await manager.async_get_matrix(device.id)
         if device.climate_matrix else None
@@ -3565,7 +3716,21 @@ async def _do_create(
         if filename is None:
             return None
         result.filename = filename
-        return result.as_dict()
+        out = result.as_dict()
+        # SUPERSESSION second doorway (v0.9.7 Second Fitting). A
+        # self-superseded wig is born in the closet without ever touching
+        # the drop bar -- the person who adds an eighth button to their
+        # own perfect-fitted wig and saves as new. When the wig just
+        # written names an ancestor still local, the response carries the
+        # SAME block the upload path returns, so the same dialog fires.
+        from .wig_save import detect_supersession
+
+        supersession = detect_supersession(
+            hass.config.config_dir, build.wig, devices
+        )
+        if supersession is not None:
+            out["supersession"] = supersession
+        return out
 
     result = await hass.async_add_executor_job(_write)
     if result is None:
@@ -3803,6 +3968,49 @@ def _wig_linked_devices(
     ]
 
 
+def _command_from_wig_signal(
+    sig: Any, ident: Any, suspects: set[str], findings: dict[str, Any],
+    index: int,
+) -> Any:
+    """Mint one device command from a wig signal + its decoded identity.
+
+    THE adopt machinery for turning a wig row into a command, shared by
+    Adopt Device and the supersession top-up so the two can never drift:
+    same naming, same decoded fields, same send/ditto/bypass carriage,
+    same comb flags. The wig STATES what each row needs, so the catalog
+    defaults never overrule it.
+    """
+    from .models import CaptureResult, CommandCategory
+
+    capture = CaptureResult(
+        protocol="PRONTO",
+        code=ident.pronto,
+        raw_timings=list(ident.raw_timings),
+        frequency=ident.frequency,
+    )
+    name = sig.alias.strip() or f"Signal {index}"
+    command = capture.to_command(name, CommandCategory.CUSTOM)
+    command.byte_hash = ident.byte_hash
+    command.decoded_protocol = ident.decoded_protocol
+    command.decoded_address = ident.decoded_address
+    command.decoded_command = ident.decoded_command
+    command.decoded_fingerprint = ident.decoded_fingerprint
+    command.decoded_extras = (
+        dict(ident.decoded_extras) if ident.decoded_extras else None
+    )
+    # The wig states what a row needs, per signal, so that is what the
+    # device gets -- explicit 0 ditto included, or the catalog default
+    # would resurrect a repeat the wig says nothing about.
+    command.send_count = max(1, sig.send_count or 1)
+    command.tx_force_raw = sig.bypass_protocol
+    command.repeat_count = sig.ditto_count
+    # Keyed by the wig's alias, which is what the comb recorded and what
+    # this command was just named after; a later rename does not clear it.
+    command.comb_suspect = sig.alias in suspects
+    command.comb_finding = findings.get(sig.alias)
+    return command
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/make-device",
@@ -3891,7 +4099,6 @@ async def ws_wig_make_device(
         )
         return
 
-    from .models import CaptureResult, CommandCategory
     from .wig_comb import suspect_findings
     from .wig_identity import wig_signal_identities
 
@@ -3969,45 +4176,7 @@ async def ws_wig_make_device(
         if ident is None:
             skipped += 1
             continue
-        capture = CaptureResult(
-            protocol="PRONTO",
-            code=ident.pronto,
-            raw_timings=list(ident.raw_timings),
-            frequency=ident.frequency,
-        )
-        name = sig.alias.strip() or f"Signal {i}"
-        command = capture.to_command(name, CommandCategory.CUSTOM)
-        command.byte_hash = ident.byte_hash
-        command.decoded_protocol = ident.decoded_protocol
-        command.decoded_address = ident.decoded_address
-        command.decoded_command = ident.decoded_command
-        command.decoded_fingerprint = ident.decoded_fingerprint
-        command.decoded_extras = (
-            dict(ident.decoded_extras) if ident.decoded_extras else None
-        )
-        # The wig STATES what a row needs, per signal (plan 5.5), so
-        # that is what the device gets. The old "raise to the highest
-        # send count any fitter needed" pass retired with the session
-        # apparatus that recorded it.
-        command.send_count = max(1, sig.send_count or 1)
-        # The other half of the export mapping: without this the marker
-        # rides in the file and does nothing on the receiving end.
-        command.tx_force_raw = sig.bypass_protocol
-        # EXACTLY the wig's value, explicit 0 included. The wig now says
-        # precisely what transmits, so the catalog default cannot be
-        # allowed to overrule it -- and it would: IRCommand.repeat_count
-        # defaults to DEFAULT_REPEAT_COUNT, which is 1, so a
-        # construct-and-forget would resurrect a ditto on a wig that
-        # says zero. That is the three-defaults mess (command 1,
-        # ProntoCommand 0, fitting send 0) collapsing at the wig
-        # boundary, and this is the line where it collapses.
-        command.repeat_count = sig.ditto_count
-        # Keyed by the wig's alias, which is what the comb recorded and
-        # what this command was just named after. A later rename on the
-        # device does not clear the flag: the doubt is about the code,
-        # not the label.
-        command.comb_suspect = sig.alias in suspects
-        command.comb_finding = findings.get(sig.alias)
+        command = _command_from_wig_signal(sig, ident, suspects, findings, i)
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1

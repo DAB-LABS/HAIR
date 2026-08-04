@@ -14,7 +14,12 @@ import pytest
 
 from custom_components.hair.const import DOMAIN
 from custom_components.hair.models import IRCommand, IRDevice
-from custom_components.hair.websocket_api import ws_wigs_save, ws_wigs_save_plan
+from custom_components.hair.websocket_api import (
+    ws_wigs_save,
+    ws_wigs_save_plan,
+    ws_wigs_supersede,
+    ws_wigs_upload,
+)
 from custom_components.hair.wig_format import (
     VERDICT_WORKED,
     Wig,
@@ -26,6 +31,7 @@ from custom_components.hair.wig_store import ensure_wigs_dir, wigs_dir
 
 PRONTO_A = "0000 006D 0002 0000 0020 0040 0020 0040"
 PRONTO_B = "0000 006D 0002 0000 0030 0040 0020 0040"
+PRONTO_C = "0000 006D 0002 0000 0040 0040 0020 0040"
 
 
 def _conn():
@@ -48,6 +54,7 @@ def _wire(hass, tmp_path, device):
     store.get_device = MagicMock(
         side_effect=lambda did: device if did == device.id else None
     )
+    store.get_all_devices = MagicMock(return_value=[device])
     manager = MagicMock()
     manager.async_update_device = AsyncMock()
     hass.data[DOMAIN] = {
@@ -56,10 +63,28 @@ def _wire(hass, tmp_path, device):
     return manager
 
 
-def _closet_wig(tmp_path, wig):
+def _wire_many(hass, tmp_path, devices):
+    """Wiring for the supersession flow: many devices, by-id lookup, and
+    a real _auto_map_command no-op so the top-up loop runs."""
+    hass.config.config_dir = str(tmp_path)
+    ensure_wigs_dir(tmp_path)
+    by_id = {d.id: d for d in devices}
+    store = MagicMock()
+    store.get_device = MagicMock(side_effect=lambda did: by_id.get(did))
+    store.get_all_devices = MagicMock(return_value=list(devices))
+    manager = MagicMock()
+    manager.async_update_device = AsyncMock()
+    manager._auto_map_command = MagicMock()
+    hass.data[DOMAIN] = {
+        "entry-1": {"store": store, "device_manager": manager}
+    }
+    return manager
+
+
+def _closet_wig(tmp_path, wig, filename="edifier.wig.json"):
     ensure_wigs_dir(tmp_path)
     text = serialize_wig(wig)
-    path = wigs_dir(tmp_path) / "edifier.wig.json"
+    path = wigs_dir(tmp_path) / filename
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -604,3 +629,199 @@ async def test_proposing_without_attesting_is_allowed(
         after["climate"]["cells"][0]["pronto"]
         == "0000 006D 0002 0000 0050 0040 0020 0040"
     )
+
+
+class TestSupersedeAction:
+    """hair/wigs/supersede: delete the old file, repoint its devices, top
+    up the delta. Re-verify the pair first; refuse if it changed."""
+
+    @pytest.mark.asyncio
+    async def test_replace_deletes_relinks_and_tops_up_the_delta(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        old = Wig(
+            name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        old_path = _closet_wig(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("On", PRONTO_A), WigSignal("Boost", PRONTO_B)],
+        )
+        _closet_wig(tmp_path, new, "new.wig.json")
+        device = IRDevice(
+            name="Living Room Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A)],
+        )
+        manager = _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_supersede(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/supersede",
+            "new_filename": "new.wig.json", "old_filename": "old.wig.json",
+            "relink": True, "topup_device_ids": [device.id],
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert result["deleted"] is True
+        assert not old_path.exists()
+        # Device repointed to the successor and topped up with EXACTLY the
+        # delta (Boost); the row it already had (On) was not re-minted.
+        assert device.source_wig_id == "new"
+        assert result["devices"][0]["relinked"] is True
+        assert result["devices"][0]["commands_added"] == 1
+        assert sorted(c.name for c in device.commands) == ["Boost", "On"]
+        manager.async_update_device.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_topup_adds_nothing_when_the_device_already_has_it(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        old = Wig(
+            name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        _closet_wig(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("On", PRONTO_A)],
+        )
+        _closet_wig(tmp_path, new, "new.wig.json")
+        device = IRDevice(
+            name="Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A)],
+        )
+        _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_supersede(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/supersede",
+            "new_filename": "new.wig.json", "old_filename": "old.wig.json",
+            "relink": True, "topup_device_ids": [device.id],
+        })
+        result = conn.send_result.call_args[0][1]
+        assert result["devices"][0]["commands_added"] == 0
+        assert len(device.commands) == 1
+
+    @pytest.mark.asyncio
+    async def test_relink_false_leaves_the_device_pointer_standing(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        old = Wig(
+            name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        _closet_wig(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("On", PRONTO_A)],
+        )
+        _closet_wig(tmp_path, new, "new.wig.json")
+        device = IRDevice(
+            name="Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A)],
+        )
+        _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_supersede(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/supersede",
+            "new_filename": "new.wig.json", "old_filename": "old.wig.json",
+            "relink": False, "topup_device_ids": [],
+        })
+        conn.send_error.assert_not_called()
+        # Nothing to touch: the device is neither relinked nor topped up.
+        assert device.source_wig_id == "old"
+        assert conn.send_result.call_args[0][1]["devices"] == []
+
+    @pytest.mark.asyncio
+    async def test_refuses_and_deletes_nothing_when_the_pair_changed(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        old = Wig(
+            name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        old_path = _closet_wig(tmp_path, old, "old.wig.json")
+        # The successor no longer names "old" in its ancestry: the closet
+        # changed under the dialog, so the confirm is stale.
+        new = Wig(
+            name="Other", wig_id="new", supersedes=["unrelated"],
+            signals=[WigSignal("On", PRONTO_A)],
+        )
+        _closet_wig(tmp_path, new, "new.wig.json")
+        _wire_many(fake_hass, tmp_path, [])
+        conn = _conn()
+        await ws_wigs_supersede(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/supersede",
+            "new_filename": "new.wig.json", "old_filename": "old.wig.json",
+        })
+        assert conn.send_error.call_args[0][1] == "pair_changed"
+        assert old_path.exists()
+
+
+_BLOCK_KEYS = {
+    "old_filename", "old_name", "old_signals", "new_signals",
+    "lost_digests", "lost_aliases", "devices",
+}
+
+
+class TestSupersessionDoorways:
+    """Both doorways return the SAME block for the same pair: the drop bar
+    (upload) and Save as new (create)."""
+
+    @pytest.mark.asyncio
+    async def test_upload_with_a_local_ancestor_returns_the_block(
+        self, fake_hass, tmp_path
+    ):
+        old = Wig(
+            name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        _closet_wig(tmp_path, old, "old.wig.json")
+        _wire_many(fake_hass, tmp_path, [])
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("On", PRONTO_A), WigSignal("Boost", PRONTO_B)],
+        )
+        conn = _conn()
+        await ws_wigs_upload(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/upload", "text": serialize_wig(new),
+        })
+        result = conn.send_result.call_args[0][1]
+        assert "supersession" in result
+        assert result["supersession"]["old_filename"] == "old.wig.json"
+        assert set(result["supersession"]) == _BLOCK_KEYS
+
+    @pytest.mark.asyncio
+    async def test_upload_without_an_ancestor_has_no_block(
+        self, fake_hass, tmp_path
+    ):
+        _wire_many(fake_hass, tmp_path, [])
+        fresh = Wig(
+            name="Fresh", wig_id="new", signals=[WigSignal("On", PRONTO_A)]
+        )
+        conn = _conn()
+        await ws_wigs_upload(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/upload", "text": serialize_wig(fresh),
+        })
+        assert "supersession" not in conn.send_result.call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_save_as_new_self_supersession_returns_the_same_block(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        # Someone perfect-fitted their own wig, found an eighth button,
+        # added it on the device, and saves as new: the successor is born
+        # in the closet and the create path returns the block itself.
+        old = Wig(
+            name="My Fan", wig_id="u-old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        _closet_wig(tmp_path, old, "old.wig.json")
+        device = IRDevice(
+            name="My Fan", source_wig_id="u-old",
+            commands=[_command("On", PRONTO_A), _command("Boost", PRONTO_B)],
+        )
+        _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "create", "name": "My Fan v2",
+        })
+        result = conn.send_result.call_args[0][1]
+        assert "supersession" in result
+        assert result["supersession"]["old_filename"] == "old.wig.json"
+        # Identical shape to the upload doorway.
+        assert set(result["supersession"]) == _BLOCK_KEYS

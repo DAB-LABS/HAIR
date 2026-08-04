@@ -827,3 +827,70 @@ def update_text(
         variant=VARIANT_UPDATE,
         stale_renames=[p.alias_at_claim for p in outcome.stale],
     )
+
+
+def detect_supersession(
+    config_dir: str, new_wig: Any, devices: list[IRDevice]
+) -> dict[str, Any] | None:
+    """The replace-flow invitation, or None. Shared by both doorways.
+
+    Walks the arriving wig's ancestry newest-first and stops at the FIRST
+    id that resolves to a wig in this closet -- the local ancestor it
+    supersedes. Reports the counts, the rows the local copy carries that
+    the arrival does not (by digest, so a rename never reads as a loss),
+    and every device sourced to that ancestor with how many of the
+    arrival's rows it still lacks. Returns None when no ancestor is local:
+    the field is inert on installs that never had the old wig.
+
+    Both the drop bar (ws_wigs_upload) and Save as new (_do_create) call
+    this on the same shape, so the dialog downstream cannot drift between
+    the two doorways.
+    """
+    from .wig_export import build_wig_from_device
+    from .wig_format import signal_row_digest, wig_row_digests
+    from .wig_store import find_wig_by_id, load_wig
+
+    new_digests = set(wig_row_digests(new_wig))
+    for ancestor_id in new_wig.supersedes:
+        filename = find_wig_by_id(config_dir, ancestor_id)
+        if filename is None:
+            continue
+        old_wig = load_wig(config_dir, filename)
+        if old_wig is None:
+            continue
+
+        lost_digests: list[str] = []
+        lost_aliases: list[str] = []
+        for signal in old_wig.signals:
+            digest = signal_row_digest(signal)
+            if digest not in new_digests:
+                lost_digests.append(digest)
+                lost_aliases.append(signal.alias)
+
+        device_entries: list[dict[str, Any]] = []
+        for device in devices:
+            if device.source_wig_id != ancestor_id:
+                continue
+            build = build_wig_from_device(device)
+            have = (
+                set(wig_row_digests(build.wig))
+                if build.wig is not None else set()
+            )
+            device_entries.append({
+                "id": device.id,
+                "name": device.name,
+                "missing_commands": sum(
+                    1 for digest in new_digests if digest not in have
+                ),
+            })
+
+        return {
+            "old_filename": filename,
+            "old_name": old_wig.name,
+            "old_signals": len(old_wig.signals),
+            "new_signals": len(new_wig.signals),
+            "lost_digests": lost_digests,
+            "lost_aliases": lost_aliases,
+            "devices": device_entries,
+        }
+    return None

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 
+from custom_components.hair.models import IRCommand, IRDevice
 from custom_components.hair.wig_format import (
     SUPERSEDES_MAX,
     WIG_FORMAT_V1,
@@ -29,9 +30,12 @@ from custom_components.hair.wig_format import (
     signal_row_digest,
     wig_row_digests,
 )
+from custom_components.hair.wig_save import detect_supersession
+from custom_components.hair.wig_store import ensure_wigs_dir, wigs_dir
 
 PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
 PRONTO_B = "0000 006D 0002 0000 0030 0040 0020 0040"
+PRONTO_C = "0000 006D 0002 0000 0040 0040 0020 0040"
 
 
 def _wig_dict(**overrides) -> dict:
@@ -255,3 +259,128 @@ class TestDownloadFilename:
         name = download_filename(wig)
         assert name.endswith(".wig.json")
         assert "." not in name[: -len(".wig.json")]
+
+
+def _pronto_command(name, code):
+    return IRCommand(name=name, protocol="PRONTO", code=code, repeat_count=0)
+
+
+class TestDetectSupersession:
+    """The shared detection both doorways call. Pure: it takes a config
+    dir, the arriving wig, and the device list, and answers with the
+    replace-flow block or None."""
+
+    def _closet(self, tmp_path, wig, filename):
+        ensure_wigs_dir(tmp_path)
+        (wigs_dir(tmp_path) / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+
+    def test_no_local_ancestor_returns_none(self, tmp_path):
+        new = Wig(
+            name="New", wig_id="new", supersedes=["not-here"],
+            signals=[WigSignal("On", PRONTO)],
+        )
+        assert detect_supersession(str(tmp_path), new, []) is None
+
+    def test_no_supersedes_returns_none(self, tmp_path):
+        new = Wig(name="Fresh", wig_id="new", signals=[WigSignal("On", PRONTO)])
+        assert detect_supersession(str(tmp_path), new, []) is None
+
+    def test_local_ancestor_returns_block_with_counts(self, tmp_path):
+        old = Wig(
+            name="Fan XYZ", wig_id="old",
+            signals=[WigSignal("On", PRONTO), WigSignal("Off", PRONTO_B)],
+        )
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan XYZ v2", wig_id="new", supersedes=["old"],
+            signals=[
+                WigSignal("On", PRONTO), WigSignal("Off", PRONTO_B),
+                WigSignal("Boost", PRONTO_C),
+            ],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block is not None
+        assert block["old_filename"] == "old.wig.json"
+        assert block["old_name"] == "Fan XYZ"
+        assert block["old_signals"] == 2
+        assert block["new_signals"] == 3
+        # Every old row is carried forward, so nothing is lost.
+        assert block["lost_digests"] == []
+        assert block["lost_aliases"] == []
+        assert block["devices"] == []
+
+    def test_lost_rows_are_exact_by_digest_not_name(self, tmp_path):
+        old = Wig(
+            name="Fan", wig_id="old",
+            signals=[
+                WigSignal("On", PRONTO), WigSignal("Oscillate", PRONTO_B),
+            ],
+        )
+        self._closet(tmp_path, old, "old.wig.json")
+        # The successor carries On (renamed to Power -- same bytes, same
+        # digest, so NOT a loss) but drops Oscillate.
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("Power", PRONTO)],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block["lost_aliases"] == ["Oscillate"]
+        assert block["lost_digests"] == [
+            signal_row_digest(WigSignal("Oscillate", PRONTO_B))
+        ]
+
+    def test_any_hop_matches_the_second_ancestor(self, tmp_path):
+        # The parent left the shelf; the grandparent (second entry) is
+        # still local. The block fires on the grandparent.
+        grand = Wig(
+            name="Gen1", wig_id="grand", signals=[WigSignal("On", PRONTO)]
+        )
+        self._closet(tmp_path, grand, "grand.wig.json")
+        new = Wig(
+            name="Gen3", wig_id="new", supersedes=["parent", "grand"],
+            signals=[WigSignal("On", PRONTO)],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block is not None
+        assert block["old_filename"] == "grand.wig.json"
+
+    def test_newest_first_prefers_the_nearer_ancestor(self, tmp_path):
+        parent = Wig(
+            name="Gen2", wig_id="parent", signals=[WigSignal("On", PRONTO)]
+        )
+        grand = Wig(
+            name="Gen1", wig_id="grand", signals=[WigSignal("On", PRONTO)]
+        )
+        self._closet(tmp_path, parent, "parent.wig.json")
+        self._closet(tmp_path, grand, "grand.wig.json")
+        new = Wig(
+            name="Gen3", wig_id="new", supersedes=["parent", "grand"],
+            signals=[WigSignal("On", PRONTO)],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        # First match wins, walking newest-first.
+        assert block["old_filename"] == "parent.wig.json"
+
+    def test_sourced_devices_report_their_missing_counts(self, tmp_path):
+        old = Wig(name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO)])
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("On", PRONTO), WigSignal("Boost", PRONTO_B)],
+        )
+        # Adopted from old, holds only On -> missing 1 (Boost). An
+        # unrelated device is not listed.
+        living = IRDevice(
+            name="Living Room Fan", source_wig_id="old",
+            commands=[_pronto_command("On", PRONTO)],
+        )
+        other = IRDevice(
+            name="Unrelated", source_wig_id="elsewhere",
+            commands=[_pronto_command("On", PRONTO)],
+        )
+        block = detect_supersession(str(tmp_path), new, [living, other])
+        assert len(block["devices"]) == 1
+        assert block["devices"][0]["name"] == "Living Room Fan"
+        assert block["devices"][0]["missing_commands"] == 1
