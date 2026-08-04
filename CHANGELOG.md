@@ -5,6 +5,14 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-08-04 -- Second Fitting
+
+### Added
+
+- **A wig can replace the one it grew out of, and your closet keeps up.** When you outgrow a shared wig -- you added the buttons it was missing, or fixed a dead code on the device -- **Save as new** mints a successor that remembers its lineage. Drop that successor into a closet that still holds the original and HAIR offers to replace rather than file a twin: the old file steps aside, every device that came from it repoints to the successor, and you can top up those devices with the new buttons in the same step. Nothing is ever marked on the old file -- copies of it sit in closets nobody can reach -- so the lineage rides on the file that travels. Prefer to keep both and nothing is deleted; the two hang side by side.
+- **Replacing tells you what is at stake and leaves the choice yours.** If your copy of the old wig carries a row the successor does not, the replace dialog names that row before you decide rather than dropping it quietly. A command you added that is not yet in the wig is marked at Save to Closet -- *not in the wig; travels when you Save as new* -- and stays out of the attestation, so a tick can never be born orphaned. The successor's fitting is its own: your proof of the old wig retires with it, and you attest the new buttons once you have pressed them.
+- **Download names come from the wig itself.** The suggested filename is now composed from the wig's own brand, kind, and model, with its fitting tier as a hyphenated suffix (`-fitted`, `-perfect-fit`) drawn from the wig's own claims. The panel no longer builds the name, so a wig's closet row and its filename can never disagree, and the suffix is hyphenated rather than dotted so an upload to the shop accepts it.
+
 ## [0.9.6] - 2026-08-04 -- Hotfix: unknown is not down
 
 ### Fixed
