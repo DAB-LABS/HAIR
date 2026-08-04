@@ -31,6 +31,8 @@ import type {
     ReceiverInfo,
     SavePlan,
     SaveResult,
+    SupersedeResult,
+    SupersessionBlock,
     SignalRemovedEvent,
     SignalSourceId,
     SignalUpdatedEvent,
@@ -323,6 +325,9 @@ export class HairApi {
         format?: string;
         skipped?: string[];
         errors?: string[];
+        // The replace-flow invitation, when the arrival names an ancestor
+        // still in this closet (v0.9.7 Second Fitting).
+        supersession?: SupersessionBlock;
     }> {
         const msg: Record<string, unknown> = {
             type: "hair/wigs/upload",
@@ -330,6 +335,24 @@ export class HairApi {
         };
         if (filename) msg.filename = filename;
         return this.hass.connection.sendMessagePromise(msg);
+    }
+
+    /** Perform the replace a superseding Wig invites: delete the old
+     * file, repoint its devices, top up the chosen ones (v0.9.7). The
+     * server re-verifies the pair, so a stale confirm refuses cleanly. */
+    wigsSupersede(
+        newFilename: string,
+        oldFilename: string,
+        relink: boolean,
+        topupDeviceIds: string[],
+    ): Promise<SupersedeResult> {
+        return this.hass.connection.sendMessagePromise<SupersedeResult>({
+            type: "hair/wigs/supersede",
+            new_filename: newFilename,
+            old_filename: oldFilename,
+            relink,
+            topup_device_ids: topupDeviceIds,
+        });
     }
 
     /** Comb one wig and refresh its receipt. Always re-combs rather than

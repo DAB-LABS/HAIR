@@ -1158,3 +1158,141 @@ class TestDeviceOnlyRowStopsGhostClaims:
         )[0]
         # The whole line arms Save as new.
         assert "_saveAsNew = true" in nudge
+
+
+class TestSupersedeDialog:
+    """v0.9.7 Second Fitting: one dialog draws both doorways -- an
+    arriving Wig that names a local ancestor (the drop bar) and Save as
+    new minting a self-superseding successor. Both hand it the same
+    server block, so a single component cannot word the same decision
+    two ways.
+
+    Two states off one block: friendly when the local copy carries
+    forward whole, guarded when it holds a row the successor lacks. The
+    guard informs; REPLACE stays the primary either way (owner ruling
+    2026-08-03: unfilled in the guarded state, never demoted out of the
+    slot).
+    """
+
+    def test_both_doorways_host_the_one_component(self):
+        """The drop bar and Save as new import the same dialog. Two
+        copies is how the two doorways come to disagree about a decision
+        that is the same on both sides."""
+        for host in ("ir-wigs.ts", "ir-save-wig-dialog.ts"):
+            assert 'import "./ir-supersede-dialog.js"' in _read(host), host
+            assert "<ir-supersede-dialog" in _read(host), host
+
+    def test_the_state_is_derived_from_the_block_not_a_flag(self):
+        """friendly vs guarded is a fact about the data -- whether the
+        local copy loses a row -- not a mode the host sets. A boolean the
+        caller passes could disagree with lost_digests; the derived
+        getter cannot."""
+        text = _read("ir-supersede-dialog.ts")
+        assert "private get _guarded()" in text
+        assert "lost_digests?.length" in text
+
+    def test_the_friendly_state_reads_as_an_invitation(self):
+        text = _read("ir-supersede-dialog.ts")
+        assert "supersede.carried_all" in text
+
+    def test_the_guarded_state_names_what_is_lost_in_amber(self):
+        """Amber, and only here: the one place a row does not carry."""
+        text = _read("ir-supersede-dialog.ts")
+        assert "supersede.lost" in text
+        assert ".lost-callout" in text
+
+    def test_replace_keeps_the_primary_slot_when_guarded(self):
+        """Owner ruling 2026-08-03: the guard informs, it does not
+        demote. REPLACE is one button with a modifier class -- not a
+        second button, not a reordering of the action row -- and it goes
+        unfilled rather than trading places with KEEP BOTH."""
+        joined = " ".join(_read("ir-supersede-dialog.ts").split())
+        assert 'replace ${this._guarded' in joined
+        guarded = _read("ir-supersede-dialog.ts").split(
+            ".replace.guarded {", 1
+        )[1].split("}", 1)[0]
+        assert "background: none" in guarded
+
+    def test_replace_is_disabled_until_the_host_answers(self):
+        """The host re-verifies the pair server-side; REPLACE waits on
+        that call. A second press mid-flight would fire a second
+        supersede against a file the first already deleted."""
+        text = _read("ir-supersede-dialog.ts")
+        assert "?disabled=${this._busy}" in text
+        replace = text.split("private _replace()", 1)[1].split(
+            "private ", 1
+        )[0]
+        assert "if (this._busy) return;" in replace
+        assert "this._busy = true;" in replace
+
+    def test_keep_both_sends_no_supersede_call(self):
+        """KEEP BOTH is the null action: both files stand, nothing is
+        deleted or relinked. Neither doorway's handler may reach the
+        supersede endpoint."""
+        wigs = _read("ir-wigs.ts")
+        kb = wigs.split("private _onSupersedeKeepBoth", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "wigsSupersede" not in kb
+        save = _read("ir-save-wig-dialog.ts")
+        assert "@keep-both=${() => this._closeAll()}" in save
+        closeall = save.split("private _closeAll()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "wigsSupersede" not in closeall
+
+    def test_replace_is_the_call_both_doorways_do_make(self):
+        """The symmetric guard: the REPLACE handler on each side reaches
+        the endpoint, so the button is wired, not inert."""
+        wigs = _read("ir-wigs.ts")
+        rep = wigs.split("private async _onSupersedeReplace", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this.api.wigsSupersede(" in rep
+        save = _read("ir-save-wig-dialog.ts")
+        rep2 = save.split("private _onSelfReplace", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this.api.wigsSupersede(" in rep2
+
+    def test_the_refit_note_falls_away_on_self_supersession(self):
+        """Save as new just attested the successor, so there is nothing
+        to warn the fitter off. The drop bar's arrival was signed by a
+        stranger, so its note stays: only the self doorway passes
+        .self."""
+        assert "this.self" in _read("ir-supersede-dialog.ts")
+        assert ".self=${true}" in _read("ir-save-wig-dialog.ts")
+        assert ".self=${true}" not in _read("ir-wigs.ts")
+
+    def test_the_top_up_choices_default_on(self):
+        """A device that came from the ancestor should follow by
+        default; the checkboxes let the fitter opt a device out, not have
+        to opt every one in."""
+        seed = _read("ir-supersede-dialog.ts").split("updated()", 1)[1].split(
+            "}", 1
+        )[0]
+        assert "new Set(this.block.devices.map" in seed
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_supersede_vocabulary(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key in (
+            "supersede.title",
+            "supersede.body",
+            "supersede.carried_all",
+            "supersede.refit_note",
+            "supersede.replace",
+            "supersede.keep_both",
+            "supersede.receipt_replaced",
+            "supersede.receipt_kept",
+        ):
+            assert key in data, f"{locale} missing {key}"
+        for key in (
+            "supersede.lost",
+            "supersede.device_follows",
+            "supersede.topup",
+        ):
+            assert f"{key}.one" in data, f"{locale} missing {key}.one"
+            assert f"{key}.other" in data, f"{locale} missing {key}.other"

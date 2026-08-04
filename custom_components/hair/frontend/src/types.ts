@@ -406,6 +406,41 @@ export interface SavePlan {
     matrix: boolean;
 }
 
+/** A device that came from the superseded Wig, and how many of the
+ * arrival's rows it still lacks (v0.9.7 Second Fitting). */
+export interface SupersedeDevice {
+    id: string;
+    name: string;
+    missing_commands: number;
+}
+
+/** The replace-flow invitation the server computes at both doorways: an
+ * arriving Wig meets an ancestor still in the closet. */
+export interface SupersessionBlock {
+    old_filename: string;
+    old_name: string;
+    old_signals: number;
+    new_signals: number;
+    /** Rows of the local copy the arrival does not carry, by digest. Empty
+     * in the friendly state; non-empty arms the guarded one. */
+    lost_digests: string[];
+    lost_aliases: string[];
+    devices: SupersedeDevice[];
+}
+
+/** The outcome of hair/wigs/supersede, per device, for the receipt. */
+export interface SupersedeResult {
+    deleted: boolean;
+    old_filename: string;
+    new_filename: string;
+    devices: {
+        id: string;
+        name: string;
+        relinked: boolean;
+        commands_added: number;
+    }[];
+}
+
 export interface SaveResult {
     filename: string | null;
     wig_id: string | null;
@@ -420,6 +455,9 @@ export interface SaveResult {
     suspects: number;
     /** Lattice cells this save proposed upstream. */
     cells_proposed: number;
+    /** Present when Save as new mints a self-superseding Wig whose
+     * ancestor is still local: the second doorway (v0.9.7). */
+    supersession?: SupersessionBlock;
 }
 
 export interface WigInvalid {

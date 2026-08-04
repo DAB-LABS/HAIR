@@ -47,6 +47,7 @@ import { COMB_PATH } from "./ir-comb-report.js";
 import "./ir-comb-report.js";
 import { displayTemp, installUnit } from "./temperature.js";
 import "./ir-confirm-dialog.js";
+import "./ir-supersede-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-claims-ledger.js";
 import "./ir-promote-dialog.js";
@@ -55,6 +56,7 @@ import type {
     CodeCodebook,
     FittingSummary,
     MatrixSummary,
+    SupersessionBlock,
     WigInfo,
     WigInvalid,
     WigsList,
@@ -145,6 +147,11 @@ export class IrWigs extends LitElement {
         duplicates?: { filename: string; brand: string | null }[];
     }[] = [];
     @state() private _receiptSuffix = "";
+    // The drop-bar doorway: an arriving Wig named an ancestor still here.
+    @state() private _supersede: {
+        block: SupersessionBlock;
+        newFilename: string;
+    } | null = null;
     @state() private _bloomId: string | null = null;
     private _pendingScrollId: string | null = null;
     @state() private _busyId: string | null = null;
@@ -556,6 +563,48 @@ export class IrWigs extends LitElement {
         ></ir-confirm-dialog>`;
     }
 
+    private _renderSupersede() {
+        const s = this._supersede;
+        if (!s) return "";
+        return html`<ir-supersede-dialog
+            .block=${s.block}
+            .newFilename=${s.newFilename}
+            @replace=${this._onSupersedeReplace}
+            @keep-both=${this._onSupersedeKeepBoth}
+            @closed=${() => (this._supersede = null)}
+        ></ir-supersede-dialog>`;
+    }
+
+    private async _onSupersedeReplace(e: CustomEvent): Promise<void> {
+        const { newFilename, oldFilename, relink, topupDeviceIds } = e.detail;
+        const oldName = this._supersede?.block.old_name ?? oldFilename;
+        try {
+            await this.api.wigsSupersede(
+                newFilename, oldFilename, relink, topupDeviceIds,
+            );
+            // Name what happened onto the existing receipt line.
+            this._receiptSuffix = [
+                this._receiptSuffix,
+                t("supersede.receipt_replaced", { name: oldName }),
+            ].filter(Boolean).join(" · ");
+            this._supersede = null;
+            await this._refresh();
+        } catch (err) {
+            this._receiptKind = "warn";
+            this._receiptFiles = [];
+            this._receipt = (err as Error).message;
+            this._supersede = null;
+        }
+    }
+
+    private _onSupersedeKeepBoth(): void {
+        this._receiptSuffix = [
+            this._receiptSuffix,
+            t("supersede.receipt_kept"),
+        ].filter(Boolean).join(" · ");
+        this._supersede = null;
+    }
+
     // --- Upload (drop bar + browse) ---
 
     private async _uploadText(
@@ -608,8 +657,20 @@ export class IrWigs extends LitElement {
             // fitting. Only when exactly one wig landed -- a foreign
             // format can convert to five at once, and five stacked
             // dialogs is not a report.
-            const fresh = files.filter((f) => !f.duplicate_of);
-            if (fresh.length === 1) this._combAfterUpload(fresh[0].filename);
+            // A superseding Wig opens the replace dialog instead of the
+            // auto-comb: two stacked dialogs is not a report, and the
+            // replace decision comes first. The comb stays a click away.
+            if (result.supersession && result.filename) {
+                this._supersede = {
+                    block: result.supersession,
+                    newFilename: result.filename,
+                };
+            } else {
+                const fresh = files.filter((f) => !f.duplicate_of);
+                if (fresh.length === 1) {
+                    this._combAfterUpload(fresh[0].filename);
+                }
+            }
         } catch (err) {
             this._receiptKind = "warn";
             this._receiptFiles = [];
@@ -1189,6 +1250,7 @@ export class IrWigs extends LitElement {
             )}
             ${this._renderPeek()}
             ${this._renderClipConfirm()}
+            ${this._renderSupersede()}
             ${this._renderEditor()}
             ${this._adoptWig
                 ? html`<ir-promote-dialog

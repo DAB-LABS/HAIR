@@ -35,8 +35,14 @@ import { t, tp } from "./localize.js";
 import { displayTemp, installUnit } from "./temperature.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { SavePlan, SavePlanRow, SaveResult } from "./types.js";
+import type {
+    SavePlan,
+    SavePlanRow,
+    SaveResult,
+    SupersessionBlock,
+} from "./types.js";
 import "./ir-protocol-chip.js";
+import "./ir-supersede-dialog.js";
 import "./ir-test-button.js";
 import "./ir-tx-knobs.js";
 import "./ir-claims-ledger.js";
@@ -67,6 +73,13 @@ export class IrSaveWigDialog extends LitElement {
     @state() private _busy = false;
     @state() private _error: string | null = null;
     @state() private _done: SaveResult | null = null;
+    // Save as new over a Wig whose ancestor is still local: the second
+    // supersession doorway (v0.9.7). The dialog opens on the successor
+    // just written, with "your old Wig" copy and the refit note dropped.
+    @state() private _selfSupersede: {
+        block: SupersessionBlock;
+        newFilename: string;
+    } | null = null;
 
     // --- The fitting half (device source only) -------------------------
     @state() private _plan: SavePlan | null = null;
@@ -503,9 +516,20 @@ export class IrSaveWigDialog extends LitElement {
                     composed: true,
                 }),
             );
-            // Confirm with the filename in place (wigs.md section 7)
-            // instead of vanishing -- the filename IS the receipt.
-            this._done = result as SaveResult;
+            // A self-superseding Wig (Save as new over one whose ancestor
+            // is still local) opens the replace dialog on the successor
+            // just written, instead of the plain done confirmation.
+            const sup = (result as SaveResult).supersession;
+            if (sup && (result as SaveResult).filename) {
+                this._selfSupersede = {
+                    block: sup,
+                    newFilename: (result as SaveResult).filename!,
+                };
+            } else {
+                // Confirm with the filename in place (wigs.md section 7)
+                // instead of vanishing -- the filename IS the receipt.
+                this._done = result as SaveResult;
+            }
         } catch (err) {
             this._error = (err as Error).message;
         } finally {
@@ -554,7 +578,41 @@ export class IrSaveWigDialog extends LitElement {
 
     // --- Rendering -----------------------------------------------------
 
+    private _onSelfReplace = async (e: CustomEvent): Promise<void> => {
+        const { newFilename, oldFilename, relink, topupDeviceIds } = e.detail;
+        try {
+            await this.api.wigsSupersede(
+                newFilename, oldFilename, relink, topupDeviceIds,
+            );
+        } catch {
+            // The successor is already written and the wig-saved event
+            // fired; a failed replace leaves both files standing, which
+            // is a safe outcome to fall back to.
+        }
+        this._closeAll();
+    };
+
+    private _closeAll(): void {
+        this._selfSupersede = null;
+        this.dispatchEvent(
+            new CustomEvent("closed", { bubbles: true, composed: true }),
+        );
+    }
+
+    private _renderSelfSupersede() {
+        const s = this._selfSupersede!;
+        return html`<ir-supersede-dialog
+            .block=${s.block}
+            .newFilename=${s.newFilename}
+            .self=${true}
+            @replace=${this._onSelfReplace}
+            @keep-both=${() => this._closeAll()}
+            @closed=${() => this._closeAll()}
+        ></ir-supersede-dialog>`;
+    }
+
     render() {
+        if (this._selfSupersede) return this._renderSelfSupersede();
         if (this._done) return this._renderDone();
         if (this._confirmNew) return this._renderConfirmNew();
         const heading = this._isUpdate
