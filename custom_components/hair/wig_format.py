@@ -81,6 +81,14 @@ MAX_WIG_BYTES = 16_000_000
 
 _FORMAT_RE = re.compile(rf"^{WIG_FORMAT_NAME}/(\d+)$")
 
+# The supersession ancestry list is capped at BOTH ends -- parse trims
+# to it, and the Save-as-new stamp composes then trims to it -- so the
+# file on disk always matches what every reader sees (owner 2026-08-04).
+# Newest-first means overflow drops the OLDEST ancestor, the one you can
+# most afford to stop bouncing forward. Absurdly generous against real
+# chain depth, short enough to scan past.
+SUPERSEDES_MAX = 16
+
 # Top-level and per-signal keys the schema knows. Anything else is
 # tolerated and preserved (forward compatibility).
 _KNOWN_TOP = {
@@ -88,6 +96,8 @@ _KNOWN_TOP = {
     "identifiers", "signals", "climate",
     # Fitting Room (v0.9.5): identity and provenance.
     "wig_id", "converted_from", "converted_from_sha256",
+    # Second Fitting (v0.9.7): supersession ancestry, newest first.
+    "supersedes",
 }
 
 _KNOWN_CLIMATE = {
@@ -321,6 +331,15 @@ class Wig:
     # spot sibling conversions whose sources have drifted.
     converted_from: str | None = None
     converted_from_sha256: str | None = None
+    # SUPERSESSION ANCESTRY (v0.9.7 Second Fitting), newest first: the
+    # wig ids this one replaces -- its parent, then its parent's parent,
+    # and so on. Stamped by Save as new (the source id prepended onto the
+    # source's own ancestry) and read by the drop bar, which matches ANY
+    # ancestor a local closet still holds and offers replace instead of
+    # filing a twin. Metadata like every field around it: OUTSIDE every
+    # canonical form and every digest, so lineage can never move a wig's
+    # identity or disturb a claim. Capped at SUPERSEDES_MAX at both ends.
+    supersedes: list[str] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
 
 
@@ -507,6 +526,7 @@ def parse_wig(text: str) -> WigParseResult:
             converted_from_sha256=_str_or_none(
                 data.get("converted_from_sha256")
             ),
+            supersedes=_parse_supersedes(data.get("supersedes")),
             extra={k: v for k, v in data.items() if k not in _KNOWN_TOP},
         ),
         [],
@@ -518,6 +538,46 @@ def _str_or_none(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _parse_supersedes(value: object) -> list[str]:
+    """The supersession ancestry list: forgiving parse, newest first.
+
+    Accepts a list of non-empty strings; a bare string becomes a
+    one-element list, for hand-written files. Junk entries (non-string,
+    empty, whitespace-only) are dropped, never errored -- lineage is
+    optional metadata and a single bad entry must not fail an otherwise
+    good wig. Trimmed to SUPERSEDES_MAX keeping the head, so overflow
+    drops the OLDEST ancestor (the tail), matching the Save-as-new stamp
+    so a file's on-disk list and every reader's view stay identical.
+    """
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+    return out[:SUPERSEDES_MAX]
+
+
+def compose_supersedes(
+    source_wig_id: str, source_supersedes: list[str] | None = None
+) -> list[str]:
+    """The Save-as-new ancestry stamp: the source id, then its ancestry.
+
+    Newest first -- the source is the new wig's immediate parent, so its
+    id leads, followed by the source's own ancestry unchanged. Trimmed to
+    SUPERSEDES_MAX from the head, so a source already carrying a full
+    16-entry chain yields ``[source_id, *first 15]`` and never a 17th:
+    the WRITE end of the cap, matching ``_parse_supersedes`` on the read
+    end. When the source file does not resolve locally the caller passes
+    no ancestry, and the stamp is ``[source_id]`` alone -- the one link
+    still known to be true.
+    """
+    chain = [source_wig_id, *(source_supersedes or [])]
+    return chain[:SUPERSEDES_MAX]
 
 
 def ensure_wig_id(wig: Wig) -> bool:
@@ -723,6 +783,11 @@ def serialize_wig(wig: Wig) -> str:
     ):
         if value is not None:
             out[key] = value
+    # Emitted as a list ALWAYS, and only when non-empty. Both writers
+    # (parse and the Save-as-new stamp) have already capped it to
+    # SUPERSEDES_MAX, so the on-disk list matches what every reader sees.
+    if wig.supersedes:
+        out["supersedes"] = list(wig.supersedes)
     if wig.identifiers:
         out["identifiers"] = dict(wig.identifiers)
     out["signals"] = [_signal_out(s) for s in wig.signals]
