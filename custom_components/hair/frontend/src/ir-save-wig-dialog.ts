@@ -267,7 +267,28 @@ export class IrSaveWigDialog extends LitElement {
         }
     }
 
-    private _close(): void {
+    /**
+     * Bench addendum (2026-08-05): the self-doorway confirm that killed
+     * itself. Whichever screen this render is showing -- the form, the
+     * supersede confirm, the done screen -- swaps its `<ha-dialog>` out
+     * for the next one, and mwc-dialog's own closing animation keeps
+     * running on that REMOVED element regardless: it fires a late
+     * `closed` on itself roughly 2.6s later, and that stale event still
+     * reaches this handler because the listener was bound directly to
+     * the element, not to anything Lit re-checks on removal.
+     *
+     * A real close always originates from whatever `<ha-dialog>` is
+     * CURRENTLY part of this render (checked via shadow-root
+     * containment, not component state, so it holds for the form, the
+     * confirm, and the done screen alike without needing to special-
+     * case any of them). A stale one no longer is. The supersede
+     * confirm itself never wires this handler at all -- `_closeAll()`
+     * is its only exit -- so this guard is what keeps the ghost from
+     * reaching past it and unmounting the whole dialog mid-decision.
+     */
+    private _close(e?: Event): void {
+        const target = e?.target as Node | null;
+        if (target && !this.shadowRoot?.contains(target)) return;
         this.dispatchEvent(
             new CustomEvent("closed", { bubbles: true, composed: true }),
         );

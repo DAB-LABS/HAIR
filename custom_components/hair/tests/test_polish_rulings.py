@@ -1573,3 +1573,54 @@ class TestReverseImportCheck:
         assert "confirmed?: boolean" in wu
         assert "reverse_supersession?: ReverseSupersessionBlock" in wu
         assert "if (confirmed) msg.confirmed = true;" in wu
+
+
+class TestTheConfirmThatKilledItself:
+    """Bench addendum (2026-08-05): a SUCCESSION save's self-doorway
+    confirm rendered, then vanished about 2.6s later, taking the whole
+    save dialog with it. The trigger was never anything the confirm
+    did -- it never wires ``_close`` at all -- it was mwc-dialog's own
+    closing animation finishing asynchronously on the FORM's
+    ``<ha-dialog>``, which the render had already swapped out for the
+    confirm, and firing a late ``closed`` that the old listener still
+    caught."""
+
+    def test_close_checks_shadow_containment_before_propagating(self):
+        """The guard is keyed to whether the event's own dialog is
+        still part of THIS render, not to which screen is showing --
+        that is what makes it protect the confirm and the done screen
+        alike without a per-screen special case."""
+        text = _read("ir-save-wig-dialog.ts")
+        body = text.split("private _close(e?: Event): void {", 1)[1]
+        body = body.split("\n    }", 1)[0]
+        assert "e?.target as Node | null" in body
+        assert "!this.shadowRoot?.contains(target)" in body
+        assert "return;" in body
+        # The guard has to run before the dispatch, not after -- an
+        # early return that came second would be dead code.
+        assert body.index("shadowRoot?.contains") < body.index(
+            'new CustomEvent("closed"'
+        )
+
+    def test_the_confirm_never_wires_close_directly(self):
+        """``_closeAll()`` stays the confirm's only exit. If a future
+        edit ever wires ``_close`` onto ir-supersede-dialog directly,
+        the containment guard stops being the only thing standing
+        between a stale event and an unmount, which is the exact
+        regression this class exists to catch."""
+        text = _read("ir-save-wig-dialog.ts")
+        # Bounded tightly to the method's own return statement -- the
+        # NEXT method down is ``render()``, which has no ``private``
+        # keyword to stop a looser split on, and DOES legitimately
+        # wire ``_close`` for the form dialog it owns.
+        render = text.split("private _renderSelfSupersede()", 1)[1]
+        render = render.split("</ir-supersede-dialog>", 1)[0]
+        assert "_close}" not in render
+        assert "_closeAll()" in render
+
+    def test_closeall_still_clears_the_confirm_state(self):
+        text = _read("ir-save-wig-dialog.ts")
+        body = text.split("private _closeAll(): void {", 1)[1]
+        body = body.split("\n    }", 1)[0]
+        assert "this._selfSupersede = null;" in body
+        assert 'new CustomEvent("closed"' in body
