@@ -731,5 +731,7 @@
     "wigs.route.removed.other": "{count} comandos eliminados",
     "wigs.route.save_as_new": "Guardar como nuevo",
     "wigs.route.update_closet_wig": "Actualizar wig del armario",
-    "wigs.route.validate_perfect_fit": "Validar para ajuste perfecto"
+    "wigs.route.validate_perfect_fit": "Validar para ajuste perfecto",
+    "wigs.route.replaced_receipt": "Guardado como {filename}; se reemplazó {old}.",
+    "wigs.route.updated_metadata": "{filename} actualizado."
 }

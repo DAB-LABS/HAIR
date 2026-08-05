@@ -731,5 +731,7 @@
     "wigs.route.removed.other": "{count} opdrachten verwijderd",
     "wigs.route.save_as_new": "Opslaan als nieuw",
     "wigs.route.update_closet_wig": "Kast-wig bijwerken",
-    "wigs.route.validate_perfect_fit": "Valideren voor Perfect Fit"
+    "wigs.route.validate_perfect_fit": "Valideren voor Perfect Fit",
+    "wigs.route.replaced_receipt": "Opgeslagen als {filename}; {old} vervangen.",
+    "wigs.route.updated_metadata": "{filename} bijgewerkt."
 }

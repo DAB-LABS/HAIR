@@ -731,5 +731,7 @@
     "wigs.route.removed.other": "{count} 件のコマンドが削除",
     "wigs.route.save_as_new": "新規として保存",
     "wigs.route.update_closet_wig": "クローゼットのwigを更新",
-    "wigs.route.validate_perfect_fit": "Perfect Fitとして検証"
+    "wigs.route.validate_perfect_fit": "Perfect Fitとして検証",
+    "wigs.route.replaced_receipt": "{filename} として保存し、{old} を置き換えました。",
+    "wigs.route.updated_metadata": "{filename} を更新しました。"
 }

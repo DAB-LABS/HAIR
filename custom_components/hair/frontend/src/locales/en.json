@@ -731,5 +731,7 @@
     "wigs.route.removed.other": "{count} commands removed",
     "wigs.route.save_as_new": "Save as New",
     "wigs.route.update_closet_wig": "Update Closet Wig",
-    "wigs.route.validate_perfect_fit": "Validate for Perfect Fit"
+    "wigs.route.validate_perfect_fit": "Validate for Perfect Fit",
+    "wigs.route.replaced_receipt": "Saved as {filename}; replaced {old}.",
+    "wigs.route.updated_metadata": "Updated {filename}."
 }

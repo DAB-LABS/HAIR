@@ -795,5 +795,7 @@
     "wigs.route.removed.other": "{count} команды удалено",
     "wigs.route.save_as_new": "Сохранить как новый",
     "wigs.route.update_closet_wig": "Обновить вижок в шкафу",
-    "wigs.route.validate_perfect_fit": "Проверить на Perfect Fit"
+    "wigs.route.validate_perfect_fit": "Проверить на Perfect Fit",
+    "wigs.route.replaced_receipt": "Сохранено как {filename}; {old} заменён.",
+    "wigs.route.updated_metadata": "{filename} обновлён."
 }

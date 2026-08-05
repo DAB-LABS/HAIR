@@ -731,5 +731,7 @@
     "wigs.route.removed.other": "{count} Befehle entfernt",
     "wigs.route.save_as_new": "Als neu speichern",
     "wigs.route.update_closet_wig": "Closet-Wig aktualisieren",
-    "wigs.route.validate_perfect_fit": "Für Perfect Fit prüfen"
+    "wigs.route.validate_perfect_fit": "Für Perfect Fit prüfen",
+    "wigs.route.replaced_receipt": "Gespeichert als {filename}; {old} ersetzt.",
+    "wigs.route.updated_metadata": "{filename} aktualisiert."
 }

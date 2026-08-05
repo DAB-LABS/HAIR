@@ -20,14 +20,18 @@ from custom_components.hair.models import IRCommand, IRDevice
 from custom_components.hair.wig_export import build_wig_from_device
 from custom_components.hair.wig_format import (
     SUPERSEDES_MAX,
+    VERDICT_WORKED,
     WIG_FORMAT_V1,
     WIG_FORMAT_V2,
+    ClaimsBundle,
     ClimateCell,
     ClimateMatrix,
+    RowClaim,
     Wig,
     WigSignal,
     canonical_cells_json,
     canonical_signals_json,
+    claims_bundle_out,
     compose_supersedes,
     download_filename,
     parse_wig,
@@ -780,3 +784,124 @@ class TestTheSuccessorNameAutoDifferentiates:
         plan = build_save_plan(device, wig, "fan.wig.json")
         assert plan.variant == VARIANT_SUCCESSION
         assert plan.metadata["name"] == "Fable Ceiling Fan"
+
+
+def _attach_bundle(wig, handle, verdicts):
+    digests = wig_row_digests(wig)
+    bundle = ClaimsBundle(
+        wig_id=wig.wig_id or "u-source",
+        handle=handle,
+        rows=[
+            RowClaim(alias_at_claim="x", digest=d, verdict=v)
+            for d, v in zip(digests, verdicts, strict=True)
+        ],
+    )
+    existing = wig.extra.get("fittings")
+    wig.extra["fittings"] = [
+        *(existing if isinstance(existing, list) else []),
+        claims_bundle_out(bundle),
+    ]
+    return wig
+
+
+def _diverging_device(source_wig_id="u-source"):
+    return IRDevice(
+        name="Fan", commands=[
+            _pronto_command("On", PRONTO),
+            _pronto_command("Turbo", PRONTO_B),
+        ],
+        source_wig_id=source_wig_id,
+    )
+
+
+class TestTheOldFittingGrade:
+    """Second Fitting v3, Commit 4: the Update dialog's inline warning
+    renders BEFORE the click now, not after the save in a confirm --
+    build_save_plan grades the source wig's own fitting history right
+    on a diverged plan, the same claims_summary already grades for the
+    self-supersession doorway's post-save confirm."""
+
+    def test_a_diverged_plan_with_no_fittings_carries_no_state(self):
+        """Present, but empty (RULED elsewhere: no claims is light --
+        nothing extra renders). An absent object and a null-state one
+        read identically to the dialog, but this way the shape never
+        has to distinguish "no ancestor" from "an unfitted ancestor"."""
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        plan = build_save_plan(_diverging_device(), wig, "fan.wig.json")
+        assert plan.variant == VARIANT_SUCCESSION
+        assert plan.old_fitting_grade is not None
+        assert plan.old_fitting_grade.state is None
+        assert plan.old_fitting_grade.handles == []
+
+    def test_a_complete_claim_grades_perfect_and_names_the_handle(self):
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        _attach_bundle(wig, "David", [VERDICT_WORKED])
+        plan = build_save_plan(_diverging_device(), wig, "fan.wig.json")
+        assert plan.old_fitting_grade.state == "perfect"
+        assert plan.old_fitting_grade.count == 1
+        assert plan.old_fitting_grade.handles == ["David"]
+
+    def test_a_partial_claim_grades_scoped(self):
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[
+                WigSignal(alias="On", pronto=PRONTO),
+                WigSignal(alias="Off", pronto=PRONTO_C),
+            ],
+        )
+        _attach_bundle(wig, "David", [VERDICT_WORKED, "not_on_device"])
+        device = IRDevice(
+            name="Fan", commands=[
+                _pronto_command("On", PRONTO),
+                _pronto_command("Off", PRONTO_C),
+                _pronto_command("Turbo", PRONTO_B),
+            ],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(device, wig, "fan.wig.json")
+        assert plan.variant == VARIANT_SUCCESSION
+        assert plan.old_fitting_grade.state == "scoped"
+        assert plan.old_fitting_grade.count == 1
+
+    def test_handles_are_deduped_first_seen_order(self):
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        _attach_bundle(wig, "David", [VERDICT_WORKED])
+        _attach_bundle(wig, "Robin", ["not_on_device"])
+        _attach_bundle(wig, "David", [VERDICT_WORKED])
+        plan = build_save_plan(_diverging_device(), wig, "fan.wig.json")
+        # Three bundles, two unique handles: the count is fitting
+        # bundles (matching supersede.fitted_scoped's own plural key),
+        # the handle list is deduped for the "by {who}" text.
+        assert plan.old_fitting_grade.count == 3
+        assert plan.old_fitting_grade.handles == ["David", "Robin"]
+
+    def test_a_matching_plan_carries_no_grade(self):
+        """Nothing is about to be retired on a plain UPDATE -- the
+        field stays None entirely, not an empty-state object."""
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        _attach_bundle(wig, "David", [VERDICT_WORKED])
+        device = IRDevice(
+            name="Fan", commands=[_pronto_command("On", PRONTO)],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(device, wig, "fan.wig.json")
+        assert plan.variant == VARIANT_UPDATE
+        assert plan.old_fitting_grade is None
+
+    def test_a_from_scratch_plan_carries_no_grade(self):
+        device = IRDevice(name="Fan", commands=[_pronto_command("On", PRONTO)])
+        plan = build_save_plan(device)
+        assert plan.variant == VARIANT_CREATE
+        assert plan.old_fitting_grade is None

@@ -25,7 +25,10 @@ import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-save-wig-dialog.js";
 import "./ir-save-route-dialog.js";
+import "./ir-save-new-dialog.js";
+import "./ir-save-update-dialog.js";
 import "./ir-emitter-picker.js";
+import type { SaveRoute } from "./ir-save-route-dialog.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
@@ -74,13 +77,18 @@ export class IrDeviceDetail extends LitElement {
     @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
     @state() private _confirmDelete = false;
-    @state() private _saveWigOpen = false;
     /** Second Fitting v3: the decision window's own plan, fetched once
      * when SAVE TO CLOSET is clicked and handed straight into whatever
      * dialog the chosen route opens next -- neither the window nor the
      * dialog it routes to fetches a second copy. Null closes the
-     * window; non-null with `_saveWigOpen` false shows it. */
+     * whole save flow; non-null with `_saveRoute` unset shows the
+     * window itself. */
     @state() private _saveRoutePlan: SavePlan | null = null;
+    /** Which route the window's own buttons chose. VALIDATE FOR
+     * PERFECT FIT still opens the pre-v3 dialog until Commit 5 gives
+     * it a stripped, purpose-built one of its own -- see the Commit 3
+     * and 4 commit messages for the sequencing note. */
+    @state() private _saveRoute: SaveRoute | null = null;
     @state() private _commandToDelete: IRCommand | null = null;
     @state() private _editCommand: IRCommand | null = null;
 
@@ -228,8 +236,8 @@ export class IrDeviceDetail extends LitElement {
     /** Second Fitting v3: SAVE TO CLOSET opens the decision window
      * first, always -- fetching the plan once, up front, so its own
      * source line and delta summary are never a guess. A failed fetch
-     * falls back to the old dialog directly, which retries the same
-     * call and carries its own inline error banner. */
+     * falls back to the old Perfect-Fit-route dialog directly, which
+     * retries the same call and carries its own inline error banner. */
     private async _openSaveRoute(): Promise<void> {
         if (this._busy) return;
         try {
@@ -238,21 +246,31 @@ export class IrDeviceDetail extends LitElement {
             );
         } catch (err) {
             this._flash((err as Error).message);
-            this._saveWigOpen = true;
+            this._saveRoute = "perfect";
         }
     }
 
-    /** Second Fitting v3, Commit 3: every route opens the one save
-     * dialog that exists today -- Commits 4 and 5 split it into the
-     * route-specific dialogs the window's own buttons already name.
-     * The plan fetched for the window rides straight into it either
-     * way, so nothing downstream refetches. */
-    private _onSaveRoute = (): void => {
-        this._saveWigOpen = true;
+    /** Second Fitting v3, Commit 4: SAVE AS NEW and UPDATE CLOSET WIG
+     * open their own stripped dialogs now. VALIDATE FOR PERFECT FIT
+     * still opens the pre-v3 dialog until Commit 5 gives it one of its
+     * own -- see the Commit 3 and 4 commit messages. The plan fetched
+     * for the window rides straight into whichever dialog opens, so
+     * nothing downstream refetches it. */
+    private _onSaveRoute = (e: CustomEvent<{ route: SaveRoute }>): void => {
+        this._saveRoute = e.detail.route;
+    };
+
+    /** Coding plan Commit 4: the Update dialog's stale-replace refusal
+     * (Commit 2's `not_diverged`) surfaces as a plain re-open of the
+     * decision window with a fresh plan, not a dead end the person has
+     * to back out of by hand. */
+    private _onStaleReplace = async (): Promise<void> => {
+        this._saveRoute = null;
+        await this._openSaveRoute();
     };
 
     private _closeSaveFlow = (): void => {
-        this._saveWigOpen = false;
+        this._saveRoute = null;
         this._saveRoutePlan = null;
     };
 
@@ -1785,14 +1803,31 @@ export class IrDeviceDetail extends LitElement {
             </div>
 
             <!-- Dialogs -->
-            ${this._saveRoutePlan && !this._saveWigOpen
+            ${this._saveRoutePlan && !this._saveRoute
                 ? html`<ir-save-route-dialog
                       .plan=${this._saveRoutePlan}
                       @route=${this._onSaveRoute}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-route-dialog>`
                 : ""}
-            ${this._saveWigOpen
+            ${this._saveRoute === "new" && this._saveRoutePlan
+                ? html`<ir-save-new-dialog
+                      .api=${this.api}
+                      sourceId=${this.device.id}
+                      .plan=${this._saveRoutePlan}
+                      @closed=${this._closeSaveFlow}
+                  ></ir-save-new-dialog>`
+                : ""}
+            ${this._saveRoute === "update" && this._saveRoutePlan
+                ? html`<ir-save-update-dialog
+                      .api=${this.api}
+                      sourceId=${this.device.id}
+                      .plan=${this._saveRoutePlan}
+                      @stale-replace=${this._onStaleReplace}
+                      @closed=${this._closeSaveFlow}
+                  ></ir-save-update-dialog>`
+                : ""}
+            ${this._saveRoute === "perfect"
                 ? html`<ir-save-wig-dialog
                       .api=${this.api}
                       source="device"

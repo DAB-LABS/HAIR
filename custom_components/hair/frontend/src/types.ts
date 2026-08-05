@@ -415,6 +415,15 @@ export interface SavePlan {
      * entity, not the command list, so the rows above are only its
      * depth-0 extras and the perfect-fit block stays closed. */
     matrix: boolean;
+    /** SUCCESSION only (Second Fitting v3): the source wig's own
+     * fitting history, graded, for the Update Closet Wig dialog's
+     * inline warning before the click. Null state means present but
+     * unfitted -- nothing extra renders, same as no claims at all. */
+    old_fitting_grade: {
+        state: "perfect" | "scoped" | null;
+        count: number;
+        handles: string[];
+    } | null;
 }
 
 /** A device that came from the superseded Wig, and how many of the
@@ -498,8 +507,21 @@ export interface SaveResult {
     /** Lattice cells this save proposed upstream. */
     cells_proposed: number;
     /** Present when Save as new mints a self-superseding Wig whose
-     * ancestor is still local: the second doorway (v0.9.7). */
+     * ancestor is still local: the second doorway (v0.9.7). Second
+     * Fitting v3's Save as New dialog deliberately never acts on this
+     * -- the post-save confirm it used to open is retired as a
+     * decision point (spec section 6); only the import doorway still
+     * reads it. */
     supersession?: SupersessionBlock;
+    /** Present when Update Closet Wig's `replace: true` auto-replaced
+     * an ancestor as part of this same save (Second Fitting v3,
+     * Commit 2): the dual-act receipt, "Saved as <file>; replaced
+     * <old>." */
+    replaced?: {
+        old_filename: string;
+        deleted: boolean;
+        devices: { id: string; name: string }[];
+    };
 }
 
 export interface WigInvalid {

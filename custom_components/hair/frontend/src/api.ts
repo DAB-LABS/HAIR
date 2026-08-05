@@ -484,6 +484,11 @@ export class HairApi {
         };
         /** MATRIX UPDATE: send the repaired lattice upstream. */
         propose_lattice?: boolean;
+        /** Second Fitting v3: the Update Closet Wig dialog's own
+         * intent, set when its plan already says the device diverged.
+         * The server re-derives the verb fresh and refuses a stale
+         * one rather than acting on this alone. */
+        replace?: boolean;
     }): Promise<SaveResult> {
         return this.hass.connection.sendMessagePromise<SaveResult>({
             type: "hair/wigs/save",

@@ -1777,13 +1777,15 @@ class TestTheDecisionWindow:
         assert "this.api.wigsSavePlan(" in opener
         assert "this._saveRoutePlan =" in opener
         # A failed fetch still gets the person to a working dialog
-        # rather than a dead button.
-        assert "this._saveWigOpen = true;" in opener
+        # rather than a dead button -- Commit 4 renamed the flag but
+        # kept the same fallback: land on the interim Perfect-Fit-route
+        # dialog, which retries the fetch itself.
+        assert 'this._saveRoute = "perfect";' in opener
 
     def test_the_window_and_the_next_dialog_never_show_together(self):
         joined = " ".join(_read("ir-device-detail.ts").split())
         assert (
-            "this._saveRoutePlan && !this._saveWigOpen ? html`<ir-save-route-dialog"
+            "this._saveRoutePlan && !this._saveRoute ? html`<ir-save-route-dialog"
             in joined
         )
 
@@ -1818,3 +1820,116 @@ class TestTheDecisionWindow:
         for key in ("wigs.route.added", "wigs.route.removed"):
             assert f"{key}.one" in data, f"{locale} missing {key}.one"
             assert f"{key}.other" in data, f"{locale} missing {key}.other"
+
+
+class TestTheStrippedSaveDialogs:
+    """Second Fitting v3, Commit 4: Save as New and Update Closet Wig
+    are their own dialogs now, both built off the metadata form alone
+    -- no perfect-fit checkbox, no checklist, no attestation. That
+    ceremony stays exclusive to Validate for Perfect Fit (Commit 5).
+    """
+
+    @pytest.mark.parametrize(
+        "component", ("ir-save-new-dialog.ts", "ir-save-update-dialog.ts"),
+    )
+    def test_neither_stripped_dialog_carries_the_old_ceremony(
+        self, component,
+    ):
+        text = _read(component)
+        for token in (
+            "perfect_label", "_renderList(", "_renderRow(",
+            "_renderAttestation", "fit-check", "ir-tx-knobs",
+            "ir-test-button",
+        ):
+            assert token not in text, f"{component} still has {token}"
+
+    def test_both_stripped_dialogs_share_the_metadata_fields_module(self):
+        for component in (
+            "ir-save-new-dialog.ts", "ir-save-update-dialog.ts",
+        ):
+            text = _read(component)
+            assert 'from "./ir-save-metadata-fields.js"' in text
+            assert "renderMetadataFields(" in text
+
+    def test_save_as_new_never_reads_the_supersession_block(self):
+        """Spec section 2 / section 6: the post-save self-doorway
+        confirm retires as a decision point. Save as New's receipt
+        never opens ir-supersede-dialog, whatever the result carries."""
+        text = _read("ir-save-new-dialog.ts")
+        assert "supersession" not in text
+        assert "ir-supersede-dialog" not in text
+
+    def test_save_as_new_never_sends_replace(self):
+        save = _read("ir-save-new-dialog.ts").split(
+            "private async _save()", 1,
+        )[1].split("\n    render()", 1)[0]
+        assert "replace" not in save
+
+    def test_update_sends_replace_only_when_diverged(self):
+        text = _read("ir-save-update-dialog.ts")
+        save = text.split("private async _save()", 1)[1].split(
+            "\n    render()", 1
+        )[0]
+        assert "this._diverged ? { replace: true }" in " ".join(
+            save.split()
+        )
+
+    def test_the_graded_and_lost_rows_lines_are_diverged_only(self):
+        text = _read("ir-save-update-dialog.ts")
+        graded = text.split("private get _gradedLine()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "if (!this._diverged) return null;" in graded
+        assert "supersede.fitted_perfect" in graded
+        assert "supersede.fitted_scoped" in graded
+        lost = text.split("private get _lostRowsLine()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "if (!this._diverged) return null;" in lost
+        assert "supersede.lost" in lost
+        assert "this.plan.missing_rows" in lost
+
+    def test_a_stale_replace_refusal_reopens_the_window_not_an_error(self):
+        """Coding plan Commit 4: the not_diverged refusal from Commit 2
+        surfaces as a plain re-open of the decision window with a
+        fresh plan, not a banner the person has to dismiss by hand."""
+        dialog = _read("ir-save-update-dialog.ts")
+        save = dialog.split("private async _save()", 1)[1].split(
+            "\n    render()", 1
+        )[0]
+        assert 'code === "not_diverged"' in save
+        assert '"stale-replace"' in save
+        detail = _read("ir-device-detail.ts")
+        assert "@stale-replace=${this._onStaleReplace}" in detail
+        handler = detail.split(
+            "private _onStaleReplace = async ()", 1
+        )[1].split("\n    private", 1)[0]
+        assert "this._saveRoute = null;" in handler
+        assert "this._openSaveRoute()" in handler
+
+    def test_the_window_routes_new_and_update_to_their_own_dialogs(self):
+        detail = _read("ir-device-detail.ts")
+        joined = " ".join(detail.split())
+        assert (
+            'this._saveRoute === "new" && this._saveRoutePlan ? html`<ir-save-new-dialog'
+            in joined
+        )
+        assert (
+            'this._saveRoute === "update" && this._saveRoutePlan ? html`<ir-save-update-dialog'
+            in joined
+        )
+        # Perfect Fit's interim destination, until Commit 5.
+        assert (
+            'this._saveRoute === "perfect" ? html`<ir-save-wig-dialog'
+            in joined
+        )
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_receipt_vocabulary(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key in (
+            "wigs.route.replaced_receipt", "wigs.route.updated_metadata",
+        ):
+            assert key in data, f"{locale} missing {key}"

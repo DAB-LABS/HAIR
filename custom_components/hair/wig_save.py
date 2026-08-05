@@ -122,6 +122,34 @@ class PlanMissingRow:
 
 
 @dataclass
+class PlanOldFittingsGrade:
+    """The wig about to be overridden's own fitting history, graded for
+    the Update dialog's inline warning (Second Fitting v3, Commit 4).
+    Shown BEFORE the click now, unlike v2's post-save confirm --
+    informing, not blocking, the same data ``detect_supersession``
+    already computes for the self-supersession doorway, read here off
+    the source wig directly since a SUCCESSION plan already resolved
+    it. Present only on a diverged (SUCCESSION) plan: a plain UPDATE
+    edits the same file in place, and a from-scratch CREATE has no
+    ancestor to warn about.
+    """
+
+    state: str | None
+    #: Fitting bundles, not unique handles -- the same count
+    #: ``SupersedeOldFittings.count`` reports, so ``supersede.
+    #: fitted_scoped``'s existing plural key means the same thing in
+    #: both places.
+    count: int = 0
+    handles: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "state": self.state, "count": self.count,
+            "handles": list(self.handles),
+        }
+
+
+@dataclass
 class SavePlan:
     variant: str
     rows: list[PlanRow] = field(default_factory=list)
@@ -164,6 +192,11 @@ class SavePlan:
     #: The save falls back to CREATE, and says so rather than pretending
     #: the source never existed.
     source_missing: bool = False
+    #: SUCCESSION only (Second Fitting v3, Commit 4): the source wig's
+    #: own fitting history, graded, for the Update dialog's inline
+    #: warning before the click. None on UPDATE and CREATE plans, where
+    #: nothing is about to be retired.
+    old_fitting_grade: PlanOldFittingsGrade | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -215,6 +248,10 @@ class SavePlan:
             "existing_fittings": self.existing_fittings,
             "cell_changes": [c.as_dict() for c in self.cell_changes],
             "lattice_diverged": bool(self.cell_changes),
+            "old_fitting_grade": (
+                self.old_fitting_grade.as_dict()
+                if self.old_fitting_grade else None
+            ),
         }
 
 
@@ -467,9 +504,27 @@ def build_save_plan(
     # untouched and this only overrides what it prefilled when the
     # save is about to mint a successor.
     metadata = _wig_metadata(source_wig)
+    old_fitting_grade = None
     if diverged:
         metadata["name"] = _differentiated_name(
             source_wig.name, existing_names,
+        )
+        # Second Fitting v3, Commit 4: the Update dialog's inline
+        # warning, rendered before the click instead of after the save.
+        # Same grading claims_summary already does for the self-
+        # supersession confirm's graded ceremony -- read here off the
+        # source wig directly, since a diverged plan already resolved
+        # it and there is no reason to make the dialog ask again.
+        from .wig_fitting import claims_summary
+
+        summary = claims_summary(source_wig, None)
+        handles: list[str] = []
+        for bundle in claims_of(source_wig):
+            handle = (bundle.handle or "").strip()
+            if handle and handle not in handles:
+                handles.append(handle)
+        old_fitting_grade = PlanOldFittingsGrade(
+            state=summary["state"], count=summary["fitters"], handles=handles,
         )
 
     return SavePlan(
@@ -484,6 +539,7 @@ def build_save_plan(
         notes=build.notes,
         existing_fittings=len(claims_of(source_wig)),
         cell_changes=lattice_diff(matrix, source_wig.climate),
+        old_fitting_grade=old_fitting_grade,
         **_lattice(matrix),
     )
 

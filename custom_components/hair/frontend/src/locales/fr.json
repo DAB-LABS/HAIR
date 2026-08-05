@@ -731,5 +731,7 @@
     "wigs.route.removed.other": "{count} commandes supprimées",
     "wigs.route.save_as_new": "Enregistrer comme nouveau",
     "wigs.route.update_closet_wig": "Mettre à jour le wig du placard",
-    "wigs.route.validate_perfect_fit": "Valider pour Perfect Fit"
+    "wigs.route.validate_perfect_fit": "Valider pour Perfect Fit",
+    "wigs.route.replaced_receipt": "Enregistré sous {filename} ; {old} remplacé.",
+    "wigs.route.updated_metadata": "{filename} mis à jour."
 }

@@ -795,5 +795,7 @@
     "wigs.route.removed.other": "{count} polecenia usuniętego",
     "wigs.route.save_as_new": "Zapisz jako nowy",
     "wigs.route.update_closet_wig": "Zaktualizuj wig w szafie",
-    "wigs.route.validate_perfect_fit": "Zweryfikuj do Perfect Fit"
+    "wigs.route.validate_perfect_fit": "Zweryfikuj do Perfect Fit",
+    "wigs.route.replaced_receipt": "Zapisano jako {filename}; zastąpiono {old}.",
+    "wigs.route.updated_metadata": "Zaktualizowano {filename}."
 }
