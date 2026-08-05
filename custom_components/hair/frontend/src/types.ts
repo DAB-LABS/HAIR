@@ -456,6 +456,16 @@ export interface SupersessionBlock {
     old_fittings: SupersedeOldFittings;
 }
 
+/** The reverse-direction import check (v0.9.7 Second Fitting, amendment
+ * v2 section 3): the arrival names an id that a wig ALREADY in this
+ * closet lists as an ancestor it superseded. ``name``/``signal_count``
+ * describe that newer local wig, not the arrival -- the dialog reads
+ * "a newer wig here supersedes this one: {name}, {n} signals." */
+export interface ReverseSupersessionBlock {
+    name: string;
+    signal_count: number;
+}
+
 /** The outcome of hair/wigs/supersede, per device, for the receipt. */
 export interface SupersedeResult {
     deleted: boolean;

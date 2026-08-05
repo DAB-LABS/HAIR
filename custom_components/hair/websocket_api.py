@@ -2741,6 +2741,12 @@ async def ws_wigs_list(
     # zone says so rather than just refusing.
     vol.Required("text"): vol.All(str, vol.Length(min=2, max=4_000_000)),
     vol.Optional("filename"): vol.All(str, vol.Length(max=300)),
+    # The reverse-supersession re-confirm (v0.9.7 Second Fitting,
+    # amendment v2 section 3): set once the owner has seen the "a newer
+    # wig here supersedes this one" dialog and chosen Import Anyway, so
+    # the second call skips straight past the check that would
+    # otherwise fire again on the identical text.
+    vol.Optional("confirmed", default=False): bool,
 })
 @websocket_api.async_response
 async def ws_wigs_upload(
@@ -2753,7 +2759,17 @@ async def ws_wigs_upload(
     Flipper .ir, LIRC) converts to wigs first, stamped
     ``converted:<format>``. Either way, validation happens BEFORE
     anything touches disk, and per-signal conversion skips come back
-    as reasons instead of vanishing."""
+    as reasons instead of vanishing.
+
+    Ancestry only ever points backward -- a successor names the wig it
+    replaced, never the reverse -- so a re-dropped ORIGINAL, once its
+    successor already exists in this closet, would otherwise file as a
+    silent twin nothing else ever looks at (owner bench find, amendment
+    v2 section 3). The reverse lookup catches it here, before anything
+    touches disk: unlike the forward doorway's CANCEL, which deletes an
+    arrival already written, Cancel on THIS dialog means the upload
+    never happened at all.
+    """
 
     def _upload() -> dict[str, Any]:
         from datetime import UTC, datetime
@@ -2793,8 +2809,9 @@ async def ws_wigs_upload(
         # empty-list hash (owner bench: a Mitsubishi drop got "already
         # in Toyotomi"). wig_content_hash is cells-aware for matrix
         # wigs and byte-identical to the old hash for signal wigs.
+        scanned = scan_wigs(hass.config.config_dir).wigs
         existing: dict[str, list[dict[str, Any]]] = {}
-        for loaded in scan_wigs(hass.config.config_dir).wigs:
+        for loaded in scanned:
             existing.setdefault(
                 wig_content_hash(loaded.wig), []
             ).append({
@@ -2818,6 +2835,28 @@ async def ws_wigs_upload(
 
         result = parse_wig(text)
         if result.ok:
+            # REVERSE SUPERSESSION (v0.9.7 Second Fitting, amendment v2
+            # section 3, owner bench find). The forward check below
+            # asks what THIS wig supersedes; this asks who supersedes
+            # THIS wig -- a closet wig whose own supersedes chain
+            # already names the arrival's id outranks it, and nothing
+            # else in the funnel would ever notice. Checked against the
+            # id the file itself carries, before anything touches disk,
+            # so Cancel here can mean "nothing filed" rather than the
+            # forward doorway's "delete what just filed".
+            if not msg.get("confirmed") and result.wig.wig_id:
+                for loaded in scanned:
+                    if result.wig.wig_id in loaded.wig.supersedes:
+                        return {
+                            "success": True,
+                            "filenames": [],
+                            "files": [],
+                            "reverse_supersession": {
+                                "name": loaded.wig.name,
+                                "signal_count": len(loaded.wig.signals),
+                            },
+                        }
+
             # Pre-claims fittings are DROPPED on import (hard rule 6),
             # keyed on the SHAPE of each entry rather than the file's
             # major -- this branch itself wrote /3 files carrying the

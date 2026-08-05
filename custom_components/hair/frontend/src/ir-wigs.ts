@@ -56,6 +56,7 @@ import type {
     CodeCodebook,
     FittingSummary,
     MatrixSummary,
+    ReverseSupersessionBlock,
     SupersessionBlock,
     WigInfo,
     WigInvalid,
@@ -151,6 +152,15 @@ export class IrWigs extends LitElement {
     @state() private _supersede: {
         block: SupersessionBlock;
         newFilename: string;
+    } | null = null;
+    // The reverse-direction re-confirm (v0.9.7 Second Fitting, amendment
+    // v2 section 3): the arrival names an id a newer LOCAL wig already
+    // supersedes. Holds the original text/filename so Import Anyway can
+    // resend the identical upload with confirmed set.
+    @state() private _reverseSupersede: {
+        block: ReverseSupersessionBlock;
+        text: string;
+        filename: string;
     } | null = null;
     @state() private _bloomId: string | null = null;
     private _pendingScrollId: string | null = null;
@@ -576,6 +586,31 @@ export class IrWigs extends LitElement {
         ></ir-supersede-dialog>`;
     }
 
+    /** The reverse-direction re-confirm (v0.9.7 Second Fitting,
+     * amendment v2 section 3): the arrival names an id a newer LOCAL
+     * wig already lists as superseded. Same dialog anatomy as the
+     * clip-matrix confirm above -- a plain two-action ir-confirm-dialog,
+     * not the elaborate replace/keep-both/cancel doorway, because
+     * there is only ever one decision here. */
+    private _renderReverseSupersede() {
+        const r = this._reverseSupersede;
+        if (!r) return "";
+        return html`<ir-confirm-dialog
+            title=${t("supersede.reverse_title")}
+            message=${t("supersede.reverse_message", {
+                name: r.block.name,
+                count: String(r.block.signal_count),
+            })}
+            confirmLabel=${t("supersede.reverse_import_anyway")}
+            @confirmed=${() => {
+                const target = this._reverseSupersede!;
+                this._reverseSupersede = null;
+                void this._uploadText(target.text, target.filename, true);
+            }}
+            @closed=${() => (this._reverseSupersede = null)}
+        ></ir-confirm-dialog>`;
+    }
+
     private async _onSupersedeReplace(e: CustomEvent): Promise<void> {
         const { newFilename, oldFilename, relink, topupDeviceIds } = e.detail;
         const oldName = this._supersede?.block.old_name ?? oldFilename;
@@ -631,10 +666,22 @@ export class IrWigs extends LitElement {
     // --- Upload (drop bar + browse) ---
 
     private async _uploadText(
-        text: string, filename = "",
+        text: string, filename = "", confirmed = false,
     ): Promise<void> {
         try {
-            const result = await this.api.wigsUpload(text, filename);
+            const result = await this.api.wigsUpload(text, filename, confirmed);
+            // Reverse-direction check first: dialog before filing, so
+            // nothing here has written anything yet -- Cancel is just
+            // dropping this state, not undoing a file already on disk
+            // (that is the forward doorway's CANCEL, further below).
+            if (result.reverse_supersession) {
+                this._reverseSupersede = {
+                    block: result.reverse_supersession,
+                    text,
+                    filename,
+                };
+                return;
+            }
             if (!result.success) {
                 this._receiptKind = "warn";
                 this._receiptFiles = [];
@@ -1274,6 +1321,7 @@ export class IrWigs extends LitElement {
             ${this._renderPeek()}
             ${this._renderClipConfirm()}
             ${this._renderSupersede()}
+            ${this._renderReverseSupersede()}
             ${this._renderEditor()}
             ${this._adoptWig
                 ? html`<ir-promote-dialog

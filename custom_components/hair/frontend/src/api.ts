@@ -29,6 +29,7 @@ import type {
     PluckVendor,
     ProntoValidation,
     ReceiverInfo,
+    ReverseSupersessionBlock,
     SavePlan,
     SaveResult,
     SupersedeResult,
@@ -306,6 +307,10 @@ export class HairApi {
     wigsUpload(
         text: string,
         filename?: string,
+        // Set on the resend that follows an owner Import Anyway, so the
+        // reverse-supersession check below does not fire twice on the
+        // same text (v0.9.7 Second Fitting, amendment v2 section 3).
+        confirmed?: boolean,
     ): Promise<{
         success: boolean;
         filename?: string;
@@ -328,12 +333,17 @@ export class HairApi {
         // The replace-flow invitation, when the arrival names an ancestor
         // still in this closet (v0.9.7 Second Fitting).
         supersession?: SupersessionBlock;
+        // The arrival names an id a newer LOCAL wig already lists as
+        // superseded -- nothing files until the owner says Import
+        // Anyway (v0.9.7 Second Fitting, amendment v2 section 3).
+        reverse_supersession?: ReverseSupersessionBlock;
     }> {
         const msg: Record<string, unknown> = {
             type: "hair/wigs/upload",
             text,
         };
         if (filename) msg.filename = filename;
+        if (confirmed) msg.confirmed = true;
         return this.hass.connection.sendMessagePromise(msg);
     }
 

@@ -1377,6 +1377,10 @@ class TestSupersedeDialog:
             "supersede.topup_none",
             "supersede.list_and",
             "supersede.fitted_perfect",
+            # Amendment v2 section 3: the reverse-direction import check.
+            "supersede.reverse_title",
+            "supersede.reverse_message",
+            "supersede.reverse_import_anyway",
         ):
             assert key in data, f"{locale} missing {key}"
         for key in (
@@ -1474,3 +1478,98 @@ class TestSupersedeDialog:
         assert "if (!who.length) return null;" in fitted
         save = _read("ir-save-wig-dialog.ts")
         assert ".viewerHandle=${this._handle}" in save
+
+
+class TestReverseImportCheck:
+    """Amendment v2 section 3 (owner bench find): ancestry only ever
+    points backward, so a re-dropped ORIGINAL wig, once its successor
+    already exists in this closet, would otherwise file as a silent
+    twin nothing else in the funnel ever notices. The dialog fires
+    BEFORE filing -- unlike the forward doorway's CANCEL, which deletes
+    an arrival already written, Cancel here means the upload never
+    happened at all."""
+
+    def test_the_dialog_reuses_the_plain_confirm_not_the_doorway(self):
+        """Only one decision here -- Import Anyway or Cancel -- so the
+        elaborate replace/keep-both/cancel component would be the wrong
+        anatomy. The plain two-action ir-confirm-dialog, already used
+        for the clip-matrix confirm, is the right size."""
+        wigs = _read("ir-wigs.ts")
+        render = wigs.split(
+            "private _renderReverseSupersede()", 1
+        )[1].split("\n    private", 1)[0]
+        assert "<ir-confirm-dialog" in render
+        assert "<ir-supersede-dialog" not in render
+        assert "supersede.reverse_title" in render
+        assert "supersede.reverse_message" in render
+        assert "supersede.reverse_import_anyway" in render
+
+    def test_import_anyway_resends_the_same_upload_confirmed(self):
+        """Cancel just drops the held state; Import Anyway is the one
+        path that actually resends -- with the SAME text and filename
+        the first call held onto, and confirmed set so the check does
+        not fire a second time on the identical text."""
+        wigs = _read("ir-wigs.ts")
+        render = wigs.split(
+            "private _renderReverseSupersede()", 1
+        )[1].split("\n    private", 1)[0]
+        assert "@confirmed=" in render
+        assert (
+            "this._uploadText(target.text, target.filename, true)"
+            in render
+        )
+        assert (
+            "@closed=${() => (this._reverseSupersede = null)}" in render
+        )
+
+    def test_cancel_deletes_nothing_unlike_the_forward_doorway(self):
+        """Nothing has filed yet while this dialog is open, so its
+        Cancel is a pure state drop -- no wigsDelete call anywhere near
+        it, unlike the forward doorway's own CANCEL button."""
+        wigs = _read("ir-wigs.ts")
+        render = wigs.split(
+            "private _renderReverseSupersede()", 1
+        )[1].split("\n    private", 1)[0]
+        assert "wigsDelete" not in render
+
+    def test_the_check_is_read_before_the_generic_failure_branch(self):
+        """A blocked reverse-supersession response is NOT a failure --
+        result.success is still true -- so the generic
+        ``!result.success`` branch must never see it first, or a normal
+        drop-bar arrival would flash a false "upload failed" line before
+        the dialog ever had a chance to render."""
+        wigs = _read("ir-wigs.ts")
+        body = wigs.split(
+            "private async _uploadText", 1
+        )[1].split("\n    private", 1)[0]
+        assert "result.reverse_supersession" in body
+        assert "!result.success" in body
+        assert body.index("result.reverse_supersession") < body.index(
+            "!result.success"
+        )
+
+    def test_the_held_state_carries_what_a_resend_needs(self):
+        """Import Anyway has to resend the identical text against the
+        identical filename -- both have to survive from the first call
+        to the confirm, since nothing else in the component remembers
+        them."""
+        text = _read("ir-wigs.ts")
+        assert "_reverseSupersede:" in text
+        state = text.split("_reverseSupersede:", 1)[1].split(
+            "| null = null;", 1
+        )[0]
+        assert "text: string;" in state
+        assert "filename: string;" in state
+
+    def test_the_api_call_only_sends_confirmed_when_true(self):
+        """A bare always-present flag would put ``confirmed: false`` on
+        every ordinary drop; the guard is that a fresh upload's message
+        never carries the key at all, matching the optional-filename
+        convention already on this call."""
+        api = _read("api.ts")
+        wu = api.split("wigsUpload(", 1)[1].split(
+            "\n    wigsSupersede", 1
+        )[0]
+        assert "confirmed?: boolean" in wu
+        assert "reverse_supersession?: ReverseSupersessionBlock" in wu
+        assert "if (confirmed) msg.confirmed = true;" in wu
