@@ -3509,6 +3509,13 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
     #: MATRIX UPDATE: send the repaired lattice upstream. Explicit,
     #: because a content proposal is a different act from attesting.
     vol.Optional("propose_lattice"): bool,
+    #: Second Fitting v3: the decision window's UPDATE CLOSET WIG route
+    #: sets this when its own fetched plan says the device has diverged
+    #: -- the caller declaring "I mean to override", not a literal
+    #: instruction taken on faith. The server re-derives the plan fresh
+    #: (below) and only acts on this when that fresh check still agrees;
+    #: see ws_wigs_save's docstring.
+    vol.Optional("replace"): bool,
 })
 @websocket_api.async_response
 async def ws_wigs_save(
@@ -3529,6 +3536,16 @@ async def ws_wigs_save(
     cannot steer a save down a verb the device no longer supports, and
     a race where the device changed while the dialog sat open resolves
     exactly as a fresh preview would.
+
+    Second Fitting v3 adds ``replace`` (below): the decision window's
+    UPDATE CLOSET WIG route sets it when the plan it already fetched
+    says the device has diverged, meaning the click means "mint the
+    successor and immediately override" rather than the old two-step
+    of minting, then confirming a supersede separately. The verb is
+    still derived fresh right here, never taken from ``replace``
+    itself -- a stale ``replace: true`` against a device that turns out
+    to match its source (changed while the dialog sat open) refuses
+    rather than silently doing an unintended plain update.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3566,7 +3583,21 @@ async def ws_wigs_save(
 
     from .wig_save import VARIANT_UPDATE
 
+    replace = bool(msg.get("replace", False))
+
     if plan.variant == VARIANT_UPDATE:
+        if replace:
+            # The caller's plan said SUCCESSION when the dialog opened;
+            # this server's fresh derivation says the device now
+            # matches its source. Something changed underneath the
+            # dialog -- refuse rather than guess which the caller meant.
+            connection.send_error(
+                msg["id"], "not_diverged",
+                "This device now matches its source wig; there is "
+                "nothing to replace. Close and reopen to see the "
+                "current state.",
+            )
+            return
         await _do_update(hass, connection, msg, device, attestation, key)
     else:
         # CREATE and SUCCESSION are the same act at this layer: mint a
@@ -3575,8 +3606,12 @@ async def ws_wigs_save(
         # ancestry stamp, the supersession detection -- is entirely a
         # function of device.source_wig_id, which _do_create already
         # reads (Commits 2 and 5). Nothing here needs to say which one
-        # this is.
-        await _do_create(hass, connection, msg, device, attestation, key)
+        # this is. ``replace`` rides along and only fires when the
+        # mint actually names a local ancestor to supersede -- a
+        # from-scratch device has none, so it is inert there.
+        await _do_create(
+            hass, connection, msg, device, attestation, key, replace=replace,
+        )
 
 
 async def _do_update(
@@ -3737,7 +3772,18 @@ async def _do_create(
     device: IRDevice,
     attestation: Any | None,
     key: str | None,
+    replace: bool = False,
 ) -> None:
+    """Mint the wig (CREATE or SUCCESSION); optionally auto-replace.
+
+    ``replace`` (Second Fitting v3) asks that, when this mint names a
+    local ancestor to supersede, the supersede runs immediately after
+    the write -- the same act ``ws_wigs_supersede`` performs, folded
+    into this one round trip instead of a second confirm. It is inert
+    whenever the mint does not turn out to be a supersession: a
+    from-scratch device stamps no ancestry, so ``detect_supersession``
+    finds nothing to replace, and ``replace`` simply does nothing.
+    """
     from .wig_export import build_wig_from_device
 
     data = _get_first_entry_data(hass)
@@ -3807,6 +3853,32 @@ async def _do_create(
         )
         if supersession is not None:
             out["supersession"] = supersession
+            if replace:
+                # Second Fitting v3: UPDATE CLOSET WIG on diverged
+                # content auto-replaces -- the user already chose this
+                # by picking that route, so there is no second confirm
+                # to wait for. Same pair re-verify ws_wigs_supersede
+                # does: the old file's id must still be in the new
+                # file's ancestry, belt-and-suspenders against a race
+                # inside this same write.
+                from .wig_store import delete_wig, load_wig
+
+                old_filename = supersession["old_filename"]
+                old_wig = load_wig(hass.config.config_dir, old_filename)
+                old_id = old_wig.wig_id if old_wig is not None else None
+                if old_id and old_id in build.wig.supersedes:
+                    deleted = delete_wig(hass.config.config_dir, old_filename)
+                    out["replaced"] = {
+                        "old_filename": old_filename,
+                        "deleted": deleted,
+                        # Relinking touches HA's device registry, which
+                        # needs the event loop -- collected here, acted
+                        # on by the caller once this executor job
+                        # returns.
+                        "device_ids": [
+                            d.id for d in devices if d.source_wig_id == old_id
+                        ],
+                    }
         return out
 
     result = await hass.async_add_executor_job(_write)
@@ -3824,6 +3896,21 @@ async def _do_create(
     if result.get("wig_id"):
         device.source_wig_id = result["wig_id"]
         await manager.async_update_device(device)
+
+    replaced = result.get("replaced")
+    if replaced:
+        receipts: list[dict[str, Any]] = []
+        for device_id in replaced.pop("device_ids", []):
+            relinked_device = store.get_device(device_id) if store else None
+            if relinked_device is None:
+                continue
+            relinked_device.source_wig_id = result["wig_id"]
+            await manager.async_update_device(relinked_device)
+            receipts.append({
+                "id": relinked_device.id, "name": relinked_device.name,
+            })
+        replaced["devices"] = receipts
+
     connection.send_result(msg["id"], result)
 
 

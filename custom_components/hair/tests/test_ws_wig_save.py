@@ -883,3 +883,116 @@ async def test_update_drops_a_foreign_digest_claim(
     digests = [r["digest"] for r in after["fittings"][0]["rows"]]
     # The ghost never entered the bundle; the real claim is untouched.
     assert digests == [real]
+
+
+class TestReplaceIntent:
+    """Second Fitting v3, Commit 2: ``replace`` on hair/wigs/save folds
+    the supersede into the same round trip UPDATE CLOSET WIG's diverged
+    route takes, instead of a second confirm calling hair/wigs/supersede
+    separately. Save as New (``replace`` omitted) is unaffected -- see
+    the negative case below.
+    """
+
+    @pytest.mark.asyncio
+    async def test_replace_on_diverged_mints_deletes_and_relinks(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        old = Wig(name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)])
+        old_path = _closet_wig(tmp_path, old, "old.wig.json")
+        device = IRDevice(
+            name="Living Room Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A), _command("Boost", PRONTO_C)],
+        )
+        # A second device sourced to the same ancestor -- the relink is
+        # not scoped to only the device that triggered the save.
+        other = IRDevice(
+            name="Bedroom Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A)],
+        )
+        manager = _wire_many(fake_hass, tmp_path, [device, other])
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "name": "Fan v2", "replace": True,
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        # The result names both acts.
+        assert result["filename"] != "old.wig.json"
+        assert result["replaced"]["old_filename"] == "old.wig.json"
+        assert result["replaced"]["deleted"] is True
+        assert not old_path.exists()
+        assert device.source_wig_id == result["wig_id"]
+        assert other.source_wig_id == result["wig_id"]
+        relinked = {d["name"] for d in result["replaced"]["devices"]}
+        assert relinked == {"Living Room Fan", "Bedroom Fan"}
+        manager.async_update_device.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_replace_on_matching_content_refuses(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """The dialog's own plan said SUCCESSION when it opened; the
+        server's fresh check now says the device matches its source --
+        something changed underneath it. Refuse rather than guess."""
+        wig = Wig(name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)])
+        path = _closet_wig(tmp_path, wig, "old.wig.json")
+        before = path.read_text()
+        device = IRDevice(
+            name="Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A)],
+        )
+        _wire(fake_hass, tmp_path, device)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "replace": True,
+        })
+        assert conn.send_error.call_args[0][1] == "not_diverged"
+        conn.send_result.assert_not_called()
+        assert path.read_text() == before
+        assert device.source_wig_id == "old"
+
+    @pytest.mark.asyncio
+    async def test_replace_never_fires_on_create_with_no_source(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """A from-scratch device stamps no ancestry, so there is nothing
+        for ``replace`` to supersede -- it is simply inert, not an
+        error, since the decision window never offers Update without a
+        source in the first place."""
+        device = IRDevice(name="Fan", commands=[_command("On", PRONTO_A)])
+        _wire(fake_hass, tmp_path, device)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "name": "Bench Fan", "replace": True,
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert "replaced" not in result
+        assert "supersession" not in result
+
+    @pytest.mark.asyncio
+    async def test_replace_false_leaves_the_old_file_standing(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """Save as New's route: a successor is minted, but with no
+        ``replace`` the ancestor is untouched -- the decision window's
+        other diverged-content branch, proven as a negative here."""
+        old = Wig(name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)])
+        old_path = _closet_wig(tmp_path, old, "old.wig.json")
+        device = IRDevice(
+            name="Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A), _command("Boost", PRONTO_C)],
+        )
+        _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "name": "Fan v2",
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert "replaced" not in result
+        assert old_path.exists()
