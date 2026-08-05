@@ -525,7 +525,6 @@
     "wigs.save.cells_proposed.other": "{count} estados propostos a wig.",
     "wigs.save.explainer": "Um encaixe perfeito e a sua declaracao assinada de que todos os codigos aqui funcionam no seu proprio aparelho. Viaja com a wig, para que a proxima pessoa saiba que alguem o comprovou em hardware real.",
     "wigs.save.nothing_to_attest": "Ainda nao ha nada para declarar: este aparelho nao tem codigos nem matriz de estados. Adicione alguns e volte.",
-    "wigs.save.update_heading": "Atualizar {name}",
     "wigs.save.source_missing": "Este aparelho veio de uma wig que ja nao esta no armario, por isso sera guardada uma nova.",
     "wigs.save.downgrade": "{checked} de {total} assinalados. Sera guardado como encaixe parcial, nao como perfeito.",
     "wigs.save.reason.not_on_device": "Nao existe no meu aparelho",

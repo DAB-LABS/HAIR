@@ -1379,17 +1379,18 @@ class TestSupersedeDialog:
         assert "supersede.topup.other" not in data, locale
 
     def test_cancel_is_the_drop_bar_doorways_own_button(self):
-        """Owner ruling: "Cancel means undo this import." The self
-        doorway this component originally served (Save as new's now-
-        retired confirm, Second Fitting v3 Commit 5) never rendered it
-        either -- CANCEL stays the drop bar's own button."""
+        """Owner ruling: "Cancel means undo this import." The
+        self-supersession caller this component used to also serve
+        (Save as new's now-retired confirm, Second Fitting v3 Commit 5)
+        is gone, and with it the only reason CANCEL was ever
+        conditional (Commit 6) -- it renders unconditionally now."""
         dialog = _read("ir-supersede-dialog.ts")
         assert "cancel-import" in dialog
         assert "private _cancel()" in dialog
         actions = dialog.split('<div class="dialog-actions">', 1)[1].split(
             "</div>", 1
         )[0]
-        assert "this.self" in actions
+        assert "this.self" not in actions
         assert "@click=${this._cancel}" in actions
         assert "common.cancel" in actions
 
@@ -1439,22 +1440,26 @@ class TestSupersedeDialog:
         assert ".fitted-line" in text
         assert ".fitted-callout" in text
 
-    def test_the_self_doorway_filters_its_own_name(self):
-        """A fitter who is the ONLY name on the ancestor they are
-        replacing sees no warning about themselves; the viewerHandle
-        comparison is what makes that filtering possible at all. The
-        same filtering rule is ported inline in
-        ir-save-perfect-dialog.ts's own closing screen (Second Fitting
-        v3, Commit 5), covered separately in TestThePerfectFitDialog."""
+    def test_the_self_doorway_support_is_retired(self):
+        """Second Fitting v3, Commit 6: the self-supersession caller
+        (Save as new's post-save confirm) has been gone since Commit 5,
+        and nothing left calling this component ever sets self or
+        viewerHandle -- the drop bar (this component's sole remaining
+        caller) never did. The dead props and the branching they drove
+        do not ride along. The equivalent filtering rule lives on where
+        it is actually used, ported inline in ir-save-perfect-dialog.ts's
+        own closing screen (Commit 5), covered separately in
+        TestThePerfectFitDialog."""
         text = _read("ir-supersede-dialog.ts")
-        assert "public viewerHandle" in text
+        assert "public self" not in text
+        assert "public viewerHandle" not in text
+        assert "this.self" not in text
+        assert "this.viewerHandle" not in text
         fitted = text.split("private get _fitted()", 1)[1].split(
             "\n    updated()", 1
         )[0]
-        assert "this.self && mine" in fitted
-        # Nobody left to credit is nobody left to credit either way --
-        # an anonymous fitting with no handle empties the list the same
-        # as a self-filtered one, and both skip the line.
+        # Nobody left to credit is nobody left to credit -- an anonymous
+        # fitting with no handle at all still empties the list.
         assert "if (!who.length) return null;" in fitted
 
 
@@ -2023,4 +2028,57 @@ class TestThePerfectFitDialog:
             "wigs.route.send_topup",
             "wigs.route.topup_sent",
         ):
+            assert key in data, f"{locale} missing {key}"
+
+
+class TestTheSweepThatClosedTheFork:
+    """Second Fitting v3, coding plan Commit 6: the sweep. Nothing new
+    for the user to see -- this class pins the two loose ends the build
+    order deliberately left for last: a locale key that outlived the
+    dialog that used it, and a plural gap the delta summary shipped
+    with in Commit 3 (Polish and Russian resolve counts of 2-4 and 5+
+    to "few"/"many" categories that were never filled, so those counts
+    silently fell back to the "other" string instead)."""
+
+    def test_the_retired_dialogs_own_heading_key_is_gone(self):
+        """wigs.save.update_heading belonged to the single shared
+        heading the old combined dialog toggled between CREATE and
+        UPDATE. Commits 3-5 gave every routed dialog its own dedicated
+        heading key instead (wigs.route.save_as_new,
+        wigs.route.update_closet_wig, wigs.route.validate_perfect_fit),
+        so nothing has read this key since the combined dialog was
+        retired in Commit 5."""
+        assert "wigs.save.update_heading" not in _read("ir-device-detail.ts")
+        for name in (
+            "ir-save-route-dialog.ts",
+            "ir-save-new-dialog.ts",
+            "ir-save-update-dialog.ts",
+            "ir-save-perfect-dialog.ts",
+        ):
+            assert "wigs.save.update_heading" not in _read(name)
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_the_dead_heading_key_carries_no_locale_entry(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "wigs.save.update_heading" not in data
+
+    @pytest.mark.parametrize("locale", ("pl", "ru"))
+    @pytest.mark.parametrize("base", ("wigs.route.added", "wigs.route.removed"))
+    def test_the_delta_summary_carries_every_slavic_plural_category(
+        self, locale, base
+    ):
+        """Commit 3 shipped one/other for the delta summary's added/
+        removed counts but left few/many missing on the two locales
+        whose plural rules actually have those categories -- every
+        other pluralized key in pl.json and ru.json carries all four
+        (see e.g. wigs.signals, comb.diag_count), so a count of 2-4 or
+        5+ was silently falling back to the "other" string's grammar
+        instead of the correct one."""
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for category in ("one", "few", "many", "other"):
+            key = f"{base}.{category}"
             assert key in data, f"{locale} missing {key}"

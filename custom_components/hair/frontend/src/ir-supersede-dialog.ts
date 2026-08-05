@@ -1,11 +1,14 @@
 /**
  * The supersede dialog (v0.9.7 "Second Fitting", amended).
  *
- * Fires wherever a successor meets its ancestor: from the drop bar
- * (ir-wigs, an arriving Wig whose ancestry matches a local one) and from
- * Save as new (ir-save-wig-dialog, the self-supersession case). Both hand
- * it the same server-computed block, so this one component draws both
- * doorways.
+ * Fires at the drop bar (ir-wigs, an arriving Wig whose ancestry matches
+ * a local one) -- its sole caller since Second Fitting v3 Commit 5
+ * retired the self-supersession confirm Save as new used to open: a
+ * diverged, sourced Perfect Fit save now mints its successor and
+ * retires the ancestor in the same write (replace: true), so there is
+ * no second decision dialog left to open there. Commit 6 removed the
+ * self/viewerHandle scaffolding that caller needed; this component now
+ * describes the drop bar only.
  *
  * Two states off one block:
  *  - friendly (lost_digests empty): every row of the local copy carries
@@ -16,16 +19,12 @@
  *    the guard informs, it does not block.
  *
  * Amendment v2 section 2 adds the graded ceremony (the ancestor's own
- * fitting history, credited and graded before anything is replaced) and,
- * on the drop-bar doorway only, a third action: CANCEL undoes the import
- * outright, deleting the file that just arrived. The self doorway never
- * offers it -- the successor there was deliberately saved and attested,
- * so the worst its Close can do is leave both wigs standing (Keep Both
- * semantics).
+ * fitting history, credited and graded before anything is replaced) and
+ * a third action, CANCEL: it undoes the import outright, deleting the
+ * file that just arrived.
  *
  * It owns no network: REPLACE, KEEP BOTH and CANCEL are events the host
- * acts on, so the same dialog serves a host that uploaded and a host
- * that saved.
+ * acts on.
  */
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -37,16 +36,6 @@ import type { SupersessionBlock } from "./types.js";
 export class IrSupersedeDialog extends LitElement {
     @property({ attribute: false }) public block!: SupersessionBlock;
     @property() public newFilename = "";
-    /** Self-supersession (opened from Save as new). The refit note falls
-     * away: they just attested the successor, so there is nothing to warn
-     * them off, and CANCEL never renders -- there is no import to undo. */
-    @property({ type: Boolean }) public self = false;
-    /** The self doorway's own attestation handle. Used only to drop the
-     * fitter's own name out of the graded ceremony line, so replacing a
-     * wig you just fitted yourself does not read as somebody else's
-     * warning. Empty at the drop-bar doorway, where nothing was just
-     * attested by the person looking at the dialog. */
-    @property() public viewerHandle = "";
 
     /** Per-device top-up choices, on by default. */
     @state() private _topup = new Set<string>();
@@ -59,12 +48,8 @@ export class IrSupersedeDialog extends LitElement {
 
     /** The graded ceremony line, or null when there is nothing to grade
      * (amendment v2 section 2: "no claims" is the light state -- the
-     * body stands on its own). At the self doorway, a fitter who is the
-     * ONLY name on the ancestor sees nothing either: replacing your own
-     * just-superseded proof needs no warning about yourself. Either way
-     * the same rule decides it: nobody left to credit means no line,
-     * whether that is an anonymous fitting with no handle at all or a
-     * self-filtered list that emptied out. */
+     * body stands on its own): an anonymous fitting with no handle at
+     * all leaves nobody to credit. */
     private get _fitted(): {
         state: "perfect" | "scoped";
         count: number;
@@ -72,11 +57,7 @@ export class IrSupersedeDialog extends LitElement {
     } | null {
         const of = this.block?.old_fittings;
         if (!of || !of.state) return null;
-        const mine = this.viewerHandle.trim().toLowerCase();
-        const who =
-            this.self && mine
-                ? of.handles.filter((h) => h.trim().toLowerCase() !== mine)
-                : of.handles;
+        const who = of.handles;
         if (!who.length) return null;
         return { state: of.state, count: of.count, who };
     }
@@ -126,9 +107,8 @@ export class IrSupersedeDialog extends LitElement {
         this._topup = next;
     }
 
-    /** Drop-bar doorway only (owner ruling: "Cancel means undo this
-     * import"): the host deletes the file that just arrived and
-     * receipts it. Never rendered at the self doorway. */
+    /** Owner ruling: "Cancel means undo this import" -- the host deletes
+     * the file that just arrived and receipts it. */
     private _cancel(): void {
         if (this._busy) return;
         this._busy = true;
@@ -224,11 +204,7 @@ export class IrSupersedeDialog extends LitElement {
                               )}
                           </p>`
                         : ""}
-                    ${this.self
-                        ? ""
-                        : html`<p class="refit-note">
-                              ${t("supersede.refit_note")}
-                          </p>`}
+                    <p class="refit-note">${t("supersede.refit_note")}</p>
                     ${b.devices.map(
                         (d) => html`
                             <label class="topup-row">
@@ -256,15 +232,13 @@ export class IrSupersedeDialog extends LitElement {
                         ? html`<p class="reanchor">${t("supersede.title")}</p>`
                         : ""}
                     <div class="dialog-actions">
-                        ${this.self
-                            ? ""
-                            : html`<button
-                                  class="action-btn cancel-btn"
-                                  ?disabled=${this._busy}
-                                  @click=${this._cancel}
-                              >
-                                  ${t("common.cancel")}
-                              </button>`}
+                        <button
+                            class="action-btn cancel-btn"
+                            ?disabled=${this._busy}
+                            @click=${this._cancel}
+                        >
+                            ${t("common.cancel")}
+                        </button>
                         <button
                             class="action-btn cancel-btn"
                             @click=${this._keepBoth}

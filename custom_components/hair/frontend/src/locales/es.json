@@ -525,7 +525,6 @@
     "wigs.save.cells_proposed.other": "{count} estados propuestos al wig.",
     "wigs.save.explainer": "Un ajuste perfecto es tu declaracion firmada de que todos estos codigos funcionan en tu propio dispositivo. Viaja con el wig, para que la siguiente persona sepa que alguien lo probo en hardware real.",
     "wigs.save.nothing_to_attest": "Todavia no hay nada que declarar: este dispositivo no tiene codigos ni matriz de estados. Anade algunos y vuelve.",
-    "wigs.save.update_heading": "Actualizar {name}",
     "wigs.save.source_missing": "Este dispositivo procede de un wig que ya no esta en el armario, asi que se guardara uno nuevo.",
     "wigs.save.downgrade": "{checked} de {total} marcados. Se guardara como ajuste parcial, no como ajuste perfecto.",
     "wigs.save.reason.not_on_device": "No esta en mi dispositivo",
