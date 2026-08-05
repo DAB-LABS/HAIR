@@ -3037,11 +3037,19 @@ async def ws_wigs_delete(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/supersede",
     vol.Required("new_filename"): vol.All(str, vol.Length(max=300)),
-    vol.Required("old_filename"): vol.All(str, vol.Length(max=300)),
+    vol.Optional("old_filename", default=""): vol.All(
+        str, vol.Length(max=300)
+    ),
     vol.Optional("relink", default=True): bool,
     vol.Optional("topup_device_ids", default=list): [
         vol.All(str, vol.Length(max=100))
     ],
+    # Second Fitting v3, Commit 5: a diverged, sourced Perfect Fit save
+    # already deletes and relinks inside hair/wigs/save's own write
+    # (Commit 2's replace: true). The closing screen's top-up offer
+    # reaches this same endpoint afterward for the delta alone, no
+    # pair, no delete.
+    vol.Optional("topup_only", default=False): bool,
 })
 @websocket_api.async_response
 async def ws_wigs_supersede(
@@ -3049,14 +3057,25 @@ async def ws_wigs_supersede(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Perform the replace a superseding wig invites (v0.9.7).
+    """Perform the replace a superseding wig invites (v0.9.7), or, with
+    ``topup_only`` set (Second Fitting v3, Commit 5), just the topup
+    half alone.
 
-    Delete the superseded file, repoint its devices to the successor, and
-    top up each chosen device with the arrival's rows it lacks. The pair
-    is RE-VERIFIED first -- the old file's id must still appear in the new
-    file's ancestry -- because the closet can change while the dialog is
-    open, and a stale confirm must refuse rather than delete the wrong
-    file. Rows a device already has (by digest) are never touched.
+    The full path: delete the superseded file, repoint its devices to
+    the successor, and top up each chosen device with the arrival's
+    rows it lacks. The pair is RE-VERIFIED first -- the old file's id
+    must still appear in the new file's ancestry -- because the closet
+    can change while the dialog is open, and a stale confirm must
+    refuse rather than delete the wrong file. Rows a device already
+    has (by digest) are never touched.
+
+    The topup-only path exists because Commit 2's ``replace: true`` on
+    ``hair/wigs/save`` already does the delete-and-relink half of this
+    inside the SAME write a diverged, sourced Perfect Fit save
+    performs -- calling this endpoint's full path afterward would try
+    to re-verify and delete a file that is already gone. ``topup_only``
+    skips straight to the topup loop against the wig ``new_filename``
+    already names: no pair, no delete.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3065,41 +3084,67 @@ async def ws_wigs_supersede(
     store = data["store"]
     manager: DeviceManager = data["device_manager"]
 
-    def _load() -> tuple[Any, Any]:
-        from .wig_store import load_wig
+    topup_only = bool(msg.get("topup_only", False))
+    old_filename = msg.get("old_filename") or ""
 
-        return (
-            load_wig(hass.config.config_dir, msg["new_filename"]),
-            load_wig(hass.config.config_dir, msg["old_filename"]),
-        )
+    if topup_only:
 
-    new_wig, old_wig = await hass.async_add_executor_job(_load)
-    if new_wig is None or old_wig is None:
-        connection.send_error(msg["id"], "not_found", "Wig not found")
-        return
+        def _load_new() -> Any:
+            from .wig_store import load_wig
 
-    old_id = old_wig.wig_id
-    new_id = new_wig.wig_id
-    # The pair re-verify: the old file's id must still be in the new
-    # file's ancestry, or the closet changed under the dialog and this
-    # confirm is stale. Refuse cleanly rather than delete the wrong file.
-    if not old_id or old_id not in new_wig.supersedes:
-        connection.send_error(
-            msg["id"], "pair_changed",
-            "These wigs are no longer a supersession pair",
-        )
-        return
+            return load_wig(hass.config.config_dir, msg["new_filename"])
 
-    def _delete() -> bool:
-        from .wig_store import delete_wig
+        new_wig = await hass.async_add_executor_job(_load_new)
+        if new_wig is None:
+            connection.send_error(msg["id"], "not_found", "Wig not found")
+            return
+        old_id = None
+        new_id = new_wig.wig_id
+        deleted = False
+        relink = False
+    else:
+        if not old_filename:
+            connection.send_error(
+                msg["id"], "old_filename_required",
+                "old_filename is required unless topup_only is set",
+            )
+            return
 
-        return delete_wig(hass.config.config_dir, msg["old_filename"])
+        def _load() -> tuple[Any, Any]:
+            from .wig_store import load_wig
 
-    deleted = await hass.async_add_executor_job(_delete)
+            return (
+                load_wig(hass.config.config_dir, msg["new_filename"]),
+                load_wig(hass.config.config_dir, old_filename),
+            )
+
+        new_wig, old_wig = await hass.async_add_executor_job(_load)
+        if new_wig is None or old_wig is None:
+            connection.send_error(msg["id"], "not_found", "Wig not found")
+            return
+
+        old_id = old_wig.wig_id
+        new_id = new_wig.wig_id
+        # The pair re-verify: the old file's id must still be in the new
+        # file's ancestry, or the closet changed under the dialog and this
+        # confirm is stale. Refuse cleanly rather than delete the wrong file.
+        if not old_id or old_id not in new_wig.supersedes:
+            connection.send_error(
+                msg["id"], "pair_changed",
+                "These wigs are no longer a supersession pair",
+            )
+            return
+
+        def _delete() -> bool:
+            from .wig_store import delete_wig
+
+            return delete_wig(hass.config.config_dir, old_filename)
+
+        deleted = await hass.async_add_executor_job(_delete)
+        relink = bool(msg.get("relink", True))
 
     from .wig_format import signal_row_digest, wig_row_digests
 
-    relink = bool(msg.get("relink", True))
     topup_ids = set(msg.get("topup_device_ids") or [])
 
     identities: list[Any] | None = None
@@ -3117,7 +3162,9 @@ async def ws_wigs_supersede(
 
     receipts: list[dict[str, Any]] = []
     for device in store.get_all_devices():
-        do_relink = relink and device.source_wig_id == old_id
+        do_relink = (
+            relink and old_id is not None and device.source_wig_id == old_id
+        )
         do_topup = device.id in topup_ids
         if not (do_relink or do_topup):
             continue
@@ -3157,7 +3204,7 @@ async def ws_wigs_supersede(
 
     connection.send_result(msg["id"], {
         "deleted": deleted,
-        "old_filename": msg["old_filename"],
+        "old_filename": old_filename,
         "new_filename": msg["new_filename"],
         "devices": receipts,
     })

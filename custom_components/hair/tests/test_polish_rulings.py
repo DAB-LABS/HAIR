@@ -87,7 +87,7 @@ class TestRowControlsCannotStagger:
     def test_the_host_does_not_own_the_flash(self):
         """The extraction is only real if the state went with it: the
         surface that USES the button holds none of the flash's."""
-        host = _read("ir-save-wig-dialog.ts")
+        host = _read("ir-save-perfect-dialog.ts")
         for leftover in ("FLASH_HOLD_MS", "_flashTimers", "_flashResult"):
             assert leftover not in host
         assert "<ir-test-button" in host
@@ -164,7 +164,7 @@ class TestRowButtonsAcknowledgeTheMouse:
         """Second Fitting amendment v2 retires the Save-as-new toggle
         (``.as-new-btn``) along with it -- the verb is derived, nobody
         picks it, so there is no longer a footer control to switch."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         for selector in (
             ".save-wig-btn:hover:not(:disabled)",
             ".reason-btn:hover",
@@ -560,7 +560,7 @@ class TestThePerfectFitBanner:
     """
 
     def test_it_is_dashed_at_rest_and_solid_when_armed(self):
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         rest = text.split("\n            .fit-block {", 1)[1].split("}", 1)[0]
         assert "dashed" in rest
         armed = text.split(".fit-block.on {", 1)[1].split("}", 1)[0]
@@ -570,7 +570,7 @@ class TestThePerfectFitBanner:
         """Once armed this block holds thirty ticks and a signature
         form. A stray click in that region disarming it would throw
         away work somebody just did."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert '@click=${this._onHeadClick}' in text
         head = text.split("\n            .fit-head {", 1)[1].split("}", 1)[0]
         assert "cursor: pointer" in head
@@ -579,7 +579,7 @@ class TestThePerfectFitBanner:
         """A click on the label toggles the checkbox natively and would
         then bubble to the head handler, which toggles it back. Every
         label click would net to nothing."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         block = text.split('class="fit-check"', 1)[1].split("</label>", 1)[0]
         assert "stopPropagation" in block
 
@@ -587,7 +587,7 @@ class TestThePerfectFitBanner:
         """The lattice gate explains why the tick is disabled. It used
         to live under the propose control, which is where the REMEDY
         is; the question it answers is asked at the tick."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         head = text.split('@click=${this._onHeadClick}', 1)[1]
         head = head.split("_renderJoining()", 1)[0]
         assert "lattice_blocks_attestation" in head
@@ -599,7 +599,7 @@ class TestTheFittingsLineIsADoor:
     """
 
     def test_it_opens_the_ledger(self):
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert "ir-claims-ledger" in text
         assert "_ledgerOpen" in text
 
@@ -608,7 +608,7 @@ class TestTheFittingsLineIsADoor:
         is right for 3 and wrong for 2, 4 and 21. Fixing it properly
         needs an ordinal plural ruleset tp() does not have, and ja/ru/pl
         have no such construction at all."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert "joining_ordinal" not in text
         assert "joining_proven" in text
 
@@ -662,14 +662,14 @@ class TestTheLedgerClearsTheTopLayer:
 
     def test_the_checklist_does_not_touch_the_door(self):
         """Two bordered objects butted together read as one control."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert ".fit-head + .fit-list" in text
 
 
 class TestClosingTheLedgerKeepsTheSaveDialog:
     """One event name, two owners, one level apart.
 
-    The device page mounts <ir-save-wig-dialog @closed=...> and unmounts
+    The device page mounts <ir-save-perfect-dialog @closed=...> and unmounts
     it on that event. The save dialog mounts <ir-claims-ledger
     @closed=...> and does the same. A COMPOSED event crosses shadow
     boundaries, so closing the ledger reached the device page as well
@@ -686,7 +686,7 @@ class TestClosingTheLedgerKeepsTheSaveDialog:
         """If either handler is ever renamed, the pairing this test
         protects stops existing and the assertion should be revisited
         rather than deleted."""
-        assert "@closed=" in _read("ir-save-wig-dialog.ts")
+        assert "@closed=" in _read("ir-save-perfect-dialog.ts")
         assert "@closed=" in _read("ir-device-detail.ts")
 
 
@@ -1142,7 +1142,7 @@ class TestTheChecklistLearnsWhatChanged:
     """
 
     def test_the_old_exclusion_picker_is_gone(self):
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         for dead in (
             "_isDeviceOnly",
             "_renderDeviceOnlyRow",
@@ -1159,7 +1159,7 @@ class TestTheChecklistLearnsWhatChanged:
         ``build_save_plan`` derives CREATE / UPDATE / SUCCESSION from
         the device's own digests, so a stale dialog cannot steer a
         save down a verb the device has outgrown."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert 'this._plan?.variant === "succession"' in text
         save_device = text.split("private async _saveDevice()", 1)[1].split(
             "\n    private", 1
@@ -1178,12 +1178,12 @@ class TestTheChecklistLearnsWhatChanged:
         """Owner ruling on missing rows, option 2: no per-row
         disposition, no memory needed -- a missing row is a removal,
         full stop."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert "SavePlanMissingRow" in text
         assert "_renderRemovalRow" in text
 
     def test_the_changes_section_titles_the_delta(self):
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert "wigs.save.changes_title" in text
         assert "changes-divider" in text
 
@@ -1193,7 +1193,7 @@ class TestTheChecklistLearnsWhatChanged:
         successor and attests exactly like a matched row -- it is
         never excluded from the perfect-fit denominator the way the
         retired device-only treatment excluded it."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         assert "isAddition" in text
         assert "delta-mark add" in text
         # No filter narrows attestableRows below allRows any more.
@@ -1207,7 +1207,7 @@ class TestTheChecklistLearnsWhatChanged:
         DISABLED -- nobody can vouch for a command that is not there
         -- and there is no TEST, since there is nothing on the device
         left to send."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         block = text.split("private _renderRemovalRow", 1)[1].split(
             "\n    private", 1
         )[0]
@@ -1245,11 +1245,14 @@ class TestTheChecklistLearnsWhatChanged:
 
 
 class TestSupersedeDialog:
-    """v0.9.7 Second Fitting: one dialog draws both doorways -- an
-    arriving Wig that names a local ancestor (the drop bar) and Save as
-    new minting a self-superseding successor. Both hand it the same
-    server block, so a single component cannot word the same decision
-    two ways.
+    """v0.9.7 Second Fitting: the drop bar's replace-flow invitation --
+    an arriving Wig that names a local ancestor. Second Fitting v3,
+    Commit 5 retires this component's other caller (Save as new's
+    self-supersession confirm): a diverged, sourced Perfect Fit save
+    now mints its successor and retires the ancestor in the same
+    write, so there is no second decision dialog left to open. The
+    component itself, and everything below, still describes the drop
+    bar exactly as before.
 
     Two states off one block: friendly when the local copy carries
     forward whole, guarded when it holds a row the successor lacks. The
@@ -1258,13 +1261,12 @@ class TestSupersedeDialog:
     slot).
     """
 
-    def test_both_doorways_host_the_one_component(self):
-        """The drop bar and Save as new import the same dialog. Two
-        copies is how the two doorways come to disagree about a decision
-        that is the same on both sides."""
-        for host in ("ir-wigs.ts", "ir-save-wig-dialog.ts"):
-            assert 'import "./ir-supersede-dialog.js"' in _read(host), host
-            assert "<ir-supersede-dialog" in _read(host), host
+    def test_the_drop_bar_hosts_the_component(self):
+        """Second Fitting v3, Commit 5: the self-supersession caller
+        (Save as new's post-save confirm) retired, so the drop bar is
+        this component's only remaining live caller."""
+        assert 'import "./ir-supersede-dialog.js"' in _read("ir-wigs.ts")
+        assert "<ir-supersede-dialog" in _read("ir-wigs.ts")
 
     def test_the_state_is_derived_from_the_block_not_a_flag(self):
         """friendly vs guarded is a fact about the data -- whether the
@@ -1311,42 +1313,22 @@ class TestSupersedeDialog:
 
     def test_keep_both_sends_no_supersede_call(self):
         """KEEP BOTH is the null action: both files stand, nothing is
-        deleted or relinked. Neither doorway's handler may reach the
+        deleted or relinked. The doorway's handler may not reach the
         supersede endpoint."""
         wigs = _read("ir-wigs.ts")
         kb = wigs.split("private _onSupersedeKeepBoth", 1)[1].split(
             "\n    private", 1
         )[0]
         assert "wigsSupersede" not in kb
-        save = _read("ir-save-wig-dialog.ts")
-        assert "@keep-both=${() => this._closeAll()}" in save
-        closeall = save.split("private _closeAll()", 1)[1].split(
-            "\n    private", 1
-        )[0]
-        assert "wigsSupersede" not in closeall
 
-    def test_replace_is_the_call_both_doorways_do_make(self):
-        """The symmetric guard: the REPLACE handler on each side reaches
-        the endpoint, so the button is wired, not inert."""
+    def test_replace_is_the_call_the_doorway_makes(self):
+        """REPLACE's handler reaches the endpoint, so the button is
+        wired, not inert."""
         wigs = _read("ir-wigs.ts")
         rep = wigs.split("private async _onSupersedeReplace", 1)[1].split(
             "\n    private", 1
         )[0]
         assert "this.api.wigsSupersede(" in rep
-        save = _read("ir-save-wig-dialog.ts")
-        rep2 = save.split("private _onSelfReplace", 1)[1].split(
-            "\n    private", 1
-        )[0]
-        assert "this.api.wigsSupersede(" in rep2
-
-    def test_the_refit_note_falls_away_on_self_supersession(self):
-        """Save as new just attested the successor, so there is nothing
-        to warn the fitter off. The drop bar's arrival was signed by a
-        stranger, so its note stays: only the self doorway passes
-        .self."""
-        assert "this.self" in _read("ir-supersede-dialog.ts")
-        assert ".self=${true}" in _read("ir-save-wig-dialog.ts")
-        assert ".self=${true}" not in _read("ir-wigs.ts")
 
     def test_the_top_up_choices_default_on(self):
         """A device that came from the ancestor should follow by
@@ -1398,9 +1380,9 @@ class TestSupersedeDialog:
 
     def test_cancel_is_the_drop_bar_doorways_own_button(self):
         """Owner ruling: "Cancel means undo this import." The self
-        doorway (Save as new) never renders it -- the successor there
-        was deliberately saved and attested, so its Close is Keep Both,
-        never a delete."""
+        doorway this component originally served (Save as new's now-
+        retired confirm, Second Fitting v3 Commit 5) never rendered it
+        either -- CANCEL stays the drop bar's own button."""
         dialog = _read("ir-supersede-dialog.ts")
         assert "cancel-import" in dialog
         assert "private _cancel()" in dialog
@@ -1410,11 +1392,6 @@ class TestSupersedeDialog:
         assert "this.self" in actions
         assert "@click=${this._cancel}" in actions
         assert "common.cancel" in actions
-        save = _read("ir-save-wig-dialog.ts")
-        self_block = save.split("_renderSelfSupersede()", 1)[1].split(
-            "\n    render()", 1
-        )[0]
-        assert "@cancel-import" not in self_block
 
     def test_cancel_deletes_the_arrival_and_receipts_it(self):
         """CANCEL is not Keep Both with extra steps -- it undoes the
@@ -1465,7 +1442,10 @@ class TestSupersedeDialog:
     def test_the_self_doorway_filters_its_own_name(self):
         """A fitter who is the ONLY name on the ancestor they are
         replacing sees no warning about themselves; the viewerHandle
-        comparison is what makes that filtering possible at all."""
+        comparison is what makes that filtering possible at all. The
+        same filtering rule is ported inline in
+        ir-save-perfect-dialog.ts's own closing screen (Second Fitting
+        v3, Commit 5), covered separately in TestThePerfectFitDialog."""
         text = _read("ir-supersede-dialog.ts")
         assert "public viewerHandle" in text
         fitted = text.split("private get _fitted()", 1)[1].split(
@@ -1476,8 +1456,6 @@ class TestSupersedeDialog:
         # an anonymous fitting with no handle empties the list the same
         # as a self-filtered one, and both skip the line.
         assert "if (!who.length) return null;" in fitted
-        save = _read("ir-save-wig-dialog.ts")
-        assert ".viewerHandle=${this._handle}" in save
 
 
 class TestReverseImportCheck:
@@ -1579,18 +1557,27 @@ class TestTheConfirmThatKilledItself:
     """Bench addendum (2026-08-05): a SUCCESSION save's self-doorway
     confirm rendered, then vanished about 2.6s later, taking the whole
     save dialog with it. The trigger was never anything the confirm
-    did -- it never wires ``_close`` at all -- it was mwc-dialog's own
+    did -- it never wired ``_close`` at all -- it was mwc-dialog's own
     closing animation finishing asynchronously on the FORM's
     ``<ha-dialog>``, which the render had already swapped out for the
     confirm, and firing a late ``closed`` that the old listener still
-    caught."""
+    caught.
+
+    Second Fitting v3, Commit 5 retires the self-doorway confirm this
+    class was written against -- a diverged, sourced save now retires
+    its ancestor inside the write itself, so there is no longer a
+    second ``<ha-dialog>`` in this file for a stale event to reach past.
+    What survives, and what this class still pins, is the underlying
+    guard: the form screen still swaps out for the done screen, so the
+    shadow-containment check in ``_close`` still has to hold.
+    """
 
     def test_close_checks_shadow_containment_before_propagating(self):
         """The guard is keyed to whether the event's own dialog is
         still part of THIS render, not to which screen is showing --
-        that is what makes it protect the confirm and the done screen
+        that is what makes it protect the form and the done screen
         alike without a per-screen special case."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         body = text.split("private _close(e?: Event): void {", 1)[1]
         body = body.split("\n    }", 1)[0]
         assert "e?.target as Node | null" in body
@@ -1602,29 +1589,6 @@ class TestTheConfirmThatKilledItself:
             'new CustomEvent("closed"'
         )
 
-    def test_the_confirm_never_wires_close_directly(self):
-        """``_closeAll()`` stays the confirm's only exit. If a future
-        edit ever wires ``_close`` onto ir-supersede-dialog directly,
-        the containment guard stops being the only thing standing
-        between a stale event and an unmount, which is the exact
-        regression this class exists to catch."""
-        text = _read("ir-save-wig-dialog.ts")
-        # Bounded tightly to the method's own return statement -- the
-        # NEXT method down is ``render()``, which has no ``private``
-        # keyword to stop a looser split on, and DOES legitimately
-        # wire ``_close`` for the form dialog it owns.
-        render = text.split("private _renderSelfSupersede()", 1)[1]
-        render = render.split("</ir-supersede-dialog>", 1)[0]
-        assert "_close}" not in render
-        assert "_closeAll()" in render
-
-    def test_closeall_still_clears_the_confirm_state(self):
-        text = _read("ir-save-wig-dialog.ts")
-        body = text.split("private _closeAll(): void {", 1)[1]
-        body = body.split("\n    }", 1)[0]
-        assert "this._selfSupersede = null;" in body
-        assert 'new CustomEvent("closed"' in body
-
 
 class TestNoSuccessionSaveIsSilent:
     """Bench addendum ruling (2026-08-05): v2 hung the whole checklist
@@ -1635,7 +1599,7 @@ class TestNoSuccessionSaveIsSilent:
     since only a diverged digest set ever set ``_isSuccession`` true."""
 
     def test_the_list_renders_on_any_succession_not_just_when_armed(self):
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         body = text.split("private _renderFitting()", 1)[1]
         body = body.split("\n    private", 1)[0]
         assert "this._isSuccession" in body
@@ -1648,7 +1612,7 @@ class TestNoSuccessionSaveIsSilent:
         )[1]
 
     def test_the_list_computes_read_only_for_an_unarmed_succession(self):
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         body = text.split("private _renderList()", 1)[1]
         body = body.split("\n    private", 1)[0]
         assert "const readOnly = succession && !this._perfect;" in body
@@ -1660,7 +1624,7 @@ class TestNoSuccessionSaveIsSilent:
         assert "readOnly || this._isPerfectFit" in body
 
     def test_a_read_only_row_disables_and_unchecks_the_box(self):
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         body = text.split("private _renderRow(", 1)[1]
         body = body.split("\n    private", 1)[0]
         assert "readOnly = false" in body.split(")", 1)[0]
@@ -1674,7 +1638,7 @@ class TestNoSuccessionSaveIsSilent:
         not a blanket drop of the perfect-fit gate, which would have
         put the checklist in front of every CREATE and UPDATE whether
         anything diverged or not."""
-        text = _read("ir-save-wig-dialog.ts")
+        text = _read("ir-save-perfect-dialog.ts")
         body = text.split("private _renderFitting()", 1)[1]
         body = body.split("\n    private", 1)[0]
         list_call = body.split("this._renderList()", 1)[0]
@@ -1795,7 +1759,7 @@ class TestTheDecisionWindow:
         wigsSavePlan a second time for the same click."""
         detail = _read("ir-device-detail.ts")
         assert ".plan=${this._saveRoutePlan}" in detail
-        save = _read("ir-save-wig-dialog.ts")
+        save = _read("ir-save-perfect-dialog.ts")
         assert "public plan: SavePlan | null = null;" in save
         first_updated = save.split("async firstUpdated()", 1)[1].split(
             "\n    /**", 1
@@ -1918,9 +1882,8 @@ class TestTheStrippedSaveDialogs:
             'this._saveRoute === "update" && this._saveRoutePlan ? html`<ir-save-update-dialog'
             in joined
         )
-        # Perfect Fit's interim destination, until Commit 5.
         assert (
-            'this._saveRoute === "perfect" ? html`<ir-save-wig-dialog'
+            'this._saveRoute === "perfect" ? html`<ir-save-perfect-dialog'
             in joined
         )
 
@@ -1931,5 +1894,133 @@ class TestTheStrippedSaveDialogs:
         )
         for key in (
             "wigs.route.replaced_receipt", "wigs.route.updated_metadata",
+        ):
+            assert key in data, f"{locale} missing {key}"
+
+
+class TestThePerfectFitDialog:
+    """Second Fitting v3, coding plan Commit 5: the perfect-fit section
+    of the old combined dialog promoted to its own dialog and its own
+    route, retiring ir-save-wig-dialog.ts -- the file every other
+    stripped dialog was already extracted out of. The checklist, TEST,
+    the changes section, and the signing rules ride over unchanged
+    (pinned by the renamed classes above); what this class pins is new:
+    the always-replaces rule, the retirement of the post-save confirm,
+    and the routing that points here instead of the retired combined
+    dialog.
+    """
+
+    def test_the_old_combined_dialog_is_retired(self):
+        assert not (SRC / "ir-save-wig-dialog.ts").exists()
+
+    def test_diverged_sourced_saves_always_replace(self):
+        """Owner ruling: "ALWAYS replaces." Picking this route and
+        signing the oath already was the decision, so the mint and the
+        retirement happen in the same write -- no second confirm left
+        to ask it again."""
+        text = _read("ir-save-perfect-dialog.ts")
+        save_device = text.split("private async _saveDevice()", 1)[1]
+        save_device = save_device.split("\n    private", 1)[0]
+        assert (
+            "this._isSuccession ? { replace: true }" in " ".join(
+                save_device.split()
+            )
+        )
+
+    def test_replace_never_fires_without_a_diverged_source(self):
+        """A from-scratch mint or a plain matching UPDATE has nothing
+        to replace -- the same ternary that arms replace on succession
+        is the only thing that could ever send it, and it is gated on
+        _isSuccession alone, never a blanket true."""
+        text = _read("ir-save-perfect-dialog.ts")
+        save_device = text.split("private async _saveDevice()", 1)[1]
+        save_device = save_device.split("\n    private", 1)[0]
+        assert save_device.count("replace: true") == 1
+
+    def test_no_keep_both_anywhere_in_this_flow(self):
+        """Spec acceptance item 5: no Keep Both anywhere in this flow.
+        The retired self-supersede machinery -- the second confirm's
+        import, its markup, and its state -- carries none of it
+        forward. The component itself is still named in an explanatory
+        comment (the top-up seed mirrors its `updated()` pattern), so
+        this checks USAGE, not the bare name."""
+        text = _read("ir-save-perfect-dialog.ts")
+        assert '<ir-supersede-dialog' not in text
+        assert 'ir-supersede-dialog.js' not in text
+        for dead in (
+            "_selfSupersede",
+            "_closeAll",
+            "_renderSelfSupersede",
+            "keep-both",
+            "KeepBoth",
+        ):
+            assert dead not in text, dead
+
+    def test_the_closing_screen_is_informational_on_a_replace(self):
+        """No REPLACE / KEEP BOTH choice on the closing screen -- the
+        decision already happened. It states the dual-act receipt, the
+        same phrasing Update Closet Wig's own dual-act receipt uses,
+        and offers the top-up as its own separate, optional act."""
+        text = _read("ir-save-perfect-dialog.ts")
+        render_done = text.split("private _renderDone()", 1)[1]
+        render_done = render_done.split("\n    private", 1)[0]
+        assert "wigs.route.replaced_receipt" in render_done
+        assert "this._renderTopup(topupDevices)" in render_done
+        assert "supersede.replace" not in render_done
+
+    def test_the_top_up_is_a_separate_act_from_the_save(self):
+        """Relink already happened inside the write (Commit 2); the
+        top-up button fires a dedicated topup-only call, never the
+        full replace endpoint a stale pair-reverify would refuse."""
+        text = _read("ir-save-perfect-dialog.ts")
+        send = text.split("private async _sendTopup()", 1)[1]
+        send = send.split("\n    private", 1)[0]
+        assert "this.api.wigsTopUp(" in send
+
+    def test_the_retired_fitted_line_filters_the_signers_own_handle(self):
+        """Ported from ir-supersede-dialog's self doorway: replacing a
+        wig you yourself just fitted needs no warning about yourself."""
+        text = _read("ir-save-perfect-dialog.ts")
+        fitted = text.split("private get _retiredFittedLine()", 1)[1]
+        fitted = fitted.split("\n    private", 1)[0]
+        assert "this._handle.trim().toLowerCase()" in fitted
+        assert "if (!who.length) return null;" in fitted
+
+    def test_both_screens_share_the_one_route_heading(self):
+        """No morphing (spec section 1): the route's dialog wears one
+        name, form or done, CREATE or UPDATE or SUCCESSION alike."""
+        text = _read("ir-save-perfect-dialog.ts")
+        headings = re.findall(
+            r'heading=\$\{t\("([^"]+)"\)\}', text
+        )
+        assert headings == ["wigs.route.validate_perfect_fit"] * 2
+
+    def test_the_form_uses_the_shared_metadata_module(self):
+        """Consistent with Save as New and Update Closet Wig
+        (TestTheStrippedSaveDialogs): one metadata form, one module."""
+        text = _read("ir-save-perfect-dialog.ts")
+        assert 'from "./ir-save-metadata-fields.js"' in text
+        assert "renderMetadataFields(" in text
+
+    def test_the_route_wires_to_the_new_dialog(self):
+        detail = _read("ir-device-detail.ts")
+        assert 'import "./ir-save-perfect-dialog.js";' in detail
+        assert 'import "./ir-save-wig-dialog.js";' not in detail
+
+    def test_the_api_carries_the_top_up_only_call(self):
+        text = _read("api.ts")
+        method = text.split("wigsTopUp(", 1)[1].split("\n    }", 1)[0]
+        assert "topup_only: true" in method
+        assert "hair/wigs/supersede" in method
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_perfect_fit_vocabulary(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key in (
+            "wigs.route.topup_offer",
+            "wigs.route.send_topup",
+            "wigs.route.topup_sent",
         ):
             assert key in data, f"{locale} missing {key}"

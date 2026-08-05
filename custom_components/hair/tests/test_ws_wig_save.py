@@ -773,6 +773,73 @@ class TestSupersedeAction:
         assert conn.send_error.call_args[0][1] == "pair_changed"
         assert old_path.exists()
 
+    @pytest.mark.asyncio
+    async def test_topup_only_skips_the_pair_and_the_delete(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """Second Fitting v3, Commit 5: a diverged, sourced Perfect Fit
+        save already deleted the ancestor and relinked every device
+        inside hair/wigs/save's own write (Commit 2's replace: true).
+        By the time the closing screen offers a top-up, there is no
+        pair left to re-verify and nothing left to delete -- topup_only
+        skips straight to the delta loop against the wig new_filename
+        already names."""
+        new = Wig(
+            name="Fan v2", wig_id="new",
+            signals=[WigSignal("On", PRONTO_A), WigSignal("Boost", PRONTO_B)],
+        )
+        _closet_wig(tmp_path, new, "new.wig.json")
+        device = IRDevice(
+            name="Guest Room Fan", source_wig_id="new",
+            commands=[_command("On", PRONTO_A)],
+        )
+        manager = _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_supersede(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/supersede",
+            "new_filename": "new.wig.json", "topup_only": True,
+            "topup_device_ids": [device.id],
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert result["deleted"] is False
+        assert result["old_filename"] == ""
+        # Relink never fires on a topup-only call -- the device's own
+        # pointer already moved inside the save; only the delta arrives.
+        assert result["devices"][0]["relinked"] is False
+        assert result["devices"][0]["commands_added"] == 1
+        assert sorted(c.name for c in device.commands) == ["Boost", "On"]
+        manager.async_update_device.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_topup_only_refuses_a_missing_wig(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        _wire_many(fake_hass, tmp_path, [])
+        conn = _conn()
+        await ws_wigs_supersede(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/supersede",
+            "new_filename": "ghost.wig.json", "topup_only": True,
+            "topup_device_ids": [],
+        })
+        assert conn.send_error.call_args[0][1] == "not_found"
+
+    @pytest.mark.asyncio
+    async def test_old_filename_required_unless_topup_only(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        new = Wig(
+            name="Fan v2", wig_id="new", signals=[WigSignal("On", PRONTO_A)]
+        )
+        _closet_wig(tmp_path, new, "new.wig.json")
+        _wire_many(fake_hass, tmp_path, [])
+        conn = _conn()
+        await ws_wigs_supersede(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/supersede",
+            "new_filename": "new.wig.json",
+        })
+        assert conn.send_error.call_args[0][1] == "old_filename_required"
+
 
 _BLOCK_KEYS = {
     "old_filename", "old_name", "old_signals", "new_signals",

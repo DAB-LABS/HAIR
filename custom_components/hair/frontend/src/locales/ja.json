@@ -733,5 +733,8 @@
     "wigs.route.update_closet_wig": "クローゼットのwigを更新",
     "wigs.route.validate_perfect_fit": "Perfect Fitとして検証",
     "wigs.route.replaced_receipt": "{filename} として保存し、{old} を置き換えました。",
-    "wigs.route.updated_metadata": "{filename} を更新しました。"
+    "wigs.route.updated_metadata": "{filename} を更新しました。",
+    "wigs.route.topup_offer": "これらのコマンドを、以前のウィッグを使っていた他のデバイスにも送信しますか?",
+    "wigs.route.send_topup": "追加送信",
+    "wigs.route.topup_sent": "追加送信しました。"
 }

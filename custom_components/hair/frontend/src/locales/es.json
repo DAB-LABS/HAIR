@@ -733,5 +733,8 @@
     "wigs.route.update_closet_wig": "Actualizar wig del armario",
     "wigs.route.validate_perfect_fit": "Validar para ajuste perfecto",
     "wigs.route.replaced_receipt": "Guardado como {filename}; se reemplazó {old}.",
-    "wigs.route.updated_metadata": "{filename} actualizado."
+    "wigs.route.updated_metadata": "{filename} actualizado.",
+    "wigs.route.topup_offer": "¿Enviar también estos comandos a otros dispositivos que usaban la wig anterior?",
+    "wigs.route.send_topup": "Enviar actualización",
+    "wigs.route.topup_sent": "Actualización enviada."
 }

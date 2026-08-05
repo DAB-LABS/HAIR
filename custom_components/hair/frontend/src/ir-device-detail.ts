@@ -23,7 +23,7 @@ const ACTION_BADGE_TRACKING = 0.03; // letter-spacing, em
 const ACTION_BADGE_CHROME_PX = 22; // 10px padding + 1px border, both sides
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-save-wig-dialog.js";
+import "./ir-save-perfect-dialog.js";
 import "./ir-save-route-dialog.js";
 import "./ir-save-new-dialog.js";
 import "./ir-save-update-dialog.js";
@@ -1828,7 +1828,7 @@ export class IrDeviceDetail extends LitElement {
                   ></ir-save-update-dialog>`
                 : ""}
             ${this._saveRoute === "perfect"
-                ? html`<ir-save-wig-dialog
+                ? html`<ir-save-perfect-dialog
                       .api=${this.api}
                       source="device"
                       sourceId=${this.device.id}
@@ -1838,7 +1838,7 @@ export class IrDeviceDetail extends LitElement {
                       .hass=${this.hass}
                       .plan=${this._saveRoutePlan}
                       @closed=${this._closeSaveFlow}
-                  ></ir-save-wig-dialog>`
+                  ></ir-save-perfect-dialog>`
                 : ""}
             ${this._captureName
                 ? html`

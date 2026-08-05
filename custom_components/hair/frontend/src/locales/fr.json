@@ -733,5 +733,8 @@
     "wigs.route.update_closet_wig": "Mettre à jour le wig du placard",
     "wigs.route.validate_perfect_fit": "Valider pour Perfect Fit",
     "wigs.route.replaced_receipt": "Enregistré sous {filename} ; {old} remplacé.",
-    "wigs.route.updated_metadata": "{filename} mis à jour."
+    "wigs.route.updated_metadata": "{filename} mis à jour.",
+    "wigs.route.topup_offer": "Envoyer aussi ces commandes aux autres appareils qui utilisaient l'ancienne wig ?",
+    "wigs.route.send_topup": "Envoyer la mise à niveau",
+    "wigs.route.topup_sent": "Mise à niveau envoyée."
 }

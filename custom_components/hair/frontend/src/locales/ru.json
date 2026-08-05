@@ -797,5 +797,8 @@
     "wigs.route.update_closet_wig": "Обновить вижок в шкафу",
     "wigs.route.validate_perfect_fit": "Проверить на Perfect Fit",
     "wigs.route.replaced_receipt": "Сохранено как {filename}; {old} заменён.",
-    "wigs.route.updated_metadata": "{filename} обновлён."
+    "wigs.route.updated_metadata": "{filename} обновлён.",
+    "wigs.route.topup_offer": "Отправить эти команды также на другие устройства, которые использовали старый парик?",
+    "wigs.route.send_topup": "Отправить дополнение",
+    "wigs.route.topup_sent": "Дополнение отправлено."
 }
