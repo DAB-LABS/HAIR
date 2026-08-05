@@ -1,10 +1,17 @@
 """SAVE TO CLOSET: the plan the dialog draws, and the save it performs.
 
-Two verbs behind one button (plan Section 4). A device that remembers a
-``source_wig_id`` offers **UPDATE**; anything else is a **CREATE**. This
-module is the seam between the device and the wig: it answers "what am I
-about to attest, and against what" (``build_save_plan``) and then does
-it (``perform_create`` / ``perform_update``).
+THE VERB IS DERIVED (Second Fitting amendment v2, owner-ruled on the
+bench 2026-08-04) -- nobody picks it. A device with no source is
+**CREATE**. A device whose commands still match its source wig's rows
+by digest -- renames and metadata edits do not count as divergence --
+is **UPDATE**, exactly as it always was. A device whose commands have
+DIVERGED from its source wig (any digest added or removed) is
+**SUCCESSION**: the save mints a successor wig carrying the ancestry,
+and the attestation binds the successor's own rows rather than a row
+set that no longer describes the device. This module is the seam
+between the device and the wig: it answers "what am I about to attest,
+and against what, and which of the three is this" (``build_save_plan``)
+and then does it (``perform_create`` / ``perform_update``).
 
 Nothing here decides anything the person did not. The plan reports what
 matched, what did not, and where a name differs; every check, reason and
@@ -46,6 +53,11 @@ _LOGGER = logging.getLogger(__name__)
 
 VARIANT_CREATE = "create"
 VARIANT_UPDATE = "update"
+#: Second Fitting amendment v2. The device's commands have diverged
+#: (by digest) from the source wig's rows -- any addition, any
+#: removal. The save mints a successor rather than appending to a row
+#: set that no longer describes the device; see build_save_plan.
+VARIANT_SUCCESSION = "succession"
 
 
 @dataclass
@@ -394,17 +406,32 @@ def build_save_plan(
         row.wig_index = pairing.wig_index
         row.wig_alias = source_wig.signals[pairing.wig_index].alias
 
+    missing_rows = [
+        PlanMissingRow(
+            wig_index=i,
+            alias=source_wig.signals[i].alias,
+            digest=signal_row_digest(source_wig.signals[i]),
+        )
+        for i in match.unmatched_wig_rows
+    ]
+    # DIVERGENCE (Second Fitting amendment v2), scoped to FLAT rows only.
+    # A matrix's checklist rows are samples of the lattice, matched
+    # against source_wig.signals only by accident of digest collision
+    # -- the lattice itself never lives in .signals, so every checklist
+    # row reads as device-only on EVERY save, matched or not. Counting
+    # those would divert every matrix save into SUCCESSION regardless
+    # of whether anything changed. Lattice divergence has its own gate
+    # (cell_changes / propose_lattice, below) and proposes in place;
+    # this variant call is about the flat rows alone.
+    flat_additions = [
+        j for j in match.unmatched_device_rows if rows[j].section is None
+    ]
+    diverged = bool(missing_rows) or bool(flat_additions)
+
     return SavePlan(
-        variant=VARIANT_UPDATE,
+        variant=VARIANT_SUCCESSION if diverged else VARIANT_UPDATE,
         rows=rows,
-        missing_rows=[
-            PlanMissingRow(
-                wig_index=i,
-                alias=source_wig.signals[i].alias,
-                digest=signal_row_digest(source_wig.signals[i]),
-            )
-            for i in match.unmatched_wig_rows
-        ],
+        missing_rows=missing_rows,
         source_filename=source_filename,
         source_wig_id=source_wig.wig_id,
         source_wig_name=source_wig.name,
@@ -813,9 +840,13 @@ def update_text(
         )
         for s in source_wig.signals
     }
-    # Ghost claims never reach the bundle (v0.9.7): a tick on a
-    # device-only row binds bytes the file does not carry. The dialog
-    # stops offering it, and this stops a stale client signing one anyway.
+    # Ghost claims never reach the bundle (v0.9.7). A tick on a
+    # device-only row binds bytes the file does not carry -- and as of
+    # amendment v2, a device-only row can no longer even reach this
+    # function: any divergence routes the save to SUCCESSION before
+    # update_text is ever called, so update_text only ever sees a
+    # matched row set. This stays anyway, belt-and-suspenders, for a
+    # stale client whose UI has not caught up to say so.
     if attestation is not None:
         attestation = drop_ghost_claims(attestation, source_wig)
     bundle = (

@@ -3441,7 +3441,11 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/save",
     vol.Required("device_id"): vol.All(str, vol.Length(max=100)),
-    vol.Required("mode"): vol.In(["create", "update"]),
+    #: Second Fitting amendment v2: the verb is derived server-side
+    #: (below), never taken on the caller's word. Optional now, kept
+    #: only so an older client's payload still validates; the value is
+    #: read nowhere.
+    vol.Optional("mode"): vol.In(["create", "update"]),
     vol.Optional("name"): vol.All(str, vol.Length(max=200)),
     vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
     vol.Optional("model"): vol.All(str, vol.Length(max=200)),
@@ -3462,12 +3466,19 @@ async def ws_wigs_save(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Save a device to the closet: a new wig, or claims onto its source.
+    """Save a device to the closet: a new wig, its own successor, or
+    claims onto its source.
 
-    ``mode`` is the person's answer, not an inference. The dialog got a
-    plan and showed them which verb it was offering; sending the verb
-    back means a save cannot silently become the other one because a
-    file appeared or vanished while the dialog was open.
+    THE VERB IS DERIVED (Second Fitting amendment v2, owner-ruled on
+    the bench 2026-08-04), not taken from the caller. UPDATE only when
+    the device's commands still match its source wig's rows by digest;
+    any addition or removal is SUCCESSION, which mints a successor
+    instead of attesting a row set the device has outgrown; no source
+    is CREATE. Deriving it fresh here -- the same computation the
+    save_plan preview just showed the dialog -- means a stale client
+    cannot steer a save down a verb the device no longer supports, and
+    a race where the device changed while the dialog sat open resolves
+    exactly as a fresh preview would.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3483,22 +3494,38 @@ async def ws_wigs_save(
     attestation = _attestation_from(msg)
     key = await async_get_private_key(hass) if attestation else None
 
+    manager: DeviceManager = data["device_manager"]
+    matrix = (
+        await manager.async_get_matrix(device.id)
+        if device.climate_matrix else None
+    )
+
     # A matrix bundle binds the lattice as a set, because a sampled
     # checklist vouches for the set rather than for the rows it walked.
     # STAMPED HERE, from the matrix this server just read -- never
     # carried back from the dialog. A claim about a lattice must bind
     # the lattice that exists, not one the caller says it saw.
-    if attestation is not None and device.climate_matrix:
-        manager: DeviceManager = data["device_manager"]
-        matrix = await manager.async_get_matrix(device.id)
-        if matrix is not None:
-            from .wig_format import cells_content_hash
+    if attestation is not None and matrix is not None:
+        from .wig_format import cells_content_hash
 
-            attestation.cells_hash = cells_content_hash(matrix)
+        attestation.cells_hash = cells_content_hash(matrix)
 
-    if msg["mode"] == "update":
+    # Off the loop, same as the save_plan preview: resolving the source
+    # scans the closet and the plan decodes the checklist.
+    plan = await hass.async_add_executor_job(_build_plan, hass, device, matrix)
+
+    from .wig_save import VARIANT_UPDATE
+
+    if plan.variant == VARIANT_UPDATE:
         await _do_update(hass, connection, msg, device, attestation, key)
     else:
+        # CREATE and SUCCESSION are the same act at this layer: mint a
+        # wig from the device's current commands and attest against
+        # its own rows. What makes SUCCESSION a succession -- the
+        # ancestry stamp, the supersession detection -- is entirely a
+        # function of device.source_wig_id, which _do_create already
+        # reads (Commits 2 and 5). Nothing here needs to say which one
+        # this is.
         await _do_create(hass, connection, msg, device, attestation, key)
 
 

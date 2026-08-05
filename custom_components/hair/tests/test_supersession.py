@@ -8,17 +8,22 @@ ancestry can never move a wig's identity or disturb a claim. The golden
 vector is the proof of that last point.
 
 Design authority: docs/internal/plans/supersession.md (owner-ruled
-2026-08-04). Build: supersession-coding-plan.md, commit 1.
+2026-08-04), amended by second-fitting-amendment.md v2 (owner-ruled on
+the bench 2026-08-04). Build: supersession-coding-plan.md, commit 1;
+TestTheVerbIsDerived below is amendment v2, commit 8.
 """
 from __future__ import annotations
 
 import json
 
 from custom_components.hair.models import IRCommand, IRDevice
+from custom_components.hair.wig_export import build_wig_from_device
 from custom_components.hair.wig_format import (
     SUPERSEDES_MAX,
     WIG_FORMAT_V1,
     WIG_FORMAT_V2,
+    ClimateCell,
+    ClimateMatrix,
     Wig,
     WigSignal,
     canonical_cells_json,
@@ -31,8 +36,12 @@ from custom_components.hair.wig_format import (
     wig_row_digests,
 )
 from custom_components.hair.wig_save import (
+    VARIANT_CREATE,
+    VARIANT_SUCCESSION,
+    VARIANT_UPDATE,
     Attestation,
     _allowed_claim_digests,
+    build_save_plan,
     detect_supersession,
     drop_ghost_claims,
 )
@@ -429,3 +438,166 @@ class TestDropGhostClaims:
         out = drop_ghost_claims(att, matrix_wig)
         assert good in out.claims
         assert "f" * 16 not in out.claims
+
+
+class TestTheVerbIsDerived:
+    """Second Fitting amendment v2 (owner-ruled on the bench 2026-08-04),
+    commit 8. Nobody picks the verb: build_save_plan reads it off the
+    device's own divergence from its source, by digest. Renames and
+    metadata never count -- only an added or removed row does.
+    """
+
+    def test_no_source_is_create(self):
+        device = IRDevice(
+            name="Fan", commands=[_pronto_command("On", PRONTO)],
+        )
+        plan = build_save_plan(device)
+        assert plan.variant == VARIANT_CREATE
+
+    def test_matching_content_is_update(self):
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        device = IRDevice(
+            name="Fan", commands=[_pronto_command("On", PRONTO)],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(device, wig, "fan.wig.json")
+        assert plan.variant == VARIANT_UPDATE
+
+    def test_rename_only_is_still_update(self):
+        """A local rename is a digest-only match (pass two), never a
+        divergence -- the amendment's own rule: digest-set comparison
+        decides, nothing else."""
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        device = IRDevice(
+            name="Fan", commands=[_pronto_command("Power", PRONTO)],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(device, wig, "fan.wig.json")
+        assert plan.variant == VARIANT_UPDATE
+        assert plan.rows[0].renamed is True
+
+    def test_addition_diverges_to_succession(self):
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        device = IRDevice(
+            name="Fan", commands=[
+                _pronto_command("On", PRONTO),
+                _pronto_command("Turbo", PRONTO_B),
+            ],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(device, wig, "fan.wig.json")
+        assert plan.variant == VARIANT_SUCCESSION
+
+    def test_removal_diverges_to_succession(self):
+        wig = Wig(
+            name="Fan", wig_id="u-source",
+            signals=[
+                WigSignal(alias="On", pronto=PRONTO),
+                WigSignal(alias="Oscillate", pronto=PRONTO_B),
+            ],
+        )
+        device = IRDevice(
+            name="Fan", commands=[_pronto_command("On", PRONTO)],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(device, wig, "fan.wig.json")
+        assert plan.variant == VARIANT_SUCCESSION
+        assert [r.alias for r in plan.missing_rows] == ["Oscillate"]
+
+    # -- matrix: the lattice must never masquerade as a flat divergence --
+
+    _P_A = "0000 006D 0002 0000 0020 0040 0020 0040"
+    _P_B = "0000 006D 0002 0000 0030 0040 0020 0040"
+    _P_C = "0000 006D 0002 0000 0040 0040 0020 0040"
+    _P_SLEEP = "0000 006D 0002 0000 0070 0040 0020 0040"
+    _P_TIMER = "0000 006D 0002 0000 0080 0040 0020 0040"
+    _P_REPAIRED = "0000 006D 0002 0000 0090 0040 0020 0040"
+
+    def _matrix(self):
+        return ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=self._P_A,
+            modes=["cool", "heat"], fan_modes=["auto"],
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=16.0,
+                            pronto=self._P_A),
+                ClimateCell(mode="cool", fan="auto", temp=30.0,
+                            pronto=self._P_B),
+                ClimateCell(mode="heat", fan="auto", temp=22.0,
+                            pronto=self._P_C),
+            ],
+        )
+
+    def _matrix_source_wig(self, extra_pronto=None):
+        device = IRDevice(name="AC", commands=(
+            [_pronto_command("Sleep", extra_pronto)]
+            if extra_pronto else []
+        ))
+        device.climate_matrix = True
+        build = build_wig_from_device(device, self._matrix())
+        return Wig(
+            name="AC", wig_id="u-source", signals=build.wig.signals,
+            climate=self._matrix(),
+        )
+
+    def test_a_stable_matrix_stays_update(self):
+        """The checklist samples the lattice, and the lattice never
+        lives in .signals -- every checklist row reads as unmatched
+        against the wig on EVERY save, whether or not anything moved.
+        Counting that as divergence would route every matrix save
+        through SUCCESSION regardless of change; the amendment keeps
+        matrix repairs proposing in place instead."""
+        source_wig = self._matrix_source_wig(self._P_SLEEP)
+        device = IRDevice(
+            name="AC", commands=[_pronto_command("Sleep", self._P_SLEEP)],
+            source_wig_id="u-source",
+        )
+        device.climate_matrix = True
+        plan = build_save_plan(device, source_wig, "ac.wig.json", self._matrix())
+        assert plan.variant == VARIANT_UPDATE
+        assert plan.missing_rows == []
+
+    def test_matrix_flat_addition_diverges(self):
+        source_wig = self._matrix_source_wig(self._P_SLEEP)
+        device = IRDevice(
+            name="AC", commands=[
+                _pronto_command("Sleep", self._P_SLEEP),
+                _pronto_command("Timer", self._P_TIMER),
+            ],
+            source_wig_id="u-source",
+        )
+        device.climate_matrix = True
+        plan = build_save_plan(device, source_wig, "ac.wig.json", self._matrix())
+        assert plan.variant == VARIANT_SUCCESSION
+
+    def test_matrix_flat_removal_diverges(self):
+        source_wig = self._matrix_source_wig(self._P_SLEEP)
+        device = IRDevice(name="AC", commands=[], source_wig_id="u-source")
+        device.climate_matrix = True
+        plan = build_save_plan(device, source_wig, "ac.wig.json", self._matrix())
+        assert plan.variant == VARIANT_SUCCESSION
+        assert [r.alias for r in plan.missing_rows] == ["Sleep"]
+
+    def test_matrix_lattice_only_change_stays_update(self):
+        """A repaired cell is lattice divergence, gated by cell_changes
+        / propose_lattice on the UPDATE path -- not a reason to mint a
+        successor. Flat extras are unchanged, so the verb stays UPDATE."""
+        source_wig = self._matrix_source_wig(self._P_SLEEP)
+        device = IRDevice(
+            name="AC", commands=[_pronto_command("Sleep", self._P_SLEEP)],
+            source_wig_id="u-source",
+        )
+        device.climate_matrix = True
+        repaired = self._matrix()
+        repaired.cells[0].pronto = self._P_REPAIRED
+        plan = build_save_plan(device, source_wig, "ac.wig.json", repaired)
+        assert plan.variant == VARIANT_UPDATE
+        assert plan.cell_changes  # the repair is still reported, just not as a divergence

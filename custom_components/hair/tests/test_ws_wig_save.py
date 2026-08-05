@@ -197,8 +197,13 @@ class TestSaveAsNewStampsLineage:
     async def test_sourced_save_extends_the_ancestry_in_order(
         self, fake_hass, tmp_path, _no_signing
     ):
-        # Source file already two generations deep: its own ancestry is
-        # [A, B]. The successor prepends the source id -> [source, A, B].
+        # Second Fitting amendment v2: the verb is derived, not sent.
+        # Matching content stays UPDATE and never mints a successor, so
+        # this fixture needs genuine divergence -- a command the source
+        # wig does not have -- to actually reach the stamping path
+        # (_do_create) the way a real outgrown-wig save would. Source
+        # file already two generations deep: its own ancestry is [A, B].
+        # The successor prepends the source id -> [source, A, B].
         wig = Wig(
             name="Fan XYZ", wig_id="u-source",
             supersedes=["A", "B"],
@@ -206,14 +211,16 @@ class TestSaveAsNewStampsLineage:
         )
         _closet_wig(tmp_path, wig)
         device = IRDevice(
-            name="Fan", commands=[_command("On", PRONTO_A)],
+            name="Fan", commands=[
+                _command("On", PRONTO_A), _command("Turbo", PRONTO_C),
+            ],
             source_wig_id="u-source",
         )
         _wire(fake_hass, tmp_path, device)
         conn = _conn()
         await ws_wigs_save(fake_hass, conn, {
             "id": 1, "type": "hair/wigs/save", "device_id": device.id,
-            "mode": "create", "name": "Fan XYZ v2",
+            "name": "Fan XYZ v2",
         })
         conn.send_error.assert_not_called()
         result = conn.send_result.call_args[0][1]
@@ -221,6 +228,9 @@ class TestSaveAsNewStampsLineage:
             (wigs_dir(tmp_path) / result["filename"]).read_text()
         )
         assert written["supersedes"] == ["u-source", "A", "B"]
+        # The addition rode along too -- this is a successor, not a
+        # from-scratch mint that happens to share a name.
+        assert {s["alias"] for s in written["signals"]} == {"On", "Turbo"}
 
     @pytest.mark.asyncio
     async def test_unresolvable_source_stamps_the_single_link(
@@ -457,9 +467,17 @@ async def test_update_with_nothing_to_attest_refuses(
 
 
 @pytest.mark.asyncio
-async def test_update_against_a_missing_source_says_so(
+async def test_update_against_a_missing_source_degrades_to_create(
     fake_hass, tmp_path, _no_signing
 ):
+    """Second Fitting amendment v2: the verb is derived, not taken from
+    the caller. A source id that no longer resolves on the shelf means
+    build_save_plan sees no source at all, so the derived verb is
+    CREATE -- the same graceful degrade as an unsourced device (Section
+    2: refusing would strand a working device with no way to save).
+    The one link still known to be true, the source id itself, still
+    gets stamped -- exactly as test_unresolvable_source_stamps_the_single_link
+    already covers for the explicit-create path."""
     device = IRDevice(
         name="Speakers", commands=[_command("On", PRONTO_B)],
         source_wig_id="u-gone",
@@ -470,13 +488,16 @@ async def test_update_against_a_missing_source_says_so(
         fake_hass, conn,
         {
             "id": 1, "type": "hair/wigs/save", "device_id": device.id,
-            "mode": "update",
             "attest": {
                 "claims": [{"digest": "d" * 16, "verdict": VERDICT_WORKED}],
             },
         },
     )
-    assert conn.send_error.call_args[0][1] == "source_missing"
+    result = conn.send_result.call_args[0][1]
+    written = json.loads(
+        (wigs_dir(tmp_path) / result["filename"]).read_text()
+    )
+    assert written["supersedes"] == ["u-gone"]
 
 
 @pytest.mark.asyncio
