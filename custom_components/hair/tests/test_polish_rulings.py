@@ -1624,3 +1624,62 @@ class TestTheConfirmThatKilledItself:
         body = body.split("\n    }", 1)[0]
         assert "this._selfSupersede = null;" in body
         assert 'new CustomEvent("closed"' in body
+
+
+class TestNoSuccessionSaveIsSilent:
+    """Bench addendum ruling (2026-08-05): v2 hung the whole checklist
+    inside the perfect-fit box, so an unfitted SUCCESSION save showed
+    nothing -- no checklist, no delta, no hint that saving was about
+    to mint a successor. The changes section now renders on any
+    succession, armed or not; CREATE and plain UPDATE are untouched,
+    since only a diverged digest set ever set ``_isSuccession`` true."""
+
+    def test_the_list_renders_on_any_succession_not_just_when_armed(self):
+        text = _read("ir-save-wig-dialog.ts")
+        body = text.split("private _renderFitting()", 1)[1]
+        body = body.split("\n    private", 1)[0]
+        assert "this._isSuccession" in body
+        # The attestation block is a separate condition and stays
+        # perfect-fit only -- unarmed, nothing is being signed, so
+        # there is nothing there to show regardless of the verb.
+        attest_call = body.split("this._renderAttestation()", 1)[0]
+        assert "this._perfect && !this._nothingToAttest" in attest_call.rsplit(
+            "${", 1
+        )[1]
+
+    def test_the_list_computes_read_only_for_an_unarmed_succession(self):
+        text = _read("ir-save-wig-dialog.ts")
+        body = text.split("private _renderList()", 1)[1]
+        body = body.split("\n    private", 1)[0]
+        assert "const readOnly = succession && !this._perfect;" in body
+        assert "this._renderRow(row, false, readOnly)" in body
+        assert "this._renderRow(row, true, readOnly)" in body
+        # The "N of M checked" downgrade line reads as a partial
+        # attestation -- wrong message entirely for a preview where
+        # nothing is checkable at all.
+        assert "readOnly || this._isPerfectFit" in body
+
+    def test_a_read_only_row_disables_and_unchecks_the_box(self):
+        text = _read("ir-save-wig-dialog.ts")
+        body = text.split("private _renderRow(", 1)[1]
+        body = body.split("\n    private", 1)[0]
+        assert "readOnly = false" in body.split(")", 1)[0]
+        assert "const checked = readOnly ? false" in body
+        assert "?disabled=${readOnly}" in body
+        # Nobody can decline a row they cannot check.
+        assert '${checked || readOnly ? "" : this._renderReasons(row)}' in body
+
+    def test_create_and_plain_update_stay_silent_unarmed(self):
+        """The new clause is ``|| this._isSuccession`` specifically --
+        not a blanket drop of the perfect-fit gate, which would have
+        put the checklist in front of every CREATE and UPDATE whether
+        anything diverged or not."""
+        text = _read("ir-save-wig-dialog.ts")
+        body = text.split("private _renderFitting()", 1)[1]
+        body = body.split("\n    private", 1)[0]
+        list_call = body.split("this._renderList()", 1)[0]
+        assert (
+            "(this._perfect && !this._nothingToAttest) ||"
+            in list_call
+        )
+        assert "this._isSuccession" in list_call.rsplit("||", 1)[1]

@@ -1710,7 +1710,7 @@ function e(e,t,i,a){var o,s=arguments.length,n=s<3?t:null===a?a=Object.getOwnPro
                           </div>`:""}
                     ${this._renderJoining()}
                 </div>
-                ${this._perfect&&!this._nothingToAttest?this._renderList():""}
+                ${this._perfect&&!this._nothingToAttest||this._isSuccession?this._renderList():""}
                 ${this._perfect&&!this._nothingToAttest?this._renderAttestation():""}
             </div>
         `:U}_renderLatticeChanges(){const e=this._plan?.cell_changes??[];return this._isUpdate&&0!==e.length?B`
@@ -1736,27 +1736,28 @@ function e(e,t,i,a){var o,s=arguments.length,n=s<3?t:null===a?a=Object.getOwnPro
                           ${ke("wigs.save.lattice_blocks_attestation")}
                       </div>`:""}
             </div>
-        `:""}_renderList(){const e=this._allRows,t=this._isSuccession,i=t?e.filter(e=>e.matched):e,a=t?e.filter(e=>!e.matched):[],o=t?this._plan?.missing_rows??[]:[];return B`
+        `:""}_renderList(){const e=this._allRows,t=this._isSuccession,i=t?e.filter(e=>e.matched):e,a=t?e.filter(e=>!e.matched):[],o=t?this._plan?.missing_rows??[]:[],s=t&&!this._perfect;return B`
             <div class="fit-list">
-                ${i.map(e=>this._renderRow(e))}
+                ${i.map(e=>this._renderRow(e,!1,s))}
                 ${a.length||o.length?B`
                           <div class="changes-divider">
                               <span>${ke("wigs.save.changes_title")}</span>
                           </div>
-                          ${a.map(e=>this._renderRow(e,!0))}
+                          ${a.map(e=>this._renderRow(e,!0,s))}
                           ${o.map(e=>this._renderRemovalRow(e))}
                       `:""}
             </div>
-            ${this._isPerfectFit?"":B`<div class="downgrade">
+            ${s||this._isPerfectFit?"":B`<div class="downgrade">
                       ${ke("wigs.save.downgrade",{checked:String(this._checkedCount),total:String(this._attestableRows.length)})}
                   </div>`}
-        `}_renderRow(e,t=!1){const i=this._checked.has(e.digest);return B`
+        `}_renderRow(e,t=!1,i=!1){const a=!i&&this._checked.has(e.digest);return B`
             <div
-                class="fit-row ${i?"":"off"} ${t?"addition":""}"
+                class="fit-row ${a?"":"off"} ${t?"addition":""}"
             >
                 <input
                     type="checkbox"
-                    .checked=${i}
+                    .checked=${a}
+                    ?disabled=${i}
                     @change=${()=>this._toggleRow(e.digest)}
                 />
                 <span class="fit-name">
@@ -1785,8 +1786,8 @@ function e(e,t,i,a){var o,s=arguments.length,n=s<3?t:null===a?a=Object.getOwnPro
                           ></ir-test-button>`:""}
                 </span>
             </div>
-            ${i?"":this._renderReasons(e)}
-            ${i&&e.renamed&&this._isUpdate?this._renderRename(e):""}
+            ${a||i?"":this._renderReasons(e)}
+            ${a&&e.renamed&&this._isUpdate?this._renderRename(e):""}
         `}_renderRemovalRow(e){return B`
             <div class="fit-row removal">
                 <input type="checkbox" disabled />

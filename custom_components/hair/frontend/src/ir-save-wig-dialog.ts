@@ -809,6 +809,15 @@ export class IrSaveWigDialog extends LitElement {
         `;
     }
 
+    /** Bench addendum ruling (2026-08-05): a succession save is never
+     * silent. v2 hung the whole checklist inside the perfect-fit box,
+     * so an unfitted SUCCESSION save showed nothing at all -- no
+     * checklist, no delta, no hint that saving was about to mint a
+     * successor. The list now renders on any succession regardless of
+     * whether perfect fit is armed; `_renderList` is what draws it
+     * read-only when it is not. The attestation block (the oath,
+     * handle, github) stays perfect-fit only -- nothing is signed
+     * unarmed, so nothing there has anything to show. */
     private _renderFitting() {
         if (this._loading) {
             return html`<div class="ident-hint">${t("common.loading_plain")}</div>`;
@@ -846,7 +855,8 @@ export class IrSaveWigDialog extends LitElement {
                         : ""}
                     ${this._renderJoining()}
                 </div>
-                ${this._perfect && !this._nothingToAttest
+                ${(this._perfect && !this._nothingToAttest) ||
+                this._isSuccession
                     ? this._renderList()
                     : ""}
                 ${this._perfect && !this._nothingToAttest
@@ -914,6 +924,15 @@ export class IrSaveWigDialog extends LitElement {
      * removal never is, because nobody can vouch for a command that is
      * not there. On CREATE and plain UPDATE there is no delta, so this
      * collapses back to the single list it always was.
+     *
+     * Bench addendum ruling (2026-08-05): `_renderFitting` now calls
+     * this for any succession, armed or not. `readOnly` is what draws
+     * the unarmed case -- every row disabled and unchecked, matched
+     * and additions alike, because nothing here is being signed. It
+     * reuses the row's existing "off" look rather than inventing a
+     * second visual language: dimmed and struck reads as "not part of
+     * what's being attested" whether the reason is a decline or an
+     * unarmed preview.
      */
     private _renderList() {
         const rows = this._allRows;
@@ -921,16 +940,19 @@ export class IrSaveWigDialog extends LitElement {
         const matched = succession ? rows.filter((r) => r.matched) : rows;
         const additions = succession ? rows.filter((r) => !r.matched) : [];
         const removals = succession ? (this._plan?.missing_rows ?? []) : [];
+        const readOnly = succession && !this._perfect;
         return html`
             <div class="fit-list">
-                ${matched.map((row) => this._renderRow(row))}
+                ${matched.map((row) =>
+                    this._renderRow(row, false, readOnly),
+                )}
                 ${additions.length || removals.length
                     ? html`
                           <div class="changes-divider">
                               <span>${t("wigs.save.changes_title")}</span>
                           </div>
                           ${additions.map((row) =>
-                              this._renderRow(row, true),
+                              this._renderRow(row, true, readOnly),
                           )}
                           ${removals.map((row) =>
                               this._renderRemovalRow(row),
@@ -938,7 +960,7 @@ export class IrSaveWigDialog extends LitElement {
                       `
                     : ""}
             </div>
-            ${this._isPerfectFit
+            ${readOnly || this._isPerfectFit
                 ? ""
                 : html`<div class="downgrade">
                       ${t("wigs.save.downgrade", {
@@ -955,9 +977,18 @@ export class IrSaveWigDialog extends LitElement {
      * its claim binds there -- with a small leading "+" marking it as
      * new. The rename-propose line stays UPDATE only: a SUCCESSION
      * successor is authored from the device's current alias directly,
-     * so there is no upstream file left to propose the rename onto. */
-    private _renderRow(row: SavePlanRow, isAddition = false) {
-        const checked = this._checked.has(row.digest);
+     * so there is no upstream file left to propose the rename onto.
+     *
+     * `readOnly` (bench addendum, 2026-08-05): an unarmed succession's
+     * preview. The checkbox renders disabled and forced unchecked --
+     * column rhythm holds, but nothing here is checkable, and the
+     * reason picker never shows under a row nobody can decline. */
+    private _renderRow(
+        row: SavePlanRow,
+        isAddition = false,
+        readOnly = false,
+    ) {
+        const checked = readOnly ? false : this._checked.has(row.digest);
         return html`
             <div
                 class="fit-row ${checked ? "" : "off"} ${isAddition
@@ -967,6 +998,7 @@ export class IrSaveWigDialog extends LitElement {
                 <input
                     type="checkbox"
                     .checked=${checked}
+                    ?disabled=${readOnly}
                     @change=${() => this._toggleRow(row.digest)}
                 />
                 <span class="fit-name">
@@ -1005,7 +1037,7 @@ export class IrSaveWigDialog extends LitElement {
                         : ""}
                 </span>
             </div>
-            ${checked ? "" : this._renderReasons(row)}
+            ${checked || readOnly ? "" : this._renderReasons(row)}
             ${checked && row.renamed && this._isUpdate
                 ? this._renderRename(row)
                 : ""}
