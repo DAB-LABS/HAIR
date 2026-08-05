@@ -423,6 +423,22 @@ export interface SupersedeDevice {
     id: string;
     name: string;
     missing_commands: number;
+    /** The arrival's rows this device still lacks, by alias (amendment
+     * v2 section 2: the confirm names them, not just counts them).
+     * Same length as ``missing_commands``, file order. */
+    missing_aliases: string[];
+}
+
+/** The superseded wig's own fitting history, graded for the confirm
+ * (amendment v2 section 2). ``handles`` is every handle that ever
+ * fitted the ancestor, first-seen order, regardless of whether their
+ * claims were scoped or complete -- it credits the grade AND answers
+ * the self doorway's "is anyone other than me on this ancestor"
+ * question, which needs everyone, not just the perfect ones. */
+export interface SupersedeOldFittings {
+    count: number;
+    state: "perfect" | "scoped" | null;
+    handles: string[];
 }
 
 /** The replace-flow invitation the server computes at both doorways: an
@@ -437,6 +453,7 @@ export interface SupersessionBlock {
     lost_digests: string[];
     lost_aliases: string[];
     devices: SupersedeDevice[];
+    old_fittings: SupersedeOldFittings;
 }
 
 /** The outcome of hair/wigs/supersede, per device, for the receipt. */

@@ -910,19 +910,30 @@ def detect_supersession(
     id that resolves to a wig in this closet -- the local ancestor it
     supersedes. Reports the counts, the rows the local copy carries that
     the arrival does not (by digest, so a rename never reads as a loss),
-    and every device sourced to that ancestor with how many of the
-    arrival's rows it still lacks. Returns None when no ancestor is local:
-    the field is inert on installs that never had the old wig.
+    every device sourced to that ancestor with the ALIASES of the
+    arrival's rows it still lacks (amendment v2 section 2: the confirm
+    names them, it no longer just counts them), and the ancestor's own
+    fitting history (``old_fittings``) so the confirm can grade what
+    replacing it retires. Returns None when no ancestor is local: the
+    field is inert on installs that never had the old wig.
 
     Both the drop bar (ws_wigs_upload) and Save as new (_do_create) call
     this on the same shape, so the dialog downstream cannot drift between
     the two doorways.
     """
     from .wig_export import build_wig_from_device
+    from .wig_fitting import claims_summary
     from .wig_format import signal_row_digest, wig_row_digests
     from .wig_store import find_wig_by_id, load_wig
 
-    new_digests = set(wig_row_digests(new_wig))
+    new_digest_list = wig_row_digests(new_wig)
+    new_digests = set(new_digest_list)
+    new_alias_by_digest = {
+        digest: signal.alias
+        for digest, signal in zip(
+            new_digest_list, new_wig.signals, strict=True
+        )
+    }
     for ancestor_id in new_wig.supersedes:
         filename = find_wig_by_id(config_dir, ancestor_id)
         if filename is None:
@@ -948,13 +959,36 @@ def detect_supersession(
                 set(wig_row_digests(build.wig))
                 if build.wig is not None else set()
             )
+            missing = [
+                digest for digest in new_digest_list if digest not in have
+            ]
             device_entries.append({
                 "id": device.id,
                 "name": device.name,
-                "missing_commands": sum(
-                    1 for digest in new_digests if digest not in have
-                ),
+                "missing_commands": len(missing),
+                "missing_aliases": [
+                    new_alias_by_digest[digest] for digest in missing
+                ],
             })
+
+        # The graded ceremony (amendment v2 section 2). ``handles`` is
+        # every handle that ever fitted the ancestor, first-seen order,
+        # regardless of whether their claims were scoped or complete --
+        # the confirm picks the grade off ``state`` and credits whoever
+        # earned it, and the self doorway reuses this same list to ask
+        # "is anyone OTHER than the fitter themselves on this ancestor",
+        # which needs everyone, not just the perfect ones.
+        summary = claims_summary(old_wig, None)
+        handles: list[str] = []
+        for bundle in claims_of(old_wig):
+            handle = (bundle.handle or "").strip()
+            if handle and handle not in handles:
+                handles.append(handle)
+        old_fittings = {
+            "count": summary["fitters"],
+            "state": summary["state"],
+            "handles": handles,
+        }
 
         return {
             "old_filename": filename,
@@ -964,5 +998,6 @@ def detect_supersession(
             "lost_digests": lost_digests,
             "lost_aliases": lost_aliases,
             "devices": device_entries,
+            "old_fittings": old_fittings,
         }
     return None

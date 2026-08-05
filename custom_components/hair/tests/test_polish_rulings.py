@@ -1371,12 +1371,106 @@ class TestSupersedeDialog:
             "supersede.keep_both",
             "supersede.receipt_replaced",
             "supersede.receipt_kept",
+            # Amendment v2 section 2.
+            "supersede.receipt_cancelled",
+            "supersede.topup_names",
+            "supersede.topup_none",
+            "supersede.list_and",
+            "supersede.fitted_perfect",
         ):
             assert key in data, f"{locale} missing {key}"
         for key in (
             "supersede.lost",
             "supersede.device_follows",
-            "supersede.topup",
+            # Amendment v2 section 2: names, not counts -- the old
+            # count-only "supersede.topup" pair retires with it.
+            "supersede.topup_more",
+            "supersede.fitted_scoped",
         ):
             assert f"{key}.one" in data, f"{locale} missing {key}.one"
             assert f"{key}.other" in data, f"{locale} missing {key}.other"
+        assert "supersede.topup.one" not in data, locale
+        assert "supersede.topup.other" not in data, locale
+
+    def test_cancel_is_the_drop_bar_doorways_own_button(self):
+        """Owner ruling: "Cancel means undo this import." The self
+        doorway (Save as new) never renders it -- the successor there
+        was deliberately saved and attested, so its Close is Keep Both,
+        never a delete."""
+        dialog = _read("ir-supersede-dialog.ts")
+        assert "cancel-import" in dialog
+        assert "private _cancel()" in dialog
+        actions = dialog.split('<div class="dialog-actions">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "this.self" in actions
+        assert "@click=${this._cancel}" in actions
+        assert "common.cancel" in actions
+        save = _read("ir-save-wig-dialog.ts")
+        self_block = save.split("_renderSelfSupersede()", 1)[1].split(
+            "\n    render()", 1
+        )[0]
+        assert "@cancel-import" not in self_block
+
+    def test_cancel_deletes_the_arrival_and_receipts_it(self):
+        """CANCEL is not Keep Both with extra steps -- it undoes the
+        import outright, so the just-written file goes away."""
+        wigs = _read("ir-wigs.ts")
+        assert "@cancel-import=${this._onSupersedeCancelImport}" in wigs
+        handler = wigs.split(
+            "private async _onSupersedeCancelImport", 1
+        )[1].split("\n    private", 1)[0]
+        assert "this.api.wigsDelete(s.newFilename)" in handler
+        assert "supersede.receipt_cancelled" in handler
+
+    def test_cancel_guards_against_a_second_press(self):
+        """Mirrors REPLACE's own guard: the host call is in flight once,
+        never twice."""
+        cancel = _read("ir-supersede-dialog.ts").split(
+            "private _cancel()", 1
+        )[1].split("\n    private", 1)[0]
+        assert "if (this._busy) return;" in cancel
+        assert "this._busy = true;" in cancel
+
+    def test_top_up_names_the_missing_commands_not_just_counts(self):
+        """Amendment v2 section 2: "Add Timer and Breeze Mode to
+        {device}", not a bare count -- the old ``missing_commands``
+        pluralization is gone from the row."""
+        text = _read("ir-supersede-dialog.ts")
+        assert "d.missing_aliases" in text
+        assert "supersede.topup_names" in text
+        assert "supersede.topup_none" in text
+        assert '"supersede.topup"' not in text
+        names = text.split("private _formatNames", 1)[1].split(
+            "\n    render()", 1
+        )[0]
+        assert "MAX = 4" in names
+        assert "supersede.topup_more" in names
+
+    def test_the_graded_ceremony_reads_old_fittings(self):
+        """Amendment v2 section 2: no claims is light (nothing extra
+        renders); scoped names who tried; a PERFECT FIT gets the same
+        amber-family weight as a lost row."""
+        text = _read("ir-supersede-dialog.ts")
+        assert "block?.old_fittings" in text
+        assert "supersede.fitted_scoped" in text
+        assert "supersede.fitted_perfect" in text
+        assert ".fitted-line" in text
+        assert ".fitted-callout" in text
+
+    def test_the_self_doorway_filters_its_own_name(self):
+        """A fitter who is the ONLY name on the ancestor they are
+        replacing sees no warning about themselves; the viewerHandle
+        comparison is what makes that filtering possible at all."""
+        text = _read("ir-supersede-dialog.ts")
+        assert "public viewerHandle" in text
+        fitted = text.split("private get _fitted()", 1)[1].split(
+            "\n    updated()", 1
+        )[0]
+        assert "this.self && mine" in fitted
+        # Nobody left to credit is nobody left to credit either way --
+        # an anonymous fitting with no handle empties the list the same
+        # as a self-filtered one, and both skip the line.
+        assert "if (!who.length) return null;" in fitted
+        save = _read("ir-save-wig-dialog.ts")
+        assert ".viewerHandle=${this._handle}" in save

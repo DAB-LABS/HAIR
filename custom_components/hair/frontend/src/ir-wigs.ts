@@ -571,6 +571,7 @@ export class IrWigs extends LitElement {
             .newFilename=${s.newFilename}
             @replace=${this._onSupersedeReplace}
             @keep-both=${this._onSupersedeKeepBoth}
+            @cancel-import=${this._onSupersedeCancelImport}
             @closed=${() => (this._supersede = null)}
         ></ir-supersede-dialog>`;
     }
@@ -603,6 +604,28 @@ export class IrWigs extends LitElement {
             t("supersede.receipt_kept"),
         ].filter(Boolean).join(" · ");
         this._supersede = null;
+    }
+
+    /** CANCEL, drop-bar doorway only (owner ruling: "Cancel means undo
+     * this import"): the arrival just written is deleted outright, not
+     * merely dismissed -- Keep Both is the dismiss-and-leave-it action;
+     * this one undoes the import. */
+    private async _onSupersedeCancelImport(): Promise<void> {
+        const s = this._supersede;
+        if (!s) return;
+        try {
+            await this.api.wigsDelete(s.newFilename);
+            this._receiptSuffix = [
+                this._receiptSuffix,
+                t("supersede.receipt_cancelled"),
+            ].filter(Boolean).join(" · ");
+        } catch (err) {
+            this._receiptKind = "warn";
+            this._receipt = (err as Error).message;
+        } finally {
+            this._supersede = null;
+            await this._refresh();
+        }
     }
 
     // --- Upload (drop bar + browse) ---

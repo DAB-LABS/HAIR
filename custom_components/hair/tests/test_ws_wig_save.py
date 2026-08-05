@@ -776,7 +776,7 @@ class TestSupersedeAction:
 
 _BLOCK_KEYS = {
     "old_filename", "old_name", "old_signals", "new_signals",
-    "lost_digests", "lost_aliases", "devices",
+    "lost_digests", "lost_aliases", "devices", "old_fittings",
 }
 
 

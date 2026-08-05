@@ -398,6 +398,88 @@ class TestDetectSupersession:
         assert len(block["devices"]) == 1
         assert block["devices"][0]["name"] == "Living Room Fan"
         assert block["devices"][0]["missing_commands"] == 1
+        # Amendment v2 section 2: the confirm names the missing row,
+        # it no longer just counts it.
+        assert block["devices"][0]["missing_aliases"] == ["Boost"]
+
+
+class TestOldFittings:
+    """Amendment v2 section 2: the confirm grades what replacing the
+    ancestor retires. ``handles`` credits every handle that ever
+    fitted it, first-seen order, regardless of scoped or complete --
+    the self doorway's "is anyone OTHER than me on this ancestor"
+    check needs everyone, not just the perfect ones.
+    """
+
+    def _closet(self, tmp_path, wig, filename):
+        ensure_wigs_dir(tmp_path)
+        (wigs_dir(tmp_path) / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+
+    def test_no_claims_is_the_light_state(self, tmp_path):
+        old = Wig(name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO)])
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("On", PRONTO), WigSignal("Boost", PRONTO_B)],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block["old_fittings"] == {
+            "count": 0, "state": None, "handles": [],
+        }
+
+    def test_scoped_credits_everyone_who_tried(self, tmp_path):
+        s1 = WigSignal("On", PRONTO)
+        s2 = WigSignal("Off", PRONTO_B)
+        old = Wig(name="Fan", wig_id="old", signals=[s1, s2])
+        # Alice only claimed On -> scoped, not perfect.
+        old.extra["fittings"] = [
+            {**_worked_fitting("old", [s1]), "handle": "Alice"},
+        ]
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"], signals=[s1, s2],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block["old_fittings"]["state"] == "scoped"
+        assert block["old_fittings"]["count"] == 1
+        assert block["old_fittings"]["handles"] == ["Alice"]
+
+    def test_perfect_when_someone_covers_every_row(self, tmp_path):
+        s1 = WigSignal("On", PRONTO)
+        old = Wig(name="Fan", wig_id="old", signals=[s1])
+        old.extra["fittings"] = [
+            {**_worked_fitting("old", [s1]), "handle": "Bob"},
+        ]
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"], signals=[s1],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block["old_fittings"]["state"] == "perfect"
+        assert block["old_fittings"]["handles"] == ["Bob"]
+
+    def test_handles_are_deduped_first_seen_order(self, tmp_path):
+        # Everyone, not just the perfect ones -- Alice never covers
+        # every row, but her name still carries so the self doorway can
+        # ask "is anyone OTHER than me on this ancestor".
+        s1 = WigSignal("On", PRONTO)
+        s2 = WigSignal("Off", PRONTO_B)
+        old = Wig(name="Fan", wig_id="old", signals=[s1, s2])
+        old.extra["fittings"] = [
+            {**_worked_fitting("old", [s1]), "handle": "Alice"},
+            {**_worked_fitting("old", [s1, s2]), "handle": "Bob"},
+            {**_worked_fitting("old", [s2]), "handle": "Alice"},
+        ]
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="Fan v2", wig_id="new", supersedes=["old"], signals=[s1, s2],
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block["old_fittings"]["state"] == "perfect"
+        assert block["old_fittings"]["count"] == 3
+        assert block["old_fittings"]["handles"] == ["Alice", "Bob"]
 
 
 class TestDropGhostClaims:

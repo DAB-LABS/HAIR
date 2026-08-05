@@ -1,5 +1,5 @@
 /**
- * The supersede dialog (v0.9.7 "Second Fitting").
+ * The supersede dialog (v0.9.7 "Second Fitting", amended).
  *
  * Fires wherever a successor meets its ancestor: from the drop bar
  * (ir-wigs, an arriving Wig whose ancestry matches a local one) and from
@@ -15,8 +15,17 @@
  *    (owner ruling: unfilled rather than demoted out of the slot), because
  *    the guard informs, it does not block.
  *
- * It owns no network: REPLACE and KEEP BOTH are events the host acts on,
- * so the same dialog serves a host that uploaded and a host that saved.
+ * Amendment v2 section 2 adds the graded ceremony (the ancestor's own
+ * fitting history, credited and graded before anything is replaced) and,
+ * on the drop-bar doorway only, a third action: CANCEL undoes the import
+ * outright, deleting the file that just arrived. The self doorway never
+ * offers it -- the successor there was deliberately saved and attested,
+ * so the worst its Close can do is leave both wigs standing (Keep Both
+ * semantics).
+ *
+ * It owns no network: REPLACE, KEEP BOTH and CANCEL are events the host
+ * acts on, so the same dialog serves a host that uploaded and a host
+ * that saved.
  */
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -30,8 +39,14 @@ export class IrSupersedeDialog extends LitElement {
     @property() public newFilename = "";
     /** Self-supersession (opened from Save as new). The refit note falls
      * away: they just attested the successor, so there is nothing to warn
-     * them off. */
+     * them off, and CANCEL never renders -- there is no import to undo. */
     @property({ type: Boolean }) public self = false;
+    /** The self doorway's own attestation handle. Used only to drop the
+     * fitter's own name out of the graded ceremony line, so replacing a
+     * wig you just fitted yourself does not read as somebody else's
+     * warning. Empty at the drop-bar doorway, where nothing was just
+     * attested by the person looking at the dialog. */
+    @property() public viewerHandle = "";
 
     /** Per-device top-up choices, on by default. */
     @state() private _topup = new Set<string>();
@@ -40,6 +55,30 @@ export class IrSupersedeDialog extends LitElement {
 
     private get _guarded(): boolean {
         return (this.block?.lost_digests?.length ?? 0) > 0;
+    }
+
+    /** The graded ceremony line, or null when there is nothing to grade
+     * (amendment v2 section 2: "no claims" is the light state -- the
+     * body stands on its own). At the self doorway, a fitter who is the
+     * ONLY name on the ancestor sees nothing either: replacing your own
+     * just-superseded proof needs no warning about yourself. Either way
+     * the same rule decides it: nobody left to credit means no line,
+     * whether that is an anonymous fitting with no handle at all or a
+     * self-filtered list that emptied out. */
+    private get _fitted(): {
+        state: "perfect" | "scoped";
+        count: number;
+        who: string[];
+    } | null {
+        const of = this.block?.old_fittings;
+        if (!of || !of.state) return null;
+        const mine = this.viewerHandle.trim().toLowerCase();
+        const who =
+            this.self && mine
+                ? of.handles.filter((h) => h.trim().toLowerCase() !== mine)
+                : of.handles;
+        if (!who.length) return null;
+        return { state: of.state, count: of.count, who };
     }
 
     updated(): void {
@@ -87,11 +126,46 @@ export class IrSupersedeDialog extends LitElement {
         this._topup = next;
     }
 
+    /** Drop-bar doorway only (owner ruling: "Cancel means undo this
+     * import"): the host deletes the file that just arrived and
+     * receipts it. Never rendered at the self doorway. */
+    private _cancel(): void {
+        if (this._busy) return;
+        this._busy = true;
+        this.dispatchEvent(
+            new CustomEvent("cancel-import", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
+    /** Names, not counts (amendment v2 section 2): "Timer and Breeze
+     * Mode", truncating past four so a device missing a dozen commands
+     * does not turn the confirm into a wall of text. */
+    private _formatNames(names: string[]): string {
+        const MAX = 4;
+        if (names.length <= 1) return names[0] ?? "";
+        const and = t("supersede.list_and");
+        if (names.length <= MAX) {
+            return `${names.slice(0, -1).join(", ")} ${and} ${
+                names[names.length - 1]
+            }`;
+        }
+        const more = names.length - MAX;
+        return `${names.slice(0, MAX).join(", ")} ${and} ${tp(
+            "supersede.topup_more",
+            more,
+            { count: String(more) },
+        )}`;
+    }
+
     render() {
         const b = this.block;
         if (!b) return html``;
         const carried = b.old_signals - b.lost_digests.length;
         const firstDevice = b.devices[0]?.name ?? "";
+        const fitted = this._fitted;
         return html`
             <div class="overlay" @click=${this._close}>
                 <div
@@ -106,6 +180,26 @@ export class IrSupersedeDialog extends LitElement {
                             name: b.old_name,
                         })}
                     </p>
+                    ${fitted
+                        ? fitted.state === "perfect"
+                            ? html`<div class="fitted-callout">
+                                  ${t("supersede.fitted_perfect", {
+                                      name: b.old_name,
+                                      who: fitted.who.join(", "),
+                                  })}
+                              </div>`
+                            : html`<p class="fitted-line">
+                                  ${tp(
+                                      "supersede.fitted_scoped",
+                                      fitted.count,
+                                      {
+                                          count: String(fitted.count),
+                                          name: b.old_name,
+                                          who: fitted.who.join(", "),
+                                      },
+                                  )}
+                              </p>`
+                        : ""}
                     ${this._guarded
                         ? html`<div class="lost-callout">
                               ${tp("supersede.lost", b.lost_digests.length, {
@@ -144,10 +238,16 @@ export class IrSupersedeDialog extends LitElement {
                                     @change=${() => this._toggleTopup(d.id)}
                                 />
                                 <span>
-                                    ${tp("supersede.topup", d.missing_commands, {
-                                        count: String(d.missing_commands),
-                                        name: d.name,
-                                    })}
+                                    ${d.missing_aliases.length
+                                        ? t("supersede.topup_names", {
+                                              names: this._formatNames(
+                                                  d.missing_aliases,
+                                              ),
+                                              name: d.name,
+                                          })
+                                        : t("supersede.topup_none", {
+                                              name: d.name,
+                                          })}
                                 </span>
                             </label>
                         `,
@@ -156,6 +256,15 @@ export class IrSupersedeDialog extends LitElement {
                         ? html`<p class="reanchor">${t("supersede.title")}</p>`
                         : ""}
                     <div class="dialog-actions">
+                        ${this.self
+                            ? ""
+                            : html`<button
+                                  class="action-btn cancel-btn"
+                                  ?disabled=${this._busy}
+                                  @click=${this._cancel}
+                              >
+                                  ${t("common.cancel")}
+                              </button>`}
                         <button
                             class="action-btn cancel-btn"
                             @click=${this._keepBoth}
@@ -203,8 +312,34 @@ export class IrSupersedeDialog extends LitElement {
                 line-height: 1.5;
                 color: var(--secondary-text-color);
             }
-            /* Amber, and only here: the one place something is lost. */
+            /* Amber: the register for "something proven is going away".
+               The guarded state's lost row wears it here; the graded
+               ceremony's PERFECT FIT retirement wears the same family
+               below (.fitted-callout), because losing a row and
+               retiring a signed perfect fit are the same weight of
+               news. */
             .lost-callout {
+                margin: 12px 0;
+                padding: 10px 12px;
+                border-radius: 6px;
+                border: 1px solid rgba(217, 164, 65, 0.45);
+                background: rgba(217, 164, 65, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
+            }
+            /* A scoped fitting is informational, the same weight as
+               .follows -- somebody tried, nobody finished, so there is
+               nothing heavy to warn about. */
+            .fitted-line {
+                margin: 8px 0 0;
+                font-size: 0.9rem;
+                line-height: 1.5;
+                color: var(--primary-text-color);
+            }
+            /* A PERFECT FIT retiring gets the amber-family treatment
+               .lost-callout wears, for the reason noted above it. */
+            .fitted-callout {
                 margin: 12px 0;
                 padding: 10px 12px;
                 border-radius: 6px;

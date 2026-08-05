@@ -563,6 +563,7 @@ export class IrSaveWigDialog extends LitElement {
             .block=${s.block}
             .newFilename=${s.newFilename}
             .self=${true}
+            .viewerHandle=${this._handle}
             @replace=${this._onSelfReplace}
             @keep-both=${() => this._closeAll()}
             @closed=${() => this._closeAll()}
