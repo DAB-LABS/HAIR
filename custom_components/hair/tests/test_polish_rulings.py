@@ -1683,3 +1683,138 @@ class TestNoSuccessionSaveIsSilent:
             in list_call
         )
         assert "this._isSuccession" in list_call.rsplit("||", 1)[1]
+
+
+class TestTheDecisionWindow:
+    """Second Fitting v3: SAVE TO CLOSET opens a small decision window
+    first, always, instead of deriving a verb silently and asking the
+    replace question after the save. Three routes -- SAVE AS NEW,
+    UPDATE CLOSET WIG, VALIDATE FOR PERFECT FIT -- each meant to open
+    its own dialog with no morphing between them (owner: "each of
+    those dialogs is their own"). Commit 3 builds and wires the window
+    itself; Commits 4-5 give two of its three routes their own real
+    destination -- until then every route opens the one save dialog
+    that exists today, carrying the plan the window already fetched.
+    """
+
+    def test_three_routes_render_in_the_route_list(self):
+        text = _read("ir-save-route-dialog.ts")
+        route_list = text.split('<div class="route-list">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        for key in (
+            "wigs.route.save_as_new",
+            "wigs.route.update_closet_wig",
+            "wigs.route.validate_perfect_fit",
+        ):
+            assert key in route_list, key
+
+    def test_update_is_gated_on_a_source_wig(self):
+        """Owner: "if somebody created a device that doesn't have a
+        wig, there is nothing to update." The gate reads the plan's
+        own source_wig_id -- a fact about the data, not a flag the
+        host has to remember to set (the same shape as the supersede
+        dialog's derived-not-passed _guarded getter)."""
+        text = _read("ir-save-route-dialog.ts")
+        assert "private get _hasSource(): boolean" in text
+        getter = text.split("private get _hasSource()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this.plan?.source_wig_id" in getter
+        route_list = text.split('<div class="route-list">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        idx = route_list.index("wigs.route.update_closet_wig")
+        assert "this._hasSource" in route_list[max(0, idx - 300):idx]
+        # SAVE AS NEW and VALIDATE FOR PERFECT FIT stay offered
+        # regardless of divergence (spec section 1) -- only UPDATE is
+        # conditional in this list.
+        new_idx = route_list.index("wigs.route.save_as_new")
+        assert "this._hasSource" not in route_list[max(0, new_idx - 80):new_idx]
+
+    def test_the_summary_covers_matching_diverged_and_from_scratch(self):
+        text = _read("ir-save-route-dialog.ts")
+        summary = text.split("private get _summaryLine()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        # From-scratch: no source to compare against, no line at all.
+        assert "if (!this._hasSource) return null;" in summary
+        # Matching: the plan's own derived verb decides it, never a
+        # second comparison done here.
+        assert 'this.plan.variant !== "succession"' in summary
+        assert "wigs.route.summary_matches" in summary
+        # Diverged: counted off the same rows / missing_rows the
+        # checklist below already draws its own list from.
+        assert "r.matched" in summary
+        assert "this.plan.missing_rows.length" in summary
+        assert "wigs.route.summary_diverged" in summary
+
+    def test_cancel_closes_the_window_and_fires_no_route(self):
+        text = _read("ir-save-route-dialog.ts")
+        close = text.split("private _close(): void", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert '"closed"' in close
+        assert '"route"' not in close
+        actions = text.split('<div class="dialog-actions">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "this._close" in actions
+        assert "common.cancel" in actions
+        # The overlay's own click-outside is the same close, not a
+        # second, silently-different exit.
+        assert '<div class="overlay" @click=${this._close}>' in text
+
+    def test_save_to_closet_opens_the_window_not_the_old_dialog_directly(
+        self,
+    ):
+        detail = _read("ir-device-detail.ts")
+        assert "@click=${this._openSaveRoute}" in detail
+        assert "@click=${() => (this._saveWigOpen = true)}" not in detail
+        opener = detail.split(
+            "private async _openSaveRoute()", 1
+        )[1].split("\n    private", 1)[0]
+        assert "this.api.wigsSavePlan(" in opener
+        assert "this._saveRoutePlan =" in opener
+        # A failed fetch still gets the person to a working dialog
+        # rather than a dead button.
+        assert "this._saveWigOpen = true;" in opener
+
+    def test_the_window_and_the_next_dialog_never_show_together(self):
+        joined = " ".join(_read("ir-device-detail.ts").split())
+        assert (
+            "this._saveRoutePlan && !this._saveWigOpen ? html`<ir-save-route-dialog"
+            in joined
+        )
+
+    def test_the_fetched_plan_rides_into_the_next_dialog_unrefetched(self):
+        """The window fetches the plan once; whichever dialog the
+        chosen route opens next reads that same object, never calling
+        wigsSavePlan a second time for the same click."""
+        detail = _read("ir-device-detail.ts")
+        assert ".plan=${this._saveRoutePlan}" in detail
+        save = _read("ir-save-wig-dialog.ts")
+        assert "public plan: SavePlan | null = null;" in save
+        first_updated = save.split("async firstUpdated()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert "this.plan ??" in first_updated
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_route_vocabulary(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for key in (
+            "wigs.route.source_from",
+            "wigs.route.source_none",
+            "wigs.route.summary_matches",
+            "wigs.route.summary_diverged",
+            "wigs.route.save_as_new",
+            "wigs.route.update_closet_wig",
+            "wigs.route.validate_perfect_fit",
+        ):
+            assert key in data, f"{locale} missing {key}"
+        for key in ("wigs.route.added", "wigs.route.removed"):
+            assert f"{key}.one" in data, f"{locale} missing {key}.one"
+            assert f"{key}.other" in data, f"{locale} missing {key}.other"

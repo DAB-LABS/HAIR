@@ -71,6 +71,12 @@ export class IrSaveWigDialog extends LitElement {
     /** Needed only to read the install's temperature unit, so a
      * checklist written in Celsius reads in whatever the person set. */
     @property({ attribute: false }) public hass: any;
+    /** Second Fitting v3: pre-fetched by the decision window before
+     * this dialog opens. When present, `firstUpdated` acts on it
+     * directly instead of calling wigsSavePlan again -- the plan the
+     * person already saw summarized is exactly the one this dialog
+     * acts on, never a second, possibly-disagreeing copy. */
+    @property({ attribute: false }) public plan: SavePlan | null = null;
 
     @state() private _name = "";
     @state() private _brand = "";
@@ -250,7 +256,8 @@ export class IrSaveWigDialog extends LitElement {
     async firstUpdated(): Promise<void> {
         this._loading = true;
         try {
-            const plan = await this.api.wigsSavePlan(this.sourceId);
+            const plan =
+                this.plan ?? (await this.api.wigsSavePlan(this.sourceId));
             this._plan = plan;
             this._name = plan.metadata.name ?? this.sourceName;
             this._brand = plan.metadata.brand ?? "";

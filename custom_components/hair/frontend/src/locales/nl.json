@@ -720,5 +720,16 @@
     "comb.more_keys.one": "Toon {count} meer",
     "comb.more_keys.other": "Toon {count} meer",
     "comb.handoff_open.one": "De gemarkeerde code is een rij op {device}.",
-    "comb.handoff_open.other": "Alle {count} zijn rijen op {device}."
+    "comb.handoff_open.other": "Alle {count} zijn rijen op {device}.",
+    "wigs.route.source_from": "Van: {name}",
+    "wigs.route.source_none": "Komt niet van een wig",
+    "wigs.route.summary_matches": "Komt overeen met je wig",
+    "wigs.route.summary_diverged": "{parts} sinds je wig",
+    "wigs.route.added.one": "{count} opdracht toegevoegd",
+    "wigs.route.added.other": "{count} opdrachten toegevoegd",
+    "wigs.route.removed.one": "{count} opdracht verwijderd",
+    "wigs.route.removed.other": "{count} opdrachten verwijderd",
+    "wigs.route.save_as_new": "Opslaan als nieuw",
+    "wigs.route.update_closet_wig": "Kast-wig bijwerken",
+    "wigs.route.validate_perfect_fit": "Valideren voor Perfect Fit"
 }

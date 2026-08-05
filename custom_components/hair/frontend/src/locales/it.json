@@ -720,5 +720,16 @@
     "comb.more_keys.one": "Mostra {count} in più",
     "comb.more_keys.other": "Mostra altri {count}",
     "comb.handoff_open.one": "Il codice segnalato è una riga su {device}.",
-    "comb.handoff_open.other": "Tutti e {count} sono righe su {device}."
+    "comb.handoff_open.other": "Tutti e {count} sono righe su {device}.",
+    "wigs.route.source_from": "Da: {name}",
+    "wigs.route.source_none": "Non proviene da un wig",
+    "wigs.route.summary_matches": "Corrisponde al tuo wig",
+    "wigs.route.summary_diverged": "{parts} dal tuo wig",
+    "wigs.route.added.one": "{count} comando aggiunto",
+    "wigs.route.added.other": "{count} comandi aggiunti",
+    "wigs.route.removed.one": "{count} comando rimosso",
+    "wigs.route.removed.other": "{count} comandi rimossi",
+    "wigs.route.save_as_new": "Salva come nuovo",
+    "wigs.route.update_closet_wig": "Aggiorna il wig dell'armadio",
+    "wigs.route.validate_perfect_fit": "Convalida per Perfect Fit"
 }

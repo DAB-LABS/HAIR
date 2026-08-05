@@ -24,6 +24,7 @@ const ACTION_BADGE_CHROME_PX = 22; // 10px padding + 1px border, both sides
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-save-wig-dialog.js";
+import "./ir-save-route-dialog.js";
 import "./ir-emitter-picker.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
@@ -42,6 +43,7 @@ import type {
     MatrixCellCoord,
     MatrixCells,
     ReceiverInfo,
+    SavePlan,
 } from "./types.js";
 import { displayTemp, installUnit } from "./temperature.js";
 
@@ -73,6 +75,12 @@ export class IrDeviceDetail extends LitElement {
     @state() private _toast: string | null = null;
     @state() private _confirmDelete = false;
     @state() private _saveWigOpen = false;
+    /** Second Fitting v3: the decision window's own plan, fetched once
+     * when SAVE TO CLOSET is clicked and handed straight into whatever
+     * dialog the chosen route opens next -- neither the window nor the
+     * dialog it routes to fetches a second copy. Null closes the
+     * window; non-null with `_saveWigOpen` false shows it. */
+    @state() private _saveRoutePlan: SavePlan | null = null;
     @state() private _commandToDelete: IRCommand | null = null;
     @state() private _editCommand: IRCommand | null = null;
 
@@ -216,6 +224,37 @@ export class IrDeviceDetail extends LitElement {
             this._toast = null;
         }, 2400);
     }
+
+    /** Second Fitting v3: SAVE TO CLOSET opens the decision window
+     * first, always -- fetching the plan once, up front, so its own
+     * source line and delta summary are never a guess. A failed fetch
+     * falls back to the old dialog directly, which retries the same
+     * call and carries its own inline error banner. */
+    private async _openSaveRoute(): Promise<void> {
+        if (this._busy) return;
+        try {
+            this._saveRoutePlan = await this.api.wigsSavePlan(
+                this.device.id,
+            );
+        } catch (err) {
+            this._flash((err as Error).message);
+            this._saveWigOpen = true;
+        }
+    }
+
+    /** Second Fitting v3, Commit 3: every route opens the one save
+     * dialog that exists today -- Commits 4 and 5 split it into the
+     * route-specific dialogs the window's own buttons already name.
+     * The plan fetched for the window rides straight into it either
+     * way, so nothing downstream refetches. */
+    private _onSaveRoute = (): void => {
+        this._saveWigOpen = true;
+    };
+
+    private _closeSaveFlow = (): void => {
+        this._saveWigOpen = false;
+        this._saveRoutePlan = null;
+    };
 
     // ---------------------------------------------------------------
     // Inline name editing
@@ -1517,7 +1556,7 @@ export class IrDeviceDetail extends LitElement {
                 </div>
                 <button
                     class="stc-btn"
-                    @click=${() => (this._saveWigOpen = true)}
+                    @click=${this._openSaveRoute}
                     ?disabled=${this._busy}
                     title=${t("wigs.save_as_wig")}
                 >
@@ -1746,6 +1785,13 @@ export class IrDeviceDetail extends LitElement {
             </div>
 
             <!-- Dialogs -->
+            ${this._saveRoutePlan && !this._saveWigOpen
+                ? html`<ir-save-route-dialog
+                      .plan=${this._saveRoutePlan}
+                      @route=${this._onSaveRoute}
+                      @closed=${this._closeSaveFlow}
+                  ></ir-save-route-dialog>`
+                : ""}
             ${this._saveWigOpen
                 ? html`<ir-save-wig-dialog
                       .api=${this.api}
@@ -1755,7 +1801,8 @@ export class IrDeviceDetail extends LitElement {
                       ?hasEmitter=${(this.device.emitter_entity_ids ?? [])
                           .length > 0}
                       .hass=${this.hass}
-                      @closed=${() => (this._saveWigOpen = false)}
+                      .plan=${this._saveRoutePlan}
+                      @closed=${this._closeSaveFlow}
                   ></ir-save-wig-dialog>`
                 : ""}
             ${this._captureName

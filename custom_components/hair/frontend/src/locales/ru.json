@@ -784,5 +784,16 @@
     "comb.handoff_open.one": "Отмеченный код это строка на {device}.",
     "comb.handoff_open.few": "Все {count} это строки на {device}.",
     "comb.handoff_open.many": "Все {count} это строки на {device}.",
-    "comb.handoff_open.other": "Все {count} это строки на {device}."
+    "comb.handoff_open.other": "Все {count} это строки на {device}.",
+    "wigs.route.source_from": "Из: {name}",
+    "wigs.route.source_none": "Не из вижка",
+    "wigs.route.summary_matches": "Совпадает с вашим вижком",
+    "wigs.route.summary_diverged": "{parts} с момента вашего вижка",
+    "wigs.route.added.one": "{count} команда добавлена",
+    "wigs.route.added.other": "{count} команды добавлено",
+    "wigs.route.removed.one": "{count} команда удалена",
+    "wigs.route.removed.other": "{count} команды удалено",
+    "wigs.route.save_as_new": "Сохранить как новый",
+    "wigs.route.update_closet_wig": "Обновить вижок в шкафу",
+    "wigs.route.validate_perfect_fit": "Проверить на Perfect Fit"
 }

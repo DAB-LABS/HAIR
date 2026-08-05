@@ -720,5 +720,16 @@
     "comb.more_keys.one": "{count} weiteren anzeigen",
     "comb.more_keys.other": "{count} weitere anzeigen",
     "comb.handoff_open.one": "Der markierte Code ist eine Zeile auf {device}.",
-    "comb.handoff_open.other": "Alle {count} sind Zeilen auf {device}."
+    "comb.handoff_open.other": "Alle {count} sind Zeilen auf {device}.",
+    "wigs.route.source_from": "Von: {name}",
+    "wigs.route.source_none": "Nicht von einem Wig",
+    "wigs.route.summary_matches": "Entspricht deinem Wig",
+    "wigs.route.summary_diverged": "{parts} seit deinem Wig",
+    "wigs.route.added.one": "{count} Befehl hinzugefügt",
+    "wigs.route.added.other": "{count} Befehle hinzugefügt",
+    "wigs.route.removed.one": "{count} Befehl entfernt",
+    "wigs.route.removed.other": "{count} Befehle entfernt",
+    "wigs.route.save_as_new": "Als neu speichern",
+    "wigs.route.update_closet_wig": "Closet-Wig aktualisieren",
+    "wigs.route.validate_perfect_fit": "Für Perfect Fit prüfen"
 }

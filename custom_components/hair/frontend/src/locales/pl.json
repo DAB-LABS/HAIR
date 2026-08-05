@@ -784,5 +784,16 @@
     "comb.handoff_open.one": "Oznaczony kod jest wierszem na {device}.",
     "comb.handoff_open.few": "Wszystkie {count} są wierszami na {device}.",
     "comb.handoff_open.many": "Wszystkie {count} są wierszami na {device}.",
-    "comb.handoff_open.other": "Wszystkie {count} są wierszami na {device}."
+    "comb.handoff_open.other": "Wszystkie {count} są wierszami na {device}.",
+    "wigs.route.source_from": "Z: {name}",
+    "wigs.route.source_none": "Nie pochodzi z wiga",
+    "wigs.route.summary_matches": "Zgadza się z twoim wigiem",
+    "wigs.route.summary_diverged": "{parts} od twojego wiga",
+    "wigs.route.added.one": "{count} polecenie dodane",
+    "wigs.route.added.other": "{count} polecenia dodanego",
+    "wigs.route.removed.one": "{count} polecenie usunięte",
+    "wigs.route.removed.other": "{count} polecenia usuniętego",
+    "wigs.route.save_as_new": "Zapisz jako nowy",
+    "wigs.route.update_closet_wig": "Zaktualizuj wig w szafie",
+    "wigs.route.validate_perfect_fit": "Zweryfikuj do Perfect Fit"
 }

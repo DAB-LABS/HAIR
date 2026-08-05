@@ -720,5 +720,16 @@
     "comb.more_keys.one": "Ver {count} más",
     "comb.more_keys.other": "Ver {count} más",
     "comb.handoff_open.one": "El código marcado es una fila en {device}.",
-    "comb.handoff_open.other": "Los {count} son filas en {device}."
+    "comb.handoff_open.other": "Los {count} son filas en {device}.",
+    "wigs.route.source_from": "De: {name}",
+    "wigs.route.source_none": "No proviene de un wig",
+    "wigs.route.summary_matches": "Coincide con tu wig",
+    "wigs.route.summary_diverged": "{parts} desde tu wig",
+    "wigs.route.added.one": "{count} comando añadido",
+    "wigs.route.added.other": "{count} comandos añadidos",
+    "wigs.route.removed.one": "{count} comando eliminado",
+    "wigs.route.removed.other": "{count} comandos eliminados",
+    "wigs.route.save_as_new": "Guardar como nuevo",
+    "wigs.route.update_closet_wig": "Actualizar wig del armario",
+    "wigs.route.validate_perfect_fit": "Validar para ajuste perfecto"
 }

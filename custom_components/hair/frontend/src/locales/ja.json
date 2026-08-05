@@ -720,5 +720,16 @@
     "comb.more_keys.one": "さらに {count} 件を表示",
     "comb.more_keys.other": "さらに {count} 件を表示",
     "comb.handoff_open.one": "フラグの付いたコードは {device} の行になっています。",
-    "comb.handoff_open.other": "{count} 件すべてが {device} の行になっています。"
+    "comb.handoff_open.other": "{count} 件すべてが {device} の行になっています。",
+    "wigs.route.source_from": "元: {name}",
+    "wigs.route.source_none": "wigからではありません",
+    "wigs.route.summary_matches": "wigと一致しています",
+    "wigs.route.summary_diverged": "wigから{parts}",
+    "wigs.route.added.one": "{count} 件のコマンドが追加",
+    "wigs.route.added.other": "{count} 件のコマンドが追加",
+    "wigs.route.removed.one": "{count} 件のコマンドが削除",
+    "wigs.route.removed.other": "{count} 件のコマンドが削除",
+    "wigs.route.save_as_new": "新規として保存",
+    "wigs.route.update_closet_wig": "クローゼットのwigを更新",
+    "wigs.route.validate_perfect_fit": "Perfect Fitとして検証"
 }

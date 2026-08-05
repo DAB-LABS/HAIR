@@ -720,5 +720,16 @@
     "comb.more_keys.one": "Show {count} more",
     "comb.more_keys.other": "Show {count} more",
     "comb.handoff_open.one": "The flagged code is a row on {device}.",
-    "comb.handoff_open.other": "All {count} are rows on {device}."
+    "comb.handoff_open.other": "All {count} are rows on {device}.",
+    "wigs.route.source_from": "From: {name}",
+    "wigs.route.source_none": "Not from a wig",
+    "wigs.route.summary_matches": "Matches your wig",
+    "wigs.route.summary_diverged": "{parts} since your wig",
+    "wigs.route.added.one": "{count} command added",
+    "wigs.route.added.other": "{count} commands added",
+    "wigs.route.removed.one": "{count} command removed",
+    "wigs.route.removed.other": "{count} commands removed",
+    "wigs.route.save_as_new": "Save as New",
+    "wigs.route.update_closet_wig": "Update Closet Wig",
+    "wigs.route.validate_perfect_fit": "Validate for Perfect Fit"
 }
