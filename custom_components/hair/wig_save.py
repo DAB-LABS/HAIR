@@ -108,9 +108,11 @@ class PlanRow:
 class PlanMissingRow:
     """A wig row nothing on the device covers.
 
-    Feeds the exclusion picker. The person either says why (not on my
-    device / could not make it work) or leaves it unclaimed, which is
-    the honest default: silence is not a verdict.
+    Second Fitting amendment v2, owner ruling on missing rows (option
+    2): always a removal now, never an exclusion candidate. Its
+    presence is what makes ``build_save_plan`` diverge the save to
+    SUCCESSION; the dialog renders it struck-through with a disabled
+    checkbox rather than offering a reason picker.
     """
 
     wig_index: int

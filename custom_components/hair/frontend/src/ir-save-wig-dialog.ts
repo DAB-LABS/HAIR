@@ -1,5 +1,5 @@
 /**
- * Save to Closet: one dialog, two verbs.
+ * Save to Closet: one dialog, three verbs.
  *
  * Started life as the small metadata ask shared by every export surface
  * (v0.7.0 Big Wig). From v0.9.5 it belongs to DEVICES ALONE and it is
@@ -11,16 +11,27 @@
  * goes through Make Device first (owner ruling 2026-08-03), so a wig is
  * always born from something somebody could actually press.
  *
- * Two variants, chosen by the backend's plan, not by this dialog:
+ * THE VERB IS DERIVED (Second Fitting amendment v2, owner-ruled on
+ * the bench 2026-08-04) -- nobody picks it, and the toggle that used
+ * to offer the choice is gone from this dialog entirely:
  *
  * - CREATE. A new wig, born with the author's claims if they tick the
  *   box. New wigs are coverage-total by construction -- curation
  *   already happened on the device -- so the list opens all-checked and
  *   unchecking is the exception.
- * - UPDATE. The device remembers the wig it came from, so the same
- *   button offers to append a fitting to it. Rows match by recipe
- *   digest regardless of names, which is what lets a locally renamed
- *   command still find its row.
+ * - UPDATE. The device's commands still match its source wig's rows
+ *   by digest (renames and metadata edits do not count as divergence),
+ *   so the same button offers to append a fitting to it. Rows match by
+ *   recipe digest regardless of names, which is what lets a locally
+ *   renamed command still find its row.
+ * - SUCCESSION. The device's commands have diverged from the source
+ *   wig -- an addition, a removal, or both -- so the save mints a
+ *   successor instead: matched rows render as an UPDATE would, then a
+ *   "Changes with new fitting" section shows what is arriving and what
+ *   is leaving. The attestation binds the successor's own rows, never
+ *   a row set the device has outgrown. The deliberate-fork case (same
+ *   content, want a separate wig) lives on through duplicate-device-
+ *   then-save and needs no toggle.
  *
  * THE TEST BUTTON IS STATELESS ABOUT PROOF. It transmits through the
  * device's own emitter routing and reports that the code went over the
@@ -37,6 +48,7 @@ import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type {
     SavePlan,
+    SavePlanMissingRow,
     SavePlanRow,
     SaveResult,
     SupersessionBlock,
@@ -73,7 +85,7 @@ export class IrSaveWigDialog extends LitElement {
     @state() private _busy = false;
     @state() private _error: string | null = null;
     @state() private _done: SaveResult | null = null;
-    // Save as new over a Wig whose ancestor is still local: the second
+    // A SUCCESSION save whose ancestor is still local: the second
     // supersession doorway (v0.9.7). The dialog opens on the successor
     // just written, with "your old Wig" copy and the refit note dropped.
     @state() private _selfSupersede: {
@@ -98,9 +110,6 @@ export class IrSaveWigDialog extends LitElement {
     @state() private _handle = "";
     @state() private _github = "";
     @state() private _oath = false;
-    /** UPDATE only: the footer escape hatch, behind a confirm. */
-    @state() private _saveAsNew = false;
-    @state() private _confirmNew = false;
     /** MATRIX UPDATE: send the repaired lattice upstream. Explicit,
      * because proposing a content change is a different act from
      * attesting that codes work. */
@@ -110,46 +119,35 @@ export class IrSaveWigDialog extends LitElement {
     @state() private _ledgerOpen = false;
 
     private get _isUpdate(): boolean {
-        return this._plan?.variant === "update" && !this._saveAsNew;
+        return this._plan?.variant === "update";
     }
 
-    /** Every row the attestation list draws, matched rows first. */
+    /** Second Fitting amendment v2: the device's commands have diverged
+     * from the source wig -- an addition, a removal, or both -- so the
+     * save mints a successor rather than appending to a row set the
+     * device has outgrown. */
+    private get _isSuccession(): boolean {
+        return this._plan?.variant === "succession";
+    }
+
+    /** Every row the attestation list draws. A wig row the device no
+     * longer covers never merges in here (v0.9.7 Second Fitting: a
+     * missing row always diverges the save to SUCCESSION instead of
+     * offering per-row exclusion), so this is simply the device's own
+     * rows -- matched, or, on SUCCESSION, newly added. */
     private get _allRows(): SavePlanRow[] {
-        const plan = this._plan;
-        if (!plan) return [];
-        if (!this._isUpdate) return plan.rows;
-        // On UPDATE the wig's uncovered rows join the list so they can
-        // be excluded with a reason. They carry no command, so they get
-        // no TEST button: there is nothing on this device to send.
-        const missing: SavePlanRow[] = plan.missing_rows.map((row) => ({
-            command_id: "",
-            alias: row.alias,
-            digest: row.digest,
-            send_count: 1,
-            ditto_count: 0,
-            bypass: false,
-            protocol: null,
-            wig_index: row.wig_index,
-            wig_alias: row.alias,
-            matched: false,
-            renamed: false,
-        }));
-        return [...plan.rows, ...missing];
+        return this._plan?.rows ?? [];
     }
 
-    /** On UPDATE a device command with no matching wig row carries no
-     * wig_index: it lives on the device but is not in the current Wig,
-     * so it travels only via Save as new and can never be attested into
-     * this file. (v0.9.7 Second Fitting.) */
-    private _isDeviceOnly(row: SavePlanRow): boolean {
-        return this._isUpdate && row.wig_index == null;
-    }
-
-    /** Rows that can actually be attested. Device-only rows are excluded,
-     * so one extra local button never blocks a perfect fit of the Wig's
-     * own rows. */
+    /** Rows that can actually be attested: every row the plan carries.
+     * Second Fitting amendment v2: an unmatched row is no longer
+     * excluded here -- under SUCCESSION it is a normal addition that
+     * travels in the successor, so the perfect-fit denominator is
+     * matched rows plus additions. A removal (missing_rows) never
+     * reaches this list; nobody can vouch for a command that is not
+     * there. */
     private get _attestableRows(): SavePlanRow[] {
-        return this._allRows.filter((r) => !this._isDeviceOnly(r));
+        return this._allRows;
     }
 
     private get _checkedCount(): number {
@@ -243,22 +241,7 @@ export class IrSaveWigDialog extends LitElement {
 
     private get _saveLabel(): string {
         if (this._busy) return t("common.saving");
-        // While the toggle is armed the primary names the act, so the
-        // pressed button and the button that performs it agree. The
-        // toggle keeps ONE label and shows its state by looking
-        // pressed; swapping its text to the opposite action is what
-        // made it read as a navigation control on the bench.
-        if (!this._perfect) {
-            // The phrase lives on exactly ONE button at a time. Armed,
-            // the primary IS the act and the toggle becomes the way
-            // back; unarmed, the toggle offers the road and the primary
-            // is the ordinary save. Both wearing it at once is what
-            // made the footer read as two identical buttons, one of
-            // them mysteriously pressed (owner bench 2026-08-03).
-            return this._saveAsNew
-                ? t("wigs.save.save_as_new")
-                : t("common.save");
-        }
+        if (!this._perfect) return t("common.save");
         return this._isPerfectFit
             ? t("wigs.save.save_perfect")
             : t("wigs.save.save_fitted");
@@ -316,14 +299,6 @@ export class IrSaveWigDialog extends LitElement {
                 this._attestableRows.map((r) => r.digest),
             );
             this._reasons = new Map();
-            // Attesting means attesting the wig you came from, so
-            // arming the block returns to UPDATE and the save-as-new
-            // toggle goes away (owner ruling 2026-08-03). Save as new
-            // is the copy-the-metadata-into-a-fresh-wig road; it is not
-            // a thing you reach for halfway through signing. Clearing
-            // it here rather than only hiding it is what stops someone
-            // from being stranded in create mode with no way back.
-            this._saveAsNew = false;
         }
     }
 
@@ -462,10 +437,6 @@ export class IrSaveWigDialog extends LitElement {
     private _claims(): { digest: string; verdict: string }[] {
         const out: { digest: string; verdict: string }[] = [];
         for (const row of this._allRows) {
-            // A device-only row is not in the current Wig, so it can carry
-            // no claim about this file -- the server drops one anyway, but
-            // the client never offers it.
-            if (this._isDeviceOnly(row)) continue;
             if (this._checked.has(row.digest)) {
                 out.push({ digest: row.digest, verdict: "worked" });
                 continue;
@@ -494,17 +465,6 @@ export class IrSaveWigDialog extends LitElement {
 
     private async _save(): Promise<void> {
         if (!this._canSave) return;
-        // Saving as new from a device that remembers a wig is a
-        // different act from updating it, so it gets its own yes
-        // (RULED). Nothing is written until that yes arrives.
-        if (
-            this._plan?.variant === "update" &&
-            this._saveAsNew &&
-            !this._confirmNew
-        ) {
-            this._confirmNew = true;
-            return;
-        }
         this._busy = true;
         this._error = null;
         try {
@@ -516,7 +476,7 @@ export class IrSaveWigDialog extends LitElement {
                     composed: true,
                 }),
             );
-            // A self-superseding Wig (Save as new over one whose ancestor
+            // A self-superseding Wig (a SUCCESSION save whose ancestor
             // is still local) opens the replace dialog on the successor
             // just written, instead of the plain done confirmation.
             const sup = (result as SaveResult).supersession;
@@ -534,7 +494,6 @@ export class IrSaveWigDialog extends LitElement {
             this._error = (err as Error).message;
         } finally {
             this._busy = false;
-            this._confirmNew = false;
         }
     }
 
@@ -567,7 +526,6 @@ export class IrSaveWigDialog extends LitElement {
             : undefined;
         return this.api.wigsSave({
             device_id: this.sourceId,
-            mode: this._isUpdate ? "update" : "create",
             ...this._metadata(),
             ...(attest ? { attest } : {}),
             ...(this._isUpdate && this._proposeLattice
@@ -614,7 +572,6 @@ export class IrSaveWigDialog extends LitElement {
     render() {
         if (this._selfSupersede) return this._renderSelfSupersede();
         if (this._done) return this._renderDone();
-        if (this._confirmNew) return this._renderConfirmNew();
         const heading = this._isUpdate
             ? t("wigs.save.update_heading", {
                   name: this._plan?.source_wig_name ?? "",
@@ -691,35 +648,6 @@ export class IrSaveWigDialog extends LitElement {
                 <div class="dialog-actions">
                     <button class="action-btn" @click=${this._close}>
                         ${t("common.close")}
-                    </button>
-                </div>
-            </ha-dialog>
-        `;
-    }
-
-    private _renderConfirmNew() {
-        return html`
-            <ha-dialog
-                open
-                heading=${t("wigs.save.new_confirm_heading")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">
-                    ${t("wigs.save.new_confirm_body", {
-                        name: this._plan?.source_wig_name ?? "",
-                    })}
-                </div>
-                <div class="dialog-actions">
-                    <span class="spacer"></span>
-                    <button
-                        class="action-btn cancel-btn"
-                        @click=${() => (this._confirmNew = false)}
-                    >
-                        ${t("common.cancel")}
-                    </button>
-                    <button class="action-btn save-wig-btn" @click=${this._save}>
-                        ${t("wigs.save.new_confirm_yes")}
                     </button>
                 </div>
             </ha-dialog>
@@ -954,12 +882,39 @@ export class IrSaveWigDialog extends LitElement {
         `;
     }
 
+    /**
+     * The checklist. Second Fitting amendment v2: on SUCCESSION the
+     * matched rows render first, exactly as an UPDATE would, then a
+     * light divider introduces the delta -- additions (on the device,
+     * not in the source wig) and removals (in the source wig, not on
+     * the device) -- so the change is visible before anything is
+     * signed. Matched rows and additions are both attestable; a
+     * removal never is, because nobody can vouch for a command that is
+     * not there. On CREATE and plain UPDATE there is no delta, so this
+     * collapses back to the single list it always was.
+     */
     private _renderList() {
         const rows = this._allRows;
-        const deviceOnly = rows.filter((r) => this._isDeviceOnly(r)).length;
+        const succession = this._isSuccession;
+        const matched = succession ? rows.filter((r) => r.matched) : rows;
+        const additions = succession ? rows.filter((r) => !r.matched) : [];
+        const removals = succession ? (this._plan?.missing_rows ?? []) : [];
         return html`
             <div class="fit-list">
-                ${rows.map((row) => this._renderRow(row))}
+                ${matched.map((row) => this._renderRow(row))}
+                ${additions.length || removals.length
+                    ? html`
+                          <div class="changes-divider">
+                              <span>${t("wigs.save.changes_title")}</span>
+                          </div>
+                          ${additions.map((row) =>
+                              this._renderRow(row, true),
+                          )}
+                          ${removals.map((row) =>
+                              this._renderRemovalRow(row),
+                          )}
+                      `
+                    : ""}
             </div>
             ${this._isPerfectFit
                 ? ""
@@ -969,90 +924,33 @@ export class IrSaveWigDialog extends LitElement {
                           total: String(this._attestableRows.length),
                       })}
                   </div>`}
-            ${deviceOnly > 0 ? this._renderNudge(deviceOnly) : ""}
         `;
     }
 
-    /** The quiet line under the checklist when the device carries commands
-     * the current Wig does not. It points at Save as new (the same
-     * dotted-underline treatment the joining line uses) and the whole
-     * line arms it; it never renders unless a device-only row exists. */
-    private _renderNudge(count: number) {
-        const arm = () => {
-            this._saveAsNew = true;
-        };
-        return html`
-            <div
-                class="nudge-line"
-                role="button"
-                tabindex="0"
-                @click=${arm}
-                @keydown=${(e: KeyboardEvent) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        arm();
-                    }
-                }}
-            >
-                <span>${tp("wigs.save.not_in_wig_nudge", count)}</span>
-                <u>${t("wigs.save.save_as_new")}</u>
-            </div>
-        `;
-    }
-
-    /** A device command that is not in the current Wig: no checkbox (a
-     * dash holds the column so the grid does not reflow), a neutral marker
-     * chip, the full sentence on its own line, TEST still live since the
-     * command is real on the device. It is dimmed with a left rail,
-     * distinct from the strikethrough of a declined claim. */
-    private _renderDeviceOnlyRow(row: SavePlanRow) {
-        return html`
-            <div class="fit-row device-only">
-                <span class="no-check">&ndash;</span>
-                <span class="fit-name">
-                    ${this._rowLabel(row)}
-                    <span class="row-chip">${t("wigs.save.row_not_in_wig")}</span>
-                </span>
-                <ir-tx-knobs
-                    .sendCount=${row.send_count}
-                    .repeatCount=${row.ditto_count}
-                    .decoded=${!!row.protocol}
-                    .bypassed=${row.bypass}
-                ></ir-tx-knobs>
-                <span class="pill-slot">
-                    ${row.protocol
-                        ? html`<ir-protocol-chip
-                              .protocol=${row.protocol}
-                              ?bypass=${row.bypass}
-                          ></ir-protocol-chip>`
-                        : ""}
-                </span>
-                <span class="test-slot">
-                    ${row.command_id
-                        ? html`<ir-test-button
-                              .send=${() => this._sendRow(row)}
-                              .disabledReason=${this.hasEmitter
-                                  ? null
-                                  : t("wigs.save.no_emitter")}
-                          ></ir-test-button>`
-                        : ""}
-                </span>
-            </div>
-            <div class="row-note">${t("wigs.save.row_not_in_wig_note")}</div>
-        `;
-    }
-
-    private _renderRow(row: SavePlanRow) {
-        if (this._isDeviceOnly(row)) return this._renderDeviceOnlyRow(row);
+    /** A matched row, or (SUCCESSION only) an addition: a command on
+     * the device with no row in the source wig. An addition attests
+     * exactly like a matched row -- it travels in the successor and
+     * its claim binds there -- with a small leading "+" marking it as
+     * new. The rename-propose line stays UPDATE only: a SUCCESSION
+     * successor is authored from the device's current alias directly,
+     * so there is no upstream file left to propose the rename onto. */
+    private _renderRow(row: SavePlanRow, isAddition = false) {
         const checked = this._checked.has(row.digest);
         return html`
-            <div class="fit-row ${checked ? "" : "off"}">
+            <div
+                class="fit-row ${checked ? "" : "off"} ${isAddition
+                    ? "addition"
+                    : ""}"
+            >
                 <input
                     type="checkbox"
                     .checked=${checked}
                     @change=${() => this._toggleRow(row.digest)}
                 />
                 <span class="fit-name">
+                    ${isAddition
+                        ? html`<span class="delta-mark add">+</span>`
+                        : ""}
                     ${this._rowLabel(row)}
                     ${this._rowContext(row)
                         ? html`<span class="fit-context"
@@ -1086,7 +984,31 @@ export class IrSaveWigDialog extends LitElement {
                 </span>
             </div>
             ${checked ? "" : this._renderReasons(row)}
-            ${checked && row.renamed ? this._renderRename(row) : ""}
+            ${checked && row.renamed && this._isUpdate
+                ? this._renderRename(row)
+                : ""}
+        `;
+    }
+
+    /** A wig row the device no longer covers (Second Fitting amendment
+     * v2, owner ruling on missing rows, option 2): always a removal
+     * now, never an exclusion candidate. Struck, a leading "-", and a
+     * checkbox that renders for column rhythm but is DISABLED --
+     * nobody can vouch for a command that is not there. No TEST:
+     * there is nothing on the device left to send. */
+    private _renderRemovalRow(row: SavePlanMissingRow) {
+        return html`
+            <div class="fit-row removal">
+                <input type="checkbox" disabled />
+                <span class="fit-name">
+                    <span class="delta-mark remove">-</span>
+                    ${row.alias}
+                </span>
+                <span></span>
+                <span class="pill-slot"></span>
+                <span class="test-slot"></span>
+            </div>
+            <div class="row-note">${t("wigs.save.row_leaves_wig")}</div>
         `;
     }
 
@@ -1184,19 +1106,6 @@ export class IrSaveWigDialog extends LitElement {
                 >
                     ${t("common.cancel")}
                 </button>
-                ${this._plan?.variant === "update" && !this._perfect
-                    ? html`<button
-                          class="action-btn as-new-btn ${this._saveAsNew ? "on" : ""}"
-                          @click=${() => {
-                              this._saveAsNew = !this._saveAsNew;
-                          }}
-                          ?disabled=${this._busy}
-                      >
-                          ${this._saveAsNew
-                              ? t("wigs.save.back_to_saved")
-                              : t("wigs.save.save_as_new")}
-                      </button>`
-                    : ""}
                 <button
                     class="action-btn save-wig-btn"
                     @click=${this._save}
@@ -1449,37 +1358,44 @@ export class IrSaveWigDialog extends LitElement {
                 margin: 8px 0 2px;
                 line-height: 1.4;
             }
-            /* A device-only row (v0.9.7): dimmed as a whole with a thin
-               neutral rail on the left, distinct from the strikethrough
-               .fit-row.off uses for a declined claim -- this row was never
-               offered a claim to decline. The dash holds the checkbox
-               column so the grid does not reflow around the missing tick. */
-            .fit-row.device-only {
-                opacity: 0.72;
-                border-left: 2px solid rgba(255, 255, 255, 0.14);
-                margin-left: -2px;
-                padding-left: 4px;
-            }
-            .fit-row.device-only .no-check {
-                text-align: center;
-                font-size: 13px;
-                color: var(--secondary-text-color);
-            }
-            .row-chip {
-                display: inline-flex;
-                margin-left: 7px;
-                font-size: 9px;
+            /* The delta section (Second Fitting amendment v2): a light
+               divider above the title, extending the existing checklist
+               anatomy rather than inventing a new box. */
+            .changes-divider {
+                display: flex;
+                align-items: center;
+                margin: 10px 2px 6px;
+                padding-top: 8px;
+                border-top: 1px solid var(--divider-color);
+                font-size: 10.5px;
                 font-weight: 600;
                 letter-spacing: 0.03em;
                 text-transform: uppercase;
-                padding: 1.5px 6px;
-                border-radius: 4px;
-                border: 1px solid var(--divider-color);
                 color: var(--secondary-text-color);
-                background: rgba(255, 255, 255, 0.03);
-                white-space: nowrap;
-                vertical-align: 1px;
-                cursor: default;
+            }
+            /* The leading +/- on a delta row. Green for an addition, the
+               same house colour every attestable check already wears;
+               muted for a removal, which is leaving, not arriving. */
+            .delta-mark {
+                font-weight: 700;
+                margin-right: 3px;
+            }
+            .delta-mark.add {
+                color: #4f9e5a;
+            }
+            .delta-mark.remove {
+                color: var(--secondary-text-color);
+            }
+            /* A removal (v0.9.7 Second Fitting, owner ruling on missing
+               rows): struck like a declined claim, because it reads the
+               same way -- nothing here binds a claim -- but dimmed a
+               touch further since the checkbox itself is disabled, not
+               merely unticked. */
+            .fit-row.removal {
+                opacity: 0.65;
+            }
+            .fit-row.removal .fit-name {
+                text-decoration: line-through;
             }
             .row-note {
                 font-size: 11px;
@@ -1487,24 +1403,6 @@ export class IrSaveWigDialog extends LitElement {
                 line-height: 1.4;
                 padding: 5px 4px 7px 30px;
                 border-top: 1px solid rgba(255, 255, 255, 0.04);
-            }
-            /* The quiet nudge under the checklist. Secondary weight, no
-               border, no icon: it points at a future action, it does not
-               warn about this one. The whole line arms Save as new; only
-               the words carry the dotted-underline link treatment the
-               joining line already uses. */
-            .nudge-line {
-                font-size: 11.5px;
-                color: var(--secondary-text-color);
-                line-height: 1.55;
-                margin: 9px 0 2px;
-                cursor: pointer;
-            }
-            .nudge-line u {
-                color: #64b5f6;
-                text-decoration: underline dotted;
-                text-underline-offset: 3px;
-                margin-left: 3px;
             }
             .attest {
                 margin-top: 10px;
@@ -1538,32 +1436,6 @@ export class IrSaveWigDialog extends LitElement {
                 height: 15px;
                 cursor: pointer;
             }
-            /* The save-as-new escape hatch. A real button, not an
-               underlined link: it is one of the two things you can do
-               here, and the footer is where doing things lives. It
-               stays outline-only so the primary is unambiguous, and it
-               takes the same oxblood wash on hover that every other
-               button in the house does -- a control with no mouse-over
-               reads as decoration. */
-            /* The toggle takes the same green, but stays OUTLINE.
-               Two green fills side by side would put the mode switch
-               and the commit in the same visual weight, which is the
-               confusion this whole pass is unpicking. Same hue, less
-               weight. */
-            .as-new-btn:hover:not(:disabled) {
-                border-color: #4f9e5a;
-                color: #6cbf78;
-                background: rgba(79, 158, 90, 0.12);
-            }
-            .as-new-btn.on {
-                border-color: #4f9e5a;
-                color: #6cbf78;
-                background: rgba(79, 158, 90, 0.16);
-            }
-            /* Why the primary is gray, said out loud. A title tooltip
-               was invisible here, because browsers do not show tooltips
-               on disabled buttons -- which read as "you cannot update at
-               all" on the bench. */
             /* You are joining a record, not starting one. Three
                renamed saves read as three lost wigs on the bench when
                they were one wig collecting three fittings. */

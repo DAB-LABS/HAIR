@@ -332,10 +332,14 @@ export interface SavePlanRow {
     bypass: boolean;
     protocol: string | null;
     wig_index: number | null;
-    /** UPDATE only: what the WIG calls this row. */
+    /** Set when this row matched a source wig row (UPDATE or
+     * SUCCESSION): what the WIG calls it. */
     wig_alias: string | null;
     matched: boolean;
-    /** Matched by bytes but not by name: the rename line. */
+    /** Matched by bytes but not by name: the rename line. UPDATE only
+     * -- a SUCCESSION successor is authored from the device's current
+     * alias directly, so there is no upstream file to propose a
+     * rename onto. */
     renamed: boolean;
     /** MATRIX ONLY. A checklist row addresses a cell by coordinate
      * rather than a command by id: TEST sends these, and they compose
@@ -350,7 +354,10 @@ export interface SavePlanRow {
     power?: string | null;
 }
 
-/** A wig row nothing on the device covers. Feeds the exclusion picker. */
+/** A wig row nothing on the device covers. Second Fitting amendment v2
+ * (owner ruling on missing rows, option 2): always a removal now,
+ * diverging the save to SUCCESSION -- rendered struck-through with a
+ * disabled checkbox, never an exclusion candidate. */
 export interface SavePlanMissingRow {
     wig_index: number;
     alias: string;
@@ -371,7 +378,11 @@ export interface CellChange {
 }
 
 export interface SavePlan {
-    variant: "create" | "update";
+    /** Second Fitting amendment v2: the verb is derived server-side,
+     * never picked by the caller. "succession" mints a successor wig
+     * when the device's commands have diverged from the source wig's
+     * rows by digest. */
+    variant: "create" | "update" | "succession";
     rows: SavePlanRow[];
     missing_rows: SavePlanMissingRow[];
     source_filename: string | null;
@@ -447,6 +458,10 @@ export interface SaveResult {
     signal_count: number;
     skipped: number;
     attested: number;
+    /** What the server actually wrote. A SUCCESSION save still comes
+     * back "create" -- it mints a wig the same way a CREATE does, so
+     * the supersession fires from ``supersession`` below rather than
+     * from this field. */
     variant: "create" | "update";
     notes: string[];
     /** Renames that matched nothing. Reported, never silent. */

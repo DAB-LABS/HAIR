@@ -161,13 +161,16 @@ class TestRowButtonsAcknowledgeTheMouse:
         assert "title=" in text
 
     def test_the_save_dialogs_actions_answer_the_mouse(self):
+        """Second Fitting amendment v2 retires the Save-as-new toggle
+        (``.as-new-btn``) along with it -- the verb is derived, nobody
+        picks it, so there is no longer a footer control to switch."""
         text = _read("ir-save-wig-dialog.ts")
         for selector in (
             ".save-wig-btn:hover:not(:disabled)",
-            ".as-new-btn:hover:not(:disabled)",
             ".reason-btn:hover",
         ):
             assert selector in text, selector
+        assert ".as-new-btn" not in text
 
 
 class TestReadOnlyChipsDoNotInviteClicks:
@@ -1121,43 +1124,124 @@ class TestTheLegacyDropIsAnnounced:
         assert "wigs.upload_dropped_fittings.other" in data, locale
 
 
-class TestDeviceOnlyRowStopsGhostClaims:
-    """v0.9.7 Second Fitting: a device command not in the current Wig
-    renders as a marked, uncheckable row and is excluded from the
-    perfect-fit denominator, so a tick can never be born orphaned. The
-    server-side belt-and-suspenders is proven in test_supersession /
-    test_ws_wig_save."""
+class TestTheChecklistLearnsWhatChanged:
+    """Second Fitting amendment v2 (owner-ruled on the bench
+    2026-08-04), replacing the v0.9.7 device-only-row guard this class
+    used to pin. The owner's ruling on missing rows was "option 2,
+    deliberately": a wig row the device no longer covers always
+    diverges the save to SUCCESSION now, never feeding a per-row
+    exclusion picker. The verb stops being a toggle the person sets and
+    becomes something ``build_save_plan`` derives from digest
+    divergence, proven server-side in test_supersession /
+    test_ws_wig_save; this class pins what the dialog does with that
+    derived variant. The retirement is the point as much as the
+    addition: the marker chip, its note, the nudge, and the Save-as-new
+    toggle they pointed at all leave with this ruling, so half of what
+    follows asserts they are GONE, not just that something replaced
+    them.
+    """
 
-    def test_device_only_rows_are_detected_on_update(self):
+    def test_the_old_exclusion_picker_is_gone(self):
         text = _read("ir-save-wig-dialog.ts")
-        assert "_isDeviceOnly" in text
-        # Keyed on the wig_index the backend leaves unset for such rows.
-        assert "wig_index == null" in text
+        for dead in (
+            "_isDeviceOnly",
+            "_renderDeviceOnlyRow",
+            "_renderNudge",
+            "_saveAsNew",
+            "_confirmNew",
+            "device-only",
+            "nudge-line",
+        ):
+            assert dead not in text, dead
 
-    def test_device_only_row_has_no_checkbox(self):
+    def test_the_verb_is_derived_not_sent(self):
+        """The dialog no longer tells the server which verb it is --
+        ``build_save_plan`` derives CREATE / UPDATE / SUCCESSION from
+        the device's own digests, so a stale dialog cannot steer a
+        save down a verb the device has outgrown."""
         text = _read("ir-save-wig-dialog.ts")
-        block = text.split("private _renderDeviceOnlyRow", 1)[1].split(
-            "private _renderRow", 1
+        assert 'this._plan?.variant === "succession"' in text
+        save_device = text.split("private async _saveDevice()", 1)[1].split(
+            "\n    private", 1
         )[0]
-        assert "no-check" in block
-        assert 'type="checkbox"' not in block
-        # TEST stays live: the command is real on the device.
-        assert "ir-test-button" in block
+        assert "mode:" not in save_device
+        # Scoped to the wigsSave payload: matrixSend has its own
+        # unrelated "mode" (an HVAC mode string), elsewhere in this
+        # file, that a bare substring check would false-match.
+        wigs_save_payload = _read("api.ts").split(
+            "wigsSave(payload: {", 1
+        )[1].split("}): Promise<SaveResult>", 1)[0]
+        assert "mode?:" not in wigs_save_payload
+        assert "mode:" not in wigs_save_payload
 
-    def test_perfect_fit_excludes_device_only_rows(self):
+    def test_missing_rows_always_diverge_now(self):
+        """Owner ruling on missing rows, option 2: no per-row
+        disposition, no memory needed -- a missing row is a removal,
+        full stop."""
         text = _read("ir-save-wig-dialog.ts")
-        assert "_attestableRows" in text
-        # The attestable subset filters device-only rows out.
-        assert "!this._isDeviceOnly" in text
+        assert "SavePlanMissingRow" in text
+        assert "_renderRemovalRow" in text
 
-    def test_the_nudge_points_at_save_as_new(self):
+    def test_the_changes_section_titles_the_delta(self):
         text = _read("ir-save-wig-dialog.ts")
-        assert "not_in_wig_nudge" in text
-        nudge = text.split("_renderNudge", 1)[1].split(
-            "_renderDeviceOnlyRow", 1
+        assert "wigs.save.changes_title" in text
+        assert "changes-divider" in text
+
+    def test_additions_are_ordinary_attestable_rows(self):
+        """An addition is a command on the device with no row in the
+        source wig. Second Fitting amendment v2: it travels in the
+        successor and attests exactly like a matched row -- it is
+        never excluded from the perfect-fit denominator the way the
+        retired device-only treatment excluded it."""
+        text = _read("ir-save-wig-dialog.ts")
+        assert "isAddition" in text
+        assert "delta-mark add" in text
+        # No filter narrows attestableRows below allRows any more.
+        attestable = text.split(
+            "private get _attestableRows()", 1
+        )[1].split("\n    private", 1)[0]
+        assert "filter" not in attestable
+
+    def test_removals_are_struck_and_cannot_be_checked(self):
+        """A removal renders for column rhythm but the checkbox is
+        DISABLED -- nobody can vouch for a command that is not there
+        -- and there is no TEST, since there is nothing on the device
+        left to send."""
+        text = _read("ir-save-wig-dialog.ts")
+        block = text.split("private _renderRemovalRow", 1)[1].split(
+            "\n    private", 1
         )[0]
-        # The whole line arms Save as new.
-        assert "_saveAsNew = true" in nudge
+        assert 'type="checkbox" disabled' in block
+        assert "ir-test-button" not in block
+        assert "delta-mark remove" in block
+        assert "wigs.save.row_leaves_wig" in block
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_changes_vocabulary(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "wigs.save.changes_title" in data, locale
+        assert "wigs.save.row_leaves_wig" in data, locale
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_no_locale_still_carries_the_retired_keys(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        for dead in (
+            "wigs.save.save_as_new",
+            "wigs.save.row_not_in_wig",
+            "wigs.save.row_not_in_wig_note",
+            "wigs.save.back_to_saved",
+            "wigs.save.new_confirm_heading",
+            "wigs.save.new_confirm_body",
+            "wigs.save.new_confirm_yes",
+        ):
+            assert dead not in data, f"{locale} still has {dead}"
+        assert not any(
+            k.startswith("wigs.save.not_in_wig_nudge") for k in data
+        ), locale
 
 
 class TestSupersedeDialog:

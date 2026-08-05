@@ -446,13 +446,12 @@ export class HairApi {
         });
     }
 
-    /** Save a device to the closet. ``mode`` is the person's answer,
-     * not an inference: the dialog showed them which verb it offered,
-     * so sending it back means a save cannot silently become the other
-     * one because a file appeared or vanished mid-dialog. */
+    /** Save a device to the closet. The verb is derived server-side
+     * (Second Fitting amendment v2) from the device's own state at
+     * save time, never sent by the caller -- a stale client cannot
+     * steer a save down a verb the device no longer supports. */
     wigsSave(payload: {
         device_id: string;
-        mode: "create" | "update";
         name?: string;
         brand?: string;
         model?: string;
