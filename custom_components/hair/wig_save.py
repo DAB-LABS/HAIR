@@ -22,6 +22,7 @@ fitter's back is state nobody signed.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -268,6 +269,30 @@ def _wig_metadata(wig: Wig) -> dict[str, Any]:
     }
 
 
+def _differentiated_name(base: str, existing_names: Sequence[str]) -> str:
+    """The successor's default name (bench addendum ruling,
+    2026-08-05). The bench produced three shelf wigs all named "Fable
+    Ceiling Fan" -- a SUCCESSION save prefills the source name plus a
+    numeric suffix instead, counting past any name already on the
+    shelf so the default never collides: "Fable Ceiling Fan (2)", and
+    a third save proposes "(3)", never colliding with what a prior
+    succession already claimed. The ancestor itself is still on the
+    shelf under the bare name at save time -- it is only superseded
+    after the confirm resolves -- so ``base`` is checked against
+    ``existing_names`` exactly as given, no exclusion needed.
+
+    A default, not a constraint (RULED): the person can edit the
+    prefill freely, and nothing here re-checks the name they typed.
+    """
+    names = set(existing_names)
+    if base not in names:
+        return base
+    n = 2
+    while f"{base} ({n})" in names:
+        n += 1
+    return f"{base} ({n})"
+
+
 def _lattice(matrix: ClimateMatrix | None) -> dict[str, Any]:
     """The lattice facts every plan carries, present or absent."""
     if matrix is None:
@@ -351,6 +376,7 @@ def build_save_plan(
     source_wig: Wig | None = None,
     source_filename: str | None = None,
     matrix: ClimateMatrix | None = None,
+    existing_names: Sequence[str] = (),
 ) -> SavePlan:
     """What SAVE TO CLOSET is about to do, row by row.
 
@@ -360,6 +386,11 @@ def build_save_plan(
     install -- and the plan degrades to CREATE with ``source_missing``
     set. Refusing instead would strand a working device with no way to
     save; pretending it was always new would hide that the link broke.
+
+    ``existing_names`` is every name currently on the shelf (bench
+    addendum, 2026-08-05) -- unused unless the plan turns out to be a
+    SUCCESSION, in which case it is what ``_differentiated_name`` counts
+    past to prefill a default that does not collide.
     """
     is_matrix = matrix is not None
     build = build_wig_from_device(device, matrix)
@@ -430,6 +461,17 @@ def build_save_plan(
     ]
     diverged = bool(missing_rows) or bool(flat_additions)
 
+    # Bench addendum ruling (2026-08-05): only a SUCCESSION's default
+    # name differentiates. UPDATE keeps the source name exactly as
+    # today -- same wig, same name -- so ``_wig_metadata`` itself stays
+    # untouched and this only overrides what it prefilled when the
+    # save is about to mint a successor.
+    metadata = _wig_metadata(source_wig)
+    if diverged:
+        metadata["name"] = _differentiated_name(
+            source_wig.name, existing_names,
+        )
+
     return SavePlan(
         variant=VARIANT_SUCCESSION if diverged else VARIANT_UPDATE,
         rows=rows,
@@ -437,7 +479,7 @@ def build_save_plan(
         source_filename=source_filename,
         source_wig_id=source_wig.wig_id,
         source_wig_name=source_wig.name,
-        metadata=_wig_metadata(source_wig),
+        metadata=metadata,
         skipped=build.skipped,
         notes=build.notes,
         existing_fittings=len(claims_of(source_wig)),

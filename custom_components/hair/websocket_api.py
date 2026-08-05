@@ -3423,9 +3423,20 @@ async def ws_wigs_save_plan(
 
 def _build_plan(hass: HomeAssistant, device: IRDevice, matrix: Any) -> Any:
     from .wig_save import build_save_plan
+    from .wig_store import scan_wigs
 
     source_wig, filename = _resolve_source(hass, device)
-    return build_save_plan(device, source_wig, filename, matrix)
+    # Bench addendum (2026-08-05): the shelf, for a SUCCESSION's
+    # differentiated default name to count past. Already off the loop
+    # (see the executor-job comment on the caller below), so one more
+    # directory scan alongside the source-wig resolve is the same
+    # tradeoff already made there, not a new one.
+    existing_names = [
+        loaded.wig.name for loaded in scan_wigs(hass.config.config_dir).wigs
+    ]
+    return build_save_plan(
+        device, source_wig, filename, matrix, existing_names,
+    )
 
 
 _CLAIM_SCHEMA = vol.Schema({

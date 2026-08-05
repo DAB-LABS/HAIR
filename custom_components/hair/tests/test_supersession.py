@@ -41,6 +41,7 @@ from custom_components.hair.wig_save import (
     VARIANT_UPDATE,
     Attestation,
     _allowed_claim_digests,
+    _differentiated_name,
     build_save_plan,
     detect_supersession,
     drop_ghost_claims,
@@ -683,3 +684,99 @@ class TestTheVerbIsDerived:
         plan = build_save_plan(device, source_wig, "ac.wig.json", repaired)
         assert plan.variant == VARIANT_UPDATE
         assert plan.cell_changes  # the repair is still reported, just not as a divergence
+
+
+class TestTheSuccessorNameAutoDifferentiates:
+    """Bench addendum ruling (2026-08-05). The bench produced three
+    shelf wigs all named "Fable Ceiling Fan" -- a SUCCESSION save now
+    prefills a distinguishing default instead: the source name plus a
+    numeric suffix, counting past whatever is already on the shelf.
+    UPDATE keeps the source name exactly as it always has."""
+
+    def test_the_bare_name_needs_no_suffix_when_free(self):
+        assert _differentiated_name("Fable Ceiling Fan", []) == (
+            "Fable Ceiling Fan"
+        )
+
+    def test_one_collision_proposes_two(self):
+        assert _differentiated_name(
+            "Fable Ceiling Fan", ["Fable Ceiling Fan"],
+        ) == "Fable Ceiling Fan (2)"
+
+    def test_counts_past_an_existing_suffix_too(self):
+        """A prior succession already claimed "(2)" -- the new default
+        has to count past THAT, not just the bare name, or two
+        successions in a row would propose the same name."""
+        assert _differentiated_name(
+            "Fable Ceiling Fan",
+            ["Fable Ceiling Fan", "Fable Ceiling Fan (2)"],
+        ) == "Fable Ceiling Fan (3)"
+
+    def test_an_unrelated_name_never_collides(self):
+        assert _differentiated_name(
+            "Fable Ceiling Fan", ["Guest Room Lamp"],
+        ) == "Fable Ceiling Fan"
+
+    def test_a_succession_plan_prefills_the_differentiated_name(self):
+        """Integration point: build_save_plan itself, not just the
+        helper -- the ancestor is still on the shelf under the bare
+        name at plan time (it is only superseded after the confirm
+        resolves later), so existing_names is expected to already
+        contain it, exactly as a real scan_wigs() would report."""
+        wig = Wig(
+            name="Fable Ceiling Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        device = IRDevice(
+            name="Fable Ceiling Fan", commands=[
+                _pronto_command("On", PRONTO),
+                _pronto_command("Turbo", PRONTO_B),
+            ],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(
+            device, wig, "fan.wig.json",
+            existing_names=["Fable Ceiling Fan"],
+        )
+        assert plan.variant == VARIANT_SUCCESSION
+        assert plan.metadata["name"] == "Fable Ceiling Fan (2)"
+
+    def test_an_update_plan_keeps_the_source_name_exactly(self):
+        """Same shelf, same collision -- but nothing diverged, so the
+        verb is UPDATE and the addendum is explicit: UPDATE keeps the
+        source name exactly as today, not a differentiated one."""
+        wig = Wig(
+            name="Fable Ceiling Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        device = IRDevice(
+            name="Fable Ceiling Fan",
+            commands=[_pronto_command("On", PRONTO)],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(
+            device, wig, "fan.wig.json",
+            existing_names=["Fable Ceiling Fan"],
+        )
+        assert plan.variant == VARIANT_UPDATE
+        assert plan.metadata["name"] == "Fable Ceiling Fan"
+
+    def test_no_existing_names_passed_falls_back_to_the_bare_name(self):
+        """The default parameter is ``()`` -- a caller that forgets to
+        pass the shelf (as most of this file's other tests do) still
+        gets a real name back, just undifferentiated, rather than an
+        error."""
+        wig = Wig(
+            name="Fable Ceiling Fan", wig_id="u-source",
+            signals=[WigSignal(alias="On", pronto=PRONTO)],
+        )
+        device = IRDevice(
+            name="Fable Ceiling Fan", commands=[
+                _pronto_command("On", PRONTO),
+                _pronto_command("Turbo", PRONTO_B),
+            ],
+            source_wig_id="u-source",
+        )
+        plan = build_save_plan(device, wig, "fan.wig.json")
+        assert plan.variant == VARIANT_SUCCESSION
+        assert plan.metadata["name"] == "Fable Ceiling Fan"
