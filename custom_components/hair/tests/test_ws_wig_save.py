@@ -1180,6 +1180,48 @@ class TestReplaceIntent:
         assert "supersession" not in result
 
     @pytest.mark.asyncio
+    async def test_save_as_new_over_matching_content_never_replaces(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """Second Fitting v3 punch list item 9: a Save As New whose
+        device commands match its source byte-for-byte -- the
+        matching-content metadata touch-up the owner's bench caught the
+        chip firing on -- still mints a twin (item 2: Save As New
+        always mints) and its ancestry still resolves, so the block
+        this route shares with the upload doorway is still present. But
+        ``replace`` is force-dropped on this route regardless of what a
+        stale client sends (mode=create's own rule, tested above with
+        no source at all; this is the same rule with a source that DOES
+        resolve), so nothing is deleted and no retirement chip has
+        anything to key on -- the ancestor's own perfect fit is never
+        touched, let alone retired."""
+        old = Wig(
+            name="Fan", wig_id="old",
+            signals=[WigSignal("On", PRONTO_A)],
+        )
+        old_path = _closet_wig(tmp_path, old, "old.wig.json")
+        device = IRDevice(
+            name="Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A)],
+        )
+        _wire(fake_hass, tmp_path, device)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "create", "name": "Fan (touched up)",
+            # A stale/confused client sending this changes nothing:
+            # force_create drops it before _do_create ever sees it.
+            "replace": True,
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert result["filename"] != "old.wig.json"
+        assert "supersession" in result
+        assert result["supersession"]["old_filename"] == "old.wig.json"
+        assert "replaced" not in result
+        assert old_path.exists()
+
+    @pytest.mark.asyncio
     async def test_replace_false_leaves_the_old_file_standing(
         self, fake_hass, tmp_path, _no_signing
     ):
