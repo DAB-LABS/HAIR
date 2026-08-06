@@ -1254,7 +1254,16 @@ export class IrDeviceDetail extends LitElement {
                 swing: cell.s ?? null,
                 temp: cell.t ?? null,
             });
-            this._flash(t("devdetail.sent_cmd", { name: result.sent }));
+            // Second Fitting v3 punch list item 14: the cell TEST now
+            // carries the same SENT . HEARD reading a stored command's
+            // TEST does. Reuses testbtn.heard rather than minting a
+            // new locale key for one word.
+            const sentMsg = t("devdetail.sent_cmd", { name: result.sent });
+            this._flash(
+                result.heard
+                    ? `${sentMsg} \u00b7 ${t("testbtn.heard")}`
+                    : sentMsg,
+            );
         } catch (err) {
             this._flash(
                 t("devdetail.send_failed", {

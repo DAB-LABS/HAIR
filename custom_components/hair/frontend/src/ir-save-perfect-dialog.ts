@@ -483,11 +483,11 @@ export class IrSavePerfectDialog extends LitElement {
         if (!this._isCell(row)) return false;
         // A cell is addressed by coordinate, not by command id, and it
         // routes through the device's own emitters exactly as the
-        // climate entity does. The matrix send reports what it sent
-        // rather than whether anything heard it back, so this settles
-        // on SENT -- honest, and the same thing the STATE MATRIX card
-        // has always said.
-        await this.api.matrixSend(
+        // climate entity does. Second Fitting v3 punch list item 14:
+        // the cell send now rides the same Mirror echo hook a stored
+        // command's TEST does, so it reports SENT . HEARD instead of
+        // settling on SENT alone.
+        const result = await this.api.matrixSend(
             this.sourceId,
             row.power
                 ? { power: row.power as "on" | "off" }
@@ -498,7 +498,7 @@ export class IrSavePerfectDialog extends LitElement {
                       temp: row.temp ?? null,
                   },
         );
-        return false;
+        return !!result?.heard;
     }
 
     /** A checklist row: no command behind it, but coordinates or a

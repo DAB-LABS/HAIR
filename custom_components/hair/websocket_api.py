@@ -4781,15 +4781,39 @@ async def ws_device_matrix_send(
         )
         pronto = cell.pronto
         send_count = cell.send_count
+    # The echo hook behind the TEST button's SENT . HEARD reading
+    # (Second Fitting v3 punch list item 14): a cell send rides the
+    # exact same Mirror hook a stored command's TEST does via
+    # _async_broadcast, so the same wait-and-report pattern
+    # ws_send_command already uses applies here unchanged.
+    import asyncio
+
+    from .wig_fitting import FITTING_HEARD_WAIT_S
+
+    heard_future: asyncio.Future[str | None] = (
+        asyncio.get_running_loop().create_future()
+    )
     try:
         await manager.async_send_matrix_cell(
-            msg["device_id"], name, pronto, send_count
+            msg["device_id"], name, pronto, send_count,
+            heard_future=heard_future,
         )
     except Exception as err:
+        heard_future.cancel()
         _LOGGER.error("Matrix send failed: %s", err, exc_info=True)
         connection.send_error(msg["id"], "send_failed", str(err))
         return
-    connection.send_result(msg["id"], {"sent": name})
+
+    receiver: str | None = None
+    try:
+        receiver = await asyncio.wait_for(heard_future, FITTING_HEARD_WAIT_S)
+        heard = True
+    except (TimeoutError, asyncio.CancelledError):
+        heard_future.cancel()
+        heard = False
+    connection.send_result(
+        msg["id"], {"sent": name, "heard": heard, "receiver": receiver}
+    )
 
 
 @websocket_api.require_admin

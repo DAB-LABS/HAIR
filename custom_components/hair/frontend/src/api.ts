@@ -260,7 +260,10 @@ export class HairApi {
 
     /** Fire one exact cell, or a power code. Coordinates must be read
      * off matrixCells verbatim -- the backend resolves exactly, never
-     * snaps. Resolves to the display-grammar name it sent as. */
+     * snaps. Resolves to the display-grammar name it sent as, plus
+     * the same SENT . HEARD reading sendCommand reports -- a cell
+     * send rides the identical Mirror echo hook (Second Fitting v3
+     * punch list item 14). */
     matrixSend(
         deviceId: string,
         state: {
@@ -270,8 +273,12 @@ export class HairApi {
             temp?: number | null;
             power?: "on" | "off";
         },
-    ): Promise<{ sent: string }> {
-        return this.hass.connection.sendMessagePromise<{ sent: string }>({
+    ): Promise<{ sent: string; heard: boolean; receiver: string | null }> {
+        return this.hass.connection.sendMessagePromise<{
+            sent: string;
+            heard: boolean;
+            receiver: string | null;
+        }>({
             type: "hair/devices/matrix-send",
             device_id: deviceId,
             ...state,

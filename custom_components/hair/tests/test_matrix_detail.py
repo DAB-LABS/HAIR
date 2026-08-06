@@ -22,7 +22,7 @@ the display grammar itself in test_wig_climate.
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -405,10 +405,44 @@ class TestMatrixSend:
         })
         manager.async_send_matrix_cell.assert_awaited_once_with(
             "dev-1", "cool / fan: quiet / swing: swing / 25",
-            "P-C-Q-S-25", 2,
+            "P-C-Q-S-25", 2, heard_future=ANY,
         )
+        # Second Fitting v3 punch list item 14: nothing echoed back
+        # through the mocked manager, so heard is false after the
+        # wait -- the same "mocked send times out honestly" shape
+        # test_send_command_success already pins for the flat path.
         conn.send_result.assert_called_once_with(
-            1, {"sent": "cool / fan: quiet / swing: swing / 25"}
+            1, {
+                "sent": "cool / fan: quiet / swing: swing / 25",
+                "heard": False, "receiver": None,
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_heard_echo_reports_heard_true(self, fake_hass):
+        """The manager resolving the heard_future -- the real
+        _async_broadcast -> record_send -> _match_echo path, mocked
+        here at the seam -- reaches the WS response unchanged. Second
+        Fitting v3 punch list item 14's guard: a cell TEST with the
+        receiver live reports heard."""
+        manager, _device = _wire_matrix(fake_hass, _entity_matrix())
+
+        async def _resolve_heard(*_args, heard_future=None, **_kw):
+            if heard_future is not None:
+                heard_future.set_result("infrared.receiver")
+
+        manager.async_send_matrix_cell = AsyncMock(side_effect=_resolve_heard)
+        conn = _make_connection()
+        await ws_device_matrix_send(fake_hass, conn, {
+            "id": 1, "type": "hair/devices/matrix-send",
+            "device_id": "dev-1", "mode": "cool", "fan": "quiet",
+            "swing": "swing", "temp": 25,
+        })
+        conn.send_result.assert_called_once_with(
+            1, {
+                "sent": "cool / fan: quiet / swing: swing / 25",
+                "heard": True, "receiver": "infrared.receiver",
+            }
         )
 
     @pytest.mark.asyncio
@@ -432,9 +466,13 @@ class TestMatrixSend:
         })
         manager.async_send_matrix_cell.assert_awaited_once_with(
             "dev-1", "cool / fan: auto / 72", "P-C-A-22", 1,
+            heard_future=ANY,
         )
         conn.send_result.assert_called_once_with(
-            1, {"sent": "cool / fan: auto / 72"}
+            1, {
+                "sent": "cool / fan: auto / 72",
+                "heard": False, "receiver": None,
+            }
         )
 
     @pytest.mark.asyncio
@@ -460,7 +498,7 @@ class TestMatrixSend:
             "device_id": "dev-1", "power": "off",
         })
         manager.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "Off", "P-OFF", 1
+            "dev-1", "Off", "P-OFF", 1, heard_future=ANY,
         )
 
     @pytest.mark.asyncio
