@@ -566,31 +566,40 @@ class TestThePerfectFitBanner:
         armed = text.split(".fit-block.on {", 1)[1].split("}", 1)[0]
         assert "border-style: solid" in armed
 
-    def test_only_the_head_is_clickable(self):
-        """Once armed this block holds thirty ticks and a signature
-        form. A stray click in that region disarming it would throw
-        away work somebody just did."""
+    def test_it_arms_without_a_click(self):
+        """Second Fitting v3 punch list item 3 (owner bench,
+        2026-08-06): choosing VALIDATE FOR PERFECT FIT at the decision
+        window fork IS the arming -- there is no click-to-arm control
+        left inside this dialog for a stray click to disarm."""
         text = _read("ir-save-perfect-dialog.ts")
-        assert '@click=${this._onHeadClick}' in text
-        head = text.split("\n            .fit-head {", 1)[1].split("}", 1)[0]
-        assert "cursor: pointer" in head
+        assert "_onHeadClick" not in text
+        assert "_togglePerfect" not in text
+        assert "_setPerfect" not in text
+        head = text.split('<div class="fit-head">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "@click" not in head
 
-    def test_the_label_stops_its_own_bubble(self):
-        """A click on the label toggles the checkbox natively and would
-        then bubble to the head handler, which toggles it back. Every
-        label click would net to nothing."""
+    def test_the_check_line_is_not_a_control(self):
+        """The checkbox is gone from this route entirely (spec section
+        4) -- the line under `.fit-check` states what is happening, it
+        is not something to click, so there is nothing left to guard
+        against a bubbled label click."""
         text = _read("ir-save-perfect-dialog.ts")
-        block = text.split('class="fit-check"', 1)[1].split("</label>", 1)[0]
-        assert "stopPropagation" in block
+        block = text.split('<div class="fit-check">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "<input" not in block
 
-    def test_the_refusal_sits_with_the_control_it_refuses(self):
-        """The lattice gate explains why the tick is disabled. It used
-        to live under the propose control, which is where the REMEDY
-        is; the question it answers is asked at the tick."""
+    def test_the_gray_limbo_state_is_gone(self):
+        """The lattice gate is the only refusal left in this block, and
+        it explains why attestation is disabled -- there is no manual
+        arm/disarm toggle left for a gray unarmed state to sit under."""
         text = _read("ir-save-perfect-dialog.ts")
-        head = text.split('@click=${this._onHeadClick}', 1)[1]
-        head = head.split("_renderJoining()", 1)[0]
-        assert "lattice_blocks_attestation" in head
+        rendering = text.split("private _renderFitting()", 1)[1]
+        rendering = rendering.split("\n    private", 1)[0]
+        assert "lattice_blocks_attestation" in rendering
+        assert "this._armed" in rendering
 
 
 class TestTheFittingsLineIsADoor:
@@ -1155,10 +1164,16 @@ class TestTheChecklistLearnsWhatChanged:
             assert dead not in text, dead
 
     def test_the_verb_is_derived_not_sent(self):
-        """The dialog no longer tells the server which verb it is --
-        ``build_save_plan`` derives CREATE / UPDATE / SUCCESSION from
-        the device's own digests, so a stale dialog cannot steer a
-        save down a verb the device has outgrown."""
+        """The perfect-fit dialog still never tells the server which
+        verb it is -- ``build_save_plan`` derives CREATE / UPDATE /
+        SUCCESSION from the device's own digests there, so a stale
+        dialog cannot steer a save down a verb the device has
+        outgrown. Second Fitting v3 punch list item 2 carves out
+        exactly one exception at the wire level: Save As New sends
+        `mode: "create"` to force a mint regardless of the derivation,
+        since choosing that route IS the signal -- but the field is
+        typed to the single literal "create", not a general verb the
+        caller could otherwise steer with."""
         text = _read("ir-save-perfect-dialog.ts")
         assert 'this._plan?.variant === "succession"' in text
         save_device = text.split("private async _saveDevice()", 1)[1].split(
@@ -1171,8 +1186,8 @@ class TestTheChecklistLearnsWhatChanged:
         wigs_save_payload = _read("api.ts").split(
             "wigsSave(payload: {", 1
         )[1].split("}): Promise<SaveResult>", 1)[0]
-        assert "mode?:" not in wigs_save_payload
-        assert "mode:" not in wigs_save_payload
+        assert 'mode?: "create";' in wigs_save_payload
+        assert "mode?: string" not in wigs_save_payload
 
     def test_missing_rows_always_diverge_now(self):
         """Owner ruling on missing rows, option 2: no per-row
@@ -1611,16 +1626,17 @@ class TestNoSuccessionSaveIsSilent:
         # The attestation block is a separate condition and stays
         # perfect-fit only -- unarmed, nothing is being signed, so
         # there is nothing there to show regardless of the verb.
+        # Second Fitting v3 punch list item 3: "armed" is now a
+        # computed getter (route choice IS the arming), not a
+        # manually-ticked field -- same gate, new name.
         attest_call = body.split("this._renderAttestation()", 1)[0]
-        assert "this._perfect && !this._nothingToAttest" in attest_call.rsplit(
-            "${", 1
-        )[1]
+        assert "this._armed ? " in attest_call.rsplit("${", 1)[1]
 
     def test_the_list_computes_read_only_for_an_unarmed_succession(self):
         text = _read("ir-save-perfect-dialog.ts")
         body = text.split("private _renderList()", 1)[1]
         body = body.split("\n    private", 1)[0]
-        assert "const readOnly = succession && !this._perfect;" in body
+        assert "const readOnly = succession && !this._armed;" in body
         assert "this._renderRow(row, false, readOnly)" in body
         assert "this._renderRow(row, true, readOnly)" in body
         # The "N of M checked" downgrade line reads as a partial
@@ -1639,18 +1655,18 @@ class TestNoSuccessionSaveIsSilent:
         assert '${checked || readOnly ? "" : this._renderReasons(row)}' in body
 
     def test_create_and_plain_update_stay_silent_unarmed(self):
-        """The new clause is ``|| this._isSuccession`` specifically --
-        not a blanket drop of the perfect-fit gate, which would have
-        put the checklist in front of every CREATE and UPDATE whether
-        anything diverged or not."""
+        """The clause is ``this._armed || this._isSuccession``
+        specifically -- not a blanket drop of the perfect-fit gate,
+        which would have put the checklist in front of every CREATE
+        and UPDATE whether anything diverged or not. Second Fitting v3
+        punch list item 3: ``_armed`` is the computed getter (route
+        choice IS the arming) that replaced the old manually-ticked
+        ``_perfect`` field."""
         text = _read("ir-save-perfect-dialog.ts")
         body = text.split("private _renderFitting()", 1)[1]
         body = body.split("\n    private", 1)[0]
         list_call = body.split("this._renderList()", 1)[0]
-        assert (
-            "(this._perfect && !this._nothingToAttest) ||"
-            in list_call
-        )
+        assert "this._armed || this._isSuccession" in list_call
         assert "this._isSuccession" in list_call.rsplit("||", 1)[1]
 
 
@@ -1680,26 +1696,24 @@ class TestTheDecisionWindow:
 
     def test_update_is_gated_on_a_source_wig(self):
         """Owner: "if somebody created a device that doesn't have a
-        wig, there is nothing to update." The gate reads the plan's
-        own source_wig_id -- a fact about the data, not a flag the
-        host has to remember to set (the same shape as the supersede
-        dialog's derived-not-passed _guarded getter)."""
+        wig, there is nothing to update." Second Fitting v3 punch list
+        item 6: the gate is now a public ``hasSource`` property the
+        host sets synchronously from the device's own
+        ``source_wig_id`` -- known before the plan fetch even starts,
+        so the route list is correct on first paint and never shifts
+        once the plan streams in."""
         text = _read("ir-save-route-dialog.ts")
-        assert "private get _hasSource(): boolean" in text
-        getter = text.split("private get _hasSource()", 1)[1].split(
-            "\n    private", 1
-        )[0]
-        assert "this.plan?.source_wig_id" in getter
+        assert "@property({ type: Boolean }) public hasSource = false;" in text
         route_list = text.split('<div class="route-list">', 1)[1].split(
             "</div>", 1
         )[0]
         idx = route_list.index("wigs.route.update_closet_wig")
-        assert "this._hasSource" in route_list[max(0, idx - 300):idx]
+        assert "this.hasSource" in route_list[max(0, idx - 300):idx]
         # SAVE AS NEW and VALIDATE FOR PERFECT FIT stay offered
         # regardless of divergence (spec section 1) -- only UPDATE is
         # conditional in this list.
         new_idx = route_list.index("wigs.route.save_as_new")
-        assert "this._hasSource" not in route_list[max(0, new_idx - 80):new_idx]
+        assert "this.hasSource" not in route_list[max(0, new_idx - 80):new_idx]
 
     def test_the_summary_covers_matching_diverged_and_from_scratch(self):
         text = _read("ir-save-route-dialog.ts")
@@ -1707,7 +1721,9 @@ class TestTheDecisionWindow:
             "\n    private", 1
         )[0]
         # From-scratch: no source to compare against, no line at all.
-        assert "if (!this._hasSource) return null;" in summary
+        # Also null while the plan is still in flight (item 6) --
+        # the skeleton placeholder covers that case in render().
+        assert "if (!this.plan || !this.hasSource) return null;" in summary
         # Matching: the plan's own derived verb decides it, never a
         # second comparison done here.
         assert 'this.plan.variant !== "succession"' in summary
@@ -1752,9 +1768,14 @@ class TestTheDecisionWindow:
         assert 'this._saveRoute = "perfect";' in opener
 
     def test_the_window_and_the_next_dialog_never_show_together(self):
+        """Second Fitting v3 punch list item 6: the window's own
+        visibility now gates on ``_saveRouteOpen`` (set synchronously
+        the moment SAVE TO CLOSET is chosen) rather than waiting on
+        the plan fetch to land -- but the mutual-exclusion with
+        whichever dialog the chosen route opens next is unchanged."""
         joined = " ".join(_read("ir-device-detail.ts").split())
         assert (
-            "this._saveRoutePlan && !this._saveRoute ? html`<ir-save-route-dialog"
+            "this._saveRouteOpen && !this._saveRoute ? html`<ir-save-route-dialog"
             in joined
         )
 
@@ -1965,12 +1986,17 @@ class TestThePerfectFitDialog:
         """No REPLACE / KEEP BOTH choice on the closing screen -- the
         decision already happened. It states the dual-act receipt, the
         same phrasing Update Closet Wig's own dual-act receipt uses,
-        and offers the top-up as its own separate, optional act."""
+        and offers the top-up as its own separate, optional act.
+        Second Fitting v3 punch list item 5: the block only appears at
+        all when something is actually missing (``topupCandidates``,
+        renamed from the old always-present ``topupDevices``) -- a
+        no-op offer with nothing to check no longer renders."""
         text = _read("ir-save-perfect-dialog.ts")
         render_done = text.split("private _renderDone()", 1)[1]
         render_done = render_done.split("\n    private", 1)[0]
         assert "wigs.route.replaced_receipt" in render_done
-        assert "this._renderTopup(topupDevices)" in render_done
+        assert "this._renderTopup(topupCandidates)" in render_done
+        assert "topupCandidates.length" in render_done
         assert "supersede.replace" not in render_done
 
     def test_the_top_up_is_a_separate_act_from_the_save(self):
@@ -2023,12 +2049,43 @@ class TestThePerfectFitDialog:
         data = json.loads(
             (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
         )
-        for key in (
-            "wigs.route.topup_offer",
-            "wigs.route.send_topup",
-            "wigs.route.topup_sent",
-        ):
-            assert key in data, f"{locale} missing {key}"
+        # Second Fitting v3 punch list item 5: the checklist's own
+        # "N of M checked" line and the standard Save/Cancel anatomy
+        # replaced the old dedicated top-up confirm button and its
+        # "sent" receipt -- wigs.route.send_topup and
+        # wigs.route.topup_sent are retired, see
+        # TestTheSweepThatClosedTheSecondFork below.
+        assert "wigs.route.topup_offer" in data, f"{locale} missing key"
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_same_key_notice_vocabulary(self, locale):
+        """Second Fitting v3 punch list item 1: the same-fitter
+        re-sign notice named up front, before the click."""
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "wigs.save.same_key_notice" in data, f"{locale} missing key"
+
+
+class TestTheSweepThatClosedTheSecondFork:
+    """Second Fitting v3 punch list, item 5: the closing confirm lost
+    its dedicated top-up button and "sent" receipt when the block
+    collapsed to standard Save/Cancel anatomy with an inline checklist
+    -- these two keys outlived the markup that read them, the same
+    shape as TestTheSweepThatClosedTheFork above for Commit 6."""
+
+    def test_the_retired_topup_keys_are_gone_from_the_dialog(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        assert "wigs.route.send_topup" not in text
+        assert "wigs.route.topup_sent" not in text
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_the_dead_topup_keys_carry_no_locale_entry(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "wigs.route.send_topup" not in data
+        assert "wigs.route.topup_sent" not in data
 
 
 class TestTheSweepThatClosedTheFork:

@@ -726,7 +726,16 @@ class TestTheSuccessorNameAutoDifferentiates:
         helper -- the ancestor is still on the shelf under the bare
         name at plan time (it is only superseded after the confirm
         resolves later), so existing_names is expected to already
-        contain it, exactly as a real scan_wigs() would report."""
+        contain it, exactly as a real scan_wigs() would report.
+
+        Second Fitting v3 punch list item 4 (owner ruling,
+        2026-08-06): prefill differentiation is Save As New's alone
+        now. A replace route -- and SUCCESSION, reached only through
+        UPDATE CLOSET WIG or VALIDATE FOR PERFECT FIT, is always a
+        replace route -- takes the ancestor's place on the shelf and
+        inherits its name untouched. The differentiated default moves
+        to ``suggested_new_name``, which Save As New's own dialog
+        prefills from instead of ``plan.metadata["name"]``."""
         wig = Wig(
             name="Fable Ceiling Fan", wig_id="u-source",
             signals=[WigSignal(alias="On", pronto=PRONTO)],
@@ -743,7 +752,8 @@ class TestTheSuccessorNameAutoDifferentiates:
             existing_names=["Fable Ceiling Fan"],
         )
         assert plan.variant == VARIANT_SUCCESSION
-        assert plan.metadata["name"] == "Fable Ceiling Fan (2)"
+        assert plan.metadata["name"] == "Fable Ceiling Fan"
+        assert plan.suggested_new_name == "Fable Ceiling Fan (2)"
 
     def test_an_update_plan_keeps_the_source_name_exactly(self):
         """Same shelf, same collision -- but nothing diverged, so the

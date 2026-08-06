@@ -281,10 +281,13 @@ class TestSigningAtSave:
         assert verify_fitting(entry) == SIGNED_VALID
         assert wig.extra["fittings"] == [entry]
 
-    def test_a_second_save_signs_its_own_bundle(self):
-        """Claims accumulate; nothing is re-signed. There is no resume
-        to shed a stale signature over anymore -- a bundle is written
-        once, at save, and never reopened."""
+    def test_a_second_save_with_the_same_key_replaces(self):
+        """Second Fitting v3 punch list item 1 (owner ruling,
+        2026-08-06): same-fitter re-sign is keyed on the signing key,
+        not the handle. Two saves from the same per-install key --
+        even under two different typed handles -- are the same
+        fitter; the newer bundle replaces the older one instead of
+        accumulating a duplicate entry."""
         from custom_components.hair.wig_claims import append_claims
         from custom_components.hair.wig_format import (
             ClaimsBundle,
@@ -298,6 +301,35 @@ class TestSigningAtSave:
             WigSignal(alias="Power", pronto=PRONTO),
         ])
         for handle in ("dab", "kno-te"):
+            append_claims(wig, ClaimsBundle(
+                wig_id="w-dreo", handle=handle, rows=[RowClaim(
+                    alias_at_claim="Power", digest="a" * 16, verdict="worked",
+                )],
+            ), priv)
+        entries = wig.extra["fittings"]
+        assert len(entries) == 1
+        assert verify_fitting(entries[0]) == SIGNED_VALID
+        assert entries[0]["handle"] == "kno-te"
+
+    def test_a_second_save_with_a_different_key_appends(self):
+        """The other half of item 1's ruling: a different signing key
+        is a different fitter's install, full stop, regardless of
+        what handle either one typed -- claims still accumulate
+        across distinct keys exactly as before."""
+        from custom_components.hair.wig_claims import append_claims
+        from custom_components.hair.wig_format import (
+            ClaimsBundle,
+            RowClaim,
+            Wig,
+            WigSignal,
+        )
+
+        priv1, _pub1 = _keypair_b64()
+        priv2, _pub2 = _keypair_b64()
+        wig = Wig(name="Dreo", wig_id="w-dreo", signals=[
+            WigSignal(alias="Power", pronto=PRONTO),
+        ])
+        for handle, priv in (("dab", priv1), ("kno-te", priv2)):
             append_claims(wig, ClaimsBundle(
                 wig_id="w-dreo", handle=handle, rows=[RowClaim(
                     alias_at_claim="Power", digest="a" * 16, verdict="worked",
