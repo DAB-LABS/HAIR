@@ -45,6 +45,12 @@ import type { SavePlan, SaveResult } from "./types.js";
  * whatever order the sentence puts them in per language. */
 const REPLACED_RECEIPT_SPLIT = /\{(old|new)\}/g;
 
+/** Second Fitting v3 punch list item 17: same technique as
+ * REPLACED_RECEIPT_SPLIT above -- splits the top chip's sentence on
+ * its own {name}/{who} tokens so only the wig name carries the
+ * bold+blue .replaced-name styling. */
+const GRADED_PERFECT_SPLIT = /\{(name|who)\}/g;
+
 @customElement("ir-save-update-dialog")
 export class IrSaveUpdateDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -110,22 +116,39 @@ export class IrSaveUpdateDialog extends LitElement {
     private get _renameWarning(): string | null {
         const before = (this.plan.metadata?.name ?? "").trim();
         if (!before || this._name.trim() === before) return null;
-        return t("wigs.save.rename_wig_warning", { name: before });
+        // Second Fitting v3 punch list item 16: names the actual
+        // file being renamed, terser than the old "this renames
+        // {name} itself" copy.
+        return t("wigs.save.rename_wig_warning", {
+            filename: this.plan.source_filename ?? "",
+        });
     }
 
     /** The graded line: null when there is nothing to grade (no
      * claims at all on the wig about to be overridden), matching the
      * self-supersession confirm's own "no claims is light" rule. */
-    private get _gradedLine(): { amber: boolean; text: string } | null {
+    private get _gradedLine(): {
+        amber: boolean;
+        text: string;
+        name: string;
+        who: string;
+    } | null {
         if (!this._diverged) return null;
         const grade = this.plan.old_fitting_grade;
         if (!grade || !grade.state) return null;
         const name = this.plan.source_wig_name ?? "";
         const who = grade.handles.join(", ");
+        // Second Fitting v3 punch list item 17: a dedicated key, not
+        // the drop-bar import confirm's shared supersede.fitted_perfect
+        // (ir-supersede-dialog.ts, untouched this round) -- called
+        // WITHOUT substitution so {name}/{who} stay literal for
+        // _renderGradedPerfectLine's split-render below.
         return grade.state === "perfect"
             ? {
                   amber: true,
-                  text: t("supersede.fitted_perfect", { name, who }),
+                  text: t("supersede.update_fitted_perfect"),
+                  name,
+                  who,
               }
             : {
                   amber: false,
@@ -134,6 +157,8 @@ export class IrSaveUpdateDialog extends LitElement {
                       name,
                       who,
                   }),
+                  name,
+                  who,
               };
     }
 
@@ -149,8 +174,64 @@ export class IrSaveUpdateDialog extends LitElement {
         if (!missing.length) return null;
         return tp("supersede.lost", missing.length, {
             count: String(missing.length),
-            names: missing.map((r) => r.alias).join(", "),
+            names: this._formatNames(missing.map((r) => r.alias)),
         });
+    }
+
+    /** Second Fitting v3 punch list item 17: the add side of the same
+     * delta _lostRowsLine names for removals -- rows the DEVICE
+     * carries that the wig being overridden does not. `matched` is
+     * false exactly when a device row didn't pair with a source wig
+     * row (the plan's own comparison, already carrying aliases
+     * client-side, not a client-side guess). */
+    private get _addedRowsLine(): string | null {
+        if (!this._diverged) return null;
+        const added = (this.plan.rows ?? []).filter((r) => !r.matched);
+        if (!added.length) return null;
+        return tp("supersede.added", added.length, {
+            count: String(added.length),
+            names: this._formatNames(added.map((r) => r.alias)),
+        });
+    }
+
+    /** Names, not counts (amendment v2 section 2's rule): truncate
+     * past four so a big diff does not turn the chip into a wall of
+     * text. Mirrors ir-supersede-dialog.ts's own _formatNames. */
+    private _formatNames(names: string[]): string {
+        const MAX = 4;
+        if (names.length <= 1) return names[0] ?? "";
+        const and = t("supersede.list_and");
+        if (names.length <= MAX) {
+            return `${names.slice(0, -1).join(", ")} ${and} ${
+                names[names.length - 1]
+            }`;
+        }
+        const more = names.length - MAX;
+        return `${names.slice(0, MAX).join(", ")} ${and} ${tp(
+            "supersede.topup_more",
+            more,
+            { count: String(more) },
+        )}`;
+    }
+
+    /** Second Fitting v3 punch list item 17: same technique
+     * _renderReplacedLine above uses -- splits the localized sentence
+     * on its own placeholder tokens so only the wig name carries the
+     * bold+blue styling, whatever order each language's word order
+     * puts it in. "who" stays plain text. */
+    private _renderGradedPerfectLine(
+        template: string,
+        name: string,
+        who: string,
+    ) {
+        const segments = template.split(GRADED_PERFECT_SPLIT);
+        return html`${segments.map((seg) =>
+            seg === "name"
+                ? html`<b class="replaced-name">${name}</b>`
+                : seg === "who"
+                  ? html`${who}`
+                  : html`${seg}`,
+        )}`;
     }
 
     private _metadata(): Record<string, string> {
@@ -227,6 +308,7 @@ export class IrSaveUpdateDialog extends LitElement {
         if (this._done) return this._renderDone();
         const graded = this._gradedLine;
         const lost = this._lostRowsLine;
+        const added = this._addedRowsLine;
         return html`
             <ha-dialog
                 open
@@ -245,11 +327,20 @@ export class IrSaveUpdateDialog extends LitElement {
                               ? "fitted-callout"
                               : "fitted-line"}
                       >
-                          ${graded.text}
+                          ${graded.amber
+                              ? this._renderGradedPerfectLine(
+                                    graded.text,
+                                    graded.name,
+                                    graded.who,
+                                )
+                              : graded.text}
                       </div>`
                     : ""}
-                ${lost
-                    ? html`<div class="lost-callout">${lost}</div>`
+                ${lost || added
+                    ? html`<div class="lost-callout">
+                          ${lost ? html`<div>${lost}</div>` : ""}
+                          ${added ? html`<div>${added}</div>` : ""}
+                      </div>`
                     : ""}
                 ${renderMetadataFields(
                     this._metadataValues,
@@ -370,6 +461,12 @@ export class IrSaveUpdateDialog extends LitElement {
                 font-size: 0.9rem;
                 line-height: 1.5;
                 color: var(--primary-text-color);
+            }
+            /* Second Fitting v3 punch list item 17: the bottom chip
+               can show one or two lines (remove, add) in the same
+               box, as the diff dictates. */
+            .lost-callout > div + div {
+                margin-top: 4px;
             }
             /* Amber, matching the house family above (.fitted-callout /
                .lost-callout): renaming the wig here is the same weight

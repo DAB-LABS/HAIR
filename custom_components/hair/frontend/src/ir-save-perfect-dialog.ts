@@ -61,6 +61,7 @@ import "./ir-protocol-chip.js";
 import "./ir-test-button.js";
 import "./ir-tx-knobs.js";
 import "./ir-claims-ledger.js";
+import { ICON_WIG } from "./ir-wigs.js";
 
 type Verdict = "worked" | "not_on_device" | "wont_work";
 
@@ -222,7 +223,12 @@ export class IrSavePerfectDialog extends LitElement {
         if (!this._isUpdate) return null;
         const before = (this._plan?.metadata.name ?? "").trim();
         if (!before || this._name.trim() === before) return null;
-        return t("wigs.save.rename_wig_warning", { name: before });
+        // Second Fitting v3 punch list item 16: names the actual
+        // file being renamed, terser than the old "this renames
+        // {name} itself" copy.
+        return t("wigs.save.rename_wig_warning", {
+            filename: this._plan?.source_filename ?? "",
+        });
     }
 
     /** A device with no codes and no lattice has nothing to vouch for.
@@ -652,9 +658,10 @@ export class IrSavePerfectDialog extends LitElement {
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
                 ${this._plan?.source_missing
-                    ? html`<ha-alert alert-type="warning"
-                          >${t("wigs.save.source_missing")}</ha-alert
-                      >`
+                    ? html`<div class="source-missing-info">
+                          <ha-svg-icon .path=${ICON_WIG}></ha-svg-icon>
+                          <span>${t("wigs.save.source_missing")}</span>
+                      </div>`
                     : ""}
                 ${graded
                     ? html`<div
@@ -804,24 +811,25 @@ export class IrSavePerfectDialog extends LitElement {
     private _renderJoining() {
         const n = this._plan?.existing_fittings ?? 0;
         if (!this._isUpdate || n < 1) return "";
-        // Second Fitting v3 punch list, item 11: when the existing
-        // fit is the viewer's own key (same_key_notice present), the
-        // generic "one person has proven this wig, you would be
-        // next" copy is wrong twice -- they ARE that person, and it
-        // used to sit beside a separate replace notice saying the
-        // opposite. One box now: the self case reads as the replace
-        // notice itself. Fits by other keys keep the original copy.
+        // Second Fitting v3 punch list, item 11 (round three, the
+        // FINAL copy, superseding round two's first pass above): the
+        // self case is a pure informational replace notice -- no
+        // handle needed since it can only ever be your own -- and it
+        // wears the house amber family (.fitted-callout /
+        // .lost-callout / .rename-warn) instead of blue, the same
+        // weight this codebase already gives "something will be
+        // replaced" news. Fits by other keys keep the original blue
+        // copy and styling, unchanged.
         const self = this._plan?.same_key_notice;
-        const line =
-            self && self.handle
-                ? t("wigs.save.joining_self_notice", {
-                      handle: self.handle,
-                      date: self.date ?? "",
-                  })
-                : tp("wigs.save.joining_proven", n);
+        const isSelf = !!(self && self.handle);
+        const line = isSelf
+            ? t("wigs.save.joining_self_notice", {
+                  date: self!.date ?? "",
+              })
+            : tp("wigs.save.joining_proven", n);
         return html`
             <button
-                class="joining"
+                class="joining ${isSelf ? "joining-self" : ""}"
                 @click=${(e: Event) => {
                     e.stopPropagation();
                     this._ledgerOpen = true;
@@ -1294,6 +1302,28 @@ export class IrSavePerfectDialog extends LitElement {
                 font-size: 0.85rem;
                 line-height: 1.5;
             }
+            /* Second Fitting v3 punch list item 18: green, not a
+               warning -- creating a wig is information, not danger.
+               Same geometry as the amber family above, house green
+               (matching .save-wig-btn) instead. */
+            .source-missing-info {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin: 0 0 12px;
+                padding: 10px 12px;
+                border-radius: 6px;
+                border: 1px solid rgba(79, 158, 90, 0.45);
+                background: rgba(79, 158, 90, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
+            }
+            .source-missing-info ha-svg-icon {
+                --mdc-icon-size: 20px;
+                color: #4f9e5a;
+                flex-shrink: 0;
+            }
             .fitted-line {
                 margin: 0 0 12px;
                 font-size: 0.9rem;
@@ -1551,6 +1581,19 @@ export class IrSavePerfectDialog extends LitElement {
             .joining:hover {
                 background: rgba(100, 181, 246, 0.12);
                 border-color: rgba(100, 181, 246, 0.55);
+            }
+            /* Second Fitting v3 punch list item 11 (round three): the
+               self case reads as a replace notice, so it wears the
+               house amber family instead of this blue -- declared
+               after .joining so the cascade favors these values for
+               the properties both rules set. */
+            .joining-self {
+                background: rgba(217, 164, 65, 0.07);
+                border-color: rgba(217, 164, 65, 0.45);
+            }
+            .joining-self:hover {
+                background: rgba(217, 164, 65, 0.14);
+                border-color: rgba(217, 164, 65, 0.65);
             }
             .joining .j-line {
                 display: block;
