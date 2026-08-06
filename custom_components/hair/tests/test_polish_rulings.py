@@ -633,6 +633,183 @@ class TestTheFittingsLineIsADoor:
                 assert "{n}rd" not in value
 
 
+class TestTheSelfCaseJoiningBoxIsFinal:
+    """Second Fitting v3 punch list round three, item 11 (completing
+    round two): the self case is one box, house amber, no handle --
+    it can only ever be your own key."""
+
+    def test_the_self_case_drops_the_handle_param(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        assert "handle: self.handle" not in text
+        assert 'date: self!.date ?? ""' in text
+        assert 'class="joining ${isSelf ? "joining-self" : ""}"' in text
+
+    def test_the_self_case_wears_house_amber_not_blue(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        assert ".joining-self {" in text
+        block = text.split(".joining-self {", 1)[1].split("}", 1)[0]
+        assert "217, 164, 65" in block
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_drops_the_handle_token(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "{handle}" not in data["wigs.save.joining_self_notice"]
+
+
+class TestTheRenameHelperNamesTheFile:
+    """Second Fitting v3 punch list round three, item 16: terser,
+    names the actual file being renamed, not the wig."""
+
+    def test_perfect_dialog_interpolates_the_filename(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        assert (
+            'filename: this._plan?.source_filename ?? ""' in text
+        )
+
+    def test_update_dialog_interpolates_the_filename(self):
+        text = _read("ir-save-update-dialog.ts")
+        assert 'filename: this.plan.source_filename ?? ""' in text
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_uses_the_filename_token(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "{filename}" in data["wigs.save.rename_wig_warning"]
+        assert "{name}" not in data["wigs.save.rename_wig_warning"]
+
+
+class TestTheUpdateDialogsTwoChipsShowTheDelta:
+    """Second Fitting v3 punch list round three, item 17: the wig
+    name anchors the top chip in bold house-link blue; the bottom
+    chip names the actual remove/add delta instead of a bare
+    count."""
+
+    def test_the_top_chip_uses_its_own_key_not_the_shared_one(self):
+        text = _read("ir-save-update-dialog.ts")
+        graded = text.split("private get _gradedLine()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "supersede.update_fitted_perfect" in graded
+        assert "supersede.fitted_scoped" in graded
+
+    def test_the_top_chip_name_is_bold_and_blue(self):
+        text = _read("ir-save-update-dialog.ts")
+        assert text.count("_renderGradedPerfectLine(") == 2
+        assert '<b class="replaced-name">${name}</b>' in text
+
+    def test_the_add_side_reads_the_unmatched_device_rows(self):
+        text = _read("ir-save-update-dialog.ts")
+        added = text.split("private get _addedRowsLine()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "if (!this._diverged) return null;" in added
+        assert "!r.matched" in added
+        assert "supersede.added" in added
+
+    def test_names_truncate_past_four(self):
+        text = _read("ir-save-update-dialog.ts")
+        names = text.split("private _formatNames(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "MAX = 4" in names
+        assert "supersede.topup_more" in names
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    def test_every_locale_carries_the_added_side_vocabulary(self, locale):
+        data = json.loads(
+            (LOCALES / f"{locale}.json").read_text(encoding="utf-8")
+        )
+        assert "supersede.update_fitted_perfect" in data, (
+            f"{locale} missing key"
+        )
+        assert "supersede.added.one" in data, f"{locale} missing key"
+        assert "supersede.added.other" in data, f"{locale} missing key"
+
+
+class TestTheWiglessChipIsGreenNotYellow:
+    """Second Fitting v3 punch list round three, item 18: creating a
+    wig is information, not danger."""
+
+    def test_the_source_missing_chip_uses_the_wig_icon_not_a_warning(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        assert '<div class="source-missing-info">' in text
+        assert 'import { ICON_WIG } from "./ir-wigs.js";' in text
+        chip = text.split(
+            '<div class="source-missing-info">', 1
+        )[1].split("</div>`", 1)[0]
+        assert "ha-svg-icon" in chip
+        assert "wigs.save.source_missing" in chip
+
+    def test_the_chip_wears_house_green(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        assert ".source-missing-info {" in text
+        block = text.split(".source-missing-info {", 1)[1].split(
+            ".fitted-line {", 1
+        )[0]
+        assert "79, 158, 90" in block
+
+
+class TestTheCompactPanelHeader:
+    """Second Fitting v3 punch list round three, item 19: the banner
+    image is gone, replaced by a slim left-aligned brand block on the
+    content column's own edge, not the viewport corner."""
+
+    def test_the_banner_image_is_gone(self):
+        text = _read("ha-panel-ir-devices.ts")
+        assert "header-banner" not in text
+        assert "hair-header.png" not in text
+
+    def test_the_brand_block_uses_the_content_column_edge(self):
+        text = _read("ha-panel-ir-devices.ts")
+        assert '<div class="brand-block">' in text
+        assert "hair-brand-mark.png" in text
+        block = text.split(".brand-block {", 1)[1].split("}", 1)[0]
+        assert "max-width: 1100px" in block
+        assert "margin: 0 auto" in block
+
+    def test_the_mark_is_58px_tall(self):
+        text = _read("ha-panel-ir-devices.ts")
+        block = text.split(".brand-mark {", 1)[1].split("}", 1)[0]
+        assert "height: 58px" in block
+
+    def test_the_tab_row_and_tagline_are_untouched(self):
+        """The two parked extensions -- folding the tab row onto this
+        line, retiring the tagline row -- are NOT built this round."""
+        text = _read("ha-panel-ir-devices.ts")
+        assert ".tab-tagline {" in text
+        assert '<div class="tab-bar">' in text
+
+
+class TestTheCombReportAnchorsNearCenter:
+    """Second Fitting v3 punch list round three, item 20: the top
+    edge itself moves to a computed near-center instead of a flat
+    5vh, with a documented TYPICAL REPORT HEIGHT constant and a
+    mobile-safe dvh repeat."""
+
+    def test_the_padding_is_computed_not_flat(self):
+        text = _read("ir-comb-report.ts")
+        assert "padding: 5vh 0;" not in text
+        overlay = text.split(".overlay {", 1)[1].split("}", 1)[0]
+        assert "max(6vh, calc((100vh - 620px) / 2))" in overlay
+        assert "max(6vh, calc((100dvh - 620px) / 2))" in overlay
+        assert "padding-bottom: 6vh;" in overlay
+
+    def test_the_constant_is_documented(self):
+        text = _read("ir-comb-report.ts")
+        assert "TYPICAL REPORT HEIGHT" in text
+
+    def test_the_top_anchoring_rationale_survives(self):
+        """The two-paint growth and tall-report scroll reasoning from
+        the 2026-08-03 bench stays -- only the anchor position
+        moved."""
+        text = _read("ir-comb-report.ts")
+        assert "TOP-ANCHORED, not centred" in text
+        assert "align-items: flex-start" in text
+
+
 class TestTheLedgerClearsTheTopLayer:
     """The door opened and nothing appeared to happen.
 
@@ -1374,6 +1551,10 @@ class TestSupersedeDialog:
             "supersede.topup_none",
             "supersede.list_and",
             "supersede.fitted_perfect",
+            # Second Fitting v3 punch list round three, item 17: the
+            # Update dialog's own top-chip key, not the drop-bar
+            # import confirm's shared supersede.fitted_perfect above.
+            "supersede.update_fitted_perfect",
             # Amendment v2 section 3: the reverse-direction import check.
             "supersede.reverse_title",
             "supersede.reverse_message",
@@ -1382,6 +1563,10 @@ class TestSupersedeDialog:
             assert key in data, f"{locale} missing {key}"
         for key in (
             "supersede.lost",
+            # Second Fitting v3 punch list round three, item 17: the
+            # add side of the same delta supersede.lost names for
+            # removals.
+            "supersede.added",
             "supersede.device_follows",
             # Amendment v2 section 2: names, not counts -- the old
             # count-only "supersede.topup" pair retires with it.
@@ -1870,7 +2055,7 @@ class TestTheStrippedSaveDialogs:
             "\n    private", 1
         )[0]
         assert "if (!this._diverged) return null;" in graded
-        assert "supersede.fitted_perfect" in graded
+        assert "supersede.update_fitted_perfect" in graded
         assert "supersede.fitted_scoped" in graded
         lost = text.split("private get _lostRowsLine()", 1)[1].split(
             "\n    private", 1
