@@ -1082,13 +1082,20 @@ def detect_supersession(
     from .wig_format import signal_row_digest, wig_row_digests
     from .wig_store import find_wig_by_id, load_wig
 
-    new_digest_list = wig_row_digests(new_wig)
+    # Second Fitting v3 punch list item 15: wig_row_digests() returns
+    # [] for any wig carrying a climate block (a matrix wig's claims
+    # bind the lattice by cells_hash, not row digests -- see its
+    # docstring), but a matrix wig still has flat .signals beside the
+    # lattice (Fujitsu AR-RY4: 11 flat signals plus the lattice).
+    # Pairing wig_row_digests(new_wig) against new_wig.signals via
+    # zip(strict=True) crashed the moment those two disagreed in
+    # length. Compute both directly off .signals instead, exactly as
+    # build_save_plan's divergence check already does -- flat rows
+    # only, no dependency on the climate-aware helper.
+    new_digest_list = [signal_row_digest(s) for s in new_wig.signals]
     new_digests = set(new_digest_list)
     new_alias_by_digest = {
-        digest: signal.alias
-        for digest, signal in zip(
-            new_digest_list, new_wig.signals, strict=True
-        )
+        signal_row_digest(s): s.alias for s in new_wig.signals
     }
     for ancestor_id in new_wig.supersedes:
         filename = find_wig_by_id(config_dir, ancestor_id)

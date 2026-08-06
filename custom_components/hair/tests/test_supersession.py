@@ -408,6 +408,94 @@ class TestDetectSupersession:
         assert block["devices"][0]["missing_aliases"] == ["Boost"]
 
 
+class TestDetectSupersessionMatrix:
+    """Second Fitting v3 punch list item 15: a matrix wig meeting this
+    shared detection for the first time. ``wig_row_digests()`` returns
+    ``[]`` for any wig carrying a climate block (a matrix wig's claims
+    bind the lattice by ``cells_hash``, not row digests), but a matrix
+    wig still carries flat ``.signals`` beside the lattice (Fujitsu
+    AR-RY4: 11 flat signals plus the lattice) -- pairing
+    ``wig_row_digests(new_wig)`` against ``new_wig.signals`` via
+    ``zip(strict=True)`` crashed the moment those two disagreed in
+    length, AFTER the file had already been written to the shelf. This
+    is the owner's bench traceback, reproduced and pinned.
+    """
+
+    def _closet(self, tmp_path, wig, filename):
+        ensure_wigs_dir(tmp_path)
+        (wigs_dir(tmp_path) / filename).write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+
+    def _matrix(self):
+        return ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=PRONTO,
+            modes=["cool"], fan_modes=["auto"],
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=22.0, pronto=PRONTO),
+            ],
+        )
+
+    def test_matching_matrix_wig_does_not_crash_and_loses_nothing(
+        self, tmp_path
+    ):
+        old = Wig(
+            name="AC", wig_id="old",
+            signals=[WigSignal("Sleep", PRONTO), WigSignal("Timer", PRONTO_B)],
+        )
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="AC v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("Sleep", PRONTO), WigSignal("Timer", PRONTO_B)],
+            climate=self._matrix(),
+        )
+        # Pre-fix this raised ValueError: zip() argument 2 is longer
+        # than argument 1 -- wig_row_digests(new) returned [] because
+        # new.climate is set, but new.signals still had two rows.
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block is not None
+        assert block["lost_digests"] == []
+        assert block["lost_aliases"] == []
+
+    def test_diverged_matrix_wig_reports_the_lost_flat_row(self, tmp_path):
+        old = Wig(
+            name="AC", wig_id="old",
+            signals=[WigSignal("Sleep", PRONTO), WigSignal("Timer", PRONTO_B)],
+        )
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="AC v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("Sleep", PRONTO)],
+            climate=self._matrix(),
+        )
+        block = detect_supersession(str(tmp_path), new, [])
+        assert block["lost_aliases"] == ["Timer"]
+        assert block["lost_digests"] == [
+            signal_row_digest(WigSignal("Timer", PRONTO_B))
+        ]
+
+    def test_sourced_device_missing_aliases_resolve_through_the_new_map(
+        self, tmp_path
+    ):
+        """The exact line that crashed: ``new_alias_by_digest``, now
+        built per-signal instead of zipped against
+        ``wig_row_digests()``, must still resolve every missing
+        device row's alias for a matrix arrival."""
+        old = Wig(name="AC", wig_id="old", signals=[WigSignal("Sleep", PRONTO)])
+        self._closet(tmp_path, old, "old.wig.json")
+        new = Wig(
+            name="AC v2", wig_id="new", supersedes=["old"],
+            signals=[WigSignal("Sleep", PRONTO), WigSignal("Timer", PRONTO_B)],
+            climate=self._matrix(),
+        )
+        living = IRDevice(
+            name="Living Room AC", source_wig_id="old",
+            commands=[_pronto_command("Sleep", PRONTO)],
+        )
+        block = detect_supersession(str(tmp_path), new, [living])
+        assert block["devices"][0]["missing_aliases"] == ["Timer"]
+
+
 class TestOldFittings:
     """Amendment v2 section 2: the confirm grades what replacing the
     ancestor retires. ``handles`` credits every handle that ever

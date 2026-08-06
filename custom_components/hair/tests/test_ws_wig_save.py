@@ -20,6 +20,9 @@ from custom_components.hair.websocket_api import (
     ws_wigs_supersede,
     ws_wigs_upload,
 )
+from custom_components.hair.wig_export import (
+    build_wig_from_device,
+)
 from custom_components.hair.wig_format import (
     VERDICT_WORKED,
     Wig,
@@ -650,6 +653,142 @@ async def test_proposing_without_attesting_is_allowed(
         after["climate"]["cells"][0]["pronto"]
         == "0000 006D 0002 0000 0050 0040 0020 0040"
     )
+
+
+class TestMatrixSupersessionDoorway:
+    """Second Fitting v3 punch list item 15, end to end: a matrix wig
+    walked through the same doorway Save-a-Copy and Perfect Fit both
+    use (``_do_create``, which calls ``detect_supersession`` after the
+    file is already on disk). Round one never walked a matrix wig
+    through this path -- the owner's bench had both routes crash with
+    "unknown error" on the AR-RY4, AFTER ``write_wig_text``, leaving
+    the file shelved with no receipt and no repoint. Guard: each route
+    now completes clean.
+    """
+
+    _P_TIMER = "0000 006D 0002 0000 0060 0040 0020 0040"
+
+    def _matrix(self, pronto_a=PRONTO_A, pronto_b=PRONTO_B):
+        from custom_components.hair.wig_format import ClimateCell, ClimateMatrix
+
+        return ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=pronto_a,
+            modes=["cool"], fan_modes=["auto"],
+            cells=[
+                ClimateCell(mode="cool", fan="auto", temp=24.0, pronto=pronto_a),
+                ClimateCell(mode="cool", fan="auto", temp=25.0, pronto=pronto_b),
+            ],
+        )
+
+    def _ancestor_wig(self, matrix, sleep_pronto):
+        """A matrix wig with flat signals beside the lattice -- the
+        AR-RY4 shape, never one without the other."""
+        device = IRDevice(name="AC", commands=[_command("Sleep", sleep_pronto)])
+        device.climate_matrix = True
+        build = build_wig_from_device(device, matrix)
+        return Wig(
+            name="AC", wig_id="u-ancestor", signals=build.wig.signals,
+            climate=matrix,
+        )
+
+    @pytest.mark.asyncio
+    async def test_save_as_new_over_a_matrix_wig_completes(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """Save-a-Copy (mode=create) on a matrix device whose flat rows
+        still match its ancestor: the crash site, reproduced and
+        pinned. The mint completes with a receipt and
+        detect_supersession's block, no exception."""
+        matrix = self._matrix()
+        old_wig = self._ancestor_wig(matrix, PRONTO_C)
+        _closet_wig(tmp_path, old_wig, "ac.wig.json")
+        device = IRDevice(
+            name="AC", commands=[_command("Sleep", PRONTO_C)],
+            source_wig_id="u-ancestor",
+        )
+        device.climate_matrix = True
+        _wire_matrix(fake_hass, tmp_path, device, matrix)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "mode": "create", "name": "AC Copy",
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert result["variant"] == "create"
+        assert "filename" in result
+        assert result["supersession"] is not None
+        assert result["supersession"]["lost_aliases"] == []
+
+    @pytest.mark.asyncio
+    async def test_succession_over_a_matrix_wig_with_diverged_flat_rows(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """A new flat command beside an unchanged lattice diverges to
+        SUCCESSION -- routed through the same _do_create /
+        detect_supersession path as Save-a-Copy, with ``replace``
+        auto-superseding the ancestor. Guard: completes with a
+        receipt, the repoint, and the old file actually gone -- no
+        exception anywhere in between."""
+        matrix = self._matrix()
+        old_wig = self._ancestor_wig(matrix, PRONTO_C)
+        _closet_wig(tmp_path, old_wig, "ac.wig.json")
+        device = IRDevice(
+            name="AC", commands=[
+                _command("Sleep", PRONTO_C),
+                _command("Timer", self._P_TIMER),
+            ],
+            source_wig_id="u-ancestor",
+        )
+        device.climate_matrix = True
+        _wire_matrix(fake_hass, tmp_path, device, matrix)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "replace": True,
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert result["variant"] == "create"
+        assert result["supersession"] is not None
+        replaced = result.get("replaced")
+        assert replaced is not None
+        assert replaced["old_filename"] == "ac.wig.json"
+        assert replaced["deleted"] is True
+        assert not (wigs_dir(tmp_path) / "ac.wig.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_perfect_fit_over_a_matrix_wig_completes(
+        self, fake_hass, tmp_path, _no_signing
+    ):
+        """Perfect Fit on a diverged matrix device mints the successor
+        and attests it in the same round trip -- same _do_create path,
+        same detect_supersession call. Guard: completes with a
+        receipt, no exception."""
+        matrix = self._matrix()
+        old_wig = self._ancestor_wig(matrix, PRONTO_C)
+        _closet_wig(tmp_path, old_wig, "ac.wig.json")
+        device = IRDevice(
+            name="AC", commands=[
+                _command("Sleep", PRONTO_C),
+                _command("Timer", self._P_TIMER),
+            ],
+            source_wig_id="u-ancestor",
+        )
+        device.climate_matrix = True
+        _wire_matrix(fake_hass, tmp_path, device, matrix)
+        conn = _conn()
+        await ws_wigs_save(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+            "attest": {"claims": [
+                {"digest": "d" * 16, "verdict": VERDICT_WORKED},
+            ]},
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert result["variant"] == "create"
+        assert "filename" in result
+        assert result["supersession"] is not None
 
 
 class TestSupersedeAction:
