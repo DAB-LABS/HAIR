@@ -619,11 +619,24 @@ export class IrCombReport extends LitElement {
                it simply grows downward from a fixed top edge.
                It also stops a tall report being clipped: the buckets on
                a big matrix run past a laptop viewport, and a centred
-               flex child with nowhere to scroll loses both ends. */
+               flex child with nowhere to scroll loses both ends.
+               Second Fitting v3 punch list item 20: the top edge
+               itself moves to a computed near-center instead of a
+               flat 5vh, so the common report -- well under 620px, the
+               TYPICAL REPORT HEIGHT -- reads centred on any screen,
+               while a big matrix report still starts at this same
+               calm position and grows downward into the scroll above,
+               exactly as the anchoring rationale above requires. No
+               recentre jump either way: the top edge is fixed once
+               computed, paint two just adds height below it. The
+               100dvh repeat is the mobile-safe fallback -- browsers
+               without dvh support simply keep the vh line above it. */
             .overlay {
                 align-items: flex-start;
                 overflow-y: auto;
-                padding: 5vh 0;
+                padding-top: max(6vh, calc((100vh - 620px) / 2));
+                padding-top: max(6vh, calc((100dvh - 620px) / 2));
+                padding-bottom: 6vh;
             }
             .comb-dialog {
                 max-width: 700px;
