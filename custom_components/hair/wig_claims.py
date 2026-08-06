@@ -28,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .fitting_signing import sign_fitting
+from .fitting_signing import KEY_FIELD, sign_fitting
 from .wig_format import (
     ClaimsBundle,
     Wig,
@@ -104,15 +104,30 @@ def append_claims(
     that names a different wig is not a claim about this one -- and the
     two can legitimately differ when a device is saved as new after
     being adopted from something else.
+
+    SAME-FITTER RE-SIGN (owner ruling, 2026-08-06): identity is the
+    SIGNING KEY, not the typed handle -- handles are prose, the key is
+    checkable. When the new bundle's key matches an existing bundle's
+    key, the new bundle REPLACES it (the date refreshes) rather than
+    appending a second copy. Under supersession the only signable
+    again is identical content (this function touches nothing), so a
+    repeat signature from the same install adds nothing and would only
+    read as padding. A different key always appends, and an unsigned
+    bundle -- no key to match against -- always appends too, since
+    there is no install identity to dedupe on.
     """
     ensure_wig_id(wig)
     bundle.wig_id = wig.wig_id or bundle.wig_id
     entry = sign_claims_bundle(bundle, private_key_b64)
     existing = wig.extra.get(FITTINGS_KEY)
-    wig.extra[FITTINGS_KEY] = [
-        *(existing if isinstance(existing, list) else []),
-        entry,
-    ]
+    fittings = list(existing) if isinstance(existing, list) else []
+    new_key = entry.get(KEY_FIELD)
+    if new_key:
+        fittings = [
+            f for f in fittings
+            if not (isinstance(f, dict) and f.get(KEY_FIELD) == new_key)
+        ]
+    wig.extra[FITTINGS_KEY] = [*fittings, entry]
     return entry
 
 

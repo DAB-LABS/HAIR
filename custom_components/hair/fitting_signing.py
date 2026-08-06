@@ -157,6 +157,38 @@ def key_fingerprint(key_b64: str) -> str | None:
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
+async def async_get_public_key(hass: HomeAssistant) -> str | None:
+    """This install's public signing key, base64, or None.
+
+    Derives the public half of ``async_get_private_key``'s key for
+    callers that only need to check "is this bundle mine" without
+    handling the private key themselves -- the same-key re-sign
+    notice (Second Fitting v3 punch list, item 1) is the first one.
+    """
+    private_key_b64 = await async_get_private_key(hass)
+    if not private_key_b64:
+        return None
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding,
+            PublicFormat,
+        )
+
+        private = Ed25519PrivateKey.from_private_bytes(
+            base64.b64decode(private_key_b64)
+        )
+        public_raw = private.public_key().public_bytes(
+            Encoding.Raw, PublicFormat.Raw
+        )
+        return base64.b64encode(public_raw).decode('ascii')
+    except Exception:
+        _LOGGER.exception('Could not derive this install public key')
+        return None
+
+
 async def async_get_private_key(hass: HomeAssistant) -> str | None:
     """Load (or create on first use) the install's signing key.
 

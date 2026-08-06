@@ -3459,16 +3459,28 @@ async def ws_wigs_save_plan(
         await manager.async_get_matrix(device.id)
         if device.climate_matrix else None
     )
+    # This install's public key, for the same-key re-sign notice
+    # (Second Fitting v3 punch list, item 1). Fetched here, on the loop,
+    # because the storage read is async; handed to the executor job
+    # below rather than looked up from inside it.
+    from .fitting_signing import async_get_public_key
+
+    signing_key_b64 = await async_get_public_key(hass)
     # Off the loop: resolving the source scans the closet and the
     # checklist decodes a dozen or two prontos. Bounded, but not free,
     # and this runs on a human's click rather than a timer.
     plan = await hass.async_add_executor_job(
-        _build_plan, hass, device, matrix
+        _build_plan, hass, device, matrix, signing_key_b64
     )
     connection.send_result(msg["id"], plan.as_dict())
 
 
-def _build_plan(hass: HomeAssistant, device: IRDevice, matrix: Any) -> Any:
+def _build_plan(
+    hass: HomeAssistant,
+    device: IRDevice,
+    matrix: Any,
+    signing_key_b64: str | None = None,
+) -> Any:
     from .wig_save import build_save_plan
     from .wig_store import scan_wigs
 
@@ -3483,6 +3495,7 @@ def _build_plan(hass: HomeAssistant, device: IRDevice, matrix: Any) -> Any:
     ]
     return build_save_plan(
         device, source_wig, filename, matrix, existing_names,
+        signing_key_b64,
     )
 
 
@@ -3538,10 +3551,16 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/save",
     vol.Required("device_id"): vol.All(str, vol.Length(max=100)),
-    #: Second Fitting amendment v2: the verb is derived server-side
-    #: (below), never taken on the caller's word. Optional now, kept
-    #: only so an older client's payload still validates; the value is
-    #: read nowhere.
+    #: Second Fitting v3 punch list item 2: the one explicit route
+    #: signal from the caller. The verb (CREATE / UPDATE /
+    #: SUCCESSION) is still derived server-side from device-vs-source
+    #: digest comparison for every route except this one -- "create"
+    #: means the caller chose SAVE AS NEW at the decision window
+    #: fork, which mints unconditionally regardless of what the
+    #: fresh derivation says, and never auto-replaces the source wig
+    #: even when "replace" rides along in the same payload. Any
+    #: other value, or absent, is ignored; the derivation still
+    #: governs.
     vol.Optional("mode"): vol.In(["create", "update"]),
     vol.Optional("name"): vol.All(str, vol.Length(max=200)),
     vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
@@ -3632,7 +3651,17 @@ async def ws_wigs_save(
 
     replace = bool(msg.get("replace", False))
 
-    if plan.variant == VARIANT_UPDATE:
+    # Second Fitting v3 punch list item 2: "create" is the caller
+    # saying SAVE AS NEW was the route chosen at the decision window
+    # fork. That route always mints, never replaces -- so it skips
+    # the UPDATE branch below entirely, and any "replace" riding
+    # along in the same payload is dropped rather than honored, since
+    # Save As New leaves the existing wig untouched by ruling.
+    force_create = msg.get("mode") == "create"
+    if force_create:
+        replace = False
+
+    if plan.variant == VARIANT_UPDATE and not force_create:
         if replace:
             # The caller's plan said SUCCESSION when the dialog opened;
             # this server's fresh derivation says the device now
@@ -3656,6 +3685,11 @@ async def ws_wigs_save(
         # this is. ``replace`` rides along and only fires when the
         # mint actually names a local ancestor to supersede -- a
         # from-scratch device has none, so it is inert there.
+        # Also reached whenever force_create routed this here
+        # instead of the UPDATE branch above -- replace is already
+        # forced False in that case, so this call never
+        # auto-supersedes on the Save As New route (item 2:
+        # existing wig untouched).
         await _do_create(
             hass, connection, msg, device, attestation, key, replace=replace,
         )

@@ -150,6 +150,26 @@ class PlanOldFittingsGrade:
 
 
 @dataclass
+class PlanSameKeyNotice:
+    """This install already has a bundle on the wig being attested.
+
+    Second Fitting v3 punch list, item 1 (owner ruling, 2026-08-06):
+    identity is the signing key, not the typed handle. Present only
+    when a fitting on the source wig already carries this install's
+    public key AND the plan is not diverged -- a diverged plan mints
+    a fresh successor with no fittings of its own, so there is
+    nothing on it yet to have signed twice. The dialog uses this to
+    say up front what a same-key re-sign will do: replace, not add.
+    """
+
+    handle: str | None
+    date: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"handle": self.handle, "date": self.date}
+
+
+@dataclass
 class SavePlan:
     variant: str
     rows: list[PlanRow] = field(default_factory=list)
@@ -197,6 +217,16 @@ class SavePlan:
     #: warning before the click. None on UPDATE and CREATE plans, where
     #: nothing is about to be retired.
     old_fitting_grade: PlanOldFittingsGrade | None = None
+    #: SAVE AS NEW only (Second Fitting v3 punch list, item 4). A
+    #: shelf-collision-safe default name, computed whenever there is
+    #: a source wig regardless of divergence -- Save as New always
+    #: mints (item 2), so it always needs a name that will not
+    #: collide, even when the device matches its source. Update and
+    #: Perfect Fit do not read this: a replace keeps the source
+    #: wig's name verbatim (see metadata["name"] below).
+    suggested_new_name: str | None = None
+    #: Second Fitting v3 punch list, item 1. See PlanSameKeyNotice.
+    same_key_notice: PlanSameKeyNotice | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -251,6 +281,11 @@ class SavePlan:
             "old_fitting_grade": (
                 self.old_fitting_grade.as_dict()
                 if self.old_fitting_grade else None
+            ),
+            "suggested_new_name": self.suggested_new_name,
+            "same_key_notice": (
+                self.same_key_notice.as_dict()
+                if self.same_key_notice else None
             ),
         }
 
@@ -414,6 +449,7 @@ def build_save_plan(
     source_filename: str | None = None,
     matrix: ClimateMatrix | None = None,
     existing_names: Sequence[str] = (),
+    signing_key_b64: str | None = None,
 ) -> SavePlan:
     """What SAVE TO CLOSET is about to do, row by row.
 
@@ -498,17 +534,22 @@ def build_save_plan(
     ]
     diverged = bool(missing_rows) or bool(flat_additions)
 
-    # Bench addendum ruling (2026-08-05): only a SUCCESSION's default
-    # name differentiates. UPDATE keeps the source name exactly as
-    # today -- same wig, same name -- so ``_wig_metadata`` itself stays
-    # untouched and this only overrides what it prefilled when the
-    # save is about to mint a successor.
+    # Second Fitting v3 punch list item 4 (owner ruling, 2026-08-06):
+    # prefill differentiation is Save As New's alone. A replace route
+    # (UPDATE, PERFECT FIT) takes the ancestor's place on the shelf
+    # and inherits its name untouched -- ``_wig_metadata`` above
+    # already prefilled that verbatim, so nothing here overrides it
+    # regardless of divergence. ``suggested_new_name`` is the
+    # differentiated default instead, computed unconditionally (even
+    # on a plain UPDATE) since Save As New now always mints a twin
+    # (item 2) and needs a collision-safe name even over matching
+    # content.
     metadata = _wig_metadata(source_wig)
+    suggested_new_name = _differentiated_name(
+        source_wig.name, existing_names,
+    )
     old_fitting_grade = None
     if diverged:
-        metadata["name"] = _differentiated_name(
-            source_wig.name, existing_names,
-        )
         # Second Fitting v3, Commit 4: the Update dialog's inline
         # warning, rendered before the click instead of after the save.
         # Same grading claims_summary already does for the self-
@@ -527,6 +568,21 @@ def build_save_plan(
             state=summary["state"], count=summary["fitters"], handles=handles,
         )
 
+    # Second Fitting v3 punch list, item 1: tell the fitter up front
+    # when their own install already has a bundle on this wig, since
+    # append_claims will replace it rather than add a second one.
+    # Scoped to not-diverged: a diverged plan mints a fresh successor
+    # with no fittings yet, so there is nothing there to have
+    # already signed.
+    same_key_notice = None
+    if not diverged and signing_key_b64:
+        for bundle in claims_of(source_wig):
+            if bundle.key == signing_key_b64:
+                same_key_notice = PlanSameKeyNotice(
+                    handle=bundle.handle, date=bundle.date,
+                )
+                break
+
     return SavePlan(
         variant=VARIANT_SUCCESSION if diverged else VARIANT_UPDATE,
         rows=rows,
@@ -540,6 +596,8 @@ def build_save_plan(
         existing_fittings=len(claims_of(source_wig)),
         cell_changes=lattice_diff(matrix, source_wig.climate),
         old_fitting_grade=old_fitting_grade,
+        suggested_new_name=suggested_new_name,
+        same_key_notice=same_key_notice,
         **_lattice(matrix),
     )
 
