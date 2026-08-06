@@ -2653,7 +2653,12 @@ async def ws_wigs_list(
     and the library version stamp for the toolbar. Each wig carries its
     fitting summary so the fitted / not fitted filter and the row
     markers never recompute from raw fittings (fitting-flow.md 5.2)."""
-    username = _fitting_username(connection)
+    # Second Fitting v3 punch list item 8: "yours" is keyed on this
+    # install's public signing key, not the typed handle against the
+    # HA username -- see claims_summary's install_key parameter.
+    from .fitting_signing import async_get_public_key
+
+    install_key = await async_get_public_key(hass)
 
     entry_data = _get_first_entry_data(hass)
 
@@ -2701,7 +2706,7 @@ async def ws_wigs_list(
                         matrix_summary(loaded.wig.climate)
                         if loaded.wig.climate is not None else None
                     ),
-                    "fitting": claims_summary(loaded.wig, username),
+                    "fitting": claims_summary(loaded.wig, install_key),
                     # The comb glyph's state. None means NO RECEIPT --
                     # nobody has combed this wig -- which is deliberately
                     # not the same as clean, and the row draws the same
@@ -3230,7 +3235,11 @@ async def ws_wigs_claims(
     so an edited row shows up as orphaned the moment it is edited
     rather than whenever somebody remembers to invalidate something.
     """
-    username = _fitting_username(connection)
+    # Second Fitting v3 punch list item 8: same key-based "mine" as
+    # the Wigs tab summary -- see claims_summary's install_key.
+    from .fitting_signing import async_get_public_key
+
+    install_key = await async_get_public_key(hass)
 
     def _read() -> dict[str, Any] | None:
         from .wig_fitting import claims_ledger
@@ -3243,7 +3252,7 @@ async def ws_wigs_claims(
         parsed = parse_wig(text)
         if not parsed.ok or parsed.wig is None:
             return None
-        return claims_ledger(parsed.wig, username)
+        return claims_ledger(parsed.wig, install_key)
 
     ledger = await hass.async_add_executor_job(_read)
     if ledger is None:

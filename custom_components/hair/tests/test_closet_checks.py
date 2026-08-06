@@ -27,6 +27,12 @@ PRONTO_A = "0000 006D 0002 0000 0020 0040 0020 0040"
 PRONTO_B = "0000 006D 0002 0000 0030 0040 0020 0040"
 PRONTO_C = "0000 006D 0004 0000 0020 0040 0020 0040 0030 0020 0020 0040"
 
+# Second Fitting v3 punch list item 8: "yours" is a key comparison
+# now, not a typed-handle-vs-username one -- these stand in for the
+# install's own public key and somebody else's.
+INSTALL_KEY = "install-key-aaaaaaaaaaaaaaaa"
+OTHER_KEY = "other-key-bbbbbbbbbbbbbbbbbbb"
+
 
 def _wig():
     return Wig(name="TV", wig_id="u-1", signals=[
@@ -35,11 +41,12 @@ def _wig():
     ])
 
 
-def _bundle(wig, verdicts, handle="David"):
+def _bundle(wig, verdicts, handle="David", key=None):
     digests = wig_row_digests(wig)
     return ClaimsBundle(
         wig_id=wig.wig_id or "u-1",
         handle=handle,
+        key=key,
         rows=[
             RowClaim(alias_at_claim="x", digest=d, verdict=v)
             for d, v in zip(digests, verdicts, strict=True)
@@ -101,14 +108,35 @@ class TestTheThreeTiers:
         assert summary["fitters"] == 2
 
     def test_it_knows_which_fitting_is_yours(self):
+        """Second Fitting v3 punch list item 8: keyed on the install's
+        public signing key, not the typed handle against the HA
+        username."""
         wig = _wig()
         _attach(
             wig,
-            _bundle(wig, [VERDICT_WORKED, VERDICT_WORKED], "Ann"),
-            _bundle(wig, [VERDICT_WORKED, VERDICT_NOT_ON_DEVICE], "David"),
+            _bundle(
+                wig, [VERDICT_WORKED, VERDICT_WORKED], "Ann", key=OTHER_KEY,
+            ),
+            _bundle(
+                wig, [VERDICT_WORKED, VERDICT_NOT_ON_DEVICE], "David",
+                key=INSTALL_KEY,
+            ),
         )
-        assert claims_summary(wig, "David")["user_state"] == "scoped"
-        assert claims_summary(wig, "Ann")["user_state"] == "perfect"
+        assert claims_summary(wig, INSTALL_KEY)["user_state"] == "scoped"
+        assert claims_summary(wig, OTHER_KEY)["user_state"] == "perfect"
+
+    def test_a_matching_handle_with_a_different_key_is_not_yours(self):
+        """The regression item 8 fixes directly: a bundle whose typed
+        handle happens to equal the reader's HA username must not read
+        as theirs when the signing key says otherwise."""
+        wig = _wig()
+        _attach(
+            wig,
+            _bundle(
+                wig, [VERDICT_WORKED, VERDICT_WORKED], "David", key=OTHER_KEY,
+            ),
+        )
+        assert claims_summary(wig, INSTALL_KEY)["user_state"] is None
 
 
 class TestTheCombStaysIndependent:

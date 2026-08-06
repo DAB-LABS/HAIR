@@ -20,6 +20,8 @@ what the wig has behind it.
 """
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from custom_components.hair.wig_claims import append_claims
@@ -40,6 +42,12 @@ from custom_components.hair.wig_format import (
 PRONTO_A = "0000 006D 0002 0000 0020 0040 0020 0040"
 PRONTO_B = "0000 006D 0002 0000 0030 0040 0020 0040"
 PRONTO_C = "0000 006D 0002 0000 0040 0060 0040 0060"
+
+# Second Fitting v3 punch list item 8: "mine" is a key comparison now,
+# not a typed-handle-vs-username one, so these stand in for the
+# install's own public key and somebody else's.
+INSTALL_KEY = "install-key-aaaaaaaaaaaaaaaa"
+OTHER_KEY = "other-key-bbbbbbbbbbbbbbbbbbb"
 
 
 def _wig() -> Wig:
@@ -108,20 +116,44 @@ class TestWhatItReports:
 
     def test_entries_are_in_file_order_not_yours_first(self):
         wig = _wig()
-        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED], handle="kno-te")
-        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED], handle="David")
-        entries = claims_ledger(wig, "David")["entries"]
+        _attest(
+            wig, [VERDICT_WORKED, VERDICT_WORKED],
+            handle="kno-te", key=OTHER_KEY,
+        )
+        _attest(
+            wig, [VERDICT_WORKED, VERDICT_WORKED],
+            handle="David", key=INSTALL_KEY,
+        )
+        entries = claims_ledger(wig, INSTALL_KEY)["entries"]
         assert [e["handle"] for e in entries] == ["kno-te", "David"]
         assert [e["mine"] for e in entries] == [False, True]
 
-    def test_mine_matches_case_insensitively_and_stripped(self):
+    def test_mine_is_a_key_match_not_a_handle_match(self):
+        """Second Fitting v3 punch list item 8. The old handle-vs-
+        username compare was case-insensitive and stripped; the key
+        compare is exact identity, and a bundle signed under a handle
+        that matches nothing about this install still reads as mine
+        the moment its key does -- ownership is a cryptographic fact,
+        not a typed name (bench: a same-install bundle whose typed
+        handle did not match the HA username stayed grey)."""
         wig = _wig()
-        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED], handle=" DAVID ")
-        assert claims_ledger(wig, "david")["entries"][0]["mine"] is True
+        _attest(
+            wig, [VERDICT_WORKED, VERDICT_WORKED],
+            handle="Somebody Entirely Different", key=INSTALL_KEY,
+        )
+        assert claims_ledger(wig, INSTALL_KEY)["entries"][0]["mine"] is True
 
-    def test_no_username_makes_nothing_yours(self):
+    def test_a_different_key_is_never_mine_regardless_of_handle(self):
         wig = _wig()
-        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED])
+        _attest(
+            wig, [VERDICT_WORKED, VERDICT_WORKED],
+            handle="David", key=OTHER_KEY,
+        )
+        assert claims_ledger(wig, INSTALL_KEY)["entries"][0]["mine"] is False
+
+    def test_no_install_key_makes_nothing_yours(self):
+        wig = _wig()
+        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED], key=INSTALL_KEY)
         assert claims_ledger(wig, None)["entries"][0]["mine"] is False
 
     def test_the_note_and_github_ride_along(self):
@@ -336,15 +368,24 @@ class TestItCannotDisagreeWithTheCheck:
 class TestTheWebsocketRead:
     @pytest.mark.asyncio
     async def test_it_returns_the_ledger_for_a_wig_on_disk(
-        self, fake_hass, tmp_path
+        self, fake_hass, tmp_path, monkeypatch
     ):
         from custom_components.hair.websocket_api import ws_wigs_claims
         from custom_components.hair.wig_format import serialize_wig
 
+        # Second Fitting v3 punch list item 8: "mine" now comes from
+        # this install's public signing key, not the connection's HA
+        # username, so the test drives the key directly rather than
+        # via _FakeConnection's username.
+        monkeypatch.setattr(
+            "custom_components.hair.fitting_signing.async_get_public_key",
+            AsyncMock(return_value=INSTALL_KEY),
+        )
+
         wigs = tmp_path / "hair" / "wigs"
         wigs.mkdir(parents=True)
         wig = _wig()
-        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED])
+        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED], key=INSTALL_KEY)
         (wigs / "tv.wig.json").write_text(
             serialize_wig(wig), encoding="utf-8"
         )
@@ -358,6 +399,40 @@ class TestTheWebsocketRead:
         assert connection.result["filename"] == "tv.wig.json"
         assert connection.result["entries"][0]["handle"] == "David"
         assert connection.result["entries"][0]["mine"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_typed_handle_matching_the_username_is_not_enough(
+        self, fake_hass, tmp_path, monkeypatch
+    ):
+        """The regression item 8 fixes: a handle that happens to match
+        whatever the old code compared against must NOT be enough on
+        its own -- only the key decides."""
+        from custom_components.hair.websocket_api import ws_wigs_claims
+        from custom_components.hair.wig_format import serialize_wig
+
+        monkeypatch.setattr(
+            "custom_components.hair.fitting_signing.async_get_public_key",
+            AsyncMock(return_value=INSTALL_KEY),
+        )
+
+        wigs = tmp_path / "hair" / "wigs"
+        wigs.mkdir(parents=True)
+        wig = _wig()
+        _attest(
+            wig, [VERDICT_WORKED, VERDICT_WORKED],
+            handle="David", key=OTHER_KEY,
+        )
+        (wigs / "tv.wig.json").write_text(
+            serialize_wig(wig), encoding="utf-8"
+        )
+        fake_hass.config.config_dir = str(tmp_path)
+
+        connection = _FakeConnection("David")
+        await ws_wigs_claims(
+            fake_hass, connection,
+            {"id": 1, "type": "hair/wigs/claims", "filename": "tv.wig.json"},
+        )
+        assert connection.result["entries"][0]["mine"] is False
 
     @pytest.mark.asyncio
     async def test_a_missing_wig_is_an_error_not_an_empty_ledger(
