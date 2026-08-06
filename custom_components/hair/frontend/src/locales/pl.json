@@ -534,7 +534,7 @@
     "wigs.save_as_wig": "Zapisz w szafie",
     "wigs.saved": "Zapisano w szafie jako {filename}",
     "wigs.saved_skipped": "Zapisano jako {filename} ({skipped} sygnałów bez kodu pominięto)",
-    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
+    "wigs.save.same_key_notice": "Ten wig jest już potwierdzony jako {handle} ({date}); zapisanie zastąpi ten wpis zamiast dodać nowy.",
     "wigs.save.perfect_label": "Oznacz jako idealne dopasowanie",
     "wigs.save.lattice_changed.one": "Zmieniłeś na tym urządzeniu jeden stan, który ma również {name}.",
     "wigs.save.lattice_changed.few": "Zmieniłeś na tym urządzeniu {count} stany, które ma również {name}.",

@@ -534,7 +534,7 @@
     "wigs.save_as_wig": "Сохранить в шкаф",
     "wigs.saved": "Сохранено в шкафу как {filename}",
     "wigs.saved_skipped": "Сохранено как {filename} (сигналы без кода пропущены: {skipped})",
-    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
+    "wigs.save.same_key_notice": "Этот вижок уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
     "wigs.save.perfect_label": "Отметить как идеальную посадку",
     "wigs.save.lattice_changed.one": "Вы изменили на этом устройстве одно состояние, которое есть и у {name}.",
     "wigs.save.lattice_changed.few": "Вы изменили на этом устройстве {count} состояния, которые есть и у {name}.",

@@ -516,7 +516,7 @@
     "wigs.save_as_wig": "Save to Closet",
     "wigs.saved": "Saved to the closet as {filename}",
     "wigs.saved_skipped": "Saved as {filename} ({skipped} signals had no code and were left out)",
-    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
+    "wigs.save.same_key_notice": "This wig is already confirmed as {handle} ({date}); saving will replace that record, not add a new one.",
     "wigs.save.perfect_label": "Make this a perfect fit",
     "wigs.save.lattice_changed.one": "You changed one state on this device that {name} also has.",
     "wigs.save.lattice_changed.other": "You changed {count} states on this device that {name} also has.",

@@ -516,7 +516,7 @@
     "wigs.save_as_wig": "クローゼットに保存",
     "wigs.saved": "{filename} としてクローゼットに保存しました",
     "wigs.saved_skipped": "{filename} として保存しました (コードのない {skipped} 件の信号は除外)",
-    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
+    "wigs.save.same_key_notice": "このウィッグはすでに{handle}によって確認済みです（{date}）。保存すると、新しい記録を追加するのではなく、この記録が置き換えられます。",
     "wigs.save.perfect_label": "パーフェクトフィットにする",
     "wigs.save.lattice_changed.one": "{name} にもある状態を、この機器で 1 件変更しました。",
     "wigs.save.lattice_changed.other": "{name} にもある状態を、この機器で {count} 件変更しました。",

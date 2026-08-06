@@ -516,7 +516,7 @@
     "wigs.save_as_wig": "Im Schrank speichern",
     "wigs.saved": "Im Schrank gespeichert als {filename}",
     "wigs.saved_skipped": "Gespeichert als {filename} ({skipped} Signale ohne Code wurden ausgelassen)",
-    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
+    "wigs.save.same_key_notice": "Diese Wig ist bereits bestätigt als {handle} ({date}); das Speichern ersetzt diesen Eintrag, statt einen neuen hinzuzufügen.",
     "wigs.save.perfect_label": "Als perfekte Passform kennzeichnen",
     "wigs.save.lattice_changed.one": "Du hast an diesem Geraet einen Zustand geaendert, den {name} ebenfalls hat.",
     "wigs.save.lattice_changed.other": "Du hast an diesem Geraet {count} Zustaende geaendert, die {name} ebenfalls hat.",

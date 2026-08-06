@@ -516,7 +516,7 @@
     "wigs.save_as_wig": "Opslaan in kast",
     "wigs.saved": "In de kast opgeslagen als {filename}",
     "wigs.saved_skipped": "Opgeslagen als {filename} ({skipped} signalen zonder code zijn weggelaten)",
-    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
+    "wigs.save.same_key_notice": "Deze wig is al bevestigd als {handle} ({date}); opslaan vervangt dat record in plaats van een nieuw record toe te voegen.",
     "wigs.save.perfect_label": "Markeer als perfecte pasvorm",
     "wigs.save.lattice_changed.one": "Je hebt op dit apparaat een toestand gewijzigd die {name} ook heeft.",
     "wigs.save.lattice_changed.other": "Je hebt op dit apparaat {count} toestanden gewijzigd die {name} ook heeft.",

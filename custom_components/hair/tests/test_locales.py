@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -51,6 +52,10 @@ def _load(path: Path) -> dict:
 
 def _placeholders(value: str) -> set[str]:
     return set(re.findall(r"\{(\w+)\}", value))
+
+
+def _strip_placeholders(value: str) -> str:
+    return re.sub(r"\{\w+\}", "", value)
 
 
 def _slug(label: str) -> str:
@@ -190,6 +195,54 @@ class TestFrontendLocaleParity:
                     assert re.search(pattern, locale.get(key, "")), (
                         f"{path.name}:{key} lost brand name {brand!r}"
                     )
+
+
+class TestNoUnintentionalDuplication:
+    """A locale value byte-identical across every non-English locale
+    was never actually translated (Second Fitting v3 punch list item
+    10): wigs.save.same_key_notice carried the same Russian string in
+    all ten locale files, including en.json itself, because a
+    translation pass never touched it. test_key_parity and
+    test_placeholder_parity check key presence and placeholder tokens,
+    not whether the text itself differs language to language, so this
+    exact bug had no guard until now.
+
+    A length threshold avoids flagging deliberately identical short
+    strings (single words, symbols) where languages coincidentally
+    agree; anything long enough to carry real sentence content should
+    not read identically in ten unrelated languages.
+    """
+
+    # Legitimate exception: a literal example-value placeholder
+    # listing device category keywords, intentionally left
+    # untranslated -- the same pattern already used elsewhere in the
+    # codebase (e.g. "wig" itself stays untranslated in many strings).
+    EXEMPT_DUPLICATE_KEYS: ClassVar[set[str]] = {
+        "wigs.editor.kind_placeholder"
+    }
+
+    _MIN_SUSPICIOUS_LENGTH = 15
+
+    def test_values_are_actually_translated(self):
+        locales = {path.stem: _load(path) for path in _frontend_locales()}
+        offenders = []
+        for key, _en_value in EN.items():
+            if key == "_meta.review" or key in self.EXEMPT_DUPLICATE_KEYS:
+                continue
+            values = [
+                locale[key] for locale in locales.values() if key in locale
+            ]
+            if len(values) != len(locales):
+                continue
+            if len(set(values)) != 1:
+                continue
+            stripped = _strip_placeholders(values[0])
+            if len(stripped) >= self._MIN_SUSPICIOUS_LENGTH:
+                offenders.append(key)
+        assert not offenders, (
+            "keys with identical, untranslated text across every "
+            f"non-English locale: {sorted(offenders)}"
+        )
 
 
 class TestVocabularyCoverage:
