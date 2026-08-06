@@ -47,7 +47,12 @@ export class IrSaveNewDialog extends LitElement {
 
     firstUpdated(): void {
         const md = this.plan.metadata ?? {};
-        this._name = md.name ?? "";
+        // Second Fitting v3 punch list item 4: this is the one route
+        // that differentiates its name prefill -- `suggested_new_name`
+        // is only ever set when there is a source wig to collide
+        // with; a from-scratch device falls back to the plain
+        // metadata prefill (empty, here).
+        this._name = this.plan.suggested_new_name ?? md.name ?? "";
         this._brand = md.brand ?? "";
         this._model = md.model ?? "";
         this._notes = md.notes ?? "";
@@ -124,6 +129,11 @@ export class IrSaveNewDialog extends LitElement {
         try {
             const result = await this.api.wigsSave({
                 device_id: this.sourceId,
+                // Second Fitting v3 punch list item 2: this route
+                // always mints, even over matching content -- the
+                // route choice itself is the signal, carried
+                // explicitly since the server no longer infers it.
+                mode: "create",
                 ...this._metadata(),
             });
             this.dispatchEvent(

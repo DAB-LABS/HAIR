@@ -479,10 +479,19 @@ export class HairApi {
 
     /** Save a device to the closet. The verb is derived server-side
      * (Second Fitting amendment v2) from the device's own state at
-     * save time, never sent by the caller -- a stale client cannot
-     * steer a save down a verb the device no longer supports. */
+     * save time for every route but one: Save As New sends
+     * `mode: "create"` (v3 punch list item 2) to say the route itself
+     * was the caller's choice, forcing a mint even over matching
+     * content -- every other field here is still read fresh from the
+     * device, never taken on the caller's word. */
     wigsSave(payload: {
         device_id: string;
+        /** Second Fitting v3 punch list item 2: set only by the Save
+         * As New dialog. Forces a mint regardless of what the fresh
+         * server-side derivation would otherwise pick, and drops any
+         * `replace` riding in the same payload -- Save As New never
+         * touches the existing wig. */
+        mode?: "create";
         name?: string;
         brand?: string;
         model?: string;

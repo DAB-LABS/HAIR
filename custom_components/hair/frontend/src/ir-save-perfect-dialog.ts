@@ -102,8 +102,6 @@ export class IrSavePerfectDialog extends LitElement {
     // --- The fitting half (device source only) -------------------------
     @state() private _plan: SavePlan | null = null;
     @state() private _loading = false;
-    /** The perfect-fit checkbox: arms the attestation block. */
-    @state() private _perfect = false;
     /** Digests currently checked. Everything, until somebody unchecks. */
     @state() private _checked = new Set<string>();
     /** Why an unchecked row is unchecked. Absent means no claim at all,
@@ -247,8 +245,31 @@ export class IrSavePerfectDialog extends LitElement {
         return this._diverged && !this._proposeLattice;
     }
 
+    /** Second Fitting v3 punch list, item 3: choosing the route IS
+     * the arming now -- there is no checkbox left to tick. Armed
+     * whenever there is something to attest and nothing blocking it
+     * (a diverged matrix lattice, until proposed). Replaces every
+     * read of the old manually-ticked `_perfect` field. */
+    private get _armed(): boolean {
+        return !this._attestBlocked && !this._nothingToAttest;
+    }
+
+    /** Second Fitting v3 punch list, item 1: named up front, before
+     * the click -- this install already has a bundle on the wig
+     * being attested, and append_claims will replace it rather than
+     * add a second one. Null on an anonymous prior bundle (nothing
+     * to name) or when the plan carries no notice at all. */
+    private get _sameKeyNotice(): string | null {
+        const notice = this._plan?.same_key_notice;
+        if (!notice || !notice.handle) return null;
+        return t("wigs.save.same_key_notice", {
+            handle: notice.handle,
+            date: notice.date ?? "",
+        });
+    }
+
     private get _signed(): boolean {
-        return this._perfect && this._oath;
+        return this._armed && this._oath;
     }
 
     private get _canSave(): boolean {
@@ -256,7 +277,7 @@ export class IrSavePerfectDialog extends LitElement {
         // An attestation is not signed until the oath is ticked, in
         // either verb. Prefill fills fields, it never pre-checks the
         // oath, and nothing signs without it.
-        if (this._perfect && !this._oath) return false;
+        if (this._armed && !this._oath) return false;
         // An UPDATE writes a fitting, edited metadata, or both. With
         // neither there is nothing to write, so it refuses rather than
         // producing a shop PR that says nothing. A CREATE always has
@@ -269,7 +290,7 @@ export class IrSavePerfectDialog extends LitElement {
 
     private get _saveLabel(): string {
         if (this._busy) return t("common.saving");
-        if (!this._perfect) return t("common.save");
+        if (!this._armed) return t("common.save");
         return this._isPerfectFit
             ? t("wigs.save.save_perfect")
             : t("wigs.save.save_fitted");
@@ -322,6 +343,16 @@ export class IrSavePerfectDialog extends LitElement {
         );
     }
 
+    /** Devices actually missing something from the successor -- the
+     * ones a top-up would do anything for. Second Fitting v3 punch
+     * list, item 5: a device that already has everything new offered
+     * nothing to check and a live send button that would send
+     * nothing; excluding it here is what makes the whole block
+     * collapse when nobody needs one. */
+    private get _topupCandidates(): SupersedeDevice[] {
+        return this._topupDevices.filter((d) => d.missing_commands > 0);
+    }
+
     async firstUpdated(): Promise<void> {
         this._loading = true;
         try {
@@ -336,6 +367,12 @@ export class IrSavePerfectDialog extends LitElement {
             this._upc = plan.metadata.upc ?? "";
             this._asin = plan.metadata.asin ?? "";
             this._oem = plan.metadata.oem ?? "";
+            // Second Fitting v3 punch list, item 3: the route
+            // itself was the arming, so the checklist seeds its
+            // defaults (everything checked) the moment the plan
+            // says there is something to attest and nothing
+            // blocking it -- no click required.
+            if (this._armed) this._armChecklist();
         } catch (err) {
             this._error = (err as Error).message;
         } finally {
@@ -350,7 +387,9 @@ export class IrSavePerfectDialog extends LitElement {
     updated(): void {
         if (!this._topupSeeded && this._done?.replaced) {
             this._topupSeeded = true;
-            this._topup = new Set(this._topupDevices.map((d) => d.id));
+            this._topup = new Set(
+                this._topupCandidates.map((d) => d.id),
+            );
         }
     }
 
@@ -378,40 +417,25 @@ export class IrSavePerfectDialog extends LitElement {
         );
     }
 
-    /** Arming the block checks everything. That is the whole shape of
-     * the flow: the person built or adopted a device that works, so the
-     * default claim is "all of it", and unchecking is the exception
-     * path rather than the main road. */
-    private _togglePerfect(e: Event): void {
-        if (this._attestBlocked) {
-            (e.target as HTMLInputElement).checked = false;
-            return;
-        }
-        this._setPerfect((e.target as HTMLInputElement).checked);
-    }
-
-    /**
-     * Arming the banner, from the tick or from the banner itself.
-     *
-     * Split out of ``_togglePerfect`` so the banner head can drive it
-     * without inventing a fake input event. The tick still owns the
-     * checkbox; this owns what arming MEANS.
-     */
-    private _setPerfect(on: boolean): void {
-        this._perfect = on;
-        if (this._perfect) {
-            this._checked = new Set(
-                this._attestableRows.map((r) => r.digest),
-            );
-            this._reasons = new Map();
-        }
+    /** Arming checks everything by default. That is the whole shape
+     * of the flow: the person built or adopted a device that works,
+     * so the default claim is "all of it", and unchecking a row is
+     * the exception path rather than the main road. Second Fitting
+     * v3 punch list, item 3: this used to run only from a checkbox
+     * tick; now it runs on its own, wherever arming happens. */
+    private _armChecklist(): void {
+        this._checked = new Set(
+            this._attestableRows.map((r) => r.digest),
+        );
+        this._reasons = new Map();
     }
 
     private _toggleProposeLattice(e: Event): void {
         this._proposeLattice = (e.target as HTMLInputElement).checked;
-        // Withdrawing the proposal re-blocks the attestation, so an
-        // armed block cannot outlive the thing that unblocked it.
-        if (!this._proposeLattice) this._perfect = false;
+        // Proposing the fix lifts the block; arm (seed the
+        // checklist) the instant it does, since item 3 removed the
+        // checkbox that used to do this by hand.
+        if (this._armed) this._armChecklist();
     }
 
     private _toggleRow(digest: string): void {
@@ -620,7 +644,7 @@ export class IrSavePerfectDialog extends LitElement {
     }
 
     private async _saveDevice(): Promise<SaveResult> {
-        const attest = this._perfect
+        const attest = this._armed
             ? {
                   claims: this._claims(),
                   handle: this._handle.trim() || undefined,
@@ -658,6 +682,22 @@ export class IrSavePerfectDialog extends LitElement {
         } finally {
             this._topupBusy = false;
         }
+    }
+
+    /** Second Fitting v3 punch list, item 5: standard anatomy for
+     * the closing screen's top-up choice -- Save commits whatever
+     * boxes are checked and closes in one action, Cancel closes
+     * without sending any. The wig save itself already happened by
+     * the time this screen renders either way; only the top-up is
+     * still an open choice. Left open (does not close) on a send
+     * failure, so the error banner has something to sit under. */
+    private async _saveAndClose(): Promise<void> {
+        if (this._topupBusy) return;
+        if (this._topup.size) {
+            await this._sendTopup();
+            if (this._error) return;
+        }
+        this._close();
     }
 
     /** Names, not counts -- the same rule the retired self-supersede
@@ -740,7 +780,10 @@ export class IrSavePerfectDialog extends LitElement {
                   })
                 : t("wigs.saved", { filename: done.filename ?? "" });
         const fitted = replaced ? this._retiredFittedLine : null;
-        const topupDevices = replaced ? this._topupDevices : [];
+        // Second Fitting v3 punch list, item 5: only devices
+        // actually missing something get the top-up block; a no-op
+        // offer with nothing to check collapses entirely.
+        const topupCandidates = replaced ? this._topupCandidates : [];
         return html`
             <ha-dialog
                 open
@@ -773,16 +816,48 @@ export class IrSavePerfectDialog extends LitElement {
                           })}</ha-alert
                       >`
                     : ""}
-                ${topupDevices.length ? this._renderTopup(topupDevices) : ""}
+                ${topupCandidates.length
+                    ? this._renderTopup(topupCandidates)
+                    : ""}
                 <div class="dialog-actions">
-                    <button class="action-btn" @click=${this._close}>
-                        ${t("common.close")}
-                    </button>
+                    <span class="spacer"></span>
+                    ${topupCandidates.length
+                        ? html`
+                              <button
+                                  class="action-btn cancel-btn"
+                                  @click=${this._close}
+                              >
+                                  ${t("common.cancel")}
+                              </button>
+                              <button
+                                  class="action-btn save-wig-btn"
+                                  ?disabled=${this._topupBusy}
+                                  @click=${this._saveAndClose}
+                              >
+                                  ${this._topupBusy
+                                      ? t("common.saving")
+                                      : t("common.save")}
+                              </button>
+                          `
+                        : html`
+                              <button
+                                  class="action-btn"
+                                  @click=${this._close}
+                              >
+                                  ${t("common.close")}
+                              </button>
+                          `}
                 </div>
             </ha-dialog>
         `;
     }
 
+    /** Second Fitting v3 punch list, item 5: the checklist only --
+     * committing (and closing) is the dialog's own Save button now,
+     * not a second button living inside this block. Every device
+     * passed in has something missing (see _topupCandidates), so
+     * the no-missing-rows branch that used to read
+     * `supersede.topup_none` here never applies. */
     /** The top-up offer (spec section 4): other devices sourced to the
      * ancestor can receive the successor's rows they still lack. Relink
      * already happened inside the save itself (Commit 2); this is only
@@ -790,11 +865,6 @@ export class IrSavePerfectDialog extends LitElement {
      * stays its own choice on the closing screen rather than something
      * the save decided alone. */
     private _renderTopup(devices: SupersedeDevice[]) {
-        if (this._topupDone) {
-            return html`<div class="saved-line">
-                ${t("wigs.route.topup_sent")}
-            </div>`;
-        }
         return html`
             <div class="topup-block">
                 <div class="topup-heading">${t("wigs.route.topup_offer")}</div>
@@ -807,50 +877,18 @@ export class IrSavePerfectDialog extends LitElement {
                                 @change=${() => this._toggleTopup(d.id)}
                             />
                             <span>
-                                ${d.missing_aliases.length
-                                    ? t("supersede.topup_names", {
-                                          names: this._formatTopupNames(
-                                              d.missing_aliases,
-                                          ),
-                                          name: d.name,
-                                      })
-                                    : t("supersede.topup_none", {
-                                          name: d.name,
-                                      })}
+                                ${t("supersede.topup_names", {
+                                    names: this._formatTopupNames(
+                                        d.missing_aliases,
+                                    ),
+                                    name: d.name,
+                                })}
                             </span>
                         </label>
                     `,
                 )}
-                <button
-                    class="action-btn topup-btn"
-                    ?disabled=${this._topupBusy || !this._topup.size}
-                    @click=${this._sendTopup}
-                >
-                    ${this._topupBusy
-                        ? t("common.saving")
-                        : t("wigs.route.send_topup")}
-                </button>
             </div>
         `;
-    }
-
-    /**
-     * The banner's HEAD is the click target, not the whole banner.
-     *
-     * Generous enough that nobody has to hit a 15px checkbox, and
-     * bounded so it stops before the row list. Once armed, this block
-     * holds thirty ticks and a signature form; a stray click in that
-     * region disarming the whole thing would throw away work somebody
-     * just did. The head is the part that means "do you want to do
-     * this at all", so the head is what answers it.
-     *
-     * The label stops propagation itself: a click there toggles the
-     * checkbox natively and would then bubble here and toggle it back,
-     * netting to nothing.
-     */
-    private _onHeadClick(): void {
-        if (this._nothingToAttest || this._attestBlocked) return;
-        this._setPerfect(!this._perfect);
     }
 
     /**
@@ -898,21 +936,11 @@ export class IrSavePerfectDialog extends LitElement {
         if (!this._plan) return nothing;
         return html`
             ${this._renderLatticeChanges()}
-            <div class="fit-block ${this._perfect ? "on" : ""}">
-                <div class="fit-head" @click=${this._onHeadClick}>
-                    <label
-                        class="fit-check"
-                        @click=${(e: Event) => e.stopPropagation()}
-                    >
-                        <input
-                            type="checkbox"
-                            .checked=${this._perfect}
-                            ?disabled=${this._nothingToAttest ||
-                            this._attestBlocked}
-                            @change=${this._togglePerfect}
-                        />
+            <div class="fit-block ${this._armed ? "on" : ""}">
+                <div class="fit-head">
+                    <div class="fit-check">
                         <span>${t("wigs.save.perfect_label")}</span>
-                    </label>
+                    </div>
                     ${this._nothingToAttest
                         ? html`<div class="fit-explainer">
                               ${t("wigs.save.nothing_to_attest")}
@@ -926,15 +954,17 @@ export class IrSavePerfectDialog extends LitElement {
                               ${t("wigs.save.lattice_blocks_attestation")}
                           </div>`
                         : ""}
+                    ${this._sameKeyNotice
+                        ? html`<div class="fit-gate same-key-notice">
+                              ${this._sameKeyNotice}
+                          </div>`
+                        : ""}
                     ${this._renderJoining()}
                 </div>
-                ${(this._perfect && !this._nothingToAttest) ||
-                this._isSuccession
+                ${this._armed || this._isSuccession
                     ? this._renderList()
                     : ""}
-                ${this._perfect && !this._nothingToAttest
-                    ? this._renderAttestation()
-                    : ""}
+                ${this._armed ? this._renderAttestation() : ""}
             </div>
         `;
     }
@@ -1010,7 +1040,7 @@ export class IrSavePerfectDialog extends LitElement {
         const matched = succession ? rows.filter((r) => r.matched) : rows;
         const additions = succession ? rows.filter((r) => !r.matched) : [];
         const removals = succession ? (this._plan?.missing_rows ?? []) : [];
-        const readOnly = succession && !this._perfect;
+        const readOnly = succession && !this._armed;
         return html`
             <div class="fit-list">
                 ${matched.map((row) =>
@@ -1422,13 +1452,6 @@ export class IrSavePerfectDialog extends LitElement {
                 box-shadow:
                     0 0 0 1px rgba(100, 181, 246, 0.18),
                     0 2px 14px rgba(100, 181, 246, 0.09);
-            }
-            /* Only the head is clickable. Generous enough that nobody
-               hits a 15px checkbox, bounded so a stray click among the
-               thirty ticks below cannot disarm the block and throw the
-               work away. */
-            .fit-head {
-                cursor: pointer;
             }
             .fit-gate {
                 font-size: 11.5px;
