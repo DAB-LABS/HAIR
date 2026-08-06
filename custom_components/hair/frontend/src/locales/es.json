@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} personas ya han probado esta peluca. Tú serías la siguiente.",
     "wigs.save.joining_see.one": "Ver el ajuste que ya lleva",
     "wigs.save.joining_see.other": "Ver los {count} ajustes que ya lleva",
+    "wigs.save.joining_self_notice": "Ya has probado este wig. Ajustarlo de nuevo reemplazará tu ajuste anterior (firmado por '{handle}', {date}).",
     "comb.explain_lead": "Peinar pasa cada código junto a sus vecinos y {lint}",
     "comb.explain_lint": "saca la pelusa.",
     "comb.frag_frames": "Tramas cortas",

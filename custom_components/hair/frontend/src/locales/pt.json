@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} pessoas já comprovaram esta peruca. Você seria a próxima.",
     "wigs.save.joining_see.one": "Ver o encaixe que ela já tem",
     "wigs.save.joining_see.other": "Ver os {count} encaixes que ela já tem",
+    "wigs.save.joining_self_notice": "Você já comprovou este wig. Ajustá-lo novamente substituirá seu ajuste anterior (assinado por '{handle}', {date}).",
     "comb.explain_lead": "Pentear passa cada código pelos seus vizinhos e {lint}",
     "comb.explain_lint": "tira os fiapos.",
     "comb.frag_frames": "Quadros curtos",

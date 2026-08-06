@@ -254,20 +254,6 @@ export class IrSavePerfectDialog extends LitElement {
         return !this._attestBlocked && !this._nothingToAttest;
     }
 
-    /** Second Fitting v3 punch list, item 1: named up front, before
-     * the click -- this install already has a bundle on the wig
-     * being attested, and append_claims will replace it rather than
-     * add a second one. Null on an anonymous prior bundle (nothing
-     * to name) or when the plan carries no notice at all. */
-    private get _sameKeyNotice(): string | null {
-        const notice = this._plan?.same_key_notice;
-        if (!notice || !notice.handle) return null;
-        return t("wigs.save.same_key_notice", {
-            handle: notice.handle,
-            date: notice.date ?? "",
-        });
-    }
-
     private get _signed(): boolean {
         return this._armed && this._oath;
     }
@@ -907,6 +893,21 @@ export class IrSavePerfectDialog extends LitElement {
     private _renderJoining() {
         const n = this._plan?.existing_fittings ?? 0;
         if (!this._isUpdate || n < 1) return "";
+        // Second Fitting v3 punch list, item 11: when the existing
+        // fit is the viewer's own key (same_key_notice present), the
+        // generic "one person has proven this wig, you would be
+        // next" copy is wrong twice -- they ARE that person, and it
+        // used to sit beside a separate replace notice saying the
+        // opposite. One box now: the self case reads as the replace
+        // notice itself. Fits by other keys keep the original copy.
+        const self = this._plan?.same_key_notice;
+        const line =
+            self && self.handle
+                ? t("wigs.save.joining_self_notice", {
+                      handle: self.handle,
+                      date: self.date ?? "",
+                  })
+                : tp("wigs.save.joining_proven", n);
         return html`
             <button
                 class="joining"
@@ -915,7 +916,7 @@ export class IrSavePerfectDialog extends LitElement {
                     this._ledgerOpen = true;
                 }}
             >
-                <span class="j-line">${tp("wigs.save.joining_proven", n)}</span>
+                <span class="j-line">${line}</span>
                 <span class="j-see"
                     ><u>${tp("wigs.save.joining_see", n)}</u> &rsaquo;</span
                 >
@@ -952,11 +953,6 @@ export class IrSavePerfectDialog extends LitElement {
                     ${this._attestBlocked
                         ? html`<div class="fit-gate">
                               ${t("wigs.save.lattice_blocks_attestation")}
-                          </div>`
-                        : ""}
-                    ${this._sameKeyNotice
-                        ? html`<div class="fit-gate same-key-notice">
-                              ${this._sameKeyNotice}
                           </div>`
                         : ""}
                     ${this._renderJoining()}

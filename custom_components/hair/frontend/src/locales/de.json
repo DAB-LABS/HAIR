@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} Personen haben diese Perücke bereits bestätigt. Du wärst die nächste.",
     "wigs.save.joining_see.one": "Die vorhandene Passform ansehen",
     "wigs.save.joining_see.other": "Die {count} vorhandenen Passformen ansehen",
+    "wigs.save.joining_self_notice": "Du hast diese Wig bereits bewiesen. Erneutes Anpassen ersetzt deine vorherige Passform (signiert von '{handle}', {date}).",
     "comb.explain_lead": "Beim Kämmen läuft jeder Code an seinen Nachbarn vorbei und {lint}",
     "comb.explain_lint": "die Fusseln bleiben hängen.",
     "comb.frag_frames": "Kurze Frames",

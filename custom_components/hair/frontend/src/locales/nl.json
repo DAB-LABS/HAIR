@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} personen hebben deze pruik al bewezen. Jij zou de volgende zijn.",
     "wigs.save.joining_see.one": "Bekijk de pasvorm die er al is",
     "wigs.save.joining_see.other": "Bekijk de {count} pasvormen die er al zijn",
+    "wigs.save.joining_self_notice": "Je hebt deze wig al bewezen. Opnieuw passen vervangt je eerdere pasvorm (ondertekend door '{handle}', {date}).",
     "comb.explain_lead": "Kammen haalt elke code langs zijn buren en {lint}",
     "comb.explain_lint": "haalt de pluisjes eruit.",
     "comb.frag_frames": "Korte frames",

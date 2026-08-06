@@ -748,6 +748,7 @@
     "wigs.save.joining_see.few": "Zobacz {count} istniejące dopasowania",
     "wigs.save.joining_see.many": "Zobacz {count} istniejących dopasowań",
     "wigs.save.joining_see.other": "Zobacz {count} istniejących dopasowań",
+    "wigs.save.joining_self_notice": "Ten wig został już przez Ciebie potwierdzony. Ponowne dopasowanie zastąpi Twoje wcześniejsze dopasowanie (podpisane przez '{handle}', {date}).",
     "comb.explain_lead": "Czesanie przepuszcza każdy kod obok sąsiadów i {lint}",
     "comb.explain_lint": "wyczesuje kłaczki.",
     "comb.frag_frames": "Krótkie ramki",

@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} people have proven this wig. You would be the next.",
     "wigs.save.joining_see.one": "See the fitting it already carries",
     "wigs.save.joining_see.other": "See the {count} fittings it already carries",
+    "wigs.save.joining_self_notice": "You've already proven this wig. Fitting it again will replace your earlier fitting (signed '{handle}', {date}).",
     "comb.explain_lead": "Combing runs every code past its neighbors and {lint}",
     "comb.explain_lint": "picks out the lint.",
     "comb.frag_frames": "Short frames",

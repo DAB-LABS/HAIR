@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} persone hanno già provato questa parrucca. Tu saresti la prossima.",
     "wigs.save.joining_see.one": "Vedi la calzata che porta già",
     "wigs.save.joining_see.other": "Vedi le {count} calzate che porta già",
+    "wigs.save.joining_self_notice": "Hai già provato questo wig. Calzarlo di nuovo sostituirà la tua calzata precedente (firmato da '{handle}', {date}).",
     "comb.explain_lead": "La pettinatura fa passare ogni codice accanto ai suoi vicini e {lint}",
     "comb.explain_lint": "tira via i pelucchi.",
     "comb.frag_frames": "Frame corti",

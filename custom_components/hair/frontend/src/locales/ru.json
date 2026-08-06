@@ -748,6 +748,7 @@
     "wigs.save.joining_see.few": "Посмотреть {count} имеющиеся посадки",
     "wigs.save.joining_see.many": "Посмотреть {count} имеющихся посадок",
     "wigs.save.joining_see.other": "Посмотреть {count} имеющихся посадок",
+    "wigs.save.joining_self_notice": "Вы уже подтвердили этот вижок. Повторная примерка заменит вашу более раннюю посадку (подписано '{handle}', {date}).",
     "comb.explain_lead": "Расчёсывание проводит каждый код мимо соседей и {lint}",
     "comb.explain_lint": "вычёсывает катышки.",
     "comb.frag_frames": "Короткие кадры",

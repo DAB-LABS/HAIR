@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} 人がすでにこのウィッグを検証しています。あなたが次になります。",
     "wigs.save.joining_see.one": "すでにあるフィットを見る",
     "wigs.save.joining_see.other": "すでにある {count} 件のフィットを見る",
+    "wigs.save.joining_self_notice": "あなたはすでにこのウィッグを検証済みです。再度フィットすると、以前のフィット（'{handle}'による署名、{date}）が置き換えられます。",
     "comb.explain_lead": "コーミングはすべてのコードを隣同士で比べて{lint}",
     "comb.explain_lint": "ほつれを取り除きます。",
     "comb.frag_frames": "短いフレーム",

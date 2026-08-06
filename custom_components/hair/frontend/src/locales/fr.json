@@ -692,6 +692,7 @@
     "wigs.save.joining_proven.other": "{count} personnes ont déjà éprouvé cette perruque. Vous seriez la suivante.",
     "wigs.save.joining_see.one": "Voir l'ajustement qu'elle porte déjà",
     "wigs.save.joining_see.other": "Voir les {count} ajustements qu'elle porte déjà",
+    "wigs.save.joining_self_notice": "Vous avez déjà éprouvé ce wig. Le réajuster remplacera votre ajustement précédent (signé par '{handle}', {date}).",
     "comb.explain_lead": "Le peignage passe chaque code devant ses voisins et {lint}",
     "comb.explain_lint": "en retire les peluches.",
     "comb.frag_frames": "Trames courtes",
