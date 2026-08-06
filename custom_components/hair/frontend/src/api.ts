@@ -372,27 +372,6 @@ export class HairApi {
         });
     }
 
-    /** The top-up-only half of the replace mechanic (Second Fitting v3,
-     * Commit 5): a diverged, sourced Perfect Fit save already retired
-     * its ancestor and relinked every device inside the write itself
-     * (Commit 2's `replace: true`), so by the time this fires there is
-     * no pair left to re-verify and nothing left to delete -- only the
-     * separate, optional act of sending the successor's rows to
-     * devices that followed along. Same endpoint as `wigsSupersede`,
-     * `old_filename` omitted and `topup_only` set, so the server skips
-     * straight to the topup loop. */
-    wigsTopUp(
-        newFilename: string,
-        topupDeviceIds: string[],
-    ): Promise<SupersedeResult> {
-        return this.hass.connection.sendMessagePromise<SupersedeResult>({
-            type: "hair/wigs/supersede",
-            new_filename: newFilename,
-            topup_only: true,
-            topup_device_ids: topupDeviceIds,
-        });
-    }
-
     /** Comb one wig and refresh its receipt. Always re-combs rather than
      * serving the stored report: the receipt may predate a Replace. */
     /** Pin a catalog signal to raw replay, or unpin it (Highlights,

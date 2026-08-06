@@ -21,10 +21,14 @@
  *   that writes the successor, so the ancestor mints and retires in
  *   one step -- no post-save confirm, no Keep Both anywhere in this
  *   flow, because picking this route and signing the oath already
- *   was the decision. The closing screen is INFORMATIONAL: what was
- *   written, what retired (named fittings, the same graded weight
- *   the old self-supersede confirm gave it), and a top-up offer for
- *   other devices that were sourced to the ancestor.
+ *   was the decision. Second Fitting v3 punch list item 13 moved
+ *   what retired (named fittings, the same graded weight the old
+ *   self-supersede confirm gave it) and what would be lost to BEFORE
+ *   the click instead -- see _gradedLine / _lostRowsLine -- because
+ *   that is where the decision still is. The closing screen is now a
+ *   pure one-line notification when this route replaced something;
+ *   no top-up offer lives there anymore, since a device wanting the
+ *   successor's new commands picks them up through the adopt path.
  * - SOURCED, MATCHING. Today's attested UPDATE: the bundle appends,
  *   nothing retires.
  * - FROM-SCRATCH. Today's attested CREATE: a wig is born signed,
@@ -52,7 +56,6 @@ import type {
     SavePlanMissingRow,
     SavePlanRow,
     SaveResult,
-    SupersedeDevice,
 } from "./types.js";
 import "./ir-protocol-chip.js";
 import "./ir-test-button.js";
@@ -60,6 +63,12 @@ import "./ir-tx-knobs.js";
 import "./ir-claims-ledger.js";
 
 type Verdict = "worked" | "not_on_device" | "wont_work";
+
+/** Second Fitting v3 punch list item 13: splits the localized
+ * replaced-receipt sentence on its own {old}/{new} placeholder
+ * tokens so only the two wig names carry the bold+blue styling,
+ * whatever order the sentence puts them in per language. */
+const REPLACED_RECEIPT_SPLIT = /\{(old|new)\}/g;
 
 @customElement("ir-save-perfect-dialog")
 export class IrSavePerfectDialog extends LitElement {
@@ -91,13 +100,6 @@ export class IrSavePerfectDialog extends LitElement {
     @state() private _busy = false;
     @state() private _error: string | null = null;
     @state() private _done: SaveResult | null = null;
-    // The top-up offer on the closing screen, after a diverged, sourced
-    // save auto-retired its ancestor. On by default, same as the
-    // retired self-supersede confirm always seeded them.
-    @state() private _topup = new Set<string>();
-    @state() private _topupSeeded = false;
-    @state() private _topupBusy = false;
-    @state() private _topupDone = false;
 
     // --- The fitting half (device source only) -------------------------
     @state() private _plan: SavePlan | null = null;
@@ -282,26 +284,29 @@ export class IrSavePerfectDialog extends LitElement {
             : t("wigs.save.save_fitted");
     }
 
-    /** The retired ancestor's own fitting history, graded, for the
-     * closing screen -- same weighting the retired self-supersede
-     * confirm gave it, ported inline since that confirm no longer
-     * opens from this flow (a diverged, sourced save now retires its
-     * ancestor inside the write itself). The attesting person's own
-     * handle is filtered from the credit list for the same reason the
-     * old confirm's self doorway filtered it: replacing a wig you
-     * yourself just fitted needs no warning about yourself. */
-    private get _retiredFittedLine(): { amber: boolean; text: string } | null {
-        const of = (this._done as SaveResult | null)?.supersession
-            ?.old_fittings;
-        if (!of || !of.state) return null;
+    /** The graded line (Second Fitting v3 punch list item 13): on
+     * SOURCED, DIVERGED, replacing the ancestor always retires its
+     * fitting history -- named here, before the click, instead of on
+     * the receipt after it, since the receipt is a pure notification
+     * now and the decision already happened by the time it shows.
+     * Same rule and copy ir-save-update-dialog.ts's own _gradedLine
+     * uses; ported here because this dialog's original design left
+     * grading entirely to the post-save closing screen, which item 13
+     * retires as a decision point. The attesting person's own handle
+     * is filtered from the credit list for the same reason the old
+     * receipt-side version did: replacing a wig you yourself just
+     * fitted needs no warning about yourself. */
+    private get _gradedLine(): { amber: boolean; text: string } | null {
+        if (!this._isSuccession) return null;
+        const grade = this._plan?.old_fitting_grade;
+        if (!grade || !grade.state) return null;
         const mine = this._handle.trim().toLowerCase();
         const who = mine
-            ? of.handles.filter((h) => h.trim().toLowerCase() !== mine)
-            : of.handles;
+            ? grade.handles.filter((h) => h.trim().toLowerCase() !== mine)
+            : grade.handles;
         if (!who.length) return null;
-        const name =
-            (this._done as SaveResult | null)?.supersession?.old_name ?? "";
-        return of.state === "perfect"
+        const name = this._plan?.source_wig_name ?? "";
+        return grade.state === "perfect"
             ? {
                   amber: true,
                   text: t("supersede.fitted_perfect", {
@@ -311,32 +316,27 @@ export class IrSavePerfectDialog extends LitElement {
               }
             : {
                   amber: false,
-                  text: tp("supersede.fitted_scoped", of.count, {
-                      count: String(of.count),
+                  text: tp("supersede.fitted_scoped", grade.count, {
+                      count: String(grade.count),
                       name,
                       who: who.join(", "),
                   }),
               };
     }
 
-    /** Other devices sourced to the ancestor, for the top-up offer.
-     * Relink already happened inside the save itself (Commit 2); this
-     * is only the separate, optional act of sending the successor's
-     * rows those devices still lack. */
-    private get _topupDevices(): SupersedeDevice[] {
-        return (
-            (this._done as SaveResult | null)?.supersession?.devices ?? []
-        );
-    }
-
-    /** Devices actually missing something from the successor -- the
-     * ones a top-up would do anything for. Second Fitting v3 punch
-     * list, item 5: a device that already has everything new offered
-     * nothing to check and a live send button that would send
-     * nothing; excluding it here is what makes the whole block
-     * collapse when nobody needs one. */
-    private get _topupCandidates(): SupersedeDevice[] {
-        return this._topupDevices.filter((d) => d.missing_commands > 0);
+    /** The lost-rows line: rows the ancestor carries that the device
+     * does not, named before the click for the same reason
+     * _gradedLine moved here (item 13). Never shown on matching
+     * content: there is nothing about to be discarded when nothing is
+     * being replaced. */
+    private get _lostRowsLine(): string | null {
+        if (!this._isSuccession) return null;
+        const missing = this._plan?.missing_rows ?? [];
+        if (!missing.length) return null;
+        return tp("supersede.lost", missing.length, {
+            count: String(missing.length),
+            names: missing.map((r) => r.alias).join(", "),
+        });
     }
 
     async firstUpdated(): Promise<void> {
@@ -363,19 +363,6 @@ export class IrSavePerfectDialog extends LitElement {
             this._error = (err as Error).message;
         } finally {
             this._loading = false;
-        }
-    }
-
-    /** Seeds the top-up choices on-by-default, once, the first time the
-     * closing screen has something to seed them from -- mirrors
-     * ir-supersede-dialog's own `updated()` seed, since the informational
-     * screen below is standing in for the confirm that used to do this. */
-    updated(): void {
-        if (!this._topupSeeded && this._done?.replaced) {
-            this._topupSeeded = true;
-            this._topup = new Set(
-                this._topupCandidates.map((d) => d.id),
-            );
         }
     }
 
@@ -449,13 +436,6 @@ export class IrSavePerfectDialog extends LitElement {
         if (next.has(digest)) next.delete(digest);
         else next.add(digest);
         this._renames = next;
-    }
-
-    private _toggleTopup(id: string): void {
-        const next = new Set(this._topup);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        this._topup = next;
     }
 
     private async _sendRow(row: SavePlanRow): Promise<boolean> {
@@ -655,62 +635,12 @@ export class IrSavePerfectDialog extends LitElement {
         });
     }
 
-    private async _sendTopup(): Promise<void> {
-        if (this._topupBusy || this._topupDone) return;
-        const done = this._done as SaveResult;
-        if (!done.filename) return;
-        this._topupBusy = true;
-        try {
-            await this.api.wigsTopUp(done.filename, [...this._topup]);
-            this._topupDone = true;
-        } catch (err) {
-            this._error = (err as Error).message;
-        } finally {
-            this._topupBusy = false;
-        }
-    }
-
-    /** Second Fitting v3 punch list, item 5: standard anatomy for
-     * the closing screen's top-up choice -- Save commits whatever
-     * boxes are checked and closes in one action, Cancel closes
-     * without sending any. The wig save itself already happened by
-     * the time this screen renders either way; only the top-up is
-     * still an open choice. Left open (does not close) on a send
-     * failure, so the error banner has something to sit under. */
-    private async _saveAndClose(): Promise<void> {
-        if (this._topupBusy) return;
-        if (this._topup.size) {
-            await this._sendTopup();
-            if (this._error) return;
-        }
-        this._close();
-    }
-
-    /** Names, not counts -- the same rule the retired self-supersede
-     * confirm followed, ported since that confirm no longer opens from
-     * this flow. Truncates past four so a device missing a dozen
-     * commands does not turn the closing screen into a wall of text. */
-    private _formatTopupNames(names: string[]): string {
-        const MAX = 4;
-        if (names.length <= 1) return names[0] ?? "";
-        const and = t("supersede.list_and");
-        if (names.length <= MAX) {
-            return `${names.slice(0, -1).join(", ")} ${and} ${
-                names[names.length - 1]
-            }`;
-        }
-        const more = names.length - MAX;
-        return `${names.slice(0, MAX).join(", ")} ${and} ${tp(
-            "supersede.topup_more",
-            more,
-            { count: String(more) },
-        )}`;
-    }
-
     // --- Rendering -----------------------------------------------------
 
     render() {
         if (this._done) return this._renderDone();
+        const graded = this._gradedLine;
+        const lost = this._lostRowsLine;
         return html`
             <ha-dialog
                 open
@@ -725,6 +655,18 @@ export class IrSavePerfectDialog extends LitElement {
                     ? html`<ha-alert alert-type="warning"
                           >${t("wigs.save.source_missing")}</ha-alert
                       >`
+                    : ""}
+                ${graded
+                    ? html`<div
+                          class=${graded.amber
+                              ? "fitted-callout"
+                              : "fitted-line"}
+                      >
+                          ${graded.text}
+                      </div>`
+                    : ""}
+                ${lost
+                    ? html`<div class="lost-callout">${lost}</div>`
                     : ""}
                 ${renderMetadataFields(
                     this._metadataValues,
@@ -749,27 +691,51 @@ export class IrSavePerfectDialog extends LitElement {
     private _renderDone() {
         const done = this._done as SaveResult;
         const replaced = done.replaced;
-        const line = replaced
-            ? t("wigs.route.replaced_receipt", {
-                  filename: done.filename ?? "",
-                  old: replaced.old_filename,
-              })
-            : done.variant === "update"
-              ? t("wigs.save.updated", {
-                    filename: done.filename ?? "",
-                    count: String(done.attested),
-                })
-              : done.skipped > 0
-                ? t("wigs.saved_skipped", {
+        // Second Fitting v3 punch list item 13 (supersedes round one
+        // item 5's anatomy): a replace's receipt is a pure
+        // notification now -- both names bold and blue, a single
+        // CLOSE, nothing else. The retirement line, the top-up offer,
+        // and the Save/Cancel pair that used to live here are gone;
+        // the graded-fitting and lost-rows warnings this used to
+        // report AFTER the write now render BEFORE it instead (see
+        // _gradedLine / _lostRowsLine above), where the decision
+        // actually is. Devices wanting the successor's new commands
+        // pick them up through the adopt path, not this screen.
+        if (replaced) {
+            return html`
+                <ha-dialog
+                    open
+                    heading=${t("wigs.route.validate_perfect_fit")}
+                    scrimClickAction=""
+                    @closed=${this._close}
+                >
+                    <div class="saved-line">
+                        ${this._renderReplacedLine(
+                            replaced.old_name,
+                            this._name.trim(),
+                        )}
+                    </div>
+                    <div class="dialog-actions">
+                        <span class="spacer"></span>
+                        <button class="action-btn" @click=${this._close}>
+                            ${t("common.close")}
+                        </button>
+                    </div>
+                </ha-dialog>
+            `;
+        }
+        const line =
+            done.variant === "update"
+                ? t("wigs.save.updated", {
                       filename: done.filename ?? "",
-                      skipped: String(done.skipped),
+                      count: String(done.attested),
                   })
-                : t("wigs.saved", { filename: done.filename ?? "" });
-        const fitted = replaced ? this._retiredFittedLine : null;
-        // Second Fitting v3 punch list, item 5: only devices
-        // actually missing something get the top-up block; a no-op
-        // offer with nothing to check collapses entirely.
-        const topupCandidates = replaced ? this._topupCandidates : [];
+                : done.skipped > 0
+                  ? t("wigs.saved_skipped", {
+                        filename: done.filename ?? "",
+                        skipped: String(done.skipped),
+                    })
+                  : t("wigs.saved", { filename: done.filename ?? "" });
         return html`
             <ha-dialog
                 open
@@ -778,15 +744,6 @@ export class IrSavePerfectDialog extends LitElement {
                 @closed=${this._close}
             >
                 <div class="saved-line">${line}</div>
-                ${fitted
-                    ? html`<div
-                          class=${fitted.amber
-                              ? "fitted-callout"
-                              : "fitted-line"}
-                      >
-                          ${fitted.text}
-                      </div>`
-                    : ""}
                 ${done.cells_proposed
                     ? html`<div class="saved-line">
                           ${tp(
@@ -802,79 +759,33 @@ export class IrSavePerfectDialog extends LitElement {
                           })}</ha-alert
                       >`
                     : ""}
-                ${topupCandidates.length
-                    ? this._renderTopup(topupCandidates)
-                    : ""}
                 <div class="dialog-actions">
                     <span class="spacer"></span>
-                    ${topupCandidates.length
-                        ? html`
-                              <button
-                                  class="action-btn cancel-btn"
-                                  @click=${this._close}
-                              >
-                                  ${t("common.cancel")}
-                              </button>
-                              <button
-                                  class="action-btn save-wig-btn"
-                                  ?disabled=${this._topupBusy}
-                                  @click=${this._saveAndClose}
-                              >
-                                  ${this._topupBusy
-                                      ? t("common.saving")
-                                      : t("common.save")}
-                              </button>
-                          `
-                        : html`
-                              <button
-                                  class="action-btn"
-                                  @click=${this._close}
-                              >
-                                  ${t("common.close")}
-                              </button>
-                          `}
+                    <button class="action-btn" @click=${this._close}>
+                        ${t("common.close")}
+                    </button>
                 </div>
             </ha-dialog>
         `;
     }
 
-    /** Second Fitting v3 punch list, item 5: the checklist only --
-     * committing (and closing) is the dialog's own Save button now,
-     * not a second button living inside this block. Every device
-     * passed in has something missing (see _topupCandidates), so
-     * the no-missing-rows branch that used to read
-     * `supersede.topup_none` here never applies. */
-    /** The top-up offer (spec section 4): other devices sourced to the
-     * ancestor can receive the successor's rows they still lack. Relink
-     * already happened inside the save itself (Commit 2); this is only
-     * the separate, optional act of actually sending the codes, so it
-     * stays its own choice on the closing screen rather than something
-     * the save decided alone. */
-    private _renderTopup(devices: SupersedeDevice[]) {
-        return html`
-            <div class="topup-block">
-                <div class="topup-heading">${t("wigs.route.topup_offer")}</div>
-                ${devices.map(
-                    (d) => html`
-                        <label class="topup-row">
-                            <input
-                                type="checkbox"
-                                .checked=${this._topup.has(d.id)}
-                                @change=${() => this._toggleTopup(d.id)}
-                            />
-                            <span>
-                                ${t("supersede.topup_names", {
-                                    names: this._formatTopupNames(
-                                        d.missing_aliases,
-                                    ),
-                                    name: d.name,
-                                })}
-                            </span>
-                        </label>
-                    `,
-                )}
-            </div>
-        `;
+    /** Second Fitting v3 punch list item 13: splitting the localized
+     * sentence on its own {old}/{new} tokens -- rather than
+     * substituting plain text into them -- keeps each language's own
+     * word order while still letting just the two names carry the
+     * style. Same technique ir-wigs.ts already uses for its drop
+     * title and duplicate-receipt links. */
+    private _renderReplacedLine(oldName: string, newName: string) {
+        const segments = t("wigs.route.replaced_receipt").split(
+            REPLACED_RECEIPT_SPLIT,
+        );
+        return html`${segments.map((seg) =>
+            seg === "old"
+                ? html`<b class="replaced-name">${oldName}</b>`
+                : seg === "new"
+                  ? html`<b class="replaced-name">${newName}</b>`
+                  : html`${seg}`,
+        )}`;
     }
 
     /**
@@ -1327,9 +1238,14 @@ export class IrSavePerfectDialog extends LitElement {
             }
             /* Amber, matching ir-supersede-dialog's own family exactly:
                a fitting retiring is the same weight of news wherever it
-               renders. */
-            .fitted-callout {
-                margin: 10px 0 0;
+               renders. Second Fitting v3 punch list item 13: moved
+               here from the receipt (where it used to render AFTER
+               the save) to before the click instead, so the margin
+               now separates it from what follows rather than what
+               came before. */
+            .fitted-callout,
+            .lost-callout {
+                margin: 0 0 12px;
                 padding: 10px 12px;
                 border-radius: 6px;
                 border: 1px solid rgba(217, 164, 65, 0.45);
@@ -1339,45 +1255,17 @@ export class IrSavePerfectDialog extends LitElement {
                 line-height: 1.5;
             }
             .fitted-line {
-                margin: 8px 0 0;
+                margin: 0 0 12px;
                 font-size: 0.9rem;
                 line-height: 1.5;
                 color: var(--primary-text-color);
             }
-            .topup-block {
-                margin-top: 12px;
-                padding-top: 10px;
-                border-top: 1px solid var(--divider-color);
-            }
-            .topup-heading {
-                font-size: 0.85rem;
-                color: var(--secondary-text-color);
-            }
-            .topup-row {
-                display: flex;
-                align-items: flex-start;
-                gap: 9px;
-                margin-top: 10px;
-                font-size: 0.9rem;
-                line-height: 1.45;
-                color: var(--primary-text-color);
-                cursor: pointer;
-            }
-            .topup-row input {
-                margin-top: 2px;
-                accent-color: #43a047;
-                width: 15px;
-                height: 15px;
-                cursor: pointer;
-            }
-            .topup-btn {
-                margin-top: 10px;
-                background: #3f8a4b;
-                color: #fff;
-                border-color: #3f8a4b;
-            }
-            .topup-btn:hover:not(:disabled) {
-                opacity: 0.9;
+            /* Second Fitting v3 punch list item 13: the replace
+               receipt's two names, bold and blue -- the same house
+               blue .joining .j-see u already uses below. */
+            .replaced-name {
+                font-weight: 600;
+                color: #64b5f6;
             }
             /* The content-change prompt. Above the attestation block
                on purpose: what the wig is about to BECOME has to be

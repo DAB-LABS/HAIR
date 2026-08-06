@@ -39,6 +39,12 @@ import {
 import type { HairApi } from "./api.js";
 import type { SavePlan, SaveResult } from "./types.js";
 
+/** Second Fitting v3 punch list item 13: splits the localized
+ * replaced-receipt sentence on its own {old}/{new} placeholder
+ * tokens so only the two wig names carry the bold+blue styling,
+ * whatever order the sentence puts them in per language. */
+const REPLACED_RECEIPT_SPLIT = /\{(old|new)\}/g;
+
 @customElement("ir-save-update-dialog")
 export class IrSaveUpdateDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -273,11 +279,16 @@ export class IrSaveUpdateDialog extends LitElement {
 
     private _renderDone() {
         const done = this._done as SaveResult;
+        // Second Fitting v3 punch list item 13 (supersedes round one
+        // item 5's anatomy): a replace's receipt names both wigs, bold
+        // and blue, not their filenames -- this dialog never had
+        // top-up/retirement machinery to strip, so only the line
+        // content changes.
         const line = done.replaced
-            ? t("wigs.route.replaced_receipt", {
-                  filename: done.filename ?? "",
-                  old: done.replaced.old_filename,
-              })
+            ? this._renderReplacedLine(
+                  done.replaced.old_name,
+                  this._name.trim(),
+              )
             : t("wigs.route.updated_metadata", {
                   filename: done.filename ?? "",
               });
@@ -296,6 +307,25 @@ export class IrSaveUpdateDialog extends LitElement {
                 </div>
             </ha-dialog>
         `;
+    }
+
+    /** Second Fitting v3 punch list item 13: splitting the localized
+     * sentence on its own {old}/{new} tokens -- rather than
+     * substituting plain text into them -- keeps each language's own
+     * word order while still letting just the two names carry the
+     * style. Same technique ir-save-perfect-dialog.ts's own replace
+     * receipt uses. */
+    private _renderReplacedLine(oldName: string, newName: string) {
+        const segments = t("wigs.route.replaced_receipt").split(
+            REPLACED_RECEIPT_SPLIT,
+        );
+        return html`${segments.map((seg) =>
+            seg === "old"
+                ? html`<b class="replaced-name">${oldName}</b>`
+                : seg === "new"
+                  ? html`<b class="replaced-name">${newName}</b>`
+                  : html`${seg}`,
+        )}`;
     }
 
     static styles = [
@@ -353,6 +383,13 @@ export class IrSaveUpdateDialog extends LitElement {
                 color: var(--primary-text-color);
                 font-size: 0.85rem;
                 line-height: 1.5;
+            }
+            /* Second Fitting v3 punch list item 13: the replace
+               receipt's two names, bold and blue -- matching
+               ir-save-perfect-dialog.ts's own .replaced-name. */
+            .replaced-name {
+                font-weight: 600;
+                color: #64b5f6;
             }
             .save-wig-btn {
                 background: #3f8a4b;

@@ -1982,49 +1982,71 @@ class TestThePerfectFitDialog:
         ):
             assert dead not in text, dead
 
-    def test_the_closing_screen_is_informational_on_a_replace(self):
-        """No REPLACE / KEEP BOTH choice on the closing screen -- the
-        decision already happened. It states the dual-act receipt, the
-        same phrasing Update Closet Wig's own dual-act receipt uses,
-        and offers the top-up as its own separate, optional act.
-        Second Fitting v3 punch list item 5: the block only appears at
-        all when something is actually missing (``topupCandidates``,
-        renamed from the old always-present ``topupDevices``) -- a
-        no-op offer with nothing to check no longer renders."""
+    def test_the_closing_screen_is_a_pure_notification_on_a_replace(self):
+        """Second Fitting v3 punch list item 13 (supersedes round one
+        item 5's anatomy above): no REPLACE / KEEP BOTH choice on the
+        closing screen, and no top-up offer either -- the decision
+        already happened, and a device wanting the successor's new
+        commands picks them up through the adopt path instead. The
+        receipt is a pure notification: both names bold and blue, one
+        CLOSE button, nothing else."""
         text = _read("ir-save-perfect-dialog.ts")
         render_done = text.split("private _renderDone()", 1)[1]
         render_done = render_done.split("\n    private", 1)[0]
-        assert "wigs.route.replaced_receipt" in render_done
-        assert "this._renderTopup(topupCandidates)" in render_done
-        assert "topupCandidates.length" in render_done
-        assert "supersede.replace" not in render_done
+        replaced_branch = render_done.split("if (replaced) {", 1)[1]
+        replaced_branch = replaced_branch.split("const line =", 1)[0]
+        assert "this._renderReplacedLine(" in replaced_branch
+        assert "wigs.route.replaced_receipt" not in replaced_branch
+        assert "_renderTopup" not in replaced_branch
+        assert "topupCandidates" not in replaced_branch
+        assert replaced_branch.count('t("common.close")') == 1
+        assert "common.cancel" not in replaced_branch
 
-    def test_the_top_up_is_a_separate_act_from_the_save(self):
-        """Relink already happened inside the write (Commit 2); the
-        top-up button fires a dedicated topup-only call, never the
-        full replace endpoint a stale pair-reverify would refuse."""
+    def test_the_top_up_machinery_is_retired_from_this_dialog(self):
+        """Second Fitting v3 punch list item 13: the top-up offer that
+        used to live on this dialog's closing screen -- state, getters,
+        methods, the updated() seeding hook, the CSS, the
+        SupersedeDevice import -- is gone with the receipt it used to
+        sit under. A device wanting the successor's new commands picks
+        them up through the adopt path instead, not a second act
+        bolted onto the receipt."""
         text = _read("ir-save-perfect-dialog.ts")
-        send = text.split("private async _sendTopup()", 1)[1]
-        send = send.split("\n    private", 1)[0]
-        assert "this.api.wigsTopUp(" in send
+        for dead in (
+            "_sendTopup",
+            "_saveAndClose",
+            "_formatTopupNames",
+            "_toggleTopup",
+            "_topupCandidates",
+            "_topupDevices",
+            "wigsTopUp",
+            "_renderTopup",
+            "SupersedeDevice",
+        ):
+            assert dead not in text, dead
 
-    def test_the_retired_fitted_line_filters_the_signers_own_handle(self):
-        """Ported from ir-supersede-dialog's self doorway: replacing a
-        wig you yourself just fitted needs no warning about yourself."""
+    def test_the_graded_line_filters_the_signers_own_handle(self):
+        """Ported from ir-supersede-dialog's self doorway, and renamed
+        by Second Fitting v3 punch list item 13 when the line moved
+        from the closing screen to before the click: replacing a wig
+        you yourself just fitted needs no warning about yourself."""
         text = _read("ir-save-perfect-dialog.ts")
-        fitted = text.split("private get _retiredFittedLine()", 1)[1]
-        fitted = fitted.split("\n    private", 1)[0]
-        assert "this._handle.trim().toLowerCase()" in fitted
-        assert "if (!who.length) return null;" in fitted
+        graded = text.split("private get _gradedLine()", 1)[1]
+        graded = graded.split("\n    private", 1)[0]
+        assert "this._handle.trim().toLowerCase()" in graded
+        assert "if (!who.length) return null;" in graded
 
-    def test_both_screens_share_the_one_route_heading(self):
+    def test_all_three_screens_share_the_one_route_heading(self):
         """No morphing (spec section 1): the route's dialog wears one
-        name, form or done, CREATE or UPDATE or SUCCESSION alike."""
+        name, form or done, CREATE or UPDATE or SUCCESSION alike.
+        Second Fitting v3 punch list item 13 added a third heading
+        site -- the replace receipt's own early-return dialog -- when
+        the pure-notification branch got its own <ha-dialog> instead
+        of folding into the shared one below it."""
         text = _read("ir-save-perfect-dialog.ts")
         headings = re.findall(
             r'heading=\$\{t\("([^"]+)"\)\}', text
         )
-        assert headings == ["wigs.route.validate_perfect_fit"] * 2
+        assert headings == ["wigs.route.validate_perfect_fit"] * 3
 
     def test_the_form_uses_the_shared_metadata_module(self):
         """Consistent with Save as New and Update Closet Wig
@@ -2038,11 +2060,16 @@ class TestThePerfectFitDialog:
         assert 'import "./ir-save-perfect-dialog.js";' in detail
         assert 'import "./ir-save-wig-dialog.js";' not in detail
 
-    def test_the_api_carries_the_top_up_only_call(self):
+    def test_the_top_up_only_endpoint_call_is_retired_from_the_api(self):
+        """Second Fitting v3 punch list item 13: wigsTopUp() had
+        exactly one caller in the whole frontend -- this dialog's own
+        _sendTopup(), itself retired above -- and is removed with it.
+        The underlying ws_wigs_supersede endpoint and its topup_only
+        branch stay in service for wigsSupersede(), ir-wigs.ts's own
+        adopt path."""
         text = _read("api.ts")
-        method = text.split("wigsTopUp(", 1)[1].split("\n    }", 1)[0]
-        assert "topup_only: true" in method
-        assert "hair/wigs/supersede" in method
+        assert "wigsTopUp(" not in text
+        assert "wigsSupersede(" in text
 
     @pytest.mark.parametrize("locale", LOCALE_NAMES)
     def test_every_locale_carries_the_perfect_fit_vocabulary(self, locale):

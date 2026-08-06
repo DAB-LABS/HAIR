@@ -733,7 +733,7 @@
     "wigs.route.save_as_new": "Opslaan als nieuw",
     "wigs.route.update_closet_wig": "Kast-wig bijwerken",
     "wigs.route.validate_perfect_fit": "Valideren voor Perfect Fit",
-    "wigs.route.replaced_receipt": "Opgeslagen als {filename}; {old} vervangen.",
+    "wigs.route.replaced_receipt": "{old} is vervangen door {new}.",
     "wigs.route.updated_metadata": "{filename} bijgewerkt.",
     "wigs.route.topup_offer": "Deze opdrachten ook naar andere apparaten sturen die de oude wig gebruikten?"
 }

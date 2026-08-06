@@ -801,7 +801,7 @@
     "wigs.route.save_as_new": "Zapisz jako nowy",
     "wigs.route.update_closet_wig": "Zaktualizuj wig w szafie",
     "wigs.route.validate_perfect_fit": "Zweryfikuj do Perfect Fit",
-    "wigs.route.replaced_receipt": "Zapisano jako {filename}; zastąpiono {old}.",
+    "wigs.route.replaced_receipt": "{old} został zastąpiony przez {new}.",
     "wigs.route.updated_metadata": "Zaktualizowano {filename}.",
     "wigs.route.topup_offer": "Wysłać te polecenia również do innych urządzeń, które korzystały ze starej peruki?"
 }

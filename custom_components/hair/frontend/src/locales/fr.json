@@ -733,7 +733,7 @@
     "wigs.route.save_as_new": "Enregistrer comme nouveau",
     "wigs.route.update_closet_wig": "Mettre à jour le wig du placard",
     "wigs.route.validate_perfect_fit": "Valider pour Perfect Fit",
-    "wigs.route.replaced_receipt": "Enregistré sous {filename} ; {old} remplacé.",
+    "wigs.route.replaced_receipt": "{old} a été remplacé par {new}.",
     "wigs.route.updated_metadata": "{filename} mis à jour.",
     "wigs.route.topup_offer": "Envoyer aussi ces commandes aux autres appareils qui utilisaient l'ancienne wig ?"
 }

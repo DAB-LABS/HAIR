@@ -733,7 +733,7 @@
     "wigs.route.save_as_new": "Save as New",
     "wigs.route.update_closet_wig": "Update Closet Wig",
     "wigs.route.validate_perfect_fit": "Validate for Perfect Fit",
-    "wigs.route.replaced_receipt": "Saved as {filename}; replaced {old}.",
+    "wigs.route.replaced_receipt": "{old} has been replaced by {new}.",
     "wigs.route.updated_metadata": "Updated {filename}.",
     "wigs.route.topup_offer": "Send these commands to other devices that used the old wig too?"
 }

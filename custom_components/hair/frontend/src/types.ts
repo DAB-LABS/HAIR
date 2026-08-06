@@ -530,6 +530,9 @@ export interface SaveResult {
      * <old>." */
     replaced?: {
         old_filename: string;
+        /** Second Fitting v3 punch list item 13: the receipt names
+         * this wig, not its filename. */
+        old_name: string;
         deleted: boolean;
         devices: { id: string; name: string }[];
     };

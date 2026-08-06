@@ -3960,6 +3960,7 @@ async def _do_create(
                     deleted = delete_wig(hass.config.config_dir, old_filename)
                     out["replaced"] = {
                         "old_filename": old_filename,
+                        "old_name": supersession["old_name"],
                         "deleted": deleted,
                         # Relinking touches HA's device registry, which
                         # needs the event loop -- collected here, acted

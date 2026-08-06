@@ -754,6 +754,8 @@ class TestMatrixSupersessionDoorway:
         replaced = result.get("replaced")
         assert replaced is not None
         assert replaced["old_filename"] == "ac.wig.json"
+        assert replaced["old_name"] == "AC"
+        assert set(replaced) == _REPLACED_BLOCK_KEYS
         assert replaced["deleted"] is True
         assert not (wigs_dir(tmp_path) / "ac.wig.json").exists()
 
@@ -1091,12 +1093,21 @@ async def test_update_drops_a_foreign_digest_claim(
     assert digests == [real]
 
 
+_REPLACED_BLOCK_KEYS = {"old_filename", "old_name", "deleted", "devices"}
+
+
 class TestReplaceIntent:
     """Second Fitting v3, Commit 2: ``replace`` on hair/wigs/save folds
     the supersede into the same round trip UPDATE CLOSET WIG's diverged
     route takes, instead of a second confirm calling hair/wigs/supersede
     separately. Save as New (``replace`` omitted) is unaffected -- see
     the negative case below.
+
+    Second Fitting v3 punch list item 13: the ``replaced`` block's
+    shape is pinned to exactly _REPLACED_BLOCK_KEYS -- nothing a
+    top-up choice could be built from -- standing in for "no top-up
+    machinery reachable from the self-doorway receipt" on the
+    frontend, which has no automated test framework of its own.
     """
 
     @pytest.mark.asyncio
@@ -1126,6 +1137,8 @@ class TestReplaceIntent:
         # The result names both acts.
         assert result["filename"] != "old.wig.json"
         assert result["replaced"]["old_filename"] == "old.wig.json"
+        assert result["replaced"]["old_name"] == "Fan"
+        assert set(result["replaced"]) == _REPLACED_BLOCK_KEYS
         assert result["replaced"]["deleted"] is True
         assert not old_path.exists()
         assert device.source_wig_id == result["wig_id"]
