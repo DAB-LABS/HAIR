@@ -424,6 +424,17 @@ export interface SavePlan {
         count: number;
         handles: string[];
     } | null;
+    /** Save as New only (Second Fitting v3 punch list, item 4): a
+     * shelf-collision-safe default name, present whenever there is a
+     * source wig regardless of divergence. Update and Perfect Fit
+     * prefill from metadata.name verbatim instead -- a replace keeps
+     * the source wig's name. */
+    suggested_new_name: string | null;
+    /** Second Fitting v3 punch list, item 1: this install already has
+     * a bundle on the wig being attested. Present only on a
+     * not-diverged plan with a same-key match -- append_claims will
+     * replace that bundle rather than add a second one. */
+    same_key_notice: { handle: string | null; date: string | null } | null;
 }
 
 /** A device that came from the superseded Wig, and how many of the
@@ -564,6 +575,12 @@ export interface IRDevice {
     // payloads, null for devices without a matrix. Feeds the device
     // page's compact matrix card.
     matrix?: MatrixSummary | null;
+    // Second Fitting v3 punch list item 6: the closet wig this device
+    // was captured from, if any -- the backend always serializes it
+    // (models.py IRDevice.to_dict), and the decision window's
+    // synchronous ``hasSource`` gate (whether UPDATE CLOSET WIG is
+    // even offered) reads straight off this field, no fetch needed.
+    source_wig_id: string | null;
 }
 
 export interface DeviceSummary {

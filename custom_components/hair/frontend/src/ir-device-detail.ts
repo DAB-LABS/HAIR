@@ -77,12 +77,16 @@ export class IrDeviceDetail extends LitElement {
     @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
     @state() private _confirmDelete = false;
+    /** Second Fitting v3 punch list item 6: the window itself opens on
+     * this alone, synchronously, the moment SAVE TO CLOSET is clicked
+     * -- it no longer waits on the plan fetch below. False closes the
+     * whole save flow. */
+    @state() private _saveRouteOpen = false;
     /** Second Fitting v3: the decision window's own plan, fetched once
      * when SAVE TO CLOSET is clicked and handed straight into whatever
      * dialog the chosen route opens next -- neither the window nor the
-     * dialog it routes to fetches a second copy. Null closes the
-     * whole save flow; non-null with `_saveRoute` unset shows the
-     * window itself. */
+     * dialog it routes to fetches a second copy. Streams in after the
+     * window is already open (item 6); null until it lands. */
     @state() private _saveRoutePlan: SavePlan | null = null;
     /** Which route the window's own buttons chose. VALIDATE FOR
      * PERFECT FIT still opens the pre-v3 dialog until Commit 5 gives
@@ -234,17 +238,22 @@ export class IrDeviceDetail extends LitElement {
     }
 
     /** Second Fitting v3: SAVE TO CLOSET opens the decision window
-     * first, always -- fetching the plan once, up front, so its own
-     * source line and delta summary are never a guess. A failed fetch
-     * falls back to the old Perfect-Fit-route dialog directly, which
-     * retries the same call and carries its own inline error banner. */
+     * first, always. Punch list item 6: the window itself opens
+     * immediately, synchronously, on `hasSource` alone -- the plan
+     * fetch is no longer awaited before anything shows; its source
+     * line and delta summary stream in once the fetch resolves. A
+     * failed fetch closes the just-opened window and falls back to
+     * the old Perfect-Fit-route dialog directly, which retries the
+     * same call and carries its own inline error banner. */
     private async _openSaveRoute(): Promise<void> {
         if (this._busy) return;
+        this._saveRouteOpen = true;
         try {
             this._saveRoutePlan = await this.api.wigsSavePlan(
                 this.device.id,
             );
         } catch (err) {
+            this._saveRouteOpen = false;
             this._flash((err as Error).message);
             this._saveRoute = "perfect";
         }
@@ -270,6 +279,7 @@ export class IrDeviceDetail extends LitElement {
     };
 
     private _closeSaveFlow = (): void => {
+        this._saveRouteOpen = false;
         this._saveRoute = null;
         this._saveRoutePlan = null;
     };
@@ -1803,8 +1813,9 @@ export class IrDeviceDetail extends LitElement {
             </div>
 
             <!-- Dialogs -->
-            ${this._saveRoutePlan && !this._saveRoute
+            ${this._saveRouteOpen && !this._saveRoute
                 ? html`<ir-save-route-dialog
+                      ?hasSource=${!!this.device.source_wig_id}
                       .plan=${this._saveRoutePlan}
                       @route=${this._onSaveRoute}
                       @closed=${this._closeSaveFlow}

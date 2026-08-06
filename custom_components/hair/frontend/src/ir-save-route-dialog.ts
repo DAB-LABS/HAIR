@@ -41,17 +41,20 @@ export type SaveRoute = "new" | "update" | "perfect";
 
 @customElement("ir-save-route-dialog")
 export class IrSaveRouteDialog extends LitElement {
-    /** Already fetched by the host (hair/wigs/save_plan) before this
-     * dialog opens -- the whole point of routing through here is that
-     * the dialog the person lands on next never refetches it. */
-    @property({ attribute: false }) public plan!: SavePlan;
+    /** Whether the device has a source wig at all -- known synchronously
+     * from the device's own state, so the route list (in particular,
+     * whether UPDATE CLOSET WIG is offered) is correct on first paint
+     * and never shifts once the plan below arrives. */
+    @property({ type: Boolean }) public hasSource = false;
 
-    private get _hasSource(): boolean {
-        return !!this.plan?.source_wig_id;
-    }
+    /** Fetched by the host (hair/wigs/save_plan), but no longer awaited
+     * before this dialog opens (item 6) -- null while still in flight.
+     * The dialog the person lands on next still never refetches it. */
+    @property({ attribute: false }) public plan: SavePlan | null = null;
 
     private get _sourceLine(): string {
-        return this._hasSource
+        if (!this.plan) return "";
+        return this.hasSource
             ? t("wigs.route.source_from", {
                   name: this.plan.source_wig_name ?? "",
               })
@@ -60,11 +63,12 @@ export class IrSaveRouteDialog extends LitElement {
 
     /** The one-line delta summary, or null when there is no source to
      * compare against (a from-scratch device has nothing to diverge
-     * from). Diverged content names what changed rather than just
-     * warning that it did -- the same rows the plan already carries
-     * for the checklist below, counted here instead of listed. */
+     * from) or the plan has not landed yet. Diverged content names
+     * what changed rather than just warning that it did -- the same
+     * rows the plan already carries for the checklist below, counted
+     * here instead of listed. */
     private get _summaryLine(): string | null {
-        if (!this._hasSource) return null;
+        if (!this.plan || !this.hasSource) return null;
         if (this.plan.variant !== "succession") {
             return t("wigs.route.summary_matches");
         }
@@ -101,7 +105,6 @@ export class IrSaveRouteDialog extends LitElement {
     }
 
     render() {
-        if (!this.plan) return html``;
         const summary = this._summaryLine;
         return html`
             <div class="overlay" @click=${this._close}>
@@ -110,9 +113,17 @@ export class IrSaveRouteDialog extends LitElement {
                     @click=${(e: Event) => e.stopPropagation()}
                 >
                     <h3 class="heading">${t("wigs.export.heading")}</h3>
-                    <p class="source-line">${this._sourceLine}</p>
-                    ${summary
-                        ? html`<p class="summary-line">${summary}</p>`
+                    <p class="source-line">
+                        ${this.plan
+                            ? this._sourceLine
+                            : html`<span class="skeleton-text"></span>`}
+                    </p>
+                    ${this.hasSource
+                        ? html`<p class="summary-line">
+                              ${summary
+                                  ? summary
+                                  : html`<span class="skeleton-text"></span>`}
+                          </p>`
                         : ""}
                     <div class="route-list">
                         <button
@@ -121,7 +132,7 @@ export class IrSaveRouteDialog extends LitElement {
                         >
                             ${t("wigs.route.save_as_new")}
                         </button>
-                        ${this._hasSource
+                        ${this.hasSource
                             ? html`<button
                                   class="route-btn"
                                   @click=${() => this._choose("update")}
@@ -161,6 +172,24 @@ export class IrSaveRouteDialog extends LitElement {
                 margin: 0 0 16px;
                 font-size: 0.85rem;
                 color: var(--secondary-text-color);
+            }
+            .skeleton-text {
+                display: inline-block;
+                width: 55%;
+                height: 0.85em;
+                border-radius: 4px;
+                background: var(--divider-color);
+                animation: hair-route-skeleton-pulse 1.2s ease-in-out
+                    infinite;
+            }
+            @keyframes hair-route-skeleton-pulse {
+                0%,
+                100% {
+                    opacity: 0.5;
+                }
+                50% {
+                    opacity: 1;
+                }
             }
             .route-list {
                 display: flex;
