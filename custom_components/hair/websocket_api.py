@@ -4188,13 +4188,24 @@ def _wig_linked_devices(
     identity for several hundred cells on both sides of a pairwise scan,
     on a call that runs every time the closet lists. The pointer is
     exact, already written, and costs one comparison per device.
+
+    THE POINTER WINS (Second Fitting v3 punch list item 7). A device
+    that already carries a ``source_wig_id`` chips ONLY the wig it
+    points to. Identity matching is a fallback for devices with no
+    pointer at all -- it must never ALSO chip a pointed device onto
+    some other wig just because a signal happens to still content-match
+    there (e.g. a Save as New repoint where the untouched flat rows
+    still identity-match the retired ancestor). Without this, a moved
+    device double-chipped both its old and new wig forever.
     """
     linked: dict[str, str] = {}
     wig_id = getattr(wig, "wig_id", None)
-    if wig_id:
-        for device in hair_devices or []:
-            if device.source_wig_id == wig_id:
-                linked[device.id] = device.name
+    pointed_device_ids: set[str] = set()
+    for device in hair_devices or []:
+        if device.source_wig_id:
+            pointed_device_ids.add(device.id)
+        if wig_id and device.source_wig_id == wig_id:
+            linked[device.id] = device.name
 
     from .wig_identity import wig_signal_identities
 
@@ -4205,6 +4216,8 @@ def _wig_linked_devices(
             ident.decoded_fingerprint, ident.byte_hash, ident.fingerprint
         )
         for entry_identity, payload in assignment_index:
+            if payload["device_id"] in pointed_device_ids:
+                continue
             if identity.same_as(entry_identity):
                 linked[payload["device_id"]] = payload["device_name"]
     return [
