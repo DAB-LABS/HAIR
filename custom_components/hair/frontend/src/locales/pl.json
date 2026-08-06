@@ -534,6 +534,7 @@
     "wigs.save_as_wig": "Zapisz w szafie",
     "wigs.saved": "Zapisano w szafie jako {filename}",
     "wigs.saved_skipped": "Zapisano jako {filename} ({skipped} sygnałów bez kodu pominięto)",
+    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
     "wigs.save.perfect_label": "Oznacz jako idealne dopasowanie",
     "wigs.save.lattice_changed.one": "Zmieniłeś na tym urządzeniu jeden stan, który ma również {name}.",
     "wigs.save.lattice_changed.few": "Zmieniłeś na tym urządzeniu {count} stany, które ma również {name}.",
@@ -801,7 +802,5 @@
     "wigs.route.validate_perfect_fit": "Zweryfikuj do Perfect Fit",
     "wigs.route.replaced_receipt": "Zapisano jako {filename}; zastąpiono {old}.",
     "wigs.route.updated_metadata": "Zaktualizowano {filename}.",
-    "wigs.route.topup_offer": "Wysłać te polecenia również do innych urządzeń, które korzystały ze starej peruki?",
-    "wigs.route.send_topup": "Wyślij uzupełnienie",
-    "wigs.route.topup_sent": "Uzupełnienie wysłane."
+    "wigs.route.topup_offer": "Wysłać te polecenia również do innych urządzeń, które korzystały ze starej peruki?"
 }

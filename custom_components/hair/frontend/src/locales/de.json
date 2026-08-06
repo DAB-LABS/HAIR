@@ -516,6 +516,7 @@
     "wigs.save_as_wig": "Im Schrank speichern",
     "wigs.saved": "Im Schrank gespeichert als {filename}",
     "wigs.saved_skipped": "Gespeichert als {filename} ({skipped} Signale ohne Code wurden ausgelassen)",
+    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
     "wigs.save.perfect_label": "Als perfekte Passform kennzeichnen",
     "wigs.save.lattice_changed.one": "Du hast an diesem Geraet einen Zustand geaendert, den {name} ebenfalls hat.",
     "wigs.save.lattice_changed.other": "Du hast an diesem Geraet {count} Zustaende geaendert, die {name} ebenfalls hat.",
@@ -733,7 +734,5 @@
     "wigs.route.validate_perfect_fit": "Für Perfect Fit prüfen",
     "wigs.route.replaced_receipt": "Gespeichert als {filename}; {old} ersetzt.",
     "wigs.route.updated_metadata": "{filename} aktualisiert.",
-    "wigs.route.topup_offer": "Diese Befehle auch an andere Geräte senden, die die alte Wig ebenfalls verwendet haben?",
-    "wigs.route.send_topup": "Nachrüsten",
-    "wigs.route.topup_sent": "Nachgerüstet."
+    "wigs.route.topup_offer": "Diese Befehle auch an andere Geräte senden, die die alte Wig ebenfalls verwendet haben?"
 }

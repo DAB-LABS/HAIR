@@ -516,6 +516,7 @@
     "wigs.save_as_wig": "Save to Closet",
     "wigs.saved": "Saved to the closet as {filename}",
     "wigs.saved_skipped": "Saved as {filename} ({skipped} signals had no code and were left out)",
+    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
     "wigs.save.perfect_label": "Make this a perfect fit",
     "wigs.save.lattice_changed.one": "You changed one state on this device that {name} also has.",
     "wigs.save.lattice_changed.other": "You changed {count} states on this device that {name} also has.",
@@ -733,7 +734,5 @@
     "wigs.route.validate_perfect_fit": "Validate for Perfect Fit",
     "wigs.route.replaced_receipt": "Saved as {filename}; replaced {old}.",
     "wigs.route.updated_metadata": "Updated {filename}.",
-    "wigs.route.topup_offer": "Send these commands to other devices that used the old wig too?",
-    "wigs.route.send_topup": "Send Top-Up",
-    "wigs.route.topup_sent": "Top-up sent."
+    "wigs.route.topup_offer": "Send these commands to other devices that used the old wig too?"
 }

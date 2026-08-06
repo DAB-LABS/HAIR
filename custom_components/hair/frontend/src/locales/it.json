@@ -516,6 +516,7 @@
     "wigs.save_as_wig": "Salva nell'armadio",
     "wigs.saved": "Salvato nell'armadio come {filename}",
     "wigs.saved_skipped": "Salvato come {filename} ({skipped} segnali senza codice sono stati esclusi)",
+    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
     "wigs.save.perfect_label": "Segna come calzata perfetta",
     "wigs.save.lattice_changed.one": "Hai cambiato uno stato su questo dispositivo che anche {name} ha.",
     "wigs.save.lattice_changed.other": "Hai cambiato {count} stati su questo dispositivo che anche {name} ha.",
@@ -733,7 +734,5 @@
     "wigs.route.validate_perfect_fit": "Convalida per Perfect Fit",
     "wigs.route.replaced_receipt": "Salvato come {filename}; {old} sostituito.",
     "wigs.route.updated_metadata": "{filename} aggiornato.",
-    "wigs.route.topup_offer": "Inviare questi comandi anche agli altri dispositivi che usavano la vecchia wig?",
-    "wigs.route.send_topup": "Invia aggiornamento",
-    "wigs.route.topup_sent": "Aggiornamento inviato."
+    "wigs.route.topup_offer": "Inviare questi comandi anche agli altri dispositivi che usavano la vecchia wig?"
 }

@@ -516,6 +516,7 @@
     "wigs.save_as_wig": "Enregistrer dans la penderie",
     "wigs.saved": "Enregistré dans la penderie sous {filename}",
     "wigs.saved_skipped": "Enregistré sous {filename} ({skipped} signaux sans code ont été laissés de côté)",
+    "wigs.save.same_key_notice": "Этот виж уже подтверждён как {handle} ({date}); сохранение заменит эту запись, а не добавит новую.",
     "wigs.save.perfect_label": "Marquer comme ajustement parfait",
     "wigs.save.lattice_changed.one": "Vous avez modifie un etat sur cet appareil que {name} possede aussi.",
     "wigs.save.lattice_changed.other": "Vous avez modifie {count} etats sur cet appareil que {name} possede aussi.",
@@ -733,7 +734,5 @@
     "wigs.route.validate_perfect_fit": "Valider pour Perfect Fit",
     "wigs.route.replaced_receipt": "Enregistré sous {filename} ; {old} remplacé.",
     "wigs.route.updated_metadata": "{filename} mis à jour.",
-    "wigs.route.topup_offer": "Envoyer aussi ces commandes aux autres appareils qui utilisaient l'ancienne wig ?",
-    "wigs.route.send_topup": "Envoyer la mise à niveau",
-    "wigs.route.topup_sent": "Mise à niveau envoyée."
+    "wigs.route.topup_offer": "Envoyer aussi ces commandes aux autres appareils qui utilisaient l'ancienne wig ?"
 }
