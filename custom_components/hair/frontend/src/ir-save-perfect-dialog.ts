@@ -1137,7 +1137,9 @@ export class IrSavePerfectDialog extends LitElement {
                     ${this._textField(
                         t("wigs.save.your_github"),
                         this._github,
-                        (v) => (this._github = v),
+                        (v) => (this._github = v.replace(/^@+/, "")),
+                        "",
+                        "@",
                     )}
                 </div>
                 <label class="fit-check oath">
@@ -1160,17 +1162,28 @@ export class IrSavePerfectDialog extends LitElement {
         value: string,
         set: (v: string) => void,
         placeholder = "",
+        prefix = "",
     ) {
+        const input = html`
+            <input
+                type="text"
+                .value=${value}
+                placeholder=${placeholder}
+                @input=${(e: Event) =>
+                    set((e.target as HTMLInputElement).value)}
+            />
+        `;
         return html`
             <div class="field">
                 <label>${label}</label>
-                <input
-                    type="text"
-                    .value=${value}
-                    placeholder=${placeholder}
-                    @input=${(e: Event) =>
-                        set((e.target as HTMLInputElement).value)}
-                />
+                ${prefix
+                    ? html`
+                          <div class="input-prefixed">
+                              <span class="input-prefix">${prefix}</span>
+                              ${input}
+                          </div>
+                      `
+                    : input}
             </div>
         `;
     }
@@ -1212,6 +1225,33 @@ export class IrSavePerfectDialog extends LitElement {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
                 column-gap: 10px;
+            }
+            .input-prefixed {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                padding: 0 8px;
+                border-radius: 4px;
+                border: 1px solid var(--divider-color);
+                background: var(--card-background-color);
+                box-sizing: border-box;
+            }
+            .input-prefixed:focus-within {
+                border-color: #8e3b3b;
+            }
+            .input-prefix {
+                color: var(--secondary-text-color);
+                font-size: 0.95rem;
+                padding-right: 2px;
+                user-select: none;
+            }
+            .input-prefixed input[type="text"] {
+                flex: 1;
+                min-width: 0;
+                border: none;
+                background: transparent;
+                padding: 8px 0;
+                outline: none;
             }
             .ident-hint {
                 font-size: 11px;
