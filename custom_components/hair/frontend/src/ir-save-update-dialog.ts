@@ -341,6 +341,19 @@ export class IrSaveUpdateDialog extends LitElement {
                 line-height: 1.5;
                 color: var(--primary-text-color);
             }
+            /* Amber, matching the house family above (.fitted-callout /
+               .lost-callout): renaming the wig here is the same weight
+               of news, right where it's being typed. */
+            .rename-warn {
+                margin: 6px 0 0;
+                padding: 8px 10px;
+                border-radius: 6px;
+                border: 1px solid rgba(217, 164, 65, 0.45);
+                background: rgba(217, 164, 65, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
+            }
             .save-wig-btn {
                 background: #3f8a4b;
                 color: #fff;

@@ -2074,11 +2074,18 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 text-decoration: underline dotted;
                 text-underline-offset: 3px;
             }
+            /* Amber, matching the house family (.fitted-callout /
+               .lost-callout above): renaming the wig here is the same
+               weight of news, right where it's being typed. */
             .rename-warn {
-                font-size: 11.5px;
-                color: #d9a441;
-                line-height: 1.45;
-                margin: 4px 0 0;
+                margin: 6px 0 0;
+                padding: 8px 10px;
+                border-radius: 6px;
+                border: 1px solid rgba(217, 164, 65, 0.45);
+                background: rgba(217, 164, 65, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
             }
             .dialog-actions .action-btn {
                 white-space: nowrap;
@@ -2340,6 +2347,19 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 font-size: 0.9rem;
                 line-height: 1.5;
                 color: var(--primary-text-color);
+            }
+            /* Amber, matching the house family above (.fitted-callout /
+               .lost-callout): renaming the wig here is the same weight
+               of news, right where it's being typed. */
+            .rename-warn {
+                margin: 6px 0 0;
+                padding: 8px 10px;
+                border-radius: 6px;
+                border: 1px solid rgba(217, 164, 65, 0.45);
+                background: rgba(217, 164, 65, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
             }
             .save-wig-btn {
                 background: #3f8a4b;
