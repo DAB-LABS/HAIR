@@ -1407,11 +1407,16 @@ export class IrSavePerfectDialog extends LitElement {
                     0 0 0 1px rgba(100, 181, 246, 0.18),
                     0 2px 14px rgba(100, 181, 246, 0.09);
             }
+            /* Bench feedback 2026-08-06: this .fit-check is a
+               bare label (no checkbox glyph to skip past, unlike the
+               propose/oath rows below), so the gate/explainer/joining
+               box under it flush left to the label's own edge instead
+               of carrying that indent along for no reason. */
             .fit-gate {
                 font-size: 11.5px;
                 color: #d9a441;
                 line-height: 1.45;
-                margin: 6px 0 0 24px;
+                margin: 6px 0 0 0;
             }
             .fit-check {
                 display: flex;
@@ -1424,7 +1429,7 @@ export class IrSavePerfectDialog extends LitElement {
                 font-size: 11.5px;
                 color: var(--secondary-text-color);
                 line-height: 1.45;
-                margin: 6px 0 8px 24px;
+                margin: 6px 0 8px 0;
             }
             .fit-list {
                 max-height: 320px;
@@ -1566,9 +1571,10 @@ export class IrSavePerfectDialog extends LitElement {
             }
             .joining {
                 display: block;
-                width: calc(100% - 24px);
-                margin: 11px 0 0 24px;
+                width: 100%;
+                margin: 11px 0 0 0;
                 padding: 9px 12px;
+                box-sizing: border-box;
                 text-align: left;
                 font-family: inherit;
                 color: inherit;
