@@ -220,6 +220,11 @@ export class IrDeviceDetail extends LitElement {
     // Data
     // ---------------------------------------------------------------
 
+    /** Also the "wig-saved" handler for all three save dialogs
+     * (new/update/perfect): each fires it on a bubbling, composed
+     * CustomEvent once its save lands, so this.device.source_wig_id
+     * -- what gates UPDATE CLOSET WIG on the next Save to Closet
+     * open -- is never stale until a hard page refresh forces it. */
     private async _refresh() {
         this.device = await this.api.getDevice(this.device.id);
         this.dispatchEvent(
@@ -1835,6 +1840,7 @@ export class IrDeviceDetail extends LitElement {
                       .api=${this.api}
                       sourceId=${this.device.id}
                       .plan=${this._saveRoutePlan}
+                      @wig-saved=${this._refresh}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-new-dialog>`
                 : ""}
@@ -1844,6 +1850,7 @@ export class IrDeviceDetail extends LitElement {
                       sourceId=${this.device.id}
                       .plan=${this._saveRoutePlan}
                       @stale-replace=${this._onStaleReplace}
+                      @wig-saved=${this._refresh}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-update-dialog>`
                 : ""}
@@ -1857,6 +1864,7 @@ export class IrDeviceDetail extends LitElement {
                           .length > 0}
                       .hass=${this.hass}
                       .plan=${this._saveRoutePlan}
+                      @wig-saved=${this._refresh}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-perfect-dialog>`
                 : ""}
