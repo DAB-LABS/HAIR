@@ -1601,16 +1601,19 @@ export class IrSavePerfectDialog extends LitElement {
                 background: rgba(217, 164, 65, 0.14);
                 border-color: rgba(217, 164, 65, 0.65);
             }
+            /* Bench feedback 2026-08-07: one continuous line, not
+               two -- "See the fitting it already carries" runs right
+               after the notice sentence instead of underneath it.
+               Both spans fall back to their default inline display
+               so they wrap together as one paragraph; the template's
+               own whitespace between the two tags supplies the gap. */
             .joining .j-line {
-                display: block;
                 font-size: 13px;
                 line-height: 1.5;
             }
             .joining .j-see {
-                display: block;
                 font-size: 11.5px;
                 color: var(--secondary-text-color);
-                margin-top: 4px;
             }
             .joining .j-see u {
                 color: #64b5f6;
