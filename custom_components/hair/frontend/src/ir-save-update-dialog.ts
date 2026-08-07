@@ -312,6 +312,12 @@ export class IrSaveUpdateDialog extends LitElement {
         }
     }
 
+    /** Bench fix, part 2 (2026-08-07): matches
+     * ir-save-new-dialog.ts's own part-2 fix -- see that file's
+     * header comment for the full story. The form and the done
+     * screen both live in permanently-mounted wrapper <div>s here
+     * too, toggled with `hidden` rather than swapped by Lit, so the
+     * dialog's direct children never change identity or count. */
     render() {
         return html`
             <ha-dialog
@@ -320,7 +326,8 @@ export class IrSaveUpdateDialog extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._done ? this._renderDone() : this._renderForm()}
+                <div ?hidden=${!!this._done}>${this._renderForm()}</div>
+                <div ?hidden=${!this._done}>${this._renderDone()}</div>
             </ha-dialog>
         `;
     }
@@ -381,8 +388,13 @@ export class IrSaveUpdateDialog extends LitElement {
         `;
     }
 
+    /** Rendered even before there is anything to show (see the
+     * bench fix part 2 comment on render()) -- stays behind `hidden`
+     * until `_done` lands, so the dialog's children never change
+     * count or identity when the save actually completes. */
     private _renderDone() {
-        const done = this._done as SaveResult;
+        if (!this._done) return html``;
+        const done = this._done;
         // Second Fitting v3 punch list item 13 (supersedes round one
         // item 5's anatomy): a replace's receipt names both wigs, bold
         // and blue, not their filenames -- this dialog never had

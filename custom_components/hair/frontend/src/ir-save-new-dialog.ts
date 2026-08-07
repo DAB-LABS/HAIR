@@ -24,8 +24,21 @@
  * against the test instance, that took the whole dialog off-screen
  * before the receipt ever painted (the save itself always succeeded;
  * only the confirmation was crashing invisibly). One <ha-dialog> now
- * stays open for the component's whole life; only the content inside
- * it swaps between the form and the receipt.
+ * stays open for the component's whole life.
+ *
+ * Bench fix, part 2 (2026-08-07, same day): one persistent dialog
+ * element wasn't enough on its own. Live re-testing turned up a
+ * second failure mode on the same mechanism -- swapping the dialog's
+ * entire light-DOM content in one commit (every form field removed,
+ * an unrelated receipt tree added) still made the dialog go dark
+ * sometime after the swap, with no explicit close() call and no
+ * "closed" event from anywhere in our own code (confirmed live: a
+ * global dispatchEvent trap never saw one). The form and the done
+ * screen now both live in permanently-mounted wrapper <div>s inside
+ * the one <ha-dialog>, toggled with a plain `hidden` attribute --
+ * the dialog's direct children never change identity or count for
+ * the component's whole life, so there is no wholesale content
+ * mutation left for anything downstream to react to.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -165,7 +178,8 @@ export class IrSaveNewDialog extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._done ? this._renderDone() : this._renderForm()}
+                <div ?hidden=${!!this._done}>${this._renderForm()}</div>
+                <div ?hidden=${!this._done}>${this._renderDone()}</div>
             </ha-dialog>
         `;
     }
@@ -202,15 +216,20 @@ export class IrSaveNewDialog extends LitElement {
         `;
     }
 
+    /** Rendered even before there is anything to show (see the
+     * bench fix part 2 file-header comment) -- stays behind `hidden`
+     * until `_done` lands, so the dialog's children never change
+     * count or identity when the save actually completes. */
     private _renderDone() {
-        const done = this._done as SaveResult;
-        const line =
-            done.skipped > 0
+        const done = this._done;
+        const line = done
+            ? done.skipped > 0
                 ? t("wigs.saved_skipped", {
                       filename: done.filename ?? "",
                       skipped: String(done.skipped),
                   })
-                : t("wigs.saved", { filename: done.filename ?? "" });
+                : t("wigs.saved", { filename: done.filename ?? "" })
+            : "";
         return html`
             <div class="saved-line">${line}</div>
             <div class="dialog-actions">
