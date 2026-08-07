@@ -3657,70 +3657,58 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             font-size: 13.5px;
             line-height: 1.5;
         }
-    `],e([pe({attribute:!1})],wo.prototype,"api",void 0),e([pe({attribute:!1})],wo.prototype,"hass",void 0),e([ge()],wo.prototype,"_loading",void 0),e([ge()],wo.prototype,"_error",void 0),e([ge()],wo.prototype,"_wigs",void 0),e([ge()],wo.prototype,"_invalid",void 0),e([ge()],wo.prototype,"_library",void 0),e([ge()],wo.prototype,"_libraryVersion",void 0),e([ge()],wo.prototype,"_search",void 0),e([ge()],wo.prototype,"_filter",void 0),e([ge()],wo.prototype,"_openBrands",void 0),e([ge()],wo.prototype,"_dragOver",void 0),e([ge()],wo.prototype,"_notice",void 0),e([ge()],wo.prototype,"_noticeKind",void 0),e([ge()],wo.prototype,"_receipt",void 0),e([ge()],wo.prototype,"_receiptKind",void 0),e([ge()],wo.prototype,"_receiptFiles",void 0),e([ge()],wo.prototype,"_receiptSuffix",void 0),e([ge()],wo.prototype,"_supersede",void 0),e([ge()],wo.prototype,"_reverseSupersede",void 0),e([ge()],wo.prototype,"_bloomId",void 0),e([ge()],wo.prototype,"_busyId",void 0),e([ge()],wo.prototype,"_ledgerWig",void 0),e([ge()],wo.prototype,"_combWig",void 0),e([ge()],wo.prototype,"_adoptWig",void 0),e([ge()],wo.prototype,"_adoptCodebook",void 0),e([ge()],wo.prototype,"_linkedPopoverId",void 0),e([ge()],wo.prototype,"_peekId",void 0),e([ge()],wo.prototype,"_clipConfirm",void 0),e([ge()],wo.prototype,"_editing",void 0),e([ge()],wo.prototype,"_editName",void 0),e([ge()],wo.prototype,"_editBrand",void 0),e([ge()],wo.prototype,"_editModel",void 0),e([ge()],wo.prototype,"_editKind",void 0),e([ge()],wo.prototype,"_editNotes",void 0),e([ge()],wo.prototype,"_editFccId",void 0),e([ge()],wo.prototype,"_editUpc",void 0),e([ge()],wo.prototype,"_editAsin",void 0),e([ge()],wo.prototype,"_editOem",void 0),e([ge()],wo.prototype,"_editBusy",void 0),e([ge()],wo.prototype,"_editError",void 0),e([ge()],wo.prototype,"_confirmDelete",void 0),wo=e([ue("ir-wigs")],wo);const yo=/\{(old|new)\}/g;let ko=class extends re{constructor(){super(...arguments),this.sourceId="",this.sourceName="",this.hasEmitter=!0,this.plan=null,this._name="",this._brand="",this._model="",this._notes="",this._fccId="",this._upc="",this._asin="",this._oem="",this._busy=!1,this._error=null,this._done=null,this._plan=null,this._loading=!1,this._checked=new Set,this._reasons=new Map,this._renames=new Set,this._handle="",this._github="",this._oath=!1,this._proposeLattice=!1,this._ledgerOpen=!1}get _isUpdate(){return"update"===this._plan?.variant}get _isSuccession(){return"succession"===this._plan?.variant}get _allRows(){return this._plan?.rows??[]}get _attestableRows(){return this._allRows}get _checkedCount(){return this._attestableRows.filter(e=>this._checked.has(e.digest)).length}get _isPerfectFit(){const e=this._attestableRows;return e.length>0&&this._checkedCount===e.length}get _metaDirty(){const e=this._plan?.metadata??{};return[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]].some(([t,i])=>i.trim()!==(e[t]??"").trim())}get _metadataValues(){return{name:this._name,brand:this._brand,model:this._model,notes:this._notes,fccId:this._fccId,upc:this._upc,asin:this._asin,oem:this._oem}}get _metadataSetters(){return{setName:e=>this._name=e,setBrand:e=>this._brand=e,setModel:e=>this._model=e,setNotes:e=>this._notes=e,setFccId:e=>this._fccId=e,setUpc:e=>this._upc=e,setAsin:e=>this._asin=e,setOem:e=>this._oem=e}}get _renameWarning(){if(!this._isUpdate)return null;const e=(this._plan?.metadata.name??"").trim();return e&&this._name.trim()!==e?ke("wigs.save.rename_wig_warning",{filename:this._plan?.source_filename??""}):null}get _nothingToAttest(){return!!this._plan&&0===this._allRows.length}get _diverged(){return this._isUpdate&&!!this._plan?.lattice_diverged}get _attestBlocked(){return this._diverged&&!this._proposeLattice}get _armed(){return!this._attestBlocked&&!this._nothingToAttest}get _signed(){return this._armed&&this._oath}get _canSave(){return!(this._busy||this._armed&&!this._oath||this._isUpdate&&!this._signed&&!this._metaDirty)}get _saveLabel(){return this._busy?ke("common.saving"):this._armed?this._isPerfectFit?ke("wigs.save.save_perfect"):ke("wigs.save.save_fitted"):ke("common.save")}get _gradedLine(){if(!this._isSuccession)return null;const e=this._plan?.old_fitting_grade;if(!e||!e.state)return null;const t=this._handle.trim().toLowerCase(),i=t?e.handles.filter(e=>e.trim().toLowerCase()!==t):e.handles;if(!i.length)return null;const o=this._plan?.source_wig_name??"";return"perfect"===e.state?{amber:!0,text:ke("supersede.fitted_perfect",{name:o,who:i.join(", ")})}:{amber:!1,text:$e("supersede.fitted_scoped",e.count,{count:String(e.count),name:o,who:i.join(", ")})}}get _lostRowsLine(){if(!this._isSuccession)return null;const e=this._plan?.missing_rows??[];return e.length?$e("supersede.lost",e.length,{count:String(e.length),names:e.map(e=>e.alias).join(", ")}):null}async firstUpdated(){this._loading=!0;try{const e=this.plan??await this.api.wigsSavePlan(this.sourceId);this._plan=e,this._name=e.metadata.name??this.sourceName,this._brand=e.metadata.brand??"",this._model=e.metadata.model??"",this._notes=e.metadata.notes??"",this._fccId=e.metadata.fcc_id??"",this._upc=e.metadata.upc??"",this._asin=e.metadata.asin??"",this._oem=e.metadata.oem??"",this._armed&&this._armChecklist()}catch(e){this._error=e.message}finally{this._loading=!1}}_close(e){const t=e?.target;t&&!this.shadowRoot?.contains(t)||this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}_armChecklist(){this._checked=new Set(this._attestableRows.map(e=>e.digest)),this._reasons=new Map}_toggleProposeLattice(e){this._proposeLattice=e.target.checked,this._armed&&this._armChecklist()}_toggleRow(e){const t=new Set(this._checked);if(t.has(e))t.delete(e);else{t.add(e);const i=new Map(this._reasons);i.delete(e),this._reasons=i}this._checked=t}_setReason(e,t){const i=new Map(this._reasons);null===t?i.delete(e):i.set(e,t),this._reasons=i}_toggleRename(e){const t=new Set(this._renames);t.has(e)?t.delete(e):t.add(e),this._renames=t}async _sendRow(e){if(e.command_id){const t=await this.api.sendCommand(this.sourceId,e.command_id);return!!t?.heard}if(!this._isCell(e))return!1;const t=await this.api.matrixSend(this.sourceId,e.power?{power:e.power}:{mode:e.mode??void 0,fan:e.fan??null,swing:e.swing??null,temp:e.temp??null});return!!t?.heard}_isCell(e){return!!e.power||!!e.mode}_displayTemp(e){return Ji(e,this._plan?.unit??"C",Yi(this.hass),this._plan?.precision??1)}_rowLabel(e){if("on"===e.power)return ke("fitting.row_on");if("off"===e.power)return ke("fitting.row_off");switch(e.section){case"modes":return e.mode??e.alias;case"fan":return e.fan??e.alias;case"swing":return e.swing??e.alias;case"temp":return ke("min"===e.temp_role?"fitting.temp_min":"fitting.temp_max",{temp:null!=e.temp?this._displayTemp(e.temp):""});default:return e.alias}}_rowContext(e){if(e.power)return"";const t=["modes"===e.section?null:e.mode,e.fan,e.swing,null!=e.temp?`${this._displayTemp(e.temp)}°`:null].filter(Boolean).join(" · ");return e.temp_less?[t,ke("fitting.no_temp_note")].filter(Boolean).join(" "):t}_claims(){const e=[];for(const t of this._allRows){if(this._checked.has(t.digest)){e.push({digest:t.digest,verdict:"worked"});continue}const i=this._reasons.get(t.digest);i&&e.push({digest:t.digest,verdict:i})}return e}_renameList(){return this._isUpdate?this._allRows.filter(e=>e.renamed&&this._renames.has(e.digest)).map(e=>({digest:e.digest,alias_at_claim:e.wig_alias??"",alias:e.alias})):[]}async _save(){if(this._canSave){this._busy=!0,this._error=null;try{const e=await this._saveDevice();this.dispatchEvent(new CustomEvent("wig-saved",{detail:e,bubbles:!0,composed:!0})),this._done=e}catch(e){this._error=e.message}finally{this._busy=!1}}}_metadata(){const e={},t=[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]];for(const[i,o]of t)o.trim()&&(e[i]=o.trim());return e}async _saveDevice(){const e=this._armed?{claims:this._claims(),handle:this._handle.trim()||void 0,github:this._github.trim()||void 0,renames:this._renameList()}:void 0;return this.api.wigsSave({device_id:this.sourceId,...this._metadata(),...e?{attest:e}:{},...this._isSuccession?{replace:!0}:{},...this._isUpdate&&this._proposeLattice?{propose_lattice:!0}:{}})}render(){if(this._done)return this._renderDone();const e=this._gradedLine,t=this._lostRowsLine;return F`
+    `],e([pe({attribute:!1})],wo.prototype,"api",void 0),e([pe({attribute:!1})],wo.prototype,"hass",void 0),e([ge()],wo.prototype,"_loading",void 0),e([ge()],wo.prototype,"_error",void 0),e([ge()],wo.prototype,"_wigs",void 0),e([ge()],wo.prototype,"_invalid",void 0),e([ge()],wo.prototype,"_library",void 0),e([ge()],wo.prototype,"_libraryVersion",void 0),e([ge()],wo.prototype,"_search",void 0),e([ge()],wo.prototype,"_filter",void 0),e([ge()],wo.prototype,"_openBrands",void 0),e([ge()],wo.prototype,"_dragOver",void 0),e([ge()],wo.prototype,"_notice",void 0),e([ge()],wo.prototype,"_noticeKind",void 0),e([ge()],wo.prototype,"_receipt",void 0),e([ge()],wo.prototype,"_receiptKind",void 0),e([ge()],wo.prototype,"_receiptFiles",void 0),e([ge()],wo.prototype,"_receiptSuffix",void 0),e([ge()],wo.prototype,"_supersede",void 0),e([ge()],wo.prototype,"_reverseSupersede",void 0),e([ge()],wo.prototype,"_bloomId",void 0),e([ge()],wo.prototype,"_busyId",void 0),e([ge()],wo.prototype,"_ledgerWig",void 0),e([ge()],wo.prototype,"_combWig",void 0),e([ge()],wo.prototype,"_adoptWig",void 0),e([ge()],wo.prototype,"_adoptCodebook",void 0),e([ge()],wo.prototype,"_linkedPopoverId",void 0),e([ge()],wo.prototype,"_peekId",void 0),e([ge()],wo.prototype,"_clipConfirm",void 0),e([ge()],wo.prototype,"_editing",void 0),e([ge()],wo.prototype,"_editName",void 0),e([ge()],wo.prototype,"_editBrand",void 0),e([ge()],wo.prototype,"_editModel",void 0),e([ge()],wo.prototype,"_editKind",void 0),e([ge()],wo.prototype,"_editNotes",void 0),e([ge()],wo.prototype,"_editFccId",void 0),e([ge()],wo.prototype,"_editUpc",void 0),e([ge()],wo.prototype,"_editAsin",void 0),e([ge()],wo.prototype,"_editOem",void 0),e([ge()],wo.prototype,"_editBusy",void 0),e([ge()],wo.prototype,"_editError",void 0),e([ge()],wo.prototype,"_confirmDelete",void 0),wo=e([ue("ir-wigs")],wo);const yo=/\{(old|new)\}/g;let ko=class extends re{constructor(){super(...arguments),this.sourceId="",this.sourceName="",this.hasEmitter=!0,this.plan=null,this._name="",this._brand="",this._model="",this._notes="",this._fccId="",this._upc="",this._asin="",this._oem="",this._busy=!1,this._error=null,this._done=null,this._plan=null,this._loading=!1,this._checked=new Set,this._reasons=new Map,this._renames=new Set,this._handle="",this._github="",this._oath=!1,this._proposeLattice=!1,this._ledgerOpen=!1}get _isUpdate(){return"update"===this._plan?.variant}get _isSuccession(){return"succession"===this._plan?.variant}get _allRows(){return this._plan?.rows??[]}get _attestableRows(){return this._allRows}get _checkedCount(){return this._attestableRows.filter(e=>this._checked.has(e.digest)).length}get _isPerfectFit(){const e=this._attestableRows;return e.length>0&&this._checkedCount===e.length}get _metaDirty(){const e=this._plan?.metadata??{};return[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]].some(([t,i])=>i.trim()!==(e[t]??"").trim())}get _metadataValues(){return{name:this._name,brand:this._brand,model:this._model,notes:this._notes,fccId:this._fccId,upc:this._upc,asin:this._asin,oem:this._oem}}get _metadataSetters(){return{setName:e=>this._name=e,setBrand:e=>this._brand=e,setModel:e=>this._model=e,setNotes:e=>this._notes=e,setFccId:e=>this._fccId=e,setUpc:e=>this._upc=e,setAsin:e=>this._asin=e,setOem:e=>this._oem=e}}get _renameWarning(){if(!this._isUpdate)return null;const e=(this._plan?.metadata.name??"").trim();return e&&this._name.trim()!==e?ke("wigs.save.rename_wig_warning",{filename:this._plan?.source_filename??""}):null}get _nothingToAttest(){return!!this._plan&&0===this._allRows.length}get _diverged(){return this._isUpdate&&!!this._plan?.lattice_diverged}get _attestBlocked(){return this._diverged&&!this._proposeLattice}get _armed(){return!this._attestBlocked&&!this._nothingToAttest}get _signed(){return this._armed&&this._oath}get _canSave(){return!(this._busy||this._armed&&!this._oath||this._isUpdate&&!this._signed&&!this._metaDirty)}get _saveLabel(){return this._busy?ke("common.saving"):this._armed?this._isPerfectFit?ke("wigs.save.save_perfect"):ke("wigs.save.save_fitted"):ke("common.save")}get _gradedLine(){if(!this._isSuccession)return null;const e=this._plan?.old_fitting_grade;if(!e||!e.state)return null;const t=this._handle.trim().toLowerCase(),i=t?e.handles.filter(e=>e.trim().toLowerCase()!==t):e.handles;if(!i.length)return null;const o=this._plan?.source_wig_name??"";return"perfect"===e.state?{amber:!0,text:ke("supersede.fitted_perfect",{name:o,who:i.join(", ")})}:{amber:!1,text:$e("supersede.fitted_scoped",e.count,{count:String(e.count),name:o,who:i.join(", ")})}}get _lostRowsLine(){if(!this._isSuccession)return null;const e=this._plan?.missing_rows??[];return e.length?$e("supersede.lost",e.length,{count:String(e.length),names:e.map(e=>e.alias).join(", ")}):null}async firstUpdated(){this._loading=!0;try{const e=this.plan??await this.api.wigsSavePlan(this.sourceId);this._plan=e,this._name=e.metadata.name??this.sourceName,this._brand=e.metadata.brand??"",this._model=e.metadata.model??"",this._notes=e.metadata.notes??"",this._fccId=e.metadata.fcc_id??"",this._upc=e.metadata.upc??"",this._asin=e.metadata.asin??"",this._oem=e.metadata.oem??"",this._armed&&this._armChecklist()}catch(e){this._error=e.message}finally{this._loading=!1}}_close(){this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}_armChecklist(){this._checked=new Set(this._attestableRows.map(e=>e.digest)),this._reasons=new Map}_toggleProposeLattice(e){this._proposeLattice=e.target.checked,this._armed&&this._armChecklist()}_toggleRow(e){const t=new Set(this._checked);if(t.has(e))t.delete(e);else{t.add(e);const i=new Map(this._reasons);i.delete(e),this._reasons=i}this._checked=t}_setReason(e,t){const i=new Map(this._reasons);null===t?i.delete(e):i.set(e,t),this._reasons=i}_toggleRename(e){const t=new Set(this._renames);t.has(e)?t.delete(e):t.add(e),this._renames=t}async _sendRow(e){if(e.command_id){const t=await this.api.sendCommand(this.sourceId,e.command_id);return!!t?.heard}if(!this._isCell(e))return!1;const t=await this.api.matrixSend(this.sourceId,e.power?{power:e.power}:{mode:e.mode??void 0,fan:e.fan??null,swing:e.swing??null,temp:e.temp??null});return!!t?.heard}_isCell(e){return!!e.power||!!e.mode}_displayTemp(e){return Ji(e,this._plan?.unit??"C",Yi(this.hass),this._plan?.precision??1)}_rowLabel(e){if("on"===e.power)return ke("fitting.row_on");if("off"===e.power)return ke("fitting.row_off");switch(e.section){case"modes":return e.mode??e.alias;case"fan":return e.fan??e.alias;case"swing":return e.swing??e.alias;case"temp":return ke("min"===e.temp_role?"fitting.temp_min":"fitting.temp_max",{temp:null!=e.temp?this._displayTemp(e.temp):""});default:return e.alias}}_rowContext(e){if(e.power)return"";const t=["modes"===e.section?null:e.mode,e.fan,e.swing,null!=e.temp?`${this._displayTemp(e.temp)}°`:null].filter(Boolean).join(" · ");return e.temp_less?[t,ke("fitting.no_temp_note")].filter(Boolean).join(" "):t}_claims(){const e=[];for(const t of this._allRows){if(this._checked.has(t.digest)){e.push({digest:t.digest,verdict:"worked"});continue}const i=this._reasons.get(t.digest);i&&e.push({digest:t.digest,verdict:i})}return e}_renameList(){return this._isUpdate?this._allRows.filter(e=>e.renamed&&this._renames.has(e.digest)).map(e=>({digest:e.digest,alias_at_claim:e.wig_alias??"",alias:e.alias})):[]}async _save(){if(this._canSave){this._busy=!0,this._error=null;try{const e=await this._saveDevice();this.dispatchEvent(new CustomEvent("wig-saved",{detail:e,bubbles:!0,composed:!0})),this._done=e}catch(e){this._error=e.message}finally{this._busy=!1}}}_metadata(){const e={},t=[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]];for(const[i,o]of t)o.trim()&&(e[i]=o.trim());return e}async _saveDevice(){const e=this._armed?{claims:this._claims(),handle:this._handle.trim()||void 0,github:this._github.trim()||void 0,renames:this._renameList()}:void 0;return this.api.wigsSave({device_id:this.sourceId,...this._metadata(),...e?{attest:e}:{},...this._isSuccession?{replace:!0}:{},...this._isUpdate&&this._proposeLattice?{propose_lattice:!0}:{}})}render(){return F`
             <ha-dialog
                 open
                 heading=${ke("wigs.route.validate_perfect_fit")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._error?F`<ha-alert alert-type="error">${this._error}</ha-alert>`:""}
-                ${this._plan?.source_missing?F`<div class="source-missing-info">
-                          <ha-svg-icon .path=${vo}></ha-svg-icon>
-                          <span>${ke("wigs.save.source_missing")}</span>
-                      </div>`:""}
-                ${e?F`<div
-                          class=${e.amber?"fitted-callout":"fitted-line"}
-                      >
-                          ${e.text}
-                      </div>`:""}
-                ${t?F`<div class="lost-callout">${t}</div>`:""}
-                ${eo(this._metadataValues,this._metadataSetters,this._renameWarning)}
-                ${this._renderFitting()} ${this._renderActions()}
+                ${this._done?this._renderDone():this._renderForm()}
             </ha-dialog>
             ${this._ledgerOpen&&this._plan?.source_filename?F`<ir-claims-ledger
                       .api=${this.api}
                       .wig=${{filename:this._plan.source_filename,name:this._plan.source_wig_name??""}}
                       @closed=${()=>this._ledgerOpen=!1}
                   ></ir-claims-ledger>`:""}
+        `}_renderForm(){const e=this._gradedLine,t=this._lostRowsLine;return F`
+            ${this._error?F`<ha-alert alert-type="error">${this._error}</ha-alert>`:""}
+            ${this._plan?.source_missing?F`<div class="source-missing-info">
+                      <ha-svg-icon .path=${vo}></ha-svg-icon>
+                      <span>${ke("wigs.save.source_missing")}</span>
+                  </div>`:""}
+            ${e?F`<div
+                      class=${e.amber?"fitted-callout":"fitted-line"}
+                  >
+                      ${e.text}
+                  </div>`:""}
+            ${t?F`<div class="lost-callout">${t}</div>`:""}
+            ${eo(this._metadataValues,this._metadataSetters,this._renameWarning)}
+            ${this._renderFitting()} ${this._renderActions()}
         `}_renderDone(){const e=this._done,t=e.replaced;if(t)return F`
-                <ha-dialog
-                    open
-                    heading=${ke("wigs.route.validate_perfect_fit")}
-                    scrimClickAction=""
-                    @closed=${this._close}
-                >
-                    <div class="saved-line">
-                        ${this._renderReplacedLine(t.old_name,this._name.trim())}
-                    </div>
-                    <div class="dialog-actions">
-                        <span class="spacer"></span>
-                        <button class="action-btn" @click=${this._close}>
-                            ${ke("common.close")}
-                        </button>
-                    </div>
-                </ha-dialog>
-            `;const i="update"===e.variant?ke("wigs.save.updated",{filename:e.filename??"",count:String(e.attested)}):e.skipped>0?ke("wigs.saved_skipped",{filename:e.filename??"",skipped:String(e.skipped)}):ke("wigs.saved",{filename:e.filename??""});return F`
-            <ha-dialog
-                open
-                heading=${ke("wigs.route.validate_perfect_fit")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">${i}</div>
-                ${e.cells_proposed?F`<div class="saved-line">
-                          ${$e("wigs.save.cells_proposed",e.cells_proposed)}
-                      </div>`:""}
-                ${e.stale_renames?.length?F`<ha-alert alert-type="warning"
-                          >${ke("wigs.save.stale_renames",{names:e.stale_renames.join(", ")})}</ha-alert
-                      >`:""}
+                <div class="saved-line">
+                    ${this._renderReplacedLine(t.old_name,this._name.trim())}
+                </div>
                 <div class="dialog-actions">
                     <span class="spacer"></span>
                     <button class="action-btn" @click=${this._close}>
                         ${ke("common.close")}
                     </button>
                 </div>
-            </ha-dialog>
+            `;const i="update"===e.variant?ke("wigs.save.updated",{filename:e.filename??"",count:String(e.attested)}):e.skipped>0?ke("wigs.saved_skipped",{filename:e.filename??"",skipped:String(e.skipped)}):ke("wigs.saved",{filename:e.filename??""});return F`
+            <div class="saved-line">${i}</div>
+            ${e.cells_proposed?F`<div class="saved-line">
+                      ${$e("wigs.save.cells_proposed",e.cells_proposed)}
+                  </div>`:""}
+            ${e.stale_renames?.length?F`<ha-alert alert-type="warning"
+                      >${ke("wigs.save.stale_renames",{names:e.stale_renames.join(", ")})}</ha-alert
+                  >`:""}
+            <div class="dialog-actions">
+                <span class="spacer"></span>
+                <button class="action-btn" @click=${this._close}>
+                    ${ke("common.close")}
+                </button>
+            </div>
         `}_renderReplacedLine(e,t){const i=ke("wigs.route.replaced_receipt").split(yo);return F`${i.map(i=>"old"===i?F`<b class="replaced-name">${e}</b>`:"new"===i?F`<b class="replaced-name">${t}</b>`:F`${i}`)}`}_renderJoining(){const e=this._plan?.existing_fittings??0;if(!this._isUpdate||e<1)return"";const t=this._plan?.same_key_notice,i=!(!t||!t.handle),o=i?ke("wigs.save.joining_self_notice",{date:t.date??""}):$e("wigs.save.joining_proven",e);return F`
             <button
                 class="joining ${i?"joining-self":""}"
@@ -4294,16 +4282,19 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 background: rgba(217, 164, 65, 0.14);
                 border-color: rgba(217, 164, 65, 0.65);
             }
+            /* Bench feedback 2026-08-07: one continuous line, not
+               two -- "See the fitting it already carries" runs right
+               after the notice sentence instead of underneath it.
+               Both spans fall back to their default inline display
+               so they wrap together as one paragraph; the template's
+               own whitespace between the two tags supplies the gap. */
             .joining .j-line {
-                display: block;
                 font-size: 13px;
                 line-height: 1.5;
             }
             .joining .j-see {
-                display: block;
                 font-size: 11.5px;
                 color: var(--secondary-text-color);
-                margin-top: 4px;
             }
             .joining .j-see u {
                 color: #64b5f6;
@@ -4422,49 +4413,44 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 border-color: #43a047;
                 background: rgba(67, 160, 71, 0.06);
             }
-        `],e([pe({type:Boolean})],xo.prototype,"hasSource",void 0),e([pe({attribute:!1})],xo.prototype,"plan",void 0),xo=e([ue("ir-save-route-dialog")],xo);let $o=class extends re{constructor(){super(...arguments),this.sourceId="",this._name="",this._brand="",this._model="",this._notes="",this._fccId="",this._upc="",this._asin="",this._oem="",this._busy=!1,this._error=null,this._done=null}firstUpdated(){const e=this.plan.metadata??{};this._name=this.plan.suggested_new_name??e.name??"",this._brand=e.brand??"",this._model=e.model??"",this._notes=e.notes??"",this._fccId=e.fcc_id??"",this._upc=e.upc??"",this._asin=e.asin??"",this._oem=e.oem??""}get _metadataValues(){return{name:this._name,brand:this._brand,model:this._model,notes:this._notes,fccId:this._fccId,upc:this._upc,asin:this._asin,oem:this._oem}}get _metadataSetters(){return{setName:e=>this._name=e,setBrand:e=>this._brand=e,setModel:e=>this._model=e,setNotes:e=>this._notes=e,setFccId:e=>this._fccId=e,setUpc:e=>this._upc=e,setAsin:e=>this._asin=e,setOem:e=>this._oem=e}}_metadata(){const e={},t=[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]];for(const[i,o]of t)o.trim()&&(e[i]=o.trim());return e}_close(e){const t=e?.target;t&&!this.shadowRoot?.contains(t)||this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}async _save(){if(!this._busy){this._busy=!0,this._error=null;try{const e=await this.api.wigsSave({device_id:this.sourceId,mode:"create",...this._metadata()});this.dispatchEvent(new CustomEvent("wig-saved",{detail:e,bubbles:!0,composed:!0})),this._done=e}catch(e){this._error=e.message}finally{this._busy=!1}}}render(){return this._done?this._renderDone():F`
+        `],e([pe({type:Boolean})],xo.prototype,"hasSource",void 0),e([pe({attribute:!1})],xo.prototype,"plan",void 0),xo=e([ue("ir-save-route-dialog")],xo);let $o=class extends re{constructor(){super(...arguments),this.sourceId="",this._name="",this._brand="",this._model="",this._notes="",this._fccId="",this._upc="",this._asin="",this._oem="",this._busy=!1,this._error=null,this._done=null}firstUpdated(){const e=this.plan.metadata??{};this._name=this.plan.suggested_new_name??e.name??"",this._brand=e.brand??"",this._model=e.model??"",this._notes=e.notes??"",this._fccId=e.fcc_id??"",this._upc=e.upc??"",this._asin=e.asin??"",this._oem=e.oem??""}get _metadataValues(){return{name:this._name,brand:this._brand,model:this._model,notes:this._notes,fccId:this._fccId,upc:this._upc,asin:this._asin,oem:this._oem}}get _metadataSetters(){return{setName:e=>this._name=e,setBrand:e=>this._brand=e,setModel:e=>this._model=e,setNotes:e=>this._notes=e,setFccId:e=>this._fccId=e,setUpc:e=>this._upc=e,setAsin:e=>this._asin=e,setOem:e=>this._oem=e}}_metadata(){const e={},t=[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]];for(const[i,o]of t)o.trim()&&(e[i]=o.trim());return e}_close(){this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}async _save(){if(!this._busy){this._busy=!0,this._error=null;try{const e=await this.api.wigsSave({device_id:this.sourceId,mode:"create",...this._metadata()});this.dispatchEvent(new CustomEvent("wig-saved",{detail:e,bubbles:!0,composed:!0})),this._done=e}catch(e){this._error=e.message}finally{this._busy=!1}}}render(){return F`
             <ha-dialog
                 open
                 heading=${ke("wigs.route.save_as_new")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._error?F`<ha-alert alert-type="error"
-                          >${this._error}</ha-alert
-                      >`:""}
-                ${eo(this._metadataValues,this._metadataSetters,null)}
-                <div class="dialog-actions">
-                    <span class="spacer"></span>
-                    <button
-                        class="action-btn cancel-btn"
-                        @click=${this._close}
-                        ?disabled=${this._busy}
-                    >
-                        ${ke("common.cancel")}
-                    </button>
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${this._save}
-                        ?disabled=${this._busy}
-                    >
-                        ${this._busy?ke("common.saving"):ke("common.save")}
-                    </button>
-                </div>
+                ${this._done?this._renderDone():this._renderForm()}
             </ha-dialog>
+        `}_renderForm(){return F`
+            ${this._error?F`<ha-alert alert-type="error"
+                      >${this._error}</ha-alert
+                  >`:""}
+            ${eo(this._metadataValues,this._metadataSetters,null)}
+            <div class="dialog-actions">
+                <span class="spacer"></span>
+                <button
+                    class="action-btn cancel-btn"
+                    @click=${this._close}
+                    ?disabled=${this._busy}
+                >
+                    ${ke("common.cancel")}
+                </button>
+                <button
+                    class="action-btn save-wig-btn"
+                    @click=${this._save}
+                    ?disabled=${this._busy}
+                >
+                    ${this._busy?ke("common.saving"):ke("common.save")}
+                </button>
+            </div>
         `}_renderDone(){const e=this._done,t=e.skipped>0?ke("wigs.saved_skipped",{filename:e.filename??"",skipped:String(e.skipped)}):ke("wigs.saved",{filename:e.filename??""});return F`
-            <ha-dialog
-                open
-                heading=${ke("wigs.route.save_as_new")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">${t}</div>
-                <div class="dialog-actions">
-                    <button class="action-btn" @click=${this._close}>
-                        ${ke("common.close")}
-                    </button>
-                </div>
-            </ha-dialog>
+            <div class="saved-line">${t}</div>
+            <div class="dialog-actions">
+                <button class="action-btn" @click=${this._close}>
+                    ${ke("common.close")}
+                </button>
+            </div>
         `}};$o.styles=[Ki,n`
             ha-alert {
                 display: block;
@@ -4494,58 +4480,53 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             .save-wig-btn:hover:not(:disabled) {
                 opacity: 0.9;
             }
-        `],e([pe({attribute:!1})],$o.prototype,"api",void 0),e([pe()],$o.prototype,"sourceId",void 0),e([pe({attribute:!1})],$o.prototype,"plan",void 0),e([ge()],$o.prototype,"_name",void 0),e([ge()],$o.prototype,"_brand",void 0),e([ge()],$o.prototype,"_model",void 0),e([ge()],$o.prototype,"_notes",void 0),e([ge()],$o.prototype,"_fccId",void 0),e([ge()],$o.prototype,"_upc",void 0),e([ge()],$o.prototype,"_asin",void 0),e([ge()],$o.prototype,"_oem",void 0),e([ge()],$o.prototype,"_busy",void 0),e([ge()],$o.prototype,"_error",void 0),e([ge()],$o.prototype,"_done",void 0),$o=e([ue("ir-save-new-dialog")],$o);const zo=/\{(old|new)\}/g,So=/\{(name|who)\}/g;let Co=class extends re{constructor(){super(...arguments),this.sourceId="",this._name="",this._brand="",this._model="",this._notes="",this._fccId="",this._upc="",this._asin="",this._oem="",this._busy=!1,this._error=null,this._done=null}get _diverged(){return"succession"===this.plan.variant}firstUpdated(){const e=this.plan.metadata??{};this._name=e.name??"",this._brand=e.brand??"",this._model=e.model??"",this._notes=e.notes??"",this._fccId=e.fcc_id??"",this._upc=e.upc??"",this._asin=e.asin??"",this._oem=e.oem??""}get _metadataValues(){return{name:this._name,brand:this._brand,model:this._model,notes:this._notes,fccId:this._fccId,upc:this._upc,asin:this._asin,oem:this._oem}}get _metadataSetters(){return{setName:e=>this._name=e,setBrand:e=>this._brand=e,setModel:e=>this._model=e,setNotes:e=>this._notes=e,setFccId:e=>this._fccId=e,setUpc:e=>this._upc=e,setAsin:e=>this._asin=e,setOem:e=>this._oem=e}}get _renameWarning(){const e=(this.plan.metadata?.name??"").trim();return e&&this._name.trim()!==e?ke("wigs.save.rename_wig_warning",{filename:this.plan.source_filename??""}):null}get _gradedLine(){if(!this._diverged)return null;const e=this.plan.old_fitting_grade;if(!e||!e.state)return null;const t=this.plan.source_wig_name??"",i=e.handles.join(", ");return"perfect"===e.state?{amber:!0,text:ke("supersede.update_fitted_perfect"),name:t,who:i}:{amber:!1,text:$e("supersede.fitted_scoped",e.count,{count:String(e.count),name:t,who:i}),name:t,who:i}}get _lostRowsLine(){if(!this._diverged)return null;const e=this.plan.missing_rows??[];return e.length?$e("supersede.lost",e.length,{count:String(e.length),names:this._formatNames(e.map(e=>e.alias))}):null}get _addedRowsLine(){if(!this._diverged)return null;const e=(this.plan.rows??[]).filter(e=>!e.matched);return e.length?$e("supersede.added",e.length,{count:String(e.length),names:this._formatNames(e.map(e=>e.alias))}):null}_formatNames(e){if(e.length<=1)return e[0]??"";const t=ke("supersede.list_and");if(e.length<=4)return`${e.slice(0,-1).join(", ")} ${t} ${e[e.length-1]}`;const i=e.length-4;return`${e.slice(0,4).join(", ")} ${t} ${$e("supersede.topup_more",i,{count:String(i)})}`}_renderGradedPerfectLine(e,t,i){const o=e.split(So);return F`${o.map(e=>"name"===e?F`<b class="replaced-name">${t}</b>`:"who"===e?F`${i}`:F`${e}`)}`}_metadata(){const e={},t=[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]];for(const[i,o]of t)o.trim()&&(e[i]=o.trim());return e}_close(e){const t=e?.target;t&&!this.shadowRoot?.contains(t)||this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}async _save(){if(!this._busy){this._busy=!0,this._error=null;try{const e=await this.api.wigsSave({device_id:this.sourceId,...this._metadata(),...this._diverged?{replace:!0}:{}});this.dispatchEvent(new CustomEvent("wig-saved",{detail:e,bubbles:!0,composed:!0})),this._done=e}catch(e){if("not_diverged"===e.code)return void this.dispatchEvent(new CustomEvent("stale-replace",{bubbles:!0,composed:!0}));this._error=e.message}finally{this._busy=!1}}}render(){if(this._done)return this._renderDone();const e=this._gradedLine,t=this._lostRowsLine,i=this._addedRowsLine;return F`
+        `],e([pe({attribute:!1})],$o.prototype,"api",void 0),e([pe()],$o.prototype,"sourceId",void 0),e([pe({attribute:!1})],$o.prototype,"plan",void 0),e([ge()],$o.prototype,"_name",void 0),e([ge()],$o.prototype,"_brand",void 0),e([ge()],$o.prototype,"_model",void 0),e([ge()],$o.prototype,"_notes",void 0),e([ge()],$o.prototype,"_fccId",void 0),e([ge()],$o.prototype,"_upc",void 0),e([ge()],$o.prototype,"_asin",void 0),e([ge()],$o.prototype,"_oem",void 0),e([ge()],$o.prototype,"_busy",void 0),e([ge()],$o.prototype,"_error",void 0),e([ge()],$o.prototype,"_done",void 0),$o=e([ue("ir-save-new-dialog")],$o);const zo=/\{(old|new)\}/g,So=/\{(name|who)\}/g;let Co=class extends re{constructor(){super(...arguments),this.sourceId="",this._name="",this._brand="",this._model="",this._notes="",this._fccId="",this._upc="",this._asin="",this._oem="",this._busy=!1,this._error=null,this._done=null}get _diverged(){return"succession"===this.plan.variant}firstUpdated(){const e=this.plan.metadata??{};this._name=e.name??"",this._brand=e.brand??"",this._model=e.model??"",this._notes=e.notes??"",this._fccId=e.fcc_id??"",this._upc=e.upc??"",this._asin=e.asin??"",this._oem=e.oem??""}get _metadataValues(){return{name:this._name,brand:this._brand,model:this._model,notes:this._notes,fccId:this._fccId,upc:this._upc,asin:this._asin,oem:this._oem}}get _metadataSetters(){return{setName:e=>this._name=e,setBrand:e=>this._brand=e,setModel:e=>this._model=e,setNotes:e=>this._notes=e,setFccId:e=>this._fccId=e,setUpc:e=>this._upc=e,setAsin:e=>this._asin=e,setOem:e=>this._oem=e}}get _renameWarning(){const e=(this.plan.metadata?.name??"").trim();return e&&this._name.trim()!==e?ke("wigs.save.rename_wig_warning",{filename:this.plan.source_filename??""}):null}get _gradedLine(){if(!this._diverged)return null;const e=this.plan.old_fitting_grade;if(!e||!e.state)return null;const t=this.plan.source_wig_name??"",i=e.handles.join(", ");return"perfect"===e.state?{amber:!0,text:ke("supersede.update_fitted_perfect"),name:t,who:i}:{amber:!1,text:$e("supersede.fitted_scoped",e.count,{count:String(e.count),name:t,who:i}),name:t,who:i}}get _lostRowsLine(){if(!this._diverged)return null;const e=this.plan.missing_rows??[];return e.length?$e("supersede.lost",e.length,{count:String(e.length),names:this._formatNames(e.map(e=>e.alias))}):null}get _addedRowsLine(){if(!this._diverged)return null;const e=(this.plan.rows??[]).filter(e=>!e.matched);return e.length?$e("supersede.added",e.length,{count:String(e.length),names:this._formatNames(e.map(e=>e.alias))}):null}_formatNames(e){if(e.length<=1)return e[0]??"";const t=ke("supersede.list_and");if(e.length<=4)return`${e.slice(0,-1).join(", ")} ${t} ${e[e.length-1]}`;const i=e.length-4;return`${e.slice(0,4).join(", ")} ${t} ${$e("supersede.topup_more",i,{count:String(i)})}`}_renderGradedPerfectLine(e,t,i){const o=e.split(So);return F`${o.map(e=>"name"===e?F`<b class="replaced-name">${t}</b>`:"who"===e?F`${i}`:F`${e}`)}`}_metadata(){const e={},t=[["name",this._name],["brand",this._brand],["model",this._model],["notes",this._notes],["fcc_id",this._fccId],["upc",this._upc],["asin",this._asin],["oem",this._oem]];for(const[i,o]of t)o.trim()&&(e[i]=o.trim());return e}_close(){this.dispatchEvent(new CustomEvent("closed",{bubbles:!0,composed:!0}))}async _save(){if(!this._busy){this._busy=!0,this._error=null;try{const e=await this.api.wigsSave({device_id:this.sourceId,...this._metadata(),...this._diverged?{replace:!0}:{}});this.dispatchEvent(new CustomEvent("wig-saved",{detail:e,bubbles:!0,composed:!0})),this._done=e}catch(e){if("not_diverged"===e.code)return void this.dispatchEvent(new CustomEvent("stale-replace",{bubbles:!0,composed:!0}));this._error=e.message}finally{this._busy=!1}}}render(){return F`
             <ha-dialog
                 open
                 heading=${ke("wigs.route.update_closet_wig")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._error?F`<ha-alert alert-type="error"
-                          >${this._error}</ha-alert
-                      >`:""}
-                ${e?F`<div
-                          class=${e.amber?"fitted-callout":"fitted-line"}
-                      >
-                          ${e.amber?this._renderGradedPerfectLine(e.text,e.name,e.who):e.text}
-                      </div>`:""}
-                ${t||i?F`<div class="lost-callout">
-                          ${t?F`<div>${t}</div>`:""}
-                          ${i?F`<div>${i}</div>`:""}
-                      </div>`:""}
-                ${eo(this._metadataValues,this._metadataSetters,this._renameWarning)}
-                <div class="dialog-actions">
-                    <span class="spacer"></span>
-                    <button
-                        class="action-btn cancel-btn"
-                        @click=${this._close}
-                        ?disabled=${this._busy}
-                    >
-                        ${ke("common.cancel")}
-                    </button>
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${this._save}
-                        ?disabled=${this._busy}
-                    >
-                        ${this._busy?ke("common.saving"):ke("common.save")}
-                    </button>
-                </div>
+                ${this._done?this._renderDone():this._renderForm()}
             </ha-dialog>
+        `}_renderForm(){const e=this._gradedLine,t=this._lostRowsLine,i=this._addedRowsLine;return F`
+            ${this._error?F`<ha-alert alert-type="error"
+                      >${this._error}</ha-alert
+                  >`:""}
+            ${e?F`<div
+                      class=${e.amber?"fitted-callout":"fitted-line"}
+                  >
+                      ${e.amber?this._renderGradedPerfectLine(e.text,e.name,e.who):e.text}
+                  </div>`:""}
+            ${t||i?F`<div class="lost-callout">
+                      ${t?F`<div>${t}</div>`:""}
+                      ${i?F`<div>${i}</div>`:""}
+                  </div>`:""}
+            ${eo(this._metadataValues,this._metadataSetters,this._renameWarning)}
+            <div class="dialog-actions">
+                <span class="spacer"></span>
+                <button
+                    class="action-btn cancel-btn"
+                    @click=${this._close}
+                    ?disabled=${this._busy}
+                >
+                    ${ke("common.cancel")}
+                </button>
+                <button
+                    class="action-btn save-wig-btn"
+                    @click=${this._save}
+                    ?disabled=${this._busy}
+                >
+                    ${this._busy?ke("common.saving"):ke("common.save")}
+                </button>
+            </div>
         `}_renderDone(){const e=this._done,t=e.replaced?this._renderReplacedLine(e.replaced.old_name,this._name.trim()):ke("wigs.route.updated_metadata",{filename:e.filename??""});return F`
-            <ha-dialog
-                open
-                heading=${ke("wigs.route.update_closet_wig")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">${t}</div>
-                <div class="dialog-actions">
-                    <button class="action-btn" @click=${this._close}>
-                        ${ke("common.close")}
-                    </button>
-                </div>
-            </ha-dialog>
+            <div class="saved-line">${t}</div>
+            <div class="dialog-actions">
+                <button class="action-btn" @click=${this._close}>
+                    ${ke("common.close")}
+                </button>
+            </div>
         `}_renderReplacedLine(e,t){const i=ke("wigs.route.replaced_receipt").split(zo);return F`${i.map(i=>"old"===i?F`<b class="replaced-name">${e}</b>`:"new"===i?F`<b class="replaced-name">${t}</b>`:F`${i}`)}`}};Co.styles=[Ki,n`
             ha-alert {
                 display: block;
