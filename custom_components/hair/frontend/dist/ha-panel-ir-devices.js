@@ -3664,7 +3664,8 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._done?this._renderDone():this._renderForm()}
+                <div ?hidden=${!!this._done}>${this._renderForm()}</div>
+                <div ?hidden=${!this._done}>${this._renderDone()}</div>
             </ha-dialog>
             ${this._ledgerOpen&&this._plan?.source_filename?F`<ir-claims-ledger
                       .api=${this.api}
@@ -3685,7 +3686,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             ${t?F`<div class="lost-callout">${t}</div>`:""}
             ${eo(this._metadataValues,this._metadataSetters,this._renameWarning)}
             ${this._renderFitting()} ${this._renderActions()}
-        `}_renderDone(){const e=this._done,t=e.replaced;if(t)return F`
+        `}_renderDone(){if(!this._done)return F``;const e=this._done,t=e.replaced;if(t)return F`
                 <div class="saved-line">
                     ${this._renderReplacedLine(t.old_name,this._name.trim())}
                 </div>
@@ -4420,7 +4421,8 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._done?this._renderDone():this._renderForm()}
+                <div ?hidden=${!!this._done}>${this._renderForm()}</div>
+                <div ?hidden=${!this._done}>${this._renderDone()}</div>
             </ha-dialog>
         `}_renderForm(){return F`
             ${this._error?F`<ha-alert alert-type="error"
@@ -4444,7 +4446,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                     ${this._busy?ke("common.saving"):ke("common.save")}
                 </button>
             </div>
-        `}_renderDone(){const e=this._done,t=e.skipped>0?ke("wigs.saved_skipped",{filename:e.filename??"",skipped:String(e.skipped)}):ke("wigs.saved",{filename:e.filename??""});return F`
+        `}_renderDone(){const e=this._done,t=e?e.skipped>0?ke("wigs.saved_skipped",{filename:e.filename??"",skipped:String(e.skipped)}):ke("wigs.saved",{filename:e.filename??""}):"";return F`
             <div class="saved-line">${t}</div>
             <div class="dialog-actions">
                 <button class="action-btn" @click=${this._close}>
@@ -4487,7 +4489,8 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._done?this._renderDone():this._renderForm()}
+                <div ?hidden=${!!this._done}>${this._renderForm()}</div>
+                <div ?hidden=${!this._done}>${this._renderDone()}</div>
             </ha-dialog>
         `}_renderForm(){const e=this._gradedLine,t=this._lostRowsLine,i=this._addedRowsLine;return F`
             ${this._error?F`<ha-alert alert-type="error"
@@ -4520,7 +4523,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                     ${this._busy?ke("common.saving"):ke("common.save")}
                 </button>
             </div>
-        `}_renderDone(){const e=this._done,t=e.replaced?this._renderReplacedLine(e.replaced.old_name,this._name.trim()):ke("wigs.route.updated_metadata",{filename:e.filename??""});return F`
+        `}_renderDone(){if(!this._done)return F``;const e=this._done,t=e.replaced?this._renderReplacedLine(e.replaced.old_name,this._name.trim()):ke("wigs.route.updated_metadata",{filename:e.filename??""});return F`
             <div class="saved-line">${t}</div>
             <div class="dialog-actions">
                 <button class="action-btn" @click=${this._close}>
