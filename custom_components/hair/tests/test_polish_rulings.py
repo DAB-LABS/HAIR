@@ -633,6 +633,56 @@ class TestTheFittingsLineIsADoor:
                 assert "{n}rd" not in value
 
 
+class TestSavingRefreshesTheDeviceCard:
+    """Bug (bench 2026-08-06): after Save as New / Update / Perfect
+    Fit succeeds, the device card never refetched, so
+    this.device.source_wig_id stayed stale and UPDATE CLOSET WIG kept
+    missing on the very next Save to Closet open -- only a hard page
+    refresh forced the refetch that made it appear. All three save
+    dialogs already dispatch a bubbling, composed "wig-saved"
+    CustomEvent on success; the fix wires it to the same _refresh()
+    helper every other mutating action in this file already uses."""
+
+    def test_all_three_save_dialogs_trigger_a_refresh(self):
+        text = _read("ir-device-detail.ts")
+        assert text.count("@wig-saved=${this._refresh}") == 3
+
+    def test_the_dialogs_actually_dispatch_what_this_listens_for(self):
+        assert 'new CustomEvent("wig-saved"' in _read(
+            "ir-save-new-dialog.ts"
+        )
+        assert 'new CustomEvent("wig-saved"' in _read(
+            "ir-save-update-dialog.ts"
+        )
+        assert 'new CustomEvent("wig-saved"' in _read(
+            "ir-save-perfect-dialog.ts"
+        )
+
+
+class TestThePerfectFitExplainerAlignsWithItsLabel:
+    """Bench feedback 2026-08-06: the description and the joining box
+    under "Make this a perfect fit" sat indented 24px right of the
+    label -- a checkbox-row indent convention (skipping past the
+    checkbox glyph on the propose/oath rows) that does not apply
+    here, since this particular .fit-check is a bare label with no
+    checkbox. Flushed left to the label's own edge; the joining box
+    widened to fill the freed space."""
+
+    def test_the_gate_and_explainer_are_flush_left(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        gate = text.split(".fit-gate {", 1)[1].split("}", 1)[0]
+        assert "margin: 6px 0 0 0;" in gate
+        explainer = text.split(".fit-explainer {", 1)[1].split("}", 1)[0]
+        assert "margin: 6px 0 8px 0;" in explainer
+
+    def test_the_joining_box_is_flush_left_and_full_width(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        block = text.split(".joining {", 1)[1].split("}", 1)[0]
+        assert "width: 100%;" in block
+        assert "margin: 11px 0 0 0;" in block
+        assert "box-sizing: border-box;" in block
+
+
 class TestTheSelfCaseJoiningBoxIsFinal:
     """Second Fitting v3 punch list round three, item 11 (completing
     round two): the self case is one box, house amber, no handle --
