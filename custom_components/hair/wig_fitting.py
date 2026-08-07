@@ -87,7 +87,7 @@ def bundle_is_complete(
     return perfect_by(bundle, digests)
 
 
-def claims_ledger(wig: Wig, username: str | None) -> dict[str, Any]:
+def claims_ledger(wig: Wig, install_key: str | None) -> dict[str, Any]:
     """Everything a reader can honestly say about a wig's attestations.
 
     READ ONLY, and structurally so. The ledger used to be a tab inside
@@ -109,7 +109,6 @@ def claims_ledger(wig: Wig, username: str | None) -> dict[str, Any]:
     bundles = claims_of(wig)
     digests = wig_row_digests(wig)
     live = set(digests)
-    handle = (username or "").strip().lower()
     raw_entries = wig.extra.get(FITTINGS_KEY)
     raw_entries = raw_entries if isinstance(raw_entries, list) else []
     # A matrix wig has no flat row digests BY DESIGN -- its claims bind
@@ -169,8 +168,14 @@ def claims_ledger(wig: Wig, username: str | None) -> dict[str, Any]:
                 if wig.climate is None or not bundle.cells_hash
                 else bundle.cells_hash == cells_content_hash(wig.climate)
             ),
-            "mine": bool(handle)
-            and (bundle.handle or "").strip().lower() == handle,
+            # Second Fitting v3 punch list item 8: "mine" is a
+            # cryptographic fact, not a typed-handle-vs-HA-username
+            # string compare. A wig this very install signed carries
+            # the install's own public key on the bundle regardless
+            # of what handle was typed at fitting time -- the same
+            # identity ruling as round one's item 1 (the same-key
+            # re-sign notice).
+            "mine": bool(install_key) and bundle.key == install_key,
             "rows": rows,
         })
 
@@ -184,7 +189,7 @@ def claims_ledger(wig: Wig, username: str | None) -> dict[str, Any]:
     }
 
 
-def claims_summary(wig: Wig, username: str | None) -> dict[str, Any]:
+def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
     """The closet row's check, DERIVED from claims (RULED 2026-08-03).
 
     Three tiers, one-to-one with the download filename tiers, because a
@@ -219,8 +224,13 @@ def claims_summary(wig: Wig, username: str | None) -> dict[str, Any]:
         state = "scoped"
 
     def _mine(bundle: Any) -> bool:
-        handle = (bundle.handle or "").strip().lower()
-        return bool(username) and handle == (username or "").strip().lower()
+        # Second Fitting v3 punch list item 8: keyed on the install's
+        # public signing key, not the typed handle against the HA
+        # username -- a wig this install actually signed must show
+        # the owner state regardless of what handle it was signed
+        # under (bench: a same-install bundle with a handle that did
+        # not match the HA username stayed grey).
+        return bool(install_key) and bundle.key == install_key
 
     mine = [b for b in bundles if _mine(b)]
     return {

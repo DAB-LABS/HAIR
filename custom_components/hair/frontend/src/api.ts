@@ -29,8 +29,11 @@ import type {
     PluckVendor,
     ProntoValidation,
     ReceiverInfo,
+    ReverseSupersessionBlock,
     SavePlan,
     SaveResult,
+    SupersedeResult,
+    SupersessionBlock,
     SignalRemovedEvent,
     SignalSourceId,
     SignalUpdatedEvent,
@@ -257,7 +260,10 @@ export class HairApi {
 
     /** Fire one exact cell, or a power code. Coordinates must be read
      * off matrixCells verbatim -- the backend resolves exactly, never
-     * snaps. Resolves to the display-grammar name it sent as. */
+     * snaps. Resolves to the display-grammar name it sent as, plus
+     * the same SENT . HEARD reading sendCommand reports -- a cell
+     * send rides the identical Mirror echo hook (Second Fitting v3
+     * punch list item 14). */
     matrixSend(
         deviceId: string,
         state: {
@@ -267,8 +273,12 @@ export class HairApi {
             temp?: number | null;
             power?: "on" | "off";
         },
-    ): Promise<{ sent: string }> {
-        return this.hass.connection.sendMessagePromise<{ sent: string }>({
+    ): Promise<{ sent: string; heard: boolean; receiver: string | null }> {
+        return this.hass.connection.sendMessagePromise<{
+            sent: string;
+            heard: boolean;
+            receiver: string | null;
+        }>({
             type: "hair/devices/matrix-send",
             device_id: deviceId,
             ...state,
@@ -304,6 +314,10 @@ export class HairApi {
     wigsUpload(
         text: string,
         filename?: string,
+        // Set on the resend that follows an owner Import Anyway, so the
+        // reverse-supersession check below does not fire twice on the
+        // same text (v0.9.7 Second Fitting, amendment v2 section 3).
+        confirmed?: boolean,
     ): Promise<{
         success: boolean;
         filename?: string;
@@ -323,13 +337,39 @@ export class HairApi {
         format?: string;
         skipped?: string[];
         errors?: string[];
+        // The replace-flow invitation, when the arrival names an ancestor
+        // still in this closet (v0.9.7 Second Fitting).
+        supersession?: SupersessionBlock;
+        // The arrival names an id a newer LOCAL wig already lists as
+        // superseded -- nothing files until the owner says Import
+        // Anyway (v0.9.7 Second Fitting, amendment v2 section 3).
+        reverse_supersession?: ReverseSupersessionBlock;
     }> {
         const msg: Record<string, unknown> = {
             type: "hair/wigs/upload",
             text,
         };
         if (filename) msg.filename = filename;
+        if (confirmed) msg.confirmed = true;
         return this.hass.connection.sendMessagePromise(msg);
+    }
+
+    /** Perform the replace a superseding Wig invites: delete the old
+     * file, repoint its devices, top up the chosen ones (v0.9.7). The
+     * server re-verifies the pair, so a stale confirm refuses cleanly. */
+    wigsSupersede(
+        newFilename: string,
+        oldFilename: string,
+        relink: boolean,
+        topupDeviceIds: string[],
+    ): Promise<SupersedeResult> {
+        return this.hass.connection.sendMessagePromise<SupersedeResult>({
+            type: "hair/wigs/supersede",
+            new_filename: newFilename,
+            old_filename: oldFilename,
+            relink,
+            topup_device_ids: topupDeviceIds,
+        });
     }
 
     /** Comb one wig and refresh its receipt. Always re-combs rather than
@@ -365,10 +405,15 @@ export class HairApi {
         });
     }
 
-    wigsGet(filename: string): Promise<{ filename: string; text: string }> {
+    wigsGet(filename: string): Promise<{
+        filename: string;
+        text: string;
+        download_filename: string;
+    }> {
         return this.hass.connection.sendMessagePromise<{
             filename: string;
             text: string;
+            download_filename: string;
         }>({ type: "hair/wigs/get", filename });
     }
 
@@ -418,13 +463,21 @@ export class HairApi {
         });
     }
 
-    /** Save a device to the closet. ``mode`` is the person's answer,
-     * not an inference: the dialog showed them which verb it offered,
-     * so sending it back means a save cannot silently become the other
-     * one because a file appeared or vanished mid-dialog. */
+    /** Save a device to the closet. The verb is derived server-side
+     * (Second Fitting amendment v2) from the device's own state at
+     * save time for every route but one: Save As New sends
+     * `mode: "create"` (v3 punch list item 2) to say the route itself
+     * was the caller's choice, forcing a mint even over matching
+     * content -- every other field here is still read fresh from the
+     * device, never taken on the caller's word. */
     wigsSave(payload: {
         device_id: string;
-        mode: "create" | "update";
+        /** Second Fitting v3 punch list item 2: set only by the Save
+         * As New dialog. Forces a mint regardless of what the fresh
+         * server-side derivation would otherwise pick, and drops any
+         * `replace` riding in the same payload -- Save As New never
+         * touches the existing wig. */
+        mode?: "create";
         name?: string;
         brand?: string;
         model?: string;
@@ -447,6 +500,11 @@ export class HairApi {
         };
         /** MATRIX UPDATE: send the repaired lattice upstream. */
         propose_lattice?: boolean;
+        /** Second Fitting v3: the Update Closet Wig dialog's own
+         * intent, set when its plan already says the device diverged.
+         * The server re-derives the verb fresh and refuses a stale
+         * one rather than acting on this alone. */
+        replace?: boolean;
     }): Promise<SaveResult> {
         return this.hass.connection.sendMessagePromise<SaveResult>({
             type: "hair/wigs/save",

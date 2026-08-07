@@ -332,10 +332,14 @@ export interface SavePlanRow {
     bypass: boolean;
     protocol: string | null;
     wig_index: number | null;
-    /** UPDATE only: what the WIG calls this row. */
+    /** Set when this row matched a source wig row (UPDATE or
+     * SUCCESSION): what the WIG calls it. */
     wig_alias: string | null;
     matched: boolean;
-    /** Matched by bytes but not by name: the rename line. */
+    /** Matched by bytes but not by name: the rename line. UPDATE only
+     * -- a SUCCESSION successor is authored from the device's current
+     * alias directly, so there is no upstream file to propose a
+     * rename onto. */
     renamed: boolean;
     /** MATRIX ONLY. A checklist row addresses a cell by coordinate
      * rather than a command by id: TEST sends these, and they compose
@@ -350,7 +354,10 @@ export interface SavePlanRow {
     power?: string | null;
 }
 
-/** A wig row nothing on the device covers. Feeds the exclusion picker. */
+/** A wig row nothing on the device covers. Second Fitting amendment v2
+ * (owner ruling on missing rows, option 2): always a removal now,
+ * diverging the save to SUCCESSION -- rendered struck-through with a
+ * disabled checkbox, never an exclusion candidate. */
 export interface SavePlanMissingRow {
     wig_index: number;
     alias: string;
@@ -371,7 +378,11 @@ export interface CellChange {
 }
 
 export interface SavePlan {
-    variant: "create" | "update";
+    /** Second Fitting amendment v2: the verb is derived server-side,
+     * never picked by the caller. "succession" mints a successor wig
+     * when the device's commands have diverged from the source wig's
+     * rows by digest. */
+    variant: "create" | "update" | "succession";
     rows: SavePlanRow[];
     missing_rows: SavePlanMissingRow[];
     source_filename: string | null;
@@ -404,6 +415,88 @@ export interface SavePlan {
      * entity, not the command list, so the rows above are only its
      * depth-0 extras and the perfect-fit block stays closed. */
     matrix: boolean;
+    /** SUCCESSION only (Second Fitting v3): the source wig's own
+     * fitting history, graded, for the Update Closet Wig dialog's
+     * inline warning before the click. Null state means present but
+     * unfitted -- nothing extra renders, same as no claims at all. */
+    old_fitting_grade: {
+        state: "perfect" | "scoped" | null;
+        count: number;
+        handles: string[];
+    } | null;
+    /** Save as New only (Second Fitting v3 punch list, item 4): a
+     * shelf-collision-safe default name, present whenever there is a
+     * source wig regardless of divergence. Update and Perfect Fit
+     * prefill from metadata.name verbatim instead -- a replace keeps
+     * the source wig's name. */
+    suggested_new_name: string | null;
+    /** Second Fitting v3 punch list, item 1: this install already has
+     * a bundle on the wig being attested. Present only on a
+     * not-diverged plan with a same-key match -- append_claims will
+     * replace that bundle rather than add a second one. */
+    same_key_notice: { handle: string | null; date: string | null } | null;
+}
+
+/** A device that came from the superseded Wig, and how many of the
+ * arrival's rows it still lacks (v0.9.7 Second Fitting). */
+export interface SupersedeDevice {
+    id: string;
+    name: string;
+    missing_commands: number;
+    /** The arrival's rows this device still lacks, by alias (amendment
+     * v2 section 2: the confirm names them, not just counts them).
+     * Same length as ``missing_commands``, file order. */
+    missing_aliases: string[];
+}
+
+/** The superseded wig's own fitting history, graded for the confirm
+ * (amendment v2 section 2). ``handles`` is every handle that ever
+ * fitted the ancestor, first-seen order, regardless of whether their
+ * claims were scoped or complete -- it credits the grade AND answers
+ * the self doorway's "is anyone other than me on this ancestor"
+ * question, which needs everyone, not just the perfect ones. */
+export interface SupersedeOldFittings {
+    count: number;
+    state: "perfect" | "scoped" | null;
+    handles: string[];
+}
+
+/** The replace-flow invitation the server computes at both doorways: an
+ * arriving Wig meets an ancestor still in the closet. */
+export interface SupersessionBlock {
+    old_filename: string;
+    old_name: string;
+    old_signals: number;
+    new_signals: number;
+    /** Rows of the local copy the arrival does not carry, by digest. Empty
+     * in the friendly state; non-empty arms the guarded one. */
+    lost_digests: string[];
+    lost_aliases: string[];
+    devices: SupersedeDevice[];
+    old_fittings: SupersedeOldFittings;
+}
+
+/** The reverse-direction import check (v0.9.7 Second Fitting, amendment
+ * v2 section 3): the arrival names an id that a wig ALREADY in this
+ * closet lists as an ancestor it superseded. ``name``/``signal_count``
+ * describe that newer local wig, not the arrival -- the dialog reads
+ * "a newer wig here supersedes this one: {name}, {n} signals." */
+export interface ReverseSupersessionBlock {
+    name: string;
+    signal_count: number;
+}
+
+/** The outcome of hair/wigs/supersede, per device, for the receipt. */
+export interface SupersedeResult {
+    deleted: boolean;
+    old_filename: string;
+    new_filename: string;
+    devices: {
+        id: string;
+        name: string;
+        relinked: boolean;
+        commands_added: number;
+    }[];
 }
 
 export interface SaveResult {
@@ -412,6 +505,10 @@ export interface SaveResult {
     signal_count: number;
     skipped: number;
     attested: number;
+    /** What the server actually wrote. A SUCCESSION save still comes
+     * back "create" -- it mints a wig the same way a CREATE does, so
+     * the supersession fires from ``supersession`` below rather than
+     * from this field. */
     variant: "create" | "update";
     notes: string[];
     /** Renames that matched nothing. Reported, never silent. */
@@ -420,6 +517,25 @@ export interface SaveResult {
     suspects: number;
     /** Lattice cells this save proposed upstream. */
     cells_proposed: number;
+    /** Present when Save as new mints a self-superseding Wig whose
+     * ancestor is still local: the second doorway (v0.9.7). Second
+     * Fitting v3's Save as New dialog deliberately never acts on this
+     * -- the post-save confirm it used to open is retired as a
+     * decision point (spec section 6); only the import doorway still
+     * reads it. */
+    supersession?: SupersessionBlock;
+    /** Present when Update Closet Wig's `replace: true` auto-replaced
+     * an ancestor as part of this same save (Second Fitting v3,
+     * Commit 2): the dual-act receipt, "Saved as <file>; replaced
+     * <old>." */
+    replaced?: {
+        old_filename: string;
+        /** Second Fitting v3 punch list item 13: the receipt names
+         * this wig, not its filename. */
+        old_name: string;
+        deleted: boolean;
+        devices: { id: string; name: string }[];
+    };
 }
 
 export interface WigInvalid {
@@ -462,6 +578,12 @@ export interface IRDevice {
     // payloads, null for devices without a matrix. Feeds the device
     // page's compact matrix card.
     matrix?: MatrixSummary | null;
+    // Second Fitting v3 punch list item 6: the closet wig this device
+    // was captured from, if any -- the backend always serializes it
+    // (models.py IRDevice.to_dict), and the decision window's
+    // synchronous ``hasSource`` gate (whether UPDATE CLOSET WIG is
+    // even offered) reads straight off this field, no fetch needed.
+    source_wig_id: string | null;
 }
 
 export interface DeviceSummary {

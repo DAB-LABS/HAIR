@@ -766,6 +766,7 @@ class DeviceManager:
         cell_name: str,
         pronto: str,
         send_count: int = 1,
+        heard_future: Any | None = None,
     ) -> None:
         """Send one climate matrix cell's raw Pronto (Cold Cuts).
 
@@ -777,6 +778,14 @@ class DeviceManager:
         Pronto replay with no decoded re-encode attempt: AC frames are
         long state blobs the decoders do not cover, and the matrix
         file's code IS the ground truth (census finding).
+
+        ``heard_future`` (Second Fitting v3 punch list item 14): the
+        same echo hook ``async_send_command`` has always accepted.
+        Before this it was silently dropped here, so a matrix TEST
+        could only ever report SENT -- the Mirror's echo matching is
+        content-based (decoded fingerprint / signal fingerprint), not
+        a command-table lookup, so it already recognized a cell's own
+        echo; the wire to report that back just never existed.
         """
         device = self._store.get_device(device_id)
         if device is None:
@@ -790,6 +799,7 @@ class DeviceManager:
         await self._async_broadcast(
             device, ir_cmd, cell_name,
             send_count=max(1, send_count or 1),
+            heard_future=heard_future,
         )
 
     # --- Emitter-degrade notifications (GH #65 rider, v0.8.1) ---

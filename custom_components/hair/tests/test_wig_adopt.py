@@ -217,3 +217,88 @@ class TestAMatrixWigLinksByItsStoredPointer:
         assert _wig_linked_devices(wig, index) == [
             {"device_id": "d1", "device_name": "Living Room"}
         ]
+
+
+class TestPointerWinsOverIdentity:
+    """Second Fitting v3 punch list item 7. A device with a stored
+    ``source_wig_id`` chips ONLY the wig it points to -- identity
+    matching is a fallback for devices with no pointer at all. Before
+    this, a device that had moved on (e.g. a Save as New repoint) kept
+    chipping its retired ancestor forever, because the ancestor's
+    untouched flat rows still identity-matched the moved device's
+    stored commands."""
+
+    def test_a_pointed_device_does_not_chip_a_different_wig_by_identity(
+        self,
+    ):
+        # d1 points at wig-1, but its stored command still content
+        # matches wig-2 (an untouched row that survived a repoint).
+        # wig-2 must not chip d1: the pointer says wig-1, full stop.
+        other_wig = Wig(
+            name="Other", wig_id="wig-2",
+            signals=[WigSignal(alias="S0", pronto=PRONTO_A)],
+        )
+        index = [_index_for(PRONTO_A, "d1", "Living Room")]
+        devices = [
+            IRDevice(
+                id="d1", name="Living Room", device_type="ac",
+                source_wig_id="wig-1",
+            )
+        ]
+        assert _wig_linked_devices(other_wig, index, devices) == []
+
+    def test_a_pointed_device_still_chips_its_own_wig(self):
+        wig = Wig(name="W", wig_id="wig-1", signals=[])
+        devices = [
+            IRDevice(
+                id="d1", name="Living Room", device_type="ac",
+                source_wig_id="wig-1",
+            )
+        ]
+        assert _wig_linked_devices(wig, [], devices) == [
+            {"device_id": "d1", "device_name": "Living Room"}
+        ]
+
+    def test_an_unpointed_device_still_chips_by_identity(self):
+        # d2 has no pointer at all -- the identity fallback still
+        # applies to it exactly as before.
+        wig = Wig(
+            name="W", wig_id="wig-2",
+            signals=[WigSignal(alias="S0", pronto=PRONTO_A)],
+        )
+        index = [_index_for(PRONTO_A, "d2", "Bedroom")]
+        devices = [
+            IRDevice(
+                id="d2", name="Bedroom", device_type="ac",
+                source_wig_id=None,
+            )
+        ]
+        assert _wig_linked_devices(wig, index, devices) == [
+            {"device_id": "d2", "device_name": "Bedroom"}
+        ]
+
+    def test_a_pointed_device_and_an_unpointed_device_both_evaluated(
+        self,
+    ):
+        # Mixed roster: the pointed device (d1, elsewhere) is excluded
+        # from wig-2's identity match, the unpointed one (d2) is not.
+        wig = Wig(
+            name="W", wig_id="wig-2",
+            signals=[WigSignal(alias="S0", pronto=PRONTO_A)],
+        )
+        index = [
+            _index_for(PRONTO_A, "d1", "Living Room"),
+            _index_for(PRONTO_A, "d2", "Bedroom"),
+        ]
+        devices = [
+            IRDevice(
+                id="d1", name="Living Room", device_type="ac",
+                source_wig_id="wig-1",
+            ),
+            IRDevice(
+                id="d2", name="Bedroom", device_type="ac",
+                source_wig_id=None,
+            ),
+        ]
+        linked = _wig_linked_devices(wig, index, devices)
+        assert linked == [{"device_id": "d2", "device_name": "Bedroom"}]

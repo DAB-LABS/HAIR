@@ -1,10 +1,17 @@
 """SAVE TO CLOSET: the plan the dialog draws, and the save it performs.
 
-Two verbs behind one button (plan Section 4). A device that remembers a
-``source_wig_id`` offers **UPDATE**; anything else is a **CREATE**. This
-module is the seam between the device and the wig: it answers "what am I
-about to attest, and against what" (``build_save_plan``) and then does
-it (``perform_create`` / ``perform_update``).
+THE VERB IS DERIVED (Second Fitting amendment v2, owner-ruled on the
+bench 2026-08-04) -- nobody picks it. A device with no source is
+**CREATE**. A device whose commands still match its source wig's rows
+by digest -- renames and metadata edits do not count as divergence --
+is **UPDATE**, exactly as it always was. A device whose commands have
+DIVERGED from its source wig (any digest added or removed) is
+**SUCCESSION**: the save mints a successor wig carrying the ancestry,
+and the attestation binds the successor's own rows rather than a row
+set that no longer describes the device. This module is the seam
+between the device and the wig: it answers "what am I about to attest,
+and against what, and which of the three is this" (``build_save_plan``)
+and then does it (``perform_create`` / ``perform_update``).
 
 Nothing here decides anything the person did not. The plan reports what
 matched, what did not, and where a name differs; every check, reason and
@@ -15,7 +22,8 @@ fitter's back is state nobody signed.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,12 +47,18 @@ from .wig_format import (
     row_digest,
     serialize_wig,
     signal_row_digest,
+    wig_row_digests,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 VARIANT_CREATE = "create"
 VARIANT_UPDATE = "update"
+#: Second Fitting amendment v2. The device's commands have diverged
+#: (by digest) from the source wig's rows -- any addition, any
+#: removal. The save mints a successor rather than appending to a row
+#: set that no longer describes the device; see build_save_plan.
+VARIANT_SUCCESSION = "succession"
 
 
 @dataclass
@@ -95,14 +109,64 @@ class PlanRow:
 class PlanMissingRow:
     """A wig row nothing on the device covers.
 
-    Feeds the exclusion picker. The person either says why (not on my
-    device / could not make it work) or leaves it unclaimed, which is
-    the honest default: silence is not a verdict.
+    Second Fitting amendment v2, owner ruling on missing rows (option
+    2): always a removal now, never an exclusion candidate. Its
+    presence is what makes ``build_save_plan`` diverge the save to
+    SUCCESSION; the dialog renders it struck-through with a disabled
+    checkbox rather than offering a reason picker.
     """
 
     wig_index: int
     alias: str
     digest: str
+
+
+@dataclass
+class PlanOldFittingsGrade:
+    """The wig about to be overridden's own fitting history, graded for
+    the Update dialog's inline warning (Second Fitting v3, Commit 4).
+    Shown BEFORE the click now, unlike v2's post-save confirm --
+    informing, not blocking, the same data ``detect_supersession``
+    already computes for the self-supersession doorway, read here off
+    the source wig directly since a SUCCESSION plan already resolved
+    it. Present only on a diverged (SUCCESSION) plan: a plain UPDATE
+    edits the same file in place, and a from-scratch CREATE has no
+    ancestor to warn about.
+    """
+
+    state: str | None
+    #: Fitting bundles, not unique handles -- the same count
+    #: ``SupersedeOldFittings.count`` reports, so ``supersede.
+    #: fitted_scoped``'s existing plural key means the same thing in
+    #: both places.
+    count: int = 0
+    handles: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "state": self.state, "count": self.count,
+            "handles": list(self.handles),
+        }
+
+
+@dataclass
+class PlanSameKeyNotice:
+    """This install already has a bundle on the wig being attested.
+
+    Second Fitting v3 punch list, item 1 (owner ruling, 2026-08-06):
+    identity is the signing key, not the typed handle. Present only
+    when a fitting on the source wig already carries this install's
+    public key AND the plan is not diverged -- a diverged plan mints
+    a fresh successor with no fittings of its own, so there is
+    nothing on it yet to have signed twice. The dialog uses this to
+    say up front what a same-key re-sign will do: replace, not add.
+    """
+
+    handle: str | None
+    date: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"handle": self.handle, "date": self.date}
 
 
 @dataclass
@@ -148,6 +212,21 @@ class SavePlan:
     #: The save falls back to CREATE, and says so rather than pretending
     #: the source never existed.
     source_missing: bool = False
+    #: SUCCESSION only (Second Fitting v3, Commit 4): the source wig's
+    #: own fitting history, graded, for the Update dialog's inline
+    #: warning before the click. None on UPDATE and CREATE plans, where
+    #: nothing is about to be retired.
+    old_fitting_grade: PlanOldFittingsGrade | None = None
+    #: SAVE AS NEW only (Second Fitting v3 punch list, item 4). A
+    #: shelf-collision-safe default name, computed whenever there is
+    #: a source wig regardless of divergence -- Save as New always
+    #: mints (item 2), so it always needs a name that will not
+    #: collide, even when the device matches its source. Update and
+    #: Perfect Fit do not read this: a replace keeps the source
+    #: wig's name verbatim (see metadata["name"] below).
+    suggested_new_name: str | None = None
+    #: Second Fitting v3 punch list, item 1. See PlanSameKeyNotice.
+    same_key_notice: PlanSameKeyNotice | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -199,6 +278,15 @@ class SavePlan:
             "existing_fittings": self.existing_fittings,
             "cell_changes": [c.as_dict() for c in self.cell_changes],
             "lattice_diverged": bool(self.cell_changes),
+            "old_fitting_grade": (
+                self.old_fitting_grade.as_dict()
+                if self.old_fitting_grade else None
+            ),
+            "suggested_new_name": self.suggested_new_name,
+            "same_key_notice": (
+                self.same_key_notice.as_dict()
+                if self.same_key_notice else None
+            ),
         }
 
 
@@ -251,6 +339,30 @@ def _wig_metadata(wig: Wig) -> dict[str, Any]:
         "asin": _one("asin"),
         "oem": _one("oem"),
     }
+
+
+def _differentiated_name(base: str, existing_names: Sequence[str]) -> str:
+    """The successor's default name (bench addendum ruling,
+    2026-08-05). The bench produced three shelf wigs all named "Fable
+    Ceiling Fan" -- a SUCCESSION save prefills the source name plus a
+    numeric suffix instead, counting past any name already on the
+    shelf so the default never collides: "Fable Ceiling Fan (2)", and
+    a third save proposes "(3)", never colliding with what a prior
+    succession already claimed. The ancestor itself is still on the
+    shelf under the bare name at save time -- it is only superseded
+    after the confirm resolves -- so ``base`` is checked against
+    ``existing_names`` exactly as given, no exclusion needed.
+
+    A default, not a constraint (RULED): the person can edit the
+    prefill freely, and nothing here re-checks the name they typed.
+    """
+    names = set(existing_names)
+    if base not in names:
+        return base
+    n = 2
+    while f"{base} ({n})" in names:
+        n += 1
+    return f"{base} ({n})"
 
 
 def _lattice(matrix: ClimateMatrix | None) -> dict[str, Any]:
@@ -336,6 +448,8 @@ def build_save_plan(
     source_wig: Wig | None = None,
     source_filename: str | None = None,
     matrix: ClimateMatrix | None = None,
+    existing_names: Sequence[str] = (),
+    signing_key_b64: str | None = None,
 ) -> SavePlan:
     """What SAVE TO CLOSET is about to do, row by row.
 
@@ -345,6 +459,11 @@ def build_save_plan(
     install -- and the plan degrades to CREATE with ``source_missing``
     set. Refusing instead would strand a working device with no way to
     save; pretending it was always new would hide that the link broke.
+
+    ``existing_names`` is every name currently on the shelf (bench
+    addendum, 2026-08-05) -- unused unless the plan turns out to be a
+    SUCCESSION, in which case it is what ``_differentiated_name`` counts
+    past to prefill a default that does not collide.
     """
     is_matrix = matrix is not None
     build = build_wig_from_device(device, matrix)
@@ -393,25 +512,92 @@ def build_save_plan(
         row.wig_index = pairing.wig_index
         row.wig_alias = source_wig.signals[pairing.wig_index].alias
 
+    missing_rows = [
+        PlanMissingRow(
+            wig_index=i,
+            alias=source_wig.signals[i].alias,
+            digest=signal_row_digest(source_wig.signals[i]),
+        )
+        for i in match.unmatched_wig_rows
+    ]
+    # DIVERGENCE (Second Fitting amendment v2), scoped to FLAT rows only.
+    # A matrix's checklist rows are samples of the lattice, matched
+    # against source_wig.signals only by accident of digest collision
+    # -- the lattice itself never lives in .signals, so every checklist
+    # row reads as device-only on EVERY save, matched or not. Counting
+    # those would divert every matrix save into SUCCESSION regardless
+    # of whether anything changed. Lattice divergence has its own gate
+    # (cell_changes / propose_lattice, below) and proposes in place;
+    # this variant call is about the flat rows alone.
+    flat_additions = [
+        j for j in match.unmatched_device_rows if rows[j].section is None
+    ]
+    diverged = bool(missing_rows) or bool(flat_additions)
+
+    # Second Fitting v3 punch list item 4 (owner ruling, 2026-08-06):
+    # prefill differentiation is Save As New's alone. A replace route
+    # (UPDATE, PERFECT FIT) takes the ancestor's place on the shelf
+    # and inherits its name untouched -- ``_wig_metadata`` above
+    # already prefilled that verbatim, so nothing here overrides it
+    # regardless of divergence. ``suggested_new_name`` is the
+    # differentiated default instead, computed unconditionally (even
+    # on a plain UPDATE) since Save As New now always mints a twin
+    # (item 2) and needs a collision-safe name even over matching
+    # content.
+    metadata = _wig_metadata(source_wig)
+    suggested_new_name = _differentiated_name(
+        source_wig.name, existing_names,
+    )
+    old_fitting_grade = None
+    if diverged:
+        # Second Fitting v3, Commit 4: the Update dialog's inline
+        # warning, rendered before the click instead of after the save.
+        # Same grading claims_summary already does for the self-
+        # supersession confirm's graded ceremony -- read here off the
+        # source wig directly, since a diverged plan already resolved
+        # it and there is no reason to make the dialog ask again.
+        from .wig_fitting import claims_summary
+
+        summary = claims_summary(source_wig, None)
+        handles: list[str] = []
+        for bundle in claims_of(source_wig):
+            handle = (bundle.handle or "").strip()
+            if handle and handle not in handles:
+                handles.append(handle)
+        old_fitting_grade = PlanOldFittingsGrade(
+            state=summary["state"], count=summary["fitters"], handles=handles,
+        )
+
+    # Second Fitting v3 punch list, item 1: tell the fitter up front
+    # when their own install already has a bundle on this wig, since
+    # append_claims will replace it rather than add a second one.
+    # Scoped to not-diverged: a diverged plan mints a fresh successor
+    # with no fittings yet, so there is nothing there to have
+    # already signed.
+    same_key_notice = None
+    if not diverged and signing_key_b64:
+        for bundle in claims_of(source_wig):
+            if bundle.key == signing_key_b64:
+                same_key_notice = PlanSameKeyNotice(
+                    handle=bundle.handle, date=bundle.date,
+                )
+                break
+
     return SavePlan(
-        variant=VARIANT_UPDATE,
+        variant=VARIANT_SUCCESSION if diverged else VARIANT_UPDATE,
         rows=rows,
-        missing_rows=[
-            PlanMissingRow(
-                wig_index=i,
-                alias=source_wig.signals[i].alias,
-                digest=signal_row_digest(source_wig.signals[i]),
-            )
-            for i in match.unmatched_wig_rows
-        ],
+        missing_rows=missing_rows,
         source_filename=source_filename,
         source_wig_id=source_wig.wig_id,
         source_wig_name=source_wig.name,
-        metadata=_wig_metadata(source_wig),
+        metadata=metadata,
         skipped=build.skipped,
         notes=build.notes,
         existing_fittings=len(claims_of(source_wig)),
         cell_changes=lattice_diff(matrix, source_wig.climate),
+        old_fitting_grade=old_fitting_grade,
+        suggested_new_name=suggested_new_name,
+        same_key_notice=same_key_notice,
         **_lattice(matrix),
     )
 
@@ -586,6 +772,39 @@ def build_bundle(
         note=attestation.note,
         cells_hash=attestation.cells_hash,
     )
+
+
+def _allowed_claim_digests(wig: Wig) -> set[str]:
+    """Every digest a save checklist may legitimately claim on this wig:
+    its flat rows, plus a matrix wig's dimension-checklist cells. A claim
+    digest outside this set belongs to no row the file carries.
+    """
+    allowed = set(wig_row_digests(wig))
+    if wig.climate is not None:
+        allowed |= {row.digest for row in _checklist_rows(wig.climate)}
+    return allowed
+
+
+def drop_ghost_claims(attestation: Attestation, wig: Wig) -> Attestation:
+    """Drop claims whose digest the wig does not carry (v0.9.7).
+
+    Belt-and-suspenders on the server: a device-only row (a command on
+    the device that never entered the wig) has bytes that are not in the
+    file, so a tick on it would be a claim born orphaned -- signed, but
+    binding a digest no reader can find. The save dialog stops OFFERING
+    the tick on UPDATE, but a stale client must not be able to sign a
+    ghost either, so the bundle builder never sees a digest the wig lacks.
+    Returns the attestation unchanged when nothing is filtered.
+    """
+    allowed = _allowed_claim_digests(wig)
+    kept = {
+        digest: verdict
+        for digest, verdict in attestation.claims.items()
+        if digest in allowed
+    }
+    if len(kept) == len(attestation.claims):
+        return attestation
+    return replace(attestation, claims=kept)
 
 
 
@@ -779,6 +998,15 @@ def update_text(
         )
         for s in source_wig.signals
     }
+    # Ghost claims never reach the bundle (v0.9.7). A tick on a
+    # device-only row binds bytes the file does not carry -- and as of
+    # amendment v2, a device-only row can no longer even reach this
+    # function: any divergence routes the save to SUCCESSION before
+    # update_text is ever called, so update_text only ever sees a
+    # matched row set. This stays anyway, belt-and-suspenders, for a
+    # stale client whose UI has not caught up to say so.
+    if attestation is not None:
+        attestation = drop_ghost_claims(attestation, source_wig)
     bundle = (
         build_bundle(source_wig.wig_id or "", aliases, attestation)
         if attestation is not None
@@ -827,3 +1055,112 @@ def update_text(
         variant=VARIANT_UPDATE,
         stale_renames=[p.alias_at_claim for p in outcome.stale],
     )
+
+
+def detect_supersession(
+    config_dir: str, new_wig: Any, devices: list[IRDevice]
+) -> dict[str, Any] | None:
+    """The replace-flow invitation, or None. Shared by both doorways.
+
+    Walks the arriving wig's ancestry newest-first and stops at the FIRST
+    id that resolves to a wig in this closet -- the local ancestor it
+    supersedes. Reports the counts, the rows the local copy carries that
+    the arrival does not (by digest, so a rename never reads as a loss),
+    every device sourced to that ancestor with the ALIASES of the
+    arrival's rows it still lacks (amendment v2 section 2: the confirm
+    names them, it no longer just counts them), and the ancestor's own
+    fitting history (``old_fittings``) so the confirm can grade what
+    replacing it retires. Returns None when no ancestor is local: the
+    field is inert on installs that never had the old wig.
+
+    Both the drop bar (ws_wigs_upload) and Save as new (_do_create) call
+    this on the same shape, so the dialog downstream cannot drift between
+    the two doorways.
+    """
+    from .wig_export import build_wig_from_device
+    from .wig_fitting import claims_summary
+    from .wig_format import signal_row_digest, wig_row_digests
+    from .wig_store import find_wig_by_id, load_wig
+
+    # Second Fitting v3 punch list item 15: wig_row_digests() returns
+    # [] for any wig carrying a climate block (a matrix wig's claims
+    # bind the lattice by cells_hash, not row digests -- see its
+    # docstring), but a matrix wig still has flat .signals beside the
+    # lattice (Fujitsu AR-RY4: 11 flat signals plus the lattice).
+    # Pairing wig_row_digests(new_wig) against new_wig.signals via
+    # zip(strict=True) crashed the moment those two disagreed in
+    # length. Compute both directly off .signals instead, exactly as
+    # build_save_plan's divergence check already does -- flat rows
+    # only, no dependency on the climate-aware helper.
+    new_digest_list = [signal_row_digest(s) for s in new_wig.signals]
+    new_digests = set(new_digest_list)
+    new_alias_by_digest = {
+        signal_row_digest(s): s.alias for s in new_wig.signals
+    }
+    for ancestor_id in new_wig.supersedes:
+        filename = find_wig_by_id(config_dir, ancestor_id)
+        if filename is None:
+            continue
+        old_wig = load_wig(config_dir, filename)
+        if old_wig is None:
+            continue
+
+        lost_digests: list[str] = []
+        lost_aliases: list[str] = []
+        for signal in old_wig.signals:
+            digest = signal_row_digest(signal)
+            if digest not in new_digests:
+                lost_digests.append(digest)
+                lost_aliases.append(signal.alias)
+
+        device_entries: list[dict[str, Any]] = []
+        for device in devices:
+            if device.source_wig_id != ancestor_id:
+                continue
+            build = build_wig_from_device(device)
+            have = (
+                set(wig_row_digests(build.wig))
+                if build.wig is not None else set()
+            )
+            missing = [
+                digest for digest in new_digest_list if digest not in have
+            ]
+            device_entries.append({
+                "id": device.id,
+                "name": device.name,
+                "missing_commands": len(missing),
+                "missing_aliases": [
+                    new_alias_by_digest[digest] for digest in missing
+                ],
+            })
+
+        # The graded ceremony (amendment v2 section 2). ``handles`` is
+        # every handle that ever fitted the ancestor, first-seen order,
+        # regardless of whether their claims were scoped or complete --
+        # the confirm picks the grade off ``state`` and credits whoever
+        # earned it, and the self doorway reuses this same list to ask
+        # "is anyone OTHER than the fitter themselves on this ancestor",
+        # which needs everyone, not just the perfect ones.
+        summary = claims_summary(old_wig, None)
+        handles: list[str] = []
+        for bundle in claims_of(old_wig):
+            handle = (bundle.handle or "").strip()
+            if handle and handle not in handles:
+                handles.append(handle)
+        old_fittings = {
+            "count": summary["fitters"],
+            "state": summary["state"],
+            "handles": handles,
+        }
+
+        return {
+            "old_filename": filename,
+            "old_name": old_wig.name,
+            "old_signals": len(old_wig.signals),
+            "new_signals": len(new_wig.signals),
+            "lost_digests": lost_digests,
+            "lost_aliases": lost_aliases,
+            "devices": device_entries,
+            "old_fittings": old_fittings,
+        }
+    return None

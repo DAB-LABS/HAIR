@@ -21,7 +21,7 @@ import type { DeviceSummary, IRDevice } from "./types.js";
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "0.9.6";
+const HAIR_VERSION = "0.9.7";
 
 type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror" | "wigs";
 
@@ -199,12 +199,23 @@ export class HaPanelIrDevices extends LitElement {
                 </button>
             </div>
 
-            <div class="header-banner">
+            <!-- Second Fitting v3 punch list item 19: the old
+                 full-width banner image is gone, replaced by this
+                 slim 58px-tall brand block -- the wig-on-box mark
+                 plus the "HAIR" wordmark, left-aligned to the same
+                 edge the tab row and card grid start on (the content
+                 column), not the viewport's far left corner. Two
+                 extensions (folding the tab row onto this line;
+                 retiring the tagline row) are parked awaiting the
+                 owner's call and are NOT built here -- the tab row
+                 and tagline row below are otherwise untouched. -->
+            <div class="brand-block">
                 <img
-                    src="/hair_panel/assets/hair-header.png"
+                    src="/hair_panel/assets/hair-brand-mark.png"
                     alt="HAIR"
-                    class="header-img"
+                    class="brand-mark"
                 />
+                <span class="brand-name">HAIR</span>
             </div>
 
             <div class="tab-bar">
@@ -347,18 +358,32 @@ export class HaPanelIrDevices extends LitElement {
             font-size: 12px;
             padding: 24px 0 16px;
         }
-        .header-banner {
+        /* Second Fitting v3 punch list item 19: the compact
+           header. Same content-column convention the tab bar and
+           content area already use (max-width: 1100px; margin: 0
+           auto), so the brand block lines up with them rather than
+           the viewport edge. Vertical rhythm: ~12px above the block,
+           ~18px below it before the tab row -- enough to read as its
+           own row without reopening the height the banner image used
+           to cost. */
+        .brand-block {
+            display: flex;
+            align-items: center;
+            gap: 10px;
             max-width: 1100px;
             margin: 0 auto;
-            padding: 12px 16px 0;
-            text-align: center;
+            padding: 12px 16px 18px;
         }
-        .header-img {
-            max-width: 100%;
-            height: auto;
-            max-height: 120px;
-            object-fit: contain;
-            border-radius: 6px;
+        .brand-mark {
+            height: 58px;
+            width: auto;
+            display: block;
+        }
+        .brand-name {
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            color: var(--primary-text-color);
         }
         .tab-tagline {
             max-width: 1100px;

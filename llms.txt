@@ -95,6 +95,19 @@ Key components:
   kind (one lowercase word: "candles", "soundbar") and product identifiers
   (FCC ID, UPC, ASIN, verified-OEM anchors, single values or lists) keep
   off-brand hardware findable; closet search matches both (v0.8.0/0.8.1).
+  Optional supersedes (v0.9.7): the wig's ancestry, wig ids newest-first,
+  stamped automatically by Save as new (prepend source id onto source's
+  own list, [source] alone when the source is not local, none from a
+  from-scratch CREATE), capped at 16 both ends, bare string accepted as a
+  one-element list, top-level metadata OUTSIDE every canonical form and
+  digest. Supersession is declared by the successor, never marked on the
+  ancestor. The drop bar reads it: an arriving wig whose ancestry names a
+  wig already in the closet offers REPLACE (delete the old file, repoint
+  every device sourced to the old id, optionally top up their missing
+  buttons from the delta) over KEEP BOTH, the pair re-verified server-side
+  in the executor so a stale confirm refuses rather than deleting the
+  wrong file. Self-supersession (Save as new over one's own adopted wig)
+  triggers the same flow from the save path.
   Files live in /config/hair/wigs/ (created at setup, outside the
   HACS-managed tree, scanned on demand); invalid files surface on the tab
   with field-level reasons
@@ -137,8 +150,14 @@ Key components:
   stored: complete = one bundle covering every row worked; perfect fit =
   complete with zero exclusions; coverage = the union. The closet check
   has three tiers (none / fitted / perfect fit) matching the download
-  filename tiers exactly (name.wig.json / name.fitted.wig.json /
-  name.perfect-fit.wig.json). The read-only ledger (via the fittings-count
+  filename tiers exactly. The download name is server-composed from the
+  wig's OWN fields (v0.9.7, download_filename in wig_format): brand-kind-
+  model slugified, falling back to the name slug when the wig has no
+  brand, with the tier as a hyphenated suffix from the wig's own claims
+  (-fitted / -perfect-fit, none when unproven) -- hyphenated never dotted,
+  because the old dotted suffix failed the shop's upload. The client no
+  longer composes a name at all, so a closet row and its filename read the
+  same claims and can never disagree. The read-only ledger (via the fittings-count
   door on the save dialog) shows fitters, per-row verdicts, signature
   states, and orphaned claims. Pre-claims fittings are dropped on import
   with a receipt notice; they cannot become claims (a whole-file hash says

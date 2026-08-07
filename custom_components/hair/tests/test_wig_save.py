@@ -24,6 +24,7 @@ from custom_components.hair.wig_format import (
 )
 from custom_components.hair.wig_save import (
     VARIANT_CREATE,
+    VARIANT_SUCCESSION,
     VARIANT_UPDATE,
     Attestation,
     build_save_plan,
@@ -125,9 +126,15 @@ class TestThePlanIsUpdate:
         )
 
     def test_matched_rows_point_at_their_wig_row(self):
+        # Full coverage -- every wig row on the device -- so this stays
+        # the non-diverged UPDATE case the class name promises. Partial
+        # coverage is TestTheVerbIsDerived's territory (amendment v2).
         wig = self._wig()
         plan = build_save_plan(
-            _device([_command("On", PRONTO_A)], source_wig_id="u-source"),
+            _device([
+                _command("On", PRONTO_A), _command("Mute", PRONTO_B),
+                _command("Sleep", PRONTO_C),
+            ], source_wig_id="u-source"),
             wig,
             "edifier.wig.json",
         )
@@ -140,7 +147,10 @@ class TestThePlanIsUpdate:
     def test_a_local_rename_surfaces_both_names(self):
         wig = self._wig()
         plan = build_save_plan(
-            _device([_command("Power", PRONTO_A)], source_wig_id="u-source"),
+            _device([
+                _command("Power", PRONTO_A), _command("Mute", PRONTO_B),
+                _command("Sleep", PRONTO_C),
+            ], source_wig_id="u-source"),
             wig,
         )
         row = plan.rows[0]
@@ -149,12 +159,22 @@ class TestThePlanIsUpdate:
         assert row.alias == "Power"
         assert row.wig_alias == "On"
 
-    def test_rows_the_device_lacks_feed_the_exclusion_picker(self):
+    def test_rows_the_device_lacks_are_removals_not_exclusions(self):
+        """Second Fitting amendment v2, owner ruling on the missing-rows
+        question (option 2): a missing row always makes the save a
+        SUCCESSION -- there is no per-row disposition and no memory
+        needed. The missing-row exclusion picker is retired; a wig row
+        the device lacks is now always a REMOVAL in the changes
+        section, never an exclusion candidate. (``wont_work`` on a
+        MATCHED row, and ``not_on_device`` on matrix checklists, are
+        untouched by this ruling -- see test_supersession.py.)
+        """
         wig = self._wig()
         plan = build_save_plan(
             _device([_command("On", PRONTO_A)], source_wig_id="u-source"),
             wig,
         )
+        assert plan.variant == VARIANT_SUCCESSION
         assert [r.alias for r in plan.missing_rows] == ["Mute", "Sleep"]
         assert plan.missing_rows[0].digest == signal_row_digest(
             wig.signals[1]

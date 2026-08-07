@@ -1,50 +1,92 @@
 /**
- * Save to Closet: one dialog, two verbs.
+ * Validate for Perfect Fit (Second Fitting v3, coding plan Commit 5).
  *
- * Started life as the small metadata ask shared by every export surface
- * (v0.7.0 Big Wig). From v0.9.5 it belongs to DEVICES ALONE and it is
- * where fitting happens, because fitting stopped being a ceremony in
- * the closet and became what it physically is: living with a device
- * that works, and then saying so once, with your name on it.
+ * The ceremony this whole family exists for, promoted to its own
+ * dialog and its own route: prove every code, then sign it. Retired
+ * out of `ir-save-wig-dialog` -- the one dialog that used to carry
+ * every verb plus this ceremony beside them -- because the decision
+ * window (Commit 3) already asks which route the person wants before
+ * any dialog opens, so this one only ever does its own job now. Save
+ * as New and Update Closet Wig (Commit 4) went the same way; this
+ * commit retires the combined dialog they were all extracted from.
  *
- * Sniffer, Clipper and Plucker no longer save wigs directly. Everything
- * goes through Make Device first (owner ruling 2026-08-03), so a wig is
- * always born from something somebody could actually press.
+ * The checklist, TEST, the "Changes with new fitting" section, the
+ * signing and arming rules, the successor-rows denominator -- all of
+ * it rides over from v2 UNCHANGED (spec section 4: "exactly as v2
+ * section 1 specified"). What changes is what happens on SAVE and
+ * after it:
  *
- * Two variants, chosen by the backend's plan, not by this dialog:
+ * - SOURCED, DIVERGED. Owner ruling: "ALWAYS replaces." The save
+ *   sends `replace: true` (Commit 2's server flag) in the SAME call
+ *   that writes the successor, so the ancestor mints and retires in
+ *   one step -- no post-save confirm, no Keep Both anywhere in this
+ *   flow, because picking this route and signing the oath already
+ *   was the decision. Second Fitting v3 punch list item 13 moved
+ *   what retired (named fittings, the same graded weight the old
+ *   self-supersede confirm gave it) and what would be lost to BEFORE
+ *   the click instead -- see _gradedLine / _lostRowsLine -- because
+ *   that is where the decision still is. The closing screen is now a
+ *   pure one-line notification when this route replaced something;
+ *   no top-up offer lives there anymore, since a device wanting the
+ *   successor's new commands picks them up through the adopt path.
+ * - SOURCED, MATCHING. Today's attested UPDATE: the bundle appends,
+ *   nothing retires.
+ * - FROM-SCRATCH. Today's attested CREATE: a wig is born signed,
+ *   nothing to retire.
  *
- * - CREATE. A new wig, born with the author's claims if they tick the
- *   box. New wigs are coverage-total by construction -- curation
- *   already happened on the device -- so the list opens all-checked and
- *   unchecking is the exception.
- * - UPDATE. The device remembers the wig it came from, so the same
- *   button offers to append a fitting to it. Rows match by recipe
- *   digest regardless of names, which is what lets a locally renamed
- *   command still find its row.
+ * THE TEST BUTTON IS STATELESS ABOUT PROOF, unchanged from v2: it
+ * transmits through the device's own emitter routing and reports that
+ * the code went over the air, never that the fan spun. "Heard" means
+ * a receiver caught the signal, not a verdict -- that stays the
+ * human's act.
  *
- * THE TEST BUTTON IS STATELESS ABOUT PROOF. It transmits through the
- * device's own emitter routing and reports that the code went over the
- * air. It never ticks a checkbox, not even on a clean heard-back:
- * "heard" means a receiver caught the signal, not that the fan spun.
- * The check stays the human's act, and that line is what keeps this
- * button from quietly rebuilding the old fitting room.
+ * Bench fix (2026-08-07): the form and the receipt(s) used to be
+ * separate <ha-dialog> elements, swapped on save. As of HA 2026.7,
+ * <ha-dialog> opens a real native <dialog> (showModal()) under the
+ * hood, and removing one mid-transition to open another raced the
+ * outgoing close() against the incoming showModal() -- an uncaught
+ * "InvalidStateError: Transition was aborted", reproduced live
+ * against the test instance, that took the whole dialog off-screen
+ * before the receipt ever painted (the save itself always succeeded;
+ * only the confirmation was crashing invisibly). One <ha-dialog> now
+ * stays open for the component's whole life; only the content inside
+ * it swaps between the form and whichever receipt applies. The
+ * sibling <ir-claims-ledger> below -- a genuinely separate native
+ * <dialog>, opened only from the form -- is untouched.
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { displayTemp, installUnit } from "./temperature.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import {
+    renderMetadataFields,
+    type MetadataFieldSetters,
+    type MetadataFieldValues,
+} from "./ir-save-metadata-fields.js";
 import type { HairApi } from "./api.js";
-import type { SavePlan, SavePlanRow, SaveResult } from "./types.js";
+import type {
+    SavePlan,
+    SavePlanMissingRow,
+    SavePlanRow,
+    SaveResult,
+} from "./types.js";
 import "./ir-protocol-chip.js";
 import "./ir-test-button.js";
 import "./ir-tx-knobs.js";
 import "./ir-claims-ledger.js";
+import { ICON_WIG } from "./ir-wigs.js";
 
 type Verdict = "worked" | "not_on_device" | "wont_work";
 
-@customElement("ir-save-wig-dialog")
-export class IrSaveWigDialog extends LitElement {
+/** Second Fitting v3 punch list item 13: splits the localized
+ * replaced-receipt sentence on its own {old}/{new} placeholder
+ * tokens so only the two wig names carry the bold+blue styling,
+ * whatever order the sentence puts them in per language. */
+const REPLACED_RECEIPT_SPLIT = /\{(old|new)\}/g;
+
+@customElement("ir-save-perfect-dialog")
+export class IrSavePerfectDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property() public sourceId = "";
     @property() public sourceName = "";
@@ -53,6 +95,12 @@ export class IrSaveWigDialog extends LitElement {
     /** Needed only to read the install's temperature unit, so a
      * checklist written in Celsius reads in whatever the person set. */
     @property({ attribute: false }) public hass: any;
+    /** Pre-fetched by the decision window before this dialog opens.
+     * When present, `firstUpdated` acts on it directly instead of
+     * calling wigsSavePlan again -- the plan the person already saw
+     * summarized is exactly the one this dialog acts on, never a
+     * second, possibly-disagreeing copy. */
+    @property({ attribute: false }) public plan: SavePlan | null = null;
 
     @state() private _name = "";
     @state() private _brand = "";
@@ -71,8 +119,6 @@ export class IrSaveWigDialog extends LitElement {
     // --- The fitting half (device source only) -------------------------
     @state() private _plan: SavePlan | null = null;
     @state() private _loading = false;
-    /** The perfect-fit checkbox: arms the attestation block. */
-    @state() private _perfect = false;
     /** Digests currently checked. Everything, until somebody unchecks. */
     @state() private _checked = new Set<string>();
     /** Why an unchecked row is unchecked. Absent means no claim at all,
@@ -85,9 +131,6 @@ export class IrSaveWigDialog extends LitElement {
     @state() private _handle = "";
     @state() private _github = "";
     @state() private _oath = false;
-    /** UPDATE only: the footer escape hatch, behind a confirm. */
-    @state() private _saveAsNew = false;
-    @state() private _confirmNew = false;
     /** MATRIX UPDATE: send the repaired lattice upstream. Explicit,
      * because proposing a content change is a different act from
      * attesting that codes work. */
@@ -97,42 +140,45 @@ export class IrSaveWigDialog extends LitElement {
     @state() private _ledgerOpen = false;
 
     private get _isUpdate(): boolean {
-        return this._plan?.variant === "update" && !this._saveAsNew;
+        return this._plan?.variant === "update";
     }
 
-    /** Every row the attestation list draws, matched rows first. */
+    /** The device's commands have diverged from the source wig -- an
+     * addition, a removal, or both -- so the save mints a successor
+     * rather than appending to a row set the device has outgrown. */
+    private get _isSuccession(): boolean {
+        return this._plan?.variant === "succession";
+    }
+
+    /** Every row the attestation list draws. A wig row the device no
+     * longer covers never merges in here (a missing row always
+     * diverges the save to SUCCESSION instead of offering per-row
+     * exclusion), so this is simply the device's own rows -- matched,
+     * or, on SUCCESSION, newly added. */
     private get _allRows(): SavePlanRow[] {
-        const plan = this._plan;
-        if (!plan) return [];
-        if (!this._isUpdate) return plan.rows;
-        // On UPDATE the wig's uncovered rows join the list so they can
-        // be excluded with a reason. They carry no command, so they get
-        // no TEST button: there is nothing on this device to send.
-        const missing: SavePlanRow[] = plan.missing_rows.map((row) => ({
-            command_id: "",
-            alias: row.alias,
-            digest: row.digest,
-            send_count: 1,
-            ditto_count: 0,
-            bypass: false,
-            protocol: null,
-            wig_index: row.wig_index,
-            wig_alias: row.alias,
-            matched: false,
-            renamed: false,
-        }));
-        return [...plan.rows, ...missing];
+        return this._plan?.rows ?? [];
+    }
+
+    /** Rows that can actually be attested: every row the plan carries.
+     * An unmatched row is never excluded here -- under SUCCESSION it
+     * is a normal addition that travels in the successor, so the
+     * perfect-fit denominator is matched rows plus additions. A
+     * removal (missing_rows) never reaches this list; nobody can vouch
+     * for a command that is not there. */
+    private get _attestableRows(): SavePlanRow[] {
+        return this._allRows;
     }
 
     private get _checkedCount(): number {
-        return this._allRows.filter((r) => this._checked.has(r.digest))
-            .length;
+        return this._attestableRows.filter((r) =>
+            this._checked.has(r.digest),
+        ).length;
     }
 
-    /** Perfect fit requires every row checked. The dialog says so
-     * rather than hiding the button (RULED). */
+    /** Perfect fit requires every attestable row checked. The dialog says
+     * so rather than hiding the button (RULED). */
     private get _isPerfectFit(): boolean {
-        const rows = this._allRows;
+        const rows = this._attestableRows;
         return rows.length > 0 && this._checkedCount === rows.length;
     }
 
@@ -157,16 +203,46 @@ export class IrSaveWigDialog extends LitElement {
         );
     }
 
+    private get _metadataValues(): MetadataFieldValues {
+        return {
+            name: this._name,
+            brand: this._brand,
+            model: this._model,
+            notes: this._notes,
+            fccId: this._fccId,
+            upc: this._upc,
+            asin: this._asin,
+            oem: this._oem,
+        };
+    }
+
+    private get _metadataSetters(): MetadataFieldSetters {
+        return {
+            setName: (v) => (this._name = v),
+            setBrand: (v) => (this._brand = v),
+            setModel: (v) => (this._model = v),
+            setNotes: (v) => (this._notes = v),
+            setFccId: (v) => (this._fccId = v),
+            setUpc: (v) => (this._upc = v),
+            setAsin: (v) => (this._asin = v),
+            setOem: (v) => (this._oem = v),
+        };
+    }
+
     /** Typing a new name on an UPDATE renames the EXISTING wig. It does
      * not fork a new one, and the file keeps the name it was first
      * written under, because identity is the wig_id and renaming files
-     * would strand anything that referenced them. Said out loud,
-     * because on the bench three renamed saves read as three lost wigs
-     * when they were one wig wearing the latest name. */
-    private get _renamingWig(): boolean {
-        if (!this._isUpdate) return false;
+     * would strand anything that referenced them. */
+    private get _renameWarning(): string | null {
+        if (!this._isUpdate) return null;
         const before = (this._plan?.metadata.name ?? "").trim();
-        return !!before && this._name.trim() !== before;
+        if (!before || this._name.trim() === before) return null;
+        // Second Fitting v3 punch list item 16: names the actual
+        // file being renamed, terser than the old "this renames
+        // {name} itself" copy.
+        return t("wigs.save.rename_wig_warning", {
+            filename: this._plan?.source_filename ?? "",
+        });
     }
 
     /** A device with no codes and no lattice has nothing to vouch for.
@@ -191,16 +267,25 @@ export class IrSaveWigDialog extends LitElement {
         return this._diverged && !this._proposeLattice;
     }
 
+    /** Second Fitting v3 punch list, item 3: choosing the route IS
+     * the arming now -- there is no checkbox left to tick. Armed
+     * whenever there is something to attest and nothing blocking it
+     * (a diverged matrix lattice, until proposed). Replaces every
+     * read of the old manually-ticked `_perfect` field. */
+    private get _armed(): boolean {
+        return !this._attestBlocked && !this._nothingToAttest;
+    }
+
     private get _signed(): boolean {
-        return this._perfect && this._oath;
+        return this._armed && this._oath;
     }
 
     private get _canSave(): boolean {
         if (this._busy) return false;
         // An attestation is not signed until the oath is ticked, in
-        // either verb. Hard rule 4: prefill fills fields, it never
-        // pre-checks the oath, and nothing signs without it.
-        if (this._perfect && !this._oath) return false;
+        // either verb. Prefill fills fields, it never pre-checks the
+        // oath, and nothing signs without it.
+        if (this._armed && !this._oath) return false;
         // An UPDATE writes a fitting, edited metadata, or both. With
         // neither there is nothing to write, so it refuses rather than
         // producing a shop PR that says nothing. A CREATE always has
@@ -211,34 +296,74 @@ export class IrSaveWigDialog extends LitElement {
         return true;
     }
 
-
     private get _saveLabel(): string {
         if (this._busy) return t("common.saving");
-        // While the toggle is armed the primary names the act, so the
-        // pressed button and the button that performs it agree. The
-        // toggle keeps ONE label and shows its state by looking
-        // pressed; swapping its text to the opposite action is what
-        // made it read as a navigation control on the bench.
-        if (!this._perfect) {
-            // The phrase lives on exactly ONE button at a time. Armed,
-            // the primary IS the act and the toggle becomes the way
-            // back; unarmed, the toggle offers the road and the primary
-            // is the ordinary save. Both wearing it at once is what
-            // made the footer read as two identical buttons, one of
-            // them mysteriously pressed (owner bench 2026-08-03).
-            return this._saveAsNew
-                ? t("wigs.save.save_as_new")
-                : t("common.save");
-        }
+        if (!this._armed) return t("common.save");
         return this._isPerfectFit
             ? t("wigs.save.save_perfect")
             : t("wigs.save.save_fitted");
     }
 
+    /** The graded line (Second Fitting v3 punch list item 13): on
+     * SOURCED, DIVERGED, replacing the ancestor always retires its
+     * fitting history -- named here, before the click, instead of on
+     * the receipt after it, since the receipt is a pure notification
+     * now and the decision already happened by the time it shows.
+     * Same rule and copy ir-save-update-dialog.ts's own _gradedLine
+     * uses; ported here because this dialog's original design left
+     * grading entirely to the post-save closing screen, which item 13
+     * retires as a decision point. The attesting person's own handle
+     * is filtered from the credit list for the same reason the old
+     * receipt-side version did: replacing a wig you yourself just
+     * fitted needs no warning about yourself. */
+    private get _gradedLine(): { amber: boolean; text: string } | null {
+        if (!this._isSuccession) return null;
+        const grade = this._plan?.old_fitting_grade;
+        if (!grade || !grade.state) return null;
+        const mine = this._handle.trim().toLowerCase();
+        const who = mine
+            ? grade.handles.filter((h) => h.trim().toLowerCase() !== mine)
+            : grade.handles;
+        if (!who.length) return null;
+        const name = this._plan?.source_wig_name ?? "";
+        return grade.state === "perfect"
+            ? {
+                  amber: true,
+                  text: t("supersede.fitted_perfect", {
+                      name,
+                      who: who.join(", "),
+                  }),
+              }
+            : {
+                  amber: false,
+                  text: tp("supersede.fitted_scoped", grade.count, {
+                      count: String(grade.count),
+                      name,
+                      who: who.join(", "),
+                  }),
+              };
+    }
+
+    /** The lost-rows line: rows the ancestor carries that the device
+     * does not, named before the click for the same reason
+     * _gradedLine moved here (item 13). Never shown on matching
+     * content: there is nothing about to be discarded when nothing is
+     * being replaced. */
+    private get _lostRowsLine(): string | null {
+        if (!this._isSuccession) return null;
+        const missing = this._plan?.missing_rows ?? [];
+        if (!missing.length) return null;
+        return tp("supersede.lost", missing.length, {
+            count: String(missing.length),
+            names: missing.map((r) => r.alias).join(", "),
+        });
+    }
+
     async firstUpdated(): Promise<void> {
         this._loading = true;
         try {
-            const plan = await this.api.wigsSavePlan(this.sourceId);
+            const plan =
+                this.plan ?? (await this.api.wigsSavePlan(this.sourceId));
             this._plan = plan;
             this._name = plan.metadata.name ?? this.sourceName;
             this._brand = plan.metadata.brand ?? "";
@@ -248,6 +373,12 @@ export class IrSaveWigDialog extends LitElement {
             this._upc = plan.metadata.upc ?? "";
             this._asin = plan.metadata.asin ?? "";
             this._oem = plan.metadata.oem ?? "";
+            // Second Fitting v3 punch list, item 3: the route
+            // itself was the arming, so the checklist seeds its
+            // defaults (everything checked) the moment the plan
+            // says there is something to attest and nothing
+            // blocking it -- no click required.
+            if (this._armed) this._armChecklist();
         } catch (err) {
             this._error = (err as Error).message;
         } finally {
@@ -255,52 +386,36 @@ export class IrSaveWigDialog extends LitElement {
         }
     }
 
+    /** Bench fix (2026-08-07): one `<ha-dialog>` now stays open for
+     * this component's whole life -- see the file header comment for
+     * why the form/receipt swap this used to guard against (and the
+     * stale, late `closed` event it could throw) is gone, not just
+     * patched. Plain dispatch, no target to check. */
     private _close(): void {
         this.dispatchEvent(
             new CustomEvent("closed", { bubbles: true, composed: true }),
         );
     }
 
-    /** Arming the block checks everything. That is the whole shape of
-     * the flow: the person built or adopted a device that works, so the
-     * default claim is "all of it", and unchecking is the exception
-     * path rather than the main road. */
-    private _togglePerfect(e: Event): void {
-        if (this._attestBlocked) {
-            (e.target as HTMLInputElement).checked = false;
-            return;
-        }
-        this._setPerfect((e.target as HTMLInputElement).checked);
-    }
-
-    /**
-     * Arming the banner, from the tick or from the banner itself.
-     *
-     * Split out of ``_togglePerfect`` so the banner head can drive it
-     * without inventing a fake input event. The tick still owns the
-     * checkbox; this owns what arming MEANS.
-     */
-    private _setPerfect(on: boolean): void {
-        this._perfect = on;
-        if (this._perfect) {
-            this._checked = new Set(this._allRows.map((r) => r.digest));
-            this._reasons = new Map();
-            // Attesting means attesting the wig you came from, so
-            // arming the block returns to UPDATE and the save-as-new
-            // toggle goes away (owner ruling 2026-08-03). Save as new
-            // is the copy-the-metadata-into-a-fresh-wig road; it is not
-            // a thing you reach for halfway through signing. Clearing
-            // it here rather than only hiding it is what stops someone
-            // from being stranded in create mode with no way back.
-            this._saveAsNew = false;
-        }
+    /** Arming checks everything by default. That is the whole shape
+     * of the flow: the person built or adopted a device that works,
+     * so the default claim is "all of it", and unchecking a row is
+     * the exception path rather than the main road. Second Fitting
+     * v3 punch list, item 3: this used to run only from a checkbox
+     * tick; now it runs on its own, wherever arming happens. */
+    private _armChecklist(): void {
+        this._checked = new Set(
+            this._attestableRows.map((r) => r.digest),
+        );
+        this._reasons = new Map();
     }
 
     private _toggleProposeLattice(e: Event): void {
         this._proposeLattice = (e.target as HTMLInputElement).checked;
-        // Withdrawing the proposal re-blocks the attestation, so an
-        // armed block cannot outlive the thing that unblocked it.
-        if (!this._proposeLattice) this._perfect = false;
+        // Proposing the fix lifts the block; arm (seed the
+        // checklist) the instant it does, since item 3 removed the
+        // checkbox that used to do this by hand.
+        if (this._armed) this._armChecklist();
     }
 
     private _toggleRow(digest: string): void {
@@ -341,11 +456,11 @@ export class IrSaveWigDialog extends LitElement {
         if (!this._isCell(row)) return false;
         // A cell is addressed by coordinate, not by command id, and it
         // routes through the device's own emitters exactly as the
-        // climate entity does. The matrix send reports what it sent
-        // rather than whether anything heard it back, so this settles
-        // on SENT -- honest, and the same thing the STATE MATRIX card
-        // has always said.
-        await this.api.matrixSend(
+        // climate entity does. Second Fitting v3 punch list item 14:
+        // the cell send now rides the same Mirror echo hook a stored
+        // command's TEST does, so it reports SENT . HEARD instead of
+        // settling on SENT alone.
+        const result = await this.api.matrixSend(
             this.sourceId,
             row.power
                 ? { power: row.power as "on" | "off" }
@@ -356,7 +471,7 @@ export class IrSaveWigDialog extends LitElement {
                       temp: row.temp ?? null,
                   },
         );
-        return false;
+        return !!result?.heard;
     }
 
     /** A checklist row: no command behind it, but coordinates or a
@@ -417,9 +532,9 @@ export class IrSaveWigDialog extends LitElement {
             row.section === "modes" ? null : row.mode,
             row.fan,
             row.swing,
-            row.temp != null ? `${this._displayTemp(row.temp)}\u00b0` : null,
+            row.temp != null ? `${this._displayTemp(row.temp)}°` : null,
         ].filter(Boolean);
-        const context = parts.join(" \u00b7 ");
+        const context = parts.join(" · ");
         if (row.temp_less) {
             return [context, t("fitting.no_temp_note")]
                 .filter(Boolean)
@@ -459,17 +574,6 @@ export class IrSaveWigDialog extends LitElement {
 
     private async _save(): Promise<void> {
         if (!this._canSave) return;
-        // Saving as new from a device that remembers a wig is a
-        // different act from updating it, so it gets its own yes
-        // (RULED). Nothing is written until that yes arrives.
-        if (
-            this._plan?.variant === "update" &&
-            this._saveAsNew &&
-            !this._confirmNew
-        ) {
-            this._confirmNew = true;
-            return;
-        }
         this._busy = true;
         this._error = null;
         try {
@@ -481,14 +585,16 @@ export class IrSaveWigDialog extends LitElement {
                     composed: true,
                 }),
             );
-            // Confirm with the filename in place (wigs.md section 7)
-            // instead of vanishing -- the filename IS the receipt.
+            // Confirm with the filename in place instead of vanishing --
+            // the filename IS the receipt. A diverged, sourced save
+            // already retired its ancestor inside the same write (see
+            // `_saveDevice`); this screen only ever has to say so, no
+            // second decision left to make.
             this._done = result as SaveResult;
         } catch (err) {
             this._error = (err as Error).message;
         } finally {
             this._busy = false;
-            this._confirmNew = false;
         }
     }
 
@@ -511,7 +617,7 @@ export class IrSaveWigDialog extends LitElement {
     }
 
     private async _saveDevice(): Promise<SaveResult> {
-        const attest = this._perfect
+        const attest = this._armed
             ? {
                   claims: this._claims(),
                   handle: this._handle.trim() || undefined,
@@ -521,9 +627,15 @@ export class IrSaveWigDialog extends LitElement {
             : undefined;
         return this.api.wigsSave({
             device_id: this.sourceId,
-            mode: this._isUpdate ? "update" : "create",
             ...this._metadata(),
             ...(attest ? { attest } : {}),
+            // Owner ruling: a diverged, sourced Perfect Fit save ALWAYS
+            // replaces. Picking this route and signing the oath already
+            // was the decision, so the mint and the retirement happen
+            // in the same write (Commit 2's server flag) -- there is no
+            // post-save confirm left to ask it again, and no Keep Both
+            // anywhere in this flow.
+            ...(this._isSuccession ? { replace: true } : {}),
             ...(this._isUpdate && this._proposeLattice
                 ? { propose_lattice: true }
                 : {}),
@@ -532,31 +644,22 @@ export class IrSaveWigDialog extends LitElement {
 
     // --- Rendering -----------------------------------------------------
 
+    /** Bench fix, part 2 (2026-08-07): matches
+     * ir-save-new-dialog.ts's own part-2 fix -- see that file's
+     * header comment for the full story. The form and the done
+     * screen both live in permanently-mounted wrapper <div>s here
+     * too, toggled with `hidden` rather than swapped by Lit, so the
+     * dialog's direct children never change identity or count. */
     render() {
-        if (this._done) return this._renderDone();
-        if (this._confirmNew) return this._renderConfirmNew();
-        const heading = this._isUpdate
-            ? t("wigs.save.update_heading", {
-                  name: this._plan?.source_wig_name ?? "",
-              })
-            : `${t("wigs.export.heading")} -- ${this.sourceName}`;
         return html`
             <ha-dialog
                 open
-                heading=${heading}
+                heading=${t("wigs.route.validate_perfect_fit")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._error
-                    ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
-                    : ""}
-                ${this._plan?.source_missing
-                    ? html`<ha-alert alert-type="warning"
-                          >${t("wigs.save.source_missing")}</ha-alert
-                      >`
-                    : ""}
-                ${this._renderMetadata()} ${this._renderFitting()}
-                ${this._renderActions()}
+                <div ?hidden=${!!this._done}>${this._renderForm()}</div>
+                <div ?hidden=${!this._done}>${this._renderDone()}</div>
             </ha-dialog>
             ${this._ledgerOpen && this._plan?.source_filename
                 ? html`<ir-claims-ledger
@@ -571,8 +674,74 @@ export class IrSaveWigDialog extends LitElement {
         `;
     }
 
+    private _renderForm() {
+        const graded = this._gradedLine;
+        const lost = this._lostRowsLine;
+        return html`
+            ${this._error
+                ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
+                : ""}
+            ${this._plan?.source_missing
+                ? html`<div class="source-missing-info">
+                      <ha-svg-icon .path=${ICON_WIG}></ha-svg-icon>
+                      <span>${t("wigs.save.source_missing")}</span>
+                  </div>`
+                : ""}
+            ${graded
+                ? html`<div
+                      class=${graded.amber
+                          ? "fitted-callout"
+                          : "fitted-line"}
+                  >
+                      ${graded.text}
+                  </div>`
+                : ""}
+            ${lost
+                ? html`<div class="lost-callout">${lost}</div>`
+                : ""}
+            ${renderMetadataFields(
+                this._metadataValues,
+                this._metadataSetters,
+                this._renameWarning,
+            )}
+            ${this._renderFitting()} ${this._renderActions()}
+        `;
+    }
+
+    /** Rendered even before there is anything to show (see the
+     * bench fix part 2 comment on render()) -- stays behind `hidden`
+     * until `_done` lands, so the dialog's children never change
+     * count or identity when the save actually completes. */
     private _renderDone() {
-        const done = this._done as SaveResult;
+        if (!this._done) return html``;
+        const done = this._done;
+        const replaced = done.replaced;
+        // Second Fitting v3 punch list item 13 (supersedes round one
+        // item 5's anatomy): a replace's receipt is a pure
+        // notification now -- both names bold and blue, a single
+        // CLOSE, nothing else. The retirement line, the top-up offer,
+        // and the Save/Cancel pair that used to live here are gone;
+        // the graded-fitting and lost-rows warnings this used to
+        // report AFTER the write now render BEFORE it instead (see
+        // _gradedLine / _lostRowsLine above), where the decision
+        // actually is. Devices wanting the successor's new commands
+        // pick them up through the adopt path, not this screen.
+        if (replaced) {
+            return html`
+                <div class="saved-line">
+                    ${this._renderReplacedLine(
+                        replaced.old_name,
+                        this._name.trim(),
+                    )}
+                </div>
+                <div class="dialog-actions">
+                    <span class="spacer"></span>
+                    <button class="action-btn" @click=${this._close}>
+                        ${t("common.close")}
+                    </button>
+                </div>
+            `;
+        }
         const line =
             done.variant === "update"
                 ? t("wigs.save.updated", {
@@ -586,162 +755,48 @@ export class IrSaveWigDialog extends LitElement {
                     })
                   : t("wigs.saved", { filename: done.filename ?? "" });
         return html`
-            <ha-dialog
-                open
-                heading=${t("wigs.export.heading")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">${line}</div>
-                ${done.cells_proposed
-                    ? html`<div class="saved-line">
-                          ${tp(
-                              "wigs.save.cells_proposed",
-                              done.cells_proposed,
-                          )}
-                      </div>`
-                    : ""}
-                ${done.stale_renames?.length
-                    ? html`<ha-alert alert-type="warning"
-                          >${t("wigs.save.stale_renames", {
-                              names: done.stale_renames.join(", "),
-                          })}</ha-alert
-                      >`
-                    : ""}
-                <div class="dialog-actions">
-                    <button class="action-btn" @click=${this._close}>
-                        ${t("common.close")}
-                    </button>
-                </div>
-            </ha-dialog>
-        `;
-    }
-
-    private _renderConfirmNew() {
-        return html`
-            <ha-dialog
-                open
-                heading=${t("wigs.save.new_confirm_heading")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">
-                    ${t("wigs.save.new_confirm_body", {
-                        name: this._plan?.source_wig_name ?? "",
-                    })}
-                </div>
-                <div class="dialog-actions">
-                    <span class="spacer"></span>
-                    <button
-                        class="action-btn cancel-btn"
-                        @click=${() => (this._confirmNew = false)}
-                    >
-                        ${t("common.cancel")}
-                    </button>
-                    <button class="action-btn save-wig-btn" @click=${this._save}>
-                        ${t("wigs.save.new_confirm_yes")}
-                    </button>
-                </div>
-            </ha-dialog>
-        `;
-    }
-
-    private _renderMetadata() {
-        return html`
-            ${html`<div class="field">
-                      <label>${t("common.name")}</label>
-                      <input
-                          type="text"
-                          .value=${this._name}
-                          @input=${(e: Event) =>
-                              (this._name = (
-                                  e.target as HTMLInputElement
-                              ).value)}
-                      />
-                      ${this._renamingWig
-                          ? html`<div class="rename-warn">
-                                ${t("wigs.save.rename_wig_warning", {
-                                    name: this._plan?.metadata.name ?? "",
-                                })}
-                            </div>`
-                          : ""}
-                  </div>`}
-            <div class="pair-grid">
-                ${this._textField(
-                    t("wigs.editor.brand"),
-                    this._brand,
-                    (v) => (this._brand = v),
-                    t("wigs.export.brand_hint"),
-                )}
-                ${this._textField(
-                    t("wigs.editor.model"),
-                    this._model,
-                    (v) => (this._model = v),
-                )}
-                ${this._textField(
-                    t("wigs.editor.fcc_id"),
-                    this._fccId,
-                    (v) => (this._fccId = v),
-                )}
-                ${this._textField(t("wigs.editor.upc"), this._upc, (v) => (this._upc = v))}
-                ${this._textField(
-                    t("wigs.editor.asin"),
-                    this._asin,
-                    (v) => (this._asin = v),
-                )}
-                ${this._textField(t("wigs.editor.oem"), this._oem, (v) => (this._oem = v))}
-            </div>
-            <div class="ident-hint">${t("wigs.editor.ids_hint")}</div>
-            <div class="field">
-                <label>${t("wigs.editor.notes")}</label>
-                <input
-                    type="text"
-                    .value=${this._notes}
-                    placeholder=${t("wigs.editor.notes_placeholder")}
-                    @input=${(e: Event) =>
-                        (this._notes = (e.target as HTMLInputElement).value)}
-                />
+            <div class="saved-line">${line}</div>
+            ${done.cells_proposed
+                ? html`<div class="saved-line">
+                      ${tp(
+                          "wigs.save.cells_proposed",
+                          done.cells_proposed,
+                      )}
+                  </div>`
+                : ""}
+            ${done.stale_renames?.length
+                ? html`<ha-alert alert-type="warning"
+                      >${t("wigs.save.stale_renames", {
+                          names: done.stale_renames.join(", "),
+                      })}</ha-alert
+                  >`
+                : ""}
+            <div class="dialog-actions">
+                <span class="spacer"></span>
+                <button class="action-btn" @click=${this._close}>
+                    ${t("common.close")}
+                </button>
             </div>
         `;
     }
 
-    private _textField(
-        label: string,
-        value: string,
-        set: (v: string) => void,
-        placeholder = "",
-    ) {
-        return html`
-            <div class="field">
-                <label>${label}</label>
-                <input
-                    type="text"
-                    .value=${value}
-                    placeholder=${placeholder}
-                    @input=${(e: Event) =>
-                        set((e.target as HTMLInputElement).value)}
-                />
-            </div>
-        `;
-    }
-
-    /**
-     * The banner's HEAD is the click target, not the whole banner.
-     *
-     * Generous enough that nobody has to hit a 15px checkbox, and
-     * bounded so it stops before the row list. Once armed, this block
-     * holds thirty ticks and a signature form; a stray click in that
-     * region disarming the whole thing would throw away work somebody
-     * just did. The head is the part that means "do you want to do
-     * this at all", so the head is what answers it.
-     *
-     * The label stops propagation itself: a click there toggles the
-     * checkbox natively and would then bubble here and toggle it back,
-     * netting to nothing.
-     */
-    private _onHeadClick(): void {
-        if (this._nothingToAttest || this._attestBlocked) return;
-        this._setPerfect(!this._perfect);
+    /** Second Fitting v3 punch list item 13: splitting the localized
+     * sentence on its own {old}/{new} tokens -- rather than
+     * substituting plain text into them -- keeps each language's own
+     * word order while still letting just the two names carry the
+     * style. Same technique ir-wigs.ts already uses for its drop
+     * title and duplicate-receipt links. */
+    private _renderReplacedLine(oldName: string, newName: string) {
+        const segments = t("wigs.route.replaced_receipt").split(
+            REPLACED_RECEIPT_SPLIT,
+        );
+        return html`${segments.map((seg) =>
+            seg === "old"
+                ? html`<b class="replaced-name">${oldName}</b>`
+                : seg === "new"
+                  ? html`<b class="replaced-name">${newName}</b>`
+                  : html`${seg}`,
+        )}`;
     }
 
     /**
@@ -753,25 +808,38 @@ export class IrSaveWigDialog extends LitElement {
      * grey text under a grey paragraph, and the people behind it were
      * unreachable. It opens the ledger now.
      *
-     * Cardinal, not ordinal. The first draft read "you would be the
-     * 3rd person" and the English was broken by its own template:
-     * "{n}rd" is right for 3 and wrong for 2, 4 and 21, and fixing it
-     * properly needs an ordinal plural ruleset that tp() does not have,
-     * plus ja/ru/pl having no such construction at all. A cardinal
+     * Cardinal, not ordinal: an ordinal template broke on 2, 4 and 21,
+     * and several locales have no such construction at all. A cardinal
      * count is one ordinary plural key that translates everywhere.
      */
     private _renderJoining() {
         const n = this._plan?.existing_fittings ?? 0;
         if (!this._isUpdate || n < 1) return "";
+        // Second Fitting v3 punch list, item 11 (round three, the
+        // FINAL copy, superseding round two's first pass above): the
+        // self case is a pure informational replace notice -- no
+        // handle needed since it can only ever be your own -- and it
+        // wears the house amber family (.fitted-callout /
+        // .lost-callout / .rename-warn) instead of blue, the same
+        // weight this codebase already gives "something will be
+        // replaced" news. Fits by other keys keep the original blue
+        // copy and styling, unchanged.
+        const self = this._plan?.same_key_notice;
+        const isSelf = !!(self && self.handle);
+        const line = isSelf
+            ? t("wigs.save.joining_self_notice", {
+                  date: self!.date ?? "",
+              })
+            : tp("wigs.save.joining_proven", n);
         return html`
             <button
-                class="joining"
+                class="joining ${isSelf ? "joining-self" : ""}"
                 @click=${(e: Event) => {
                     e.stopPropagation();
                     this._ledgerOpen = true;
                 }}
             >
-                <span class="j-line">${tp("wigs.save.joining_proven", n)}</span>
+                <span class="j-line">${line}</span>
                 <span class="j-see"
                     ><u>${tp("wigs.save.joining_see", n)}</u> &rsaquo;</span
                 >
@@ -779,6 +847,12 @@ export class IrSaveWigDialog extends LitElement {
         `;
     }
 
+    /** A succession save is never silent: the list renders on any
+     * succession regardless of whether perfect fit is armed;
+     * `_renderList` is what draws it read-only when it is not. The
+     * attestation block (the oath, handle, github) stays perfect-fit
+     * only -- nothing is signed unarmed, so nothing there has anything
+     * to show. */
     private _renderFitting() {
         if (this._loading) {
             return html`<div class="ident-hint">${t("common.loading_plain")}</div>`;
@@ -786,21 +860,11 @@ export class IrSaveWigDialog extends LitElement {
         if (!this._plan) return nothing;
         return html`
             ${this._renderLatticeChanges()}
-            <div class="fit-block ${this._perfect ? "on" : ""}">
-                <div class="fit-head" @click=${this._onHeadClick}>
-                    <label
-                        class="fit-check"
-                        @click=${(e: Event) => e.stopPropagation()}
-                    >
-                        <input
-                            type="checkbox"
-                            .checked=${this._perfect}
-                            ?disabled=${this._nothingToAttest ||
-                            this._attestBlocked}
-                            @change=${this._togglePerfect}
-                        />
+            <div class="fit-block ${this._armed ? "on" : ""}">
+                <div class="fit-head">
+                    <div class="fit-check">
                         <span>${t("wigs.save.perfect_label")}</span>
-                    </label>
+                    </div>
                     ${this._nothingToAttest
                         ? html`<div class="fit-explainer">
                               ${t("wigs.save.nothing_to_attest")}
@@ -816,16 +880,13 @@ export class IrSaveWigDialog extends LitElement {
                         : ""}
                     ${this._renderJoining()}
                 </div>
-                ${this._perfect && !this._nothingToAttest
+                ${this._armed || this._isSuccession
                     ? this._renderList()
                     : ""}
-                ${this._perfect && !this._nothingToAttest
-                    ? this._renderAttestation()
-                    : ""}
+                ${this._armed ? this._renderAttestation() : ""}
             </div>
         `;
     }
-
 
     /**
      * The content-change prompt for a matrix.
@@ -874,33 +935,95 @@ export class IrSaveWigDialog extends LitElement {
         `;
     }
 
+    /**
+     * The checklist. On SUCCESSION the matched rows render first,
+     * exactly as an UPDATE would, then a light divider introduces the
+     * delta -- additions (on the device, not in the source wig) and
+     * removals (in the source wig, not on the device) -- so the change
+     * is visible before anything is signed. Matched rows and additions
+     * are both attestable; a removal never is, because nobody can
+     * vouch for a command that is not there. On CREATE and plain
+     * UPDATE there is no delta, so this collapses back to the single
+     * list it always was.
+     *
+     * `readOnly` draws the unarmed succession case -- every row
+     * disabled and unchecked, matched and additions alike, because
+     * nothing here is being signed. It reuses the row's existing "off"
+     * look rather than inventing a second visual language: dimmed and
+     * struck reads as "not part of what's being attested" whether the
+     * reason is a decline or an unarmed preview.
+     */
     private _renderList() {
         const rows = this._allRows;
+        const succession = this._isSuccession;
+        const matched = succession ? rows.filter((r) => r.matched) : rows;
+        const additions = succession ? rows.filter((r) => !r.matched) : [];
+        const removals = succession ? (this._plan?.missing_rows ?? []) : [];
+        const readOnly = succession && !this._armed;
         return html`
             <div class="fit-list">
-                ${rows.map((row) => this._renderRow(row))}
+                ${matched.map((row) =>
+                    this._renderRow(row, false, readOnly),
+                )}
+                ${additions.length || removals.length
+                    ? html`
+                          <div class="changes-divider">
+                              <span>${t("wigs.save.changes_title")}</span>
+                          </div>
+                          ${additions.map((row) =>
+                              this._renderRow(row, true, readOnly),
+                          )}
+                          ${removals.map((row) =>
+                              this._renderRemovalRow(row),
+                          )}
+                      `
+                    : ""}
             </div>
-            ${this._isPerfectFit
+            ${readOnly || this._isPerfectFit
                 ? ""
                 : html`<div class="downgrade">
                       ${t("wigs.save.downgrade", {
                           checked: String(this._checkedCount),
-                          total: String(rows.length),
+                          total: String(this._attestableRows.length),
                       })}
                   </div>`}
         `;
     }
 
-    private _renderRow(row: SavePlanRow) {
-        const checked = this._checked.has(row.digest);
+    /** A matched row, or (SUCCESSION only) an addition: a command on
+     * the device with no row in the source wig. An addition attests
+     * exactly like a matched row -- it travels in the successor and
+     * its claim binds there -- with a small leading "+" marking it as
+     * new. The rename-propose line stays UPDATE only: a SUCCESSION
+     * successor is authored from the device's current alias directly,
+     * so there is no upstream file left to propose the rename onto.
+     *
+     * `readOnly`: an unarmed succession's preview. The checkbox
+     * renders disabled and forced unchecked -- column rhythm holds,
+     * but nothing here is checkable, and the reason picker never shows
+     * under a row nobody can decline. */
+    private _renderRow(
+        row: SavePlanRow,
+        isAddition = false,
+        readOnly = false,
+    ) {
+        const checked = readOnly ? false : this._checked.has(row.digest);
         return html`
-            <div class="fit-row ${checked ? "" : "off"}">
+            <div
+                class="fit-row ${checked ? "" : "off"} ${isAddition
+                    ? "addition"
+                    : ""}"
+            >
                 <input
                     type="checkbox"
                     .checked=${checked}
+                    ?disabled=${readOnly}
                     @change=${() => this._toggleRow(row.digest)}
                 />
                 <span class="fit-name">
+                    ${isAddition
+                        ? html`<span class="delta-mark add">+</span>`
+                        : ""}
                     ${this._rowLabel(row)}
                     ${this._rowContext(row)
                         ? html`<span class="fit-context"
@@ -933,8 +1056,31 @@ export class IrSaveWigDialog extends LitElement {
                         : ""}
                 </span>
             </div>
-            ${checked ? "" : this._renderReasons(row)}
-            ${checked && row.renamed ? this._renderRename(row) : ""}
+            ${checked || readOnly ? "" : this._renderReasons(row)}
+            ${checked && row.renamed && this._isUpdate
+                ? this._renderRename(row)
+                : ""}
+        `;
+    }
+
+    /** A wig row the device no longer covers: always a removal now,
+     * never an exclusion candidate. Struck, a leading "-", and a
+     * checkbox that renders for column rhythm but is DISABLED --
+     * nobody can vouch for a command that is not there. No TEST:
+     * there is nothing on the device left to send. */
+    private _renderRemovalRow(row: SavePlanMissingRow) {
+        return html`
+            <div class="fit-row removal">
+                <input type="checkbox" disabled />
+                <span class="fit-name">
+                    <span class="delta-mark remove">-</span>
+                    ${row.alias}
+                </span>
+                <span></span>
+                <span class="pill-slot"></span>
+                <span class="test-slot"></span>
+            </div>
+            <div class="row-note">${t("wigs.save.row_leaves_wig")}</div>
         `;
     }
 
@@ -1003,7 +1149,9 @@ export class IrSaveWigDialog extends LitElement {
                     ${this._textField(
                         t("wigs.save.your_github"),
                         this._github,
-                        (v) => (this._github = v),
+                        (v) => (this._github = v.replace(/^@+/, "")),
+                        "",
+                        "@",
                     )}
                 </div>
                 <label class="fit-check oath">
@@ -1021,6 +1169,37 @@ export class IrSaveWigDialog extends LitElement {
         `;
     }
 
+    private _textField(
+        label: string,
+        value: string,
+        set: (v: string) => void,
+        placeholder = "",
+        prefix = "",
+    ) {
+        const input = html`
+            <input
+                type="text"
+                .value=${value}
+                placeholder=${placeholder}
+                @input=${(e: Event) =>
+                    set((e.target as HTMLInputElement).value)}
+            />
+        `;
+        return html`
+            <div class="field">
+                <label>${label}</label>
+                ${prefix
+                    ? html`
+                          <div class="input-prefixed">
+                              <span class="input-prefix">${prefix}</span>
+                              ${input}
+                          </div>
+                      `
+                    : input}
+            </div>
+        `;
+    }
+
     private _renderActions() {
         return html`
             <div class="dialog-actions">
@@ -1032,19 +1211,6 @@ export class IrSaveWigDialog extends LitElement {
                 >
                     ${t("common.cancel")}
                 </button>
-                ${this._plan?.variant === "update" && !this._perfect
-                    ? html`<button
-                          class="action-btn as-new-btn ${this._saveAsNew ? "on" : ""}"
-                          @click=${() => {
-                              this._saveAsNew = !this._saveAsNew;
-                          }}
-                          ?disabled=${this._busy}
-                      >
-                          ${this._saveAsNew
-                              ? t("wigs.save.back_to_saved")
-                              : t("wigs.save.save_as_new")}
-                      </button>`
-                    : ""}
                 <button
                     class="action-btn save-wig-btn"
                     @click=${this._save}
@@ -1072,6 +1238,33 @@ export class IrSaveWigDialog extends LitElement {
                 grid-template-columns: 1fr 1fr;
                 column-gap: 10px;
             }
+            .input-prefixed {
+                display: flex;
+                align-items: center;
+                width: 100%;
+                padding: 0 8px;
+                border-radius: 4px;
+                border: 1px solid var(--divider-color);
+                background: var(--card-background-color);
+                box-sizing: border-box;
+            }
+            .input-prefixed:focus-within {
+                border-color: #8e3b3b;
+            }
+            .input-prefix {
+                color: var(--secondary-text-color);
+                font-size: 0.95rem;
+                padding-right: 2px;
+                user-select: none;
+            }
+            .input-prefixed input[type="text"] {
+                flex: 1;
+                min-width: 0;
+                border: none;
+                background: transparent;
+                padding: 8px 0;
+                outline: none;
+            }
             .ident-hint {
                 font-size: 11px;
                 color: var(--secondary-text-color);
@@ -1079,13 +1272,9 @@ export class IrSaveWigDialog extends LitElement {
                 line-height: 1.4;
             }
             /* GREEN IS THE GO BUTTON, in every state (owner ruling
-               2026-08-03). It used to mark one thing -- a complete
-               perfect fit about to be written -- with everything else
-               oxblood, but the LABEL already carries that distinction
+               2026-08-03). The label already carries the distinction
                ("Save Perfect Fit" against "Save Fitted Wig" against
-               "Save"), so the colour was saying it a second time and
-               worse. A lone red button in a green dialog reads as a
-               warning about nothing. */
+               "Save"), so the colour need not say it a second time. */
             .save-wig-btn {
                 background: #3f8a4b;
                 color: #fff;
@@ -1098,6 +1287,59 @@ export class IrSaveWigDialog extends LitElement {
                 padding: 8px 0 4px;
                 font-size: 13.5px;
                 line-height: 1.5;
+            }
+            /* Amber, matching ir-supersede-dialog's own family exactly:
+               a fitting retiring is the same weight of news wherever it
+               renders. Second Fitting v3 punch list item 13: moved
+               here from the receipt (where it used to render AFTER
+               the save) to before the click instead, so the margin
+               now separates it from what follows rather than what
+               came before. */
+            .fitted-callout,
+            .lost-callout {
+                margin: 0 0 12px;
+                padding: 10px 12px;
+                border-radius: 6px;
+                border: 1px solid rgba(217, 164, 65, 0.45);
+                background: rgba(217, 164, 65, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
+            }
+            /* Second Fitting v3 punch list item 18: green, not a
+               warning -- creating a wig is information, not danger.
+               Same geometry as the amber family above, house green
+               (matching .save-wig-btn) instead. */
+            .source-missing-info {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin: 0 0 12px;
+                padding: 10px 12px;
+                border-radius: 6px;
+                border: 1px solid rgba(79, 158, 90, 0.45);
+                background: rgba(79, 158, 90, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
+            }
+            .source-missing-info ha-svg-icon {
+                --mdc-icon-size: 20px;
+                color: #4f9e5a;
+                flex-shrink: 0;
+            }
+            .fitted-line {
+                margin: 0 0 12px;
+                font-size: 0.9rem;
+                line-height: 1.5;
+                color: var(--primary-text-color);
+            }
+            /* Second Fitting v3 punch list item 13: the replace
+               receipt's two names, bold and blue -- the same house
+               blue .joining .j-see u already uses below. */
+            .replaced-name {
+                font-weight: 600;
+                color: #64b5f6;
             }
             /* The content-change prompt. Above the attestation block
                on purpose: what the wig is about to BECOME has to be
@@ -1146,17 +1388,9 @@ export class IrSaveWigDialog extends LitElement {
                 margin-top: 7px;
             }
             /* THE BOUNDARY between describing the wig and making a
-               claim about it. Those are different acts and the dialog
-               never said so: the one control that turns a save into a
-               signed claim was a bare checkbox under a hairline rule,
-               at the same weight as the form labels above it.
-
-               DASHED at rest so it reads as an offer; SOLID the moment
-               it is armed. Blue, not green: green is already carrying
-               the row checks and the Save button, and a green frame
-               here would compete with the thing it leads up to. Blue is
-               the panel's informational colour already (the comb glyph,
-               every link). */
+               claim about it. DASHED at rest so it reads as an offer;
+               SOLID the moment it is armed. Blue, not green: green is
+               already carrying the row checks and the Save button. */
             .fit-block {
                 margin-top: 14px;
                 padding: 13px 15px;
@@ -1177,21 +1411,16 @@ export class IrSaveWigDialog extends LitElement {
                     0 0 0 1px rgba(100, 181, 246, 0.18),
                     0 2px 14px rgba(100, 181, 246, 0.09);
             }
-            /* Only the head is clickable. Generous enough that nobody
-               hits a 15px checkbox, bounded so a stray click among the
-               thirty ticks below cannot disarm the block and throw the
-               work away. */
-            .fit-head {
-                cursor: pointer;
-            }
-            /* Why the tick is refused, next to the tick it refuses.
-               It used to sit under the propose control, which is where
-               the REMEDY is; the question it answers is asked here. */
+            /* Bench feedback 2026-08-06: this .fit-check is a
+               bare label (no checkbox glyph to skip past, unlike the
+               propose/oath rows below), so the gate/explainer/joining
+               box under it flush left to the label's own edge instead
+               of carrying that indent along for no reason. */
             .fit-gate {
                 font-size: 11.5px;
                 color: #d9a441;
                 line-height: 1.45;
-                margin: 6px 0 0 24px;
+                margin: 6px 0 0 0;
             }
             .fit-check {
                 display: flex;
@@ -1204,7 +1433,7 @@ export class IrSaveWigDialog extends LitElement {
                 font-size: 11.5px;
                 color: var(--secondary-text-color);
                 line-height: 1.45;
-                margin: 6px 0 8px 24px;
+                margin: 6px 0 8px 0;
             }
             .fit-list {
                 max-height: 320px;
@@ -1213,18 +1442,13 @@ export class IrSaveWigDialog extends LitElement {
                 border-radius: 6px;
                 padding: 4px 6px;
             }
-            /* Two bordered objects should not touch. The explainer's own
-               8px is enough when it is the last thing in the head, but
-               the fittings door is a card, and a card butted straight
-               against the checklist reads as one control. */
             .fit-head + .fit-list {
                 margin-top: 11px;
             }
             /* COLUMN DISCIPLINE. The pill sits in a fixed slot sized to
                the widest protocol name and the value chips sit in fixed
                slots, so glyphs, pills and TEST buttons align straight
-               down the list. A list whose controls stagger by row reads
-               as noise, and this list is the thing being attested. */
+               down the list. */
             .fit-row {
                 display: grid;
                 grid-template-columns: auto 1fr auto 72px auto;
@@ -1243,10 +1467,6 @@ export class IrSaveWigDialog extends LitElement {
                 white-space: nowrap;
                 text-transform: capitalize;
             }
-            /* The coordinates a checklist row holds constant. "Cool"
-               alone does not say which cell was pressed, and a person
-               attesting a lattice is entitled to know which one they
-               are vouching for. */
             .fit-context {
                 margin-left: 6px;
                 font-size: 11px;
@@ -1297,16 +1517,46 @@ export class IrSaveWigDialog extends LitElement {
                 margin: 8px 0 2px;
                 line-height: 1.4;
             }
+            .changes-divider {
+                display: flex;
+                align-items: center;
+                margin: 10px 2px 6px;
+                padding-top: 8px;
+                border-top: 1px solid var(--divider-color);
+                font-size: 10.5px;
+                font-weight: 600;
+                letter-spacing: 0.03em;
+                text-transform: uppercase;
+                color: var(--secondary-text-color);
+            }
+            .delta-mark {
+                font-weight: 700;
+                margin-right: 3px;
+            }
+            .delta-mark.add {
+                color: #4f9e5a;
+            }
+            .delta-mark.remove {
+                color: var(--secondary-text-color);
+            }
+            .fit-row.removal {
+                opacity: 0.65;
+            }
+            .fit-row.removal .fit-name {
+                text-decoration: line-through;
+            }
+            .row-note {
+                font-size: 11px;
+                color: var(--secondary-text-color);
+                line-height: 1.4;
+                padding: 5px 4px 7px 30px;
+                border-top: 1px solid rgba(255, 255, 255, 0.04);
+            }
             .attest {
                 margin-top: 10px;
             }
             /* THE OATH BOX IS HALF AGAIN AS BIG as the row checks
-               (owner ruling 2026-08-03). It is the one control in this
-               dialog that turns a list of ticks into a signed claim, so
-               it should not look like the thirty ticks above it. Its
-               sentence centres against it rather than sitting at the
-               top, because at this size a top-aligned label reads as
-               having slipped. */
+               (owner ruling 2026-08-03). */
             .oath {
                 margin-top: 8px;
                 align-items: center;
@@ -1317,56 +1567,18 @@ export class IrSaveWigDialog extends LitElement {
                 height: 22px;
                 flex: none;
             }
-            /* GREEN IS THE HOUSE COLOUR FOR "this one is good"
-               (owner ruling 2026-08-03), so every check in the
-               attestation list wears it and so does the button that
-               ships a complete one. Fitted-but-partial stays oxblood:
-               the colour is the difference between the two outcomes,
-               and painting both green would spend it. */
             input[type="checkbox"] {
                 accent-color: #4f9e5a;
                 width: 15px;
                 height: 15px;
                 cursor: pointer;
             }
-            /* The save-as-new escape hatch. A real button, not an
-               underlined link: it is one of the two things you can do
-               here, and the footer is where doing things lives. It
-               stays outline-only so the primary is unambiguous, and it
-               takes the same oxblood wash on hover that every other
-               button in the house does -- a control with no mouse-over
-               reads as decoration. */
-            /* The toggle takes the same green, but stays OUTLINE.
-               Two green fills side by side would put the mode switch
-               and the commit in the same visual weight, which is the
-               confusion this whole pass is unpicking. Same hue, less
-               weight. */
-            .as-new-btn:hover:not(:disabled) {
-                border-color: #4f9e5a;
-                color: #6cbf78;
-                background: rgba(79, 158, 90, 0.12);
-            }
-            .as-new-btn.on {
-                border-color: #4f9e5a;
-                color: #6cbf78;
-                background: rgba(79, 158, 90, 0.16);
-            }
-            /* Why the primary is gray, said out loud. A title tooltip
-               was invisible here, because browsers do not show tooltips
-               on disabled buttons -- which read as "you cannot update at
-               all" on the bench. */
-            /* You are joining a record, not starting one. Three
-               renamed saves read as three lost wigs on the bench when
-               they were one wig collecting three fittings. */
-            /* A DOOR, not a footnote. The count was grey text under a
-               grey paragraph and the people behind it were unreachable;
-               it opens the ledger now. Sized and bordered so it reads
-               as something you can press. */
             .joining {
                 display: block;
-                width: calc(100% - 24px);
-                margin: 11px 0 0 24px;
+                width: 100%;
+                margin: 11px 0 0 0;
                 padding: 9px 12px;
+                box-sizing: border-box;
                 text-align: left;
                 font-family: inherit;
                 color: inherit;
@@ -1380,32 +1592,51 @@ export class IrSaveWigDialog extends LitElement {
                 background: rgba(100, 181, 246, 0.12);
                 border-color: rgba(100, 181, 246, 0.55);
             }
+            /* Second Fitting v3 punch list item 11 (round three): the
+               self case reads as a replace notice, so it wears the
+               house amber family instead of this blue -- declared
+               after .joining so the cascade favors these values for
+               the properties both rules set. */
+            .joining-self {
+                background: rgba(217, 164, 65, 0.07);
+                border-color: rgba(217, 164, 65, 0.45);
+            }
+            .joining-self:hover {
+                background: rgba(217, 164, 65, 0.14);
+                border-color: rgba(217, 164, 65, 0.65);
+            }
+            /* Bench feedback 2026-08-07: one continuous line, not
+               two -- "See the fitting it already carries" runs right
+               after the notice sentence instead of underneath it.
+               Both spans fall back to their default inline display
+               so they wrap together as one paragraph; the template's
+               own whitespace between the two tags supplies the gap. */
             .joining .j-line {
-                display: block;
                 font-size: 13px;
                 line-height: 1.5;
             }
             .joining .j-see {
-                display: block;
                 font-size: 11.5px;
                 color: var(--secondary-text-color);
-                margin-top: 4px;
             }
             .joining .j-see u {
                 color: #64b5f6;
                 text-decoration: underline dotted;
                 text-underline-offset: 3px;
             }
+            /* Amber, matching the house family (.fitted-callout /
+               .lost-callout above): renaming the wig here is the same
+               weight of news, right where it's being typed. */
             .rename-warn {
-                font-size: 11.5px;
-                color: #d9a441;
-                line-height: 1.45;
-                margin: 4px 0 0;
+                margin: 6px 0 0;
+                padding: 8px 10px;
+                border-radius: 6px;
+                border: 1px solid rgba(217, 164, 65, 0.45);
+                background: rgba(217, 164, 65, 0.07);
+                color: var(--primary-text-color);
+                font-size: 0.85rem;
+                line-height: 1.5;
             }
-            /* Footer labels never break mid-phrase. The wrap only
-               showed up once something else competed for the row, but a
-               button that can stack its own words is a button waiting
-               to do it again in a longer language. */
             .dialog-actions .action-btn {
                 white-space: nowrap;
             }
@@ -1415,6 +1646,6 @@ export class IrSaveWigDialog extends LitElement {
 
 declare global {
     interface HTMLElementTagNameMap {
-        "ir-save-wig-dialog": IrSaveWigDialog;
+        "ir-save-perfect-dialog": IrSavePerfectDialog;
     }
 }

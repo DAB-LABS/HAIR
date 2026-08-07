@@ -47,6 +47,7 @@ import { COMB_PATH } from "./ir-comb-report.js";
 import "./ir-comb-report.js";
 import { displayTemp, installUnit } from "./temperature.js";
 import "./ir-confirm-dialog.js";
+import "./ir-supersede-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-claims-ledger.js";
 import "./ir-promote-dialog.js";
@@ -55,6 +56,8 @@ import type {
     CodeCodebook,
     FittingSummary,
     MatrixSummary,
+    ReverseSupersessionBlock,
+    SupersessionBlock,
     WigInfo,
     WigInvalid,
     WigsList,
@@ -145,6 +148,20 @@ export class IrWigs extends LitElement {
         duplicates?: { filename: string; brand: string | null }[];
     }[] = [];
     @state() private _receiptSuffix = "";
+    // The drop-bar doorway: an arriving Wig named an ancestor still here.
+    @state() private _supersede: {
+        block: SupersessionBlock;
+        newFilename: string;
+    } | null = null;
+    // The reverse-direction re-confirm (v0.9.7 Second Fitting, amendment
+    // v2 section 3): the arrival names an id a newer LOCAL wig already
+    // supersedes. Holds the original text/filename so Import Anyway can
+    // resend the identical upload with confirmed set.
+    @state() private _reverseSupersede: {
+        block: ReverseSupersessionBlock;
+        text: string;
+        filename: string;
+    } | null = null;
     @state() private _bloomId: string | null = null;
     private _pendingScrollId: string | null = null;
     @state() private _busyId: string | null = null;
@@ -556,13 +573,115 @@ export class IrWigs extends LitElement {
         ></ir-confirm-dialog>`;
     }
 
+    private _renderSupersede() {
+        const s = this._supersede;
+        if (!s) return "";
+        return html`<ir-supersede-dialog
+            .block=${s.block}
+            .newFilename=${s.newFilename}
+            @replace=${this._onSupersedeReplace}
+            @keep-both=${this._onSupersedeKeepBoth}
+            @cancel-import=${this._onSupersedeCancelImport}
+            @closed=${() => (this._supersede = null)}
+        ></ir-supersede-dialog>`;
+    }
+
+    /** The reverse-direction re-confirm (v0.9.7 Second Fitting,
+     * amendment v2 section 3): the arrival names an id a newer LOCAL
+     * wig already lists as superseded. Same dialog anatomy as the
+     * clip-matrix confirm above -- a plain two-action ir-confirm-dialog,
+     * not the elaborate replace/keep-both/cancel doorway, because
+     * there is only ever one decision here. */
+    private _renderReverseSupersede() {
+        const r = this._reverseSupersede;
+        if (!r) return "";
+        return html`<ir-confirm-dialog
+            title=${t("supersede.reverse_title")}
+            message=${t("supersede.reverse_message", {
+                name: r.block.name,
+                count: String(r.block.signal_count),
+            })}
+            confirmLabel=${t("supersede.reverse_import_anyway")}
+            @confirmed=${() => {
+                const target = this._reverseSupersede!;
+                this._reverseSupersede = null;
+                void this._uploadText(target.text, target.filename, true);
+            }}
+            @closed=${() => (this._reverseSupersede = null)}
+        ></ir-confirm-dialog>`;
+    }
+
+    private async _onSupersedeReplace(e: CustomEvent): Promise<void> {
+        const { newFilename, oldFilename, relink, topupDeviceIds } = e.detail;
+        const oldName = this._supersede?.block.old_name ?? oldFilename;
+        try {
+            await this.api.wigsSupersede(
+                newFilename, oldFilename, relink, topupDeviceIds,
+            );
+            // Name what happened onto the existing receipt line.
+            this._receiptSuffix = [
+                this._receiptSuffix,
+                t("supersede.receipt_replaced", { name: oldName }),
+            ].filter(Boolean).join(" · ");
+            this._supersede = null;
+            await this._refresh();
+        } catch (err) {
+            this._receiptKind = "warn";
+            this._receiptFiles = [];
+            this._receipt = (err as Error).message;
+            this._supersede = null;
+        }
+    }
+
+    private _onSupersedeKeepBoth(): void {
+        this._receiptSuffix = [
+            this._receiptSuffix,
+            t("supersede.receipt_kept"),
+        ].filter(Boolean).join(" · ");
+        this._supersede = null;
+    }
+
+    /** CANCEL, drop-bar doorway only (owner ruling: "Cancel means undo
+     * this import"): the arrival just written is deleted outright, not
+     * merely dismissed -- Keep Both is the dismiss-and-leave-it action;
+     * this one undoes the import. */
+    private async _onSupersedeCancelImport(): Promise<void> {
+        const s = this._supersede;
+        if (!s) return;
+        try {
+            await this.api.wigsDelete(s.newFilename);
+            this._receiptSuffix = [
+                this._receiptSuffix,
+                t("supersede.receipt_cancelled"),
+            ].filter(Boolean).join(" · ");
+        } catch (err) {
+            this._receiptKind = "warn";
+            this._receipt = (err as Error).message;
+        } finally {
+            this._supersede = null;
+            await this._refresh();
+        }
+    }
+
     // --- Upload (drop bar + browse) ---
 
     private async _uploadText(
-        text: string, filename = "",
+        text: string, filename = "", confirmed = false,
     ): Promise<void> {
         try {
-            const result = await this.api.wigsUpload(text, filename);
+            const result = await this.api.wigsUpload(text, filename, confirmed);
+            // Reverse-direction check first: dialog before filing, so
+            // nothing here has written anything yet -- Cancel is just
+            // dropping this state, not undoing a file already on disk
+            // (that is the forward doorway's CANCEL, further below).
+            if (result.reverse_supersession) {
+                this._reverseSupersede = {
+                    block: result.reverse_supersession,
+                    text,
+                    filename,
+                };
+                return;
+            }
             if (!result.success) {
                 this._receiptKind = "warn";
                 this._receiptFiles = [];
@@ -608,8 +727,20 @@ export class IrWigs extends LitElement {
             // fitting. Only when exactly one wig landed -- a foreign
             // format can convert to five at once, and five stacked
             // dialogs is not a report.
-            const fresh = files.filter((f) => !f.duplicate_of);
-            if (fresh.length === 1) this._combAfterUpload(fresh[0].filename);
+            // A superseding Wig opens the replace dialog instead of the
+            // auto-comb: two stacked dialogs is not a report, and the
+            // replace decision comes first. The comb stays a click away.
+            if (result.supersession && result.filename) {
+                this._supersede = {
+                    block: result.supersession,
+                    newFilename: result.filename,
+                };
+            } else {
+                const fresh = files.filter((f) => !f.duplicate_of);
+                if (fresh.length === 1) {
+                    this._combAfterUpload(fresh[0].filename);
+                }
+            }
         } catch (err) {
             this._receiptKind = "warn";
             this._receiptFiles = [];
@@ -996,30 +1127,18 @@ export class IrWigs extends LitElement {
         }
     }
 
-    /** The downloaded file's name carries the wig's check tier --
-     * name.wig.json, name.fitted.wig.json, name.perfect-fit.wig.json --
-     * derived from the same FittingSummary the row's check glyph reads,
-     * so the filename and the row can never disagree about the same
-     * wig. The name is presentation: the file's contents are identical
-     * across tiers, and an install importing it never reads the name. */
-    private _tieredFilename(wig: WigInfo, filename: string): string {
-        const state = wig.fitting?.state ?? null;
-        if (state === null) return filename;
-        const suffix = state === "perfect" ? ".perfect-fit" : ".fitted";
-        return filename.endsWith(".wig.json")
-            ? filename.slice(0, -".wig.json".length) + suffix + ".wig.json"
-            : filename + suffix;
-    }
-
     private async _download(wig: WigInfo | null): Promise<void> {
         if (!wig) return;
         try {
-            const { filename, text } = await this.api.wigsGet(
+            // The tier now rides in the name the server composes from the
+            // wig's own fields (<brand>-<kind>-<model>[-<tier>]), so the
+            // filename and the row's check glyph can never disagree and
+            // the client no longer composes a name at all. Hyphenated,
+            // never dotted -- the dot was what failed the shop's upload.
+            const { download_filename, text } = await this.api.wigsGet(
                 wig.filename,
             );
-            await this._downloadText(
-                this._tieredFilename(wig, filename), text,
-            );
+            await this._downloadText(download_filename, text);
         } catch (err) {
             this._flash((err as Error).message);
         }
@@ -1201,6 +1320,8 @@ export class IrWigs extends LitElement {
             )}
             ${this._renderPeek()}
             ${this._renderClipConfirm()}
+            ${this._renderSupersede()}
+            ${this._renderReverseSupersede()}
             ${this._renderEditor()}
             ${this._adoptWig
                 ? html`<ir-promote-dialog

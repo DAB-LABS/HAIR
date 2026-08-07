@@ -2087,6 +2087,142 @@ class TestWigsUploadDuplicateReceipt:
         assert again["files"][0]["duplicate_of"] == first["filename"]
 
 
+# ---------------------------------------------------------------------------
+# ws_wigs_upload: reverse-direction import check
+# ---------------------------------------------------------------------------
+
+
+class TestReverseSupersession:
+    """Amendment v2 section 3 (owner bench find): ancestry only ever
+    points backward, so a re-dropped ORIGINAL, once its successor
+    already exists in this closet, would otherwise file as a silent
+    twin -- the forward check never looks at it, because the forward
+    check asks what the ARRIVAL supersedes, not who supersedes the
+    arrival. The reverse lookup catches it before anything touches
+    disk: Cancel here means nothing files at all, unlike the forward
+    doorway's CANCEL, which deletes an arrival already written.
+    """
+
+    @staticmethod
+    def _original_text(wig_id: str = "wig-original-id") -> str:
+        import json
+
+        from custom_components.hair.wig_format import WIG_FORMAT_V1
+
+        pronto = "0000 006D 0002 0000 0020 0040 0020 0040"
+        return json.dumps({
+            "format": WIG_FORMAT_V1,
+            "name": "Fable Ceiling Fan",
+            "wig_id": wig_id,
+            "signals": [{"alias": "Power", "pronto": pronto}],
+        })
+
+    @staticmethod
+    def _write_successor(
+        tmp_path, supersedes: list[str], signal_count: int = 3,
+        name: str = "Fable Ceiling Fan (2)",
+    ) -> None:
+        import json
+
+        from custom_components.hair.wig_format import WIG_FORMAT_V1
+        from custom_components.hair.wig_store import (
+            ensure_wigs_dir,
+            wigs_dir,
+        )
+
+        pronto = "0000 006D 0002 0000 0020 0040 0020 0040"
+        ensure_wigs_dir(tmp_path)
+        text = json.dumps({
+            "format": WIG_FORMAT_V1,
+            "name": name,
+            "wig_id": "wig-successor-id",
+            "supersedes": supersedes,
+            "signals": [
+                {"alias": f"Signal {i}", "pronto": pronto}
+                for i in range(signal_count)
+            ],
+        })
+        (wigs_dir(tmp_path) / "successor.wig.json").write_text(
+            text, encoding="utf-8"
+        )
+
+    @staticmethod
+    async def _upload(fake_hass, text: str, confirmed: bool = False) -> dict:
+        from custom_components.hair.websocket_api import ws_wigs_upload
+
+        conn = _make_connection()
+        msg = {"id": 1, "type": "hair/wigs/upload", "text": text}
+        if confirmed:
+            msg["confirmed"] = True
+        await ws_wigs_upload(fake_hass, conn, msg)
+        conn.send_result.assert_called_once()
+        return conn.send_result.call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_a_newer_local_wig_blocks_the_write_until_confirmed(
+        self, fake_hass, tmp_path
+    ):
+        from custom_components.hair.wig_store import wigs_dir
+
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(
+            tmp_path, supersedes=["wig-original-id"], signal_count=3,
+            name="Fable Ceiling Fan (2)",
+        )
+
+        result = await self._upload(fake_hass, self._original_text())
+
+        assert result["success"] is True
+        assert result["filenames"] == []
+        assert result["files"] == []
+        assert result["reverse_supersession"] == {
+            "name": "Fable Ceiling Fan (2)",
+            "signal_count": 3,
+        }
+        # Nothing files: the closet holds only the successor already
+        # planted there, never a copy of the arrival.
+        names = {p.name for p in wigs_dir(tmp_path).glob("*.wig.json")}
+        assert names == {"successor.wig.json"}
+
+    @pytest.mark.asyncio
+    async def test_import_anyway_resends_confirmed_and_files_it(
+        self, fake_hass, tmp_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path, supersedes=["wig-original-id"])
+        text = self._original_text()
+
+        blocked = await self._upload(fake_hass, text)
+        assert "reverse_supersession" in blocked
+
+        confirmed = await self._upload(fake_hass, text, confirmed=True)
+        assert confirmed["success"] is True
+        assert "reverse_supersession" not in confirmed
+        assert len(confirmed["filenames"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_local_successor_uploads_without_a_hitch(
+        self, fake_hass, tmp_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        result = await self._upload(fake_hass, self._original_text())
+        assert result["success"] is True
+        assert "reverse_supersession" not in result
+
+    @pytest.mark.asyncio
+    async def test_an_unrelated_supersedes_chain_does_not_false_match(
+        self, fake_hass, tmp_path
+    ):
+        """The successor's chain must actually name THIS wig, not just
+        exist -- a wig that supersedes some other ancestor is no signal
+        about this one."""
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path, supersedes=["some-other-wig-id"])
+        result = await self._upload(fake_hass, self._original_text())
+        assert result["success"] is True
+        assert "reverse_supersession" not in result
+
+
 class TestEveryRegisteredCommandIsDecorated:
     """Every handler registered with HA must carry the
     ``@websocket_api.websocket_command`` decorator in the source.

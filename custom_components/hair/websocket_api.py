@@ -119,6 +119,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_list)
     websocket_api.async_register_command(hass, ws_wigs_upload)
     websocket_api.async_register_command(hass, ws_wigs_delete)
+    websocket_api.async_register_command(hass, ws_wigs_supersede)
     websocket_api.async_register_command(hass, ws_wigs_get)
     websocket_api.async_register_command(hass, ws_wigs_claims)
     websocket_api.async_register_command(hass, ws_wigs_update)
@@ -2652,7 +2653,12 @@ async def ws_wigs_list(
     and the library version stamp for the toolbar. Each wig carries its
     fitting summary so the fitted / not fitted filter and the row
     markers never recompute from raw fittings (fitting-flow.md 5.2)."""
-    username = _fitting_username(connection)
+    # Second Fitting v3 punch list item 8: "yours" is keyed on this
+    # install's public signing key, not the typed handle against the
+    # HA username -- see claims_summary's install_key parameter.
+    from .fitting_signing import async_get_public_key
+
+    install_key = await async_get_public_key(hass)
 
     entry_data = _get_first_entry_data(hass)
 
@@ -2700,7 +2706,7 @@ async def ws_wigs_list(
                         matrix_summary(loaded.wig.climate)
                         if loaded.wig.climate is not None else None
                     ),
-                    "fitting": claims_summary(loaded.wig, username),
+                    "fitting": claims_summary(loaded.wig, install_key),
                     # The comb glyph's state. None means NO RECEIPT --
                     # nobody has combed this wig -- which is deliberately
                     # not the same as clean, and the row draws the same
@@ -2740,6 +2746,12 @@ async def ws_wigs_list(
     # zone says so rather than just refusing.
     vol.Required("text"): vol.All(str, vol.Length(min=2, max=4_000_000)),
     vol.Optional("filename"): vol.All(str, vol.Length(max=300)),
+    # The reverse-supersession re-confirm (v0.9.7 Second Fitting,
+    # amendment v2 section 3): set once the owner has seen the "a newer
+    # wig here supersedes this one" dialog and chosen Import Anyway, so
+    # the second call skips straight past the check that would
+    # otherwise fire again on the identical text.
+    vol.Optional("confirmed", default=False): bool,
 })
 @websocket_api.async_response
 async def ws_wigs_upload(
@@ -2752,7 +2764,17 @@ async def ws_wigs_upload(
     Flipper .ir, LIRC) converts to wigs first, stamped
     ``converted:<format>``. Either way, validation happens BEFORE
     anything touches disk, and per-signal conversion skips come back
-    as reasons instead of vanishing."""
+    as reasons instead of vanishing.
+
+    Ancestry only ever points backward -- a successor names the wig it
+    replaced, never the reverse -- so a re-dropped ORIGINAL, once its
+    successor already exists in this closet, would otherwise file as a
+    silent twin nothing else ever looks at (owner bench find, amendment
+    v2 section 3). The reverse lookup catches it here, before anything
+    touches disk: unlike the forward doorway's CANCEL, which deletes an
+    arrival already written, Cancel on THIS dialog means the upload
+    never happened at all.
+    """
 
     def _upload() -> dict[str, Any]:
         from datetime import UTC, datetime
@@ -2792,8 +2814,9 @@ async def ws_wigs_upload(
         # empty-list hash (owner bench: a Mitsubishi drop got "already
         # in Toyotomi"). wig_content_hash is cells-aware for matrix
         # wigs and byte-identical to the old hash for signal wigs.
+        scanned = scan_wigs(hass.config.config_dir).wigs
         existing: dict[str, list[dict[str, Any]]] = {}
-        for loaded in scan_wigs(hass.config.config_dir).wigs:
+        for loaded in scanned:
             existing.setdefault(
                 wig_content_hash(loaded.wig), []
             ).append({
@@ -2817,6 +2840,28 @@ async def ws_wigs_upload(
 
         result = parse_wig(text)
         if result.ok:
+            # REVERSE SUPERSESSION (v0.9.7 Second Fitting, amendment v2
+            # section 3, owner bench find). The forward check below
+            # asks what THIS wig supersedes; this asks who supersedes
+            # THIS wig -- a closet wig whose own supersedes chain
+            # already names the arrival's id outranks it, and nothing
+            # else in the funnel would ever notice. Checked against the
+            # id the file itself carries, before anything touches disk,
+            # so Cancel here can mean "nothing filed" rather than the
+            # forward doorway's "delete what just filed".
+            if not msg.get("confirmed") and result.wig.wig_id:
+                for loaded in scanned:
+                    if result.wig.wig_id in loaded.wig.supersedes:
+                        return {
+                            "success": True,
+                            "filenames": [],
+                            "files": [],
+                            "reverse_supersession": {
+                                "name": loaded.wig.name,
+                                "signal_count": len(loaded.wig.signals),
+                            },
+                        }
+
             # Pre-claims fittings are DROPPED on import (hard rule 6),
             # keyed on the SHAPE of each entry rather than the file's
             # major -- this branch itself wrote /3 files carrying the
@@ -2840,7 +2885,7 @@ async def ws_wigs_upload(
             entry = _entry(result.wig, filename)
             entry["comb"] = comb
             entry["dropped_fittings"] = dropped
-            return {
+            out: dict[str, Any] = {
                 "success": True,
                 "filename": filename,
                 "filenames": [filename],
@@ -2850,6 +2895,18 @@ async def ws_wigs_upload(
                 "folds": [],
                 "dropped_fittings": dropped,
             }
+            # SUPERSESSION (v0.9.7 Second Fitting). The file is written --
+            # it arrived, it files. When it names an ancestor still in
+            # this closet, the response also carries the replace-flow
+            # invitation. The block is an invitation, not a hold.
+            from .wig_save import detect_supersession
+
+            supersession = detect_supersession(
+                hass.config.config_dir, result.wig, devices
+            )
+            if supersession is not None:
+                out["supersession"] = supersession
+            return out
 
         # Not a wig: sniff for a foreign format before reporting the
         # wig-schema errors (a SmartIR file failing wig validation is
@@ -2895,6 +2952,11 @@ async def ws_wigs_upload(
             "folds": converted.folds,
         }
 
+    # Fetched on the loop and handed to the executor job: the arriving
+    # wig's ancestry is matched against the devices this closet holds.
+    data = _get_first_entry_data(hass)
+    store = data.get("store") if data else None
+    devices = list(store.get_all_devices()) if store is not None else []
     connection.send_result(
         msg["id"], await hass.async_add_executor_job(_upload)
     )
@@ -2967,13 +3029,221 @@ async def ws_wigs_delete(
     msg: dict[str, Any],
 ) -> None:
     """Delete a local wig file (user wigs only by construction; library
-    codebooks are not files in the closet)."""
-    from .wig_store import delete_wig
+    codebooks are not files in the closet).
+
+    Bench report (2026-08-06): deleting a wig left every device that
+    pointed at it holding a dead ``source_wig_id`` -- UPDATE CLOSET
+    WIG kept offering itself on a file that no longer existed, "From:"
+    read blank, and the summary line claimed a match it had no file
+    left to check. The supersede/replace path already relinks
+    affected devices to the successor when a file goes away; a plain
+    delete has no successor to relink to, so it clears the pointer
+    instead.
+    """
+    from .wig_store import delete_wig, load_wig
+
+    def _load_id() -> str | None:
+        wig = load_wig(hass.config.config_dir, msg["filename"])
+        return wig.wig_id if wig is not None else None
+
+    wig_id = await hass.async_add_executor_job(_load_id)
 
     deleted = await hass.async_add_executor_job(
         delete_wig, hass.config.config_dir, msg["filename"]
     )
-    connection.send_result(msg["id"], {"deleted": deleted})
+
+    cleared: list[str] = []
+    if deleted and wig_id:
+        data = _get_first_entry_data(hass)
+        if data is not None:
+            store = data["store"]
+            manager: DeviceManager = data["device_manager"]
+            for device in store.get_all_devices():
+                if device.source_wig_id == wig_id:
+                    device.source_wig_id = None
+                    await manager.async_update_device(device)
+                    cleared.append(device.id)
+
+    connection.send_result(
+        msg["id"], {"deleted": deleted, "devices_cleared": cleared}
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/supersede",
+    vol.Required("new_filename"): vol.All(str, vol.Length(max=300)),
+    vol.Optional("old_filename", default=""): vol.All(
+        str, vol.Length(max=300)
+    ),
+    vol.Optional("relink", default=True): bool,
+    vol.Optional("topup_device_ids", default=list): [
+        vol.All(str, vol.Length(max=100))
+    ],
+    # Second Fitting v3, Commit 5: a diverged, sourced Perfect Fit save
+    # already deletes and relinks inside hair/wigs/save's own write
+    # (Commit 2's replace: true). The closing screen's top-up offer
+    # reaches this same endpoint afterward for the delta alone, no
+    # pair, no delete.
+    vol.Optional("topup_only", default=False): bool,
+})
+@websocket_api.async_response
+async def ws_wigs_supersede(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Perform the replace a superseding wig invites (v0.9.7), or, with
+    ``topup_only`` set (Second Fitting v3, Commit 5), just the topup
+    half alone.
+
+    The full path: delete the superseded file, repoint its devices to
+    the successor, and top up each chosen device with the arrival's
+    rows it lacks. The pair is RE-VERIFIED first -- the old file's id
+    must still appear in the new file's ancestry -- because the closet
+    can change while the dialog is open, and a stale confirm must
+    refuse rather than delete the wrong file. Rows a device already
+    has (by digest) are never touched.
+
+    The topup-only path exists because Commit 2's ``replace: true`` on
+    ``hair/wigs/save`` already does the delete-and-relink half of this
+    inside the SAME write a diverged, sourced Perfect Fit save
+    performs -- calling this endpoint's full path afterward would try
+    to re-verify and delete a file that is already gone. ``topup_only``
+    skips straight to the topup loop against the wig ``new_filename``
+    already names: no pair, no delete.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    manager: DeviceManager = data["device_manager"]
+
+    topup_only = bool(msg.get("topup_only", False))
+    old_filename = msg.get("old_filename") or ""
+
+    if topup_only:
+
+        def _load_new() -> Any:
+            from .wig_store import load_wig
+
+            return load_wig(hass.config.config_dir, msg["new_filename"])
+
+        new_wig = await hass.async_add_executor_job(_load_new)
+        if new_wig is None:
+            connection.send_error(msg["id"], "not_found", "Wig not found")
+            return
+        old_id = None
+        new_id = new_wig.wig_id
+        deleted = False
+        relink = False
+    else:
+        if not old_filename:
+            connection.send_error(
+                msg["id"], "old_filename_required",
+                "old_filename is required unless topup_only is set",
+            )
+            return
+
+        def _load() -> tuple[Any, Any]:
+            from .wig_store import load_wig
+
+            return (
+                load_wig(hass.config.config_dir, msg["new_filename"]),
+                load_wig(hass.config.config_dir, old_filename),
+            )
+
+        new_wig, old_wig = await hass.async_add_executor_job(_load)
+        if new_wig is None or old_wig is None:
+            connection.send_error(msg["id"], "not_found", "Wig not found")
+            return
+
+        old_id = old_wig.wig_id
+        new_id = new_wig.wig_id
+        # The pair re-verify: the old file's id must still be in the new
+        # file's ancestry, or the closet changed under the dialog and this
+        # confirm is stale. Refuse cleanly rather than delete the wrong file.
+        if not old_id or old_id not in new_wig.supersedes:
+            connection.send_error(
+                msg["id"], "pair_changed",
+                "These wigs are no longer a supersession pair",
+            )
+            return
+
+        def _delete() -> bool:
+            from .wig_store import delete_wig
+
+            return delete_wig(hass.config.config_dir, old_filename)
+
+        deleted = await hass.async_add_executor_job(_delete)
+        relink = bool(msg.get("relink", True))
+
+    from .wig_format import signal_row_digest, wig_row_digests
+
+    topup_ids = set(msg.get("topup_device_ids") or [])
+
+    identities: list[Any] | None = None
+    findings: dict[str, Any] = {}
+    suspects: set[str] = set()
+    if topup_ids:
+        from .wig_comb import suspect_findings
+        from .wig_identity import wig_signal_identities
+
+        identities = await hass.async_add_executor_job(
+            wig_signal_identities, new_wig
+        )
+        findings = suspect_findings(new_wig)
+        suspects = set(findings)
+
+    receipts: list[dict[str, Any]] = []
+    for device in store.get_all_devices():
+        do_relink = (
+            relink and old_id is not None and device.source_wig_id == old_id
+        )
+        do_topup = device.id in topup_ids
+        if not (do_relink or do_topup):
+            continue
+        relinked = False
+        if do_relink:
+            device.source_wig_id = new_id
+            relinked = True
+        added = 0
+        if do_topup and identities is not None:
+            from .wig_export import build_wig_from_device
+
+            build = build_wig_from_device(device)
+            have = (
+                set(wig_row_digests(build.wig))
+                if build.wig is not None else set()
+            )
+            for i, (sig, ident) in enumerate(
+                zip(new_wig.signals, identities, strict=True), start=1
+            ):
+                # Only the delta: a row the device already has, by digest,
+                # is never re-minted (no twin commands on a top-up).
+                if ident is None or signal_row_digest(sig) in have:
+                    continue
+                command = _command_from_wig_signal(
+                    sig, ident, suspects, findings, i
+                )
+                device.add_command(command)
+                manager._auto_map_command(device, command)
+                added += 1
+        await manager.async_update_device(device)
+        receipts.append({
+            "id": device.id,
+            "name": device.name,
+            "relinked": relinked,
+            "commands_added": added,
+        })
+
+    connection.send_result(msg["id"], {
+        "deleted": deleted,
+        "old_filename": old_filename,
+        "new_filename": msg["new_filename"],
+        "devices": receipts,
+    })
 
 
 @websocket_api.require_admin
@@ -2996,7 +3266,11 @@ async def ws_wigs_claims(
     so an edited row shows up as orphaned the moment it is edited
     rather than whenever somebody remembers to invalidate something.
     """
-    username = _fitting_username(connection)
+    # Second Fitting v3 punch list item 8: same key-based "mine" as
+    # the Wigs tab summary -- see claims_summary's install_key.
+    from .fitting_signing import async_get_public_key
+
+    install_key = await async_get_public_key(hass)
 
     def _read() -> dict[str, Any] | None:
         from .wig_fitting import claims_ledger
@@ -3009,7 +3283,7 @@ async def ws_wigs_claims(
         parsed = parse_wig(text)
         if not parsed.ok or parsed.wig is None:
             return None
-        return claims_ledger(parsed.wig, username)
+        return claims_ledger(parsed.wig, install_key)
 
     ledger = await hass.async_add_executor_job(_read)
     if ledger is None:
@@ -3043,17 +3317,35 @@ async def ws_wigs_get(
     already something somebody signed and meant. Handing back the
     original bytes is therefore both simpler and more honest, and it
     keeps hand-authored formatting intact on an ordinary download."""
-    from .wig_store import read_wig_text
+    def _read() -> tuple[str | None, str | None]:
+        from .wig_format import download_filename, parse_wig
+        from .wig_store import read_wig_text
 
-    text = await hass.async_add_executor_job(
-        read_wig_text, hass.config.config_dir, msg["filename"]
-    )
+        text = read_wig_text(hass.config.config_dir, msg["filename"])
+        if text is None:
+            return None, None
+        # The download name comes from the wig's own fields (v0.9.7), so
+        # it needs the parsed wig. A file that will not parse still
+        # downloads under its on-disk name rather than failing the share.
+        result = parse_wig(text)
+        dl = (
+            download_filename(result.wig)
+            if result.wig is not None else msg["filename"]
+        )
+        return text, dl
+
+    text, dl = await hass.async_add_executor_job(_read)
     if text is None:
         connection.send_error(msg["id"], "not_found", "Wig not found")
         return
 
     connection.send_result(
-        msg["id"], {"filename": msg["filename"], "text": text}
+        msg["id"],
+        {
+            "filename": msg["filename"],
+            "text": text,
+            "download_filename": dl,
+        },
     )
 
 
@@ -3207,20 +3499,44 @@ async def ws_wigs_save_plan(
         await manager.async_get_matrix(device.id)
         if device.climate_matrix else None
     )
+    # This install's public key, for the same-key re-sign notice
+    # (Second Fitting v3 punch list, item 1). Fetched here, on the loop,
+    # because the storage read is async; handed to the executor job
+    # below rather than looked up from inside it.
+    from .fitting_signing import async_get_public_key
+
+    signing_key_b64 = await async_get_public_key(hass)
     # Off the loop: resolving the source scans the closet and the
     # checklist decodes a dozen or two prontos. Bounded, but not free,
     # and this runs on a human's click rather than a timer.
     plan = await hass.async_add_executor_job(
-        _build_plan, hass, device, matrix
+        _build_plan, hass, device, matrix, signing_key_b64
     )
     connection.send_result(msg["id"], plan.as_dict())
 
 
-def _build_plan(hass: HomeAssistant, device: IRDevice, matrix: Any) -> Any:
+def _build_plan(
+    hass: HomeAssistant,
+    device: IRDevice,
+    matrix: Any,
+    signing_key_b64: str | None = None,
+) -> Any:
     from .wig_save import build_save_plan
+    from .wig_store import scan_wigs
 
     source_wig, filename = _resolve_source(hass, device)
-    return build_save_plan(device, source_wig, filename, matrix)
+    # Bench addendum (2026-08-05): the shelf, for a SUCCESSION's
+    # differentiated default name to count past. Already off the loop
+    # (see the executor-job comment on the caller below), so one more
+    # directory scan alongside the source-wig resolve is the same
+    # tradeoff already made there, not a new one.
+    existing_names = [
+        loaded.wig.name for loaded in scan_wigs(hass.config.config_dir).wigs
+    ]
+    return build_save_plan(
+        device, source_wig, filename, matrix, existing_names,
+        signing_key_b64,
+    )
 
 
 _CLAIM_SCHEMA = vol.Schema({
@@ -3275,7 +3591,17 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/wigs/save",
     vol.Required("device_id"): vol.All(str, vol.Length(max=100)),
-    vol.Required("mode"): vol.In(["create", "update"]),
+    #: Second Fitting v3 punch list item 2: the one explicit route
+    #: signal from the caller. The verb (CREATE / UPDATE /
+    #: SUCCESSION) is still derived server-side from device-vs-source
+    #: digest comparison for every route except this one -- "create"
+    #: means the caller chose SAVE AS NEW at the decision window
+    #: fork, which mints unconditionally regardless of what the
+    #: fresh derivation says, and never auto-replaces the source wig
+    #: even when "replace" rides along in the same payload. Any
+    #: other value, or absent, is ignored; the derivation still
+    #: governs.
+    vol.Optional("mode"): vol.In(["create", "update"]),
     vol.Optional("name"): vol.All(str, vol.Length(max=200)),
     vol.Optional("brand"): vol.All(str, vol.Length(max=200)),
     vol.Optional("model"): vol.All(str, vol.Length(max=200)),
@@ -3289,6 +3615,13 @@ def _attestation_from(msg: dict[str, Any]) -> Any | None:
     #: MATRIX UPDATE: send the repaired lattice upstream. Explicit,
     #: because a content proposal is a different act from attesting.
     vol.Optional("propose_lattice"): bool,
+    #: Second Fitting v3: the decision window's UPDATE CLOSET WIG route
+    #: sets this when its own fetched plan says the device has diverged
+    #: -- the caller declaring "I mean to override", not a literal
+    #: instruction taken on faith. The server re-derives the plan fresh
+    #: (below) and only acts on this when that fresh check still agrees;
+    #: see ws_wigs_save's docstring.
+    vol.Optional("replace"): bool,
 })
 @websocket_api.async_response
 async def ws_wigs_save(
@@ -3296,12 +3629,29 @@ async def ws_wigs_save(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Save a device to the closet: a new wig, or claims onto its source.
+    """Save a device to the closet: a new wig, its own successor, or
+    claims onto its source.
 
-    ``mode`` is the person's answer, not an inference. The dialog got a
-    plan and showed them which verb it was offering; sending the verb
-    back means a save cannot silently become the other one because a
-    file appeared or vanished while the dialog was open.
+    THE VERB IS DERIVED (Second Fitting amendment v2, owner-ruled on
+    the bench 2026-08-04), not taken from the caller. UPDATE only when
+    the device's commands still match its source wig's rows by digest;
+    any addition or removal is SUCCESSION, which mints a successor
+    instead of attesting a row set the device has outgrown; no source
+    is CREATE. Deriving it fresh here -- the same computation the
+    save_plan preview just showed the dialog -- means a stale client
+    cannot steer a save down a verb the device no longer supports, and
+    a race where the device changed while the dialog sat open resolves
+    exactly as a fresh preview would.
+
+    Second Fitting v3 adds ``replace`` (below): the decision window's
+    UPDATE CLOSET WIG route sets it when the plan it already fetched
+    says the device has diverged, meaning the click means "mint the
+    successor and immediately override" rather than the old two-step
+    of minting, then confirming a supersede separately. The verb is
+    still derived fresh right here, never taken from ``replace``
+    itself -- a stale ``replace: true`` against a device that turns out
+    to match its source (changed while the dialog sat open) refuses
+    rather than silently doing an unintended plain update.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -3317,23 +3667,72 @@ async def ws_wigs_save(
     attestation = _attestation_from(msg)
     key = await async_get_private_key(hass) if attestation else None
 
+    manager: DeviceManager = data["device_manager"]
+    matrix = (
+        await manager.async_get_matrix(device.id)
+        if device.climate_matrix else None
+    )
+
     # A matrix bundle binds the lattice as a set, because a sampled
     # checklist vouches for the set rather than for the rows it walked.
     # STAMPED HERE, from the matrix this server just read -- never
     # carried back from the dialog. A claim about a lattice must bind
     # the lattice that exists, not one the caller says it saw.
-    if attestation is not None and device.climate_matrix:
-        manager: DeviceManager = data["device_manager"]
-        matrix = await manager.async_get_matrix(device.id)
-        if matrix is not None:
-            from .wig_format import cells_content_hash
+    if attestation is not None and matrix is not None:
+        from .wig_format import cells_content_hash
 
-            attestation.cells_hash = cells_content_hash(matrix)
+        attestation.cells_hash = cells_content_hash(matrix)
 
-    if msg["mode"] == "update":
+    # Off the loop, same as the save_plan preview: resolving the source
+    # scans the closet and the plan decodes the checklist.
+    plan = await hass.async_add_executor_job(_build_plan, hass, device, matrix)
+
+    from .wig_save import VARIANT_UPDATE
+
+    replace = bool(msg.get("replace", False))
+
+    # Second Fitting v3 punch list item 2: "create" is the caller
+    # saying SAVE AS NEW was the route chosen at the decision window
+    # fork. That route always mints, never replaces -- so it skips
+    # the UPDATE branch below entirely, and any "replace" riding
+    # along in the same payload is dropped rather than honored, since
+    # Save As New leaves the existing wig untouched by ruling.
+    force_create = msg.get("mode") == "create"
+    if force_create:
+        replace = False
+
+    if plan.variant == VARIANT_UPDATE and not force_create:
+        if replace:
+            # The caller's plan said SUCCESSION when the dialog opened;
+            # this server's fresh derivation says the device now
+            # matches its source. Something changed underneath the
+            # dialog -- refuse rather than guess which the caller meant.
+            connection.send_error(
+                msg["id"], "not_diverged",
+                "This device now matches its source wig; there is "
+                "nothing to replace. Close and reopen to see the "
+                "current state.",
+            )
+            return
         await _do_update(hass, connection, msg, device, attestation, key)
     else:
-        await _do_create(hass, connection, msg, device, attestation, key)
+        # CREATE and SUCCESSION are the same act at this layer: mint a
+        # wig from the device's current commands and attest against
+        # its own rows. What makes SUCCESSION a succession -- the
+        # ancestry stamp, the supersession detection -- is entirely a
+        # function of device.source_wig_id, which _do_create already
+        # reads (Commits 2 and 5). Nothing here needs to say which one
+        # this is. ``replace`` rides along and only fires when the
+        # mint actually names a local ancestor to supersede -- a
+        # from-scratch device has none, so it is inert there.
+        # Also reached whenever force_create routed this here
+        # instead of the UPDATE branch above -- replace is already
+        # forced False in that case, so this call never
+        # auto-supersedes on the Save As New route (item 2:
+        # existing wig untouched).
+        await _do_create(
+            hass, connection, msg, device, attestation, key, replace=replace,
+        )
 
 
 async def _do_update(
@@ -3494,10 +3893,24 @@ async def _do_create(
     device: IRDevice,
     attestation: Any | None,
     key: str | None,
+    replace: bool = False,
 ) -> None:
+    """Mint the wig (CREATE or SUCCESSION); optionally auto-replace.
+
+    ``replace`` (Second Fitting v3) asks that, when this mint names a
+    local ancestor to supersede, the supersede runs immediately after
+    the write -- the same act ``ws_wigs_supersede`` performs, folded
+    into this one round trip instead of a second confirm. It is inert
+    whenever the mint does not turn out to be a supersession: a
+    from-scratch device stamps no ancestry, so ``detect_supersession``
+    finds nothing to replace, and ``replace`` simply does nothing.
+    """
     from .wig_export import build_wig_from_device
 
-    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    data = _get_first_entry_data(hass)
+    manager: DeviceManager = data["device_manager"]
+    store = data.get("store")
+    devices = list(store.get_all_devices()) if store is not None else []
     matrix = (
         await manager.async_get_matrix(device.id)
         if device.climate_matrix else None
@@ -3520,8 +3933,25 @@ async def _do_create(
     _apply_identifier_edits(build.wig, msg)
 
     def _write() -> dict[str, Any] | None:
+        from .wig_format import compose_supersedes
         from .wig_save import create_text
         from .wig_store import write_wig_text
+
+        # SUPERSESSION STAMP (v0.9.7 Second Fitting). A sourced device
+        # saved as new is a successor: its ancestry is the source id,
+        # then the source file's own ancestry when that file still
+        # resolves locally (the chain extends), or the source id alone
+        # when it does not (source_missing -- the one link still known to
+        # be true). A from-scratch device (no source) stamps nothing. The
+        # head is the DEVICE's source id, never the resolved file's
+        # current id: the two differ once the closet copy is itself
+        # replaced, and the device's pointer is the honest parent.
+        if device.source_wig_id:
+            source_wig, _ = _resolve_source(hass, device)
+            build.wig.supersedes = compose_supersedes(
+                device.source_wig_id,
+                source_wig.supersedes if source_wig is not None else None,
+            )
 
         text, result = create_text(build, attestation, key)
         filename = write_wig_text(
@@ -3530,7 +3960,48 @@ async def _do_create(
         if filename is None:
             return None
         result.filename = filename
-        return result.as_dict()
+        out = result.as_dict()
+        # SUPERSESSION second doorway (v0.9.7 Second Fitting). A
+        # self-superseded wig is born in the closet without ever touching
+        # the drop bar -- the person who adds an eighth button to their
+        # own perfect-fitted wig and saves as new. When the wig just
+        # written names an ancestor still local, the response carries the
+        # SAME block the upload path returns, so the same dialog fires.
+        from .wig_save import detect_supersession
+
+        supersession = detect_supersession(
+            hass.config.config_dir, build.wig, devices
+        )
+        if supersession is not None:
+            out["supersession"] = supersession
+            if replace:
+                # Second Fitting v3: UPDATE CLOSET WIG on diverged
+                # content auto-replaces -- the user already chose this
+                # by picking that route, so there is no second confirm
+                # to wait for. Same pair re-verify ws_wigs_supersede
+                # does: the old file's id must still be in the new
+                # file's ancestry, belt-and-suspenders against a race
+                # inside this same write.
+                from .wig_store import delete_wig, load_wig
+
+                old_filename = supersession["old_filename"]
+                old_wig = load_wig(hass.config.config_dir, old_filename)
+                old_id = old_wig.wig_id if old_wig is not None else None
+                if old_id and old_id in build.wig.supersedes:
+                    deleted = delete_wig(hass.config.config_dir, old_filename)
+                    out["replaced"] = {
+                        "old_filename": old_filename,
+                        "old_name": supersession["old_name"],
+                        "deleted": deleted,
+                        # Relinking touches HA's device registry, which
+                        # needs the event loop -- collected here, acted
+                        # on by the caller once this executor job
+                        # returns.
+                        "device_ids": [
+                            d.id for d in devices if d.source_wig_id == old_id
+                        ],
+                    }
+        return out
 
     result = await hass.async_add_executor_job(_write)
     if result is None:
@@ -3547,6 +4018,21 @@ async def _do_create(
     if result.get("wig_id"):
         device.source_wig_id = result["wig_id"]
         await manager.async_update_device(device)
+
+    replaced = result.get("replaced")
+    if replaced:
+        receipts: list[dict[str, Any]] = []
+        for device_id in replaced.pop("device_ids", []):
+            relinked_device = store.get_device(device_id) if store else None
+            if relinked_device is None:
+                continue
+            relinked_device.source_wig_id = result["wig_id"]
+            await manager.async_update_device(relinked_device)
+            receipts.append({
+                "id": relinked_device.id, "name": relinked_device.name,
+            })
+        replaced["devices"] = receipts
+
     connection.send_result(msg["id"], result)
 
 
@@ -3743,13 +4229,24 @@ def _wig_linked_devices(
     identity for several hundred cells on both sides of a pairwise scan,
     on a call that runs every time the closet lists. The pointer is
     exact, already written, and costs one comparison per device.
+
+    THE POINTER WINS (Second Fitting v3 punch list item 7). A device
+    that already carries a ``source_wig_id`` chips ONLY the wig it
+    points to. Identity matching is a fallback for devices with no
+    pointer at all -- it must never ALSO chip a pointed device onto
+    some other wig just because a signal happens to still content-match
+    there (e.g. a Save as New repoint where the untouched flat rows
+    still identity-match the retired ancestor). Without this, a moved
+    device double-chipped both its old and new wig forever.
     """
     linked: dict[str, str] = {}
     wig_id = getattr(wig, "wig_id", None)
-    if wig_id:
-        for device in hair_devices or []:
-            if device.source_wig_id == wig_id:
-                linked[device.id] = device.name
+    pointed_device_ids: set[str] = set()
+    for device in hair_devices or []:
+        if device.source_wig_id:
+            pointed_device_ids.add(device.id)
+        if wig_id and device.source_wig_id == wig_id:
+            linked[device.id] = device.name
 
     from .wig_identity import wig_signal_identities
 
@@ -3760,12 +4257,57 @@ def _wig_linked_devices(
             ident.decoded_fingerprint, ident.byte_hash, ident.fingerprint
         )
         for entry_identity, payload in assignment_index:
+            if payload["device_id"] in pointed_device_ids:
+                continue
             if identity.same_as(entry_identity):
                 linked[payload["device_id"]] = payload["device_name"]
     return [
         {"device_id": did, "device_name": name}
         for did, name in linked.items()
     ]
+
+
+def _command_from_wig_signal(
+    sig: Any, ident: Any, suspects: set[str], findings: dict[str, Any],
+    index: int,
+) -> Any:
+    """Mint one device command from a wig signal + its decoded identity.
+
+    THE adopt machinery for turning a wig row into a command, shared by
+    Adopt Device and the supersession top-up so the two can never drift:
+    same naming, same decoded fields, same send/ditto/bypass carriage,
+    same comb flags. The wig STATES what each row needs, so the catalog
+    defaults never overrule it.
+    """
+    from .models import CaptureResult, CommandCategory
+
+    capture = CaptureResult(
+        protocol="PRONTO",
+        code=ident.pronto,
+        raw_timings=list(ident.raw_timings),
+        frequency=ident.frequency,
+    )
+    name = sig.alias.strip() or f"Signal {index}"
+    command = capture.to_command(name, CommandCategory.CUSTOM)
+    command.byte_hash = ident.byte_hash
+    command.decoded_protocol = ident.decoded_protocol
+    command.decoded_address = ident.decoded_address
+    command.decoded_command = ident.decoded_command
+    command.decoded_fingerprint = ident.decoded_fingerprint
+    command.decoded_extras = (
+        dict(ident.decoded_extras) if ident.decoded_extras else None
+    )
+    # The wig states what a row needs, per signal, so that is what the
+    # device gets -- explicit 0 ditto included, or the catalog default
+    # would resurrect a repeat the wig says nothing about.
+    command.send_count = max(1, sig.send_count or 1)
+    command.tx_force_raw = sig.bypass_protocol
+    command.repeat_count = sig.ditto_count
+    # Keyed by the wig's alias, which is what the comb recorded and what
+    # this command was just named after; a later rename does not clear it.
+    command.comb_suspect = sig.alias in suspects
+    command.comb_finding = findings.get(sig.alias)
+    return command
 
 
 @websocket_api.require_admin
@@ -3856,7 +4398,6 @@ async def ws_wig_make_device(
         )
         return
 
-    from .models import CaptureResult, CommandCategory
     from .wig_comb import suspect_findings
     from .wig_identity import wig_signal_identities
 
@@ -3934,45 +4475,7 @@ async def ws_wig_make_device(
         if ident is None:
             skipped += 1
             continue
-        capture = CaptureResult(
-            protocol="PRONTO",
-            code=ident.pronto,
-            raw_timings=list(ident.raw_timings),
-            frequency=ident.frequency,
-        )
-        name = sig.alias.strip() or f"Signal {i}"
-        command = capture.to_command(name, CommandCategory.CUSTOM)
-        command.byte_hash = ident.byte_hash
-        command.decoded_protocol = ident.decoded_protocol
-        command.decoded_address = ident.decoded_address
-        command.decoded_command = ident.decoded_command
-        command.decoded_fingerprint = ident.decoded_fingerprint
-        command.decoded_extras = (
-            dict(ident.decoded_extras) if ident.decoded_extras else None
-        )
-        # The wig STATES what a row needs, per signal (plan 5.5), so
-        # that is what the device gets. The old "raise to the highest
-        # send count any fitter needed" pass retired with the session
-        # apparatus that recorded it.
-        command.send_count = max(1, sig.send_count or 1)
-        # The other half of the export mapping: without this the marker
-        # rides in the file and does nothing on the receiving end.
-        command.tx_force_raw = sig.bypass_protocol
-        # EXACTLY the wig's value, explicit 0 included. The wig now says
-        # precisely what transmits, so the catalog default cannot be
-        # allowed to overrule it -- and it would: IRCommand.repeat_count
-        # defaults to DEFAULT_REPEAT_COUNT, which is 1, so a
-        # construct-and-forget would resurrect a ditto on a wig that
-        # says zero. That is the three-defaults mess (command 1,
-        # ProntoCommand 0, fitting send 0) collapsing at the wig
-        # boundary, and this is the line where it collapses.
-        command.repeat_count = sig.ditto_count
-        # Keyed by the wig's alias, which is what the comb recorded and
-        # what this command was just named after. A later rename on the
-        # device does not clear the flag: the doubt is about the code,
-        # not the label.
-        command.comb_suspect = sig.alias in suspects
-        command.comb_finding = findings.get(sig.alias)
+        command = _command_from_wig_signal(sig, ident, suspects, findings, i)
         device.add_command(command)
         manager._auto_map_command(device, command)
         copied += 1
@@ -4332,15 +4835,39 @@ async def ws_device_matrix_send(
         )
         pronto = cell.pronto
         send_count = cell.send_count
+    # The echo hook behind the TEST button's SENT . HEARD reading
+    # (Second Fitting v3 punch list item 14): a cell send rides the
+    # exact same Mirror hook a stored command's TEST does via
+    # _async_broadcast, so the same wait-and-report pattern
+    # ws_send_command already uses applies here unchanged.
+    import asyncio
+
+    from .wig_fitting import FITTING_HEARD_WAIT_S
+
+    heard_future: asyncio.Future[str | None] = (
+        asyncio.get_running_loop().create_future()
+    )
     try:
         await manager.async_send_matrix_cell(
-            msg["device_id"], name, pronto, send_count
+            msg["device_id"], name, pronto, send_count,
+            heard_future=heard_future,
         )
     except Exception as err:
+        heard_future.cancel()
         _LOGGER.error("Matrix send failed: %s", err, exc_info=True)
         connection.send_error(msg["id"], "send_failed", str(err))
         return
-    connection.send_result(msg["id"], {"sent": name})
+
+    receiver: str | None = None
+    try:
+        receiver = await asyncio.wait_for(heard_future, FITTING_HEARD_WAIT_S)
+        heard = True
+    except (TimeoutError, asyncio.CancelledError):
+        heard_future.cancel()
+        heard = False
+    connection.send_result(
+        msg["id"], {"sent": name, "heard": heard, "receiver": receiver}
+    )
 
 
 @websocket_api.require_admin

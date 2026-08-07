@@ -23,8 +23,12 @@ const ACTION_BADGE_TRACKING = 0.03; // letter-spacing, em
 const ACTION_BADGE_CHROME_PX = 22; // 10px padding + 1px border, both sides
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
-import "./ir-save-wig-dialog.js";
+import "./ir-save-perfect-dialog.js";
+import "./ir-save-route-dialog.js";
+import "./ir-save-new-dialog.js";
+import "./ir-save-update-dialog.js";
 import "./ir-emitter-picker.js";
+import type { SaveRoute } from "./ir-save-route-dialog.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
@@ -42,6 +46,7 @@ import type {
     MatrixCellCoord,
     MatrixCells,
     ReceiverInfo,
+    SavePlan,
 } from "./types.js";
 import { displayTemp, installUnit } from "./temperature.js";
 
@@ -72,7 +77,25 @@ export class IrDeviceDetail extends LitElement {
     @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
     @state() private _confirmDelete = false;
-    @state() private _saveWigOpen = false;
+    /** Second Fitting v3 punch list item 6: the window itself opens on
+     * this alone, synchronously, the moment SAVE TO CLOSET is clicked
+     * -- it no longer waits on the plan fetch below. False closes the
+     * whole save flow. */
+    @state() private _saveRouteOpen = false;
+    /** Second Fitting v3: the decision window's own plan, fetched once
+     * when SAVE TO CLOSET is clicked and handed straight into whatever
+     * dialog the chosen route opens next -- neither the window nor the
+     * dialog it routes to fetches a second copy. Streams in after the
+     * window is already open (item 6); null until it lands. */
+    @state() private _saveRoutePlan: SavePlan | null = null;
+    /** Which route the window's own buttons chose. VALIDATE FOR
+     * PERFECT FIT still opens the pre-v3 dialog until Commit 5 gives
+     * it a stripped, purpose-built one of its own -- see the Commit 3
+     * and 4 commit messages for the sequencing note. */
+    @state() private _saveRoute: SaveRoute | null = null;
+    /** Bench fix (2026-08-07): set by _onWigSaved, consumed by
+     * _closeSaveFlow -- see either for the full story. */
+    @state() private _pendingWigSaved = false;
     @state() private _commandToDelete: IRCommand | null = null;
     @state() private _editCommand: IRCommand | null = null;
 
@@ -200,6 +223,10 @@ export class IrDeviceDetail extends LitElement {
     // Data
     // ---------------------------------------------------------------
 
+    /** Refetches the device and tells the world it changed.
+     * Called directly by every other mutating action in this file;
+     * the "wig-saved" handler below no longer calls this immediately
+     * -- see _onWigSaved and _closeSaveFlow for why. */
     private async _refresh() {
         this.device = await this.api.getDevice(this.device.id);
         this.dispatchEvent(
@@ -210,12 +237,83 @@ export class IrDeviceDetail extends LitElement {
         );
     }
 
+    /** Bench fix (2026-08-07): the "wig-saved" handler for all three
+     * save dialogs used to call _refresh() straight away. That
+     * dispatched "device-changed" the instant the server save
+     * resolved -- before the receipt ever painted -- which bubbles up
+     * to ir-device-list and rebuilds this element (and the open save
+     * dialog inside it, receipt and all) out from under the save
+     * flow. No close() call, no "closed" event, nothing crashes: the
+     * whole host is replaced, so the receipt never gets a chance to
+     * paint. This handler only records that a refresh is owed;
+     * _closeSaveFlow runs it once the flow is actually done. */
+    private _onWigSaved = (): void => {
+        this._pendingWigSaved = true;
+    };
+
     private _flash(message: string) {
         this._toast = message;
         setTimeout(() => {
             this._toast = null;
         }, 2400);
     }
+
+    /** Second Fitting v3: SAVE TO CLOSET opens the decision window
+     * first, always. Punch list item 6: the window itself opens
+     * immediately, synchronously, on `hasSource` alone -- the plan
+     * fetch is no longer awaited before anything shows; its source
+     * line and delta summary stream in once the fetch resolves. A
+     * failed fetch closes the just-opened window and falls back to
+     * the old Perfect-Fit-route dialog directly, which retries the
+     * same call and carries its own inline error banner. */
+    private async _openSaveRoute(): Promise<void> {
+        if (this._busy) return;
+        this._saveRouteOpen = true;
+        try {
+            this._saveRoutePlan = await this.api.wigsSavePlan(
+                this.device.id,
+            );
+        } catch (err) {
+            this._saveRouteOpen = false;
+            this._flash((err as Error).message);
+            this._saveRoute = "perfect";
+        }
+    }
+
+    /** Second Fitting v3, Commit 4: SAVE AS NEW and UPDATE CLOSET WIG
+     * open their own stripped dialogs now. VALIDATE FOR PERFECT FIT
+     * still opens the pre-v3 dialog until Commit 5 gives it one of its
+     * own -- see the Commit 3 and 4 commit messages. The plan fetched
+     * for the window rides straight into whichever dialog opens, so
+     * nothing downstream refetches it. */
+    private _onSaveRoute = (e: CustomEvent<{ route: SaveRoute }>): void => {
+        this._saveRoute = e.detail.route;
+    };
+
+    /** Coding plan Commit 4: the Update dialog's stale-replace refusal
+     * (Commit 2's `not_diverged`) surfaces as a plain re-open of the
+     * decision window with a fresh plan, not a dead end the person has
+     * to back out of by hand. */
+    private _onStaleReplace = async (): Promise<void> => {
+        this._saveRoute = null;
+        await this._openSaveRoute();
+    };
+
+    /** Clears the route state as always, then -- if a save
+     * dialog left a refresh owed (see _onWigSaved) -- runs it now
+     * that the flow is actually closed. Still lands strictly before
+     * the next Save to Closet open (the route window can't open
+     * while a save dialog is up), which is all 697923c's fix ever
+     * needed -- it just doesn't run while the receipt is on screen. */
+    private _closeSaveFlow = (): void => {
+        this._saveRouteOpen = false;
+        this._saveRoute = null;
+        this._saveRoutePlan = null;
+        if (this._pendingWigSaved) {
+            this._pendingWigSaved = false;
+            void this._refresh();
+        }
+    };
 
     // ---------------------------------------------------------------
     // Inline name editing
@@ -1187,7 +1285,16 @@ export class IrDeviceDetail extends LitElement {
                 swing: cell.s ?? null,
                 temp: cell.t ?? null,
             });
-            this._flash(t("devdetail.sent_cmd", { name: result.sent }));
+            // Second Fitting v3 punch list item 14: the cell TEST now
+            // carries the same SENT . HEARD reading a stored command's
+            // TEST does. Reuses testbtn.heard rather than minting a
+            // new locale key for one word.
+            const sentMsg = t("devdetail.sent_cmd", { name: result.sent });
+            this._flash(
+                result.heard
+                    ? `${sentMsg} \u00b7 ${t("testbtn.heard")}`
+                    : sentMsg,
+            );
         } catch (err) {
             this._flash(
                 t("devdetail.send_failed", {
@@ -1517,7 +1624,7 @@ export class IrDeviceDetail extends LitElement {
                 </div>
                 <button
                     class="stc-btn"
-                    @click=${() => (this._saveWigOpen = true)}
+                    @click=${this._openSaveRoute}
                     ?disabled=${this._busy}
                     title=${t("wigs.save_as_wig")}
                 >
@@ -1746,8 +1853,35 @@ export class IrDeviceDetail extends LitElement {
             </div>
 
             <!-- Dialogs -->
-            ${this._saveWigOpen
-                ? html`<ir-save-wig-dialog
+            ${this._saveRouteOpen && !this._saveRoute
+                ? html`<ir-save-route-dialog
+                      ?hasSource=${!!this.device.source_wig_id}
+                      .plan=${this._saveRoutePlan}
+                      @route=${this._onSaveRoute}
+                      @closed=${this._closeSaveFlow}
+                  ></ir-save-route-dialog>`
+                : ""}
+            ${this._saveRoute === "new" && this._saveRoutePlan
+                ? html`<ir-save-new-dialog
+                      .api=${this.api}
+                      sourceId=${this.device.id}
+                      .plan=${this._saveRoutePlan}
+                      @wig-saved=${this._onWigSaved}
+                      @closed=${this._closeSaveFlow}
+                  ></ir-save-new-dialog>`
+                : ""}
+            ${this._saveRoute === "update" && this._saveRoutePlan
+                ? html`<ir-save-update-dialog
+                      .api=${this.api}
+                      sourceId=${this.device.id}
+                      .plan=${this._saveRoutePlan}
+                      @stale-replace=${this._onStaleReplace}
+                      @wig-saved=${this._onWigSaved}
+                      @closed=${this._closeSaveFlow}
+                  ></ir-save-update-dialog>`
+                : ""}
+            ${this._saveRoute === "perfect"
+                ? html`<ir-save-perfect-dialog
                       .api=${this.api}
                       source="device"
                       sourceId=${this.device.id}
@@ -1755,8 +1889,10 @@ export class IrDeviceDetail extends LitElement {
                       ?hasEmitter=${(this.device.emitter_entity_ids ?? [])
                           .length > 0}
                       .hass=${this.hass}
-                      @closed=${() => (this._saveWigOpen = false)}
-                  ></ir-save-wig-dialog>`
+                      .plan=${this._saveRoutePlan}
+                      @wig-saved=${this._onWigSaved}
+                      @closed=${this._closeSaveFlow}
+                  ></ir-save-perfect-dialog>`
                 : ""}
             ${this._captureName
                 ? html`

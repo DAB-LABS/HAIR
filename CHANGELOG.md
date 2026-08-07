@@ -5,6 +5,78 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-08-07 -- Second Fitting
+
+### Added
+
+- **Save to Closet now asks what you mean, up front.** Clicking SAVE
+  TO CLOSET opens a small decision window with three routes and a
+  one-line summary of how your device differs from its wig. **Save
+  as New** mints a fresh wig and leaves the existing one alone --
+  with a name prefill that steps around collisions. **Update Closet
+  Wig** brings your existing file up to match the device: a simple
+  edit when nothing changed, a full replacement when it did, with
+  the stakes named before you commit -- which signals are added or
+  removed, and whose fittings would retire. **Validate for Perfect
+  Fit** is the ceremony: every signal vouched with TEST in reach, a
+  "Changes with new fitting" section showing exactly what this
+  fitting adds and removes, and your signed claim bound to the file
+  it describes. A device that never came from a wig simply offers
+  Save and Perfect Fit; there is nothing to update.
+
+- **A wig remembers where it came from.** A replacement carries its
+  full ancestry, so a closet that still holds any ancestor
+  recognizes the successor on arrival and offers to replace rather
+  than file a twin: the old file steps aside, devices repoint to
+  the successor, and the new commands can be sent to those devices
+  in the same step. Importing an ORIGINAL after its successor is
+  already on the shelf warns the other way around. Keep Both and
+  Cancel are always one click away, and nothing is ever deleted
+  without saying so first.
+
+- **One person, one current word.** Fitting a wig you already
+  proved -- same install, unchanged content -- now replaces your
+  earlier signing rather than stacking a duplicate, and the fitting
+  window says so before you sign: "You've already proven this wig."
+  Your green check, and who counts as "you", now key on the
+  install's signing key rather than the typed name.
+
+- **Download names come from the wig itself.** Composed from brand,
+  kind, and model, with the fitting tier as a hyphenated suffix
+  (`-fitted`, `-perfect-fit`) drawn from the wig's own claims -- so
+  the filename can never disagree with what the file proves, and
+  the shop accepts it as named.
+
+- **Air conditioners are full citizens of all of this.** Matrix
+  wigs walk every save route, and a TEST press on a climate cell
+  now reports sent/heard like any other signal when the receiver
+  hears the echo.
+
+### Changed
+
+- **The panel got a smaller hat.** The banner image is replaced by
+  a compact brand block aligned with the content, returning that
+  screen space to your devices.
+- A general polish pass across the save dialogs and receipts:
+  replace receipts are a single plain notification, warnings say
+  their piece before the save instead of after, helpers and combing
+  reports sit where and how you expect them, and copy is tighter
+  across all ten languages.
+
+### Fixed
+
+- Saving a matrix wig through the new routes could fail with an
+  unknown error while still writing the file.
+- The confirmation after a save could be torn down before it ever
+  painted, on all three routes.
+- The Update route could stay hidden until a hard page refresh
+  after saving a new wig.
+- Deleting a wig left devices holding a pointer to the deleted
+  file.
+- The closet's "used by" chip could light up on both an ancestor
+  and its successor for the same device; the device's own record
+  now decides.
+
 ## [0.9.6] - 2026-08-04 -- Hotfix: unknown is not down
 
 ### Fixed
