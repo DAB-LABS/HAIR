@@ -15,6 +15,7 @@ import pytest
 from custom_components.hair.const import DOMAIN
 from custom_components.hair.models import IRCommand, IRDevice
 from custom_components.hair.websocket_api import (
+    ws_wigs_delete,
     ws_wigs_save,
     ws_wigs_save_plan,
     ws_wigs_supersede,
@@ -980,6 +981,86 @@ class TestSupersedeAction:
             "new_filename": "new.wig.json",
         })
         assert conn.send_error.call_args[0][1] == "old_filename_required"
+
+
+class TestDeleteClearsStalePointers:
+    """hair/wigs/delete: bench report (2026-08-06) -- deleting a wig
+    left every device that pointed at it holding a dead
+    source_wig_id, so UPDATE CLOSET WIG kept offering itself on a file
+    that no longer existed, "From:" read blank, and the summary line
+    claimed a match it had nothing left to check. A plain delete has
+    no successor to relink to (unlike hair/wigs/supersede, which
+    already relinks), so it clears the pointer instead."""
+
+    @pytest.mark.asyncio
+    async def test_devices_pointing_at_the_deleted_wig_are_cleared(
+        self, fake_hass, tmp_path
+    ):
+        wig = Wig(
+            name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        path = _closet_wig(tmp_path, wig, "old.wig.json")
+        device = IRDevice(
+            name="Living Room Fan", source_wig_id="old",
+            commands=[_command("On", PRONTO_A)],
+        )
+        other = IRDevice(
+            name="Bedroom Fan", source_wig_id="something-else",
+            commands=[_command("On", PRONTO_A)],
+        )
+        manager = _wire_many(fake_hass, tmp_path, [device, other])
+        conn = _conn()
+        await ws_wigs_delete(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/delete", "filename": "old.wig.json",
+        })
+        conn.send_error.assert_not_called()
+        result = conn.send_result.call_args[0][1]
+        assert result["deleted"] is True
+        assert not path.exists()
+        assert device.source_wig_id is None
+        assert result["devices_cleared"] == [device.id]
+        # A device pointing at a DIFFERENT wig is untouched.
+        assert other.source_wig_id == "something-else"
+        manager.async_update_device.assert_awaited_once_with(device)
+
+    @pytest.mark.asyncio
+    async def test_a_device_with_no_source_wig_is_left_alone(
+        self, fake_hass, tmp_path
+    ):
+        wig = Wig(
+            name="Fan", wig_id="old", signals=[WigSignal("On", PRONTO_A)]
+        )
+        _closet_wig(tmp_path, wig, "old.wig.json")
+        device = IRDevice(
+            name="From Scratch", source_wig_id=None, commands=[],
+        )
+        manager = _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_delete(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/delete", "filename": "old.wig.json",
+        })
+        result = conn.send_result.call_args[0][1]
+        assert result["devices_cleared"] == []
+        manager.async_update_device.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_deleting_an_unknown_file_clears_nothing(
+        self, fake_hass, tmp_path
+    ):
+        device = IRDevice(
+            name="Living Room Fan", source_wig_id="old", commands=[],
+        )
+        manager = _wire_many(fake_hass, tmp_path, [device])
+        conn = _conn()
+        await ws_wigs_delete(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/delete",
+            "filename": "missing.wig.json",
+        })
+        result = conn.send_result.call_args[0][1]
+        assert result["deleted"] is False
+        assert result["devices_cleared"] == []
+        assert device.source_wig_id == "old"
+        manager.async_update_device.assert_not_awaited()
 
 
 _BLOCK_KEYS = {
