@@ -640,12 +640,43 @@ class TestSavingRefreshesTheDeviceCard:
     missing on the very next Save to Closet open -- only a hard page
     refresh forced the refetch that made it appear. All three save
     dialogs already dispatch a bubbling, composed "wig-saved"
-    CustomEvent on success; the fix wires it to the same _refresh()
-    helper every other mutating action in this file already uses."""
+    CustomEvent on success; the fix wired it to the same _refresh()
+    helper every other mutating action in this file already used.
 
-    def test_all_three_save_dialogs_trigger_a_refresh(self):
+    Bench fix (2026-08-07): a separate diagnosis
+    (docs/internal/plans/second-fitting-vanishing-receipts-diagnosis.md)
+    found that calling _refresh() straight from "wig-saved" was itself
+    why the save receipts never appeared -- the refetch it triggers
+    rebuilds this element (and the open dialog inside it) before the
+    receipt ever paints. The refresh is now deferred: "wig-saved" only
+    records that one is owed, and _closeSaveFlow runs it once the
+    dialog is actually closed -- still strictly before the next Save
+    to Closet open, which is all this bug's original fix ever needed.
+    """
+
+    def test_all_three_save_dialogs_defer_to_close(self):
         text = _read("ir-device-detail.ts")
-        assert text.count("@wig-saved=${this._refresh}") == 3
+        assert text.count("@wig-saved=${this._onWigSaved}") == 3
+        assert "@wig-saved=${this._refresh}" not in text
+
+    def test_wig_saved_only_sets_the_flag(self):
+        handler = _read("ir-device-detail.ts").split(
+            "private _onWigSaved = (): void => {", 1
+        )[1].split("\n    };", 1)[0]
+        assert "this._pendingWigSaved = true;" in handler
+        assert "_refresh(" not in handler
+        assert "device-changed" not in handler
+
+    def test_close_save_flow_runs_the_deferred_refresh(self):
+        text = _read("ir-device-detail.ts")
+        close = text.split(
+            "private _closeSaveFlow = (): void => {", 1
+        )[1].split("\n    };", 1)[0]
+        assert "this._pendingWigSaved = false;" in close
+        assert "this._refresh();" in close
+        # Guarded, not unconditional -- a close with nothing pending
+        # (Cancel, a route-window dismiss) must not refetch either.
+        assert "if (this._pendingWigSaved)" in close
 
     def test_the_dialogs_actually_dispatch_what_this_listens_for(self):
         assert 'new CustomEvent("wig-saved"' in _read(
