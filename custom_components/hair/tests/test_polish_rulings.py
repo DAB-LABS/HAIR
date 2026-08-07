@@ -683,6 +683,21 @@ class TestThePerfectFitExplainerAlignsWithItsLabel:
         assert "box-sizing: border-box;" in block
 
 
+class TestTheJoiningBoxIsOneLine:
+    """Bench feedback (2026-08-07): "See the fitting it already
+    carries" used to be forced onto its own line below the notice
+    sentence by ``display: block`` on both spans. Both now fall back
+    to inline, so the two run together and wrap as one paragraph."""
+
+    def test_neither_span_forces_its_own_line(self):
+        text = _read("ir-save-perfect-dialog.ts")
+        j_line = text.split(".joining .j-line {", 1)[1].split("}", 1)[0]
+        assert "display: block" not in j_line
+        j_see = text.split(".joining .j-see {", 1)[1].split("}", 1)[0]
+        assert "display: block" not in j_see
+        assert "margin-top" not in j_see
+
+
 class TestTheSelfCaseJoiningBoxIsFinal:
     """Second Fitting v3 punch list round three, item 11 (completing
     round two): the self case is one box, house amber, no handle --
@@ -1808,41 +1823,76 @@ class TestReverseImportCheck:
         assert "if (confirmed) msg.confirmed = true;" in wu
 
 
-class TestTheConfirmThatKilledItself:
-    """Bench addendum (2026-08-05): a SUCCESSION save's self-doorway
-    confirm rendered, then vanished about 2.6s later, taking the whole
-    save dialog with it. The trigger was never anything the confirm
-    did -- it never wired ``_close`` at all -- it was mwc-dialog's own
-    closing animation finishing asynchronously on the FORM's
-    ``<ha-dialog>``, which the render had already swapped out for the
-    confirm, and firing a late ``closed`` that the old listener still
-    caught.
+class TestTheSaveDialogsStopSwappingHaDialog:
+    """Bench fix (2026-08-07): "Saving a new wig, perfect fitting a
+    wig, or updating a wig no longer pops up the confirmation that the
+    wig was created." Reproduced live: the form and the receipt were
+    two separate ``<ha-dialog>`` elements, swapped on save. As of HA
+    2026.7, ``<ha-dialog>`` opens a real native ``<dialog>`` under the
+    hood (``showModal()``); removing one mid-transition to open the
+    other raced the outgoing ``close()`` against the incoming
+    ``showModal()`` -- an uncaught ``InvalidStateError: Transition was
+    aborted``, seen in the browser console, that took the whole dialog
+    off-screen before the receipt ever painted. The save itself always
+    succeeded; only the confirmation was crashing invisibly.
 
-    Second Fitting v3, Commit 5 retires the self-doorway confirm this
-    class was written against -- a diverged, sourced save now retires
-    its ancestor inside the write itself, so there is no longer a
-    second ``<ha-dialog>`` in this file for a stale event to reach past.
-    What survives, and what this class still pins, is the underlying
-    guard: the form screen still swaps out for the done screen, so the
-    shadow-containment check in ``_close`` still has to hold.
+    This retires ``TestTheConfirmThatKilledItself``'s guard along with
+    the swap it protected against: the shadow-containment check in
+    ``_close`` existed only because the form's ``<ha-dialog>`` could be
+    swapped out from under a still-firing event. One ``<ha-dialog>``
+    now stays open for each dialog's whole life -- there is nothing
+    left to swap, and nothing left for ``_close`` to guard against.
     """
 
-    def test_close_checks_shadow_containment_before_propagating(self):
-        """The guard is keyed to whether the event's own dialog is
-        still part of THIS render, not to which screen is showing --
-        that is what makes it protect the form and the done screen
-        alike without a per-screen special case."""
-        text = _read("ir-save-perfect-dialog.ts")
-        body = text.split("private _close(e?: Event): void {", 1)[1]
+    @pytest.mark.parametrize(
+        "component",
+        (
+            "ir-save-new-dialog.ts",
+            "ir-save-update-dialog.ts",
+            "ir-save-perfect-dialog.ts",
+        ),
+    )
+    def test_exactly_one_ha_dialog_opens_per_component(self, component):
+        """Scoped to render()'s own body, not the whole file -- the
+        bench-fix doc comments above it mention <ha-dialog> in prose
+        too, and counting those would make this test lie."""
+        text = _read(component)
+        body = text.split("render() {", 1)[1].split("\n    }", 1)[0]
+        assert body.count("<ha-dialog") == 1
+
+    @pytest.mark.parametrize(
+        "component",
+        (
+            "ir-save-new-dialog.ts",
+            "ir-save-update-dialog.ts",
+            "ir-save-perfect-dialog.ts",
+        ),
+    )
+    def test_close_no_longer_checks_shadow_containment(self, component):
+        """The guard protected against a stale event from a REMOVED
+        dialog. With nothing removed and re-added anymore, a plain
+        dispatch is both sufficient and honest about why."""
+        text = _read(component)
+        body = text.split("private _close(): void {", 1)[1]
         body = body.split("\n    }", 1)[0]
-        assert "e?.target as Node | null" in body
-        assert "!this.shadowRoot?.contains(target)" in body
-        assert "return;" in body
-        # The guard has to run before the dispatch, not after -- an
-        # early return that came second would be dead code.
-        assert body.index("shadowRoot?.contains") < body.index(
-            'new CustomEvent("closed"'
-        )
+        assert "shadowRoot" not in body
+        assert 'new CustomEvent("closed"' in body
+
+    @pytest.mark.parametrize(
+        "component",
+        (
+            "ir-save-new-dialog.ts",
+            "ir-save-update-dialog.ts",
+            "ir-save-perfect-dialog.ts",
+        ),
+    )
+    def test_done_content_no_longer_wraps_its_own_dialog(self, component):
+        """``_renderDone`` used to open a second ``<ha-dialog>``; it now
+        returns bare content that the one persistent dialog wraps."""
+        text = _read(component)
+        done = text.split("private _renderDone()", 1)[1]
+        done = done.split("\n    private", 1)[0]
+        assert "<ha-dialog" not in done
 
 
 class TestNoSuccessionSaveIsSilent:
@@ -2270,18 +2320,18 @@ class TestThePerfectFitDialog:
         assert "this._handle.trim().toLowerCase()" in graded
         assert "if (!who.length) return null;" in graded
 
-    def test_all_three_screens_share_the_one_route_heading(self):
+    def test_the_dialog_wears_one_heading(self):
         """No morphing (spec section 1): the route's dialog wears one
         name, form or done, CREATE or UPDATE or SUCCESSION alike.
-        Second Fitting v3 punch list item 13 added a third heading
-        site -- the replace receipt's own early-return dialog -- when
-        the pure-notification branch got its own <ha-dialog> instead
-        of folding into the shared one below it."""
+        Bench fix (2026-08-07) folded the done screen's two branches
+        back into the one <ha-dialog> that now stays open for the
+        component's whole life (TestTheSaveDialogsStopSwappingHaDialog),
+        so there is exactly one heading site left to name, not three."""
         text = _read("ir-save-perfect-dialog.ts")
         headings = re.findall(
             r'heading=\$\{t\("([^"]+)"\)\}', text
         )
-        assert headings == ["wigs.route.validate_perfect_fit"] * 3
+        assert headings == ["wigs.route.validate_perfect_fit"]
 
     def test_the_form_uses_the_shared_metadata_module(self):
         """Consistent with Save as New and Update Closet Wig
