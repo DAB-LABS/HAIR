@@ -39,6 +39,20 @@
  * the code went over the air, never that the fan spun. "Heard" means
  * a receiver caught the signal, not a verdict -- that stays the
  * human's act.
+ *
+ * Bench fix (2026-08-07): the form and the receipt(s) used to be
+ * separate <ha-dialog> elements, swapped on save. As of HA 2026.7,
+ * <ha-dialog> opens a real native <dialog> (showModal()) under the
+ * hood, and removing one mid-transition to open another raced the
+ * outgoing close() against the incoming showModal() -- an uncaught
+ * "InvalidStateError: Transition was aborted", reproduced live
+ * against the test instance, that took the whole dialog off-screen
+ * before the receipt ever painted (the save itself always succeeded;
+ * only the confirmation was crashing invisibly). One <ha-dialog> now
+ * stays open for the component's whole life; only the content inside
+ * it swaps between the form and whichever receipt applies. The
+ * sibling <ir-claims-ledger> below -- a genuinely separate native
+ * <dialog>, opened only from the form -- is untouched.
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -372,25 +386,12 @@ export class IrSavePerfectDialog extends LitElement {
         }
     }
 
-    /**
-     * Bench addendum (2026-08-05): the self-doorway confirm that killed
-     * itself. Whichever screen this render is showing -- the form or
-     * the done screen -- swaps its `<ha-dialog>` out for the next one,
-     * and mwc-dialog's own closing animation keeps running on that
-     * REMOVED element regardless: it fires a late `closed` on itself
-     * roughly 2.6s later, and that stale event still reaches this
-     * handler because the listener was bound directly to the element,
-     * not to anything Lit re-checks on removal.
-     *
-     * A real close always originates from whatever `<ha-dialog>` is
-     * CURRENTLY part of this render (checked via shadow-root
-     * containment, not component state, so it holds for the form and
-     * the done screen alike without needing to special-case either).
-     * A stale one no longer is.
-     */
-    private _close(e?: Event): void {
-        const target = e?.target as Node | null;
-        if (target && !this.shadowRoot?.contains(target)) return;
+    /** Bench fix (2026-08-07): one `<ha-dialog>` now stays open for
+     * this component's whole life -- see the file header comment for
+     * why the form/receipt swap this used to guard against (and the
+     * stale, late `closed` event it could throw) is gone, not just
+     * patched. Plain dispatch, no target to check. */
+    private _close(): void {
         this.dispatchEvent(
             new CustomEvent("closed", { bubbles: true, composed: true }),
         );
@@ -644,9 +645,6 @@ export class IrSavePerfectDialog extends LitElement {
     // --- Rendering -----------------------------------------------------
 
     render() {
-        if (this._done) return this._renderDone();
-        const graded = this._gradedLine;
-        const lost = this._lostRowsLine;
         return html`
             <ha-dialog
                 open
@@ -654,33 +652,7 @@ export class IrSavePerfectDialog extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._error
-                    ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
-                    : ""}
-                ${this._plan?.source_missing
-                    ? html`<div class="source-missing-info">
-                          <ha-svg-icon .path=${ICON_WIG}></ha-svg-icon>
-                          <span>${t("wigs.save.source_missing")}</span>
-                      </div>`
-                    : ""}
-                ${graded
-                    ? html`<div
-                          class=${graded.amber
-                              ? "fitted-callout"
-                              : "fitted-line"}
-                      >
-                          ${graded.text}
-                      </div>`
-                    : ""}
-                ${lost
-                    ? html`<div class="lost-callout">${lost}</div>`
-                    : ""}
-                ${renderMetadataFields(
-                    this._metadataValues,
-                    this._metadataSetters,
-                    this._renameWarning,
-                )}
-                ${this._renderFitting()} ${this._renderActions()}
+                ${this._done ? this._renderDone() : this._renderForm()}
             </ha-dialog>
             ${this._ledgerOpen && this._plan?.source_filename
                 ? html`<ir-claims-ledger
@@ -692,6 +664,40 @@ export class IrSavePerfectDialog extends LitElement {
                       @closed=${() => (this._ledgerOpen = false)}
                   ></ir-claims-ledger>`
                 : ""}
+        `;
+    }
+
+    private _renderForm() {
+        const graded = this._gradedLine;
+        const lost = this._lostRowsLine;
+        return html`
+            ${this._error
+                ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
+                : ""}
+            ${this._plan?.source_missing
+                ? html`<div class="source-missing-info">
+                      <ha-svg-icon .path=${ICON_WIG}></ha-svg-icon>
+                      <span>${t("wigs.save.source_missing")}</span>
+                  </div>`
+                : ""}
+            ${graded
+                ? html`<div
+                      class=${graded.amber
+                          ? "fitted-callout"
+                          : "fitted-line"}
+                  >
+                      ${graded.text}
+                  </div>`
+                : ""}
+            ${lost
+                ? html`<div class="lost-callout">${lost}</div>`
+                : ""}
+            ${renderMetadataFields(
+                this._metadataValues,
+                this._metadataSetters,
+                this._renameWarning,
+            )}
+            ${this._renderFitting()} ${this._renderActions()}
         `;
     }
 
@@ -710,25 +716,18 @@ export class IrSavePerfectDialog extends LitElement {
         // pick them up through the adopt path, not this screen.
         if (replaced) {
             return html`
-                <ha-dialog
-                    open
-                    heading=${t("wigs.route.validate_perfect_fit")}
-                    scrimClickAction=""
-                    @closed=${this._close}
-                >
-                    <div class="saved-line">
-                        ${this._renderReplacedLine(
-                            replaced.old_name,
-                            this._name.trim(),
-                        )}
-                    </div>
-                    <div class="dialog-actions">
-                        <span class="spacer"></span>
-                        <button class="action-btn" @click=${this._close}>
-                            ${t("common.close")}
-                        </button>
-                    </div>
-                </ha-dialog>
+                <div class="saved-line">
+                    ${this._renderReplacedLine(
+                        replaced.old_name,
+                        this._name.trim(),
+                    )}
+                </div>
+                <div class="dialog-actions">
+                    <span class="spacer"></span>
+                    <button class="action-btn" @click=${this._close}>
+                        ${t("common.close")}
+                    </button>
+                </div>
             `;
         }
         const line =
@@ -744,35 +743,28 @@ export class IrSavePerfectDialog extends LitElement {
                     })
                   : t("wigs.saved", { filename: done.filename ?? "" });
         return html`
-            <ha-dialog
-                open
-                heading=${t("wigs.route.validate_perfect_fit")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">${line}</div>
-                ${done.cells_proposed
-                    ? html`<div class="saved-line">
-                          ${tp(
-                              "wigs.save.cells_proposed",
-                              done.cells_proposed,
-                          )}
-                      </div>`
-                    : ""}
-                ${done.stale_renames?.length
-                    ? html`<ha-alert alert-type="warning"
-                          >${t("wigs.save.stale_renames", {
-                              names: done.stale_renames.join(", "),
-                          })}</ha-alert
-                      >`
-                    : ""}
-                <div class="dialog-actions">
-                    <span class="spacer"></span>
-                    <button class="action-btn" @click=${this._close}>
-                        ${t("common.close")}
-                    </button>
-                </div>
-            </ha-dialog>
+            <div class="saved-line">${line}</div>
+            ${done.cells_proposed
+                ? html`<div class="saved-line">
+                      ${tp(
+                          "wigs.save.cells_proposed",
+                          done.cells_proposed,
+                      )}
+                  </div>`
+                : ""}
+            ${done.stale_renames?.length
+                ? html`<ha-alert alert-type="warning"
+                      >${t("wigs.save.stale_renames", {
+                          names: done.stale_renames.join(", "),
+                      })}</ha-alert
+                  >`
+                : ""}
+            <div class="dialog-actions">
+                <span class="spacer"></span>
+                <button class="action-btn" @click=${this._close}>
+                    ${t("common.close")}
+                </button>
+            </div>
         `;
     }
 

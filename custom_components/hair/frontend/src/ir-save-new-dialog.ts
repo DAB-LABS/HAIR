@@ -14,6 +14,18 @@
  * fetched by the decision window before this dialog opened (Commit
  * 3), so `plan` arrives as a required property -- this dialog never
  * calls `wigsSavePlan` itself.
+ *
+ * Bench fix (2026-08-07): the form and the receipt used to be two
+ * separate <ha-dialog> elements, swapped on save. As of HA 2026.7,
+ * <ha-dialog> opens a real native <dialog> (showModal()) under the
+ * hood, and removing one mid-transition to open the other raced the
+ * outgoing close() against the incoming showModal() -- an uncaught
+ * "InvalidStateError: Transition was aborted", reproduced live
+ * against the test instance, that took the whole dialog off-screen
+ * before the receipt ever painted (the save itself always succeeded;
+ * only the confirmation was crashing invisibly). One <ha-dialog> now
+ * stays open for the component's whole life; only the content inside
+ * it swaps between the form and the receipt.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -106,17 +118,11 @@ export class IrSaveNewDialog extends LitElement {
         return out;
     }
 
-    /** The bench addendum's lifecycle fix (Commit 12), carried into
-     * every dialog in this family: a swapped-out `<ha-dialog>` (the
-     * form giving way to the receipt) keeps running its own closing
-     * animation and fires a late `closed` on itself regardless. A real
-     * close always originates from whichever `<ha-dialog>` is
-     * CURRENTLY part of this render, checked via shadow-root
-     * containment rather than component state so it holds for both
-     * screens without special-casing either. */
-    private _close(e?: Event): void {
-        const target = e?.target as Node | null;
-        if (target && !this.shadowRoot?.contains(target)) return;
+    /** Bench fix (2026-08-07): one `<ha-dialog>` now stays open for
+     * this component's whole life -- see the file-level comment on
+     * why the form/receipt swap this used to guard against is gone,
+     * not just patched. Plain dispatch, no target to check. */
+    private _close(): void {
         this.dispatchEvent(
             new CustomEvent("closed", { bubbles: true, composed: true }),
         );
@@ -152,7 +158,6 @@ export class IrSaveNewDialog extends LitElement {
     }
 
     render() {
-        if (this._done) return this._renderDone();
         return html`
             <ha-dialog
                 open
@@ -160,34 +165,40 @@ export class IrSaveNewDialog extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._error
-                    ? html`<ha-alert alert-type="error"
-                          >${this._error}</ha-alert
-                      >`
-                    : ""}
-                ${renderMetadataFields(
-                    this._metadataValues,
-                    this._metadataSetters,
-                    null,
-                )}
-                <div class="dialog-actions">
-                    <span class="spacer"></span>
-                    <button
-                        class="action-btn cancel-btn"
-                        @click=${this._close}
-                        ?disabled=${this._busy}
-                    >
-                        ${t("common.cancel")}
-                    </button>
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${this._save}
-                        ?disabled=${this._busy}
-                    >
-                        ${this._busy ? t("common.saving") : t("common.save")}
-                    </button>
-                </div>
+                ${this._done ? this._renderDone() : this._renderForm()}
             </ha-dialog>
+        `;
+    }
+
+    private _renderForm() {
+        return html`
+            ${this._error
+                ? html`<ha-alert alert-type="error"
+                      >${this._error}</ha-alert
+                  >`
+                : ""}
+            ${renderMetadataFields(
+                this._metadataValues,
+                this._metadataSetters,
+                null,
+            )}
+            <div class="dialog-actions">
+                <span class="spacer"></span>
+                <button
+                    class="action-btn cancel-btn"
+                    @click=${this._close}
+                    ?disabled=${this._busy}
+                >
+                    ${t("common.cancel")}
+                </button>
+                <button
+                    class="action-btn save-wig-btn"
+                    @click=${this._save}
+                    ?disabled=${this._busy}
+                >
+                    ${this._busy ? t("common.saving") : t("common.save")}
+                </button>
+            </div>
         `;
     }
 
@@ -201,19 +212,12 @@ export class IrSaveNewDialog extends LitElement {
                   })
                 : t("wigs.saved", { filename: done.filename ?? "" });
         return html`
-            <ha-dialog
-                open
-                heading=${t("wigs.route.save_as_new")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">${line}</div>
-                <div class="dialog-actions">
-                    <button class="action-btn" @click=${this._close}>
-                        ${t("common.close")}
-                    </button>
-                </div>
-            </ha-dialog>
+            <div class="saved-line">${line}</div>
+            <div class="dialog-actions">
+                <button class="action-btn" @click=${this._close}>
+                    ${t("common.close")}
+                </button>
+            </div>
         `;
     }
 

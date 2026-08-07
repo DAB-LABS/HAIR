@@ -26,6 +26,14 @@
  * No checklist here, no attestation -- that whole ceremony belongs to
  * VALIDATE FOR PERFECT FIT alone (Commit 5). This dialog only ever
  * touches metadata and, on diverged content, the mint-and-replace act.
+ *
+ * Bench fix (2026-08-07): the form and the receipt used to be two
+ * separate <ha-dialog> elements, swapped on save -- see
+ * ir-save-new-dialog.ts's header comment for the full write-up (an
+ * uncaught InvalidStateError on the swap, reproduced live, was taking
+ * the confirmation off-screen before it ever painted). One
+ * <ha-dialog> now stays open for the component's whole life; only the
+ * content inside it swaps between the form and the receipt.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -252,12 +260,12 @@ export class IrSaveUpdateDialog extends LitElement {
         return out;
     }
 
-    /** Bench addendum lifecycle fix (Commit 12), same guard as every
-     * other dialog in this family -- see ir-save-new-dialog.ts for the
-     * full explanation. */
-    private _close(e?: Event): void {
-        const target = e?.target as Node | null;
-        if (target && !this.shadowRoot?.contains(target)) return;
+    /** Bench fix (2026-08-07): one `<ha-dialog>` now stays open for
+     * this component's whole life -- see ir-save-new-dialog.ts's
+     * header comment for why the form/receipt swap this used to
+     * guard against is gone, not just patched. Plain dispatch, no
+     * target to check. */
+    private _close(): void {
         this.dispatchEvent(
             new CustomEvent("closed", { bubbles: true, composed: true }),
         );
@@ -305,10 +313,6 @@ export class IrSaveUpdateDialog extends LitElement {
     }
 
     render() {
-        if (this._done) return this._renderDone();
-        const graded = this._gradedLine;
-        const lost = this._lostRowsLine;
-        const added = this._addedRowsLine;
         return html`
             <ha-dialog
                 open
@@ -316,55 +320,64 @@ export class IrSaveUpdateDialog extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._error
-                    ? html`<ha-alert alert-type="error"
-                          >${this._error}</ha-alert
-                      >`
-                    : ""}
-                ${graded
-                    ? html`<div
-                          class=${graded.amber
-                              ? "fitted-callout"
-                              : "fitted-line"}
-                      >
-                          ${graded.amber
-                              ? this._renderGradedPerfectLine(
-                                    graded.text,
-                                    graded.name,
-                                    graded.who,
-                                )
-                              : graded.text}
-                      </div>`
-                    : ""}
-                ${lost || added
-                    ? html`<div class="lost-callout">
-                          ${lost ? html`<div>${lost}</div>` : ""}
-                          ${added ? html`<div>${added}</div>` : ""}
-                      </div>`
-                    : ""}
-                ${renderMetadataFields(
-                    this._metadataValues,
-                    this._metadataSetters,
-                    this._renameWarning,
-                )}
-                <div class="dialog-actions">
-                    <span class="spacer"></span>
-                    <button
-                        class="action-btn cancel-btn"
-                        @click=${this._close}
-                        ?disabled=${this._busy}
-                    >
-                        ${t("common.cancel")}
-                    </button>
-                    <button
-                        class="action-btn save-wig-btn"
-                        @click=${this._save}
-                        ?disabled=${this._busy}
-                    >
-                        ${this._busy ? t("common.saving") : t("common.save")}
-                    </button>
-                </div>
+                ${this._done ? this._renderDone() : this._renderForm()}
             </ha-dialog>
+        `;
+    }
+
+    private _renderForm() {
+        const graded = this._gradedLine;
+        const lost = this._lostRowsLine;
+        const added = this._addedRowsLine;
+        return html`
+            ${this._error
+                ? html`<ha-alert alert-type="error"
+                      >${this._error}</ha-alert
+                  >`
+                : ""}
+            ${graded
+                ? html`<div
+                      class=${graded.amber
+                          ? "fitted-callout"
+                          : "fitted-line"}
+                  >
+                      ${graded.amber
+                          ? this._renderGradedPerfectLine(
+                                graded.text,
+                                graded.name,
+                                graded.who,
+                            )
+                          : graded.text}
+                  </div>`
+                : ""}
+            ${lost || added
+                ? html`<div class="lost-callout">
+                      ${lost ? html`<div>${lost}</div>` : ""}
+                      ${added ? html`<div>${added}</div>` : ""}
+                  </div>`
+                : ""}
+            ${renderMetadataFields(
+                this._metadataValues,
+                this._metadataSetters,
+                this._renameWarning,
+            )}
+            <div class="dialog-actions">
+                <span class="spacer"></span>
+                <button
+                    class="action-btn cancel-btn"
+                    @click=${this._close}
+                    ?disabled=${this._busy}
+                >
+                    ${t("common.cancel")}
+                </button>
+                <button
+                    class="action-btn save-wig-btn"
+                    @click=${this._save}
+                    ?disabled=${this._busy}
+                >
+                    ${this._busy ? t("common.saving") : t("common.save")}
+                </button>
+            </div>
         `;
     }
 
@@ -384,19 +397,12 @@ export class IrSaveUpdateDialog extends LitElement {
                   filename: done.filename ?? "",
               });
         return html`
-            <ha-dialog
-                open
-                heading=${t("wigs.route.update_closet_wig")}
-                scrimClickAction=""
-                @closed=${this._close}
-            >
-                <div class="saved-line">${line}</div>
-                <div class="dialog-actions">
-                    <button class="action-btn" @click=${this._close}>
-                        ${t("common.close")}
-                    </button>
-                </div>
-            </ha-dialog>
+            <div class="saved-line">${line}</div>
+            <div class="dialog-actions">
+                <button class="action-btn" @click=${this._close}>
+                    ${t("common.close")}
+                </button>
+            </div>
         `;
     }
 
