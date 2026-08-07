@@ -4100,11 +4100,16 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                     0 0 0 1px rgba(100, 181, 246, 0.18),
                     0 2px 14px rgba(100, 181, 246, 0.09);
             }
+            /* Bench feedback 2026-08-06: this .fit-check is a
+               bare label (no checkbox glyph to skip past, unlike the
+               propose/oath rows below), so the gate/explainer/joining
+               box under it flush left to the label's own edge instead
+               of carrying that indent along for no reason. */
             .fit-gate {
                 font-size: 11.5px;
                 color: #d9a441;
                 line-height: 1.45;
-                margin: 6px 0 0 24px;
+                margin: 6px 0 0 0;
             }
             .fit-check {
                 display: flex;
@@ -4117,7 +4122,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 font-size: 11.5px;
                 color: var(--secondary-text-color);
                 line-height: 1.45;
-                margin: 6px 0 8px 24px;
+                margin: 6px 0 8px 0;
             }
             .fit-list {
                 max-height: 320px;
@@ -4259,9 +4264,10 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             }
             .joining {
                 display: block;
-                width: calc(100% - 24px);
-                margin: 11px 0 0 24px;
+                width: 100%;
+                margin: 11px 0 0 0;
                 padding: 9px 12px;
+                box-sizing: border-box;
                 text-align: left;
                 font-family: inherit;
                 color: inherit;
@@ -5703,6 +5709,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                       .api=${this.api}
                       sourceId=${this.device.id}
                       .plan=${this._saveRoutePlan}
+                      @wig-saved=${this._refresh}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-new-dialog>`:""}
             ${"update"===this._saveRoute&&this._saveRoutePlan?F`<ir-save-update-dialog
@@ -5710,6 +5717,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                       sourceId=${this.device.id}
                       .plan=${this._saveRoutePlan}
                       @stale-replace=${this._onStaleReplace}
+                      @wig-saved=${this._refresh}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-update-dialog>`:""}
             ${"perfect"===this._saveRoute?F`<ir-save-perfect-dialog
@@ -5720,6 +5728,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                       ?hasEmitter=${(this.device.emitter_entity_ids??[]).length>0}
                       .hass=${this.hass}
                       .plan=${this._saveRoutePlan}
+                      @wig-saved=${this._refresh}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-perfect-dialog>`:""}
             ${this._captureName?F`
