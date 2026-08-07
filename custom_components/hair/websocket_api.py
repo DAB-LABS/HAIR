@@ -3029,13 +3029,44 @@ async def ws_wigs_delete(
     msg: dict[str, Any],
 ) -> None:
     """Delete a local wig file (user wigs only by construction; library
-    codebooks are not files in the closet)."""
-    from .wig_store import delete_wig
+    codebooks are not files in the closet).
+
+    Bench report (2026-08-06): deleting a wig left every device that
+    pointed at it holding a dead ``source_wig_id`` -- UPDATE CLOSET
+    WIG kept offering itself on a file that no longer existed, "From:"
+    read blank, and the summary line claimed a match it had no file
+    left to check. The supersede/replace path already relinks
+    affected devices to the successor when a file goes away; a plain
+    delete has no successor to relink to, so it clears the pointer
+    instead.
+    """
+    from .wig_store import delete_wig, load_wig
+
+    def _load_id() -> str | None:
+        wig = load_wig(hass.config.config_dir, msg["filename"])
+        return wig.wig_id if wig is not None else None
+
+    wig_id = await hass.async_add_executor_job(_load_id)
 
     deleted = await hass.async_add_executor_job(
         delete_wig, hass.config.config_dir, msg["filename"]
     )
-    connection.send_result(msg["id"], {"deleted": deleted})
+
+    cleared: list[str] = []
+    if deleted and wig_id:
+        data = _get_first_entry_data(hass)
+        if data is not None:
+            store = data["store"]
+            manager: DeviceManager = data["device_manager"]
+            for device in store.get_all_devices():
+                if device.source_wig_id == wig_id:
+                    device.source_wig_id = None
+                    await manager.async_update_device(device)
+                    cleared.append(device.id)
+
+    connection.send_result(
+        msg["id"], {"deleted": deleted, "devices_cleared": cleared}
+    )
 
 
 @websocket_api.require_admin
