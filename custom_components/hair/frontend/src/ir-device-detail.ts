@@ -93,6 +93,9 @@ export class IrDeviceDetail extends LitElement {
      * it a stripped, purpose-built one of its own -- see the Commit 3
      * and 4 commit messages for the sequencing note. */
     @state() private _saveRoute: SaveRoute | null = null;
+    /** Bench fix (2026-08-07): set by _onWigSaved, consumed by
+     * _closeSaveFlow -- see either for the full story. */
+    @state() private _pendingWigSaved = false;
     @state() private _commandToDelete: IRCommand | null = null;
     @state() private _editCommand: IRCommand | null = null;
 
@@ -220,11 +223,10 @@ export class IrDeviceDetail extends LitElement {
     // Data
     // ---------------------------------------------------------------
 
-    /** Also the "wig-saved" handler for all three save dialogs
-     * (new/update/perfect): each fires it on a bubbling, composed
-     * CustomEvent once its save lands, so this.device.source_wig_id
-     * -- what gates UPDATE CLOSET WIG on the next Save to Closet
-     * open -- is never stale until a hard page refresh forces it. */
+    /** Refetches the device and tells the world it changed.
+     * Called directly by every other mutating action in this file;
+     * the "wig-saved" handler below no longer calls this immediately
+     * -- see _onWigSaved and _closeSaveFlow for why. */
     private async _refresh() {
         this.device = await this.api.getDevice(this.device.id);
         this.dispatchEvent(
@@ -234,6 +236,20 @@ export class IrDeviceDetail extends LitElement {
             }),
         );
     }
+
+    /** Bench fix (2026-08-07): the "wig-saved" handler for all three
+     * save dialogs used to call _refresh() straight away. That
+     * dispatched "device-changed" the instant the server save
+     * resolved -- before the receipt ever painted -- which bubbles up
+     * to ir-device-list and rebuilds this element (and the open save
+     * dialog inside it, receipt and all) out from under the save
+     * flow. No close() call, no "closed" event, nothing crashes: the
+     * whole host is replaced, so the receipt never gets a chance to
+     * paint. This handler only records that a refresh is owed;
+     * _closeSaveFlow runs it once the flow is actually done. */
+    private _onWigSaved = (): void => {
+        this._pendingWigSaved = true;
+    };
 
     private _flash(message: string) {
         this._toast = message;
@@ -283,10 +299,20 @@ export class IrDeviceDetail extends LitElement {
         await this._openSaveRoute();
     };
 
+    /** Clears the route state as always, then -- if a save
+     * dialog left a refresh owed (see _onWigSaved) -- runs it now
+     * that the flow is actually closed. Still lands strictly before
+     * the next Save to Closet open (the route window can't open
+     * while a save dialog is up), which is all 697923c's fix ever
+     * needed -- it just doesn't run while the receipt is on screen. */
     private _closeSaveFlow = (): void => {
         this._saveRouteOpen = false;
         this._saveRoute = null;
         this._saveRoutePlan = null;
+        if (this._pendingWigSaved) {
+            this._pendingWigSaved = false;
+            void this._refresh();
+        }
     };
 
     // ---------------------------------------------------------------
@@ -1840,7 +1866,7 @@ export class IrDeviceDetail extends LitElement {
                       .api=${this.api}
                       sourceId=${this.device.id}
                       .plan=${this._saveRoutePlan}
-                      @wig-saved=${this._refresh}
+                      @wig-saved=${this._onWigSaved}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-new-dialog>`
                 : ""}
@@ -1850,7 +1876,7 @@ export class IrDeviceDetail extends LitElement {
                       sourceId=${this.device.id}
                       .plan=${this._saveRoutePlan}
                       @stale-replace=${this._onStaleReplace}
-                      @wig-saved=${this._refresh}
+                      @wig-saved=${this._onWigSaved}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-update-dialog>`
                 : ""}
@@ -1864,7 +1890,7 @@ export class IrDeviceDetail extends LitElement {
                           .length > 0}
                       .hass=${this.hass}
                       .plan=${this._saveRoutePlan}
-                      @wig-saved=${this._refresh}
+                      @wig-saved=${this._onWigSaved}
                       @closed=${this._closeSaveFlow}
                   ></ir-save-perfect-dialog>`
                 : ""}
