@@ -1823,6 +1823,72 @@ class TestReverseImportCheck:
         assert "if (confirmed) msg.confirmed = true;" in wu
 
 
+class TestTheSaveDialogsStopSwappingContentToo:
+    """Bench fix, part 2 (2026-08-07): one persistent <ha-dialog>
+    (TestTheSaveDialogsStopSwappingHaDialog, below) stopped the
+    open()/close() race between two dialog *elements*, but live
+    re-testing against the deployed instance turned up a second
+    failure mode on the same mechanism -- swapping the dialog's
+    entire light-DOM *content* in one Lit commit (every form field
+    removed, an unrelated receipt tree added) could still take the
+    dialog dark sometime after the swap, with no explicit close()
+    call anywhere in this codebase. The form and the done screen now
+    both live in permanently-mounted wrapper <div>s, toggled with a
+    plain `hidden` attribute -- the dialog's direct children never
+    change identity or count for the component's whole life."""
+
+    @pytest.mark.parametrize(
+        "component",
+        (
+            "ir-save-new-dialog.ts",
+            "ir-save-update-dialog.ts",
+            "ir-save-perfect-dialog.ts",
+        ),
+    )
+    def test_render_has_no_done_form_ternary(self, component):
+        """The old swap was `${this._done ? this._renderDone() :
+        this._renderForm()}` directly inside <ha-dialog> -- that
+        exact ternary should be gone from render()'s body."""
+        text = _read(component)
+        body = text.split("render() {", 1)[1].split("\n    }", 1)[0]
+        assert "this._done ? this._renderDone() : this._renderForm()" \
+            not in body
+
+    @pytest.mark.parametrize(
+        "component",
+        (
+            "ir-save-new-dialog.ts",
+            "ir-save-update-dialog.ts",
+            "ir-save-perfect-dialog.ts",
+        ),
+    )
+    def test_render_wraps_both_screens_with_hidden_toggles(self, component):
+        text = _read(component)
+        body = text.split("render() {", 1)[1].split("\n    }", 1)[0]
+        assert "?hidden=${!!this._done}" in body
+        assert "?hidden=${!this._done}" in body
+        assert "${this._renderForm()}" in body
+        assert "${this._renderDone()}" in body
+
+    @pytest.mark.parametrize(
+        "component",
+        (
+            "ir-save-new-dialog.ts",
+            "ir-save-update-dialog.ts",
+            "ir-save-perfect-dialog.ts",
+        ),
+    )
+    def test_render_done_tolerates_null(self, component):
+        """_renderDone() is now mounted (behind `hidden`) before
+        there is anything to show, so it has to survive being called
+        with `_done` still null instead of asserting it away."""
+        text = _read(component)
+        done = text.split("private _renderDone()", 1)[1]
+        done = done.split("\n    private", 1)[0]
+        assert "if (!this._done) return html" in done \
+            or "const done = this._done;" in done
+
+
 class TestTheSaveDialogsStopSwappingHaDialog:
     """Bench fix (2026-08-07): "Saving a new wig, perfect fitting a
     wig, or updating a wig no longer pops up the confirmation that the
