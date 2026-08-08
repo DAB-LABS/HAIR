@@ -5,6 +5,42 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2026-08-08 -- Wig Primping
+
+### Changed
+
+- **A wig is a perfect fit or it is nothing -- the fitted tier
+  retires.** The Validate for Perfect Fit checklist now starts every
+  row grey and unchecked instead of pre-checked: the click is the
+  attestation, so the default claim is nothing until you make it.
+  Signing only arms once every row carries a claim; there is no
+  longer a partial "fitted" save on a flat wig. Exclusion reasons
+  ("not on my device", "could not make it work") are now offered
+  only on a matrix's dimension checklist, where a lattice genuinely
+  cannot be edited cell by cell the way commands can -- a flat wig's
+  rows are either checked or left for another day.
+- **Download names, closet ticks, and supersede warnings all speak
+  the same two words now.** The `-fitted` download suffix, the
+  amber "scoped" closet tick, and the matching supersede-warning
+  tier are all retired along with the fitted tier itself. A wig's
+  download is `-perfect-fit` or plain; its closet row shows the
+  perfect check or nothing. Older files that already carry a
+  partial attestation still parse, still count in the ledger, and
+  still show there as "Incomplete" -- this only changes what the
+  authoring UI can produce going forward.
+
+### Added
+
+- **The comb gate.** A comb-flagged cell now has to be attested
+  before a matrix fitting can sign: on a matrix, flagged cells join
+  the checklist as their own coordinate-named rows, check only, no
+  exclusion picker. Testing a flagged code and finding it works is
+  enough to check it and move on; a code that really is broken gets
+  fixed on the device and the repair rides the usual porthole path.
+  Flat wigs mark a comb-flagged row so the fitter can see which ones
+  earned the suspicion, though every row there needs a check either
+  way.
+
 ## [0.9.7] - 2026-08-07 -- Second Fitting
 
 ### Added

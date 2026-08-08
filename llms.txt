@@ -141,27 +141,41 @@ Key components:
   "|b<0|1>")[:16] -- so editing a row orphans exactly that row's claims and
   renames are free (alias and send_count are out of the digest,
   permanently). Exclusions are standardized verdicts, not failures:
-  not_on_device / wont_work. Matrix bundles additionally pin cells_hash
-  (never named content_hash; the legacy/claims discriminator is entry
-  SHAPE, not the format stamp). Bundles are ed25519-signed (key = raw
-  32-byte pubkey, sig over the bundle minus sig, sorted keys, compact,
-  UTF-8; the key is the install's only pseudonym -- no HA identifier, raw
-  or hashed, ever enters a wig). Wig-level verdicts are derived, never
-  stored: complete = one bundle covering every row worked; perfect fit =
-  complete with zero exclusions; coverage = the union. The closet check
-  has three tiers (none / fitted / perfect fit) matching the download
-  filename tiers exactly. The download name is server-composed from the
-  wig's OWN fields (v0.9.7, download_filename in wig_format): brand-kind-
-  model slugified, falling back to the name slug when the wig has no
-  brand, with the tier as a hyphenated suffix from the wig's own claims
-  (-fitted / -perfect-fit, none when unproven) -- hyphenated never dotted,
-  because the old dotted suffix failed the shop's upload. The client no
-  longer composes a name at all, so a closet row and its filename read the
-  same claims and can never disagree. The read-only ledger (via the fittings-count
-  door on the save dialog) shows fitters, per-row verdicts, signature
-  states, and orphaned claims. Pre-claims fittings are dropped on import
-  with a receipt notice; they cannot become claims (a whole-file hash says
-  nothing about which rows anybody proved).
+  not_on_device / wont_work, offered on the authoring UI only for a
+  matrix's dimension-checklist cells (v0.9.8, perfect-or-nothing) -- a
+  lattice cannot be edited cell by cell the way commands can, so it keeps
+  the valve; a flat wig's checklist is check-only, unchecked by default,
+  and signing does not arm until every row carries a claim. Matrix bundles
+  additionally pin cells_hash (never named content_hash; the legacy/claims
+  discriminator is entry SHAPE, not the format stamp). Bundles are
+  ed25519-signed (key = raw 32-byte pubkey, sig over the bundle minus sig,
+  sorted keys, compact, UTF-8; the key is the install's only pseudonym --
+  no HA identifier, raw or hashed, ever enters a wig). Wig-level verdicts
+  are derived, never stored: complete = one bundle covering every row
+  worked; perfect fit = complete with zero exclusions; coverage = the
+  union. The closet check is perfect-or-nothing (v0.9.8, retiring the
+  three-tier "scoped" middle): a row shows the perfect check or nothing,
+  matching the download filename exactly. An incomplete bundle -- a
+  matrix carrying exclusions, or an older file with a partial attestation
+  from before the ruling -- still parses, still counts toward
+  fitters/coverage, and still lists in the ledger as "Incomplete"; it just
+  has no closet-tick state of its own any more. The download name is
+  server-composed from the wig's OWN fields (download_filename in
+  wig_format): brand-kind-model slugified, falling back to the name slug
+  when the wig has no brand, with the tier as a hyphenated suffix from the
+  wig's own claims (-perfect-fit, none for anything short of it) --
+  hyphenated never dotted, because the old dotted suffix failed the
+  shop's upload. The client no longer composes a name at all, so a closet
+  row and its filename read the same claims and can never disagree. A
+  comb-flagged cell (v0.9.8, the comb gate) joins the matrix checklist as
+  its own coordinate-named, check-only row before a perfect fit can sign
+  it; the check is the resolution -- a tested flag that works is simply
+  checked, a code that really is broken is fixed on the device and rides
+  the existing porthole/propose path. The read-only ledger (via the
+  fittings-count door on the save dialog) shows fitters, per-row verdicts,
+  signature states, and orphaned claims. Pre-claims fittings are dropped
+  on import with a receipt notice; they cannot become claims (a whole-file
+  hash says nothing about which rows anybody proved).
 - Replace (Smart Perm v0.9.1, moved to the device in 0.9.5): a command
   whose code is wrong gets repaired in the command editor -- paste a
   Pronto or LISTEN and capture one through a receiver; the heard code
