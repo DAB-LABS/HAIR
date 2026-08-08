@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from .wig_climate import dimension_checklist_digests
 from .wig_format import (
     VERDICT_WORKED,
     Wig,
@@ -76,12 +77,22 @@ def bundle_is_complete(
 
     A matrix wig's claims bind the lattice as a SET rather than a list
     of row digests, so completeness there is "they claimed the rows
-    they were shown", which for a checklist bundle is every row in it.
+    they were shown" -- but review 2026-08-08 item 4b (the Toyotomi
+    hole) is exactly the gap in stopping there: a bundle that was only
+    ever SHOWN some of the checklist (an old partial attestation, a
+    hand-edited file, anything not written by the current Save dialog)
+    used to pass this unchanged. Every row it carries working is
+    necessary but not sufficient; it also has to carry every row the
+    dimension checklist expects.
     """
     if wig.climate is not None:
-        return bool(bundle.rows) and all(
-            row.verdict == VERDICT_WORKED for row in bundle.rows
-        )
+        if not bundle.rows or any(
+            row.verdict != VERDICT_WORKED for row in bundle.rows
+        ):
+            return False
+        expected = dimension_checklist_digests(wig.climate)
+        worked = {row.digest for row in bundle.rows}
+        return expected <= worked
     if digests is None:
         digests = wig_row_digests(wig)
     return perfect_by(bundle, digests)

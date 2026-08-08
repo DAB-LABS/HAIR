@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from custom_components.hair.wig_claims import append_claims
+from custom_components.hair.wig_climate import dimension_checklist_digests
 from custom_components.hair.wig_fitting import claims_ledger, claims_summary
 from custom_components.hair.wig_format import (
     VERDICT_NOT_ON_DEVICE,
@@ -70,11 +71,33 @@ def _matrix_wig() -> Wig:
     return Wig(name="AC", wig_id="u-2", signals=[], climate=matrix)
 
 
+def _matrix_digests(wig: Wig) -> list[str]:
+    """The real dimension-checklist digests for a matrix wig, in a
+    stable order, so ``_attest`` can zip them against verdicts.
+
+    Review 2026-08-08 item 4b: ``bundle_is_complete`` now requires a
+    matrix bundle's WORKED digests to cover the checklist's real
+    digest set, so the fixture placeholder ("cell-0", "cell-1") this
+    helper used to hand out no longer earns "complete" -- it never
+    matched anything a real dimension checklist could produce. This
+    fixture's checklist samples exactly two rows (the "off" row here
+    happens to share a pronto with the "cool" cell, so their digests
+    collide and the set below has two members, not three); sorted()
+    just fixes an order for the zip, since set iteration order is not
+    something a test should depend on.
+    """
+    assert wig.climate is not None
+    return sorted(dimension_checklist_digests(wig.climate))
+
+
 def _attest(wig: Wig, verdicts, handle="David", **kw) -> None:
     """Sign one bundle over the wig's CURRENT rows and append it."""
-    digests = wig_row_digests(wig) or [
-        f"cell-{i}" for i in range(len(verdicts))
-    ]
+    if wig.climate is not None:
+        digests = _matrix_digests(wig)
+    else:
+        digests = wig_row_digests(wig) or [
+            f"cell-{i}" for i in range(len(verdicts))
+        ]
     append_claims(wig, ClaimsBundle(
         wig_id=wig.wig_id or "u-1",
         handle=handle,
@@ -363,6 +386,54 @@ class TestItCannotDisagreeWithTheCheck:
         assert ledger["covered"] == 2
         assert [e["complete"] for e in ledger["entries"]] == [False, False]
         assert claims_summary(wig, "David")["state"] is None
+
+
+class TestTheDimensionChecklistMustBeFullyCovered:
+    """Review 2026-08-08, item 4b (the Toyotomi hole). A matrix bundle
+    used to read PERFECT as long as every row it carried worked --
+    nobody checked whether it carried every row the dimension checklist
+    expects. An old partial attestation (the owner's own 8-of-9-row
+    Toyotomi file), a hand-edited file, or a bundle from another tool
+    could all produce exactly that shape and still earn the green
+    check, the ``-perfect-fit`` filename, and the shop gate.
+    """
+
+    def test_a_bundle_missing_a_checklist_row_is_not_complete(self):
+        wig = _matrix_wig()
+        digests = _matrix_digests(wig)
+        assert len(digests) == 2  # sanity: this fixture samples two rows
+        # Only one of the two rows the checklist expects -- everything
+        # this bundle DOES carry worked, but it never named the other.
+        append_claims(wig, ClaimsBundle(
+            wig_id=wig.wig_id or "u-2", handle="David",
+            rows=[RowClaim(
+                alias_at_claim="row0", digest=digests[0],
+                verdict=VERDICT_WORKED,
+            )],
+            cells_hash=cells_content_hash(wig.climate),
+        ))
+        entry = claims_ledger(wig, "David")["entries"][0]
+        assert entry["complete"] is False
+        assert claims_summary(wig, "David")["state"] is None
+
+    def test_the_full_checklist_still_reads_perfect(self):
+        """The regression this fix must not cause: a bundle that DOES
+        cover every sampled row is still a perfect fit."""
+        wig = _matrix_wig()
+        _attest(
+            wig, [VERDICT_WORKED, VERDICT_WORKED],
+            cells_hash=cells_content_hash(wig.climate),
+        )
+        assert claims_summary(wig, "David")["state"] == "perfect"
+        assert claims_ledger(wig, "David")["entries"][0]["complete"] is True
+
+    def test_a_flat_wig_is_unaffected(self):
+        """The coverage check is climate-only; a flat wig's
+        completeness still comes from its own row digests, exactly as
+        before this fix."""
+        wig = _wig()
+        _attest(wig, [VERDICT_WORKED, VERDICT_WORKED])
+        assert claims_summary(wig, "David")["state"] == "perfect"
 
 
 class TestTheWebsocketRead:
