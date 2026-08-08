@@ -533,7 +533,7 @@
     "wigs.save.reason.wont_work": "Nao consegui por a funcionar",
     "wigs.save.reason_hint": "Deixe ambos por escolher para nao afirmar nada sobre esta linha.",
     "wigs.save.comb_group_title": "Assinalado pelo pente",
-    "wigs.save.comb_flagged": "Assinalado pelo pente. Assinale se testou e funcionou, ou repare no dispositivo.",
+    "wigs.save.comb_flagged": "Uma penteadela mostrou que este sinal esta com defeito e sujeito a substituicao ou remocao. Teste e atualize.",
     "wigs.save.rename_line": "A wig chama-lhe {theirs}; voce chama-lhe {yours}.",
     "wigs.save.rename_propose": "Sugerir a mudanca de nome",
     "wigs.save.rename_proposing": "A mudanca de nome sera proposta",

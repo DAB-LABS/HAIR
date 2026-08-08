@@ -533,7 +533,7 @@
     "wigs.save.reason.wont_work": "Non sono riuscito a farlo funzionare",
     "wigs.save.reason_hint": "Lascia entrambi non scelti per non dichiarare nulla su questa riga.",
     "wigs.save.comb_group_title": "Segnalato dal pettine",
-    "wigs.save.comb_flagged": "Segnalato dal pettine. Selezionalo se lo hai testato e ha funzionato, oppure riparalo sul dispositivo.",
+    "wigs.save.comb_flagged": "Una pettinatura ha mostrato che questo segnale e difettoso e soggetto a sostituzione o rimozione. Testa e aggiorna.",
     "wigs.save.rename_line": "Il wig lo chiama {theirs}; tu lo chiami {yours}.",
     "wigs.save.rename_propose": "Proponi la rinomina",
     "wigs.save.rename_proposing": "La rinomina sara proposta",

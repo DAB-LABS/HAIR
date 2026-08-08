@@ -533,7 +533,7 @@
     "wigs.save.reason.wont_work": "Kreeg het niet werkend",
     "wigs.save.reason_hint": "Laat beide ongekozen om niets over deze regel te beweren.",
     "wigs.save.comb_group_title": "Gemarkeerd door de kam",
-    "wigs.save.comb_flagged": "Gemarkeerd door de kam. Vink aan als je het getest hebt en het werkte, of repareer het op het apparaat.",
+    "wigs.save.comb_flagged": "Een kambeurt liet zien dat dit signaal gebrekkig is en mogelijk vervangen of verwijderd moet worden. Test en werk bij.",
     "wigs.save.rename_line": "De wig noemt dit {theirs}; jij noemt het {yours}.",
     "wigs.save.rename_propose": "Hernoeming voorstellen",
     "wigs.save.rename_proposing": "Hernoeming wordt voorgesteld",

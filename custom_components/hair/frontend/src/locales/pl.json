@@ -555,7 +555,7 @@
     "wigs.save.reason.wont_work": "Nie udalo mi sie tego uruchomic",
     "wigs.save.reason_hint": "Zostaw oba niewybrane, aby nic nie twierdzic o tym wierszu.",
     "wigs.save.comb_group_title": "Oznaczone przez grzebien",
-    "wigs.save.comb_flagged": "Oznaczone przez grzebien. Zaznacz, jesli przetestowales i dzialalo, albo napraw na urzadzeniu.",
+    "wigs.save.comb_flagged": "Czesanie wykazalo, ze ten sygnal jest wadliwy i moze wymagac wymiany lub usuniecia. Przetestuj i zaktualizuj.",
     "wigs.save.rename_line": "Wig nazywa to {theirs}; ty nazywasz to {yours}.",
     "wigs.save.rename_propose": "Zaproponuj zmiane nazwy",
     "wigs.save.rename_proposing": "Zmiana nazwy zostanie zaproponowana",

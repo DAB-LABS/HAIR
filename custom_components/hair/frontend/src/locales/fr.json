@@ -533,7 +533,7 @@
     "wigs.save.reason.wont_work": "Je n'ai pas reussi a le faire marcher",
     "wigs.save.reason_hint": "Laissez les deux non choisis pour ne rien affirmer sur cette ligne.",
     "wigs.save.comb_group_title": "Signale par le peigne",
-    "wigs.save.comb_flagged": "Signale par le peigne. Cochez si vous l'avez teste et que ca a fonctionne, ou reparez-le sur l'appareil.",
+    "wigs.save.comb_flagged": "Un passage au peigne a montre que ce signal est defectueux et sujet a remplacement ou suppression. Testez et mettez a jour.",
     "wigs.save.rename_line": "Le wig appelle ceci {theirs}; vous l'appelez {yours}.",
     "wigs.save.rename_propose": "Proposer le renommage",
     "wigs.save.rename_proposing": "Le renommage sera propose",

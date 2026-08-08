@@ -1484,10 +1484,17 @@ class TestTheChecklistLearnsWhatChanged:
         source wig. Second Fitting amendment v2: it travels in the
         successor and attests exactly like a matched row -- it is
         never excluded from the perfect-fit denominator the way the
-        retired device-only treatment excluded it."""
+        retired device-only treatment excluded it.
+
+        The "+" delta-mark that used to draw on an addition row
+        retired 2026-08-08 (owner feedback: it and the unchecked
+        row's strikethrough both read as "this was removed," which is
+        backwards for a row nobody has attested yet). `isAddition`
+        itself stays -- it still gates the "addition" row class --
+        the glyph is what's gone."""
         text = _read("ir-save-perfect-dialog.ts")
         assert "isAddition" in text
-        assert "delta-mark add" in text
+        assert "delta-mark add" not in text
         # No filter narrows attestableRows below allRows any more.
         attestable = text.split(
             "private get _attestableRows()", 1

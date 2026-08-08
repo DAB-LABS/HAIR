@@ -533,7 +533,7 @@
     "wigs.save.reason.wont_work": "動かせなかった",
     "wigs.save.reason_hint": "どちらも選ばなければ、この行については何も主張しません。",
     "wigs.save.comb_group_title": "コームで検出",
-    "wigs.save.comb_flagged": "コームで検出されました。テストして動作した場合はチェックを、そうでない場合はデバイス側で修理してください。",
+    "wigs.save.comb_flagged": "コーム処理でこの信号に欠陥があり、交換または削除の対象である可能性が示されました。テストして更新してください。",
     "wigs.save.rename_line": "ウィッグではこれを {theirs} と呼びます。あなたは {yours} と呼んでいます。",
     "wigs.save.rename_propose": "名前の変更を提案する",
     "wigs.save.rename_proposing": "名前の変更を提案します",
