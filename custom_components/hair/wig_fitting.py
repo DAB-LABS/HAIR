@@ -190,15 +190,21 @@ def claims_ledger(wig: Wig, install_key: str | None) -> dict[str, Any]:
 
 
 def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
-    """The closet row's check, DERIVED from claims (RULED 2026-08-03).
+    """The closet row's check, DERIVED from claims.
 
-    Three tiers, one-to-one with the download filename tiers, because a
-    row and a filename saying different things about the same wig is a
-    contradiction somebody has to resolve by opening it:
+    Two tiers now (perfect-or-nothing, owner ruling 2026-08-07,
+    replacing the three-tier RULED 2026-08-03 shape): a wig is either a
+    PERFECT FIT or it is not, and "not" carries no state of its own for
+    the closet row to show. A row and a filename saying different
+    things about the same wig is a contradiction somebody has to
+    resolve by opening it, so this stays the one place both the closet
+    tick and the download filename tier derive from:
 
-    - nothing: no attestations at all
-    - "scoped": at least one signed attestation, none of them complete
-    - "perfect": at least one person's claims cover every row
+    - ``None``: no complete attestation -- nothing at all, or a signed
+      bundle that does not cover every row (a matrix carrying
+      exclusions, or partial coverage). The ledger still lists it; the
+      closet just shows no tick for it.
+    - "perfect": at least one person's claims cover every row.
 
     GREEN IS KEYED TO ONE PERSON'S COMPLETE COVERAGE. Union coverage
     across fitters never inflates it: three people who each proved a
@@ -217,11 +223,7 @@ def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
     def _complete(bundle: Any) -> bool:
         return bundle_is_complete(bundle, wig, digests)
 
-    state: str | None = None
-    if any(_complete(b) for b in bundles):
-        state = "perfect"
-    elif bundles:
-        state = "scoped"
+    state: str | None = "perfect" if any(_complete(b) for b in bundles) else None
 
     def _mine(bundle: Any) -> bool:
         # Second Fitting v3 punch list item 8: keyed on the install's
@@ -236,7 +238,7 @@ def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
     return {
         "state": state,
         "user_state": (
-            ("perfect" if any(_complete(b) for b in mine) else "scoped")
+            ("perfect" if any(_complete(b) for b in mine) else None)
             if mine else None
         ),
         "fitters": len(bundles),

@@ -3750,7 +3750,7 @@ async def _do_update(
     )
 
     def _write() -> dict[str, Any] | str:
-        from .wig_save import lattice_diff, update_text
+        from .wig_save import lattice_diff, reject_flat_exclusions, update_text
         from .wig_store import (
             find_wig_by_id,
             load_wig,
@@ -3767,6 +3767,9 @@ async def _do_update(
         wig = load_wig(hass.config.config_dir, filename)
         if text is None or wig is None:
             return "source_missing"
+
+        if reject_flat_exclusions(attestation, wig):
+            return "exclusion_on_flat_row"
 
         # Metadata edits are a legitimate content PR (plan Section 4:
         # they ride the PR as reviewed changes), so an update carries
@@ -3828,6 +3831,9 @@ _UPDATE_REFUSALS = {
         "changes, save as a new wig, or save without attesting.",
     "nothing_to_update":
         "Nothing to write: no fitting, and nothing changed",
+    "exclusion_on_flat_row":
+        "An exclusion reason can only be given on a matrix checklist "
+        "cell.",
 }
 
 
@@ -3919,6 +3925,15 @@ async def _do_create(
     if build.wig is None:
         connection.send_error(
             msg["id"], "no_signals", "No exportable signals on that device"
+        )
+        return
+    from .wig_save import reject_flat_exclusions
+
+    if reject_flat_exclusions(attestation, build.wig):
+        connection.send_error(
+            msg["id"], "exclusion_on_flat_row",
+            "An exclusion reason can only be given on a matrix "
+            "checklist cell.",
         )
         return
     if msg.get("name", "").strip():

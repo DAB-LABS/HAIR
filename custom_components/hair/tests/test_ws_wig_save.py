@@ -574,6 +574,92 @@ async def test_a_diverged_lattice_blocks_matrix_attestation(
 
 
 @pytest.mark.asyncio
+async def test_exclusion_on_a_flat_row_is_refused_on_update(
+    fake_hass, tmp_path, _no_signing
+):
+    """The comb gate carve-out (RULED 2026-08-08), enforced at the API
+    boundary (perfect-or-nothing item 6): *not_on_device* /
+    *wont_work* are a matrix-checklist-only instrument. The shipped
+    UI has nowhere left to produce this on a flat row, so a stale
+    client or a hand-rolled WS call must not be able to write what
+    the UI can no longer express."""
+    from custom_components.hair.wig_format import VERDICT_NOT_ON_DEVICE
+
+    wig = Wig(
+        name="Edifier", wig_id="u-source",
+        signals=[WigSignal(alias="On", pronto=PRONTO_A)],
+    )
+    _closet_wig(tmp_path, wig)
+    device = IRDevice(
+        name="Speakers", commands=[_command("On", PRONTO_A)],
+        source_wig_id="u-source",
+    )
+    _wire(fake_hass, tmp_path, device)
+    conn = _conn()
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "update",
+        "attest": {"claims": [{
+            "digest": signal_row_digest(wig.signals[0]),
+            "verdict": VERDICT_NOT_ON_DEVICE,
+        }]},
+    })
+    assert conn.send_error.call_args[0][1] == "exclusion_on_flat_row"
+
+
+@pytest.mark.asyncio
+async def test_exclusion_on_a_flat_row_is_refused_on_create(
+    fake_hass, tmp_path, _no_signing
+):
+    from custom_components.hair.wig_format import VERDICT_NOT_ON_DEVICE
+
+    command = _command("On", PRONTO_A)
+    device = IRDevice(name="Fan", commands=[command])
+    _wire(fake_hass, tmp_path, device)
+    digest = signal_row_digest(build_wig_from_device(device).wig.signals[0])
+    conn = _conn()
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "create", "name": "Bench Fan",
+        "attest": {"claims": [{
+            "digest": digest, "verdict": VERDICT_NOT_ON_DEVICE,
+        }]},
+    })
+    assert conn.send_error.call_args[0][1] == "exclusion_on_flat_row"
+
+
+@pytest.mark.asyncio
+async def test_exclusion_on_a_matrix_cell_still_lands(
+    fake_hass, tmp_path, _no_signing
+):
+    """The carve-out's other half: a matrix checklist cell keeps its
+    exclusion picker, unaffected by the flat-row guard."""
+    from custom_components.hair.wig_format import VERDICT_NOT_ON_DEVICE
+    from custom_components.hair.wig_save import build_save_plan
+
+    wig = _matrix_wig(_matrix())
+    path = _closet_wig(tmp_path, wig)
+    device = IRDevice(
+        name="AC", commands=[], source_wig_id="u-source",
+        climate_matrix=True,
+    )
+    _wire_matrix(fake_hass, tmp_path, device, _matrix())
+    plan = build_save_plan(device, wig, "ac.wig.json", matrix=_matrix())
+    cell_digest = next(r.digest for r in plan.rows if r.section is not None)
+    conn = _conn()
+    await ws_wigs_save(fake_hass, conn, {
+        "id": 1, "type": "hair/wigs/save", "device_id": device.id,
+        "mode": "update",
+        "attest": {"claims": [{
+            "digest": cell_digest, "verdict": VERDICT_NOT_ON_DEVICE,
+        }]},
+    })
+    conn.send_error.assert_not_called()
+    after = json.loads(path.read_text())
+    assert after["fittings"][0]["rows"][0]["verdict"] == "not_on_device"
+
+
+@pytest.mark.asyncio
 async def test_propose_then_attest_succeeds_and_binds_the_new_lattice(
     fake_hass, tmp_path, _no_signing
 ):

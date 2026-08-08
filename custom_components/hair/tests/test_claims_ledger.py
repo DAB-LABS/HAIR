@@ -325,13 +325,13 @@ class TestTheMatrixLattice:
 
 class TestItCannotDisagreeWithTheCheck:
     """Both readings ask ``bundle_is_complete``. A person looking at a
-    green check beside a ledger entry that reads "scoped" has found a
+    green check beside a ledger entry that is not complete has found a
     bug in HAIR, not a fact about their wig.
     """
 
     @pytest.mark.parametrize("verdicts,state", [
         ([VERDICT_WORKED, VERDICT_WORKED], "perfect"),
-        ([VERDICT_WORKED, VERDICT_NOT_ON_DEVICE], "scoped"),
+        ([VERDICT_WORKED, VERDICT_NOT_ON_DEVICE], None),
     ])
     def test_flat(self, verdicts, state):
         wig = _wig()
@@ -362,7 +362,7 @@ class TestItCannotDisagreeWithTheCheck:
         ledger = claims_ledger(wig, "David")
         assert ledger["covered"] == 2
         assert [e["complete"] for e in ledger["entries"]] == [False, False]
-        assert claims_summary(wig, "David")["state"] == "scoped"
+        assert claims_summary(wig, "David")["state"] is None
 
 
 class TestTheWebsocketRead:

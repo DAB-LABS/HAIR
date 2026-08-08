@@ -37,6 +37,7 @@ from .wig_claims import (
 )
 from .wig_export import WigBuild, build_wig_from_device
 from .wig_format import (
+    VERDICT_WORKED,
     VERDICTS,
     ClaimsBundle,
     ClimateMatrix,
@@ -95,6 +96,17 @@ class PlanRow:
     #: exactly when the fitter renamed it locally, which is what raises
     #: the "the wig calls this On; you call it Power" line.
     wig_alias: str | None = None
+    #: The comb gate (RULED 2026-08-08). True for a porthole row minted
+    #: over a comb-flagged cell (``_mint_cell_rows``, websocket_api.py)
+    #: -- threaded from the device command's own ``comb_suspect`` so the
+    #: dialog can group it with the other flagged rows and mark it,
+    #: without a second vocabulary for the same fact. False for every
+    #: ordinary row, dimension-checklist samples included.
+    comb_suspect: bool = False
+    #: The comb's finding for this row, when ``comb_suspect`` is set --
+    #: tooltip material, never a verdict of its own. Attesting or
+    #: repairing the row is the only thing that resolves it.
+    comb_finding: str | None = None
 
     @property
     def matched(self) -> bool:
@@ -252,6 +264,8 @@ class SavePlan:
                     "temp_less": row.temp_less,
                     "temp_role": row.temp_role,
                     "power": row.power,
+                    "comb_suspect": row.comb_suspect,
+                    "comb_finding": row.comb_finding,
                 }
                 for row in self.rows
             ],
@@ -295,6 +309,19 @@ def _protocol_of(device: IRDevice, command_id: str) -> str | None:
         if command.id == command_id:
             return command.decoded_protocol
     return None
+
+
+def _comb_of(device: IRDevice, command_id: str) -> tuple[bool, str | None]:
+    """A command's own comb flag, for its plan row (the comb gate,
+    RULED 2026-08-08). Reads the device's live command rather than the
+    comb ever, deliberately: the flag was stamped once, at minting
+    (``_mint_cell_rows``), and a row is either that porthole or it is
+    not -- this is a lookup, not a fresh comb pass.
+    """
+    for command in device.commands:
+        if command.id == command_id:
+            return command.comb_suspect, command.comb_finding
+    return False, None
 
 
 def _device_metadata(device: IRDevice, wig: Wig) -> dict[str, Any]:
@@ -473,8 +500,10 @@ def build_save_plan(
             notes=build.notes, matrix=is_matrix,
         )
 
-    rows = [
-        PlanRow(
+    rows = []
+    for i, signal in enumerate(build.wig.signals):
+        comb_suspect, comb_finding = _comb_of(device, build.sources[i])
+        rows.append(PlanRow(
             command_id=build.sources[i],
             alias=signal.alias,
             digest=signal_row_digest(signal),
@@ -482,9 +511,9 @@ def build_save_plan(
             ditto_count=signal.ditto_count,
             bypass=signal.bypass_protocol,
             protocol=_protocol_of(device, build.sources[i]),
-        )
-        for i, signal in enumerate(build.wig.signals)
-    ]
+            comb_suspect=comb_suspect,
+            comb_finding=comb_finding,
+        ))
     if matrix is not None:
         # The lattice first, then the depth-0 extras beside it. A
         # person reads the checklist as the device and the extras as
@@ -783,6 +812,41 @@ def _allowed_claim_digests(wig: Wig) -> set[str]:
     if wig.climate is not None:
         allowed |= {row.digest for row in _checklist_rows(wig.climate)}
     return allowed
+
+
+def _lattice_claim_digests(wig: Wig) -> set[str]:
+    """Digests an exclusion verdict may legitimately land on: a
+    matrix's own dimension-checklist cells. Everything else -- a flat
+    wig's rows, or a matrix's depth-0 extras and comb portholes -- is a
+    hardware claim the shipped UI only ever lets someone CHECK (the
+    comb gate carve-out, RULED 2026-08-08): *not on my device* and
+    *could not make it work* are a matrix-checklist-only instrument.
+    Empty on a flat wig, where there is no lattice to sample.
+    """
+    if wig.climate is None:
+        return set()
+    return {row.digest for row in _checklist_rows(wig.climate)}
+
+
+def reject_flat_exclusions(
+    attestation: Attestation | None, wig: Wig
+) -> bool:
+    """True when the attestation carries an exclusion verdict outside
+    the matrix checklist -- item 6 of the perfect-or-nothing plan, the
+    server-side half of the carve-out. The WS schema keeps accepting
+    the exclusion enums (the matrix path still needs them), so this is
+    what makes "flat bundles from current HAIR never carry exclusions"
+    true at the API boundary too, not only in a UI that no longer
+    offers the picker there. A stale frontend or a hand-rolled WS call
+    is the only way this ever fires.
+    """
+    if attestation is None:
+        return False
+    allowed = _lattice_claim_digests(wig)
+    return any(
+        verdict != VERDICT_WORKED and digest not in allowed
+        for digest, verdict in attestation.claims.items()
+    )
 
 
 def drop_ghost_claims(attestation: Attestation, wig: Wig) -> Attestation:
