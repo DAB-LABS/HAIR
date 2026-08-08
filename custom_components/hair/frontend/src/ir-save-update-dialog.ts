@@ -134,7 +134,12 @@ export class IrSaveUpdateDialog extends LitElement {
 
     /** The graded line: null when there is nothing to grade (no
      * claims at all on the wig about to be overridden), matching the
-     * self-supersession confirm's own "no claims is light" rule. */
+     * self-supersession confirm's own "no claims is light" rule.
+     *
+     * Perfect-or-nothing (owner ruling 2026-08-07): ``grade.state`` can
+     * no longer be "scoped" -- an incomplete ancestor grades as no
+     * state at all, which the guard above already returns null for --
+     * so this only ever has the amber PERFECT FIT line left to give. */
     private get _gradedLine(): {
         amber: boolean;
         text: string;
@@ -143,7 +148,7 @@ export class IrSaveUpdateDialog extends LitElement {
     } | null {
         if (!this._diverged) return null;
         const grade = this.plan.old_fitting_grade;
-        if (!grade || !grade.state) return null;
+        if (!grade || grade.state !== "perfect") return null;
         const name = this.plan.source_wig_name ?? "";
         const who = grade.handles.join(", ");
         // Second Fitting v3 punch list item 17: a dedicated key, not
@@ -151,23 +156,12 @@ export class IrSaveUpdateDialog extends LitElement {
         // (ir-supersede-dialog.ts, untouched this round) -- called
         // WITHOUT substitution so {name}/{who} stay literal for
         // _renderGradedPerfectLine's split-render below.
-        return grade.state === "perfect"
-            ? {
-                  amber: true,
-                  text: t("supersede.update_fitted_perfect"),
-                  name,
-                  who,
-              }
-            : {
-                  amber: false,
-                  text: tp("supersede.fitted_scoped", grade.count, {
-                      count: String(grade.count),
-                      name,
-                      who,
-                  }),
-                  name,
-                  who,
-              };
+        return {
+            amber: true,
+            text: t("supersede.update_fitted_perfect"),
+            name,
+            who,
+        };
     }
 
     /** The lost-rows line: rows the wig being overridden carries that
