@@ -148,6 +148,11 @@ export class IrDeviceDetail extends LitElement {
     @state() private _selFan: string | null = null;
     @state() private _selSwing: string | null = null;
     @state() private _selTemp: number | null = null;
+    // Power row (matrix-power-row.md item 1): a power press is a
+    // sibling selection to the cell branch, not a branch itself --
+    // picking a power chip clears the cell dimensions and vice versa,
+    // so only one of the two can ever be "the thing Send would send".
+    @state() private _selPower: "on" | "off" | null = null;
 
     // Device Settings (0.9.8): the settings button in the meta row.
     // Gated by settingsSections(device) so a device type with nothing
@@ -1260,6 +1265,16 @@ export class IrDeviceDetail extends LitElement {
         this._selFan = useFan;
         this._selSwing = useSwing;
         this._selTemp = useTemp;
+        this._selPower = null;
+    }
+
+    /** Pick a power chip (Off, or On when the matrix declares one).
+     * Deliberately does not touch _selMode/_selFan/_selSwing/_selTemp --
+     * those stay put so the Mode/Fan/Swing/Grid block (gated on
+     * _selMode !== null) keeps rendering and the user can switch back
+     * to cell-picking without the card collapsing out from under them. */
+    private _selectPower(power: "on" | "off"): void {
+        this._selPower = power;
     }
 
     /** The exact cell the selection points at, or null mid-load. */
@@ -1303,6 +1318,31 @@ export class IrDeviceDetail extends LitElement {
     }
 
     private async _matrixSend(): Promise<void> {
+        if (this._selPower !== null) {
+            this._busy = true;
+            try {
+                const result = await this.api.matrixSend(this.device.id, {
+                    power: this._selPower,
+                });
+                const sentMsg = t("devdetail.sent_cmd", {
+                    name: result.sent,
+                });
+                this._flash(
+                    result.heard
+                        ? `${sentMsg} \u00b7 ${t("testbtn.heard")}`
+                        : sentMsg,
+                );
+            } catch (err) {
+                this._flash(
+                    t("devdetail.send_failed", {
+                        message: (err as Error).message,
+                    }),
+                );
+            } finally {
+                this._busy = false;
+            }
+            return;
+        }
         const cell = this._selectedCell();
         if (!cell) return;
         this._busy = true;
@@ -1335,6 +1375,39 @@ export class IrDeviceDetail extends LitElement {
     }
 
     private async _matrixSaveCommand(): Promise<void> {
+        if (this._selPower !== null) {
+            this._busy = true;
+            try {
+                // The response IS the refreshed full device (the saved
+                // state replaces by name, so the list never twins).
+                this.device = await this.api.matrixCommand(this.device.id, {
+                    power: this._selPower,
+                });
+                this._flash(
+                    t("devdetail.saved", {
+                        name:
+                            this._selPower === "on"
+                                ? t("fitting.row_on")
+                                : t("fitting.row_off"),
+                    }),
+                );
+                this.dispatchEvent(
+                    new CustomEvent("device-changed", {
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+            } catch (err) {
+                this._flash(
+                    t("devdetail.update_failed", {
+                        message: (err as Error).message,
+                    }),
+                );
+            } finally {
+                this._busy = false;
+            }
+            return;
+        }
         const cell = this._selectedCell();
         if (!cell) return;
         this._busy = true;
@@ -1365,6 +1438,39 @@ export class IrDeviceDetail extends LitElement {
         } finally {
             this._busy = false;
         }
+    }
+
+    /** The Power row (matrix-power-row.md item 1): Off always, On only
+     * when the matrix declares an explicit wake code (has_on). Kept
+     * separate from _renderDimRow rather than reusing it, since the
+     * internal values ("on"/"off") differ from their displayed labels
+     * (t("fitting.row_on")/t("fitting.row_off")). */
+    private _renderPowerRow(mc: MatrixCells) {
+        const options: Array<{ value: "on" | "off"; label: string }> = [
+            { value: "off", label: t("fitting.row_off") },
+        ];
+        if (mc.has_on) {
+            options.push({ value: "on", label: t("fitting.row_on") });
+        }
+        return html`
+            <div class="mx-dim-row">
+                <span class="mx-dim-label"
+                    >${t("devices.matrix_dim_power")}</span
+                >
+                <span class="mx-chips">
+                    ${options.map(
+                        (o) => html`<button
+                            class="mx-chip ${o.value === this._selPower
+                                ? "on"
+                                : ""}"
+                            @click=${() => this._selectPower(o.value)}
+                        >
+                            ${o.label}
+                        </button>`,
+                    )}
+                </span>
+            </div>
+        `;
     }
 
     /** One dimension chip row (Mode / Fan / Swing). */
@@ -1543,6 +1649,7 @@ export class IrDeviceDetail extends LitElement {
                     : nothing}
                 ${mc && this._selMode !== null
                     ? html`
+                          ${this._renderPowerRow(mc)}
                           ${this._renderDimRow(
                               t("devices.matrix_dim_mode"),
                               mc.modes,
@@ -1586,22 +1693,31 @@ export class IrDeviceDetail extends LitElement {
                           ${this._renderMatrixGrid(current)}
                           <div class="mx-actions">
                               <span class="mx-set">
-                                  ${selected
+                                  ${this._selPower !== null
                                       ? t("devices.matrix_set_state", {
-                                            name: this._cellName(selected),
+                                            name:
+                                                this._selPower === "on"
+                                                    ? t("fitting.row_on")
+                                                    : t("fitting.row_off"),
                                         })
-                                      : nothing}
+                                      : selected
+                                        ? t("devices.matrix_set_state", {
+                                              name: this._cellName(selected),
+                                          })
+                                        : nothing}
                               </span>
                               <button
                                   class="action-btn test-btn"
-                                  ?disabled=${this._busy || !selected}
+                                  ?disabled=${this._busy ||
+                                  !(selected || this._selPower)}
                                   @click=${this._matrixSend}
                               >
                                   ${t("fitting.send")}
                               </button>
                               <button
                                   class="action-btn mx-cmd-btn"
-                                  ?disabled=${this._busy || !selected}
+                                  ?disabled=${this._busy ||
+                                  !(selected || this._selPower)}
                                   @click=${this._matrixSaveCommand}
                               >
                                   ${t("devices.matrix_add_command")}
@@ -1674,22 +1790,30 @@ export class IrDeviceDetail extends LitElement {
             <div class="device-meta">
                 <div class="stack">
                     <span class="sl">${t("devdetail.type")}</span>
-                    <select
-                        .value=${this.device.device_type}
-                        @change=${this._onTypeChanged}
-                        ?disabled=${this._busy}
-                    >
-                        ${DEVICE_TYPES.map(
-                            (dt) => html`
-                                <option
-                                    value=${dt.value}
-                                    ?selected=${this.device.device_type === dt.value}
-                                >
-                                    ${t(`device_type.${dt.value}`)}
-                                </option>
-                            `,
-                        )}
-                    </select>
+                    ${this.device.matrix
+                        ? html`<span
+                              class="type-locked"
+                              title=${t("devdetail.type_locked_tooltip")}
+                              >${t("device_type.ac")} ·
+                              ${t("devices.matrix_title")}</span
+                          >`
+                        : html`<select
+                              .value=${this.device.device_type}
+                              @change=${this._onTypeChanged}
+                              ?disabled=${this._busy}
+                          >
+                              ${DEVICE_TYPES.map(
+                                  (dt) => html`
+                                      <option
+                                          value=${dt.value}
+                                          ?selected=${this.device
+                                              .device_type === dt.value}
+                                      >
+                                          ${t(`device_type.${dt.value}`)}
+                                      </option>
+                                  `,
+                              )}
+                          </select>`}
                 </div>
                 <ir-emitter-picker
                     .hass=${this.hass}
@@ -2417,6 +2541,24 @@ export class IrDeviceDetail extends LitElement {
             color: var(--primary-text-color);
             font-family: inherit;
             font-size: 0.85rem;
+        }
+        /* Type lock (matrix-power-row.md item 4): a matrix device's
+           type control is a static label, not a dropdown -- sized to
+           match .stack select so swapping the two doesn't jump the
+           row, but unclickable and dimmed just enough to read as
+           fixed rather than editable. */
+        .type-locked {
+            display: block;
+            box-sizing: border-box;
+            width: 100%;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--divider-color);
+            background: var(--card-background-color);
+            color: var(--secondary-text-color);
+            font-family: inherit;
+            font-size: 0.85rem;
+            cursor: default;
         }
 
         /* --- Buttons --- */

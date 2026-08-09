@@ -297,15 +297,19 @@ export class HairApi {
         });
     }
 
-    /** Save one exact cell as a stored command (display-grammar name,
-     * source "matrix", replace-by-name). Returns the full device. */
+    /** Save one exact cell, or a power code, as a stored command
+     * (display-grammar name, source "matrix", replace-by-name).
+     * Exactly one of mode or power is required -- mirrors
+     * matrixSend's own power-wins contract (matrix-power-row.md item
+     * 2). Returns the full device. */
     matrixCommand(
         deviceId: string,
         state: {
-            mode: string;
+            mode?: string;
             fan?: string | null;
             swing?: string | null;
             temp?: number | null;
+            power?: "on" | "off";
         },
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
