@@ -742,6 +742,7 @@
     "devsettings.title": "デバイス設定",
     "devsettings.no_sections": "このデバイスタイプには専用の設定はまだありません。",
     "devsettings.power_section_label": "消費電力モニタリング",
+    "devsettings.power_intro": "電力センサーは、このデバイスの実際のオン/オフ状態を確認します。しきい値を超えた測定値は、HAIRが直前に送信したコマンドから推定していた状態を上書きします。",
     "devsettings.power_explainer": "センサーはワット数を報告する必要があります。",
     "devsettings.sensor_label": "電力センサー",
     "devsettings.sensor_none": "なし",

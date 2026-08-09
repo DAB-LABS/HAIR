@@ -742,6 +742,7 @@
     "devsettings.title": "Ajustes del dispositivo",
     "devsettings.no_sections": "Todavía no hay ajustes específicos para este tipo de dispositivo.",
     "devsettings.power_section_label": "Monitoreo de consumo",
+    "devsettings.power_intro": "Un sensor de energía verifica el estado real de encendido y apagado de este dispositivo. Las lecturas que cruzan un umbral anulan lo que HAIR asumió a partir de la última orden enviada.",
     "devsettings.power_explainer": "El sensor debe informar en vatios.",
     "devsettings.sensor_label": "Sensor de consumo",
     "devsettings.sensor_none": "Ninguno",

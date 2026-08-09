@@ -742,6 +742,7 @@
     "devsettings.title": "Paramètres de l'appareil",
     "devsettings.no_sections": "Aucun paramètre spécifique pour ce type d'appareil pour le moment.",
     "devsettings.power_section_label": "Surveillance de la consommation",
+    "devsettings.power_intro": "Un capteur de puissance vérifie l'état réel d'allumage et d'extinction de cet appareil. Les relevés qui franchissent un seuil remplacent ce que HAIR avait supposé d'après la dernière commande envoyée.",
     "devsettings.power_explainer": "Le capteur doit indiquer des watts.",
     "devsettings.sensor_label": "Capteur de consommation",
     "devsettings.sensor_none": "Aucun",

@@ -810,6 +810,7 @@
     "devsettings.title": "Ustawienia urządzenia",
     "devsettings.no_sections": "Brak ustawień specyficznych dla tego typu urządzenia.",
     "devsettings.power_section_label": "Monitorowanie zużycia energii",
+    "devsettings.power_intro": "Czujnik mocy sprawdza rzeczywisty stan włączenia i wyłączenia tego urządzenia. Odczyty, które przekraczają próg, zastępują to, co HAIR zakładał na podstawie ostatnio wysłanej komendy.",
     "devsettings.power_explainer": "Czujnik musi podawać wartość w watach.",
     "devsettings.sensor_label": "Czujnik mocy",
     "devsettings.sensor_none": "Brak",

@@ -86,23 +86,6 @@ interface PowerSensorCandidate {
 const DEFAULT_OFF_BELOW_W = 5;
 const DEFAULT_ON_ABOVE_W = 10;
 
-/** Mirrors power_monitor.classify_power_reading() (backend, commit 2)
- * so the live readout's status dot agrees with what will actually
- * fire a correction -- a kW reading is converted to watts first, same
- * as the backend, so both sides compare in watts. */
-function classifyPowerReading(
-    valueW: number | null,
-    offBelowW: number | null,
-    onAboveW: number | null,
-): "on" | "off" | null {
-    if (valueW === null || offBelowW === null || onAboveW === null) {
-        return null;
-    }
-    if (valueW <= offBelowW) return "off";
-    if (valueW >= onAboveW) return "on";
-    return null;
-}
-
 @customElement("ir-device-settings-dialog")
 export class IrDeviceSettingsDialog extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
@@ -285,25 +268,32 @@ export class IrDeviceSettingsDialog extends LitElement {
                     ${t("devsettings.power_section_label")}
                 </h3>
 
+                <p class="section-explainer">
+                    ${t("devsettings.power_intro")}
+                </p>
+
                 <div class="field">
                     <label>${t("devsettings.sensor_label")}</label>
-                    <select
-                        .value=${this._sensorChoice}
-                        @change=${this._onSensorChoiceChanged}
-                        ?disabled=${this._busy}
-                    >
-                        <option value="">${t("devsettings.sensor_none")}</option>
-                        ${candidates.map(
-                            (c) => html`
-                                <option
-                                    value=${c.entityId}
-                                    ?selected=${this._sensorChoice === c.entityId}
-                                >
-                                    ${c.name}
-                                </option>
-                            `,
-                        )}
-                    </select>
+                    <div class="select-wrap">
+                        <select
+                            .value=${this._sensorChoice}
+                            @change=${this._onSensorChoiceChanged}
+                            ?disabled=${this._busy}
+                        >
+                            <option value="">${t("devsettings.sensor_none")}</option>
+                            ${candidates.map(
+                                (c) => html`
+                                    <option
+                                        value=${c.entityId}
+                                        ?selected=${this._sensorChoice === c.entityId}
+                                    >
+                                        ${c.name}
+                                    </option>
+                                `,
+                            )}
+                        </select>
+                        <span class="select-chevron" aria-hidden="true"></span>
+                    </div>
                     <p class="section-explainer">
                         ${t("devsettings.power_explainer")}
                     </p>
@@ -351,6 +341,13 @@ export class IrDeviceSettingsDialog extends LitElement {
         `;
     }
 
+    /** The dot signals "this number is live," full stop (design brief:
+     * "stays green in both sections... independent of the
+     * oxblood/cold-blue theming" -- and, same principle, independent
+     * of the on/off verdict too). An earlier pass colored it by
+     * classify_power_reading()'s on/off/hold verdict instead, which
+     * read as "sensor might be broken" on a perfectly healthy reading
+     * that just happened to sit in the off band -- corrected here. */
     private _renderLiveReadout(state: {
         state?: string;
         attributes?: { unit_of_measurement?: string };
@@ -366,22 +363,8 @@ export class IrDeviceSettingsDialog extends LitElement {
             return html`<span class="readout-dot readout-unknown"></span>
                 ${t("devsettings.readout_now", { value })}`;
         }
-        const valueW = unit === "kW" ? raw * 1000 : raw;
-        const offBelow = parseFloat(this._offBelow);
-        const onAbove = parseFloat(this._onAbove);
-        const verdict = classifyPowerReading(
-            valueW,
-            Number.isNaN(offBelow) ? null : offBelow,
-            Number.isNaN(onAbove) ? null : onAbove,
-        );
-        const dotClass =
-            verdict === "on"
-                ? "readout-on"
-                : verdict === "off"
-                  ? "readout-off"
-                  : "readout-hold";
         const value = unit ? `${raw} ${unit}` : `${raw}`;
-        return html`<span class="readout-dot ${dotClass}"></span>
+        return html`<span class="readout-dot readout-live"></span>
             ${t("devsettings.readout_now", { value })}`;
     }
 
@@ -436,10 +419,26 @@ export class IrDeviceSettingsDialog extends LitElement {
                 font-weight: 500;
                 color: var(--section-accent-bright, var(--primary-text-color));
             }
+            /* Indented to line up with the live-readout's text, not
+             * the section's left edge (owner ruling, bench pass): the
+             * readout is a flex row with 10px padding-left, an 8px
+             * dot, and an 8px gap before its text starts, so 26px of
+             * padding here lands this paragraph's text under "Now:"
+             * rather than under the dot. Shared by both the section
+             * intro (before the picker) and the per-field explainer
+             * (under it) -- same look, same alignment, two spots. */
             .section-explainer {
                 margin: 0 0 12px;
+                padding-left: 26px;
                 font-size: 0.8rem;
                 color: var(--secondary-text-color);
+            }
+            /* Labels bold, descriptive text (.section-explainer) not
+             * -- owner ruling, bench pass. Scoped to this section so
+             * it doesn't reach into the shared dialogStyles .field
+             * label rule other dialogs use. */
+            .section-power label {
+                font-weight: 600;
             }
             /* dialogStyles only styles input[type="text"]/select --
              * number inputs need the same anatomy spelled out here. */
@@ -465,22 +464,42 @@ export class IrDeviceSettingsDialog extends LitElement {
             }
             /* The dropdown chevron, in the section accent too (design
              * brief: "the entity picker's border and dropdown
-             * chevron"). Native <select> arrows aren't stylable via a
-             * CSS color property, so this replaces the UA arrow with
-             * an inline SVG. The fill is hardcoded to POWER's
+             * chevron"). BENCH FIX: this was originally a
+             * background-image data-URI directly on the <select>
+             * (appearance:none + background-image), which computed
+             * correctly (verified via getComputedStyle) but never
+             * painted -- some platforms keep native widget painting
+             * for a <select>'s closed-combobox box regardless of
+             * appearance:none, silently dropping author backgrounds
+             * there. A sibling <span> layered on top via
+             * position:absolute is a normal block element with no
+             * such native-widget interference, so it paints
+             * everywhere. The fill is hardcoded to POWER's
              * --section-accent-bright (#b05050) rather than reading
              * the CSS var, since a data-URI background-image can't
              * reference one -- CLIMATE (next pass) will need its own
-             * .section-climate select rule with a cold-blue chevron
+             * .section-climate chevron rule with a cold-blue fill
              * rather than inheriting this one. */
+            .select-wrap {
+                position: relative;
+            }
             .section-power select {
                 appearance: none;
                 -webkit-appearance: none;
+                padding-right: 32px;
+            }
+            .section-power .select-chevron {
+                position: absolute;
+                top: 50%;
+                right: 10px;
+                width: 18px;
+                height: 18px;
+                transform: translateY(-50%);
+                pointer-events: none;
                 background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23b05050' d='M7 10l5 5 5-5z'/%3E%3C/path%3E%3C/svg%3E");
                 background-repeat: no-repeat;
-                background-position: right 10px center;
+                background-position: center;
                 background-size: 18px;
-                padding-right: 32px;
             }
             .settings-section select option {
                 color: var(--primary-text-color);
@@ -504,14 +523,14 @@ export class IrDeviceSettingsDialog extends LitElement {
                 border-radius: 50%;
                 flex: 0 0 auto;
             }
-            .readout-on {
+            /* Green whenever the readout has a genuine live number,
+             * full stop -- design brief: "signals 'this number is
+             * moving right now,' not which section it belongs to."
+             * Not tied to the on/off verdict; a reading sitting in
+             * the hysteresis band is just as live as one past a
+             * threshold. */
+            .readout-live {
                 background: #66bb6a;
-            }
-            .readout-off {
-                background: #999;
-            }
-            .readout-hold {
-                background: #d9a441;
             }
             .readout-unknown {
                 background: var(--disabled-text-color, #999);

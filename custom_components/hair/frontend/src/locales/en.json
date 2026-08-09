@@ -742,6 +742,7 @@
     "devsettings.title": "Device settings",
     "devsettings.no_sections": "No device-specific settings for this device type yet.",
     "devsettings.power_section_label": "Power monitoring",
+    "devsettings.power_intro": "A power sensor verifies this device's real on and off state. Readings that cross a threshold override what HAIR assumed from the last command sent.",
     "devsettings.power_explainer": "The sensor must report watts.",
     "devsettings.sensor_label": "Power sensor",
     "devsettings.sensor_none": "None",
