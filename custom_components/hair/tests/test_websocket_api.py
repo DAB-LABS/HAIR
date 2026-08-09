@@ -264,6 +264,115 @@ async def test_update_device_not_found(fake_hass):
     conn.send_error.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_update_device_sets_power_sensor(fake_hass, mock_device):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "power_sensor_entity_id": "sensor.ac_plug_power",
+            "power_off_below_w": 5,
+            "power_on_above_w": 10,
+        },
+    )
+    conn.send_result.assert_called_once()
+    assert mock_device.power_sensor_entity_id == "sensor.ac_plug_power"
+    assert mock_device.power_off_below_w == 5
+    assert mock_device.power_on_above_w == 10
+
+
+@pytest.mark.asyncio
+async def test_update_device_power_sensor_rejects_non_sensor_domain(
+    fake_hass, mock_device
+):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "power_sensor_entity_id": "light.not_a_sensor",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    manager.async_update_device.assert_not_called()
+    assert mock_device.power_sensor_entity_id is None
+
+
+@pytest.mark.asyncio
+async def test_update_device_power_sensor_rejects_bad_threshold_order(
+    fake_hass, mock_device
+):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "power_sensor_entity_id": "sensor.ac_plug_power",
+            "power_off_below_w": 10,
+            "power_on_above_w": 5,
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    manager.async_update_device.assert_not_called()
+    assert mock_device.power_sensor_entity_id is None
+
+
+@pytest.mark.asyncio
+async def test_update_device_clearing_sensor_clears_thresholds(
+    fake_hass, mock_device
+):
+    mock_device.power_sensor_entity_id = "sensor.ac_plug_power"
+    mock_device.power_off_below_w = 5
+    mock_device.power_on_above_w = 10
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "power_sensor_entity_id": None,
+        },
+    )
+    conn.send_result.assert_called_once()
+    assert mock_device.power_sensor_entity_id is None
+    assert mock_device.power_off_below_w is None
+    assert mock_device.power_on_above_w is None
+
+
 # ---------------------------------------------------------------------------
 # ws_delete_device
 # ---------------------------------------------------------------------------

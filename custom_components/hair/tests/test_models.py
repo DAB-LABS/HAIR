@@ -60,6 +60,30 @@ def test_device_round_trip(mock_device: IRDevice):
     )
 
 
+def test_device_power_sensor_round_trip():
+    device = IRDevice(
+        name="AC",
+        device_type=DeviceType.AC,
+        power_sensor_entity_id="sensor.ac_plug_power",
+        power_off_below_w=5.0,
+        power_on_above_w=10.0,
+    )
+    restored = IRDevice.from_dict(device.to_dict())
+    assert restored.power_sensor_entity_id == "sensor.ac_plug_power"
+    assert restored.power_off_below_w == 5.0
+    assert restored.power_on_above_w == 10.0
+
+
+def test_device_power_sensor_absent_defaults_none(mock_device: IRDevice):
+    # mock_device never sets the power fields, from_dict on a legacy
+    # (pre-power-sensor) record must not error and must resolve to
+    # "no power monitoring configured".
+    restored = IRDevice.from_dict(mock_device.to_dict())
+    assert restored.power_sensor_entity_id is None
+    assert restored.power_off_below_w is None
+    assert restored.power_on_above_w is None
+
+
 def test_device_command_helpers(mock_device: IRDevice):
     assert mock_device.get_command("cmd-1") is not None
     assert mock_device.get_command("missing") is None
@@ -167,6 +191,9 @@ def test_device_clone_preserves_non_id_fields(mock_device: IRDevice):
     assert clone.manufacturer == mock_device.manufacturer
     assert clone.model == mock_device.model
     assert clone.emitter_entity_ids == mock_device.emitter_entity_ids
+    assert clone.power_sensor_entity_id == mock_device.power_sensor_entity_id
+    assert clone.power_off_below_w == mock_device.power_off_below_w
+    assert clone.power_on_above_w == mock_device.power_on_above_w
     assert clone.capture_device_id == mock_device.capture_device_id
     assert clone.capture_provider_type == mock_device.capture_provider_type
     assert clone.database_id == mock_device.database_id
@@ -190,6 +217,20 @@ def test_device_clone_generates_fresh_ids(mock_device: IRDevice):
         assert clone_cmd.category == src_cmd.category
         assert clone_cmd.protocol == src_cmd.protocol
         assert clone_cmd.code == src_cmd.code
+
+
+def test_device_clone_preserves_power_sensor():
+    device = IRDevice(
+        name="AC",
+        device_type=DeviceType.AC,
+        power_sensor_entity_id="sensor.ac_plug_power",
+        power_off_below_w=5.0,
+        power_on_above_w=10.0,
+    )
+    clone = device.clone("AC Clone")
+    assert clone.power_sensor_entity_id == "sensor.ac_plug_power"
+    assert clone.power_off_below_w == 5.0
+    assert clone.power_on_above_w == 10.0
 
 
 def test_device_clone_with_empty_commands():

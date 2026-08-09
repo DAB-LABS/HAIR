@@ -210,6 +210,14 @@ class IRDevice:
     manufacturer: str | None = None
     model: str | None = None
     emitter_entity_ids: list[str] = field(default_factory=list)
+    # Power monitoring (Device Settings, v0.9.9). Install wiring, like
+    # emitter_entity_ids -- which smart plug feeds this device, not
+    # wig content. power_sensor_entity_id is a ``sensor.`` entity with
+    # device_class power; both thresholds are watts. All three None
+    # (the default) means no power monitoring configured.
+    power_sensor_entity_id: str | None = None
+    power_off_below_w: float | None = None
+    power_on_above_w: float | None = None
     capture_device_id: str | None = None
     capture_provider_type: CaptureProviderType = CaptureProviderType.ESPHOME
     commands: list[IRCommand] = field(default_factory=list)
@@ -355,6 +363,11 @@ class IRDevice:
             manufacturer=self.manufacturer,
             model=self.model,
             emitter_entity_ids=list(self.emitter_entity_ids),
+            # Install wiring copies as-is, same as emitter_entity_ids --
+            # see the field comment above.
+            power_sensor_entity_id=self.power_sensor_entity_id,
+            power_off_below_w=self.power_off_below_w,
+            power_on_above_w=self.power_on_above_w,
             capture_device_id=self.capture_device_id,
             capture_provider_type=self.capture_provider_type,
             commands=cloned_commands,
@@ -408,6 +421,9 @@ class IRDevice:
             "manufacturer": self.manufacturer,
             "model": self.model,
             "emitter_entity_ids": list(self.emitter_entity_ids),
+            "power_sensor_entity_id": self.power_sensor_entity_id,
+            "power_off_below_w": self.power_off_below_w,
+            "power_on_above_w": self.power_on_above_w,
             "capture_device_id": self.capture_device_id,
             "capture_provider_type": str(self.capture_provider_type),
             "commands": [c.to_dict() for c in self.commands],
@@ -435,6 +451,11 @@ class IRDevice:
             manufacturer=data.get("manufacturer"),
             model=data.get("model"),
             emitter_entity_ids=list(data.get("emitter_entity_ids") or []),
+            # Absent on every device made before this field existed;
+            # resolves to "no power monitoring configured".
+            power_sensor_entity_id=data.get("power_sensor_entity_id") or None,
+            power_off_below_w=data.get("power_off_below_w"),
+            power_on_above_w=data.get("power_on_above_w"),
             capture_device_id=data.get("capture_device_id"),
             capture_provider_type=CaptureProviderType(
                 data.get("capture_provider_type", CaptureProviderType.ESPHOME)

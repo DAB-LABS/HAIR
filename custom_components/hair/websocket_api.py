@@ -165,6 +165,9 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
         "manufacturer": device.manufacturer,
         "model": device.model,
         "emitter_entity_ids": list(device.emitter_entity_ids),
+        "power_sensor_entity_id": device.power_sensor_entity_id,
+        "power_off_below_w": device.power_off_below_w,
+        "power_on_above_w": device.power_on_above_w,
         "command_count": len(device.commands),
         "created_at": device.created_at,
         "updated_at": device.updated_at,
@@ -318,6 +321,9 @@ async def ws_create_device(
     vol.Optional("model"): vol.Any(str, None),
     vol.Optional("emitter_entity_ids"): [str],
     vol.Optional("device_type"): str,
+    vol.Optional("power_sensor_entity_id"): vol.Any(str, None),
+    vol.Optional("power_off_below_w"): vol.Any(vol.Coerce(float), None),
+    vol.Optional("power_on_above_w"): vol.Any(vol.Coerce(float), None),
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -345,6 +351,53 @@ async def ws_update_device(
         device.emitter_entity_ids = list(msg["emitter_entity_ids"])
     if "device_type" in msg:
         device.device_type = DeviceType(msg["device_type"])
+
+    # Power monitoring fields validate together before anything is
+    # written to ``device``: a bad sensor id or a bad threshold
+    # ordering must not leave the live object half-mutated.
+    if any(
+        key in msg
+        for key in (
+            "power_sensor_entity_id",
+            "power_off_below_w",
+            "power_on_above_w",
+        )
+    ):
+        new_sensor = msg.get(
+            "power_sensor_entity_id", device.power_sensor_entity_id
+        )
+        if new_sensor is not None and not new_sensor.startswith("sensor."):
+            connection.send_error(
+                msg["id"],
+                "invalid_format",
+                "power_sensor_entity_id must be a sensor entity",
+            )
+            return
+        if new_sensor is None:
+            # Thresholds without a sensor are meaningless.
+            new_off_below = None
+            new_on_above = None
+        else:
+            new_off_below = msg.get(
+                "power_off_below_w", device.power_off_below_w
+            )
+            new_on_above = msg.get(
+                "power_on_above_w", device.power_on_above_w
+            )
+        if (
+            new_off_below is not None
+            and new_on_above is not None
+            and new_on_above < new_off_below
+        ):
+            connection.send_error(
+                msg["id"],
+                "invalid_format",
+                "power_on_above_w must be at or above power_off_below_w",
+            )
+            return
+        device.power_sensor_entity_id = new_sensor
+        device.power_off_below_w = new_off_below
+        device.power_on_above_w = new_on_above
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))
