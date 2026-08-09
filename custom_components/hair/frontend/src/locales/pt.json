@@ -742,6 +742,7 @@
     "devsettings.title": "Configurações do dispositivo",
     "devsettings.no_sections": "Ainda não há configurações específicas para este tipo de dispositivo.",
     "devsettings.power_section_label": "Monitoramento de energia",
+    "devsettings.power_intro": "Um sensor de energia verifica o estado real de ligado e desligado deste dispositivo. Leituras que ultrapassam um limite substituem o que o HAIR presumiu a partir do último comando enviado.",
     "devsettings.power_explainer": "O sensor deve informar em watts.",
     "devsettings.sensor_label": "Sensor de energia",
     "devsettings.sensor_none": "Nenhum",

@@ -2080,9 +2080,18 @@ export class IrDeviceDetail extends LitElement {
            the label line's height (the .sl label's font-size plus its
            5px margin-bottom, ~19px total, no exact figure specified)
            so the icon aligns with the first row of emitter chips
-           instead of the tiny uppercase label beside it. */
+           instead of the tiny uppercase label beside it.
+
+           HORIZONTAL (bench pass): the button sat flush against the
+           card's right edge while every command row's trash icon
+           sits 10px in from it (ir-command-row.ts's .row has
+           padding-right: 10px) -- measured live, an exact 10px gap
+           between the two right edges. margin-right: 10px here closes
+           that gap so the wrench lines up with the trash column
+           beneath it instead of overhanging further right. */
         .device-meta .settings-btn {
             margin-top: 19px;
+            margin-right: 10px;
         }
         /* SAVE TO CLOSET, in the header (RULED, mockup FR5 variant V2).
            It used to sit stacked under DELETE DEVICE in the bottom

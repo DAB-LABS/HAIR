@@ -742,6 +742,7 @@
     "devsettings.title": "Apparaatinstellingen",
     "devsettings.no_sections": "Nog geen specifieke instellingen voor dit apparaattype.",
     "devsettings.power_section_label": "Stroombewaking",
+    "devsettings.power_intro": "Een stroomsensor controleert de werkelijke aan- en uitstatus van dit apparaat. Metingen die een drempel overschrijden, overschrijven wat HAIR aannam op basis van de laatst verzonden opdracht.",
     "devsettings.power_explainer": "De sensor moet in watt meten.",
     "devsettings.sensor_label": "Stroomsensor",
     "devsettings.sensor_none": "Geen",

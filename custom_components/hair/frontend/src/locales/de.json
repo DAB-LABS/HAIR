@@ -742,6 +742,7 @@
     "devsettings.title": "Geräteeinstellungen",
     "devsettings.no_sections": "Für diesen Gerätetyp gibt es noch keine speziellen Einstellungen.",
     "devsettings.power_section_label": "Stromüberwachung",
+    "devsettings.power_intro": "Ein Stromsensor bestätigt den tatsächlichen Ein- und Aus-Zustand dieses Geräts. Messwerte, die einen Schwellenwert überschreiten, überschreiben, was HAIR aus dem zuletzt gesendeten Befehl angenommen hat.",
     "devsettings.power_explainer": "Der Sensor muss Watt melden.",
     "devsettings.sensor_label": "Stromsensor",
     "devsettings.sensor_none": "Keiner",

@@ -742,6 +742,7 @@
     "devsettings.title": "Impostazioni dispositivo",
     "devsettings.no_sections": "Nessuna impostazione specifica per questo tipo di dispositivo, per ora.",
     "devsettings.power_section_label": "Monitoraggio consumi",
+    "devsettings.power_intro": "Un sensore di potenza verifica lo stato reale di accensione e spegnimento di questo dispositivo. Le letture che superano una soglia sostituiscono quanto HAIR aveva presunto dall'ultimo comando inviato.",
     "devsettings.power_explainer": "Il sensore deve indicare i watt.",
     "devsettings.sensor_label": "Sensore di consumo",
     "devsettings.sensor_none": "Nessuno",
