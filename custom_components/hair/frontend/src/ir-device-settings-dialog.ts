@@ -464,17 +464,23 @@ export class IrDeviceSettingsDialog extends LitElement {
             }
             /* The dropdown chevron, in the section accent too (design
              * brief: "the entity picker's border and dropdown
-             * chevron"). BENCH FIX: this was originally a
-             * background-image data-URI directly on the <select>
-             * (appearance:none + background-image), which computed
-             * correctly (verified via getComputedStyle) but never
-             * painted -- some platforms keep native widget painting
-             * for a <select>'s closed-combobox box regardless of
-             * appearance:none, silently dropping author backgrounds
-             * there. A sibling <span> layered on top via
-             * position:absolute is a normal block element with no
-             * such native-widget interference, so it paints
-             * everywhere. The fill is hardcoded to POWER's
+             * chevron"). BENCH FIX: this never painted in the
+             * previous two passes. Root cause, found by loading the
+             * data-URI directly as an Image() in the console: the
+             * inline SVG had a stray closing path tag after the
+             * path's own self-close (self-close, then an extra
+             * closing tag right after it) -- invalid XML, so
+             * Chrome's SVG image decoder silently rejected the whole
+             * thing and painted nothing, with no console error and no
+             * hint in getComputedStyle (it just echoes the specified
+             * value back, decoded or not). Fixed by dropping the
+             * stray closing tag. Moved off the select element itself
+             * onto this sibling span, layered on top via
+             * position:absolute, while chasing the bug -- kept that
+             * shape since it's a plainer element to reason about than
+             * a native form control's background layer, even though
+             * the select itself would have worked fine once the
+             * markup was valid. The fill is hardcoded to POWER's
              * --section-accent-bright (#b05050) rather than reading
              * the CSS var, since a data-URI background-image can't
              * reference one -- CLIMATE (next pass) will need its own
@@ -496,7 +502,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                 height: 18px;
                 transform: translateY(-50%);
                 pointer-events: none;
-                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23b05050' d='M7 10l5 5 5-5z'/%3E%3C/path%3E%3C/svg%3E");
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23b05050' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
                 background-repeat: no-repeat;
                 background-position: center;
                 background-size: 18px;
