@@ -5969,9 +5969,9 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                         </button>`)}
                 </span>
             </div>
-        `}_renderMatrixGrid(e){const t=this._selMode,i=this._branchCells(t,this._selFan,this._selSwing),o=new Map;for(const e of i)void 0!==e.t&&o.set(e.t,e);const a=[...o.keys()].sort((e,t)=>e-t);if(0===a.length){const o=i.find(e=>void 0===e.t)??null;if(!o)return U;const a=null!==e&&this._cellName(o)===e;return F`<div class="mx-grid">
+        `}_renderMatrixGrid(e){const t=this._selMode,i=this._branchCells(t,this._selFan,this._selSwing),o=new Map;for(const e of i)void 0!==e.t&&o.set(e.t,e);const a=[...o.keys()].sort((e,t)=>e-t);if(0===a.length){const o=i.find(e=>void 0===e.t)??null;if(!o)return U;const a=null!==e&&this._cellName(o)===e,s=null===this._selPower;return F`<div class="mx-grid">
                 <button
-                    class="mx-tile sel ${a?"cur":""}"
+                    class="mx-tile ${s?"sel":""} ${a?"cur":""}"
                     @click=${()=>this._select(t,this._selFan,this._selSwing,null)}
                 >
                     ${t}
@@ -5984,7 +5984,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                     >
                         ${this._displayTemp(i)}
                     </button>`;const s=null!==e&&this._cellName(a)===e;return F`<button
-                    class="mx-tile ${i===this._selTemp?"sel":""} ${s?"cur":""}"
+                    class="mx-tile ${null===this._selPower&&i===this._selTemp?"sel":""} ${s?"cur":""}"
                     @click=${()=>this._select(t,this._selFan,this._selSwing,i)}
                 >
                     ${this._displayTemp(i)}
@@ -6002,9 +6002,9 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                       </div>`:U}
                 ${o&&null!==this._selMode?F`
                           ${this._renderPowerRow(o)}
-                          ${this._renderDimRow(ke("devices.matrix_dim_mode"),o.modes,this._selMode,e=>this._select(e,this._selFan,this._selSwing,this._selTemp))}
-                          ${d.length>0?this._renderDimRow(ke("devices.matrix_dim_fan"),d,this._selFan,e=>this._select(this._selMode,e,this._selSwing,this._selTemp)):U}
-                          ${l.length>0?this._renderDimRow(ke("devices.matrix_dim_swing"),l,this._selSwing,e=>this._select(this._selMode,this._selFan,e,this._selTemp)):U}
+                          ${this._renderDimRow(ke("devices.matrix_dim_mode"),o.modes,null===this._selPower?this._selMode:null,e=>this._select(e,this._selFan,this._selSwing,this._selTemp))}
+                          ${d.length>0?this._renderDimRow(ke("devices.matrix_dim_fan"),d,null===this._selPower?this._selFan:null,e=>this._select(this._selMode,e,this._selSwing,this._selTemp)):U}
+                          ${l.length>0?this._renderDimRow(ke("devices.matrix_dim_swing"),l,null===this._selPower?this._selSwing:null,e=>this._select(this._selMode,this._selFan,e,this._selTemp)):U}
                           ${this._renderMatrixGrid(i)}
                           <div class="mx-actions">
                               <span class="mx-set">

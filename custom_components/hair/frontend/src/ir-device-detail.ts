@@ -1269,10 +1269,17 @@ export class IrDeviceDetail extends LitElement {
     }
 
     /** Pick a power chip (Off, or On when the matrix declares one).
-     * Deliberately does not touch _selMode/_selFan/_selSwing/_selTemp --
-     * those stay put so the Mode/Fan/Swing/Grid block (gated on
-     * _selMode !== null) keeps rendering and the user can switch back
-     * to cell-picking without the card collapsing out from under them. */
+     * matrix-power-row.md item 1: "clicking a power chip clears the
+     * cell selection." That's true of what Send/Save read (_selPower
+     * wins, checked first everywhere) and of what's drawn (Mode/Fan/
+     * Swing/grid chips stop rendering "on" once _selPower is set --
+     * see the `this._selPower === null ? ... : null` guards at their
+     * call sites in _renderMatrixCard/_renderMatrixGrid). What this
+     * method deliberately does NOT do is null out _selMode/_selFan/
+     * _selSwing/_selTemp themselves: the Mode/Fan/Swing/Grid block is
+     * gated on `_selMode !== null`, and that block is where the Power
+     * row itself lives, so clearing _selMode would erase the very
+     * chips the user needs to switch back to cell-picking. */
     private _selectPower(power: "on" | "off"): void {
         this._selPower = power;
     }
@@ -1521,9 +1528,10 @@ export class IrDeviceDetail extends LitElement {
             const isCurrent =
                 currentName !== null &&
                 this._cellName(bare) === currentName;
+            const isSel = this._selPower === null;
             return html`<div class="mx-grid">
                 <button
-                    class="mx-tile sel ${isCurrent ? "cur" : ""}"
+                    class="mx-tile ${isSel ? "sel" : ""} ${isCurrent ? "cur" : ""}"
                     @click=${() =>
                         this._select(
                             mode,
@@ -1565,9 +1573,11 @@ export class IrDeviceDetail extends LitElement {
                     currentName !== null &&
                     this._cellName(cell) === currentName;
                 return html`<button
-                    class="mx-tile ${pos === this._selTemp ? "sel" : ""} ${
-                        isCurrent ? "cur" : ""
-                    }"
+                    class="mx-tile ${
+                        this._selPower === null && pos === this._selTemp
+                            ? "sel"
+                            : ""
+                    } ${isCurrent ? "cur" : ""}"
                     @click=${() =>
                         this._select(
                             mode,
@@ -1660,7 +1670,9 @@ export class IrDeviceDetail extends LitElement {
                           ${this._renderDimRow(
                               t("devices.matrix_dim_mode"),
                               mc.modes,
-                              this._selMode,
+                              this._selPower === null
+                                  ? this._selMode
+                                  : null,
                               (v) =>
                                   this._select(
                                       v,
@@ -1673,7 +1685,9 @@ export class IrDeviceDetail extends LitElement {
                               ? this._renderDimRow(
                                     t("devices.matrix_dim_fan"),
                                     fans,
-                                    this._selFan,
+                                    this._selPower === null
+                                        ? this._selFan
+                                        : null,
                                     (v) =>
                                         this._select(
                                             this._selMode!,
@@ -1687,7 +1701,9 @@ export class IrDeviceDetail extends LitElement {
                               ? this._renderDimRow(
                                     t("devices.matrix_dim_swing"),
                                     swings,
-                                    this._selSwing,
+                                    this._selPower === null
+                                        ? this._selSwing
+                                        : null,
                                     (v) =>
                                         this._select(
                                             this._selMode!,
