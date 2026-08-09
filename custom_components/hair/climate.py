@@ -26,11 +26,18 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, State, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
@@ -143,6 +150,15 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # None only until the entity has ever been on.
         self._last_active_hvac_mode: HVACMode | None = None
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
+        # Climate room sensors (Device Settings, climate-sensors.md,
+        # riding 0.9.8). Display-only mirror of a configured
+        # thermometer/hygrometer -- no verdicts, no thresholds, and
+        # unlike power this never corrects assumed on/off state or
+        # sends IR. None until a sensor is configured and has reported
+        # at least one valid reading.
+        self._current_temperature: float | None = None
+        self._current_humidity: float | None = None
+        self._sensor_unsub: CALLBACK_TYPE | None = None
         self._seed_target_temperature()
 
     @property
@@ -158,11 +174,13 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
+        self._subscribe_sensors()
 
     async def async_will_remove_from_hass(self) -> None:
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
+        self._unsubscribe_sensors()
 
     async def _async_restore_state(self) -> None:
         """Reboot survival (Device Settings, v0.9.9). Seeds mode,
@@ -255,6 +273,79 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 )
                 self._hvac_mode = self._last_active_hvac_mode or fallback
         self.async_write_ha_state()
+
+    # -- room sensors (climate-sensors.md) -------------------------------
+    #
+    # Entity-side and display only, mirroring power_monitor.py's
+    # subscription mechanics (one async_track_state_change_event per
+    # configured sensor, evaluated once immediately at subscribe time
+    # as a startup seed, then again on every event) without any of its
+    # verdict/threshold machinery -- there is nothing here to classify,
+    # just a reading to mirror or drop.
+    #
+    # Resubscribe on settings change rides update_device(), the same
+    # entity_factory on_update hook this class already uses to repaint
+    # after any device-record change (DeviceManager.async_update_device
+    # calls it on every settings save, not just power-field ones) --
+    # no PowerMonitor-style central tracking needed, this hook is
+    # already exactly that for a single entity.
+
+    def _subscribe_sensors(self) -> None:
+        temp_id = self._device.temperature_sensor_entity_id
+        humidity_id = self._device.humidity_sensor_entity_id
+        ids = [sensor_id for sensor_id in (temp_id, humidity_id) if sensor_id]
+        if not ids:
+            return
+
+        @callback
+        def _on_state_change(event: Event) -> None:
+            self._apply_sensor_reading(
+                event.data.get("entity_id"), event.data.get("new_state")
+            )
+
+        self._sensor_unsub = async_track_state_change_event(
+            self.hass, ids, _on_state_change
+        )
+        # Startup seed, same rule as the power monitor's: evaluate the
+        # CURRENT reading now rather than waiting for the next event.
+        if temp_id:
+            self._apply_sensor_reading(temp_id, self.hass.states.get(temp_id))
+        if humidity_id:
+            self._apply_sensor_reading(
+                humidity_id, self.hass.states.get(humidity_id)
+            )
+
+    def _unsubscribe_sensors(self) -> None:
+        if self._sensor_unsub is not None:
+            self._sensor_unsub()
+            self._sensor_unsub = None
+
+    def _apply_sensor_reading(
+        self, entity_id: str | None, state: State | None
+    ) -> None:
+        if entity_id == self._device.temperature_sensor_entity_id:
+            self._current_temperature = self._read_temperature(state)
+        elif entity_id == self._device.humidity_sensor_entity_id:
+            self._current_humidity = self._read_numeric(state)
+
+    def _read_temperature(self, state: State | None) -> float | None:
+        value = self._read_numeric(state)
+        if value is None or state is None:
+            return value
+        sensor_unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        target_unit = self.temperature_unit
+        if not sensor_unit or sensor_unit == target_unit:
+            return value
+        return TemperatureConverter.convert(value, sensor_unit, target_unit)
+
+    @staticmethod
+    def _read_numeric(state: State | None) -> float | None:
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
 
     async def _async_load_matrix(self) -> None:
         self._matrix = await self._manager.async_get_matrix(self._device.id)
@@ -403,6 +494,24 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         return self._target_temperature
+
+    @property
+    def current_temperature(self) -> float | None:
+        """The configured room sensor's last reading, converted to this
+        entity's declared unit (climate-sensors.md). None with no
+        sensor configured, or while its state is unavailable, unknown,
+        or non-numeric -- the card drops the reading rather than
+        holding a stale number.
+        """
+        return self._current_temperature
+
+    @property
+    def current_humidity(self) -> float | None:
+        """The configured humidity sensor's last reading, a raw
+        percentage passed through as-is (no unit conversion applies).
+        Same None rules as current_temperature.
+        """
+        return self._current_humidity
 
     @property
     def min_temp(self) -> float:
@@ -712,6 +821,12 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             # The state from __init__ is correct; HA writes it once the
             # registration coroutine completes.
             return
+        # Room sensors: a save can add, change, or clear either one, so
+        # re-derive the subscription unconditionally rather than diffing
+        # old vs. new ids -- the same unconditional teardown+resubscribe
+        # shape PowerMonitor.rebuild_device uses for the identical reason.
+        self._unsubscribe_sensors()
+        self._subscribe_sensors()
         self.async_write_ha_state()
 
     async def _send(self, *feature_keys: str) -> bool:
