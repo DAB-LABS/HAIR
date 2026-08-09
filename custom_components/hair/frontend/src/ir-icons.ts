@@ -133,13 +133,12 @@ export const SETTINGS_VIEWBOX = "0 0 382.673 382.673";
 
 /**
  * The device-meta-row settings button. Copied verbatim from
- * .trash-btn above (same anatomy: grey at rest, 3px padding, 4px
- * radius, same transitions, same disabled state) with ONE
- * difference, per owner ruling 2026-08-08: hover is house blue
- * instead of ember, since this button opens a dialog rather than
- * deleting anything.
+ * .trash-btn above (same anatomy: grey at rest, same transitions,
+ * same disabled state) with ONE difference, per owner ruling
+ * 2026-08-08: hover is house blue instead of ember, since this
+ * button opens a dialog rather than deleting anything.
  *
- * Sized as a plain square, 16px at rest growing to 18px on hover --
+ * Sized as a plain square, 26px at rest growing to 29px on hover --
  * the same size-bump-on-hover affordance the button always had, just
  * without the non-square width/height split the wrench drawing
  * needed (RULED 2026-08-09, ICON_SETTINGS above: that drawing was
@@ -147,6 +146,13 @@ export const SETTINGS_VIEWBOX = "0 0 382.673 382.673";
  * gear that replaced it is square, so a square box is the correct
  * rendering, not a leftover distortion carried over from the old
  * icon).
+ *
+ * SIZE BUMP (owner ruling 2026-08-09, bench pass after the mustache
+ * gear went live): the original 16px/18px sizing -- inherited as-is
+ * from the wrench drawing's own box -- was too small to read the
+ * gear teeth or the mustache at a glance. Icon and padding both
+ * scaled up ~60% together (16->26, 3->5) so the hit-area keeps the
+ * same proportions rather than the icon outgrowing its box.
  */
 export const settingsButtonStyles = css`
     .settings-btn {
@@ -155,7 +161,7 @@ export const settingsButtonStyles = css`
         justify-content: center;
         background: none;
         border: none;
-        padding: 3px;
+        padding: 5px;
         border-radius: 4px;
         cursor: pointer;
         color: var(--disabled-text-color, #999);
@@ -174,11 +180,11 @@ export const settingsButtonStyles = css`
     }
     .settings-btn .settings-icon {
         display: block;
-        width: 16px;
-        height: 16px;
+        width: 26px;
+        height: 26px;
     }
     .settings-btn:hover:not(:disabled) .settings-icon {
-        width: 18px;
-        height: 18px;
+        width: 29px;
+        height: 29px;
     }
 `;

@@ -305,10 +305,10 @@ export class IrDeviceSettingsDialog extends LitElement {
             <div ?hidden=${sections.length > 0}>
                 <p class="empty-state">${t("devsettings.no_sections")}</p>
             </div>
-            <div ?hidden=${!sections.includes("power")}>
+            <div class="section-slot" ?hidden=${!sections.includes("power")}>
                 ${this._renderPowerSection()}
             </div>
-            <div ?hidden=${!sections.includes("climate")}>
+            <div class="section-slot" ?hidden=${!sections.includes("climate")}>
                 ${this._renderClimateSection()}
             </div>
             <div class="dialog-actions">
@@ -582,6 +582,24 @@ export class IrDeviceSettingsDialog extends LitElement {
              * twice on purpose rather than inventing a second shade. */
             .settings-section {
                 margin: 16px 0;
+            }
+            /* Divider between settings sections (owner ruling
+             * 2026-08-09): a plain gray rule, the standard seam for
+             * however many sections this dialog ends up with over
+             * time -- not power/climate-specific. Scoped to the
+             * section-slot wrapper divs (_renderBody) rather than
+             * .settings-section itself, since two sections' <section>
+             * elements are never direct DOM siblings (each sits in
+             * its own ?hidden wrapper) while the wrapper divs always
+             * are. :not([hidden]) on both sides of the combinator
+             * means a device missing a section (the wrapper stays in
+             * the DOM but hidden) never leaves a dangling line with
+             * nothing visible above it -- the rule only fires between
+             * two sections that are both actually showing.
+             */
+            .section-slot:not([hidden]) + .section-slot:not([hidden]) {
+                border-top: 1px solid var(--divider-color);
+                padding-top: 8px;
             }
             .settings-section.section-power {
                 --section-accent: #8e3b3b;
