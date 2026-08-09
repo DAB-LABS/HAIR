@@ -16,20 +16,22 @@
  * The fix is a deliberately minimal rearrangement, not a redesign:
  * every control below keeps its exact component, styling, hover
  * state, and behavior from before this pass -- only DOM position
- * changes. Line one (.top-line) is a flex row that always stays
- * whatever height the name needs: grip, name (with its rename
- * pencil), the protocol chip and mapping badge (moved here from the
- * actions cluster, per the plan's mockup order), then the edit /
- * TEST / TRIGGER / delete cluster pushed to the far right via
- * margin-left: auto. Line two (.meta) is what used to be nested
- * under the name -- diamonds, the plain label, or "not learned" --
- * now a full-width block of its own underneath, so a long diamond
- * pattern wraps in its own space without ever touching line one's
- * height. flex-wrap on .top-line is the whole answer to narrow
- * widths (RULED: no container queries, no collapse logic this pass
- * -- the wrap itself is the win); the deferred mobile-polish.md 2.2
- * items (pencil removal, mapping-label redesign, hairline, TEST vs
- * SEND) stay queued for their own pass.
+ * changes, and only the grip's. Line one (.top-line) is a flex row
+ * that always stays whatever height the name needs: grip, then the
+ * name (with its rename pencil) in .name-line, then the SAME
+ * .actions cluster as before this pass -- protocol chip, edit,
+ * mapping badge, TEST, TRIGGER, delete -- pushed to the far right via
+ * margin-left: auto (owner ruling 2026-08-09: the chip and badge
+ * stay put on the right; only the grip moves). Line two (.meta) is
+ * what used to be nested under the name -- diamonds, the plain
+ * label, or "not learned" -- now a full-width block of its own
+ * underneath, indented to align under the name's first letter, so a
+ * long diamond pattern wraps in its own space without ever touching
+ * line one's height. flex-wrap on .top-line is the whole answer to
+ * narrow widths (RULED: no container queries, no collapse logic this
+ * pass -- the wrap itself is the win); the deferred mobile-polish.md
+ * 2.2 items (pencil removal, mapping-label redesign, hairline, TEST
+ * vs SEND) stay queued for their own pass.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -263,6 +265,8 @@ export class IrCommandRow extends LitElement {
                                   ></ir-tx-knobs>`
                                 : ""}
                         </div>
+                    </div>
+                    <div class="actions">
                         ${learned
                             ? html`
                                   <div class="chip-col">
@@ -279,6 +283,15 @@ export class IrCommandRow extends LitElement {
                                             ></ir-protocol-chip>`
                                           : ""}
                                   </div>
+                                  <button
+                                      class="icon-btn edit-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${() => this._emit("edit-command")}
+                                      title=${t("cmdrow.edit_code")}
+                                  ><ha-svg-icon
+                                          class="edit-glyph"
+                                          .path=${ICON_COPY}
+                                      ></ha-svg-icon></button>
                                   ${this.showActionMapping
                                       ? html`<button
                                       class="action-btn badge-btn"
@@ -303,21 +316,6 @@ export class IrCommandRow extends LitElement {
                                           t("cmdrow.actions")}</span
                                       ></button>`
                                       : ""}
-                              `
-                            : ""}
-                    </div>
-                    <div class="actions">
-                        ${learned
-                            ? html`
-                                  <button
-                                      class="icon-btn edit-btn"
-                                      ?disabled=${this.busy}
-                                      @click=${() => this._emit("edit-command")}
-                                      title=${t("cmdrow.edit_code")}
-                                  ><ha-svg-icon
-                                          class="edit-glyph"
-                                          .path=${ICON_COPY}
-                                      ></ha-svg-icon></button>
                                   <button
                                       class="action-btn test-btn"
                                       ?disabled=${this.busy}
@@ -417,12 +415,13 @@ export class IrCommandRow extends LitElement {
             justify-content: center;
             flex: 0 0 32px;
         }
-        /* Holds the name cluster plus, now, the protocol chip and
-           mapping badge (moved here from .actions per the plan's
-           mockup order -- same components, same styling, just
-           repositioned). flex: 1 1 auto plus min-width: 0 lets it
-           shrink/wrap instead of pushing .actions off the row's
-           right edge. */
+        /* Holds only the name cluster (name, state chip, comb mark,
+           tx-knobs). The protocol chip and mapping badge stay in
+           .actions on the right, per the owner's 2026-08-01 ruling
+           documented on .chip-col below -- the restructure moves the
+           grip up here, not those. flex: 1 1 auto plus min-width: 0
+           lets it shrink/wrap instead of pushing .actions off the
+           row's right edge. */
         .name-line {
             display: flex;
             align-items: center;
@@ -529,7 +528,14 @@ export class IrCommandRow extends LitElement {
         .edit-glyph {
             --mdc-icon-size: 10px;
         }
+        /* 44px = .status's flex-basis (32px) + .top-line's gap
+           (12px) -- the exact distance from the row's left edge to
+           where .name-line (and the name's first letter) starts.
+           Lining .meta up under that instead of the row's own edge
+           is what puts the first diamond under the "P" of the name
+           above it, rather than under the grip. */
         .meta {
+            margin-left: 44px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             font-family: var(--code-font-family, monospace);
@@ -569,13 +575,14 @@ export class IrCommandRow extends LitElement {
             justify-content: center;
             align-items: center;
         }
-        /* Edit / TEST / TRIGGER / delete, pinned to the top line's
-           right edge. margin-left: auto (rather than relying on the
-           old grid's separate "auto" column) is what keeps this
-           cluster right-aligned now that .top-line is a wrapping flex
-           row -- when .name-line grows tall enough to need its own
-           line, .actions still lands flush right on whichever line it
-           ends up on. */
+        /* Protocol chip / edit / mapping badge / TEST / TRIGGER /
+           delete, pinned to the top line's right edge -- same cluster
+           and order as before the restructure. margin-left: auto
+           (rather than relying on the old grid's separate "auto"
+           column) is what keeps this cluster right-aligned now that
+           .top-line is a wrapping flex row -- when .name-line grows
+           tall enough to need its own line, .actions still lands
+           flush right on whichever line it ends up on. */
         .actions {
             display: flex;
             gap: 4px;

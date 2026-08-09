@@ -318,6 +318,8 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                                       .bypassed=${!!this.command.tx_force_raw}
                                   ></ir-tx-knobs>`:""}
                         </div>
+                    </div>
+                    <div class="actions">
                         ${e?F`
                                   <div class="chip-col">
                                       ${this.command?.decoded_protocol?F`<ir-protocol-chip
@@ -328,6 +330,15 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                                                 @toggle-bypass=${()=>this._emit("toggle-tx-raw")}
                                             ></ir-protocol-chip>`:""}
                                   </div>
+                                  <button
+                                      class="icon-btn edit-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${()=>this._emit("edit-command")}
+                                      title=${ke("cmdrow.edit_code")}
+                                  ><ha-svg-icon
+                                          class="edit-glyph"
+                                          .path=${"M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"}
+                                      ></ha-svg-icon></button>
                                   ${this.showActionMapping?F`<button
                                       class="action-btn badge-btn"
                                       ?data-mapped=${!!this.actionLabel}
@@ -344,19 +355,6 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                                           style=${this.actionFontPx?`font-size:${this.actionFontPx}px`:""}
                                           >${this.actionLabel||ke("cmdrow.actions")}</span
                                       ></button>`:""}
-                              `:""}
-                    </div>
-                    <div class="actions">
-                        ${e?F`
-                                  <button
-                                      class="icon-btn edit-btn"
-                                      ?disabled=${this.busy}
-                                      @click=${()=>this._emit("edit-command")}
-                                      title=${ke("cmdrow.edit_code")}
-                                  ><ha-svg-icon
-                                          class="edit-glyph"
-                                          .path=${"M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"}
-                                      ></ha-svg-icon></button>
                                   <button
                                       class="action-btn test-btn"
                                       ?disabled=${this.busy}
@@ -447,12 +445,13 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             justify-content: center;
             flex: 0 0 32px;
         }
-        /* Holds the name cluster plus, now, the protocol chip and
-           mapping badge (moved here from .actions per the plan's
-           mockup order -- same components, same styling, just
-           repositioned). flex: 1 1 auto plus min-width: 0 lets it
-           shrink/wrap instead of pushing .actions off the row's
-           right edge. */
+        /* Holds only the name cluster (name, state chip, comb mark,
+           tx-knobs). The protocol chip and mapping badge stay in
+           .actions on the right, per the owner's 2026-08-01 ruling
+           documented on .chip-col below -- the restructure moves the
+           grip up here, not those. flex: 1 1 auto plus min-width: 0
+           lets it shrink/wrap instead of pushing .actions off the
+           row's right edge. */
         .name-line {
             display: flex;
             align-items: center;
@@ -559,7 +558,14 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
         .edit-glyph {
             --mdc-icon-size: 10px;
         }
+        /* 44px = .status's flex-basis (32px) + .top-line's gap
+           (12px) -- the exact distance from the row's left edge to
+           where .name-line (and the name's first letter) starts.
+           Lining .meta up under that instead of the row's own edge
+           is what puts the first diamond under the "P" of the name
+           above it, rather than under the grip. */
         .meta {
+            margin-left: 44px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             font-family: var(--code-font-family, monospace);
@@ -599,13 +605,14 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             justify-content: center;
             align-items: center;
         }
-        /* Edit / TEST / TRIGGER / delete, pinned to the top line's
-           right edge. margin-left: auto (rather than relying on the
-           old grid's separate "auto" column) is what keeps this
-           cluster right-aligned now that .top-line is a wrapping flex
-           row -- when .name-line grows tall enough to need its own
-           line, .actions still lands flush right on whichever line it
-           ends up on. */
+        /* Protocol chip / edit / mapping badge / TEST / TRIGGER /
+           delete, pinned to the top line's right edge -- same cluster
+           and order as before the restructure. margin-left: auto
+           (rather than relying on the old grid's separate "auto"
+           column) is what keeps this cluster right-aligned now that
+           .top-line is a wrapping flex row -- when .name-line grows
+           tall enough to need its own line, .actions still lands
+           flush right on whichever line it ends up on. */
         .actions {
             display: flex;
             gap: 4px;

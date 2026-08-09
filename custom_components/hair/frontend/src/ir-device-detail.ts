@@ -786,8 +786,11 @@ export class IrDeviceDetail extends LitElement {
         // .status around inside ITS OWN shadow DOM (nesting it in
         // .top-line instead of a grid column), which never touches
         // .grip-handle's actual position in the light DOM tree that
-        // Sortable's handle matching (closest()) walks. Verified live
-        // post-deploy: drag-from-grip still reorders and persists.
+        // Sortable's handle matching (closest()) walks. Confirmed by
+        // DOM/selector inspection post-deploy; native HTML5
+        // drag-and-drop isn't mechanically triggerable through this
+        // project's browser-automation tooling, so the actual drag
+        // gesture still wants a manual once-over.
         this._sortable = Sortable.create(container, {
             handle: ".grip-handle",
             animation: 150,
