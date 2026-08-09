@@ -94,6 +94,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes what HAIR sends or assumes, and a sensor reporting in a
   different unit than the installation converts automatically.
 
+### Fixed
+
+- **A state-matrix climate device's saved temperature could drift to
+  nonsense across repeated restarts.** Home Assistant reports a
+  climate entity's temperature in the installation's display unit;
+  restore was storing that number straight into the entity's native
+  setpoint without converting back, so a matrix device whose file
+  unit differs from the installation's display unit compounded one
+  unconverted conversion every restart (23C became 73.4, then 164,
+  then 327, and on). The entity's target temperature now persists in
+  its own native unit across restarts, converts only on the one-time
+  fallback for an entity that has never done so yet, and clamps to
+  the device's own range regardless of source, so any setpoint
+  already corrupted by this self-heals to a sane value the next time
+  Home Assistant restarts. Preset-mode climate devices were never
+  affected. Flagged by a live bench review after this release's other
+  changes had already been verified; caught before release.
+
 ## [0.9.7] - 2026-08-07 -- Second Fitting
 
 ### Added
