@@ -33,6 +33,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        align-self: start;
         background: none;
         border: none;
         padding: 5px;
@@ -54,10 +55,6 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
     }
     .settings-btn .settings-icon {
         display: block;
-        width: 26px;
-        height: 26px;
-    }
-    .settings-btn:hover:not(:disabled) .settings-icon {
         width: 29px;
         height: 29px;
     }

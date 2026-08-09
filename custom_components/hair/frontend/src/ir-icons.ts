@@ -138,27 +138,38 @@ export const SETTINGS_VIEWBOX = "0 0 382.673 382.673";
  * 2026-08-08: hover is house blue instead of ember, since this
  * button opens a dialog rather than deleting anything.
  *
- * Sized as a plain square, 26px at rest growing to 29px on hover --
- * the same size-bump-on-hover affordance the button always had, just
- * without the non-square width/height split the wrench drawing
- * needed (RULED 2026-08-09, ICON_SETTINGS above: that drawing was
- * tall and narrow and got stretched wider on purpose; the mustache
- * gear that replaced it is square, so a square box is the correct
- * rendering, not a leftover distortion carried over from the old
- * icon).
+ * Sized as a plain square, fixed at 29px in both rest and hover --
+ * the same 29px the earlier size-bump-on-hover affordance grew INTO
+ * on hover (RULED 2026-08-09, bench pass): a fixed icon size reads
+ * cleaner than a size change, since growing the icon on hover shifts
+ * the emitter chips beside it. Hover now only changes background/
+ * color/opacity, same as .trash-btn.
  *
  * SIZE BUMP (owner ruling 2026-08-09, bench pass after the mustache
  * gear went live): the original 16px/18px sizing -- inherited as-is
  * from the wrench drawing's own box -- was too small to read the
  * gear teeth or the mustache at a glance. Icon and padding both
  * scaled up ~60% together (16->26, 3->5) so the hit-area keeps the
- * same proportions rather than the icon outgrowing its box.
+ * same proportions rather than the icon outgrowing its box. A second
+ * bench pass the same day dropped the rest/hover split entirely
+ * (26->29 rest, so both states land on the hover size, the one that
+ * read best) once the size CHANGE itself -- not just the small
+ * resting size -- turned out to be the thing that read as unclean.
+ *
+ * TOP-ALIGNED (owner ruling 2026-08-09): explicit align-self so this
+ * button stays pinned to the top of its device-meta grid cell even
+ * once IR EMITTERS grows past one row and wraps -- .device-meta's own
+ * align-items: start (ir-device-detail.ts) already implies this, but
+ * it's spelled out here rather than left to inherit, since this
+ * button is the one thing in the row that must never re-center when
+ * its sibling cell grows taller.
  */
 export const settingsButtonStyles = css`
     .settings-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        align-self: start;
         background: none;
         border: none;
         padding: 5px;
@@ -180,10 +191,6 @@ export const settingsButtonStyles = css`
     }
     .settings-btn .settings-icon {
         display: block;
-        width: 26px;
-        height: 26px;
-    }
-    .settings-btn:hover:not(:disabled) .settings-icon {
         width: 29px;
         height: 29px;
     }
