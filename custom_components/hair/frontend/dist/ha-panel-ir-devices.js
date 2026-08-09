@@ -280,116 +280,120 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
         }
     `,e([pe({type:String})],Gi.prototype,"color",void 0),e([pe({type:Number})],Gi.prototype,"count",void 0),Gi=e([ue("ir-count-dot")],Gi);let Zi=class extends re{constructor(){super(...arguments),this.templateName="",this.command=null,this.busy=!1,this.actionLabel=null,this.hasTrigger=!1,this.triggerCount=0,this.actionBadgeLabel=null,this.actionBadgeFontPx=null,this.actionFontPx=null,this.showActionMapping=!0,this._editingName=!1,this._draftName=""}_commandLabel(){const e=this.command;return e.protocol&&e.code?`${e.protocol}: ${e.code}`:e.raw_timings?.length?ke("cmdrow.raw_timings",{count:e.raw_timings.length}):e.protocol??"IR"}_prontoSlArray(e){const t=e.trim().split(/\s+/);if(t.length<6)return null;const i=parseInt(t[2],16)+parseInt(t[3],16),o=t.slice(4);if(o.length<2*i)return null;const a=[];for(let e=0;e<2*i;e++){const t=parseInt(o[e],16);a.push(t>=48)}return a.length>0?a:null}_combTitle(){const e=this.command?.comb_finding;return e?`${ke(`comb.class.${e}`)} -- ${ke(`comb.what.${e}`)}`:ke("cmdrow.comb_suspect")}_renderDiamonds(){const e=this.command;if(!e||"PRONTO"!==e.protocol?.toUpperCase()||!e.code)return null;const t=this._prontoSlArray(e.code);return t?F`<span class="diamonds">${t.map(e=>e?F`<span class="diamond long">◆</span>`:F`<span class="diamond short">◇</span>`)}</span>`:null}_emit(e,t){const i=t?.currentTarget?.getBoundingClientRect()??null;this.dispatchEvent(new CustomEvent(e,{detail:{templateName:this.templateName,command:this.command,buttonRect:i},bubbles:!0,composed:!0}))}_startRename(e){this.command&&!this.busy&&(e.stopPropagation(),this._draftName=this.command.name,this._editingName=!0,this.updateComplete.then(()=>{const e=this.shadowRoot?.querySelector(".name-input");e?.focus(),e?.select()}))}_commitRename(){if(!this._editingName)return;const e=this._draftName.trim();this._editingName=!1,this.command&&e&&e!==this.command.name&&this.dispatchEvent(new CustomEvent("rename-command",{detail:{command:this.command,name:e},bubbles:!0,composed:!0}))}_onRenameKeydown(e){"Enter"===e.key?(e.preventDefault(),this._commitRename()):"Escape"===e.key&&(this._editingName=!1)}render(){const e=null!==this.command,t=e?this._renderDiamonds():null;return F`
             <div class="row" data-learned=${e?"true":"false"}>
-                <div class="status" aria-hidden="true">
-                    <slot name="status"></slot>
-                </div>
-                <div class="info">
-                    <div class="name">
-                        ${e?this._editingName?F`<input
-                                      class="name-input"
-                                      type="text"
-                                      .value=${this._draftName}
-                                      @input=${e=>this._draftName=e.target.value}
-                                      @keydown=${this._onRenameKeydown}
-                                      @blur=${this._commitRename}
-                                  />`:F`<span
-                                      class="editable-name"
-                                      title=${ke("cmdrow.rename")}
-                                      @click=${this._startRename}
-                                      >${this.templateName}<span class="rename-pencil"
-                                          >&#9998;</span
-                                      ></span
-                                  >`:F`${this.templateName}`}
-                        ${e&&"matrix"===this.command?.source?F`<span class="state-chip"
-                                  >${ke("devices.state_chip")}</span
-                              >`:""}
-                        ${e&&this.command?.comb_suspect?F`<span
-                                  class="comb-mark"
-                                  title=${this._combTitle()}
-                              ><svg viewBox="0 0 512 512"><path
-                                          d=${"M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853c12.245,10.304,19.264,25.259,19.264,41.024V320z"}
-                                      ></path></svg></span
-                              >`:""}
-                        ${e&&this.command?F`<ir-tx-knobs
-                                  .sendCount=${this.command.send_count}
-                                  .repeatCount=${this.command.repeat_count}
-                                  .decoded=${!!this.command.decoded_protocol}
-                                  .bypassed=${!!this.command.tx_force_raw}
-                              ></ir-tx-knobs>`:""}
+                <div class="top-line">
+                    <div class="status" aria-hidden="true">
+                        <slot name="status"></slot>
                     </div>
-                    <div class="meta">
-                        ${t||(e?F`${this._commandLabel()}`:F`<span class="muted">${ke("cmdrow.not_learned")}</span>`)}
+                    <div class="name-line">
+                        <div class="name">
+                            ${e?this._editingName?F`<input
+                                          class="name-input"
+                                          type="text"
+                                          .value=${this._draftName}
+                                          @input=${e=>this._draftName=e.target.value}
+                                          @keydown=${this._onRenameKeydown}
+                                          @blur=${this._commitRename}
+                                      />`:F`<span
+                                          class="editable-name"
+                                          title=${ke("cmdrow.rename")}
+                                          @click=${this._startRename}
+                                          >${this.templateName}<span class="rename-pencil"
+                                              >&#9998;</span
+                                          ></span
+                                      >`:F`${this.templateName}`}
+                            ${e&&"matrix"===this.command?.source?F`<span class="state-chip"
+                                      >${ke("devices.state_chip")}</span
+                                  >`:""}
+                            ${e&&this.command?.comb_suspect?F`<span
+                                      class="comb-mark"
+                                      title=${this._combTitle()}
+                                  ><svg viewBox="0 0 512 512"><path
+                                              d=${"M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853c12.245,10.304,19.264,25.259,19.264,41.024V320z"}
+                                          ></path></svg></span
+                                  >`:""}
+                            ${e&&this.command?F`<ir-tx-knobs
+                                      .sendCount=${this.command.send_count}
+                                      .repeatCount=${this.command.repeat_count}
+                                      .decoded=${!!this.command.decoded_protocol}
+                                      .bypassed=${!!this.command.tx_force_raw}
+                                  ></ir-tx-knobs>`:""}
+                        </div>
+                        ${e?F`
+                                  <div class="chip-col">
+                                      ${this.command?.decoded_protocol?F`<ir-protocol-chip
+                                                .protocol=${this.command.decoded_protocol}
+                                                .bypass=${!!this.command.tx_force_raw}
+                                                interactive
+                                                ?disabled=${this.busy}
+                                                @toggle-bypass=${()=>this._emit("toggle-tx-raw")}
+                                            ></ir-protocol-chip>`:""}
+                                  </div>
+                                  ${this.showActionMapping?F`<button
+                                      class="action-btn badge-btn"
+                                      ?data-mapped=${!!this.actionLabel}
+                                      ?disabled=${this.busy}
+                                      @click=${()=>this._emit("map-action")}
+                                      title=${ke("cmdrow.map_action")}
+                                  >${this.actionBadgeLabel?F`<span
+                                                class="badge-sizer"
+                                                aria-hidden="true"
+                                                style="font-size:${this.actionBadgeFontPx??10.5}px"
+                                                >${this.actionBadgeLabel}</span
+                                            >`:""}<span
+                                          class="badge-label"
+                                          style=${this.actionFontPx?`font-size:${this.actionFontPx}px`:""}
+                                          >${this.actionLabel||ke("cmdrow.actions")}</span
+                                      ></button>`:""}
+                              `:""}
+                    </div>
+                    <div class="actions">
+                        ${e?F`
+                                  <button
+                                      class="icon-btn edit-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${()=>this._emit("edit-command")}
+                                      title=${ke("cmdrow.edit_code")}
+                                  ><ha-svg-icon
+                                          class="edit-glyph"
+                                          .path=${"M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"}
+                                      ></ha-svg-icon></button>
+                                  <button
+                                      class="action-btn test-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${()=>this._emit("test")}
+                                  >${ke("cmdrow.test")}</button>
+                                  <button
+                                      class="action-btn trigger-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${e=>this._emit("toggle-trigger",e)}
+                                      title=${this.hasTrigger?ke("cmdrow.edit_trigger"):ke("cmdrow.create_trigger")}
+                                  >${ke("cmdrow.trigger")}<ir-count-dot
+                                          color="yellow"
+                                          .count=${this.triggerCount||(this.hasTrigger?1:0)}
+                                      ></ir-count-dot></button>
+                                  <button
+                                      class="trash-btn"
+                                      title=${ke("cmdrow.delete_title")}
+                                      aria-label=${ke("cmdrow.delete_title")}
+                                      ?disabled=${this.busy}
+                                      @click=${()=>this._emit("delete")}
+                                  >
+                                      <ha-svg-icon
+                                          .path=${ze}
+                                          .viewBox=${Se}
+                                      ></ha-svg-icon>
+                                  </button>
+                              `:F`
+                                  <button
+                                      class="action-btn learn-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${()=>this._emit("learn")}
+                                  >${ke("cmdrow.learn")}</button>
+                              `}
                     </div>
                 </div>
-                <div class="actions">
-                    ${e?F`
-                              <div class="chip-col">
-                                  ${this.command?.decoded_protocol?F`<ir-protocol-chip
-                                            .protocol=${this.command.decoded_protocol}
-                                            .bypass=${!!this.command.tx_force_raw}
-                                            interactive
-                                            ?disabled=${this.busy}
-                                            @toggle-bypass=${()=>this._emit("toggle-tx-raw")}
-                                        ></ir-protocol-chip>`:""}
-                              </div>
-                              <button
-                                  class="icon-btn edit-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${()=>this._emit("edit-command")}
-                                  title=${ke("cmdrow.edit_code")}
-                              ><ha-svg-icon
-                                      class="edit-glyph"
-                                      .path=${"M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"}
-                                  ></ha-svg-icon></button>
-                              ${this.showActionMapping?F`<button
-                                  class="action-btn badge-btn"
-                                  ?data-mapped=${!!this.actionLabel}
-                                  ?disabled=${this.busy}
-                                  @click=${()=>this._emit("map-action")}
-                                  title=${ke("cmdrow.map_action")}
-                              >${this.actionBadgeLabel?F`<span
-                                            class="badge-sizer"
-                                            aria-hidden="true"
-                                            style="font-size:${this.actionBadgeFontPx??10.5}px"
-                                            >${this.actionBadgeLabel}</span
-                                        >`:""}<span
-                                      class="badge-label"
-                                      style=${this.actionFontPx?`font-size:${this.actionFontPx}px`:""}
-                                      >${this.actionLabel||ke("cmdrow.actions")}</span
-                                  ></button>`:""}
-                              <button
-                                  class="action-btn test-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${()=>this._emit("test")}
-                              >${ke("cmdrow.test")}</button>
-                              <button
-                                  class="action-btn trigger-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${e=>this._emit("toggle-trigger",e)}
-                                  title=${this.hasTrigger?ke("cmdrow.edit_trigger"):ke("cmdrow.create_trigger")}
-                              >${ke("cmdrow.trigger")}<ir-count-dot
-                                      color="yellow"
-                                      .count=${this.triggerCount||(this.hasTrigger?1:0)}
-                                  ></ir-count-dot></button>
-                              <button
-                                  class="trash-btn"
-                                  title=${ke("cmdrow.delete_title")}
-                                  aria-label=${ke("cmdrow.delete_title")}
-                                  ?disabled=${this.busy}
-                                  @click=${()=>this._emit("delete")}
-                              >
-                                  <ha-svg-icon
-                                      .path=${ze}
-                                      .viewBox=${Se}
-                                  ></ha-svg-icon>
-                              </button>
-                          `:F`
-                              <button
-                                  class="action-btn learn-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${()=>this._emit("learn")}
-                              >${ke("cmdrow.learn")}</button>
-                          `}
+                <div class="meta">
+                    ${t||(e?F`${this._commandLabel()}`:F`<span class="muted">${ke("cmdrow.not_learned")}</span>`)}
                 </div>
             </div>
         `}};Zi.styles=[Ce,n`
@@ -399,11 +403,16 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
         :host(:not(:last-of-type)) {
             margin-bottom: 4px;
         }
+        /* Two-line anatomy (command-row-restructure.md, commit 1 of 2):
+           .row stacks .top-line above .meta in a column flex rather
+           than the old 3-column grid, so .meta (diamonds, the plain
+           label, or "not learned") is a full-width block underneath
+           that can wrap to any height without affecting .top-line's
+           height or the grip's vertical position within it. */
         .row {
-            display: grid;
-            grid-template-columns: 32px 1fr auto;
-            align-items: center;
-            gap: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
             padding: 8px 10px;
             /* Match the page background so the long horizontal command
                strips visually merge with the device-detail backdrop
@@ -417,10 +426,40 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             background: var(--primary-background-color);
             border-radius: 4px;
         }
+        /* Status | name-line | actions, same three-part shape the old
+           grid had (32px | flexible | auto), now flex so narrow widths
+           can wrap a whole cluster onto its own line instead of
+           clipping it (RULED: flex-wrap is the entire narrow-width
+           answer this pass -- no container queries, no collapse
+           logic). align-items: center centers the grip against
+           whatever .name-line's height actually is -- typically one
+           line now that diamonds live in .meta instead, which is the
+           fix for "the grip isn't next to the name." */
+        .top-line {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
         .status {
             display: flex;
             align-items: center;
             justify-content: center;
+            flex: 0 0 32px;
+        }
+        /* Holds the name cluster plus, now, the protocol chip and
+           mapping badge (moved here from .actions per the plan's
+           mockup order -- same components, same styling, just
+           repositioned). flex: 1 1 auto plus min-width: 0 lets it
+           shrink/wrap instead of pushing .actions off the row's
+           right edge. */
+        .name-line {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            flex-wrap: wrap;
+            flex: 1 1 auto;
+            min-width: 0;
         }
         .name {
             display: flex;
@@ -560,10 +599,18 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
             justify-content: center;
             align-items: center;
         }
+        /* Edit / TEST / TRIGGER / delete, pinned to the top line's
+           right edge. margin-left: auto (rather than relying on the
+           old grid's separate "auto" column) is what keeps this
+           cluster right-aligned now that .top-line is a wrapping flex
+           row -- when .name-line grows tall enough to need its own
+           line, .actions still lands flush right on whichever line it
+           ends up on. */
         .actions {
             display: flex;
             gap: 4px;
             align-items: center;
+            margin-left: auto;
         }
         .action-btn {
             background: none;
