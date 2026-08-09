@@ -1,9 +1,10 @@
 /**
  * Device settings dialog (Device Settings, 0.9.8, coding plan commit
- * 5 of 6). Opens from the wrench/screwdriver button in the device
- * detail meta row (ir-device-detail.ts) and holds whatever per-device
- * settings don't belong on the main card -- power monitoring today,
- * climate temperature/humidity sensors in a later pass.
+ * 5 of 6). Opens from the settings button (mustache gear, RULED
+ * 2026-08-09 -- see ir-icons.ts) in the device detail meta row
+ * (ir-device-detail.ts) and holds whatever per-device settings don't
+ * belong on the main card: power monitoring, and climate temperature/
+ * humidity sensors (climate-sensors-coding-plan.md).
  *
  * `settingsSections(device)` is the single source of truth for which
  * sections a device gets. It gates BOTH the settings button's

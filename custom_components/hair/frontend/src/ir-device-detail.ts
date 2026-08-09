@@ -36,9 +36,9 @@ import { popoverStyles } from "./ir-popover-styles.js";
 // The house wig, from images/wig.svg. Same glyph the closet wears,
 // because this button is the door into it (FR5).
 import { ICON_WIG } from "./ir-wigs.js";
-// Device Settings (0.9.8): the wrench/screwdriver settings button,
-// from images/tools.svg -- see ir-icons.ts for the full ruling on why
-// it renders as an inline <svg> rather than through <ha-svg-icon>.
+// Device Settings (0.9.8): the mustache gear settings button, from
+// images/mustache-gear.svg -- see ir-icons.ts for the full ruling on
+// why it renders as an inline <svg> rather than through <ha-svg-icon>.
 import {
     ICON_SETTINGS,
     SETTINGS_VIEWBOX,
@@ -149,7 +149,7 @@ export class IrDeviceDetail extends LitElement {
     @state() private _selSwing: string | null = null;
     @state() private _selTemp: number | null = null;
 
-    // Device Settings (0.9.8): the wrench button in the meta row.
+    // Device Settings (0.9.8): the settings button in the meta row.
     // Gated by settingsSections(device) so a device type with nothing
     // to configure never shows the button at all.
     @state() private _settingsOpen = false;
@@ -1696,7 +1696,6 @@ export class IrDeviceDetail extends LitElement {
                               <svg
                                   class="settings-icon"
                                   viewBox=${SETTINGS_VIEWBOX}
-                                  preserveAspectRatio="none"
                               >
                                   <path
                                       d=${ICON_SETTINGS}
@@ -2076,7 +2075,7 @@ export class IrDeviceDetail extends LitElement {
         popoverStyles,
         settingsButtonStyles,
         css`
-        /* Device Settings (0.9.8): nudge the wrench button down by
+        /* Device Settings (0.9.8): nudge the settings button down by
            the label line's height (the .sl label's font-size plus its
            5px margin-bottom, ~19px total, no exact figure specified)
            so the icon aligns with the first row of emitter chips
@@ -2087,8 +2086,8 @@ export class IrDeviceDetail extends LitElement {
            sits 10px in from it (ir-command-row.ts's .row has
            padding-right: 10px) -- measured live, an exact 10px gap
            between the two right edges. margin-right: 10px here closes
-           that gap so the wrench lines up with the trash column
-           beneath it instead of overhanging further right. */
+           that gap so the settings icon lines up with the trash
+           column beneath it instead of overhanging further right. */
         .device-meta .settings-btn {
             margin-top: 19px;
             margin-right: 10px;
@@ -2221,8 +2220,8 @@ export class IrDeviceDetail extends LitElement {
         .device-meta {
             display: grid;
             /* Device Settings (0.9.8): the trailing "auto" column is
-               the wrench button -- auto-placed as the grid's 3rd DOM
-               child, no explicit grid-column needed. A device type
+               the settings button -- auto-placed as the grid's 3rd
+               DOM child, no explicit grid-column needed. A device type
                with nothing to configure just renders two children and
                the column collapses to nothing. */
             grid-template-columns: 200px minmax(0, 1fr) auto;
