@@ -18,6 +18,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
+    ATTR_FAN_MODE,
+    ATTR_SWING_MODE,
     ATTR_TEMPERATURE,
     ClimateEntity,
     ClimateEntityFeature,
@@ -28,6 +30,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
@@ -106,7 +109,7 @@ async def async_setup_entry(
         _on_add(device)
 
 
-class HAIRClimateEntity(ClimateEntity):
+class HAIRClimateEntity(RestoreEntity, ClimateEntity):
     """IR-controlled climate device (preset-based or matrix-based)."""
 
     _attr_has_entity_name = True
@@ -151,6 +154,7 @@ class HAIRClimateEntity(ClimateEntity):
         # is this entity's only other lifecycle need.
         if self._matrix_mode and self._matrix is None:
             await self._async_load_matrix()
+        await self._async_restore_state()
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
@@ -159,6 +163,60 @@ class HAIRClimateEntity(ClimateEntity):
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
+
+    async def _async_restore_state(self) -> None:
+        """Reboot survival (Device Settings, v0.9.9). Seeds mode,
+        setpoint, fan, and swing from the entity's state before this
+        restart. The power monitor's STARTUP SEED (power_monitor.py,
+        commit 2) corrects the mode immediately after if a sensor is
+        configured -- restore only has to get close, a configured
+        sensor's evidence always wins.
+
+        Matrix mode re-validates the restored combination against the
+        CURRENT matrix via resolve_cell: the lattice may have changed
+        since last run (a re-fit, a re-adopt), and a combination that
+        no longer resolves is discarded wholesale rather than applied
+        partially -- falls back to the blank state __init__ already
+        set, not an error.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        try:
+            restored_mode = HVACMode(last_state.state)
+        except ValueError:
+            return
+        raw_temp = last_state.attributes.get(ATTR_TEMPERATURE)
+        restored_temp = float(raw_temp) if raw_temp is not None else None
+        restored_fan = last_state.attributes.get(ATTR_FAN_MODE)
+        restored_swing = last_state.attributes.get(ATTR_SWING_MODE)
+
+        if self._matrix_mode:
+            if restored_mode != HVACMode.OFF:
+                file_mode = self._file_mode_for(restored_mode)
+                cell = (
+                    resolve_cell(
+                        self._matrix, file_mode, restored_fan, restored_swing,
+                        restored_temp,
+                    )
+                    if file_mode is not None and self._matrix is not None
+                    else None
+                )
+                if cell is None:
+                    return
+            self._hvac_mode = restored_mode
+            self._fan_mode = restored_fan
+            self._swing_mode = restored_swing
+            if restored_temp is not None:
+                self._target_temperature = restored_temp
+        else:
+            self._hvac_mode = restored_mode
+            if restored_temp is not None:
+                self._target_temperature = restored_temp
+            if restored_fan is not None:
+                self._fan_mode = restored_fan
+        if restored_mode != HVACMode.OFF:
+            self._last_active_hvac_mode = restored_mode
 
     def _capture_active_mode(self) -> None:
         """Remember the mode about to be left, before flipping to OFF.
