@@ -218,6 +218,19 @@ class IRDevice:
     power_sensor_entity_id: str | None = None
     power_off_below_w: float | None = None
     power_on_above_w: float | None = None
+    # Climate room sensors (climate-sensors.md, riding 0.9.8). Same
+    # install-wiring status as power_sensor_entity_id above -- which
+    # thermometer/hygrometer feeds this device's thermostat card, not
+    # wig content. Each is a ``sensor.`` entity (device_class
+    # temperature / humidity respectively); display only, no
+    # thresholds, no coupling between the two -- either can be set or
+    # cleared independently of the other. Both None (the default)
+    # means no room sensors configured. Only meaningful on matrix
+    # devices (climate_matrix True), but not validated against that
+    # here -- the WS layer and the dialog gate on device type/matrix,
+    # this field just holds whatever was last saved.
+    temperature_sensor_entity_id: str | None = None
+    humidity_sensor_entity_id: str | None = None
     capture_device_id: str | None = None
     capture_provider_type: CaptureProviderType = CaptureProviderType.ESPHOME
     commands: list[IRCommand] = field(default_factory=list)
@@ -368,6 +381,8 @@ class IRDevice:
             power_sensor_entity_id=self.power_sensor_entity_id,
             power_off_below_w=self.power_off_below_w,
             power_on_above_w=self.power_on_above_w,
+            temperature_sensor_entity_id=self.temperature_sensor_entity_id,
+            humidity_sensor_entity_id=self.humidity_sensor_entity_id,
             capture_device_id=self.capture_device_id,
             capture_provider_type=self.capture_provider_type,
             commands=cloned_commands,
@@ -424,6 +439,8 @@ class IRDevice:
             "power_sensor_entity_id": self.power_sensor_entity_id,
             "power_off_below_w": self.power_off_below_w,
             "power_on_above_w": self.power_on_above_w,
+            "temperature_sensor_entity_id": self.temperature_sensor_entity_id,
+            "humidity_sensor_entity_id": self.humidity_sensor_entity_id,
             "capture_device_id": self.capture_device_id,
             "capture_provider_type": str(self.capture_provider_type),
             "commands": [c.to_dict() for c in self.commands],
@@ -456,6 +473,15 @@ class IRDevice:
             power_sensor_entity_id=data.get("power_sensor_entity_id") or None,
             power_off_below_w=data.get("power_off_below_w"),
             power_on_above_w=data.get("power_on_above_w"),
+            # Absent on every device made before this field existed
+            # (and on every non-matrix device); resolves to "no room
+            # sensor configured", same as the power sensor above.
+            temperature_sensor_entity_id=(
+                data.get("temperature_sensor_entity_id") or None
+            ),
+            humidity_sensor_entity_id=(
+                data.get("humidity_sensor_entity_id") or None
+            ),
             capture_device_id=data.get("capture_device_id"),
             capture_provider_type=CaptureProviderType(
                 data.get("capture_provider_type", CaptureProviderType.ESPHOME)

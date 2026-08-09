@@ -373,6 +373,124 @@ async def test_update_device_clearing_sensor_clears_thresholds(
     assert mock_device.power_on_above_w is None
 
 
+@pytest.mark.asyncio
+async def test_update_device_sets_climate_sensors(fake_hass, mock_device):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "temperature_sensor_entity_id": "sensor.living_room_temp",
+            "humidity_sensor_entity_id": "sensor.living_room_humidity",
+        },
+    )
+    conn.send_result.assert_called_once()
+    assert (
+        mock_device.temperature_sensor_entity_id
+        == "sensor.living_room_temp"
+    )
+    assert (
+        mock_device.humidity_sensor_entity_id
+        == "sensor.living_room_humidity"
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_device_climate_sensor_rejects_non_sensor_domain(
+    fake_hass, mock_device
+):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "temperature_sensor_entity_id": "climate.not_a_sensor",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    manager.async_update_device.assert_not_called()
+    assert mock_device.temperature_sensor_entity_id is None
+
+
+@pytest.mark.asyncio
+async def test_update_device_climate_sensors_are_independent(
+    fake_hass, mock_device
+):
+    # Unlike the power trio, setting one climate sensor must not touch
+    # the other -- no coupled clearing.
+    mock_device.temperature_sensor_entity_id = "sensor.living_room_temp"
+    mock_device.humidity_sensor_entity_id = "sensor.living_room_humidity"
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "temperature_sensor_entity_id": None,
+        },
+    )
+    conn.send_result.assert_called_once()
+    assert mock_device.temperature_sensor_entity_id is None
+    assert (
+        mock_device.humidity_sensor_entity_id
+        == "sensor.living_room_humidity"
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_device_climate_sensors_leave_power_untouched(
+    fake_hass, mock_device
+):
+    mock_device.power_sensor_entity_id = "sensor.ac_plug_power"
+    mock_device.power_off_below_w = 5
+    mock_device.power_on_above_w = 10
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    manager.async_update_device = AsyncMock(side_effect=lambda d: d)
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    await ws_update_device(
+        fake_hass,
+        conn,
+        {
+            "id": 4,
+            "type": "hair/device/update",
+            "device_id": mock_device.id,
+            "temperature_sensor_entity_id": "sensor.living_room_temp",
+        },
+    )
+    conn.send_result.assert_called_once()
+    assert mock_device.temperature_sensor_entity_id == "sensor.living_room_temp"
+    assert mock_device.power_sensor_entity_id == "sensor.ac_plug_power"
+    assert mock_device.power_off_below_w == 5
+    assert mock_device.power_on_above_w == 10
+
+
 # ---------------------------------------------------------------------------
 # ws_delete_device
 # ---------------------------------------------------------------------------

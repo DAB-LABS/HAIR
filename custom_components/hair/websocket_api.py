@@ -168,6 +168,8 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
         "power_sensor_entity_id": device.power_sensor_entity_id,
         "power_off_below_w": device.power_off_below_w,
         "power_on_above_w": device.power_on_above_w,
+        "temperature_sensor_entity_id": device.temperature_sensor_entity_id,
+        "humidity_sensor_entity_id": device.humidity_sensor_entity_id,
         "command_count": len(device.commands),
         "created_at": device.created_at,
         "updated_at": device.updated_at,
@@ -324,6 +326,8 @@ async def ws_create_device(
     vol.Optional("power_sensor_entity_id"): vol.Any(str, None),
     vol.Optional("power_off_below_w"): vol.Any(vol.Coerce(float), None),
     vol.Optional("power_on_above_w"): vol.Any(vol.Coerce(float), None),
+    vol.Optional("temperature_sensor_entity_id"): vol.Any(str, None),
+    vol.Optional("humidity_sensor_entity_id"): vol.Any(str, None),
 })
 @websocket_api.async_response
 async def ws_update_device(
@@ -398,6 +402,47 @@ async def ws_update_device(
         device.power_sensor_entity_id = new_sensor
         device.power_off_below_w = new_off_below
         device.power_on_above_w = new_on_above
+
+    # Climate room sensors validate together too, same "nothing
+    # half-mutated on a rejected request" reasoning as the power
+    # block above -- but unlike power, the two are NOT a coupled
+    # group: each keeps whatever value it already had when the other
+    # one is the only key present in msg, so setting or clearing one
+    # never disturbs the other.
+    if any(
+        key in msg
+        for key in (
+            "temperature_sensor_entity_id",
+            "humidity_sensor_entity_id",
+        )
+    ):
+        new_temp_sensor = msg.get(
+            "temperature_sensor_entity_id",
+            device.temperature_sensor_entity_id,
+        )
+        new_humidity_sensor = msg.get(
+            "humidity_sensor_entity_id", device.humidity_sensor_entity_id
+        )
+        if new_temp_sensor is not None and not new_temp_sensor.startswith(
+            "sensor."
+        ):
+            connection.send_error(
+                msg["id"],
+                "invalid_format",
+                "temperature_sensor_entity_id must be a sensor entity",
+            )
+            return
+        if new_humidity_sensor is not None and not new_humidity_sensor.startswith(
+            "sensor."
+        ):
+            connection.send_error(
+                msg["id"],
+                "invalid_format",
+                "humidity_sensor_entity_id must be a sensor entity",
+            )
+            return
+        device.temperature_sensor_entity_id = new_temp_sensor
+        device.humidity_sensor_entity_id = new_humidity_sensor
 
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))
