@@ -84,6 +84,40 @@ def test_device_power_sensor_absent_defaults_none(mock_device: IRDevice):
     assert restored.power_on_above_w is None
 
 
+def test_device_climate_sensors_round_trip():
+    device = IRDevice(
+        name="AC",
+        device_type=DeviceType.AC,
+        temperature_sensor_entity_id="sensor.living_room_temp",
+        humidity_sensor_entity_id="sensor.living_room_humidity",
+    )
+    restored = IRDevice.from_dict(device.to_dict())
+    assert restored.temperature_sensor_entity_id == "sensor.living_room_temp"
+    assert restored.humidity_sensor_entity_id == "sensor.living_room_humidity"
+
+
+def test_device_climate_sensors_absent_defaults_none(mock_device: IRDevice):
+    # Same legacy-record tolerance as the power sensor above -- a
+    # record from before this field existed must not error and must
+    # resolve to "no room sensor configured".
+    restored = IRDevice.from_dict(mock_device.to_dict())
+    assert restored.temperature_sensor_entity_id is None
+    assert restored.humidity_sensor_entity_id is None
+
+
+def test_device_climate_sensors_independent(mock_device: IRDevice):
+    # Unlike the power trio, temperature and humidity are not a
+    # coupled group -- setting one leaves the other at its default.
+    device = IRDevice(
+        name="AC",
+        device_type=DeviceType.AC,
+        temperature_sensor_entity_id="sensor.living_room_temp",
+    )
+    restored = IRDevice.from_dict(device.to_dict())
+    assert restored.temperature_sensor_entity_id == "sensor.living_room_temp"
+    assert restored.humidity_sensor_entity_id is None
+
+
 def test_device_command_helpers(mock_device: IRDevice):
     assert mock_device.get_command("cmd-1") is not None
     assert mock_device.get_command("missing") is None
@@ -194,6 +228,13 @@ def test_device_clone_preserves_non_id_fields(mock_device: IRDevice):
     assert clone.power_sensor_entity_id == mock_device.power_sensor_entity_id
     assert clone.power_off_below_w == mock_device.power_off_below_w
     assert clone.power_on_above_w == mock_device.power_on_above_w
+    assert (
+        clone.temperature_sensor_entity_id
+        == mock_device.temperature_sensor_entity_id
+    )
+    assert (
+        clone.humidity_sensor_entity_id == mock_device.humidity_sensor_entity_id
+    )
     assert clone.capture_device_id == mock_device.capture_device_id
     assert clone.capture_provider_type == mock_device.capture_provider_type
     assert clone.database_id == mock_device.database_id
@@ -231,6 +272,18 @@ def test_device_clone_preserves_power_sensor():
     assert clone.power_sensor_entity_id == "sensor.ac_plug_power"
     assert clone.power_off_below_w == 5.0
     assert clone.power_on_above_w == 10.0
+
+
+def test_device_clone_preserves_climate_sensors():
+    device = IRDevice(
+        name="AC",
+        device_type=DeviceType.AC,
+        temperature_sensor_entity_id="sensor.living_room_temp",
+        humidity_sensor_entity_id="sensor.living_room_humidity",
+    )
+    clone = device.clone("AC Clone")
+    assert clone.temperature_sensor_entity_id == "sensor.living_room_temp"
+    assert clone.humidity_sensor_entity_id == "sensor.living_room_humidity"
 
 
 def test_device_clone_with_empty_commands():
