@@ -88,3 +88,95 @@ export const trashButtonStyles = css`
         --mdc-icon-size: 18px;
     }
 `;
+
+/**
+ * The wrench and screwdriver, from images/tools.svg. Opens the device
+ * settings dialog (Device Settings, v0.9.9) -- NEVER an MDI gear;
+ * RULED 2026-08-09 this replaced an earlier comb-and-scissors concept
+ * (images/settings.svg) because it reads better at small size against
+ * the grey rest state.
+ *
+ * SOURCE / LICENSE FLAG: images/tools.svg carries an in-file comment
+ * crediting "SVG Repo, www.svgrepo.com" -- it is a third-party asset,
+ * not an in-house drawing (unlike ICON_TRASH/ICON_COMB). Licensing on
+ * svgrepo.com varies per icon (CC0/PD/MIT/Apache depending on the
+ * uploader), so before this ships in a public release the owner needs
+ * to confirm this specific icon's license and, if it requires
+ * attribution, add a credit line (README/CONTRIBUTING or an in-repo
+ * NOTICE) rather than shipping it silently.
+ *
+ * viewBox is 157x256, not MDI's 24x24 -- and unlike ICON_TRASH/
+ * ICON_COMB, it is tall and narrow rather than roughly square. RULED
+ * 2026-08-09: every consumer stretches it wider than its native
+ * proportions (`preserveAspectRatio="none"`) so it reads as a wrench
+ * at a glance instead of a thin sliver next to the trash can --
+ * deliberately distorted, not a defect. `ha-svg-icon` does not
+ * reliably expose `preserveAspectRatio` as a settable property, so
+ * this one icon is rendered as an inline `<svg>` (settingsButtonStyles
+ * below), not through `ha-svg-icon` like ICON_TRASH/ICON_COMB.
+ *
+ * The source file has five `<path>` elements; two are degenerate
+ * single-point paths (`M30.1,201` and `M88.9,201`) that draw nothing
+ * and are skipped. The three geometry-bearing paths are concatenated
+ * into this one constant (multiple subpaths in one `d` string is
+ * exactly how the source already draws the two screw-hole rings).
+ *
+ *   <svg viewBox=${SETTINGS_VIEWBOX} preserveAspectRatio="none">
+ *       <path d=${ICON_SETTINGS} fill="currentColor"></path>
+ *   </svg>
+ */
+export const ICON_SETTINGS =
+    "M129.7,31.6H92.7c-6.6-0.1-6.4,9.8,0,9.8h36.9v4.9H92.9c-6.7,0-6.5,9.8,0,9.8h36.8v4.9v0.2H92.9c-6.7,0-6.5,9.9,0,9.9h36.8 v4.9H92.9c-6.6,0-6.5,9.8,0,9.8h36.8v4.9H92.9c-6.6,0-6.6,9.9,0,9.8h36.8v5H92.9c-6.6-0.1-6.6,9.8,0,9.8h36.8v4.9H92.9 c-6.6,0-6.6,9.8,0,9.8h36.8v4.9H92.9c-6.6,0-6.5,9.9,0,9.9h36.8v95.5c-0.1,14.6,22.2,14.4,22.2,0V16.9c0-6.6-5.5-15-14.6-15 L92.7,1.8c-6.6,0.1-6.4,9.9,0,9.9h36.9v4.9H92.7c-6.6,0-6.4,9.9,0,9.8h36.9V31.6L129.7,31.6z M87,224.6c-1.3,8.1,1.5,22.6,7.2,27.9c6,5.5,13.1-1.5,10.2-7.2c-3-5.6-6.7-8.7-3.6-22.1L87,224.6L87,224.6z M75.2,177.5v-65.1L62.9,5.3c-0.4-2.9-2.1-3.6-3.8-3.6c-1.6,0-3.4,0.6-3.7,3.6l-12,107.1v65.1c-22.7-11.8-39.7,6.6-39.8,23.3 c0.1,14.9,11.1,27.2,26.8,27.2c15.7-0.1,26.4-13.8,26.4-27.2v-65.4h5v65.4c0,15.5,12.6,27,26,27c16.9,0,27.6-11.9,27.6-26.9 C115.5,184,97.9,165.7,75.2,177.5z M30.1,214.4c-7.4,0-13.3-6-13.4-13.4c0.1-7.3,6-13.3,13.4-13.3c7.4,0,13.4,5.9,13.4,13.3 C43.5,208.4,37.5,214.4,30.1,214.4z M88.9,214.4c-7.3,0-13.3-6-13.3-13.4c0-7.3,5.9-13.3,13.3-13.3c7.4,0,13.4,5.9,13.4,13.3 C102.3,208.4,96.4,214.4,88.9,214.4z";
+
+/** The viewBox ICON_SETTINGS is drawn in. */
+export const SETTINGS_VIEWBOX = "0 0 157 256";
+
+/**
+ * The device-meta-row settings button. Copied verbatim from
+ * .trash-btn above (same anatomy: grey at rest, 3px padding, 4px
+ * radius, same transitions, same disabled state) with ONE
+ * difference, per owner ruling 2026-08-08: hover is house blue
+ * instead of ember, since this button opens a dialog rather than
+ * deleting anything.
+ *
+ * Sized in width AND height, not `width: auto` off a single height
+ * value (RULED 2026-08-09, supersedes an earlier uniform-square
+ * call): the source drawing is tall and narrow, so height-only
+ * sizing read as a thin sliver next to the trash can. 16x18 at rest,
+ * 18x20 on hover -- the explicit width stretches it wider on purpose,
+ * via the inline-svg + preserveAspectRatio="none" pattern above.
+ */
+export const settingsButtonStyles = css`
+    .settings-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        padding: 3px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--disabled-text-color, #999);
+        opacity: 0.55;
+        transition: background 150ms ease, color 150ms ease,
+            opacity 150ms ease;
+    }
+    .settings-btn:hover:not(:disabled) {
+        background: rgba(100, 181, 246, 0.12);
+        color: #64b5f6;
+        opacity: 1;
+    }
+    .settings-btn:disabled {
+        cursor: default;
+        opacity: 0.25;
+    }
+    .settings-btn .settings-icon {
+        display: block;
+        width: 16px;
+        height: 18px;
+    }
+    .settings-btn:hover:not(:disabled) .settings-icon {
+        width: 18px;
+        height: 20px;
+    }
+`;

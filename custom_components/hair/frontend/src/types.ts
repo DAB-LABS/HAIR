@@ -593,6 +593,13 @@ export interface IRDevice {
     // synchronous ``hasSource`` gate (whether UPDATE CLOSET WIG is
     // even offered) reads straight off this field, no fetch needed.
     source_wig_id: string | null;
+    // Device Settings (v0.9.9), commit 1: power-sensor-based state
+    // correction. All three null means "not configured" -- the
+    // settings dialog (ir-device-settings-dialog.ts) is the only
+    // frontend surface that writes these.
+    power_sensor_entity_id: string | null;
+    power_off_below_w: number | null;
+    power_on_above_w: number | null;
 }
 
 export interface DeviceSummary {

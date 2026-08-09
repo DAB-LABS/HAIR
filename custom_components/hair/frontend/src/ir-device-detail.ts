@@ -36,6 +36,16 @@ import { popoverStyles } from "./ir-popover-styles.js";
 // The house wig, from images/wig.svg. Same glyph the closet wears,
 // because this button is the door into it (FR5).
 import { ICON_WIG } from "./ir-wigs.js";
+// Device Settings (v0.9.9): the wrench/screwdriver settings button,
+// from images/tools.svg -- see ir-icons.ts for the full ruling on why
+// it renders as an inline <svg> rather than through <ha-svg-icon>.
+import {
+    ICON_SETTINGS,
+    SETTINGS_VIEWBOX,
+    settingsButtonStyles,
+} from "./ir-icons.js";
+import "./ir-device-settings-dialog.js";
+import { settingsSections } from "./ir-device-settings-dialog.js";
 import type { HairApi } from "./api.js";
 import type {
     ActionOption,
@@ -138,6 +148,11 @@ export class IrDeviceDetail extends LitElement {
     @state() private _selFan: string | null = null;
     @state() private _selSwing: string | null = null;
     @state() private _selTemp: number | null = null;
+
+    // Device Settings (v0.9.9): the wrench button in the meta row.
+    // Gated by settingsSections(device) so a device type with nothing
+    // to configure never shows the button at all.
+    @state() private _settingsOpen = false;
 
     // Triggers
     @state() private _triggers: IRTrigger[] = [];
@@ -1670,6 +1685,27 @@ export class IrDeviceDetail extends LitElement {
                     ?disabled=${this._busy}
                     @emitters-changed=${this._onEmittersChanged}
                 ></ir-emitter-picker>
+                ${settingsSections(this.device).length > 0
+                    ? html`
+                          <button
+                              class="settings-btn"
+                              title="Device settings"
+                              ?disabled=${this._busy}
+                              @click=${() => (this._settingsOpen = true)}
+                          >
+                              <svg
+                                  class="settings-icon"
+                                  viewBox=${SETTINGS_VIEWBOX}
+                                  preserveAspectRatio="none"
+                              >
+                                  <path
+                                      d=${ICON_SETTINGS}
+                                      fill="currentColor"
+                                  ></path>
+                              </svg>
+                          </button>
+                      `
+                    : nothing}
             </div>
 
             ${this.device.matrix ? this._renderMatrixCard() : nothing}
@@ -2010,6 +2046,25 @@ export class IrDeviceDetail extends LitElement {
                       ></ir-confirm-dialog>
                   `
                 : ""}
+            ${this._settingsOpen
+                ? html`
+                      <ir-device-settings-dialog
+                          .api=${this.api}
+                          .hass=${this.hass}
+                          .device=${this.device}
+                          @device-changed=${() => {
+                              this._settingsOpen = false;
+                              this.dispatchEvent(
+                                  new CustomEvent("device-changed", {
+                                      bubbles: true,
+                                      composed: true,
+                                  }),
+                              );
+                          }}
+                          @closed=${() => (this._settingsOpen = false)}
+                      ></ir-device-settings-dialog>
+                  `
+                : ""}
             ${this._toast
                 ? html`<div class="toast" role="status">${this._toast}</div>`
                 : ""}
@@ -2019,7 +2074,16 @@ export class IrDeviceDetail extends LitElement {
     static styles = [
         actionChipStyles,
         popoverStyles,
+        settingsButtonStyles,
         css`
+        /* Device Settings (v0.9.9): nudge the wrench button down by
+           the label line's height (the .sl label's font-size plus its
+           5px margin-bottom, ~19px total, no exact figure specified)
+           so the icon aligns with the first row of emitter chips
+           instead of the tiny uppercase label beside it. */
+        .device-meta .settings-btn {
+            margin-top: 19px;
+        }
         /* SAVE TO CLOSET, in the header (RULED, mockup FR5 variant V2).
            It used to sit stacked under DELETE DEVICE in the bottom
            right, which put the door into the closet next to the button
@@ -2147,7 +2211,12 @@ export class IrDeviceDetail extends LitElement {
            dropdown never needed 900; emitters take the rest and wrap. */
         .device-meta {
             display: grid;
-            grid-template-columns: 200px minmax(0, 1fr);
+            /* Device Settings (v0.9.9): the trailing "auto" column is
+               the wrench button -- auto-placed as the grid's 3rd DOM
+               child, no explicit grid-column needed. A device type
+               with nothing to configure just renders two children and
+               the column collapses to nothing. */
+            grid-template-columns: 200px minmax(0, 1fr) auto;
             gap: 0 22px;
             align-items: start;
             margin: 16px 0 0;
@@ -2160,11 +2229,17 @@ export class IrDeviceDetail extends LitElement {
             color: var(--secondary-text-color);
             margin-bottom: 5px;
         }
-        /* Below this, 200px plus a useful chip column stops fitting. */
+        /* Below this, 200px plus a useful chip column stops fitting.
+           TYPE forces itself onto its own full-width row (comp L1
+           narrow), so the emitter picker and the settings button
+           auto-flow onto row 2, columns 1 and 2. */
         @media (max-width: 700px) {
             .device-meta {
-                grid-template-columns: minmax(0, 1fr);
+                grid-template-columns: minmax(0, 1fr) auto;
                 gap: 12px 0;
+            }
+            .device-meta .stack {
+                grid-column: 1 / -1;
             }
         }
         /* The STATE MATRIX card (Cold Cuts second half, mockup CC3):
