@@ -96,14 +96,11 @@ export const trashButtonStyles = css`
  * (images/settings.svg) because it reads better at small size against
  * the grey rest state.
  *
- * SOURCE / LICENSE FLAG: images/tools.svg carries an in-file comment
- * crediting "SVG Repo, www.svgrepo.com" -- it is a third-party asset,
- * not an in-house drawing (unlike ICON_TRASH/ICON_COMB). Licensing on
- * svgrepo.com varies per icon (CC0/PD/MIT/Apache depending on the
- * uploader), so before this ships in a public release the owner needs
- * to confirm this specific icon's license and, if it requires
- * attribution, add a credit line (README/CONTRIBUTING or an in-repo
- * NOTICE) rather than shipping it silently.
+ * SOURCE: images/tools.svg carries an in-file comment crediting "SVG
+ * Repo, www.svgrepo.com" -- it is a third-party asset, not an in-house
+ * drawing (unlike ICON_TRASH/ICON_COMB). Owner-confirmed 2026-08-09:
+ * public domain / open source per SVG Repo's license terms, no
+ * attribution required, clear to ship.
  *
  * viewBox is 157x256, not MDI's 24x24 -- and unlike ICON_TRASH/
  * ICON_COMB, it is tall and narrow rather than roughly square. RULED
