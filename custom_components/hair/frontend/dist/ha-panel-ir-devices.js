@@ -5989,37 +5989,37 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 >
                     ${this._displayTemp(i)}
                 </button>`})}
-        </div>`}_renderMatrixCard(){const e=this.device.matrix,t=this._climateState()?.attributes?.matrix_cell??null,i=this._matrixCells,o=Ji(this.hass),a=o!==e.unit?ke("devices.matrix_native_range",{min:String(e.min_temp),max:String(e.max_temp),unit:e.unit}):"",s=ke("devices.matrix_summary",{cells:String(e.cells),modes:String(e.modes.length),fans:String(e.fan_modes.length),min:Qi(e.min_temp,e.unit,o,i?.precision??1),max:Qi(e.max_temp,e.unit,o,i?.precision??1),unit:o}),n=this._selectedCell(),r=i&&null!==this._selMode?this._fansFor(this._selMode):[],d=i&&null!==this._selMode?this._swingsFor(this._selMode,this._selFan):[];return F`
+        </div>`}_renderMatrixCard(){const e=this.device.matrix,t=this._climateState(),i=t?.attributes?.matrix_cell??("off"===t?.state?ke("fitting.row_off"):null),o=this._matrixCells,a=Ji(this.hass),s=a!==e.unit?ke("devices.matrix_native_range",{min:String(e.min_temp),max:String(e.max_temp),unit:e.unit}):"",n=ke("devices.matrix_summary",{cells:String(e.cells),modes:String(e.modes.length),fans:String(e.fan_modes.length),min:Qi(e.min_temp,e.unit,a,o?.precision??1),max:Qi(e.max_temp,e.unit,a,o?.precision??1),unit:a}),r=this._selectedCell(),d=o&&null!==this._selMode?this._fansFor(this._selMode):[],l=o&&null!==this._selMode?this._swingsFor(this._selMode,this._selFan):[];return F`
             <div class="matrix-card">
                 <div class="mx-head">
                     <span class="mx-title">${ke("devices.matrix_title")}</span>
-                    <span class="mx-summary" title=${a}>
-                        ${s}
+                    <span class="mx-summary" title=${s}>
+                        ${n}
                     </span>
                 </div>
-                ${null!=t?F`<div class="matrix-current">
-                          ${ke("devices.matrix_current",{cell:t})}
+                ${null!=i?F`<div class="matrix-current">
+                          ${ke("devices.matrix_current",{cell:i})}
                       </div>`:U}
-                ${i&&null!==this._selMode?F`
-                          ${this._renderPowerRow(i)}
-                          ${this._renderDimRow(ke("devices.matrix_dim_mode"),i.modes,this._selMode,e=>this._select(e,this._selFan,this._selSwing,this._selTemp))}
-                          ${r.length>0?this._renderDimRow(ke("devices.matrix_dim_fan"),r,this._selFan,e=>this._select(this._selMode,e,this._selSwing,this._selTemp)):U}
-                          ${d.length>0?this._renderDimRow(ke("devices.matrix_dim_swing"),d,this._selSwing,e=>this._select(this._selMode,this._selFan,e,this._selTemp)):U}
-                          ${this._renderMatrixGrid(t)}
+                ${o&&null!==this._selMode?F`
+                          ${this._renderPowerRow(o)}
+                          ${this._renderDimRow(ke("devices.matrix_dim_mode"),o.modes,this._selMode,e=>this._select(e,this._selFan,this._selSwing,this._selTemp))}
+                          ${d.length>0?this._renderDimRow(ke("devices.matrix_dim_fan"),d,this._selFan,e=>this._select(this._selMode,e,this._selSwing,this._selTemp)):U}
+                          ${l.length>0?this._renderDimRow(ke("devices.matrix_dim_swing"),l,this._selSwing,e=>this._select(this._selMode,this._selFan,e,this._selTemp)):U}
+                          ${this._renderMatrixGrid(i)}
                           <div class="mx-actions">
                               <span class="mx-set">
-                                  ${null!==this._selPower?ke("devices.matrix_set_state",{name:"on"===this._selPower?ke("fitting.row_on"):ke("fitting.row_off")}):n?ke("devices.matrix_set_state",{name:this._cellName(n)}):U}
+                                  ${null!==this._selPower?ke("devices.matrix_set_state",{name:"on"===this._selPower?ke("fitting.row_on"):ke("fitting.row_off")}):r?ke("devices.matrix_set_state",{name:this._cellName(r)}):U}
                               </span>
                               <button
                                   class="action-btn test-btn"
-                                  ?disabled=${this._busy||!(n||this._selPower)}
+                                  ?disabled=${this._busy||!(r||this._selPower)}
                                   @click=${this._matrixSend}
                               >
                                   ${ke("fitting.send")}
                               </button>
                               <button
                                   class="action-btn mx-cmd-btn"
-                                  ?disabled=${this._busy||!(n||this._selPower)}
+                                  ?disabled=${this._busy||!(r||this._selPower)}
                                   @click=${this._matrixSaveCommand}
                               >
                                   ${ke("devices.matrix_add_command")}

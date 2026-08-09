@@ -47,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   imported before and after this version yields two distinct wigs --
   deliberate, and supersession is there to resolve it if the two
   ever meet in the same shop.
+- **State-matrix devices get a Power row, and their type stops being
+  editable.** The STATE MATRIX card now shows an Off chip above Mode
+  (and an On chip too, for the rare unit that needs an explicit wake
+  code) -- pick one to send or save a power press the same way a cell
+  already could; picking a power chip and picking a cell are mutually
+  exclusive, and the Set line always names whichever one Send would
+  actually send. A matrix device's Type field is now a fixed label
+  instead of a dropdown: the lattice only exists because the device
+  is an air conditioner, and changing the type out from under it used
+  to tear the climate entity down mid-flight and orphan the cells, so
+  the control that could do that is gone.
 
 ### Added
 

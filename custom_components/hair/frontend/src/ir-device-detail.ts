@@ -1589,8 +1589,15 @@ export class IrDeviceDetail extends LitElement {
      * arrives (or if it cannot), the card stays summary-only. */
     private _renderMatrixCard() {
         const m = this.device.matrix!;
+        // matrix-power-row.md item 3 (optional polish): matrix_cell is
+        // absent while the climate entity is off, so the readout used
+        // to go blank instead of saying so. Cheap to add -- the state
+        // object is already fetched for the cell attribute, this just
+        // also reads .state -- so no plumbing skip needed here.
+        const climateState = this._climateState();
         const current =
-            this._climateState()?.attributes?.matrix_cell ?? null;
+            climateState?.attributes?.matrix_cell ??
+            (climateState?.state === "off" ? t("fitting.row_off") : null);
         const mc = this._matrixCells;
         // Summary range: converted to the viewer's unit with the unit
         // letter as suffix ("61 to 86 F"); when converted, the file's
