@@ -139,9 +139,12 @@ export const SETTINGS_VIEWBOX = "0 0 157 256";
  * Sized in width AND height, not `width: auto` off a single height
  * value (RULED 2026-08-09, supersedes an earlier uniform-square
  * call): the source drawing is tall and narrow, so height-only
- * sizing read as a thin sliver next to the trash can. 16x18 at rest,
- * 18x20 on hover -- the explicit width stretches it wider on purpose,
- * via the inline-svg + preserveAspectRatio="none" pattern above.
+ * sizing read as a thin sliver next to the trash can. 17.6x18 at
+ * rest, 19.8x20 on hover -- the explicit width stretches it wider on
+ * purpose, via the inline-svg + preserveAspectRatio="none" pattern
+ * above. Width bumped ~10% (owner ruling, post-launch bench pass:
+ * 16->17.6 rest, 18->19.8 hover) over the original RULED figures;
+ * height unchanged.
  */
 export const settingsButtonStyles = css`
     .settings-btn {
@@ -169,11 +172,11 @@ export const settingsButtonStyles = css`
     }
     .settings-btn .settings-icon {
         display: block;
-        width: 16px;
+        width: 17.6px;
         height: 18px;
     }
     .settings-btn:hover:not(:disabled) .settings-icon {
-        width: 18px;
+        width: 19.8px;
         height: 20px;
     }
 `;
