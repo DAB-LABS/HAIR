@@ -503,15 +503,37 @@ _stub("homeassistant.helpers.dispatcher", {
 })
 
 
+class _ExtraStoredData:
+    """Stub of homeassistant.helpers.restore_state.ExtraStoredData.
+
+    Real HA makes this an ABC with an abstract as_dict(); the stub
+    skips the ABC machinery (tests construct concrete subclasses
+    directly, never this base) but keeps the same shape so
+    climate.py's _ClimateExtraStoredData(ExtraStoredData) subclasses
+    identically against the stub and the real thing.
+    """
+
+    def as_dict(self):
+        raise NotImplementedError
+
+
 class _RestoreEntity:
     """Stub of homeassistant.helpers.restore_state.RestoreEntity."""
 
     async def async_get_last_state(self):
         return None
 
+    async def async_get_last_extra_data(self):
+        return None
+
+    @property
+    def extra_restore_state_data(self):
+        return None
+
 
 _stub("homeassistant.helpers.restore_state", {
     "RestoreEntity": _RestoreEntity,
+    "ExtraStoredData": _ExtraStoredData,
 })
 
 

@@ -33,9 +33,10 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.components.media_player import MediaPlayerState
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
-from custom_components.hair.climate import HAIRClimateEntity
+from custom_components.hair.climate import HAIRClimateEntity, _ClimateExtraStoredData
 from custom_components.hair.const import DeviceType
 from custom_components.hair.fan import HAIRFanEntity
 from custom_components.hair.light import HAIRLightEntity
@@ -77,12 +78,20 @@ async def _restored_entity(entity_cls, device, last_state, manager=None):
     """Construct an entity, stub async_get_last_state, and run
     _async_restore_state() directly -- no dispatcher wiring needed
     since restore doesn't touch it.
+
+    async_get_last_extra_data defaults to None -- "no entity has ever
+    written this payload yet", the realistic default for every
+    platform except climate (098-final-review.md's fix), and for
+    climate itself the realistic default for the one restart right
+    after that fix ships. Individual tests override it to exercise
+    the extra-data path.
     """
     mgr = manager if manager is not None else _manager()
     entity = entity_cls(device, mgr)
     entity.async_write_ha_state = MagicMock()
     entity.hass = MagicMock()
     entity.async_get_last_state = AsyncMock(return_value=last_state)
+    entity.async_get_last_extra_data = AsyncMock(return_value=None)
     await entity._async_restore_state()
     return entity, mgr
 
@@ -237,13 +246,26 @@ def _matrix_climate_device(device_id: str = "dev-1") -> IRDevice:
     return _device(DeviceType.AC, device_id=device_id, climate_matrix=True)
 
 
-async def _restored_matrix_entity(last_state, matrix=None):
+async def _restored_matrix_entity(
+    last_state, matrix=None, display_unit=UnitOfTemperature.CELSIUS,
+    extra_data=None,
+):
+    """display_unit defaults to Celsius, matching _matrix()'s own
+    default "C" file unit -- so a bare fixture (no display_unit
+    override) exercises the fallback conversion path as a real,
+    honest no-op (equal units) rather than skipping it. Tests that
+    care about the actual bug (098-final-review.md) pass a differing
+    display_unit explicitly. extra_data defaults to None -- see
+    _restored_entity's docstring for why.
+    """
     mgr = _manager()
     entity = HAIRClimateEntity(_matrix_climate_device(), mgr)
     entity.async_write_ha_state = MagicMock()
     entity.hass = MagicMock()
+    entity.hass.config.units.temperature_unit = display_unit
     entity._matrix = matrix if matrix is not None else _matrix()
     entity.async_get_last_state = AsyncMock(return_value=last_state)
+    entity.async_get_last_extra_data = AsyncMock(return_value=extra_data)
     await entity._async_restore_state()
     return entity, mgr
 
@@ -300,6 +322,118 @@ async def test_matrix_climate_restores_off_without_resolve_check():
     entity, _ = await _restored_matrix_entity(last)
     assert entity.hvac_mode == HVACMode.OFF
     assert entity._last_active_hvac_mode is None
+
+
+# ---------------------------------------------------------------------------
+# climate: matrix mode, native-unit temperature restore
+# (098-final-review.md, "THE REQUIRED FIX: restore re-reads display-unit
+# temperature as native")
+#
+# The bug: HA core reports a climate entity's temperature attributes in
+# the INSTALL's display unit, but the old restore path stored
+# last_state.attributes[ATTR_TEMPERATURE] straight into
+# self._target_temperature as if it were already native. Matrix mode is
+# the only mode where those two units can actually differ (preset
+# mode's native unit already IS the install's display unit by design),
+# so every restart compounded one uncompensated conversion: 23C ->
+# 73.4 -> 164 -> 327 -> ... The fix persists the native value itself
+# via extra_restore_state_data, converts on the one-time fallback path
+# for an entity that has never written that payload yet, and clamps to
+# the matrix's own range as a backstop regardless of source.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_matrix_climate_extra_data_wins_over_display_unit_attribute():
+    # The stored attribute is deliberately impossible (999) so the
+    # assertion only passes if extra data was actually used instead of
+    # falling through to the attribute.
+    last = State(
+        "climate.x", "cool",
+        {ATTR_TEMPERATURE: 999, ATTR_FAN_MODE: "auto", ATTR_SWING_MODE: "swing"},
+    )
+    entity, _ = await _restored_matrix_entity(
+        last,
+        display_unit=UnitOfTemperature.FAHRENHEIT,
+        extra_data=_ClimateExtraStoredData(native_target_temperature=22.0),
+    )
+    assert entity.hvac_mode == HVACMode.COOL
+    assert entity.target_temperature == 22.0
+
+
+@pytest.mark.asyncio
+async def test_matrix_climate_no_extra_data_converts_display_to_native():
+    # 71.6F is exactly 22.0C -- the matrix's one real cell. An
+    # F-display install's state machine would have written exactly
+    # this attribute for a native 22.0C setpoint.
+    last = State(
+        "climate.x", "cool",
+        {ATTR_TEMPERATURE: 71.6, ATTR_FAN_MODE: "auto", ATTR_SWING_MODE: "swing"},
+    )
+    entity, _ = await _restored_matrix_entity(
+        last, display_unit=UnitOfTemperature.FAHRENHEIT, extra_data=None,
+    )
+    assert entity.hvac_mode == HVACMode.COOL
+    assert entity.target_temperature == pytest.approx(22.0)
+
+
+@pytest.mark.asyncio
+async def test_matrix_climate_restore_idempotent_across_two_restarts():
+    # Restart 1: no extra data yet (pre-fix entity, or first boot after
+    # the fix ships) -- falls back to the converted attribute read.
+    last = State(
+        "climate.x", "cool",
+        {ATTR_TEMPERATURE: 71.6, ATTR_FAN_MODE: "auto", ATTR_SWING_MODE: "swing"},
+    )
+    entity1, _ = await _restored_matrix_entity(
+        last, display_unit=UnitOfTemperature.FAHRENHEIT, extra_data=None,
+    )
+    assert entity1.target_temperature == pytest.approx(22.0)
+
+    # Restart 2: this entity now HAS extra data -- exactly what entity1
+    # would have persisted before its own shutdown. No conversion
+    # should apply a second time.
+    carried_over = entity1.extra_restore_state_data
+    entity2, _ = await _restored_matrix_entity(
+        last, display_unit=UnitOfTemperature.FAHRENHEIT, extra_data=carried_over,
+    )
+    assert entity2.target_temperature == pytest.approx(22.0)
+    assert entity2.target_temperature == entity1.target_temperature
+
+
+@pytest.mark.asyncio
+async def test_matrix_climate_absurd_fallback_temperature_clamps_high():
+    # The live bug's exact shape: no extra data yet, and the stored
+    # attribute is already the product of several compounded
+    # conversions (73893, per 098-final-review.md's real numbers).
+    # Converting it further is still garbage; the clamp is what
+    # actually saves the entity.
+    last = State(
+        "climate.x", "cool",
+        {ATTR_TEMPERATURE: 73893, ATTR_FAN_MODE: "auto", ATTR_SWING_MODE: "swing"},
+    )
+    entity, _ = await _restored_matrix_entity(
+        last, display_unit=UnitOfTemperature.FAHRENHEIT, extra_data=None,
+    )
+    assert entity.target_temperature is not None
+    assert 16.0 <= entity.target_temperature <= 30.0
+    assert entity.target_temperature == 30.0  # matrix.max_temp
+
+
+@pytest.mark.asyncio
+async def test_matrix_climate_absurd_extra_data_temperature_clamps_low():
+    # The clamp is a backstop regardless of which path produced the
+    # value -- corrupt extra data (should never happen, but "either
+    # way" per the review) clamps exactly like a corrupt fallback read.
+    last = State(
+        "climate.x", "cool",
+        {ATTR_FAN_MODE: "auto", ATTR_SWING_MODE: "swing"},
+    )
+    entity, _ = await _restored_matrix_entity(
+        last,
+        extra_data=_ClimateExtraStoredData(native_target_temperature=-50000.0),
+    )
+    assert entity.target_temperature == 16.0  # matrix.min_temp
 
 
 # ---------------------------------------------------------------------------

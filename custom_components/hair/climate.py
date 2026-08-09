@@ -15,6 +15,7 @@ Two operating modes since Cold Cuts (v0.8.8), selected by
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
@@ -36,7 +37,7 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, State, callb
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import DOMAIN, DeviceType
@@ -114,6 +115,45 @@ async def async_setup_entry(
 
     for device in device_manager.get_all_devices():
         _on_add(device)
+
+
+@dataclass
+class _ClimateExtraStoredData(ExtraStoredData):
+    """Reboot-survival payload for HAIRClimateEntity (098-final-review.md,
+    "THE REQUIRED FIX: restore re-reads display-unit temperature as
+    native").
+
+    Home Assistant's state machine reports a climate entity's
+    temperature attributes in the INSTALL's display unit, converting
+    from whatever ``temperature_unit`` the entity itself declares --
+    and matrix mode declares the FILE's native unit, which can differ
+    from the install's display unit (see ``temperature_unit``'s
+    docstring below). The old restore path read
+    ``last_state.attributes[ATTR_TEMPERATURE]`` back as if it were
+    already native, which silently applies one uncompensated
+    display-unit conversion every restart: 23C -> 73.4 (as if F) ->
+    164 -> 327 -> ... compounding without bound.
+
+    This payload sidesteps the guesswork entirely: written and read
+    only by this entity, always in the exact unit ``_target_temperature``
+    already holds internally, so restore never has to infer which unit
+    a bare number is in. See ``_restore_native_temperature`` for the
+    one-time fallback path an entity takes on the first restart after
+    this fix ships, before it has ever written this payload.
+    """
+
+    native_target_temperature: float | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, restored: dict[str, Any]) -> _ClimateExtraStoredData | None:
+        try:
+            raw = restored["native_target_temperature"]
+        except KeyError:
+            return None
+        return cls(native_target_temperature=float(raw) if raw is not None else None)
 
 
 class HAIRClimateEntity(RestoreEntity, ClimateEntity):
@@ -204,12 +244,25 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             restored_mode = HVACMode(last_state.state)
         except ValueError:
             return
-        raw_temp = last_state.attributes.get(ATTR_TEMPERATURE)
-        restored_temp = float(raw_temp) if raw_temp is not None else None
+        restored_temp = await self._restore_native_temperature(last_state)
         restored_fan = last_state.attributes.get(ATTR_FAN_MODE)
         restored_swing = last_state.attributes.get(ATTR_SWING_MODE)
 
         if self._matrix_mode:
+            # 098-final-review.md's required fix: a sanity clamp on
+            # top of the native-unit read above, so a value already
+            # corrupted by the old bug (or any other bad number that
+            # somehow made it into storage) self-heals to a real,
+            # in-range setpoint on the next restart instead of
+            # resurrecting forever. Cheap and safe either way --
+            # resolve_cell below snaps to the nearest real cell
+            # regardless, but it validates the COMBINATION, not the
+            # raw value that gets written to _target_temperature.
+            if restored_temp is not None and self._matrix is not None:
+                restored_temp = min(
+                    max(restored_temp, self._matrix.min_temp),
+                    self._matrix.max_temp,
+                )
             if restored_mode != HVACMode.OFF:
                 file_mode = self._file_mode_for(restored_mode)
                 cell = (
@@ -235,6 +288,48 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 self._fan_mode = restored_fan
         if restored_mode != HVACMode.OFF:
             self._last_active_hvac_mode = restored_mode
+
+    async def _restore_native_temperature(self, last_state: State) -> float | None:
+        """The restored target temperature, in THIS entity's native
+        unit -- the one ``_target_temperature`` always holds (098-
+        final-review.md's required fix).
+
+        Prefers ``extra_restore_state_data``: this entity's own
+        payload from before its last shutdown, already native, no
+        unit inference needed. Falls back to
+        ``last_state.attributes[ATTR_TEMPERATURE]`` -- converting it
+        from the install's display unit for matrix-mode entities only,
+        since matrix mode is the one case where the entity's native
+        unit (the FILE's unit) can differ from the install's display
+        unit (see ``temperature_unit``'s docstring). Preset mode's
+        native unit already IS the install's display unit by design,
+        so its fallback stays a straight, unconverted read, same as
+        before this fix.
+
+        The fallback only fires for an entity that has never written
+        the extra-data payload yet -- the one restart right after this
+        fix ships. Every restart after that reads its own number back
+        untouched, forever.
+        """
+        extra = await self.async_get_last_extra_data()
+        if extra is not None:
+            restored = _ClimateExtraStoredData.from_dict(extra.as_dict())
+            if restored is not None:
+                return restored.native_target_temperature
+        raw_temp = last_state.attributes.get(ATTR_TEMPERATURE)
+        if raw_temp is None:
+            return None
+        value = float(raw_temp)
+        if self._matrix_mode and self.hass is not None:
+            display_unit = self.hass.config.units.temperature_unit
+            native_unit = self.temperature_unit
+            if display_unit and display_unit != native_unit:
+                value = TemperatureConverter.convert(value, display_unit, native_unit)
+        return value
+
+    @property
+    def extra_restore_state_data(self) -> _ClimateExtraStoredData:
+        return _ClimateExtraStoredData(self._target_temperature)
 
     def _capture_active_mode(self) -> None:
         """Remember the mode about to be left, before flipping to OFF.
