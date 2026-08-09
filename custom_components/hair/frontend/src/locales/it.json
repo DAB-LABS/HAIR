@@ -738,5 +738,20 @@
     "wigs.route.topup_offer": "Inviare questi comandi anche agli altri dispositivi che usavano la vecchia wig?",
     "supersede.update_fitted_perfect": "{name} porta una CALZATA PERFETTA di {who}. Sostituirlo rimuove qualsiasi CALZATA PERFETTA esistente.",
     "supersede.added.one": "Wig aggiungerà 1 segnale: {names}.",
-    "supersede.added.other": "Wig aggiungerà {count} segnali: {names}."
+    "supersede.added.other": "Wig aggiungerà {count} segnali: {names}.",
+    "devsettings.title": "Impostazioni dispositivo",
+    "devsettings.no_sections": "Nessuna impostazione specifica per questo tipo di dispositivo, per ora.",
+    "devsettings.power_section_label": "Monitoraggio consumi",
+    "devsettings.power_explainer": "Il sensore deve indicare i watt.",
+    "devsettings.sensor_label": "Sensore di consumo",
+    "devsettings.sensor_none": "Nessuno",
+    "devsettings.sensor_custom": "ID entità personalizzato...",
+    "devsettings.custom_sensor_label": "ID entità del sensore",
+    "devsettings.off_below_label": "Spegni sotto (W)",
+    "devsettings.on_above_label": "Accendi sopra (W)",
+    "devsettings.readout_unavailable": "Non ancora disponibile.",
+    "devsettings.readout_now": "Ora: {value}",
+    "devsettings.override_note": "Le letture sostituiscono lo stato presunto acceso/spento del dispositivo.",
+    "devsettings.validation_incomplete": "Inserisci entrambe le soglie in watt.",
+    "devsettings.validation_order": "«Accendi sopra» deve essere maggiore o uguale a «Spegni sotto»."
 }

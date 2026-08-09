@@ -15,14 +15,14 @@
  * held back (design brief: "mocked for layout only, ships later") even
  * though the section-accent styling below already anticipates it.
  *
- * STRINGS: every user-facing string in this file is a plain English
- * literal, not routed through t()/en.json. Commit 6 of this plan
- * (docs/internal/plans/device-settings-power-sensor-coding-plan.md)
- * owns wiring these through the locale system and syncing the other
- * nine languages -- doing that here, one commit early, would touch
- * en.json without the matching nine-locale updates the parity tests
- * (tests/test_locales.py) require, breaking the tree for this commit's
- * own sake.
+ * STRINGS: commit 5 shipped every user-facing string here as a plain
+ * English literal rather than routing through t()/en.json, since
+ * touching en.json without the matching nine-locale sync would have
+ * broken the parity tests (tests/test_locales.py). Commit 6 wires
+ * everything through the "devsettings.*" locale namespace (plus the
+ * existing common.close/common.save/common.saving keys for the
+ * action bar) and adds the nine-language translations alongside it,
+ * landing both halves together so the tree stays green throughout.
  *
  * Bench fix pattern reused from ir-save-new-dialog.ts: one persistent
  * <ha-dialog> for the component's whole life, its direct children
@@ -47,8 +47,9 @@
  * (documented in device-settings-power-sensor.md's sensor-class
  * guidance).
  */
-import { LitElement, html, css, nothing } from "lit";
+import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { DeviceTypeId, IRDevice } from "./types.js";
@@ -174,10 +175,10 @@ export class IrDeviceSettingsDialog extends LitElement {
         const off = parseFloat(this._offBelow);
         const on = parseFloat(this._onAbove);
         if (Number.isNaN(off) || Number.isNaN(on)) {
-            return "Enter both thresholds in watts.";
+            return t("devsettings.validation_incomplete");
         }
         if (on < off) {
-            return "On above must be at or above off below.";
+            return t("devsettings.validation_order");
         }
         return null;
     }
@@ -233,7 +234,7 @@ export class IrDeviceSettingsDialog extends LitElement {
         return html`
             <ha-dialog
                 open
-                heading="Device settings"
+                heading=${t("devsettings.title")}
                 scrimClickAction=""
                 @closed=${this._close}
             >
@@ -249,9 +250,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                 <ha-alert alert-type="error">${this._error}</ha-alert>
             </div>
             <div ?hidden=${sections.length > 0}>
-                <p class="empty-state">
-                    No device-specific settings for this device type yet.
-                </p>
+                <p class="empty-state">${t("devsettings.no_sections")}</p>
             </div>
             <div ?hidden=${!sections.includes("power")}>
                 ${this._renderPowerSection()}
@@ -262,7 +261,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                     @click=${this._close}
                     ?disabled=${this._busy}
                 >
-                    Close
+                    ${t("common.close")}
                 </button>
                 <span class="spacer"></span>
                 <button
@@ -270,7 +269,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                     @click=${this._save}
                     ?disabled=${this._busy || !!this._validationError}
                 >
-                    ${this._busy ? "Saving..." : "Save"}
+                    ${this._busy ? t("common.saving") : t("common.save")}
                 </button>
             </div>
         `;
@@ -284,17 +283,21 @@ export class IrDeviceSettingsDialog extends LitElement {
             : undefined;
         return html`
             <section class="settings-section section-power">
-                <h3 class="section-label">Power monitoring</h3>
-                <p class="section-explainer">The sensor must report watts.</p>
+                <h3 class="section-label">
+                    ${t("devsettings.power_section_label")}
+                </h3>
+                <p class="section-explainer">
+                    ${t("devsettings.power_explainer")}
+                </p>
 
                 <div class="field">
-                    <label>Power sensor</label>
+                    <label>${t("devsettings.sensor_label")}</label>
                     <select
                         .value=${this._sensorChoice}
                         @change=${this._onSensorChoiceChanged}
                         ?disabled=${this._busy}
                     >
-                        <option value="">None</option>
+                        <option value="">${t("devsettings.sensor_none")}</option>
                         ${candidates.map(
                             (c) => html`
                                 <option
@@ -309,13 +312,16 @@ export class IrDeviceSettingsDialog extends LitElement {
                             value="__custom__"
                             ?selected=${this._sensorChoice === "__custom__"}
                         >
-                            Custom entity ID...
+                            ${t("devsettings.sensor_custom")}
                         </option>
                     </select>
                 </div>
 
                 <div ?hidden=${this._sensorChoice !== "__custom__"} class="field">
-                    <label>Sensor entity ID</label>
+                    <label>${t("devsettings.custom_sensor_label")}</label>
+                    <!-- Placeholder deliberately not localized: it
+                         demonstrates entity-ID syntax (always ASCII
+                         snake_case), not translatable prose. -->
                     <input
                         type="text"
                         placeholder="sensor.living_room_tv_power"
@@ -330,7 +336,7 @@ export class IrDeviceSettingsDialog extends LitElement {
 
                 <div ?hidden=${!sensorPicked} class="pair-grid field">
                     <div>
-                        <label>Off below (W)</label>
+                        <label>${t("devsettings.off_below_label")}</label>
                         <input
                             type="number"
                             .value=${this._offBelow}
@@ -342,7 +348,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                         />
                     </div>
                     <div>
-                        <label>On above (W)</label>
+                        <label>${t("devsettings.on_above_label")}</label>
                         <input
                             type="number"
                             .value=${this._onAbove}
@@ -360,7 +366,7 @@ export class IrDeviceSettingsDialog extends LitElement {
                 </div>
 
                 <p ?hidden=${!sensorPicked} class="section-override-note">
-                    Readings override the device's assumed on/off state.
+                    ${t("devsettings.override_note")}
                 </p>
             </section>
         `;
@@ -372,13 +378,14 @@ export class IrDeviceSettingsDialog extends LitElement {
     } | undefined) {
         if (!state || state.state === undefined) {
             return html`<span class="readout-dot readout-unknown"></span>
-                Not available yet.`;
+                ${t("devsettings.readout_unavailable")}`;
         }
         const raw = parseFloat(state.state);
         const unit = state.attributes?.unit_of_measurement ?? "";
         if (Number.isNaN(raw)) {
+            const value = unit ? `${state.state} ${unit}` : state.state;
             return html`<span class="readout-dot readout-unknown"></span>
-                Now: ${state.state}${unit ? ` ${unit}` : nothing}`;
+                ${t("devsettings.readout_now", { value })}`;
         }
         const valueW = unit === "kW" ? raw * 1000 : raw;
         const offBelow = parseFloat(this._offBelow);
@@ -394,8 +401,9 @@ export class IrDeviceSettingsDialog extends LitElement {
                 : verdict === "off"
                   ? "readout-off"
                   : "readout-hold";
+        const value = unit ? `${raw} ${unit}` : `${raw}`;
         return html`<span class="readout-dot ${dotClass}"></span>
-            Now: ${raw}${unit ? ` ${unit}` : nothing}`;
+            ${t("devsettings.readout_now", { value })}`;
     }
 
     static styles = [

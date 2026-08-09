@@ -1689,7 +1689,7 @@ export class IrDeviceDetail extends LitElement {
                     ? html`
                           <button
                               class="settings-btn"
-                              title="Device settings"
+                              title=${t("devsettings.title")}
                               ?disabled=${this._busy}
                               @click=${() => (this._settingsOpen = true)}
                           >

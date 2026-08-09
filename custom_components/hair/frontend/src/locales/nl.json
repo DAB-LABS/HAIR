@@ -738,5 +738,20 @@
     "wigs.route.topup_offer": "Deze opdrachten ook naar andere apparaten sturen die de oude wig gebruikten?",
     "supersede.update_fitted_perfect": "{name} draagt een PERFECTE PASVORM van {who}. Vervangen verwijdert alle bestaande PERFECTE PASVORMEN.",
     "supersede.added.one": "Wig voegt 1 signaal toe: {names}.",
-    "supersede.added.other": "Wig voegt {count} signalen toe: {names}."
+    "supersede.added.other": "Wig voegt {count} signalen toe: {names}.",
+    "devsettings.title": "Apparaatinstellingen",
+    "devsettings.no_sections": "Nog geen specifieke instellingen voor dit apparaattype.",
+    "devsettings.power_section_label": "Stroombewaking",
+    "devsettings.power_explainer": "De sensor moet in watt meten.",
+    "devsettings.sensor_label": "Stroomsensor",
+    "devsettings.sensor_none": "Geen",
+    "devsettings.sensor_custom": "Aangepaste entiteit-ID...",
+    "devsettings.custom_sensor_label": "Entiteit-ID van de sensor",
+    "devsettings.off_below_label": "Uit onder (W)",
+    "devsettings.on_above_label": "Aan boven (W)",
+    "devsettings.readout_unavailable": "Nog niet beschikbaar.",
+    "devsettings.readout_now": "Nu: {value}",
+    "devsettings.override_note": "Metingen overschrijven de aangenomen aan/uit-status van het apparaat.",
+    "devsettings.validation_incomplete": "Voer beide drempelwaarden in watt in.",
+    "devsettings.validation_order": "\"Aan boven\" moet minstens gelijk zijn aan \"Uit onder\"."
 }

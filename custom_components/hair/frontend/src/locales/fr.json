@@ -738,5 +738,20 @@
     "wigs.route.topup_offer": "Envoyer aussi ces commandes aux autres appareils qui utilisaient l'ancienne wig ?",
     "supersede.update_fitted_perfect": "{name} porte un AJUSTEMENT PARFAIT par {who}. Le remplacer supprime tout AJUSTEMENT PARFAIT existant.",
     "supersede.added.one": "Wig ajoutera 1 signal : {names}.",
-    "supersede.added.other": "Wig ajoutera {count} signaux : {names}."
+    "supersede.added.other": "Wig ajoutera {count} signaux : {names}.",
+    "devsettings.title": "Paramètres de l'appareil",
+    "devsettings.no_sections": "Aucun paramètre spécifique pour ce type d'appareil pour le moment.",
+    "devsettings.power_section_label": "Surveillance de la consommation",
+    "devsettings.power_explainer": "Le capteur doit indiquer des watts.",
+    "devsettings.sensor_label": "Capteur de consommation",
+    "devsettings.sensor_none": "Aucun",
+    "devsettings.sensor_custom": "ID d'entité personnalisé...",
+    "devsettings.custom_sensor_label": "ID d'entité du capteur",
+    "devsettings.off_below_label": "Éteindre en dessous de (W)",
+    "devsettings.on_above_label": "Allumer au-dessus de (W)",
+    "devsettings.readout_unavailable": "Pas encore disponible.",
+    "devsettings.readout_now": "Maintenant : {value}",
+    "devsettings.override_note": "Les relevés remplacent l'état supposé allumé/éteint de l'appareil.",
+    "devsettings.validation_incomplete": "Saisissez les deux seuils en watts.",
+    "devsettings.validation_order": "« Allumer au-dessus de » doit être au moins égal à « Éteindre en dessous de »."
 }

@@ -738,5 +738,20 @@
     "wigs.route.topup_offer": "Send these commands to other devices that used the old wig too?",
     "supersede.update_fitted_perfect": "{name} carries a PERFECT FIT by {who}. Replacing it removes any existing PERFECT FITS.",
     "supersede.added.one": "Wig will add 1 signal: {names}.",
-    "supersede.added.other": "Wig will add {count} signals: {names}."
+    "supersede.added.other": "Wig will add {count} signals: {names}.",
+    "devsettings.title": "Device settings",
+    "devsettings.no_sections": "No device-specific settings for this device type yet.",
+    "devsettings.power_section_label": "Power monitoring",
+    "devsettings.power_explainer": "The sensor must report watts.",
+    "devsettings.sensor_label": "Power sensor",
+    "devsettings.sensor_none": "None",
+    "devsettings.sensor_custom": "Custom entity ID...",
+    "devsettings.custom_sensor_label": "Sensor entity ID",
+    "devsettings.off_below_label": "Off below (W)",
+    "devsettings.on_above_label": "On above (W)",
+    "devsettings.readout_unavailable": "Not available yet.",
+    "devsettings.readout_now": "Now: {value}",
+    "devsettings.override_note": "Readings override the device's assumed on/off state.",
+    "devsettings.validation_incomplete": "Enter both thresholds in watts.",
+    "devsettings.validation_order": "On above must be at or above off below."
 }
