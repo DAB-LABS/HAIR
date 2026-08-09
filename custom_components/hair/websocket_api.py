@@ -354,6 +354,25 @@ async def ws_update_device(
     if "emitter_entity_ids" in msg:
         device.emitter_entity_ids = list(msg["emitter_entity_ids"])
     if "device_type" in msg:
+        # TYPE LOCK (matrix-power-row.md item 4, ruled 2026-08-08): the
+        # type is load-bearing wiring on a matrix device, not a label --
+        # entity_factory.DEVICE_TYPE_TO_PLATFORM is what mints the
+        # climate entity the lattice exists to drive, keyed off exactly
+        # this field. Flipping an air conditioner to "fan" here would
+        # tear that entity down mid-automation and orphan the cells; no
+        # legitimate journey ends there, since a matrix only ever
+        # arrives through a climate import or capture. The frontend
+        # already replaces the type dropdown with a static label on a
+        # matrix device (item 4); this is the belt to that belt's
+        # braces, so a stale client can't do what the current UI no
+        # longer offers.
+        if device.climate_matrix:
+            connection.send_error(
+                msg["id"],
+                "invalid_format",
+                "Device type is fixed by its state matrix",
+            )
+            return
         device.device_type = DeviceType(msg["device_type"])
 
     # Power monitoring fields validate together before anything is
@@ -4987,10 +5006,11 @@ async def ws_device_matrix_send(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/devices/matrix-command",
     vol.Required("device_id"): str,
-    vol.Required("mode"): str,
+    vol.Optional("mode"): str,
     vol.Optional("fan"): vol.Any(str, None),
     vol.Optional("swing"): vol.Any(str, None),
     vol.Optional("temp"): vol.Any(int, float, None),
+    vol.Optional("power"): vol.Any("on", "off"),
 })
 @websocket_api.async_response
 async def ws_device_matrix_command(
@@ -4998,47 +5018,91 @@ async def ws_device_matrix_command(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Save one exact cell as a stored command (save-state-as-command).
+    """Save one exact cell, or a power code, as a stored command
+    (save-state-as-command).
 
-    The exact cell becomes an IRCommand named by the display grammar,
-    identity stamped fresh from its Pronto -- the same per-signal
-    stamping ws_wig_make_device does, so a saved state matches its
-    off-the-air twin everywhere identities are compared. The command's
-    ``source`` is CommandSource.MATRIX, which is the whole origin
-    mechanism: the frontend renders the STATE origin chip off
-    ``command.source == "matrix"`` with no extra payload key.
-    ``add_command`` replaces by name, so saving the same state twice
-    refreshes the one command instead of stacking twins. No auto-map
-    runs: matrix-mode climate never reads command_mapping (see
-    climate.py), and a display-grammar name matches no standard action
-    anyway.
+    ``power`` promotes the matrix's off/on code the same way
+    matrix-send's power path does -- it wins over any cell
+    coordinates, and mode is required only when power is absent
+    (matrix-power-row.md item 2). Either path becomes an IRCommand
+    named by the display grammar, identity stamped fresh from its
+    Pronto -- the same per-signal stamping ws_wig_make_device does, so
+    a saved state matches its off-the-air twin everywhere identities
+    are compared. The command's ``source`` is CommandSource.MATRIX,
+    which is the whole origin mechanism: the frontend renders the
+    STATE origin chip off ``command.source == "matrix"`` with no extra
+    payload key. ``add_command`` replaces by name, so saving the same
+    state twice refreshes the one command instead of stacking twins.
+    No auto-map runs on either path: matrix-mode climate never reads
+    command_mapping (see climate.py), and a display-grammar name
+    matches no standard action anyway -- the stored "Power Off"
+    command exists for dashboards, buttons, and automations, which is
+    exactly what the LG R09AWN report (matrix-power-row.md) was
+    missing.
     """
     resolved = await _matrix_for_request(hass, connection, msg)
     if resolved is None:
         return
     data, device, matrix = resolved
     from .models import CaptureResult
-    from .wig_climate import cell_display_name, exact_cell, unit_letter
+    from .wig_climate import (
+        cell_display_name,
+        exact_cell,
+        state_display_name,
+        unit_letter,
+    )
     from .wig_identity import wig_signal_identity
 
-    cell = exact_cell(
-        matrix, msg["mode"], msg.get("fan"), msg.get("swing"),
-        msg.get("temp"),
-    )
-    if cell is None:
+    power = msg.get("power")
+    mode = msg.get("mode")
+    if power is not None and mode is not None:
         connection.send_error(
-            msg["id"], "not_found", "No cell at those coordinates"
+            msg["id"], "invalid_format", "Provide power or mode"
         )
         return
-    ident = await hass.async_add_executor_job(
-        wig_signal_identity, cell.pronto
-    )
-    if ident is None:
-        # Possible only for a hand-edited matrix file whose cell no
-        # longer validates; refuse honestly rather than store a
-        # command that cannot transmit.
+    if power is not None:
+        pronto = matrix.off if power == "off" else matrix.on
+        if pronto is None:
+            connection.send_error(
+                msg["id"], "not_found", "This matrix has no on code"
+            )
+            return
+        name = state_display_name(power)
+        send_count = 1
+    elif mode is not None:
+        cell = exact_cell(
+            matrix, mode, msg.get("fan"), msg.get("swing"), msg.get("temp"),
+        )
+        if cell is None:
+            connection.send_error(
+                msg["id"], "not_found", "No cell at those coordinates"
+            )
+            return
+        # Mint-time naming (unit ruling 2026-07-29): the saved
+        # command's name freezes in the install's unit as of NOW; it
+        # never rewrites, even if the install later changes units.
+        # The frontend's Set-state line previews this exact string.
+        name = cell_display_name(
+            cell,
+            unit=matrix.unit,
+            display_unit=unit_letter(hass.config.units.temperature_unit),
+            precision=matrix.precision,
+        )
+        pronto = cell.pronto
+        send_count = cell.send_count
+    else:
         connection.send_error(
-            msg["id"], "invalid_format", "The cell's code does not validate"
+            msg["id"], "invalid_format", "Provide power or mode"
+        )
+        return
+
+    ident = await hass.async_add_executor_job(wig_signal_identity, pronto)
+    if ident is None:
+        # Possible only for a hand-edited matrix file whose cell (or
+        # off/on code) no longer validates; refuse honestly rather
+        # than store a command that cannot transmit.
+        connection.send_error(
+            msg["id"], "invalid_format", "The code does not validate"
         )
         return
     capture = CaptureResult(
@@ -5047,19 +5111,7 @@ async def ws_device_matrix_command(
         raw_timings=list(ident.raw_timings),
         frequency=ident.frequency,
     )
-    # Mint-time naming (unit ruling 2026-07-29): the saved command's
-    # name freezes in the install's unit as of NOW; it never rewrites,
-    # even if the install later changes units. The frontend's Set-state
-    # line previews this exact string.
-    command = capture.to_command(
-        cell_display_name(
-            cell,
-            unit=matrix.unit,
-            display_unit=unit_letter(hass.config.units.temperature_unit),
-            precision=matrix.precision,
-        ),
-        CommandCategory.CUSTOM,
-    )
+    command = capture.to_command(name, CommandCategory.CUSTOM)
     command.source = CommandSource.MATRIX
     command.byte_hash = ident.byte_hash
     command.decoded_protocol = ident.decoded_protocol
@@ -5069,7 +5121,7 @@ async def ws_device_matrix_command(
     command.decoded_extras = (
         dict(ident.decoded_extras) if ident.decoded_extras else None
     )
-    command.send_count = max(1, cell.send_count or 1)
+    command.send_count = max(1, send_count or 1)
     device.add_command(command)
     manager: DeviceManager = data["device_manager"]
     await manager.async_update_device(device)
