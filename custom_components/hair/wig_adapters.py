@@ -118,8 +118,15 @@ def broadlink_packet_to_pronto(packet: bytes) -> str | None:
     Packet: 0x26 type byte (anything else, incl. RF 0xb2/0xd7, is
     refused), repeat byte, little-endian payload length, then tick
     durations (2^-15 s units; values >255 as 0x00 + big-endian pair),
-    alternating mark/space starting with a mark. The trailing 3333-tick
-    terminator space rides through harmlessly as the final gap.
+    alternating mark/space starting with a mark. The trailing tick is
+    almost always the Broadlink RM's own learning-mode capture
+    timeout -- about 102ms, baked into 96% of the SmartIR climate
+    corpus -- not part of the code; it broke 16-bit-limited emitters
+    like Tuya/ZoSung, which reject anything over 65,535us
+    (GH #93). Dropped here since 0.9.8, per smartir-trailing-gap.md:
+    the source format says a trailing silence is meaningless on
+    transmit, so removing it is a bit-identical waveform, not a
+    different code.
     """
     if len(packet) < 6 or packet[0] != 0x26:
         return None
@@ -139,6 +146,16 @@ def broadlink_packet_to_pronto(packet: bytes) -> str | None:
         ticks.append(value)
     if len(ticks) < 2:
         return None
+    # SmartIR trailing gap (smartir-trailing-gap.md, 4b): ticks
+    # alternate starting with a mark, so an EVEN-length list ends on a
+    # space -- drop it before encoding so newly-converted wigs stop
+    # storing the capture-timeout artifact (see the docstring above).
+    # An odd-length list already ends on a mark; nothing to drop.
+    # This only changes what NEW conversions produce -- existing
+    # stored wigs and their hashes are untouched (owner-accepted
+    # re-import hash split, smartir-trailing-gap.md 10.4).
+    if len(ticks) % 2 == 0:
+        ticks.pop()
     timings = [
         round(t * _BROADLINK_TICK_US) * (1 if idx % 2 == 0 else -1)
         for idx, t in enumerate(ticks)
