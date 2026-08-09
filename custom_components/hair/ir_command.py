@@ -79,6 +79,22 @@ class ProntoCommand(Command):
             if space_us > 0:
                 self._timings.append(-space_us)
 
+        # SmartIR trailing gap (smartir-trailing-gap.md, 4a): drop a
+        # trailing space of any size before it reaches an emitter. This
+        # is safe because (1) a transmitter stops at the end of the
+        # timings array regardless of what the final value is -- the
+        # source formats themselves say a trailing silence is
+        # meaningless on transmit -- and (2) whole-frame send_count
+        # spacing never came from this value; it's produced by
+        # device_manager._async_broadcast's own SEND_REPEAT_GAP sleep
+        # between frames. Left in place, this same value is a captured
+        # Broadlink RM's ~102ms learning-mode timeout, which 16-bit
+        # emitters (Tuya/ZoSung) reject outright (GH #93). A trailing
+        # MARK is left untouched -- that would be a malformed code, a
+        # different problem for the comb, not this strip.
+        if self._timings and self._timings[-1] < 0:
+            self._timings.pop()
+
         super().__init__(
             modulation=self._frequency,
             repeat_count=repeat_count,
@@ -110,6 +126,13 @@ class RawTimingsCommand(Command):
             else:
                 # Space
                 self._timings.append(-abs(val))
+
+        # SmartIR trailing gap (smartir-trailing-gap.md, 4a): same strip
+        # as ProntoCommand above -- sniffed raw rows carry their own
+        # receiver-side trailing gaps, and the same transmit-safety
+        # reasoning applies (see the comment there for the full case).
+        if self._timings and self._timings[-1] < 0:
+            self._timings.pop()
 
         super().__init__(
             modulation=frequency,

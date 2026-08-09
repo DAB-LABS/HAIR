@@ -761,12 +761,15 @@ class TestParseReceivedSignal:
         result = EventParser.parse_received_signal(signal)
         assert result is not None
 
-        # The Pronto code should be parseable.
+        # The Pronto code should be parseable. ProntoCommand strips the
+        # trailing space on the way back out (smartir-trailing-gap.md
+        # 4a), so the recovered list is one shorter than the 6 raw
+        # values that went in -- this signal's last timing is a space.
         cmd = ProntoCommand(result.code)
         recovered = cmd.get_raw_timings()
-        assert len(recovered) == 6
+        assert len(recovered) == 5
         # Round-trip tolerance.
-        for orig, rec in zip(result.raw_timings, recovered, strict=True):
+        for orig, rec in zip(result.raw_timings, recovered, strict=False):
             assert abs(abs(orig) - abs(rec)) < 50
 
 
