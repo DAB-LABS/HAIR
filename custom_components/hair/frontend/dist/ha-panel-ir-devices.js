@@ -5642,19 +5642,30 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                 font-weight: 500;
                 color: var(--section-accent-bright, var(--primary-text-color));
             }
-            /* Indented to line up with the live-readout's text, not
-             * the section's left edge (owner ruling, bench pass): the
-             * readout is a flex row with 10px padding-left, an 8px
-             * dot, and an 8px gap before its text starts, so 26px of
-             * padding here lands this paragraph's text under "Now:"
-             * rather than under the dot. Shared by both the section
-             * intro (before the picker) and the per-field explainer
-             * (under it) -- same look, same alignment, two spots. */
+            /* Indented to line up with the entity picker's own text
+             * (owner correction, bench pass -- the earlier 26px lined
+             * up with the live-readout instead, which read as too
+             * much for a caption). input[type="text"]/select get
+             * padding: 8px from dialogStyles, so 8px here lands this
+             * paragraph's text under the "F" of whatever's selected
+             * in the dropdown. Shared by both the section intro
+             * (before the picker) and the per-field explainer (under
+             * it) -- same look, same alignment, two spots. */
             .section-explainer {
                 margin: 0 0 12px;
-                padding-left: 26px;
+                padding-left: 8px;
                 font-size: 0.8rem;
                 color: var(--secondary-text-color);
+            }
+            /* The per-field explainer ("The sensor must report
+             * watts.") sits directly under the select with no gap by
+             * default -- owner correction, bench pass: a little
+             * standoff from the box above it reads better than
+             * touching. Scoped to the .field instance only, so the
+             * section-intro paragraph (which sits under the heading,
+             * not a box) keeps its original spacing. */
+            .field > .section-explainer {
+                margin-top: 6px;
             }
             /* Labels bold, descriptive text (.section-explainer) not
              * -- owner ruling, bench pass. Scoped to this section so
