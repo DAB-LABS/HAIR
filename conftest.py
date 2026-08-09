@@ -109,6 +109,8 @@ _stub("homeassistant.const", {
     "EVENT_HOMEASSISTANT_STOP": "homeassistant_stop",
     "STATE_UNAVAILABLE": "unavailable",
     "STATE_UNKNOWN": "unknown",
+    "STATE_ON": "on",
+    "STATE_OFF": "off",
     "ATTR_UNIT_OF_MEASUREMENT": "unit_of_measurement",
     "__version__": "2026.7.0",
 })
@@ -270,6 +272,8 @@ class _ClimateEntity:
 
 _stub("homeassistant.components.climate", {
     "ATTR_TEMPERATURE": "temperature",
+    "ATTR_FAN_MODE": "fan_mode",
+    "ATTR_SWING_MODE": "swing_mode",
     "ClimateEntity": _ClimateEntity,
     "ClimateEntityFeature": _ClimateEntityFeature,
     "HVACMode": _HVACMode,
@@ -458,6 +462,18 @@ _stub("homeassistant.helpers.event", {
 _stub("homeassistant.helpers.dispatcher", {
     "async_dispatcher_send": MagicMock(),
     "async_dispatcher_connect": MagicMock(),
+})
+
+
+class _RestoreEntity:
+    """Stub of homeassistant.helpers.restore_state.RestoreEntity."""
+
+    async def async_get_last_state(self):
+        return None
+
+
+_stub("homeassistant.helpers.restore_state", {
+    "RestoreEntity": _RestoreEntity,
 })
 
 

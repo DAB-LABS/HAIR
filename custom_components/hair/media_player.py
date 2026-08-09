@@ -10,9 +10,11 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_ON
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
@@ -66,7 +68,7 @@ async def async_setup_entry(
         _on_add(device)
 
 
-class HAIRMediaPlayerEntity(MediaPlayerEntity):
+class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
     """IR-controlled media player."""
 
     _attr_has_entity_name = True
@@ -131,6 +133,7 @@ class HAIRMediaPlayerEntity(MediaPlayerEntity):
         return self._is_muted
 
     async def async_added_to_hass(self) -> None:
+        await self._async_restore_state()
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
@@ -139,6 +142,23 @@ class HAIRMediaPlayerEntity(MediaPlayerEntity):
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
+
+    async def _async_restore_state(self) -> None:
+        """Reboot survival (Device Settings, v0.9.9). Seeds assumed
+        state from the entity's state before this restart -- the power
+        monitor's STARTUP SEED (power_monitor.py, commit 2) corrects it
+        immediately after if a sensor is configured, so restore only
+        has to get close. Clamped to plain ON/OFF like the verdict
+        handler: HAIR has no way to know whether a restored PLAYING/
+        PAUSED/IDLE state still holds, so it isn't restored.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._state = (
+                MediaPlayerState.ON
+                if last_state.state == STATE_ON
+                else MediaPlayerState.OFF
+            )
 
     @callback
     def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
