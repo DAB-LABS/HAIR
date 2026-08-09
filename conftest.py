@@ -56,11 +56,23 @@ def _stub(dotted: str, attrs: dict | None = None) -> ModuleType:
 # homeassistant.core
 # ---------------------------------------------------------------------------
 _stub("homeassistant")
+
+
+class _State:
+    """Minimal stub of homeassistant.core.State (power_monitor.py)."""
+
+    def __init__(self, entity_id="", state="unknown", attributes=None):
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = attributes or {}
+
+
 _stub("homeassistant.core", {
     "HomeAssistant": MagicMock,
     "callback": lambda fn: fn,
     "CALLBACK_TYPE": None,  # type alias, not used at runtime in tests
     "Event": MagicMock,
+    "State": _State,
     # Instance, not the class: code compares `hass.state is not
     # CoreState.running`, and attribute access must auto-create.
     "CoreState": MagicMock(),
@@ -85,12 +97,19 @@ class _UnitOfTemperature:
     FAHRENHEIT = "°F"
     CELSIUS = "°C"
 
+class _UnitOfPower(StrEnum):
+    WATT = "W"
+    KILO_WATT = "kW"
+
 _stub("homeassistant.const", {
     "Platform": _Platform,
     "UnitOfTemperature": _UnitOfTemperature,
+    "UnitOfPower": _UnitOfPower,
     "EVENT_HOMEASSISTANT_STARTED": "homeassistant_started",
     "EVENT_HOMEASSISTANT_STOP": "homeassistant_stop",
     "STATE_UNAVAILABLE": "unavailable",
+    "STATE_UNKNOWN": "unknown",
+    "ATTR_UNIT_OF_MEASUREMENT": "unit_of_measurement",
     "__version__": "2026.7.0",
 })
 

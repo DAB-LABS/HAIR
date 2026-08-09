@@ -21,6 +21,7 @@ from .const import (
 )
 from .entity_factory import EntityFactory
 from .models import IRCommand, IRDevice
+from .power_monitor import PowerMonitor
 from .storage import HAIRStore
 from .vocabulary import localized_auto_map
 
@@ -112,11 +113,16 @@ class DeviceManager:
         store: HAIRStore,
         entity_factory: EntityFactory,
         config_entry_id: str,
+        power_monitor: PowerMonitor | None = None,
     ) -> None:
         self._hass = hass
         self._store = store
         self._entity_factory = entity_factory
         self._config_entry_id = config_entry_id
+        # Optional: absent in tests that don't exercise power monitoring.
+        # Rebuilt/torn down alongside entities so a sensor picked, changed,
+        # or cleared in the settings dialog takes effect without a reload.
+        self._power_monitor = power_monitor
         # Parsed climate matrices by device id (Cold Cuts). Loaded from
         # hair/matrices/ on first ask, held for the install's lifetime:
         # matrix files only change through adopt/duplicate/delete, all
@@ -131,6 +137,8 @@ class DeviceManager:
         await self._store.async_save()
         self._register_ha_device(device)
         await self._entity_factory.async_create_entities(device)
+        if self._power_monitor is not None:
+            self._power_monitor.rebuild_device(device)
         return device
 
     async def async_update_device(self, device: IRDevice) -> IRDevice:
@@ -138,6 +146,8 @@ class DeviceManager:
         await self._store.async_save()
         self._register_ha_device(device)
         await self._entity_factory.async_update_entities(device)
+        if self._power_monitor is not None:
+            self._power_monitor.rebuild_device(device)
         return device
 
     async def async_update_command(
@@ -308,6 +318,8 @@ class DeviceManager:
 
         self._store.remove_device(device_id)
         await self._store.async_save()
+        if self._power_monitor is not None:
+            self._power_monitor.remove_device(device_id)
 
         # Matrix file cleanup (Cold Cuts): best-effort, AFTER the store
         # commit -- a full disk or bad permission must never resurrect

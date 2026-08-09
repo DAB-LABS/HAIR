@@ -16,6 +16,7 @@ from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
 from .device_manager import DeviceManager, prime_localized_auto_map
 from .entity_factory import EntityFactory
 from .pluckable_loader import load_pluckables
+from .power_monitor import PowerMonitor
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .storage import HAIRStore
@@ -90,7 +91,10 @@ async def async_setup_entry(
 
     entity_factory = EntityFactory(hass)
     orchestrator = CaptureOrchestrator(hass)
-    device_manager = DeviceManager(hass, store, entity_factory, entry.entry_id)
+    power_monitor = PowerMonitor(hass, store)
+    device_manager = DeviceManager(
+        hass, store, entity_factory, entry.entry_id, power_monitor
+    )
     trigger_manager = TriggerManager(hass, store)
     signal_monitor = SignalMonitor(hass, signal_store, store, trigger_manager)
 
@@ -102,6 +106,7 @@ async def async_setup_entry(
         "orchestrator": orchestrator,
         "entity_factory": entity_factory,
         "signal_monitor": signal_monitor,
+        "power_monitor": power_monitor,
         "trigger_manager": trigger_manager,
         "pluckable_registry": pluckable_registry,
         "config_entry": entry,
@@ -117,6 +122,12 @@ async def async_setup_entry(
     )
 
     await signal_monitor.async_start()
+    # Started AFTER platform setup (same reason signal_monitor is): each
+    # device's subscription immediately evaluates and dispatches its power
+    # sensor's current reading (the startup seed), and platform entities
+    # must already be listening -- via async_added_to_hass, which runs
+    # during async_forward_entry_setups above -- to catch it.
+    power_monitor.start()
 
     return True
 
@@ -208,6 +219,10 @@ async def async_unload_entry(
         monitor: SignalMonitor | None = data.get("signal_monitor")
         if monitor is not None:
             await monitor.async_stop()
+
+        power_monitor: PowerMonitor | None = data.get("power_monitor")
+        if power_monitor is not None:
+            power_monitor.stop()
 
 
     if not any(
