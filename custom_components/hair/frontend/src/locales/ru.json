@@ -806,5 +806,20 @@
     "supersede.added.one": "Вижок добавит 1 сигнал: {names}.",
     "supersede.added.other": "Вижок добавит {count} сигнала: {names}.",
     "supersede.added.few": "Вижок добавит {count} сигнала: {names}.",
-    "supersede.added.many": "Вижок добавит {count} сигналов: {names}."
+    "supersede.added.many": "Вижок добавит {count} сигналов: {names}.",
+    "devsettings.title": "Настройки устройства",
+    "devsettings.no_sections": "Пока нет специальных настроек для этого типа устройства.",
+    "devsettings.power_section_label": "Мониторинг энергопотребления",
+    "devsettings.power_explainer": "Датчик должен показывать значения в ваттах.",
+    "devsettings.sensor_label": "Датчик мощности",
+    "devsettings.sensor_none": "Нет",
+    "devsettings.sensor_custom": "Указать ID сущности вручную...",
+    "devsettings.custom_sensor_label": "ID сущности датчика",
+    "devsettings.off_below_label": "Выключать ниже (Вт)",
+    "devsettings.on_above_label": "Включать выше (Вт)",
+    "devsettings.readout_unavailable": "Пока недоступно.",
+    "devsettings.readout_now": "Сейчас: {value}",
+    "devsettings.override_note": "Показания датчика переопределяют предполагаемое состояние вкл/выкл устройства.",
+    "devsettings.validation_incomplete": "Введите оба порога в ваттах.",
+    "devsettings.validation_order": "Значение «Включать выше» должно быть не меньше «Выключать ниже»."
 }

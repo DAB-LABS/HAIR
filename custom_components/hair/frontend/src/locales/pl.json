@@ -806,5 +806,20 @@
     "supersede.added.one": "Wig doda 1 sygnał: {names}.",
     "supersede.added.other": "Wig doda {count} sygnału: {names}.",
     "supersede.added.few": "Wig doda {count} sygnały: {names}.",
-    "supersede.added.many": "Wig doda {count} sygnałów: {names}."
+    "supersede.added.many": "Wig doda {count} sygnałów: {names}.",
+    "devsettings.title": "Ustawienia urządzenia",
+    "devsettings.no_sections": "Brak ustawień specyficznych dla tego typu urządzenia.",
+    "devsettings.power_section_label": "Monitorowanie zużycia energii",
+    "devsettings.power_explainer": "Czujnik musi podawać wartość w watach.",
+    "devsettings.sensor_label": "Czujnik mocy",
+    "devsettings.sensor_none": "Brak",
+    "devsettings.sensor_custom": "Niestandardowy identyfikator encji...",
+    "devsettings.custom_sensor_label": "Identyfikator encji czujnika",
+    "devsettings.off_below_label": "Wyłącz poniżej (W)",
+    "devsettings.on_above_label": "Włącz powyżej (W)",
+    "devsettings.readout_unavailable": "Jeszcze niedostępne.",
+    "devsettings.readout_now": "Teraz: {value}",
+    "devsettings.override_note": "Odczyty nadpisują zakładany stan włączenia/wyłączenia urządzenia.",
+    "devsettings.validation_incomplete": "Podaj oba progi w watach.",
+    "devsettings.validation_order": "Wartość „Włącz powyżej” musi być co najmniej równa „Wyłącz poniżej”."
 }

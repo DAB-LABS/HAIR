@@ -738,5 +738,20 @@
     "wigs.route.topup_offer": "これらのコマンドを、以前のウィッグを使っていた他のデバイスにも送信しますか?",
     "supersede.update_fitted_perfect": "{name}には{who}によるパーフェクトフィットがあります。置き換えると、既存のパーフェクトフィットはすべて失われます。",
     "supersede.added.one": "ウィッグは信号を1個追加します: {names}。",
-    "supersede.added.other": "ウィッグは信号を{count}個追加します: {names}。"
+    "supersede.added.other": "ウィッグは信号を{count}個追加します: {names}。",
+    "devsettings.title": "デバイス設定",
+    "devsettings.no_sections": "このデバイスタイプには専用の設定はまだありません。",
+    "devsettings.power_section_label": "消費電力モニタリング",
+    "devsettings.power_explainer": "センサーはワット数を報告する必要があります。",
+    "devsettings.sensor_label": "電力センサー",
+    "devsettings.sensor_none": "なし",
+    "devsettings.sensor_custom": "カスタムエンティティID...",
+    "devsettings.custom_sensor_label": "センサーのエンティティID",
+    "devsettings.off_below_label": "オフになる基準 (W)",
+    "devsettings.on_above_label": "オンになる基準 (W)",
+    "devsettings.readout_unavailable": "まだ利用できません。",
+    "devsettings.readout_now": "現在: {value}",
+    "devsettings.override_note": "読み取り値はデバイスの推定オン/オフ状態より優先されます。",
+    "devsettings.validation_incomplete": "両方のしきい値をワットで入力してください。",
+    "devsettings.validation_order": "「オンになる基準」は「オフになる基準」以上である必要があります。"
 }

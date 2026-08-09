@@ -5,6 +5,27 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.9] - 2026-08-09 -- Device Settings
+
+### Added
+
+- **A settings button on the device detail page, and a power sensor
+  behind it.** Devices that can plausibly draw current (AC, media
+  player, fan, light, switch) now show a small settings icon beside
+  the emitter picker. It opens a dialog where you can point a power
+  sensor at the device and set two thresholds in watts: the device
+  is treated as off at or below the lower one and on at or above the
+  higher one, with a live reading shown once a sensor is picked.
+  Readings from a configured sensor override the device's assumed
+  on/off state, including across a Home Assistant restart -- so a
+  device switched off with its own remote no longer sits there
+  claiming to be on until the next command is sent.
+- **Assumed state now survives a restart.** Switches, lights, fans,
+  media players, and climate devices restore their last-known state
+  when Home Assistant restarts, instead of resetting to a blank
+  default. A configured power sensor still gets the final say once
+  it reports in.
+
 ## [0.9.8] - 2026-08-08 -- Wig Primping
 
 ### Changed

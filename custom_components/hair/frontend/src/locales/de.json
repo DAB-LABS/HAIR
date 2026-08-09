@@ -738,5 +738,20 @@
     "wigs.route.topup_offer": "Diese Befehle auch an andere Geräte senden, die die alte Wig ebenfalls verwendet haben?",
     "supersede.update_fitted_perfect": "{name} trägt eine PERFEKTE PASSFORM von {who}. Das Ersetzen entfernt alle vorhandenen PERFEKTEN PASSFORMEN.",
     "supersede.added.one": "Wig fügt 1 Signal hinzu: {names}.",
-    "supersede.added.other": "Wig fügt {count} Signale hinzu: {names}."
+    "supersede.added.other": "Wig fügt {count} Signale hinzu: {names}.",
+    "devsettings.title": "Geräteeinstellungen",
+    "devsettings.no_sections": "Für diesen Gerätetyp gibt es noch keine speziellen Einstellungen.",
+    "devsettings.power_section_label": "Stromüberwachung",
+    "devsettings.power_explainer": "Der Sensor muss Watt melden.",
+    "devsettings.sensor_label": "Stromsensor",
+    "devsettings.sensor_none": "Keiner",
+    "devsettings.sensor_custom": "Benutzerdefinierte Entitäts-ID...",
+    "devsettings.custom_sensor_label": "Sensor-Entitäts-ID",
+    "devsettings.off_below_label": "Aus unter (W)",
+    "devsettings.on_above_label": "Ein ab (W)",
+    "devsettings.readout_unavailable": "Noch nicht verfügbar.",
+    "devsettings.readout_now": "Jetzt: {value}",
+    "devsettings.override_note": "Messwerte überschreiben den angenommenen Ein-/Aus-Zustand des Geräts.",
+    "devsettings.validation_incomplete": "Beide Schwellenwerte in Watt eingeben.",
+    "devsettings.validation_order": "„Ein ab“ muss mindestens so hoch sein wie „Aus unter“."
 }

@@ -738,5 +738,20 @@
     "wigs.route.topup_offer": "Enviar esses comandos também para outros dispositivos que usavam a wig antiga?",
     "supersede.update_fitted_perfect": "{name} carrega um AJUSTE PERFEITO de {who}. Substituí-la remove quaisquer AJUSTES PERFEITOS existentes.",
     "supersede.added.one": "Wig vai adicionar 1 sinal: {names}.",
-    "supersede.added.other": "Wig vai adicionar {count} sinais: {names}."
+    "supersede.added.other": "Wig vai adicionar {count} sinais: {names}.",
+    "devsettings.title": "Configurações do dispositivo",
+    "devsettings.no_sections": "Ainda não há configurações específicas para este tipo de dispositivo.",
+    "devsettings.power_section_label": "Monitoramento de energia",
+    "devsettings.power_explainer": "O sensor deve informar em watts.",
+    "devsettings.sensor_label": "Sensor de energia",
+    "devsettings.sensor_none": "Nenhum",
+    "devsettings.sensor_custom": "ID de entidade personalizado...",
+    "devsettings.custom_sensor_label": "ID de entidade do sensor",
+    "devsettings.off_below_label": "Desligar abaixo de (W)",
+    "devsettings.on_above_label": "Ligar acima de (W)",
+    "devsettings.readout_unavailable": "Ainda não disponível.",
+    "devsettings.readout_now": "Agora: {value}",
+    "devsettings.override_note": "As leituras substituem o estado assumido de ligado/desligado do dispositivo.",
+    "devsettings.validation_incomplete": "Informe os dois limites em watts.",
+    "devsettings.validation_order": "\"Ligar acima de\" deve ser maior ou igual a \"Desligar abaixo de\"."
 }
