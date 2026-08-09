@@ -5,17 +5,24 @@ log). One bad signal never sinks a file; every skip carries a reason.
 """
 from __future__ import annotations
 
+import typing
 from pathlib import Path
 
 import pytest
 
+from custom_components.hair.ir_command import raw_to_pronto
 from custom_components.hair.pronto_validator import validate_pronto
 from custom_components.hair.wig_adapters import (
     broadlink_packet_to_pronto,
     convert,
     sniff_format,
 )
-from custom_components.hair.wig_format import parse_wig, serialize_wig
+from custom_components.hair.wig_format import (
+    WigSignal,
+    parse_wig,
+    serialize_wig,
+    signals_content_hash,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "adapters"
 
@@ -72,6 +79,175 @@ class TestBroadlinkPacket:
         assert broadlink_packet_to_pronto(
             bytes([0xB2, 0x00, 0x02, 0x00, 0x1D, 0x1D])
         ) is None
+
+
+def _encode_broadlink_ticks(ticks: list[int]) -> bytes:
+    """Build a well-formed 0x26 Broadlink packet body from raw tick
+    counts, escaping any value over 255 to ``0x00 <hi> <lo>`` exactly
+    as a real RM capture does. The declared length is computed from
+    the ACTUAL encoded body, matching what production does at
+    ``packet[2:4]`` -- so a caller can append arbitrary trailing
+    padding after this helper's output without corrupting the parse
+    (smartir-trailing-gap.md section 7's fixture-builder note)."""
+    body = bytearray()
+    for t in ticks:
+        if t <= 255:
+            body.append(t)
+        else:
+            body.append(0)
+            body.append((t >> 8) & 0xFF)
+            body.append(t & 0xFF)
+    length = len(body)
+    return bytes([0x26, 0x00, length & 0xFF, (length >> 8) & 0xFF]) + bytes(body)
+
+
+def _ticks_to_timings(ticks: list[int]) -> list[int]:
+    """The same tick -> signed-microsecond conversion broadlink_packet_to_pronto
+    uses internally, for building an independent expected value."""
+    from custom_components.hair.wig_adapters import _BROADLINK_TICK_US
+
+    return [
+        round(t * _BROADLINK_TICK_US) * (1 if idx % 2 == 0 else -1)
+        for idx, t in enumerate(ticks)
+    ]
+
+
+class TestBroadlinkTrailingGap:
+    """SmartIR trailing gap, 4b (smartir-trailing-gap-coding-plan.md
+    commit 2 / GH #93): broadlink_packet_to_pronto stops MINTING the
+    capture-timeout gap on new conversions."""
+
+    # A small, ordinary AC-style frame: header mark/space, three bit
+    # pairs, then a trailing escaped 3,333-tick space -- the exact
+    # value the RM's learning-mode timeout writes (protocol.md, cited
+    # in github-issue-93-yacinbm.md section 3a).
+    _GAP_TICKS: typing.ClassVar[list[int]] = [140, 170, 21, 21, 21, 64, 21, 3333]
+
+    def test_trailing_escaped_gap_stripped_matches_pre_stripped_input(self):
+        """A packet ending in the escaped 3,333-tick space, and the
+        SAME packet with that final tick removed entirely, convert to
+        the IDENTICAL Pronto -- the two stored forms are EQUAL, which
+        is the whole point of stripping at conversion time (plan
+        item 1)."""
+        with_gap = _encode_broadlink_ticks(self._GAP_TICKS)
+        without_gap = _encode_broadlink_ticks(self._GAP_TICKS[:-1])
+        pronto_with = broadlink_packet_to_pronto(with_gap)
+        pronto_without = broadlink_packet_to_pronto(without_gap)
+        assert pronto_with is not None
+        assert pronto_with == pronto_without
+
+    def test_interior_escaped_gap_survives_only_trailing_dropped(self):
+        """An interior escaped gap of the SAME magnitude as the
+        trailing one must survive; only the final tick is ever dropped
+        (plan item 2 -- the constraint most likely to be broken)."""
+        ticks = [140, 170, 21, 3333, 21, 21, 21, 3333]
+        pronto = broadlink_packet_to_pronto(_encode_broadlink_ticks(ticks))
+        assert pronto is not None
+        # Independently compute what stripping ONLY the last tick
+        # should produce, and compare -- if the interior escape were
+        # accidentally dropped too (or the trailing one kept), this
+        # would diverge.
+        expected = raw_to_pronto(_ticks_to_timings(ticks[:-1]), frequency=38000)
+        assert pronto == expected
+
+    def test_odd_length_ends_on_mark_left_alone(self):
+        """A packet already ending on a mark (odd tick count) has
+        nothing to strip -- unchanged output (plan item 3)."""
+        ticks = [140, 170, 21, 21, 21]
+        pronto = broadlink_packet_to_pronto(_encode_broadlink_ticks(ticks))
+        expected = raw_to_pronto(_ticks_to_timings(ticks), frequency=38000)
+        assert pronto == expected
+
+    def test_reporters_exact_case_199_timings_under_limit(self):
+        """1160.json's first cell (github-issue-93-yacinbm.md section
+        3, method note in section 9): 202-byte body, 200 bursts, one
+        escape at the end. This fixture reproduces that exact shape --
+        199 ordinary single-byte ticks plus one final escaped
+        3,333-tick space. After the trailing strip: 199 timings, every
+        one comfortably under the 65,535us Zigbee/Tuya ceiling that
+        broke the reporter's blaster (plan item 5)."""
+        ordinary = [20 + (i % 150) for i in range(199)]  # all <= 255
+        ticks = [*ordinary, 3333]
+        packet = _encode_broadlink_ticks(ticks)
+        # Sanity-check the fixture itself matches the reported shape
+        # before testing the conversion.
+        assert len(packet) == 4 + 202  # header(4) + 199*1 + 1*3
+        pronto = broadlink_packet_to_pronto(packet)
+        assert pronto is not None
+        from custom_components.hair.ir_command import ProntoCommand
+
+        recovered = ProntoCommand(pronto).get_raw_timings()
+        assert len(recovered) == 199
+        assert max(abs(t) for t in recovered) < 65535
+
+    def test_declared_length_ignores_trailing_padding(self):
+        """Fixture-builder / decoder rule (smartir-trailing-gap.md
+        section 7): a real capture is zero-padded to an AES block, and
+        those padding bytes must never be misread as extra escaped
+        ticks. Appending garbage past the declared length must not
+        change the result (plan item 6)."""
+        ticks = [140, 170, 21, 21, 21, 64, 21, 3333]
+        clean = _encode_broadlink_ticks(ticks)
+        padded = clean + bytes([0x00, 0x00, 0x00, 0x00])  # AES-block filler
+        assert broadlink_packet_to_pronto(padded) == \
+            broadlink_packet_to_pronto(clean)
+
+    # PINNED (smartir-trailing-gap.md 10.4 / plan item 4): the exact
+    # BEFORE-value this fixture converted to prior to this commit --
+    # the un-stripped tick list encoded straight through, no 4b strip.
+    # Computed once via raw_to_pronto on _GAP_TICKS and frozen here so
+    # a future accidental change to the strip shows up as a mismatch
+    # against a DELIBERATE historical value, not just an inequality.
+    _PINNED_BEFORE_PRONTO = (
+        "0000 006D 0004 0000 00A2 00C5 0018 0018 0018 004A 0018 0F1C"
+    )
+    _PINNED_BEFORE_HASH = (
+        "sha256:52d61e13ad687af771bf77d01682d4785ce18521bf47c75f9d"
+        "173bfc1c235625"
+    )
+    _PINNED_AFTER_HASH = (
+        "sha256:066c774b5bc87ff5dfb40db14b2127a489915c1640e44f14a9a"
+        "9904237f109f2"
+    )
+
+    def test_pinned_hash_pair_documents_the_reimport_split(self):
+        """The 4b hash split is a DECISION, not an accident
+        (smartir-trailing-gap.md 10.4, owner-accepted 2026-08-08): a
+        wig converted after this change gets a different Pronto --
+        and a different signals_content_hash -- from the same source
+        converted before it. Pinning both values means the split stays
+        visible to anyone who bisects a hash change later, rather than
+        reading as an unexplained drift."""
+        with_gap = self._GAP_TICKS
+        without_gap = self._GAP_TICKS[:-1]
+
+        # BEFORE: what conversion produced prior to this commit -- the
+        # full, un-stripped tick list encoded straight through.
+        before_pronto = raw_to_pronto(
+            _ticks_to_timings(with_gap), frequency=38000
+        )
+        assert before_pronto == self._PINNED_BEFORE_PRONTO
+        before_hash = signals_content_hash(
+            [WigSignal(alias="Test", pronto=before_pronto)]
+        )
+        assert before_hash == self._PINNED_BEFORE_HASH
+
+        # AFTER: the shipped, stripped conversion.
+        after_pronto = broadlink_packet_to_pronto(
+            _encode_broadlink_ticks(with_gap)
+        )
+        after_hash = signals_content_hash(
+            [WigSignal(alias="Test", pronto=after_pronto)]
+        )
+        assert after_hash == self._PINNED_AFTER_HASH
+
+        assert before_pronto != after_pronto
+        assert before_hash != after_hash
+        # Re-importing the SAME source file after this ships lands on
+        # the "after" hash every time -- deterministic, not drifting.
+        assert after_pronto == raw_to_pronto(
+            _ticks_to_timings(without_gap), frequency=38000
+        )
 
 
 class TestSmartIR:

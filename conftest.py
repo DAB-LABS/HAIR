@@ -56,11 +56,23 @@ def _stub(dotted: str, attrs: dict | None = None) -> ModuleType:
 # homeassistant.core
 # ---------------------------------------------------------------------------
 _stub("homeassistant")
+
+
+class _State:
+    """Minimal stub of homeassistant.core.State (power_monitor.py)."""
+
+    def __init__(self, entity_id="", state="unknown", attributes=None):
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = attributes or {}
+
+
 _stub("homeassistant.core", {
     "HomeAssistant": MagicMock,
     "callback": lambda fn: fn,
     "CALLBACK_TYPE": None,  # type alias, not used at runtime in tests
     "Event": MagicMock,
+    "State": _State,
     # Instance, not the class: code compares `hass.state is not
     # CoreState.running`, and attribute access must auto-create.
     "CoreState": MagicMock(),
@@ -84,13 +96,23 @@ class _Platform(StrEnum):
 class _UnitOfTemperature:
     FAHRENHEIT = "°F"
     CELSIUS = "°C"
+    KELVIN = "K"
+
+class _UnitOfPower(StrEnum):
+    WATT = "W"
+    KILO_WATT = "kW"
 
 _stub("homeassistant.const", {
     "Platform": _Platform,
     "UnitOfTemperature": _UnitOfTemperature,
+    "UnitOfPower": _UnitOfPower,
     "EVENT_HOMEASSISTANT_STARTED": "homeassistant_started",
     "EVENT_HOMEASSISTANT_STOP": "homeassistant_stop",
     "STATE_UNAVAILABLE": "unavailable",
+    "STATE_UNKNOWN": "unknown",
+    "STATE_ON": "on",
+    "STATE_OFF": "off",
+    "ATTR_UNIT_OF_MEASUREMENT": "unit_of_measurement",
     "__version__": "2026.7.0",
 })
 
@@ -251,6 +273,8 @@ class _ClimateEntity:
 
 _stub("homeassistant.components.climate", {
     "ATTR_TEMPERATURE": "temperature",
+    "ATTR_FAN_MODE": "fan_mode",
+    "ATTR_SWING_MODE": "swing_mode",
     "ClimateEntity": _ClimateEntity,
     "ClimateEntityFeature": _ClimateEntityFeature,
     "HVACMode": _HVACMode,
@@ -304,6 +328,43 @@ def _ordered_list_item_to_percentage(ordered_list, item):
 _stub("homeassistant.util.percentage", {
     "percentage_to_ordered_list_item": _percentage_to_ordered_list_item,
     "ordered_list_item_to_percentage": _ordered_list_item_to_percentage,
+})
+
+# --- homeassistant.util.unit_conversion (climate room sensors, 0.9.8) ---
+#
+# Real HA implements this as a generic linear-unit converter; climate.py
+# only ever calls TemperatureConverter.convert(value, from_unit, to_unit)
+# for C/F/K, so the stub just needs matching input/output behavior for
+# those three, not the real class hierarchy.
+
+
+class _TemperatureConverter:
+    @classmethod
+    def convert(cls, value: float, from_unit: str, to_unit: str) -> float:
+        if from_unit == to_unit:
+            return value
+        celsius = cls._to_celsius(value, from_unit)
+        return cls._from_celsius(celsius, to_unit)
+
+    @staticmethod
+    def _to_celsius(value: float, unit: str) -> float:
+        if unit == _UnitOfTemperature.FAHRENHEIT:
+            return (value - 32) * 5 / 9
+        if unit == _UnitOfTemperature.KELVIN:
+            return value - 273.15
+        return value
+
+    @staticmethod
+    def _from_celsius(value: float, unit: str) -> float:
+        if unit == _UnitOfTemperature.FAHRENHEIT:
+            return value * 9 / 5 + 32
+        if unit == _UnitOfTemperature.KELVIN:
+            return value + 273.15
+        return value
+
+
+_stub("homeassistant.util.unit_conversion", {
+    "TemperatureConverter": _TemperatureConverter,
 })
 
 # --- Light ---
@@ -439,6 +500,40 @@ _stub("homeassistant.helpers.event", {
 _stub("homeassistant.helpers.dispatcher", {
     "async_dispatcher_send": MagicMock(),
     "async_dispatcher_connect": MagicMock(),
+})
+
+
+class _ExtraStoredData:
+    """Stub of homeassistant.helpers.restore_state.ExtraStoredData.
+
+    Real HA makes this an ABC with an abstract as_dict(); the stub
+    skips the ABC machinery (tests construct concrete subclasses
+    directly, never this base) but keeps the same shape so
+    climate.py's _ClimateExtraStoredData(ExtraStoredData) subclasses
+    identically against the stub and the real thing.
+    """
+
+    def as_dict(self):
+        raise NotImplementedError
+
+
+class _RestoreEntity:
+    """Stub of homeassistant.helpers.restore_state.RestoreEntity."""
+
+    async def async_get_last_state(self):
+        return None
+
+    async def async_get_last_extra_data(self):
+        return None
+
+    @property
+    def extra_restore_state_data(self):
+        return None
+
+
+_stub("homeassistant.helpers.restore_state", {
+    "RestoreEntity": _RestoreEntity,
+    "ExtraStoredData": _ExtraStoredData,
 })
 
 

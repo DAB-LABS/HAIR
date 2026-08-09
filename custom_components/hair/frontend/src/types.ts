@@ -228,17 +228,20 @@ export interface CombReport extends CombSummary {
 
 // Attestation: claims about wigs.
 /**
- * The closet row's check, derived from claims (RULED 2026-08-03).
+ * The closet row's check, derived from claims.
  *
- * Three tiers, one-to-one with the download filename tiers: null (no
- * attestations), "scoped" (signed attestations, none complete), and
- * "perfect" (at least one person's claims cover every row). Green is
- * keyed to ONE person's complete coverage -- union coverage never
- * inflates it, and rides in the tooltip instead.
+ * Perfect or nothing (owner ruling 2026-08-07, retiring the three-tier
+ * RULED 2026-08-03 shape): null (no complete attestation -- nothing at
+ * all, or a signed bundle that does not cover every row) or "perfect"
+ * (at least one person's claims cover every row). An incomplete bundle
+ * still counts toward `fitters`/`covered` -- display of history is not
+ * judgment -- it just has no state of its own for the tick to show.
+ * Green is keyed to ONE person's complete coverage -- union coverage
+ * never inflates it, and rides in the tooltip instead.
  */
 export interface FittingSummary {
-    state: "perfect" | "scoped" | null;
-    user_state: "perfect" | "scoped" | null;
+    state: "perfect" | null;
+    user_state: "perfect" | null;
     /** How many people have attested at all. */
     fitters: number;
     /** Who has a perfect fit, for the tooltip. */
@@ -352,6 +355,12 @@ export interface SavePlanRow {
     temp_less?: boolean;
     temp_role?: string | null;
     power?: string | null;
+    /** The comb gate (RULED 2026-08-08). Set on a porthole row minted
+     * over a comb-flagged cell -- threaded from the device command's
+     * own flag, never recomputed here. */
+    comb_suspect?: boolean;
+    /** The comb's finding for this row, tooltip material only. */
+    comb_finding?: string | null;
 }
 
 /** A wig row nothing on the device covers. Second Fitting amendment v2
@@ -420,7 +429,7 @@ export interface SavePlan {
      * inline warning before the click. Null state means present but
      * unfitted -- nothing extra renders, same as no claims at all. */
     old_fitting_grade: {
-        state: "perfect" | "scoped" | null;
+        state: "perfect" | null;
         count: number;
         handles: string[];
     } | null;
@@ -452,12 +461,12 @@ export interface SupersedeDevice {
 /** The superseded wig's own fitting history, graded for the confirm
  * (amendment v2 section 2). ``handles`` is every handle that ever
  * fitted the ancestor, first-seen order, regardless of whether their
- * claims were scoped or complete -- it credits the grade AND answers
- * the self doorway's "is anyone other than me on this ancestor"
- * question, which needs everyone, not just the perfect ones. */
+ * claims were complete -- it credits the grade AND answers the self
+ * doorway's "is anyone other than me on this ancestor" question,
+ * which needs everyone, not just the perfect ones. */
 export interface SupersedeOldFittings {
     count: number;
-    state: "perfect" | "scoped" | null;
+    state: "perfect" | null;
     handles: string[];
 }
 
@@ -584,6 +593,19 @@ export interface IRDevice {
     // synchronous ``hasSource`` gate (whether UPDATE CLOSET WIG is
     // even offered) reads straight off this field, no fetch needed.
     source_wig_id: string | null;
+    // Device Settings (0.9.8), commit 1: power-sensor-based state
+    // correction. All three null means "not configured" -- the
+    // settings dialog (ir-device-settings-dialog.ts) is the only
+    // frontend surface that writes these.
+    power_sensor_entity_id: string | null;
+    power_off_below_w: number | null;
+    power_on_above_w: number | null;
+    // Climate room sensors (climate-sensors.md, riding 0.9.8), commit
+    // 1: which thermometer/hygrometer feeds this device's thermostat
+    // card. Both null means "not configured" -- unlike power, the two
+    // are independent (either can be set or cleared on its own).
+    temperature_sensor_entity_id: string | null;
+    humidity_sensor_entity_id: string | null;
 }
 
 export interface DeviceSummary {

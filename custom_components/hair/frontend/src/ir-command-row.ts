@@ -2,6 +2,36 @@
  * One row in the device-detail command checklist.
  * - Captured commands show protocol info plus Test / Delete actions and an action badge.
  * - Unlearned templates show a single Learn button.
+ *
+ * TWO-LINE ANATOMY (command-row-restructure.md, commit 1 of 2, rides
+ * 0.9.8): the row used to be a 3-column grid (status | info | actions)
+ * where "info" stacked the name above whatever .meta held (a plain
+ * protocol:code label, "not learned," or -- for a PRONTO command -- a
+ * S/L diamond pattern that can wrap to several lines for a long
+ * AC/matrix code). That variable-height diamond stack was the actual
+ * bug: the drag grip in the status column sat vertically centered
+ * against the row's full height, so on a tall row it drifted well
+ * below the name it's supposed to sit beside.
+ *
+ * The fix is a deliberately minimal rearrangement, not a redesign:
+ * every control below keeps its exact component, styling, hover
+ * state, and behavior from before this pass -- only DOM position
+ * changes, and only the grip's. Line one (.top-line) is a flex row
+ * that always stays whatever height the name needs: grip, then the
+ * name (with its rename pencil) in .name-line, then the SAME
+ * .actions cluster as before this pass -- protocol chip, edit,
+ * mapping badge, TEST, TRIGGER, delete -- pushed to the far right via
+ * margin-left: auto (owner ruling 2026-08-09: the chip and badge
+ * stay put on the right; only the grip moves). Line two (.meta) is
+ * what used to be nested under the name -- diamonds, the plain
+ * label, or "not learned" -- now a full-width block of its own
+ * underneath, indented to align under the name's first letter, so a
+ * long diamond pattern wraps in its own space without ever touching
+ * line one's height. flex-wrap on .top-line is the whole answer to
+ * narrow widths (RULED: no container queries, no collapse logic this
+ * pass -- the wrap itself is the win); the deferred mobile-polish.md
+ * 2.2 items (pencil removal, mapping-label redesign, hairline, TEST
+ * vs SEND) stay queued for their own pass.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -184,149 +214,151 @@ export class IrCommandRow extends LitElement {
         const diamonds = learned ? this._renderDiamonds() : null;
         return html`
             <div class="row" data-learned=${learned ? "true" : "false"}>
-                <div class="status" aria-hidden="true">
-                    <slot name="status"></slot>
-                </div>
-                <div class="info">
-                    <div class="name">
-                        ${learned
-                            ? this._editingName
-                                ? html`<input
-                                      class="name-input"
-                                      type="text"
-                                      .value=${this._draftName}
-                                      @input=${(e: Event) =>
-                                          (this._draftName = (
-                                              e.target as HTMLInputElement
-                                          ).value)}
-                                      @keydown=${this._onRenameKeydown}
-                                      @blur=${this._commitRename}
-                                  />`
-                                : html`<span
-                                      class="editable-name"
-                                      title=${t("cmdrow.rename")}
-                                      @click=${this._startRename}
-                                      >${this.templateName}<span class="rename-pencil"
-                                          >&#9998;</span
-                                      ></span
+                <div class="top-line">
+                    <div class="status" aria-hidden="true">
+                        <slot name="status"></slot>
+                    </div>
+                    <div class="name-line">
+                        <div class="name">
+                            ${learned
+                                ? this._editingName
+                                    ? html`<input
+                                          class="name-input"
+                                          type="text"
+                                          .value=${this._draftName}
+                                          @input=${(e: Event) =>
+                                              (this._draftName = (
+                                                  e.target as HTMLInputElement
+                                              ).value)}
+                                          @keydown=${this._onRenameKeydown}
+                                          @blur=${this._commitRename}
+                                      />`
+                                    : html`<span
+                                          class="editable-name"
+                                          title=${t("cmdrow.rename")}
+                                          @click=${this._startRename}
+                                          >${this.templateName}<span class="rename-pencil"
+                                              >&#9998;</span
+                                          ></span
+                                      >`
+                                : html`${this.templateName}`}
+                            ${learned && this.command?.source === "matrix"
+                                ? html`<span class="state-chip"
+                                      >${t("devices.state_chip")}</span
                                   >`
-                            : html`${this.templateName}`}
-                        ${learned && this.command?.source === "matrix"
-                            ? html`<span class="state-chip"
-                                  >${t("devices.state_chip")}</span
-                              >`
-                            : ""}
-                        ${learned && this.command?.comb_suspect
-                            ? html`<span
-                                  class="comb-mark"
-                                  title=${this._combTitle()}
-                              ><svg viewBox="0 0 512 512"><path
-                                          d=${ICON_COMB}
-                                      ></path></svg></span
-                              >`
-                            : ""}
-                        ${learned && this.command
-                            ? html`<ir-tx-knobs
-                                  .sendCount=${this.command.send_count}
-                                  .repeatCount=${this.command.repeat_count}
-                                  .decoded=${!!this.command.decoded_protocol}
-                                  .bypassed=${!!this.command.tx_force_raw}
-                              ></ir-tx-knobs>`
-                            : ""}
+                                : ""}
+                            ${learned && this.command?.comb_suspect
+                                ? html`<span
+                                      class="comb-mark"
+                                      title=${this._combTitle()}
+                                  ><svg viewBox="0 0 512 512"><path
+                                              d=${ICON_COMB}
+                                          ></path></svg></span
+                                  >`
+                                : ""}
+                            ${learned && this.command
+                                ? html`<ir-tx-knobs
+                                      .sendCount=${this.command.send_count}
+                                      .repeatCount=${this.command.repeat_count}
+                                      .decoded=${!!this.command.decoded_protocol}
+                                      .bypassed=${!!this.command.tx_force_raw}
+                                  ></ir-tx-knobs>`
+                                : ""}
+                        </div>
                     </div>
-                    <div class="meta">
-                        ${diamonds
-                            ? diamonds
-                            : learned
-                              ? html`${this._commandLabel()}`
-                              : html`<span class="muted">${t("cmdrow.not_learned")}</span>`}
+                    <div class="actions">
+                        ${learned
+                            ? html`
+                                  <div class="chip-col">
+                                      ${this.command?.decoded_protocol
+                                          ? html`<ir-protocol-chip
+                                                .protocol=${this.command
+                                                    .decoded_protocol}
+                                                .bypass=${!!this.command
+                                                    .tx_force_raw}
+                                                interactive
+                                                ?disabled=${this.busy}
+                                                @toggle-bypass=${() =>
+                                                    this._emit("toggle-tx-raw")}
+                                            ></ir-protocol-chip>`
+                                          : ""}
+                                  </div>
+                                  <button
+                                      class="icon-btn edit-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${() => this._emit("edit-command")}
+                                      title=${t("cmdrow.edit_code")}
+                                  ><ha-svg-icon
+                                          class="edit-glyph"
+                                          .path=${ICON_COPY}
+                                      ></ha-svg-icon></button>
+                                  ${this.showActionMapping
+                                      ? html`<button
+                                      class="action-btn badge-btn"
+                                      ?data-mapped=${!!this.actionLabel}
+                                      ?disabled=${this.busy}
+                                      @click=${() => this._emit("map-action")}
+                                      title=${t("cmdrow.map_action")}
+                                  >${this.actionBadgeLabel
+                                          ? html`<span
+                                                class="badge-sizer"
+                                                aria-hidden="true"
+                                                style="font-size:${this
+                                                    .actionBadgeFontPx ?? 10.5}px"
+                                                >${this.actionBadgeLabel}</span
+                                            >`
+                                          : ""}<span
+                                          class="badge-label"
+                                          style=${this.actionFontPx
+                                              ? `font-size:${this.actionFontPx}px`
+                                              : ""}
+                                          >${this.actionLabel ||
+                                          t("cmdrow.actions")}</span
+                                      ></button>`
+                                      : ""}
+                                  <button
+                                      class="action-btn test-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${() => this._emit("test")}
+                                  >${t("cmdrow.test")}</button>
+                                  <button
+                                      class="action-btn trigger-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${(e: Event) => this._emit("toggle-trigger", e)}
+                                      title=${this.hasTrigger ? t("cmdrow.edit_trigger") : t("cmdrow.create_trigger")}
+                                  >${t("cmdrow.trigger")}<ir-count-dot
+                                          color="yellow"
+                                          .count=${this.triggerCount ||
+                                          (this.hasTrigger ? 1 : 0)}
+                                      ></ir-count-dot></button>
+                                  <button
+                                      class="trash-btn"
+                                      title=${t("cmdrow.delete_title")}
+                                      aria-label=${t("cmdrow.delete_title")}
+                                      ?disabled=${this.busy}
+                                      @click=${() => this._emit("delete")}
+                                  >
+                                      <ha-svg-icon
+                                          .path=${ICON_TRASH}
+                                          .viewBox=${TRASH_VIEWBOX}
+                                      ></ha-svg-icon>
+                                  </button>
+                              `
+                            : html`
+                                  <button
+                                      class="action-btn learn-btn"
+                                      ?disabled=${this.busy}
+                                      @click=${() => this._emit("learn")}
+                                  >${t("cmdrow.learn")}</button>
+                              `}
                     </div>
                 </div>
-                <div class="actions">
-                    ${learned
-                        ? html`
-                              <div class="chip-col">
-                                  ${this.command?.decoded_protocol
-                                      ? html`<ir-protocol-chip
-                                            .protocol=${this.command
-                                                .decoded_protocol}
-                                            .bypass=${!!this.command
-                                                .tx_force_raw}
-                                            interactive
-                                            ?disabled=${this.busy}
-                                            @toggle-bypass=${() =>
-                                                this._emit("toggle-tx-raw")}
-                                        ></ir-protocol-chip>`
-                                      : ""}
-                              </div>
-                              <button
-                                  class="icon-btn edit-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${() => this._emit("edit-command")}
-                                  title=${t("cmdrow.edit_code")}
-                              ><ha-svg-icon
-                                      class="edit-glyph"
-                                      .path=${ICON_COPY}
-                                  ></ha-svg-icon></button>
-                              ${this.showActionMapping
-                                  ? html`<button
-                                  class="action-btn badge-btn"
-                                  ?data-mapped=${!!this.actionLabel}
-                                  ?disabled=${this.busy}
-                                  @click=${() => this._emit("map-action")}
-                                  title=${t("cmdrow.map_action")}
-                              >${this.actionBadgeLabel
-                                      ? html`<span
-                                            class="badge-sizer"
-                                            aria-hidden="true"
-                                            style="font-size:${this
-                                                .actionBadgeFontPx ?? 10.5}px"
-                                            >${this.actionBadgeLabel}</span
-                                        >`
-                                      : ""}<span
-                                      class="badge-label"
-                                      style=${this.actionFontPx
-                                          ? `font-size:${this.actionFontPx}px`
-                                          : ""}
-                                      >${this.actionLabel ||
-                                      t("cmdrow.actions")}</span
-                                  ></button>`
-                                  : ""}
-                              <button
-                                  class="action-btn test-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${() => this._emit("test")}
-                              >${t("cmdrow.test")}</button>
-                              <button
-                                  class="action-btn trigger-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${(e: Event) => this._emit("toggle-trigger", e)}
-                                  title=${this.hasTrigger ? t("cmdrow.edit_trigger") : t("cmdrow.create_trigger")}
-                              >${t("cmdrow.trigger")}<ir-count-dot
-                                      color="yellow"
-                                      .count=${this.triggerCount ||
-                                      (this.hasTrigger ? 1 : 0)}
-                                  ></ir-count-dot></button>
-                              <button
-                                  class="trash-btn"
-                                  title=${t("cmdrow.delete_title")}
-                                  aria-label=${t("cmdrow.delete_title")}
-                                  ?disabled=${this.busy}
-                                  @click=${() => this._emit("delete")}
-                              >
-                                  <ha-svg-icon
-                                      .path=${ICON_TRASH}
-                                      .viewBox=${TRASH_VIEWBOX}
-                                  ></ha-svg-icon>
-                              </button>
-                          `
-                        : html`
-                              <button
-                                  class="action-btn learn-btn"
-                                  ?disabled=${this.busy}
-                                  @click=${() => this._emit("learn")}
-                              >${t("cmdrow.learn")}</button>
-                          `}
+                <div class="meta">
+                    ${diamonds
+                        ? diamonds
+                        : learned
+                          ? html`${this._commandLabel()}`
+                          : html`<span class="muted">${t("cmdrow.not_learned")}</span>`}
                 </div>
             </div>
         `;
@@ -339,11 +371,16 @@ export class IrCommandRow extends LitElement {
         :host(:not(:last-of-type)) {
             margin-bottom: 4px;
         }
+        /* Two-line anatomy (command-row-restructure.md, commit 1 of 2):
+           .row stacks .top-line above .meta in a column flex rather
+           than the old 3-column grid, so .meta (diamonds, the plain
+           label, or "not learned") is a full-width block underneath
+           that can wrap to any height without affecting .top-line's
+           height or the grip's vertical position within it. */
         .row {
-            display: grid;
-            grid-template-columns: 32px 1fr auto;
-            align-items: center;
-            gap: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
             padding: 8px 10px;
             /* Match the page background so the long horizontal command
                strips visually merge with the device-detail backdrop
@@ -357,10 +394,41 @@ export class IrCommandRow extends LitElement {
             background: var(--primary-background-color);
             border-radius: 4px;
         }
+        /* Status | name-line | actions, same three-part shape the old
+           grid had (32px | flexible | auto), now flex so narrow widths
+           can wrap a whole cluster onto its own line instead of
+           clipping it (RULED: flex-wrap is the entire narrow-width
+           answer this pass -- no container queries, no collapse
+           logic). align-items: center centers the grip against
+           whatever .name-line's height actually is -- typically one
+           line now that diamonds live in .meta instead, which is the
+           fix for "the grip isn't next to the name." */
+        .top-line {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
         .status {
             display: flex;
             align-items: center;
             justify-content: center;
+            flex: 0 0 32px;
+        }
+        /* Holds only the name cluster (name, state chip, comb mark,
+           tx-knobs). The protocol chip and mapping badge stay in
+           .actions on the right, per the owner's 2026-08-01 ruling
+           documented on .chip-col below -- the restructure moves the
+           grip up here, not those. flex: 1 1 auto plus min-width: 0
+           lets it shrink/wrap instead of pushing .actions off the
+           row's right edge. */
+        .name-line {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            flex-wrap: wrap;
+            flex: 1 1 auto;
+            min-width: 0;
         }
         .name {
             display: flex;
@@ -460,7 +528,14 @@ export class IrCommandRow extends LitElement {
         .edit-glyph {
             --mdc-icon-size: 10px;
         }
+        /* 44px = .status's flex-basis (32px) + .top-line's gap
+           (12px) -- the exact distance from the row's left edge to
+           where .name-line (and the name's first letter) starts.
+           Lining .meta up under that instead of the row's own edge
+           is what puts the first diamond under the "P" of the name
+           above it, rather than under the grip. */
         .meta {
+            margin-left: 44px;
             font-size: 0.8rem;
             color: var(--secondary-text-color);
             font-family: var(--code-font-family, monospace);
@@ -500,10 +575,19 @@ export class IrCommandRow extends LitElement {
             justify-content: center;
             align-items: center;
         }
+        /* Protocol chip / edit / mapping badge / TEST / TRIGGER /
+           delete, pinned to the top line's right edge -- same cluster
+           and order as before the restructure. margin-left: auto
+           (rather than relying on the old grid's separate "auto"
+           column) is what keeps this cluster right-aligned now that
+           .top-line is a wrapping flex row -- when .name-line grows
+           tall enough to need its own line, .actions still lands
+           flush right on whichever line it ends up on. */
         .actions {
             display: flex;
             gap: 4px;
             align-items: center;
+            margin-left: auto;
         }
         .action-btn {
             background: none;

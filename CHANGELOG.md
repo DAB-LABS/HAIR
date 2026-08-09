@@ -5,6 +5,113 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2026-08-09 -- Wig Primping & Device Settings
+
+### Changed
+
+- **A wig is a perfect fit or it is nothing -- the fitted tier
+  retires.** The Validate for Perfect Fit checklist now starts every
+  row grey and unchecked instead of pre-checked: the click is the
+  attestation, so the default claim is nothing until you make it.
+  Signing only arms once every row carries a claim; there is no
+  longer a partial "fitted" save on a flat wig. Exclusion reasons
+  ("not on my device", "could not make it work") are now offered
+  only on a matrix's dimension checklist, where a lattice genuinely
+  cannot be edited cell by cell the way commands can -- a flat wig's
+  rows are either checked or left for another day.
+- **Download names, closet ticks, and supersede warnings all speak
+  the same two words now.** The `-fitted` download suffix, the
+  amber "scoped" closet tick, and the matching supersede-warning
+  tier are all retired along with the fitted tier itself. A wig's
+  download is `-perfect-fit` or plain; its closet row shows the
+  perfect check or nothing. Older files that already carry a
+  partial attestation still parse, still count in the ledger, and
+  still show there as "Incomplete" -- this only changes what the
+  authoring UI can produce going forward.
+- **Command rows keep a constant height now.** The code fingerprint
+  (the S/L diamond pattern on a captured Pronto command) moved to
+  its own line under the row instead of stacking under the name, so
+  a long AC/matrix code no longer stretches the row taller than its
+  neighbors. The drag handle moved up to sit beside the name that
+  goes with it, rather than floating at the center of however tall
+  the row happened to be.
+- **Sends no longer carry the leftover pause from a Broadlink
+  capture.** A code learned on a Broadlink RM ends with about 100ms
+  of silence baked in by the device's own capture timeout, not part
+  of the signal. HAIR used to send that pause along with the code;
+  some 16-bit emitters (Tuya and ZoSung blasters reached through
+  Zigbee2MQTT, for example) rejected the whole code outright once
+  the pause pushed a value over their format's limit. Sends now stop
+  at the last real mark instead. A newly imported SmartIR file also
+  stores its codes without that pause, so the same source file
+  imported before and after this version yields two distinct wigs --
+  deliberate, and supersession is there to resolve it if the two
+  ever meet in the same shop. Reported by @yacinbm (GH #93).
+- **State-matrix devices get a Power row, and their type stops being
+  editable.** The STATE MATRIX card now shows an Off chip above Mode
+  (and an On chip too, for the rare unit that needs an explicit wake
+  code) -- pick one to send or save a power press the same way a cell
+  already could; picking a power chip and picking a cell are mutually
+  exclusive, and the Set line always names whichever one Send would
+  actually send. A matrix device's Type field is now a fixed label
+  instead of a dropdown: the lattice only exists because the device
+  is an air conditioner, and changing the type out from under it used
+  to tear the climate entity down mid-flight and orphan the cells, so
+  the control that could do that is gone.
+
+### Added
+
+- **The comb gate.** A comb-flagged cell now has to be attested
+  before a matrix fitting can sign: on a matrix, flagged cells join
+  the checklist as their own coordinate-named rows, check only, no
+  exclusion picker. Testing a flagged code and finding it works is
+  enough to check it and move on; a code that really is broken gets
+  fixed on the device and the repair rides the usual porthole path.
+  Flat wigs mark a comb-flagged row so the fitter can see which ones
+  earned the suspicion, though every row there needs a check either
+  way.
+- **A settings button on the device detail page, and a power sensor
+  behind it.** Devices that can plausibly draw current (AC, media
+  player, fan, light, switch) now show a small settings icon beside
+  the emitter picker. It opens a dialog where you can point a power
+  sensor at the device and set two thresholds in watts: the device
+  is treated as off at or below the lower one and on at or above the
+  higher one, with a live reading shown once a sensor is picked.
+  Readings from a configured sensor override the device's assumed
+  on/off state, including across a Home Assistant restart -- so a
+  device switched off with its own remote no longer sits there
+  claiming to be on until the next command is sent.
+- **Assumed state now survives a restart.** Switches, lights, fans,
+  media players, and climate devices restore their last-known state
+  when Home Assistant restarts, instead of resetting to a blank
+  default. A configured power sensor still gets the final say once
+  it reports in.
+- **Climate devices can show a room's actual temperature and
+  humidity.** The same settings dialog gains a second section on
+  matrix-based climate devices: point it at a temperature sensor, a
+  humidity sensor, or both, and the thermostat card shows a live
+  reading under each once picked. Display only -- nothing here
+  changes what HAIR sends or assumes, and a sensor reporting in a
+  different unit than the installation converts automatically.
+
+### Fixed
+
+- **A state-matrix climate device's saved temperature could drift to
+  nonsense across repeated restarts.** Home Assistant reports a
+  climate entity's temperature in the installation's display unit;
+  restore was storing that number straight into the entity's native
+  setpoint without converting back, so a matrix device whose file
+  unit differs from the installation's display unit compounded one
+  unconverted conversion every restart (23C became 73.4, then 164,
+  then 327, and on). The entity's target temperature now persists in
+  its own native unit across restarts, converts only on the one-time
+  fallback for an entity that has never done so yet, and clamps to
+  the device's own range regardless of source, so any setpoint
+  already corrupted by this self-heals to a sane value the next time
+  Home Assistant restarts. Preset-mode climate devices were never
+  affected. Flagged by a live bench review after this release's other
+  changes had already been verified; caught before release.
+
 ## [0.9.7] - 2026-08-07 -- Second Fitting
 
 ### Added

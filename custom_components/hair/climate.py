@@ -15,21 +15,34 @@ Two operating modes since Cold Cuts (v0.8.8), selected by
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
+    ATTR_FAN_MODE,
+    ATTR_SWING_MODE,
     ATTR_TEMPERATURE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, State, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
+from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 from .wig_climate import (
     cell_display_name,
     ha_mode_for,
@@ -104,7 +117,46 @@ async def async_setup_entry(
         _on_add(device)
 
 
-class HAIRClimateEntity(ClimateEntity):
+@dataclass
+class _ClimateExtraStoredData(ExtraStoredData):
+    """Reboot-survival payload for HAIRClimateEntity (098-final-review.md,
+    "THE REQUIRED FIX: restore re-reads display-unit temperature as
+    native").
+
+    Home Assistant's state machine reports a climate entity's
+    temperature attributes in the INSTALL's display unit, converting
+    from whatever ``temperature_unit`` the entity itself declares --
+    and matrix mode declares the FILE's native unit, which can differ
+    from the install's display unit (see ``temperature_unit``'s
+    docstring below). The old restore path read
+    ``last_state.attributes[ATTR_TEMPERATURE]`` back as if it were
+    already native, which silently applies one uncompensated
+    display-unit conversion every restart: 23C -> 73.4 (as if F) ->
+    164 -> 327 -> ... compounding without bound.
+
+    This payload sidesteps the guesswork entirely: written and read
+    only by this entity, always in the exact unit ``_target_temperature``
+    already holds internally, so restore never has to infer which unit
+    a bare number is in. See ``_restore_native_temperature`` for the
+    one-time fallback path an entity takes on the first restart after
+    this fix ships, before it has ever written this payload.
+    """
+
+    native_target_temperature: float | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, restored: dict[str, Any]) -> _ClimateExtraStoredData | None:
+        try:
+            raw = restored["native_target_temperature"]
+        except KeyError:
+            return None
+        return cls(native_target_temperature=float(raw) if raw is not None else None)
+
+
+class HAIRClimateEntity(RestoreEntity, ClimateEntity):
     """IR-controlled climate device (preset-based or matrix-based)."""
 
     _attr_has_entity_name = True
@@ -131,6 +183,22 @@ class HAIRClimateEntity(ClimateEntity):
         # (owner ruling 2026-07-29): the machine cell_key never
         # appears on a user surface. None until the first send.
         self._matrix_cell: str | None = None
+        # Power monitoring (Device Settings, 0.9.8). The mode this
+        # entity was in the last time it went off (by any means -- a
+        # HAIR send or a power-verdict correction), so a later "on"
+        # verdict has something to restore instead of guessing AUTO.
+        # None only until the entity has ever been on.
+        self._last_active_hvac_mode: HVACMode | None = None
+        self._power_verdict_unsub: CALLBACK_TYPE | None = None
+        # Climate room sensors (Device Settings, climate-sensors.md,
+        # riding 0.9.8). Display-only mirror of a configured
+        # thermometer/hygrometer -- no verdicts, no thresholds, and
+        # unlike power this never corrects assumed on/off state or
+        # sends IR. None until a sensor is configured and has reported
+        # at least one valid reading.
+        self._current_temperature: float | None = None
+        self._current_humidity: float | None = None
+        self._sensor_unsub: CALLBACK_TYPE | None = None
         self._seed_target_temperature()
 
     @property
@@ -139,9 +207,240 @@ class HAIRClimateEntity(ClimateEntity):
 
     async def async_added_to_hass(self) -> None:
         # Real HA calls the base hook (a no-op) here; the matrix load
-        # is this entity's only lifecycle need.
+        # is this entity's only other lifecycle need.
         if self._matrix_mode and self._matrix is None:
             await self._async_load_matrix()
+        await self._async_restore_state()
+        self._power_verdict_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
+        )
+        self._subscribe_sensors()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._power_verdict_unsub is not None:
+            self._power_verdict_unsub()
+            self._power_verdict_unsub = None
+        self._unsubscribe_sensors()
+
+    async def _async_restore_state(self) -> None:
+        """Reboot survival (Device Settings, 0.9.8). Seeds mode,
+        setpoint, fan, and swing from the entity's state before this
+        restart. The power monitor's STARTUP SEED (power_monitor.py,
+        commit 2) corrects the mode immediately after if a sensor is
+        configured -- restore only has to get close, a configured
+        sensor's evidence always wins.
+
+        Matrix mode re-validates the restored combination against the
+        CURRENT matrix via resolve_cell: the lattice may have changed
+        since last run (a re-fit, a re-adopt), and a combination that
+        no longer resolves is discarded wholesale rather than applied
+        partially -- falls back to the blank state __init__ already
+        set, not an error.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        try:
+            restored_mode = HVACMode(last_state.state)
+        except ValueError:
+            return
+        restored_temp = await self._restore_native_temperature(last_state)
+        restored_fan = last_state.attributes.get(ATTR_FAN_MODE)
+        restored_swing = last_state.attributes.get(ATTR_SWING_MODE)
+
+        if self._matrix_mode:
+            # 098-final-review.md's required fix: a sanity clamp on
+            # top of the native-unit read above, so a value already
+            # corrupted by the old bug (or any other bad number that
+            # somehow made it into storage) self-heals to a real,
+            # in-range setpoint on the next restart instead of
+            # resurrecting forever. Cheap and safe either way --
+            # resolve_cell below snaps to the nearest real cell
+            # regardless, but it validates the COMBINATION, not the
+            # raw value that gets written to _target_temperature.
+            if restored_temp is not None and self._matrix is not None:
+                restored_temp = min(
+                    max(restored_temp, self._matrix.min_temp),
+                    self._matrix.max_temp,
+                )
+            if restored_mode != HVACMode.OFF:
+                file_mode = self._file_mode_for(restored_mode)
+                cell = (
+                    resolve_cell(
+                        self._matrix, file_mode, restored_fan, restored_swing,
+                        restored_temp,
+                    )
+                    if file_mode is not None and self._matrix is not None
+                    else None
+                )
+                if cell is None:
+                    return
+            self._hvac_mode = restored_mode
+            self._fan_mode = restored_fan
+            self._swing_mode = restored_swing
+            if restored_temp is not None:
+                self._target_temperature = restored_temp
+        else:
+            self._hvac_mode = restored_mode
+            if restored_temp is not None:
+                self._target_temperature = restored_temp
+            if restored_fan is not None:
+                self._fan_mode = restored_fan
+        if restored_mode != HVACMode.OFF:
+            self._last_active_hvac_mode = restored_mode
+
+    async def _restore_native_temperature(self, last_state: State) -> float | None:
+        """The restored target temperature, in THIS entity's native
+        unit -- the one ``_target_temperature`` always holds (098-
+        final-review.md's required fix).
+
+        Prefers ``extra_restore_state_data``: this entity's own
+        payload from before its last shutdown, already native, no
+        unit inference needed. Falls back to
+        ``last_state.attributes[ATTR_TEMPERATURE]`` -- converting it
+        from the install's display unit for matrix-mode entities only,
+        since matrix mode is the one case where the entity's native
+        unit (the FILE's unit) can differ from the install's display
+        unit (see ``temperature_unit``'s docstring). Preset mode's
+        native unit already IS the install's display unit by design,
+        so its fallback stays a straight, unconverted read, same as
+        before this fix.
+
+        The fallback only fires for an entity that has never written
+        the extra-data payload yet -- the one restart right after this
+        fix ships. Every restart after that reads its own number back
+        untouched, forever.
+        """
+        extra = await self.async_get_last_extra_data()
+        if extra is not None:
+            restored = _ClimateExtraStoredData.from_dict(extra.as_dict())
+            if restored is not None:
+                return restored.native_target_temperature
+        raw_temp = last_state.attributes.get(ATTR_TEMPERATURE)
+        if raw_temp is None:
+            return None
+        value = float(raw_temp)
+        if self._matrix_mode and self.hass is not None:
+            display_unit = self.hass.config.units.temperature_unit
+            native_unit = self.temperature_unit
+            if display_unit and display_unit != native_unit:
+                value = TemperatureConverter.convert(value, display_unit, native_unit)
+        return value
+
+    @property
+    def extra_restore_state_data(self) -> _ClimateExtraStoredData:
+        return _ClimateExtraStoredData(self._target_temperature)
+
+    def _capture_active_mode(self) -> None:
+        """Remember the mode about to be left, before flipping to OFF.
+
+        Called at every transition to OFF -- a HAIR send or a power
+        verdict -- so a later "on" verdict can restore last non-off
+        mode/setpoint/fan/swing (the setpoint/fan/swing fields are
+        never cleared on off, so remembering the mode is the only
+        piece that would otherwise be lost).
+        """
+        if self._hvac_mode != HVACMode.OFF:
+            self._last_active_hvac_mode = self._hvac_mode
+
+    @callback
+    def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
+        """Apply a power_monitor.py verdict to assumed state.
+
+        Bookkeeping only -- NEVER sends IR. "off": the mode goes OFF,
+        same as a HAIR-initiated off; setpoint/fan/swing are left
+        untouched so they're there to come back to. "on" while
+        currently off: restore the last non-off mode (setpoint/fan/
+        swing need no restoring -- they were never cleared), falling
+        back to the same synthetic first-mode/AUTO convention
+        async_turn_on already uses for a device that has never been on.
+        """
+        if device_id != self._device.id:
+            return
+        if verdict == "off":
+            self._capture_active_mode()
+            self._hvac_mode = HVACMode.OFF
+        else:
+            if self._hvac_mode == HVACMode.OFF:
+                fallback = (
+                    self._first_matrix_hvac_mode()
+                    if self._matrix_mode else HVACMode.AUTO
+                )
+                self._hvac_mode = self._last_active_hvac_mode or fallback
+        self.async_write_ha_state()
+
+    # -- room sensors (climate-sensors.md) -------------------------------
+    #
+    # Entity-side and display only, mirroring power_monitor.py's
+    # subscription mechanics (one async_track_state_change_event per
+    # configured sensor, evaluated once immediately at subscribe time
+    # as a startup seed, then again on every event) without any of its
+    # verdict/threshold machinery -- there is nothing here to classify,
+    # just a reading to mirror or drop.
+    #
+    # Resubscribe on settings change rides update_device(), the same
+    # entity_factory on_update hook this class already uses to repaint
+    # after any device-record change (DeviceManager.async_update_device
+    # calls it on every settings save, not just power-field ones) --
+    # no PowerMonitor-style central tracking needed, this hook is
+    # already exactly that for a single entity.
+
+    def _subscribe_sensors(self) -> None:
+        temp_id = self._device.temperature_sensor_entity_id
+        humidity_id = self._device.humidity_sensor_entity_id
+        ids = [sensor_id for sensor_id in (temp_id, humidity_id) if sensor_id]
+        if not ids:
+            return
+
+        @callback
+        def _on_state_change(event: Event) -> None:
+            self._apply_sensor_reading(
+                event.data.get("entity_id"), event.data.get("new_state")
+            )
+
+        self._sensor_unsub = async_track_state_change_event(
+            self.hass, ids, _on_state_change
+        )
+        # Startup seed, same rule as the power monitor's: evaluate the
+        # CURRENT reading now rather than waiting for the next event.
+        if temp_id:
+            self._apply_sensor_reading(temp_id, self.hass.states.get(temp_id))
+        if humidity_id:
+            self._apply_sensor_reading(
+                humidity_id, self.hass.states.get(humidity_id)
+            )
+
+    def _unsubscribe_sensors(self) -> None:
+        if self._sensor_unsub is not None:
+            self._sensor_unsub()
+            self._sensor_unsub = None
+
+    def _apply_sensor_reading(
+        self, entity_id: str | None, state: State | None
+    ) -> None:
+        if entity_id == self._device.temperature_sensor_entity_id:
+            self._current_temperature = self._read_temperature(state)
+        elif entity_id == self._device.humidity_sensor_entity_id:
+            self._current_humidity = self._read_numeric(state)
+
+    def _read_temperature(self, state: State | None) -> float | None:
+        value = self._read_numeric(state)
+        if value is None or state is None:
+            return value
+        sensor_unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        target_unit = self.temperature_unit
+        if not sensor_unit or sensor_unit == target_unit:
+            return value
+        return TemperatureConverter.convert(value, sensor_unit, target_unit)
+
+    @staticmethod
+    def _read_numeric(state: State | None) -> float | None:
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return None
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
 
     async def _async_load_matrix(self) -> None:
         self._matrix = await self._manager.async_get_matrix(self._device.id)
@@ -290,6 +589,24 @@ class HAIRClimateEntity(ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         return self._target_temperature
+
+    @property
+    def current_temperature(self) -> float | None:
+        """The configured room sensor's last reading, converted to this
+        entity's declared unit (climate-sensors.md). None with no
+        sensor configured, or while its state is unavailable, unknown,
+        or non-numeric -- the card drops the reading rather than
+        holding a stale number.
+        """
+        return self._current_temperature
+
+    @property
+    def current_humidity(self) -> float | None:
+        """The configured humidity sensor's last reading, a raw
+        percentage passed through as-is (no unit conversion applies).
+        Same None rules as current_temperature.
+        """
+        return self._current_humidity
 
     @property
     def min_temp(self) -> float:
@@ -453,6 +770,7 @@ class HAIRClimateEntity(ClimateEntity):
                 self._device.id, name, self._matrix.off
             )
             self._matrix_cell = name
+        self._capture_active_mode()
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
 
@@ -479,6 +797,7 @@ class HAIRClimateEntity(ClimateEntity):
             return
         if hvac_mode == HVACMode.OFF:
             await self._send("turn_off", "power_toggle")
+            self._capture_active_mode()
             self._hvac_mode = HVACMode.OFF
             self.async_write_ha_state()
             return
@@ -571,6 +890,7 @@ class HAIRClimateEntity(ClimateEntity):
             await self._async_matrix_off()
             return
         await self._send("turn_off", "power_toggle")
+        self._capture_active_mode()
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
 
@@ -596,6 +916,12 @@ class HAIRClimateEntity(ClimateEntity):
             # The state from __init__ is correct; HA writes it once the
             # registration coroutine completes.
             return
+        # Room sensors: a save can add, change, or clear either one, so
+        # re-derive the subscription unconditionally rather than diffing
+        # old vs. new ids -- the same unconditional teardown+resubscribe
+        # shape PowerMonitor.rebuild_device uses for the identical reason.
+        self._unsubscribe_sensors()
+        self._subscribe_sensors()
         self.async_write_ha_state()
 
     async def _send(self, *feature_keys: str) -> bool:

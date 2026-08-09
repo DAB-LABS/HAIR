@@ -1023,11 +1023,14 @@ def wig_filename(name: str, taken: set[str] | None = None) -> str:
     return candidate
 
 
-# Download-name tier suffixes (v0.9.7 Second Fitting). HYPHENATED, never
-# dotted: a dot in the stem fails the shop's filename rule, which was the
-# whole reason a fitted download would not upload. An unproven wig gets
-# no suffix.
-_DOWNLOAD_TIER_SUFFIX = {"perfect": "-perfect-fit", "scoped": "-fitted"}
+# Download-name tier suffixes (perfect-or-nothing, v0.9.8). HYPHENATED,
+# never dotted: a dot in the stem fails the shop's filename rule, which
+# was the whole reason a fitted download would not upload. The "scoped"
+# entry retired with the fitted tier itself (owner ruling 2026-08-07):
+# a wig is a PERFECT FIT or it carries no tier at all, so the map only
+# ever has the one suffix to give out now, and its own shape documents
+# that.
+_DOWNLOAD_TIER_SUFFIX = {"perfect": "-perfect-fit"}
 
 
 def download_filename(wig: Wig) -> str:
@@ -1041,10 +1044,12 @@ def download_filename(wig: Wig) -> str:
     this existed.
 
     The tier comes from the wig's OWN claims via ``claims_summary``:
-    ``perfect`` appends ``-perfect-fit``, ``scoped`` appends ``-fitted``,
-    an unproven wig appends nothing. Hyphenated, never dotted. Pure and
-    WS-free so it is testable on its own and reusable if another surface
-    ever needs the same name.
+    ``perfect`` appends ``-perfect-fit``; anything less than perfect
+    (nothing, or an incomplete/excluded bundle) appends nothing.
+    Perfect or nothing (owner ruling 2026-08-07): there is no longer a
+    middle tier to hyphenate a suffix onto. Hyphenated, never dotted.
+    Pure and WS-free so it is testable on its own and reusable if
+    another surface ever needs the same name.
     """
     # Local import: wig_fitting imports this module, so a module-level
     # import would be circular. The tier is claims-derived and belongs to

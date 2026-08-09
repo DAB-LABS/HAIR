@@ -63,8 +63,9 @@ class TestProntoCommand:
     def test_basic_parse(self):
         cmd = ProntoCommand(PRONTO_SIMPLE)
         timings = cmd.get_raw_timings()
-        # 2 pairs -> 4 values (mark, -space, mark, -space)
-        assert len(timings) == 4
+        # 2 pairs -> 4 raw values (mark, -space, mark, -space), minus the
+        # trailing space the smartir-trailing-gap strip drops (4a) -> 3.
+        assert len(timings) == 3
         # All values are plain ints
         for t in timings:
             assert isinstance(t, int)
@@ -72,11 +73,12 @@ class TestProntoCommand:
     def test_signed_convention(self):
         cmd = ProntoCommand(PRONTO_SIMPLE)
         timings = cmd.get_raw_timings()
-        # Alternating positive (mark) and negative (space)
+        # Alternating positive (mark) and negative (space) -- the final
+        # (would-be) space is gone (4a strip), so this ends on a mark.
         assert timings[0] > 0   # mark
         assert timings[1] < 0   # space
         assert timings[2] > 0   # mark
-        assert timings[3] < 0   # space
+        assert len(timings) == 3
 
     def test_modulation_frequency(self):
         # word[1] = 0x006D = 109
@@ -97,10 +99,11 @@ class TestProntoCommand:
         assert cmd.repeat_count == 3
 
     def test_both_burst_sequences(self):
-        # 1 burst1 pair + 1 burst2 pair = 2 total pairs = 4 timing values
+        # 1 burst1 pair + 1 burst2 pair = 2 total pairs = 4 raw values,
+        # minus the trailing space (4a strip) = 3.
         pronto = "0000 006D 0001 0001 0020 0040 0030 0050"
         cmd = ProntoCommand(pronto)
-        assert len(cmd.get_raw_timings()) == 4
+        assert len(cmd.get_raw_timings()) == 3
 
     def test_too_short_raises(self):
         with pytest.raises(ValueError, match="too short"):
@@ -131,6 +134,61 @@ class TestProntoCommand:
         assert len(timings) == 1
         assert timings[0] > 0
 
+    # -----------------------------------------------------------------
+    # SmartIR trailing gap (smartir-trailing-gap.md, 4a / GH #93)
+    # -----------------------------------------------------------------
+
+    def test_trailing_gap_stripped_ends_on_mark(self):
+        """A Pronto whose final pair carries a large space: the space is
+        dropped and every interior value is untouched (plan item 1)."""
+        # 3 pairs; every space is large (0x0100 periods ~ 2,630us at this
+        # carrier), well above anything that could be a zero-space skip.
+        pronto = "0000 006D 0003 0000 0020 0100 0020 0100 0020 0100"
+        cmd = ProntoCommand(pronto)
+        timings = cmd.get_raw_timings()
+        # 3 pairs -> 6 raw values, minus the trailing space -> 5.
+        assert len(timings) == 5
+        assert timings[-1] > 0  # ends on the third pair's mark
+        # The first two pairs (mark, -space) are completely unaffected.
+        assert timings[0] > 0 and timings[1] < 0
+        assert timings[2] > 0 and timings[3] < 0
+
+    def test_interior_gap_survives_only_trailing_dropped(self):
+        """The strip touches only the LAST value; an interior space of
+        the same magnitude as the trailing one survives untouched --
+        the constraint most likely to be broken (plan item 2)."""
+        pronto = "0000 006D 0002 0000 0020 0100 0020 0100"
+        cmd = ProntoCommand(pronto)
+        timings = cmd.get_raw_timings()
+        # Pre-strip would be [mark, -space, mark, -space] (4 values);
+        # post-strip is [mark, -space, mark] (3 values) -- the interior
+        # space at index 1 is identical to what the trailing one WAS.
+        assert len(timings) == 3
+        assert timings[1] < 0
+        # 0x100 space periods vs 0x20 mark periods -- the interior space
+        # is the same (large) magnitude the trailing one would have been.
+        assert abs(timings[1]) > abs(timings[0]) * 5
+        assert timings[2] > 0  # trailing space is gone; ends on the mark
+
+    def test_repeat_count_documents_stripped_array(self):
+        """repeat_count > 0 on a Pronto replay (plan item 6): this test
+        DOCUMENTS what HAIR hands the platform's own repeat mechanism --
+        the array is stripped exactly once at construction, regardless
+        of repeat_count, and repeat_count itself is a pure passthrough
+        HAIR does not interpret. Per smartir-trailing-gap.md section 5,
+        if the bench ever shows dittos misbehaving without the trailing
+        gap, that is a platform-level finding to report, not a reason to
+        improvise a separator back into this array."""
+        pronto = "0000 006D 0002 0000 0020 0100 0020 0100"
+        cmd = ProntoCommand(pronto, repeat_count=2)
+        assert cmd.repeat_count == 2
+        timings = cmd.get_raw_timings()
+        assert len(timings) == 3
+        assert timings[-1] > 0
+        # Identical array as the repeat_count=0 case -- repeat_count
+        # changes nothing about what get_raw_timings() returns.
+        assert timings == ProntoCommand(pronto).get_raw_timings()
+
 
 # ---------------------------------------------------------------------------
 # RawTimingsCommand
@@ -142,11 +200,11 @@ class TestRawTimingsCommand:
     def test_positive_pairs(self):
         cmd = RawTimingsCommand([9000, 4500, 560, 560])
         timings = cmd.get_raw_timings()
-        assert len(timings) == 4
+        # 4 normalised values, minus the trailing space (4a strip) -> 3.
+        assert len(timings) == 3
         assert timings[0] == 9000
         assert timings[1] == -4500
         assert timings[2] == 560
-        assert timings[3] == -560
 
     def test_negative_space_normalised(self):
         # Already signed input
@@ -173,6 +231,36 @@ class TestRawTimingsCommand:
         cmd = RawTimingsCommand([9000, -4500, 560, -560, 560])
         for t in cmd.get_raw_timings():
             assert isinstance(t, int)
+
+    # -----------------------------------------------------------------
+    # SmartIR trailing gap (smartir-trailing-gap.md, 4a / GH #93) --
+    # same three cases as ProntoCommand, through the raw path (plan
+    # item 4: sniffed rows carry their own receiver-side trailing gaps).
+    # -----------------------------------------------------------------
+
+    def test_trailing_gap_stripped_ends_on_mark(self):
+        cmd = RawTimingsCommand([9000, 4500, 560, 3000])
+        timings = cmd.get_raw_timings()
+        # [9000, -4500, 560, -3000] pre-strip -> trailing space dropped.
+        assert len(timings) == 3
+        assert timings == [9000, -4500, 560]
+        assert timings[-1] > 0
+
+    def test_interior_gap_survives_only_trailing_dropped(self):
+        # Interior space (-4500 at index 1) must survive; only the
+        # trailing one (index 5) is dropped.
+        cmd = RawTimingsCommand([9000, 4500, 3000, 3000, 560, 560])
+        timings = cmd.get_raw_timings()
+        assert timings == [9000, -4500, 3000, -3000, 560]
+        assert timings[1] == -4500  # interior space untouched
+        assert timings[-1] > 0      # trailing space gone
+
+    def test_trailing_mark_left_alone(self):
+        """Odd-length input already ends on a mark -- nothing to strip,
+        byte-for-byte identical to the pre-strip normalisation (plan
+        item 3, raw path; see also test_odd_timings_trailing_mark)."""
+        cmd = RawTimingsCommand([9000, -4500, 560])
+        assert cmd.get_raw_timings() == [9000, -4500, 560]
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +345,11 @@ class TestRawToPronto:
         """Encode raw -> Pronto -> ProntoCommand -> get_raw_timings.
 
         The round-trip should produce values close to the originals
-        (within rounding tolerance of the Pronto period quantization).
+        (within rounding tolerance of the Pronto period quantization),
+        minus the trailing space -- ProntoCommand strips it on the way
+        back out (smartir-trailing-gap.md 4a), so the recovered list is
+        one shorter than the original whenever the original ends in a
+        space, as this one does.
         """
         original = [9000, -4500, 560, -560, 560, -1690]
         pronto = raw_to_pronto(original, frequency=38000)
@@ -265,8 +357,8 @@ class TestRawToPronto:
         cmd = ProntoCommand(pronto)
         recovered = cmd.get_raw_timings()
 
-        assert len(recovered) == len(original)
-        for orig, rec in zip(original, recovered, strict=True):
+        assert len(recovered) == len(original) - 1
+        for orig, rec in zip(original, recovered, strict=False):
             # Rounding tolerance: Pronto period is ~26us, so values
             # can differ by up to ~26us per quantization step.
             assert abs(abs(orig) - abs(rec)) < 50, (

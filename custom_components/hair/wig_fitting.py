@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from .wig_climate import dimension_checklist_digests
 from .wig_format import (
     VERDICT_WORKED,
     Wig,
@@ -76,12 +77,22 @@ def bundle_is_complete(
 
     A matrix wig's claims bind the lattice as a SET rather than a list
     of row digests, so completeness there is "they claimed the rows
-    they were shown", which for a checklist bundle is every row in it.
+    they were shown" -- but review 2026-08-08 item 4b (the Toyotomi
+    hole) is exactly the gap in stopping there: a bundle that was only
+    ever SHOWN some of the checklist (an old partial attestation, a
+    hand-edited file, anything not written by the current Save dialog)
+    used to pass this unchanged. Every row it carries working is
+    necessary but not sufficient; it also has to carry every row the
+    dimension checklist expects.
     """
     if wig.climate is not None:
-        return bool(bundle.rows) and all(
-            row.verdict == VERDICT_WORKED for row in bundle.rows
-        )
+        if not bundle.rows or any(
+            row.verdict != VERDICT_WORKED for row in bundle.rows
+        ):
+            return False
+        expected = dimension_checklist_digests(wig.climate)
+        worked = {row.digest for row in bundle.rows}
+        return expected <= worked
     if digests is None:
         digests = wig_row_digests(wig)
     return perfect_by(bundle, digests)
@@ -190,15 +201,21 @@ def claims_ledger(wig: Wig, install_key: str | None) -> dict[str, Any]:
 
 
 def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
-    """The closet row's check, DERIVED from claims (RULED 2026-08-03).
+    """The closet row's check, DERIVED from claims.
 
-    Three tiers, one-to-one with the download filename tiers, because a
-    row and a filename saying different things about the same wig is a
-    contradiction somebody has to resolve by opening it:
+    Two tiers now (perfect-or-nothing, owner ruling 2026-08-07,
+    replacing the three-tier RULED 2026-08-03 shape): a wig is either a
+    PERFECT FIT or it is not, and "not" carries no state of its own for
+    the closet row to show. A row and a filename saying different
+    things about the same wig is a contradiction somebody has to
+    resolve by opening it, so this stays the one place both the closet
+    tick and the download filename tier derive from:
 
-    - nothing: no attestations at all
-    - "scoped": at least one signed attestation, none of them complete
-    - "perfect": at least one person's claims cover every row
+    - ``None``: no complete attestation -- nothing at all, or a signed
+      bundle that does not cover every row (a matrix carrying
+      exclusions, or partial coverage). The ledger still lists it; the
+      closet just shows no tick for it.
+    - "perfect": at least one person's claims cover every row.
 
     GREEN IS KEYED TO ONE PERSON'S COMPLETE COVERAGE. Union coverage
     across fitters never inflates it: three people who each proved a
@@ -217,11 +234,7 @@ def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
     def _complete(bundle: Any) -> bool:
         return bundle_is_complete(bundle, wig, digests)
 
-    state: str | None = None
-    if any(_complete(b) for b in bundles):
-        state = "perfect"
-    elif bundles:
-        state = "scoped"
+    state: str | None = "perfect" if any(_complete(b) for b in bundles) else None
 
     def _mine(bundle: Any) -> bool:
         # Second Fitting v3 punch list item 8: keyed on the install's
@@ -236,7 +249,7 @@ def claims_summary(wig: Wig, install_key: str | None) -> dict[str, Any]:
     return {
         "state": state,
         "user_state": (
-            ("perfect" if any(_complete(b) for b in mine) else "scoped")
+            ("perfect" if any(_complete(b) for b in mine) else None)
             if mine else None
         ),
         "fitters": len(bundles),

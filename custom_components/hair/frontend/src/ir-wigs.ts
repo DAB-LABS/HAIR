@@ -337,13 +337,19 @@ export class IrWigs extends LitElement {
         } else if (this._filter === "yours") {
             rows = rows.filter((r) => r.source === "local");
         } else if (this._filter === "fitted") {
-            // Fitted mirrors the check mark: any fitting state, green
-            // or yellow (owner ruling 2026-07-26).
-            rows = rows.filter((r) => r.wig?.fitting?.state);
+            // Perfect-or-nothing (owner ruling 2026-08-07, decision 1):
+            // keyed on ANY signed bundle, not the tick's own state --
+            // with "scoped" gone, keying this on `state` would have
+            // silently dropped a matrix record carrying exclusions (or
+            // a legacy partial) to "unfitted". The chip is findability;
+            // the tick alone stays the judgment.
+            rows = rows.filter((r) => (r.wig?.fitting?.fitters ?? 0) > 0);
         } else if (this._filter === "unfitted") {
             // Only fittable things count as unfitted: local wig files.
             // Library codebooks cannot carry fittings.
-            rows = rows.filter((r) => r.wig && !r.wig.fitting?.state);
+            rows = rows.filter(
+                (r) => r.wig && !(r.wig.fitting?.fitters ?? 0),
+            );
         }
         const query = this._search.trim().toLowerCase();
         if (query && !brand.label.toLowerCase().includes(query)) {
@@ -1185,7 +1191,11 @@ export class IrWigs extends LitElement {
             0,
         );
         const yours = this._wigs.length;
-        const fitted = this._wigs.filter((w) => w.fitting?.state).length;
+        // Matches the "fitted" filter above: any signed bundle, not
+        // just a perfect one.
+        const fitted = this._wigs.filter(
+            (w) => (w.fitting?.fitters ?? 0) > 0,
+        ).length;
         return {
             all: library + yours,
             library,
@@ -1450,27 +1460,20 @@ export class IrWigs extends LitElement {
     /**
      * The check's tooltip: the derived detail the glyph cannot carry.
      *
-     * Three tiers only (RULED 2026-08-03), matching the download
-     * filename tiers exactly -- a row and a filename disagreeing about
-     * the same wig is a contradiction somebody has to open the file to
-     * resolve.
-     *
-     * Union coverage is reported here rather than in the colour, on
-     * purpose: three people who each proved a different third have not
-     * produced anybody who can say the whole wig works.
+     * Perfect or nothing (owner ruling 2026-08-07): the tick's caller
+     * only ever renders this for a truthy ``state``, which is
+     * "perfect" or nothing at all now -- so this is reached exactly
+     * once, for the one state left to describe. An incomplete bundle
+     * still exists and still counts (``fitters``/``covered`` stay in
+     * the payload -- display of history is not judgment), but it has
+     * no tick to hang a tooltip on any more; the ledger is where it
+     * reads now.
      */
     private _fitTitle(fitting: FittingSummary): string {
-        if (fitting.state === "perfect") {
-            const who = (fitting.perfect_by ?? []).filter(Boolean);
-            return who.length
-                ? t("wigs.fit_tick.perfect_by", { who: who.join(", ") })
-                : t("wigs.fit_tick.perfect");
-        }
-        return t("wigs.fit_tick.scoped", {
-            fitters: String(fitting.fitters ?? 0),
-            covered: String(fitting.covered ?? 0),
-            total: String(fitting.total ?? 0),
-        });
+        const who = (fitting.perfect_by ?? []).filter(Boolean);
+        return who.length
+            ? t("wigs.fit_tick.perfect_by", { who: who.join(", ") })
+            : t("wigs.fit_tick.perfect");
     }
 
     private _combState(wig: WigInfo): string {
@@ -2241,10 +2244,11 @@ export class IrWigs extends LitElement {
            on the device. ADOPT is the path. */
 
         /* The row's check (owner ruling 2026-07-26, re-ruled
-           2026-08-03 to three tiers): green = somebody proved the
-           whole wig, amber = signed but scoped, nothing = no
-           attestations. Coverage detail lives in the tooltip, and the
-           check itself opens the ledger. */
+           2026-08-07 to perfect or nothing): green = somebody proved
+           the whole wig, nothing = anything less, including a signed
+           attestation that carries exclusions -- the ledger is where
+           that reads now, not the tick. The check itself opens the
+           ledger. */
         .fit-tick {
             font-size: 13px;
             font-weight: 700;
@@ -2269,12 +2273,6 @@ export class IrWigs extends LitElement {
             text-shadow:
                 0 0 6px rgba(102, 187, 106, 0.9),
                 0 0 12px rgba(102, 187, 106, 0.45);
-        }
-        /* The old partial-yellow reborn with a better meaning: it
-           used to say somebody stopped early. It now says a complete,
-           signed, honest attestation that carries exclusions. */
-        .fit-tick.scoped {
-            color: #ffb300;
         }
         /* Matrix wigs' stateful signature (owner design 2026-07-28:
            green check, blue glow, "like a cold glow"): the check keeps

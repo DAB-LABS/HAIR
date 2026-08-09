@@ -27,7 +27,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .wig_format import ClimateCell, ClimateMatrix, _temp_str, cell_key
+from .wig_format import (
+    ClimateCell,
+    ClimateMatrix,
+    _temp_str,
+    cell_key,
+    row_digest,
+)
 
 # File-mode -> HA HVACMode value. Direct names map to themselves; the
 # two aliases are corpus fact (census: "fan" in 24 files, "cold" in 1).
@@ -354,6 +360,25 @@ def dimension_checklist(matrix: ClimateMatrix) -> list[ChecklistRow]:
         key="off", section=SECTION_WRAP, pronto=matrix.off,
     ))
     return rows
+
+
+def dimension_checklist_digests(matrix: ClimateMatrix) -> set[str]:
+    """The row digest of every entry ``dimension_checklist`` samples.
+
+    Review 2026-08-08, item 4b (the Toyotomi hole): ``bundle_is_complete``
+    used to ask only "did every row THIS BUNDLE carries work", never "does
+    this bundle carry every row the checklist expects". A bundle missing a
+    sampled row -- an old partial attestation, a hand-edited file, anything
+    not written by the current Save dialog -- read PERFECT anyway, because
+    nothing it was shown was wrong; something was just never asked. This is
+    the expected set `bundle_is_complete` now requires a matrix bundle's
+    WORKED digests to cover.
+
+    Digested the same way ``wig_save._checklist_rows`` binds these rows for
+    attestation (``row_digest(pronto, 0, False)``), so the two stay unable
+    to disagree about what one dimension-checklist row IS.
+    """
+    return {row_digest(row.pronto, 0, False) for row in dimension_checklist(matrix)}
 
 
 def matrix_summary(matrix: ClimateMatrix) -> dict:

@@ -49,17 +49,18 @@ export class IrSupersedeDialog extends LitElement {
     /** The graded ceremony line, or null when there is nothing to grade
      * (amendment v2 section 2: "no claims" is the light state -- the
      * body stands on its own): an anonymous fitting with no handle at
-     * all leaves nobody to credit. */
-    private get _fitted(): {
-        state: "perfect" | "scoped";
-        count: number;
-        who: string[];
-    } | null {
+     * all leaves nobody to credit.
+     *
+     * Perfect-or-nothing (owner ruling 2026-08-07): ``of.state`` can no
+     * longer be "scoped" -- an incomplete ancestor grades as no state
+     * at all, which the guard above already returns null for -- so
+     * this only ever has the amber PERFECT FIT line left to give. */
+    private get _fitted(): { who: string[] } | null {
         const of = this.block?.old_fittings;
-        if (!of || !of.state) return null;
+        if (!of || of.state !== "perfect") return null;
         const who = of.handles;
         if (!who.length) return null;
-        return { state: of.state, count: of.count, who };
+        return { who };
     }
 
     updated(): void {
@@ -161,24 +162,12 @@ export class IrSupersedeDialog extends LitElement {
                         })}
                     </p>
                     ${fitted
-                        ? fitted.state === "perfect"
-                            ? html`<div class="fitted-callout">
-                                  ${t("supersede.fitted_perfect", {
-                                      name: b.old_name,
-                                      who: fitted.who.join(", "),
-                                  })}
-                              </div>`
-                            : html`<p class="fitted-line">
-                                  ${tp(
-                                      "supersede.fitted_scoped",
-                                      fitted.count,
-                                      {
-                                          count: String(fitted.count),
-                                          name: b.old_name,
-                                          who: fitted.who.join(", "),
-                                      },
-                                  )}
-                              </p>`
+                        ? html`<div class="fitted-callout">
+                              ${t("supersede.fitted_perfect", {
+                                  name: b.old_name,
+                                  who: fitted.who.join(", "),
+                              })}
+                          </div>`
                         : ""}
                     ${this._guarded
                         ? html`<div class="lost-callout">
@@ -301,15 +290,6 @@ export class IrSupersedeDialog extends LitElement {
                 color: var(--primary-text-color);
                 font-size: 0.85rem;
                 line-height: 1.5;
-            }
-            /* A scoped fitting is informational, the same weight as
-               .follows -- somebody tried, nobody finished, so there is
-               nothing heavy to warn about. */
-            .fitted-line {
-                margin: 8px 0 0;
-                font-size: 0.9rem;
-                line-height: 1.5;
-                color: var(--primary-text-color);
             }
             /* A PERFECT FIT retiring gets the amber-family treatment
                .lost-callout wears, for the reason noted above it. */

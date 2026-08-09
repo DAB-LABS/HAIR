@@ -76,6 +76,7 @@ import "./ir-test-button.js";
 import "./ir-tx-knobs.js";
 import "./ir-claims-ledger.js";
 import { ICON_WIG } from "./ir-wigs.js";
+import { ICON_COMB, COMB_VIEWBOX } from "./ir-icons.js";
 
 type Verdict = "worked" | "not_on_device" | "wont_work";
 
@@ -119,7 +120,10 @@ export class IrSavePerfectDialog extends LitElement {
     // --- The fitting half (device source only) -------------------------
     @state() private _plan: SavePlan | null = null;
     @state() private _loading = false;
-    /** Digests currently checked. Everything, until somebody unchecks. */
+    /** Digests currently checked. Nothing, until somebody checks one --
+     * perfect-or-nothing (owner ruling 2026-08-07): the click IS the
+     * attestation, so the default claim is nothing rather than
+     * everything. */
     @state() private _checked = new Set<string>();
     /** Why an unchecked row is unchecked. Absent means no claim at all,
      * which is a third state and has to stay one: silence is not a
@@ -171,7 +175,7 @@ export class IrSavePerfectDialog extends LitElement {
 
     private get _checkedCount(): number {
         return this._attestableRows.filter((r) =>
-            this._checked.has(r.digest),
+            this._checked.has(this._rowKey(r)),
         ).length;
     }
 
@@ -180,6 +184,33 @@ export class IrSavePerfectDialog extends LitElement {
     private get _isPerfectFit(): boolean {
         const rows = this._attestableRows;
         return rows.length > 0 && this._checkedCount === rows.length;
+    }
+
+    /** Rows that carry SOME claim: checked, or (cells only) an
+     * exclusion verdict. A flat row -- including a comb-flagged
+     * porthole -- has no exclusion path at all, so for it this
+     * collapses to "checked"; that is the whole comb-gate rule
+     * (RULED 2026-08-08) without a second code path. */
+    private get _attestedCount(): number {
+        return this._attestableRows.filter((r) => {
+            const key = this._rowKey(r);
+            return (
+                this._checked.has(key) ||
+                (this._isCell(r) && this._reasons.has(key))
+            );
+        }).length;
+    }
+
+    /** Every attestable row carries a claim. Perfect-or-nothing (owner
+     * ruling 2026-08-07): signing arms only here -- there is no
+     * partial save. On a flat wig this degenerates to `_isPerfectFit`
+     * exactly, since a flat row's only claim is a check. On a matrix
+     * it also requires every comb-flagged cell checked, because a
+     * flagged row has no exclusion path either (the comb gate,
+     * RULED 2026-08-08). */
+    private get _fullyAttested(): boolean {
+        const rows = this._attestableRows;
+        return rows.length > 0 && this._attestedCount === rows.length;
     }
 
     /** Metadata the person actually changed, against what the plan
@@ -246,9 +277,8 @@ export class IrSavePerfectDialog extends LitElement {
     }
 
     /** A device with no codes and no lattice has nothing to vouch for.
-     * Offering the box anyway produced "0 of 0 checked. This saves as a
-     * scoped fitting rather than a perfect fit" over an empty list --
-     * an invitation to attest nothing, phrased as a downgrade. */
+     * Offering the box anyway produced "0 of 0 rows attested" over an
+     * empty list -- an invitation to attest nothing. */
     private get _nothingToAttest(): boolean {
         return !!this._plan && this._allRows.length === 0;
     }
@@ -282,6 +312,11 @@ export class IrSavePerfectDialog extends LitElement {
 
     private get _canSave(): boolean {
         if (this._busy) return false;
+        // No partial signing (perfect-or-nothing, owner ruling
+        // 2026-08-07): armed but not every row attested refuses,
+        // regardless of the oath. Checking every box is what arms the
+        // save, not a separate gate on top of it.
+        if (this._armed && !this._fullyAttested) return false;
         // An attestation is not signed until the oath is ticked, in
         // either verb. Prefill fills fields, it never pre-checks the
         // oath, and nothing signs without it.
@@ -299,9 +334,13 @@ export class IrSavePerfectDialog extends LitElement {
     private get _saveLabel(): string {
         if (this._busy) return t("common.saving");
         if (!this._armed) return t("common.save");
-        return this._isPerfectFit
-            ? t("wigs.save.save_perfect")
-            : t("wigs.save.save_fitted");
+        if (this._isPerfectFit) return t("wigs.save.save_perfect");
+        // A matrix, fully attested, but carrying an exclusion: a real
+        // record, just not a PERFECT FIT (the carve-out). Not yet
+        // fully attested: plain Save, disabled -- _canSave already
+        // refuses it above.
+        if (this._fullyAttested) return t("wigs.save.save_record");
+        return t("common.save");
     }
 
     /** The graded line (Second Fitting v3 punch list item 13): on
@@ -315,33 +354,27 @@ export class IrSavePerfectDialog extends LitElement {
      * retires as a decision point. The attesting person's own handle
      * is filtered from the credit list for the same reason the old
      * receipt-side version did: replacing a wig you yourself just
-     * fitted needs no warning about yourself. */
+     * fitted needs no warning about yourself.
+     *
+     * Perfect-or-nothing (owner ruling 2026-08-07): ``grade.state`` can
+     * no longer be "scoped" -- an incomplete ancestor grades as no
+     * state at all now, which the guard above already returns null
+     * for -- so this only ever has the amber PERFECT FIT line left to
+     * give. */
     private get _gradedLine(): { amber: boolean; text: string } | null {
         if (!this._isSuccession) return null;
         const grade = this._plan?.old_fitting_grade;
-        if (!grade || !grade.state) return null;
+        if (!grade || grade.state !== "perfect") return null;
         const mine = this._handle.trim().toLowerCase();
         const who = mine
             ? grade.handles.filter((h) => h.trim().toLowerCase() !== mine)
             : grade.handles;
         if (!who.length) return null;
         const name = this._plan?.source_wig_name ?? "";
-        return grade.state === "perfect"
-            ? {
-                  amber: true,
-                  text: t("supersede.fitted_perfect", {
-                      name,
-                      who: who.join(", "),
-                  }),
-              }
-            : {
-                  amber: false,
-                  text: tp("supersede.fitted_scoped", grade.count, {
-                      count: String(grade.count),
-                      name,
-                      who: who.join(", "),
-                  }),
-              };
+        return {
+            amber: true,
+            text: t("supersede.fitted_perfect", { name, who: who.join(", ") }),
+        };
     }
 
     /** The lost-rows line: rows the ancestor carries that the device
@@ -397,16 +430,16 @@ export class IrSavePerfectDialog extends LitElement {
         );
     }
 
-    /** Arming checks everything by default. That is the whole shape
-     * of the flow: the person built or adopted a device that works,
-     * so the default claim is "all of it", and unchecking a row is
-     * the exception path rather than the main road. Second Fitting
-     * v3 punch list, item 3: this used to run only from a checkbox
-     * tick; now it runs on its own, wherever arming happens. */
+    /** Arming used to check everything by default; perfect-or-nothing
+     * (owner ruling 2026-08-07) retired that. Every row now starts
+     * GREY AND UNCHECKED -- the fitter physically checks each one,
+     * because the click IS the attestation. This still runs wherever
+     * arming happens (Second Fitting v3 punch list item 3: the route
+     * itself is the arming, not a checkbox), it just seeds nothing
+     * rather than everything, and still clears `_reasons` since both
+     * call sites need that reset. */
     private _armChecklist(): void {
-        this._checked = new Set(
-            this._attestableRows.map((r) => r.digest),
-        );
+        this._checked = new Set<string>();
         this._reasons = new Map();
     }
 
@@ -418,30 +451,34 @@ export class IrSavePerfectDialog extends LitElement {
         if (this._armed) this._armChecklist();
     }
 
-    private _toggleRow(digest: string): void {
+    /** Takes `_rowKey(row)`, not `row.digest` -- see that helper for
+     * why the two are not interchangeable. */
+    private _toggleRow(key: string): void {
         const next = new Set(this._checked);
-        if (next.has(digest)) {
-            next.delete(digest);
+        if (next.has(key)) {
+            next.delete(key);
         } else {
-            next.add(digest);
+            next.add(key);
             const reasons = new Map(this._reasons);
-            reasons.delete(digest);
+            reasons.delete(key);
             this._reasons = reasons;
         }
         this._checked = next;
     }
 
-    private _setReason(digest: string, verdict: Verdict | null): void {
+    /** Takes `_rowKey(row)`, not `row.digest`. */
+    private _setReason(key: string, verdict: Verdict | null): void {
         const next = new Map(this._reasons);
-        if (verdict === null) next.delete(digest);
-        else next.set(digest, verdict);
+        if (verdict === null) next.delete(key);
+        else next.set(key, verdict);
         this._reasons = next;
     }
 
-    private _toggleRename(digest: string): void {
+    /** Takes `_rowKey(row)`, not `row.digest`. */
+    private _toggleRename(key: string): void {
         const next = new Set(this._renames);
-        if (next.has(digest)) next.delete(digest);
-        else next.add(digest);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
         this._renames = next;
     }
 
@@ -478,6 +515,33 @@ export class IrSavePerfectDialog extends LitElement {
      * power code that TEST can send. */
     private _isCell(row: SavePlanRow): boolean {
         return !!row.power || !!row.mode;
+    }
+
+    /** The checklist's own local identity for a row -- NOT `row.digest`.
+     * Digest is a content hash, and the comb flags a row partly BECAUSE
+     * it can be byte-identical to a neighbour (a duplicate, one of the
+     * anomalies the comb looks for), so two distinct rows can carry the
+     * same digest. Keying `_checked`/`_reasons`/`_renames` on digest
+     * made checking one such row check both -- this is what those Set/
+     * Map lookups use instead. A porthole row (comb-flagged or not)
+     * always has its own `command_id`, which is unique per row; a plain
+     * dimension-checklist sample has none (it addresses a cell by
+     * coordinate, not by command), so it falls back to those
+     * coordinates instead, which are just as unique per sampled cell.
+     * The actual claim sent to the server still binds `row.digest` --
+     * see `_claims()` -- since that is the correct wire contract; only
+     * the widget's own toggle-tracking key changes. */
+    private _rowKey(row: SavePlanRow): string {
+        if (row.command_id) return `cmd:${row.command_id}`;
+        return [
+            "cell",
+            row.power ?? "",
+            row.section ?? "",
+            row.mode ?? "",
+            row.fan ?? "",
+            row.swing ?? "",
+            row.temp ?? "",
+        ].join(":");
     }
 
     private _displayTemp(temp: number): string {
@@ -546,11 +610,12 @@ export class IrSavePerfectDialog extends LitElement {
     private _claims(): { digest: string; verdict: string }[] {
         const out: { digest: string; verdict: string }[] = [];
         for (const row of this._allRows) {
-            if (this._checked.has(row.digest)) {
+            const key = this._rowKey(row);
+            if (this._checked.has(key)) {
                 out.push({ digest: row.digest, verdict: "worked" });
                 continue;
             }
-            const reason = this._reasons.get(row.digest);
+            const reason = this._reasons.get(key);
             // No reason means no claim. The row simply does not appear.
             if (reason) out.push({ digest: row.digest, verdict: reason });
         }
@@ -564,7 +629,7 @@ export class IrSavePerfectDialog extends LitElement {
     }[] {
         if (!this._isUpdate) return [];
         return this._allRows
-            .filter((r) => r.renamed && this._renames.has(r.digest))
+            .filter((r) => r.renamed && this._renames.has(this._rowKey(r)))
             .map((r) => ({
                 digest: r.digest,
                 alias_at_claim: r.wig_alias ?? "",
@@ -960,11 +1025,41 @@ export class IrSavePerfectDialog extends LitElement {
         const additions = succession ? rows.filter((r) => !r.matched) : [];
         const removals = succession ? (this._plan?.missing_rows ?? []) : [];
         const readOnly = succession && !this._armed;
+
+        // The comb gate (RULED 2026-08-08): on a matrix, comb-flagged
+        // portholes draw as their own group after the dimension
+        // samples and the ordinary extras beside them -- coordinate-
+        // named (already true of a porthole's own alias), checkbox
+        // mandatory, no exclusion picker anywhere near them (the
+        // `_isCell` gate on `_renderReasons` already keeps it off a
+        // porthole regardless of grouping; this split is purely
+        // visual, so the fitter can see which rows earned suspicion).
+        // A flat wig has nothing to group -- every row must be
+        // checked already -- so it stays one list and each
+        // comb-flagged row just wears the mark in place.
+        const isMatrix = !!this._plan?.matrix;
+        const combRows = isMatrix
+            ? matched.filter((r) => r.comb_suspect)
+            : [];
+        const mainRows = isMatrix
+            ? matched.filter((r) => !r.comb_suspect)
+            : matched;
+
         return html`
             <div class="fit-list">
-                ${matched.map((row) =>
+                ${mainRows.map((row) =>
                     this._renderRow(row, false, readOnly),
                 )}
+                ${combRows.length
+                    ? html`
+                          <div class="changes-divider">
+                              <span>${t("wigs.save.comb_group_title")}</span>
+                          </div>
+                          ${combRows.map((row) =>
+                              this._renderRow(row, false, readOnly),
+                          )}
+                      `
+                    : ""}
                 ${additions.length || removals.length
                     ? html`
                           <div class="changes-divider">
@@ -979,13 +1074,18 @@ export class IrSavePerfectDialog extends LitElement {
                       `
                     : ""}
             </div>
-            ${readOnly || this._isPerfectFit
+            ${readOnly
                 ? ""
-                : html`<div class="downgrade">
-                      ${t("wigs.save.downgrade", {
-                          checked: String(this._checkedCount),
+                : html`<div class="attest-progress">
+                      ${t("wigs.save.attest_progress", {
+                          checked: String(this._attestedCount),
                           total: String(this._attestableRows.length),
                       })}
+                      ${this._reasons.size > 0
+                          ? html`<div class="exclusion-note">
+                                ${t("wigs.save.exclusion_note")}
+                            </div>`
+                          : ""}
                   </div>`}
         `;
     }
@@ -1007,7 +1107,8 @@ export class IrSavePerfectDialog extends LitElement {
         isAddition = false,
         readOnly = false,
     ) {
-        const checked = readOnly ? false : this._checked.has(row.digest);
+        const key = this._rowKey(row);
+        const checked = readOnly ? false : this._checked.has(key);
         return html`
             <div
                 class="fit-row ${checked ? "" : "off"} ${isAddition
@@ -1018,17 +1119,25 @@ export class IrSavePerfectDialog extends LitElement {
                     type="checkbox"
                     .checked=${checked}
                     ?disabled=${readOnly}
-                    @change=${() => this._toggleRow(row.digest)}
+                    @change=${() => this._toggleRow(key)}
                 />
                 <span class="fit-name">
-                    ${isAddition
-                        ? html`<span class="delta-mark add">+</span>`
-                        : ""}
                     ${this._rowLabel(row)}
                     ${this._rowContext(row)
                         ? html`<span class="fit-context"
                               >${this._rowContext(row)}</span
                           >`
+                        : ""}
+                    ${row.comb_suspect
+                        ? html`<span
+                              class="comb-mark"
+                              title=${row.comb_finding ??
+                              t("wigs.save.comb_flagged")}
+                              ><ha-svg-icon
+                                  .path=${ICON_COMB}
+                                  .viewBox=${COMB_VIEWBOX}
+                              ></ha-svg-icon
+                          ></span>`
                         : ""}
                 </span>
                 <ir-tx-knobs
@@ -1056,7 +1165,9 @@ export class IrSavePerfectDialog extends LitElement {
                         : ""}
                 </span>
             </div>
-            ${checked || readOnly ? "" : this._renderReasons(row)}
+            ${checked || readOnly || !this._isCell(row)
+                ? ""
+                : this._renderReasons(row)}
             ${checked && row.renamed && this._isUpdate
                 ? this._renderRename(row)
                 : ""}
@@ -1088,7 +1199,8 @@ export class IrSavePerfectDialog extends LitElement {
      * at all" is a real answer, so it is the default rather than
      * something the picker forces the person out of. */
     private _renderReasons(row: SavePlanRow) {
-        const current = this._reasons.get(row.digest) ?? null;
+        const key = this._rowKey(row);
+        const current = this._reasons.get(key) ?? null;
         return html`
             <div class="reason-row">
                 ${(["not_on_device", "wont_work"] as Verdict[]).map(
@@ -1099,7 +1211,7 @@ export class IrSavePerfectDialog extends LitElement {
                                 : ""}"
                             @click=${() =>
                                 this._setReason(
-                                    row.digest,
+                                    key,
                                     current === verdict ? null : verdict,
                                 )}
                         >
@@ -1116,7 +1228,8 @@ export class IrSavePerfectDialog extends LitElement {
      * leaves the device -- because a local name is usually a local
      * preference, not a correction to somebody else's wig. */
     private _renderRename(row: SavePlanRow) {
-        const proposing = this._renames.has(row.digest);
+        const key = this._rowKey(row);
+        const proposing = this._renames.has(key);
         return html`
             <div class="rename-row">
                 <span
@@ -1127,7 +1240,7 @@ export class IrSavePerfectDialog extends LitElement {
                 >
                 <button
                     class="reason-btn ${proposing ? "on" : ""}"
-                    @click=${() => this._toggleRename(row.digest)}
+                    @click=${() => this._toggleRename(key)}
                 >
                     ${proposing
                         ? t("wigs.save.rename_proposing")
@@ -1456,9 +1569,13 @@ export class IrSavePerfectDialog extends LitElement {
                 gap: 8px;
                 padding: 3px 2px;
             }
+            /* Perfect-or-nothing (owner ruling 2026-08-07): unchecked
+               is the default, ordinary state now -- not a decline --
+               so it dims rather than strikes through. Strikethrough
+               stays reserved for .removal, where a row really is
+               gone. */
             .fit-row.off .fit-name {
                 opacity: 0.55;
-                text-decoration: line-through;
             }
             .fit-name {
                 font-size: 13px;
@@ -1511,11 +1628,38 @@ export class IrSavePerfectDialog extends LitElement {
             .reason-hint {
                 opacity: 0.75;
             }
-            .downgrade {
+            /* Perfect-or-nothing (owner ruling 2026-08-07): a neutral
+               running count, not a warning -- attesting rows is the
+               main road now, not a downgrade from it. */
+            .attest-progress {
                 font-size: 11.5px;
-                color: #d9a441;
+                color: var(--secondary-text-color);
                 margin: 8px 0 2px;
                 line-height: 1.4;
+            }
+            /* Amber, matching the house family: a matrix carrying an
+               exclusion is real news -- this fitting stays a closet
+               record, not a PERFECT FIT. */
+            .exclusion-note {
+                color: #d9a441;
+                margin-top: 3px;
+            }
+            /* The comb gate (RULED 2026-08-08): a small flag, not a
+               verdict of its own -- the row's own check or repair is
+               what resolves it. Trails the name rather than leading
+               it, gray and dim rather than amber -- a diagnostic
+               note, not a warning. Sized to ~90% of .fit-name's 13px:
+               present without competing with the label. */
+            .comb-mark {
+                display: inline-flex;
+                align-items: center;
+                margin-left: 4px;
+                color: var(--secondary-text-color);
+                opacity: 0.6;
+                cursor: help;
+            }
+            .comb-mark ha-svg-icon {
+                --mdc-icon-size: 11.7px;
             }
             .changes-divider {
                 display: flex;
@@ -1532,9 +1676,6 @@ export class IrSavePerfectDialog extends LitElement {
             .delta-mark {
                 font-weight: 700;
                 margin-right: 3px;
-            }
-            .delta-mark.add {
-                color: #4f9e5a;
             }
             .delta-mark.remove {
                 color: var(--secondary-text-color);

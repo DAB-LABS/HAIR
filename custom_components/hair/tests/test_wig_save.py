@@ -72,6 +72,24 @@ class TestThePlanIsCreate:
         assert row.protocol == "NEC"
         assert row.command_id == command.id
 
+    def test_a_comb_flagged_porthole_carries_its_flag_onto_the_row(self):
+        """The comb gate (RULED 2026-08-08): a porthole row minted over
+        a comb-flagged cell (`_mint_cell_rows`, websocket_api.py) is
+        just an ordinary device command with `comb_suspect` set. The
+        plan row threads that flag through so the dialog can group and
+        mark it -- no second vocabulary invented here."""
+        flagged = _command(
+            "Cool 24", PRONTO_A,
+            comb_suspect=True, comb_finding="duplicate of a neighbour",
+        )
+        plain = _command("On", PRONTO_B)
+        plan = build_save_plan(_device([flagged, plain]))
+        by_alias = {row.alias: row for row in plan.rows}
+        assert by_alias["Cool 24"].comb_suspect is True
+        assert by_alias["Cool 24"].comb_finding == "duplicate of a neighbour"
+        assert by_alias["On"].comb_suspect is False
+        assert by_alias["On"].comb_finding is None
+
     def test_a_skipped_signal_does_not_shift_the_rest(self):
         """THE ALIGNMENT TEST.
 

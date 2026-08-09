@@ -102,6 +102,18 @@ export class HairApi {
             model: string | null;
             emitter_entity_ids: string[];
             device_type: string;
+            // Device Settings (0.9.8): power-sensor-based state
+            // correction. Sending power_sensor_entity_id: null clears
+            // it, which the backend also forces both thresholds to
+            // null for (thresholds without a sensor are meaningless).
+            power_sensor_entity_id: string | null;
+            power_off_below_w: number | null;
+            power_on_above_w: number | null;
+            // Climate room sensors (climate-sensors.md), riding 0.9.8:
+            // independent of each other and of the power fields above
+            // -- either clears on its own with a null.
+            temperature_sensor_entity_id: string | null;
+            humidity_sensor_entity_id: string | null;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({
@@ -285,15 +297,19 @@ export class HairApi {
         });
     }
 
-    /** Save one exact cell as a stored command (display-grammar name,
-     * source "matrix", replace-by-name). Returns the full device. */
+    /** Save one exact cell, or a power code, as a stored command
+     * (display-grammar name, source "matrix", replace-by-name).
+     * Exactly one of mode or power is required -- mirrors
+     * matrixSend's own power-wins contract (matrix-power-row.md item
+     * 2). Returns the full device. */
     matrixCommand(
         deviceId: string,
         state: {
-            mode: string;
+            mode?: string;
             fan?: string | null;
             swing?: string | null;
             temp?: number | null;
+            power?: "on" | "off";
         },
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({

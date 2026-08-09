@@ -1,8 +1,13 @@
-"""The closet row's check: three tiers, derived from claims.
+"""The closet row's check: perfect or nothing, derived from claims.
 
 One-to-one with the download filename tiers, because a row and a
 filename saying different things about the same wig is a contradiction
-somebody has to open the file to resolve.
+somebody has to open the file to resolve. The three-tier "scoped"
+middle retired 2026-08-07 (owner ruling): a wig is a PERFECT FIT or the
+row shows nothing, and an incomplete bundle -- old files with
+exclusions from before the ruling, or a matrix carrying them today --
+still parses, still counts toward ``fitters``/``covered``, and still
+lists in the ledger. It just is not a tier the closet tick names.
 
 The load-bearing rule is that GREEN IS ONE PERSON'S COMPLETE COVERAGE.
 Three people who each proved a different third have not, between them,
@@ -61,17 +66,22 @@ def _attach(wig, *bundles):
     return wig
 
 
-class TestTheThreeTiers:
+class TestTheTwoTiers:
     def test_no_attestations_shows_nothing(self):
         assert claims_summary(_wig(), None)["state"] is None
 
-    def test_a_scoped_attestation_shows_yellow(self):
-        """The old partial-yellow reborn with a better meaning: it used
-        to say somebody stopped early; it now says a complete, signed,
-        honest attestation that carries exclusions."""
+    def test_an_incomplete_attestation_shows_nothing(self):
+        """Perfect or nothing (owner ruling 2026-08-07): a complete,
+        signed, honest attestation that carries exclusions is real and
+        stays in the ledger, but it is no longer a tier the closet tick
+        names -- it reads exactly like no attestation at all here."""
         wig = _wig()
         _attach(wig, _bundle(wig, [VERDICT_WORKED, VERDICT_NOT_ON_DEVICE]))
-        assert claims_summary(wig, None)["state"] == "scoped"
+        summary = claims_summary(wig, None)
+        assert summary["state"] is None
+        # Still counted -- display of history is not judgment.
+        assert summary["fitters"] == 1
+        assert summary["covered"] == 1
 
     def test_a_perfect_fit_turns_it_green(self):
         wig = _wig()
@@ -80,19 +90,19 @@ class TestTheThreeTiers:
         assert summary["state"] == "perfect"
         assert summary["perfect_by"] == ["David"]
 
-    def test_adding_a_perfect_fit_promotes_a_scoped_wig(self):
+    def test_adding_a_perfect_fit_promotes_an_incomplete_wig(self):
         wig = _wig()
-        scoped = _bundle(wig, [VERDICT_WORKED, VERDICT_NOT_ON_DEVICE], "Ann")
-        _attach(wig, scoped)
-        assert claims_summary(wig, None)["state"] == "scoped"
-        _attach(wig, scoped, _bundle(wig, [VERDICT_WORKED, VERDICT_WORKED]))
+        partial = _bundle(wig, [VERDICT_WORKED, VERDICT_NOT_ON_DEVICE], "Ann")
+        _attach(wig, partial)
+        assert claims_summary(wig, None)["state"] is None
+        _attach(wig, partial, _bundle(wig, [VERDICT_WORKED, VERDICT_WORKED]))
         assert claims_summary(wig, None)["state"] == "perfect"
 
     def test_union_coverage_never_inflates_the_check(self):
         """THE ONE THAT MATTERS. Two fitters who each proved a
         different half cover the wig between them, and neither can say
-        the whole thing works on their own hardware. That is a scoped
-        wig wearing yellow, with the union in the tooltip.
+        the whole thing works on their own hardware. That is no tick,
+        with the union in the tooltip.
         """
         wig = _wig()
         _attach(
@@ -101,7 +111,7 @@ class TestTheThreeTiers:
             _bundle(wig, [VERDICT_NOT_ON_DEVICE, VERDICT_WORKED], "Bo"),
         )
         summary = claims_summary(wig, None)
-        assert summary["state"] == "scoped"
+        assert summary["state"] is None
         # The union IS reported -- it is real, it just is not the check.
         assert summary["covered"] == 2
         assert summary["total"] == 2
@@ -122,7 +132,7 @@ class TestTheThreeTiers:
                 key=INSTALL_KEY,
             ),
         )
-        assert claims_summary(wig, INSTALL_KEY)["user_state"] == "scoped"
+        assert claims_summary(wig, INSTALL_KEY)["user_state"] is None
         assert claims_summary(wig, OTHER_KEY)["user_state"] == "perfect"
 
     def test_a_matching_handle_with_a_different_key_is_not_yours(self):

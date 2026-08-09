@@ -789,7 +789,11 @@ class TestTheUpdateDialogsTwoChipsShowTheDelta:
             "\n    private", 1
         )[0]
         assert "supersede.update_fitted_perfect" in graded
-        assert "supersede.fitted_scoped" in graded
+        # Perfect-or-nothing (owner ruling 2026-08-07): the "scoped"
+        # grade retired, so this getter has only the amber PERFECT FIT
+        # line left to give -- there is no second key to keep separate
+        # from the shared one any more.
+        assert "supersede.fitted_scoped" not in graded
 
     def test_the_top_chip_name_is_bold_and_blue(self):
         text = _read("ir-save-update-dialog.ts")
@@ -1480,10 +1484,17 @@ class TestTheChecklistLearnsWhatChanged:
         source wig. Second Fitting amendment v2: it travels in the
         successor and attests exactly like a matched row -- it is
         never excluded from the perfect-fit denominator the way the
-        retired device-only treatment excluded it."""
+        retired device-only treatment excluded it.
+
+        The "+" delta-mark that used to draw on an addition row
+        retired 2026-08-08 (owner feedback: it and the unchecked
+        row's strikethrough both read as "this was removed," which is
+        backwards for a row nobody has attested yet). `isAddition`
+        itself stays -- it still gates the "addition" row class --
+        the glyph is what's gone."""
         text = _read("ir-save-perfect-dialog.ts")
         assert "isAddition" in text
-        assert "delta-mark add" in text
+        assert "delta-mark add" not in text
         # No filter narrows attestableRows below allRows any more.
         attestable = text.split(
             "private get _attestableRows()", 1
@@ -1667,12 +1678,17 @@ class TestSupersedeDialog:
             # Amendment v2 section 2: names, not counts -- the old
             # count-only "supersede.topup" pair retires with it.
             "supersede.topup_more",
-            "supersede.fitted_scoped",
+            # supersede.fitted_scoped retired with the fitted tier
+            # itself (perfect-or-nothing, owner ruling 2026-08-07): an
+            # incomplete ancestor grades as no state at all now, so
+            # there is no second, "scoped" line left to translate.
         ):
             assert f"{key}.one" in data, f"{locale} missing {key}.one"
             assert f"{key}.other" in data, f"{locale} missing {key}.other"
         assert "supersede.topup.one" not in data, locale
         assert "supersede.topup.other" not in data, locale
+        assert "supersede.fitted_scoped.one" not in data, locale
+        assert "supersede.fitted_scoped.other" not in data, locale
 
     def test_cancel_is_the_drop_bar_doorways_own_button(self):
         """Owner ruling: "Cancel means undo this import." The
@@ -1727,13 +1743,17 @@ class TestSupersedeDialog:
 
     def test_the_graded_ceremony_reads_old_fittings(self):
         """Amendment v2 section 2: no claims is light (nothing extra
-        renders); scoped names who tried; a PERFECT FIT gets the same
-        amber-family weight as a lost row."""
+        renders); a PERFECT FIT gets the amber-family weight of a lost
+        row. Perfect-or-nothing (owner ruling 2026-08-07): an
+        incomplete ancestor now grades as no state at all, so
+        supersede.fitted_scoped and its plain .fitted-line rendering
+        retired along with the tier itself -- amber-or-nothing, same
+        as the tick."""
         text = _read("ir-supersede-dialog.ts")
         assert "block?.old_fittings" in text
-        assert "supersede.fitted_scoped" in text
+        assert "supersede.fitted_scoped" not in text
         assert "supersede.fitted_perfect" in text
-        assert ".fitted-line" in text
+        assert ".fitted-line" not in text
         assert ".fitted-callout" in text
 
     def test_the_self_doorway_support_is_retired(self):
@@ -2021,10 +2041,15 @@ class TestNoSuccessionSaveIsSilent:
         assert "const readOnly = succession && !this._armed;" in body
         assert "this._renderRow(row, false, readOnly)" in body
         assert "this._renderRow(row, true, readOnly)" in body
-        # The "N of M checked" downgrade line reads as a partial
-        # attestation -- wrong message entirely for a preview where
-        # nothing is checkable at all.
-        assert "readOnly || this._isPerfectFit" in body
+        # The "N of M rows attested" progress line reads as an
+        # in-progress attestation -- wrong message entirely for a
+        # preview where nothing is checkable at all (perfect-or-
+        # nothing, owner ruling 2026-08-07: the line is neutral and
+        # always-on now, so readOnly is the only thing that still
+        # hides it).
+        progress = body.split("attest-progress", 1)[0]
+        assert "${readOnly" in progress
+        assert '? ""' in progress.rsplit("${readOnly", 1)[1]
 
     def test_a_read_only_row_disables_and_unchecks_the_box(self):
         text = _read("ir-save-perfect-dialog.ts")
@@ -2033,8 +2058,13 @@ class TestNoSuccessionSaveIsSilent:
         assert "readOnly = false" in body.split(")", 1)[0]
         assert "const checked = readOnly ? false" in body
         assert "?disabled=${readOnly}" in body
-        # Nobody can decline a row they cannot check.
-        assert '${checked || readOnly ? "" : this._renderReasons(row)}' in body
+        # Nobody can decline a row they cannot check. The comb gate
+        # (RULED 2026-08-08) added a third guard: only a lattice
+        # checklist cell offers the picker at all, so an unchecked
+        # flat row -- including a comb-flagged porthole -- renders no
+        # reason picker either, whatever readOnly says.
+        assert "!this._isCell(row)" in body
+        assert "this._renderReasons(row)" in body
 
     def test_create_and_plain_update_stay_silent_unarmed(self):
         """The clause is ``this._armed || this._isSuccession``
@@ -2253,7 +2283,9 @@ class TestTheStrippedSaveDialogs:
         )[0]
         assert "if (!this._diverged) return null;" in graded
         assert "supersede.update_fitted_perfect" in graded
-        assert "supersede.fitted_scoped" in graded
+        # Perfect-or-nothing (owner ruling 2026-08-07): the "scoped"
+        # grade retired, so there is no second key left in here.
+        assert "supersede.fitted_scoped" not in graded
         lost = text.split("private get _lostRowsLine()", 1)[1].split(
             "\n    private", 1
         )[0]

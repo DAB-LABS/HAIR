@@ -249,15 +249,20 @@ class TestDownloadFilename:
         )
         assert download_filename(wig) == "acme.wig.json"
 
-    def test_scoped_appends_hyphen_fitted(self):
-        # Two rows, one claimed worked: signed but incomplete -> scoped.
+    def test_a_partial_claim_appends_no_tier(self):
+        # Perfect or nothing (owner ruling 2026-08-07): two rows, one
+        # claimed worked, is signed but incomplete -- and the retired
+        # "-fitted" suffix has nothing to replace it. Plain name, same
+        # as unproven.
         s1 = WigSignal("On", PRONTO)
         s2 = WigSignal("Off", PRONTO_B)
         wig = Wig(
             name="Ignored", brand="Acme", wig_id="w1", signals=[s1, s2],
         )
         wig.extra["fittings"] = [_worked_fitting("w1", [s1])]
-        assert download_filename(wig) == "acme-fitted.wig.json"
+        name = download_filename(wig)
+        assert name == "acme.wig.json"
+        assert "-fitted" not in name
 
     def test_perfect_appends_hyphen_perfect_fit(self):
         # Every row claimed worked -> perfect.
@@ -522,11 +527,14 @@ class TestOldFittings:
             "count": 0, "state": None, "handles": [],
         }
 
-    def test_scoped_credits_everyone_who_tried(self, tmp_path):
+    def test_an_incomplete_fitting_credits_everyone_who_tried(self, tmp_path):
         s1 = WigSignal("On", PRONTO)
         s2 = WigSignal("Off", PRONTO_B)
         old = Wig(name="Fan", wig_id="old", signals=[s1, s2])
-        # Alice only claimed On -> scoped, not perfect.
+        # Alice only claimed On -> incomplete, not perfect. Perfect or
+        # nothing (owner ruling 2026-08-07): that state reads as None
+        # now, but the handle and count still credit her -- display of
+        # history is not judgment.
         old.extra["fittings"] = [
             {**_worked_fitting("old", [s1]), "handle": "Alice"},
         ]
@@ -535,7 +543,7 @@ class TestOldFittings:
             name="Fan v2", wig_id="new", supersedes=["old"], signals=[s1, s2],
         )
         block = detect_supersession(str(tmp_path), new, [])
-        assert block["old_fittings"]["state"] == "scoped"
+        assert block["old_fittings"]["state"] is None
         assert block["old_fittings"]["count"] == 1
         assert block["old_fittings"]["handles"] == ["Alice"]
 
@@ -945,7 +953,7 @@ class TestTheOldFittingGrade:
         assert plan.old_fitting_grade.count == 1
         assert plan.old_fitting_grade.handles == ["David"]
 
-    def test_a_partial_claim_grades_scoped(self):
+    def test_a_partial_claim_grades_none(self):
         wig = Wig(
             name="Fan", wig_id="u-source",
             signals=[
@@ -964,7 +972,7 @@ class TestTheOldFittingGrade:
         )
         plan = build_save_plan(device, wig, "fan.wig.json")
         assert plan.variant == VARIANT_SUCCESSION
-        assert plan.old_fitting_grade.state == "scoped"
+        assert plan.old_fitting_grade.state is None
         assert plan.old_fitting_grade.count == 1
 
     def test_handles_are_deduped_first_seen_order(self):
@@ -977,8 +985,8 @@ class TestTheOldFittingGrade:
         _attach_bundle(wig, "David", [VERDICT_WORKED])
         plan = build_save_plan(_diverging_device(), wig, "fan.wig.json")
         # Three bundles, two unique handles: the count is fitting
-        # bundles (matching supersede.fitted_scoped's own plural key),
-        # the handle list is deduped for the "by {who}" text.
+        # bundles (matching supersede.fitted_perfect's own plural
+        # form), the handle list is deduped for the "by {who}" text.
         assert plan.old_fitting_grade.count == 3
         assert plan.old_fitting_grade.handles == ["David", "Robin"]
 

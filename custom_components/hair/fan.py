@@ -6,8 +6,11 @@ from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import STATE_ON
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util.percentage import (
     ordered_list_item_to_percentage,
     percentage_to_ordered_list_item,
@@ -15,6 +18,7 @@ from homeassistant.util.percentage import (
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
+from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,7 +68,7 @@ async def async_setup_entry(
         _on_add(device)
 
 
-class HAIRFanEntity(FanEntity):
+class HAIRFanEntity(RestoreEntity, FanEntity):
     """IR-controlled fan."""
 
     _attr_has_entity_name = True
@@ -79,6 +83,9 @@ class HAIRFanEntity(FanEntity):
         self._is_on = False
         self._percentage: int | None = None
         self._oscillating: bool = False
+        # Power monitoring (Device Settings, 0.9.8). None until
+        # async_added_to_hass connects; None again after removal.
+        self._power_verdict_unsub: CALLBACK_TYPE | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -119,6 +126,44 @@ class HAIRFanEntity(FanEntity):
     @property
     def oscillating(self) -> bool:
         return self._oscillating
+
+    async def async_added_to_hass(self) -> None:
+        await self._async_restore_state()
+        self._power_verdict_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._power_verdict_unsub is not None:
+            self._power_verdict_unsub()
+            self._power_verdict_unsub = None
+
+    async def _async_restore_state(self) -> None:
+        """Reboot survival (Device Settings, 0.9.8). Seeds assumed
+        state from the entity's state before this restart -- the power
+        monitor's STARTUP SEED (power_monitor.py, commit 2) corrects it
+        immediately after if a sensor is configured, so restore only
+        has to get close. Percentage and oscillation are scoped out
+        (the coding plan's "on/off platforms restore is_on"); they
+        reset to __init__'s defaults like any other restart today.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._is_on = last_state.state == STATE_ON
+
+    @callback
+    def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
+        """Apply a power_monitor.py verdict to assumed state.
+
+        Bookkeeping only -- NEVER sends IR. "off" catches up with a
+        physical-remote-off; "on" catches up with a physical-remote-on,
+        restoring speed and oscillation for free since neither is ever
+        cleared on off (they're just not displayed as active).
+        """
+        if device_id != self._device.id:
+            return
+        self._is_on = verdict == "on"
+        self.async_write_ha_state()
 
     async def async_turn_on(
         self,

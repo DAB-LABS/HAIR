@@ -10,11 +10,15 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import STATE_ON
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
+from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,7 +68,7 @@ async def async_setup_entry(
         _on_add(device)
 
 
-class HAIRMediaPlayerEntity(MediaPlayerEntity):
+class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
     """IR-controlled media player."""
 
     _attr_has_entity_name = True
@@ -79,6 +83,9 @@ class HAIRMediaPlayerEntity(MediaPlayerEntity):
         self._state = MediaPlayerState.OFF
         self._volume_level = 0.5
         self._is_muted = False
+        # Power monitoring (Device Settings, 0.9.8). None until
+        # async_added_to_hass connects; None again after removal.
+        self._power_verdict_unsub: CALLBACK_TYPE | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -124,6 +131,48 @@ class HAIRMediaPlayerEntity(MediaPlayerEntity):
     @property
     def is_volume_muted(self) -> bool | None:
         return self._is_muted
+
+    async def async_added_to_hass(self) -> None:
+        await self._async_restore_state()
+        self._power_verdict_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._power_verdict_unsub is not None:
+            self._power_verdict_unsub()
+            self._power_verdict_unsub = None
+
+    async def _async_restore_state(self) -> None:
+        """Reboot survival (Device Settings, 0.9.8). Seeds assumed
+        state from the entity's state before this restart -- the power
+        monitor's STARTUP SEED (power_monitor.py, commit 2) corrects it
+        immediately after if a sensor is configured, so restore only
+        has to get close. Clamped to plain ON/OFF like the verdict
+        handler: HAIR has no way to know whether a restored PLAYING/
+        PAUSED/IDLE state still holds, so it isn't restored.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._state = (
+                MediaPlayerState.ON
+                if last_state.state == STATE_ON
+                else MediaPlayerState.OFF
+            )
+
+    @callback
+    def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
+        """Apply a power_monitor.py verdict to assumed state.
+
+        Bookkeeping only -- NEVER sends IR. Lands on the plain ON/OFF
+        states (design doc: "media_player: on"), not a guess at
+        playing/paused -- HAIR has no way to know what the physical
+        remote resumed.
+        """
+        if device_id != self._device.id:
+            return
+        self._state = MediaPlayerState.ON if verdict == "on" else MediaPlayerState.OFF
+        self.async_write_ha_state()
 
     async def async_turn_on(self) -> None:
         await self._send("turn_on", "power_toggle")

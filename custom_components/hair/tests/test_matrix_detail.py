@@ -41,6 +41,7 @@ from custom_components.hair.websocket_api import (
     ws_device_matrix_command,
     ws_device_matrix_send,
     ws_get_unknown_devices,
+    ws_update_device,
 )
 from custom_components.hair.wig_format import (
     ClimateCell,
@@ -304,8 +305,13 @@ class TestSignpost:
 # ---------------------------------------------------------------------------
 
 
-def _entity_matrix(real_prontos: bool = False) -> ClimateMatrix:
-    """A small lattice; tags for send tests, real Pronto for saves."""
+def _entity_matrix(
+    real_prontos: bool = False, with_on: bool = False
+) -> ClimateMatrix:
+    """A small lattice; tags for send tests, real Pronto for saves.
+    ``with_on`` adds a discrete on code (matrix-power-row.md item 1's
+    "On chip only when the matrix has one" case) -- absent by default,
+    matching the far more common off-only shape."""
     def code(tag: str, word: str) -> str:
         return _p(word) if real_prontos else tag
 
@@ -317,7 +323,7 @@ def _entity_matrix(real_prontos: bool = False) -> ClimateMatrix:
         fan_modes=["auto", "quiet"],
         swing_modes=["swing"],
         off=code("P-OFF", "0060"),
-        on=None,
+        on=code("P-ON", "0090") if with_on else None,
         cells=[
             ClimateCell(mode="cool", fan="auto", temp=22.0,
                         pronto=code("P-C-A-22", "00C0")),
@@ -612,3 +618,138 @@ class TestMatrixCommand:
             self._msg(mode="dry", fan="auto"),
         )
         assert device.commands[0].name == "dry / fan: auto"
+
+    # -------------------------------------------------------------
+    # Power promotion (matrix-power-row.md items 2 & 4, ruled
+    # 2026-08-08 / 2026-08-09) -- "+ Command" for the Power row.
+    # -------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_power_off_mints_matrix_source_command(self, fake_hass):
+        manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        conn = _make_connection()
+        await ws_device_matrix_command(
+            fake_hass, conn, self._msg(power="off"),
+        )
+        manager.async_update_device.assert_awaited_once_with(device)
+        assert len(device.commands) == 1
+        command = device.commands[0]
+        # state_display_name("off") is the same grammar a power SEND
+        # uses -- the card and the stored command speak the same word.
+        assert command.name == "Off"
+        assert command.source == CommandSource.MATRIX
+        assert command.send_count == 1
+        assert command.code is not None
+
+    @pytest.mark.asyncio
+    async def test_power_on_without_on_code_errors_not_found(
+        self, fake_hass
+    ):
+        manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        conn = _make_connection()
+        await ws_device_matrix_command(
+            fake_hass, conn, self._msg(power="on"),
+        )
+        assert conn.send_error.call_args[0][1] == "not_found"
+        assert device.commands == []
+        manager.async_update_device.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_power_on_with_code_mints(self, fake_hass):
+        manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True, with_on=True)
+        )
+        conn = _make_connection()
+        await ws_device_matrix_command(
+            fake_hass, conn, self._msg(power="on"),
+        )
+        manager.async_update_device.assert_awaited_once_with(device)
+        assert len(device.commands) == 1
+        assert device.commands[0].name == "On"
+        assert device.commands[0].source == CommandSource.MATRIX
+
+    @pytest.mark.asyncio
+    async def test_saving_same_power_twice_replaces_not_twins(
+        self, fake_hass
+    ):
+        _manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        msg = self._msg(power="off")
+        await ws_device_matrix_command(fake_hass, _make_connection(), msg)
+        first_id = device.commands[0].id
+        await ws_device_matrix_command(fake_hass, _make_connection(), msg)
+        assert len(device.commands) == 1
+        assert device.commands[0].id == first_id
+
+    @pytest.mark.asyncio
+    async def test_neither_power_nor_mode_errors_invalid_format(
+        self, fake_hass
+    ):
+        _manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        conn = _make_connection()
+        await ws_device_matrix_command(fake_hass, conn, self._msg())
+        assert conn.send_error.call_args[0][1] == "invalid_format"
+        assert device.commands == []
+
+    @pytest.mark.asyncio
+    async def test_both_power_and_mode_errors_invalid_format(
+        self, fake_hass
+    ):
+        _manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        conn = _make_connection()
+        await ws_device_matrix_command(
+            fake_hass, conn, self._msg(power="off", mode="cool", fan="auto"),
+        )
+        assert conn.send_error.call_args[0][1] == "invalid_format"
+        assert device.commands == []
+
+
+# ---------------------------------------------------------------------------
+# Type lock (matrix-power-row.md item 4, ruled 2026-08-08)
+# ---------------------------------------------------------------------------
+
+
+class TestMatrixTypeLock:
+    @pytest.mark.asyncio
+    async def test_device_type_change_refused_on_matrix_device(
+        self, fake_hass
+    ):
+        device = _matrix_device()
+        manager = MagicMock()
+        manager.get_device = MagicMock(return_value=device)
+        _wire_hass(fake_hass, manager=manager)
+        conn = _make_connection()
+        await ws_update_device(fake_hass, conn, {
+            "id": 1, "type": "hair/device/update",
+            "device_id": "dev-1", "device_type": "fan",
+        })
+        assert conn.send_error.call_args[0][1] == "invalid_format"
+        # Refused before anything mutates -- same device_type it had.
+        assert device.device_type == DeviceType.AC
+
+    @pytest.mark.asyncio
+    async def test_device_type_change_still_succeeds_on_flat_device(
+        self, fake_hass
+    ):
+        device = _matrix_device()
+        device.climate_matrix = False
+        manager = MagicMock()
+        manager.get_device = MagicMock(return_value=device)
+        manager.async_update_device = AsyncMock(return_value=device)
+        _wire_hass(fake_hass, manager=manager)
+        conn = _make_connection()
+        await ws_update_device(fake_hass, conn, {
+            "id": 1, "type": "hair/device/update",
+            "device_id": "dev-1", "device_type": "fan",
+        })
+        conn.send_error.assert_not_called()
+        assert device.device_type == DeviceType.FAN
