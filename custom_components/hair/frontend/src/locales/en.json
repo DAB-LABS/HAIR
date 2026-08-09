@@ -754,5 +754,9 @@
     "devsettings.readout_now": "Now: {value}",
     "devsettings.override_note": "Readings override the device's assumed on/off state.",
     "devsettings.validation_incomplete": "Enter both thresholds in watts.",
-    "devsettings.validation_order": "On above must be at or above off below."
+    "devsettings.validation_order": "On above must be at or above off below.",
+    "devsettings.climate_section_label": "Climate sensors",
+    "devsettings.climate_intro": "Room sensors feed this device's thermostat card. Display only; nothing is transmitted.",
+    "devsettings.temp_sensor_label": "Temperature sensor",
+    "devsettings.humidity_sensor_label": "Humidity sensor"
 }

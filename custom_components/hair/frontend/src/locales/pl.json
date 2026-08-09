@@ -822,5 +822,9 @@
     "devsettings.readout_now": "Teraz: {value}",
     "devsettings.override_note": "Odczyty nadpisują zakładany stan włączenia/wyłączenia urządzenia.",
     "devsettings.validation_incomplete": "Podaj oba progi w watach.",
-    "devsettings.validation_order": "Wartość „Włącz powyżej” musi być co najmniej równa „Wyłącz poniżej”."
+    "devsettings.validation_order": "Wartość „Włącz powyżej” musi być co najmniej równa „Wyłącz poniżej”.",
+    "devsettings.climate_section_label": "Czujniki klimatyczne",
+    "devsettings.climate_intro": "Czujniki pomieszczenia zasilają kartę termostatu tego urządzenia. Tylko wyświetlanie; nic nie jest przesyłane.",
+    "devsettings.temp_sensor_label": "Czujnik temperatury",
+    "devsettings.humidity_sensor_label": "Czujnik wilgotności"
 }

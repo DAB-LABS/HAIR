@@ -754,5 +754,9 @@
     "devsettings.readout_now": "現在: {value}",
     "devsettings.override_note": "読み取り値はデバイスの推定オン/オフ状態より優先されます。",
     "devsettings.validation_incomplete": "両方のしきい値をワットで入力してください。",
-    "devsettings.validation_order": "「オンになる基準」は「オフになる基準」以上である必要があります。"
+    "devsettings.validation_order": "「オンになる基準」は「オフになる基準」以上である必要があります。",
+    "devsettings.climate_section_label": "温湿度センサー",
+    "devsettings.climate_intro": "室内センサーがこのデバイスのサーモスタットカードに反映されます。表示のみで、何も送信されません。",
+    "devsettings.temp_sensor_label": "温度センサー",
+    "devsettings.humidity_sensor_label": "湿度センサー"
 }

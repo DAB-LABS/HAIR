@@ -754,5 +754,9 @@
     "devsettings.readout_now": "Agora: {value}",
     "devsettings.override_note": "As leituras substituem o estado assumido de ligado/desligado do dispositivo.",
     "devsettings.validation_incomplete": "Informe os dois limites em watts.",
-    "devsettings.validation_order": "\"Ligar acima de\" deve ser maior ou igual a \"Desligar abaixo de\"."
+    "devsettings.validation_order": "\"Ligar acima de\" deve ser maior ou igual a \"Desligar abaixo de\".",
+    "devsettings.climate_section_label": "Sensores de clima",
+    "devsettings.climate_intro": "Os sensores do ambiente alimentam o cartão do termostato deste dispositivo. Somente exibição; nada é transmitido.",
+    "devsettings.temp_sensor_label": "Sensor de temperatura",
+    "devsettings.humidity_sensor_label": "Sensor de umidade"
 }

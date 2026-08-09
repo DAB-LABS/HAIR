@@ -754,5 +754,9 @@
     "devsettings.readout_now": "Jetzt: {value}",
     "devsettings.override_note": "Messwerte überschreiben den angenommenen Ein-/Aus-Zustand des Geräts.",
     "devsettings.validation_incomplete": "Beide Schwellenwerte in Watt eingeben.",
-    "devsettings.validation_order": "„Ein ab“ muss mindestens so hoch sein wie „Aus unter“."
+    "devsettings.validation_order": "„Ein ab“ muss mindestens so hoch sein wie „Aus unter“.",
+    "devsettings.climate_section_label": "Klimasensoren",
+    "devsettings.climate_intro": "Raumsensoren speisen die Thermostatkarte dieses Geräts. Nur zur Anzeige; es wird nichts gesendet.",
+    "devsettings.temp_sensor_label": "Temperatursensor",
+    "devsettings.humidity_sensor_label": "Luftfeuchtigkeitssensor"
 }

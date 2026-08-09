@@ -36,7 +36,7 @@ import { popoverStyles } from "./ir-popover-styles.js";
 // The house wig, from images/wig.svg. Same glyph the closet wears,
 // because this button is the door into it (FR5).
 import { ICON_WIG } from "./ir-wigs.js";
-// Device Settings (v0.9.9): the wrench/screwdriver settings button,
+// Device Settings (0.9.8): the wrench/screwdriver settings button,
 // from images/tools.svg -- see ir-icons.ts for the full ruling on why
 // it renders as an inline <svg> rather than through <ha-svg-icon>.
 import {
@@ -149,7 +149,7 @@ export class IrDeviceDetail extends LitElement {
     @state() private _selSwing: string | null = null;
     @state() private _selTemp: number | null = null;
 
-    // Device Settings (v0.9.9): the wrench button in the meta row.
+    // Device Settings (0.9.8): the wrench button in the meta row.
     // Gated by settingsSections(device) so a device type with nothing
     // to configure never shows the button at all.
     @state() private _settingsOpen = false;
@@ -2076,7 +2076,7 @@ export class IrDeviceDetail extends LitElement {
         popoverStyles,
         settingsButtonStyles,
         css`
-        /* Device Settings (v0.9.9): nudge the wrench button down by
+        /* Device Settings (0.9.8): nudge the wrench button down by
            the label line's height (the .sl label's font-size plus its
            5px margin-bottom, ~19px total, no exact figure specified)
            so the icon aligns with the first row of emitter chips
@@ -2220,7 +2220,7 @@ export class IrDeviceDetail extends LitElement {
            dropdown never needed 900; emitters take the rest and wrap. */
         .device-meta {
             display: grid;
-            /* Device Settings (v0.9.9): the trailing "auto" column is
+            /* Device Settings (0.9.8): the trailing "auto" column is
                the wrench button -- auto-placed as the grid's 3rd DOM
                child, no explicit grid-column needed. A device type
                with nothing to configure just renders two children and

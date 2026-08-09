@@ -822,5 +822,9 @@
     "devsettings.readout_now": "Сейчас: {value}",
     "devsettings.override_note": "Показания датчика переопределяют предполагаемое состояние вкл/выкл устройства.",
     "devsettings.validation_incomplete": "Введите оба порога в ваттах.",
-    "devsettings.validation_order": "Значение «Включать выше» должно быть не меньше «Выключать ниже»."
+    "devsettings.validation_order": "Значение «Включать выше» должно быть не меньше «Выключать ниже».",
+    "devsettings.climate_section_label": "Датчики климата",
+    "devsettings.climate_intro": "Комнатные датчики передают данные на карточку термостата этого устройства. Только отображение; ничего не передаётся на устройство.",
+    "devsettings.temp_sensor_label": "Датчик температуры",
+    "devsettings.humidity_sensor_label": "Датчик влажности"
 }

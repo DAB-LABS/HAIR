@@ -754,5 +754,9 @@
     "devsettings.readout_now": "Maintenant : {value}",
     "devsettings.override_note": "Les relevés remplacent l'état supposé allumé/éteint de l'appareil.",
     "devsettings.validation_incomplete": "Saisissez les deux seuils en watts.",
-    "devsettings.validation_order": "« Allumer au-dessus de » doit être au moins égal à « Éteindre en dessous de »."
+    "devsettings.validation_order": "« Allumer au-dessus de » doit être au moins égal à « Éteindre en dessous de ».",
+    "devsettings.climate_section_label": "Capteurs climatiques",
+    "devsettings.climate_intro": "Les capteurs de la pièce alimentent la carte du thermostat de cet appareil. Affichage uniquement ; rien n'est transmis.",
+    "devsettings.temp_sensor_label": "Capteur de température",
+    "devsettings.humidity_sensor_label": "Capteur d'humidité"
 }

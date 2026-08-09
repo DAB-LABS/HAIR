@@ -1,4 +1,4 @@
-"""Device Settings + power sensor (v0.9.9), commit 3/6: entity corrections.
+"""Device Settings + power sensor (0.9.8), commit 3/6: entity corrections.
 
 Tests SIGNAL_POWER_VERDICT handling wired into the five entity platforms
 that mirror IR device state (switch, light, fan, media_player, climate).

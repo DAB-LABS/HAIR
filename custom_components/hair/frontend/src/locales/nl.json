@@ -754,5 +754,9 @@
     "devsettings.readout_now": "Nu: {value}",
     "devsettings.override_note": "Metingen overschrijven de aangenomen aan/uit-status van het apparaat.",
     "devsettings.validation_incomplete": "Voer beide drempelwaarden in watt in.",
-    "devsettings.validation_order": "\"Aan boven\" moet minstens gelijk zijn aan \"Uit onder\"."
+    "devsettings.validation_order": "\"Aan boven\" moet minstens gelijk zijn aan \"Uit onder\".",
+    "devsettings.climate_section_label": "Klimaatsensoren",
+    "devsettings.climate_intro": "Kamersensoren voeden de thermostaatkaart van dit apparaat. Alleen weergave; er wordt niets verzonden.",
+    "devsettings.temp_sensor_label": "Temperatuursensor",
+    "devsettings.humidity_sensor_label": "Luchtvochtigheidssensor"
 }

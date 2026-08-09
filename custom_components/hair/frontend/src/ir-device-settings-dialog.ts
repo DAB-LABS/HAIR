@@ -1,5 +1,5 @@
 /**
- * Device settings dialog (Device Settings, v0.9.9, coding plan commit
+ * Device settings dialog (Device Settings, 0.9.8, coding plan commit
  * 5 of 6). Opens from the wrench/screwdriver button in the device
  * detail meta row (ir-device-detail.ts) and holds whatever per-device
  * settings don't belong on the main card -- power monitoring today,
@@ -9,20 +9,22 @@
  * sections a device gets. It gates BOTH the settings button's
  * visibility (ir-device-detail.ts) and this dialog's rendered content,
  * so they can never disagree -- there is no placeholder dialog, ever.
- * For this pass it returns `['power']` for the device types that can
- * plausibly draw current (ac, media_player, fan, light, switch) and
- * `[]` for everything else (screen, other); CLIMATE is deliberately
- * held back (design brief: "mocked for layout only, ships later") even
- * though the section-accent styling below already anticipates it.
+ * It returns `'power'` for the device types that can plausibly draw
+ * current (ac, media_player, fan, light, switch), `'climate'` for any
+ * device carrying a loaded matrix (climate-sensors.md), and `[]` for
+ * everything else (screen, other) -- a matrix AC device gets both.
  *
  * STRINGS: commit 5 shipped every user-facing string here as a plain
  * English literal rather than routing through t()/en.json, since
  * touching en.json without the matching nine-locale sync would have
- * broken the parity tests (tests/test_locales.py). Commit 6 wires
+ * broken the parity tests (tests/test_locales.py). Commit 6 wired
  * everything through the "devsettings.*" locale namespace (plus the
  * existing common.close/common.save/common.saving keys for the
- * action bar) and adds the nine-language translations alongside it,
- * landing both halves together so the tree stays green throughout.
+ * action bar) and added the nine-language translations alongside it,
+ * landing both halves together so the tree stayed green throughout.
+ * Climate sensors (commit 3 of climate-sensors-coding-plan.md) added
+ * four more devsettings.* keys the same way, ten-language sync
+ * included in the same commit rather than queued for later.
  *
  * Bench fix pattern reused from ir-save-new-dialog.ts: one persistent
  * <ha-dialog> for the component's whole life, its direct children
@@ -46,7 +48,11 @@
  * 2026-08-09, post-launch bench pass): the design brief specs a
  * picker only, so a device whose currently-configured sensor doesn't
  * match the power-ish filter still gets it injected into the
- * candidate list (see _candidateSensors) rather than losing it.
+ * candidate list (see _candidateSensors) rather than losing it. The
+ * climate pickers (climate-sensors.md) are the same plain-<select>
+ * shape, filtering on device_class "temperature"/"humidity" instead
+ * (see _candidatesByDeviceClass) -- same safety net, same no-custom-ID
+ * ruling, picker only.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -55,7 +61,7 @@ import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
 import type { DeviceTypeId, IRDevice } from "./types.js";
 
-export type SettingsSectionId = "power";
+export type SettingsSectionId = "power" | "climate";
 
 const POWER_ELIGIBLE_TYPES: ReadonlySet<DeviceTypeId> = new Set([
     "ac",
@@ -67,20 +73,37 @@ const POWER_ELIGIBLE_TYPES: ReadonlySet<DeviceTypeId> = new Set([
 
 /** Single source of truth for which sections a device gets. See the
  * file header comment -- this must stay in lockstep between the
- * settings button (ir-device-detail.ts) and this dialog. */
+ * settings button (ir-device-detail.ts) and this dialog. CLIMATE
+ * (climate-sensors.md) is matrix-gated, not device-type-gated: a
+ * device's full payload carries `matrix` exactly when it has a loaded
+ * climate lattice, so that field alone decides it. */
 export function settingsSections(
-    device: Pick<IRDevice, "device_type">,
+    device: Pick<IRDevice, "device_type" | "matrix">,
 ): SettingsSectionId[] {
     const sections: SettingsSectionId[] = [];
     if (POWER_ELIGIBLE_TYPES.has(device.device_type)) {
         sections.push("power");
     }
+    if (device.matrix) {
+        sections.push("climate");
+    }
     return sections;
 }
 
-interface PowerSensorCandidate {
+interface SensorCandidate {
     entityId: string;
     name: string;
+}
+
+/** Sensor "attributes" shape read by both _candidateSensors (power)
+ * and _candidatesByDeviceClass (climate). */
+interface SensorStateShape {
+    state?: string;
+    attributes: {
+        friendly_name?: string;
+        device_class?: string;
+        unit_of_measurement?: string;
+    };
 }
 
 const DEFAULT_OFF_BELOW_W = 5;
@@ -96,6 +119,12 @@ export class IrDeviceSettingsDialog extends LitElement {
     @state() private _sensorChoice = "";
     @state() private _offBelow = "";
     @state() private _onAbove = "";
+    // Climate room sensors (climate-sensors.md, riding 0.9.8). Same ""
+    // = none convention as the power picker above, but independent of
+    // it and of each other -- either can be picked, changed, or
+    // cleared without touching the other.
+    @state() private _temperatureChoice = "";
+    @state() private _humidityChoice = "";
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
@@ -107,21 +136,16 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._onAbove =
             this.device.power_on_above_w?.toString() ??
             String(DEFAULT_ON_ABOVE_W);
+        this._temperatureChoice = this.device.temperature_sensor_entity_id ?? "";
+        this._humidityChoice = this.device.humidity_sensor_entity_id ?? "";
     }
 
-    private _candidateSensors(): PowerSensorCandidate[] {
+    private _candidateSensors(): SensorCandidate[] {
         const states = (this.hass?.states ?? {}) as Record<
             string,
-            {
-                state?: string;
-                attributes: {
-                    friendly_name?: string;
-                    device_class?: string;
-                    unit_of_measurement?: string;
-                };
-            }
+            SensorStateShape
         >;
-        const out: PowerSensorCandidate[] = [];
+        const out: SensorCandidate[] = [];
         for (const [entityId, st] of Object.entries(states)) {
             if (!entityId.startsWith("sensor.")) continue;
             const unit = st.attributes.unit_of_measurement;
@@ -141,6 +165,38 @@ export class IrDeviceSettingsDialog extends LitElement {
         // changed, for instance) -- reopening this dialog must never
         // silently drop what's already saved.
         const current = this.device.power_sensor_entity_id;
+        if (current && !out.some((c) => c.entityId === current)) {
+            out.push({
+                entityId: current,
+                name: states[current]?.attributes.friendly_name ?? current,
+            });
+        }
+        out.sort((a, b) => a.name.localeCompare(b.name));
+        return out;
+    }
+
+    /** Climate's picker filter (climate-sensors.md): device_class
+     * only, no unit-based fallback -- temperature/humidity sensors
+     * reliably declare device_class, unlike the power-ish sensors the
+     * method above has to guess at from W/kW when it's missing. Same
+     * "keep the currently-configured one selectable" safety net. */
+    private _candidatesByDeviceClass(
+        deviceClass: string,
+        current: string | null,
+    ): SensorCandidate[] {
+        const states = (this.hass?.states ?? {}) as Record<
+            string,
+            SensorStateShape
+        >;
+        const out: SensorCandidate[] = [];
+        for (const [entityId, st] of Object.entries(states)) {
+            if (!entityId.startsWith("sensor.")) continue;
+            if (st.attributes.device_class !== deviceClass) continue;
+            out.push({
+                entityId,
+                name: st.attributes.friendly_name ?? entityId,
+            });
+        }
         if (current && !out.some((c) => c.entityId === current)) {
             out.push({
                 entityId: current,
@@ -176,6 +232,14 @@ export class IrDeviceSettingsDialog extends LitElement {
         this._sensorChoice = (e.target as HTMLSelectElement).value;
     }
 
+    private _onTemperatureChoiceChanged(e: Event): void {
+        this._temperatureChoice = (e.target as HTMLSelectElement).value;
+    }
+
+    private _onHumidityChoiceChanged(e: Event): void {
+        this._humidityChoice = (e.target as HTMLSelectElement).value;
+    }
+
     private async _save(): Promise<void> {
         if (this._busy) return;
         const validation = this._validationError;
@@ -185,13 +249,20 @@ export class IrDeviceSettingsDialog extends LitElement {
         }
         this._busy = true;
         this._error = null;
+        const sections = settingsSections(this.device);
         const sensorId = this._sensorChoice || null;
+        const patch: Parameters<HairApi["updateDevice"]>[1] = {};
+        if (sections.includes("power")) {
+            patch.power_sensor_entity_id = sensorId;
+            patch.power_off_below_w = sensorId ? parseFloat(this._offBelow) : null;
+            patch.power_on_above_w = sensorId ? parseFloat(this._onAbove) : null;
+        }
+        if (sections.includes("climate")) {
+            patch.temperature_sensor_entity_id = this._temperatureChoice || null;
+            patch.humidity_sensor_entity_id = this._humidityChoice || null;
+        }
         try {
-            await this.api.updateDevice(this.device.id, {
-                power_sensor_entity_id: sensorId,
-                power_off_below_w: sensorId ? parseFloat(this._offBelow) : null,
-                power_on_above_w: sensorId ? parseFloat(this._onAbove) : null,
-            });
+            await this.api.updateDevice(this.device.id, patch);
             // Bare event, no detail -- matches the house convention
             // (ir-device-list.ts _onExpandedDeviceChanged): the
             // ancestor always does a full refetch on device-changed
@@ -235,6 +306,9 @@ export class IrDeviceSettingsDialog extends LitElement {
             </div>
             <div ?hidden=${!sections.includes("power")}>
                 ${this._renderPowerSection()}
+            </div>
+            <div ?hidden=${!sections.includes("climate")}>
+                ${this._renderClimateSection()}
             </div>
             <div class="dialog-actions">
                 <button
@@ -341,6 +415,104 @@ export class IrDeviceSettingsDialog extends LitElement {
         `;
     }
 
+    /** No per-field explainer here (design ruling 2026-08-09, matches
+     * the power section's own post-launch trim) -- field labels carry
+     * the whole story. Two independent pickers: either can be picked,
+     * changed, or cleared without touching the other, so there is no
+     * shared "sensorPicked" gate the way power's threshold pair has
+     * one. */
+    private _renderClimateSection() {
+        const tempCandidates = this._candidatesByDeviceClass(
+            "temperature",
+            this.device.temperature_sensor_entity_id,
+        );
+        const humidityCandidates = this._candidatesByDeviceClass(
+            "humidity",
+            this.device.humidity_sensor_entity_id,
+        );
+        const tempPicked = !!this._temperatureChoice;
+        const humidityPicked = !!this._humidityChoice;
+        const tempState = tempPicked
+            ? this.hass?.states?.[this._temperatureChoice]
+            : undefined;
+        const humidityState = humidityPicked
+            ? this.hass?.states?.[this._humidityChoice]
+            : undefined;
+        return html`
+            <section class="settings-section section-climate">
+                <h3 class="section-label">
+                    ${t("devsettings.climate_section_label")}
+                </h3>
+
+                <p class="section-explainer">
+                    ${t("devsettings.climate_intro")}
+                </p>
+
+                <div class="field">
+                    <label>${t("devsettings.temp_sensor_label")}</label>
+                    <div class="select-wrap">
+                        <select
+                            .value=${this._temperatureChoice}
+                            @change=${this._onTemperatureChoiceChanged}
+                            ?disabled=${this._busy}
+                        >
+                            <option value="">${t("devsettings.sensor_none")}</option>
+                            ${tempCandidates.map(
+                                (c) => html`
+                                    <option
+                                        value=${c.entityId}
+                                        ?selected=${this._temperatureChoice === c.entityId}
+                                    >
+                                        ${c.name}
+                                    </option>
+                                `,
+                            )}
+                        </select>
+                        <span class="select-chevron" aria-hidden="true"></span>
+                    </div>
+                </div>
+                ${tempPicked
+                    ? html`
+                          <div class="live-readout">
+                              ${this._renderLiveReadout(tempState)}
+                          </div>
+                      `
+                    : ""}
+
+                <div class="field">
+                    <label>${t("devsettings.humidity_sensor_label")}</label>
+                    <div class="select-wrap">
+                        <select
+                            .value=${this._humidityChoice}
+                            @change=${this._onHumidityChoiceChanged}
+                            ?disabled=${this._busy}
+                        >
+                            <option value="">${t("devsettings.sensor_none")}</option>
+                            ${humidityCandidates.map(
+                                (c) => html`
+                                    <option
+                                        value=${c.entityId}
+                                        ?selected=${this._humidityChoice === c.entityId}
+                                    >
+                                        ${c.name}
+                                    </option>
+                                `,
+                            )}
+                        </select>
+                        <span class="select-chevron" aria-hidden="true"></span>
+                    </div>
+                </div>
+                ${humidityPicked
+                    ? html`
+                          <div class="live-readout">
+                              ${this._renderLiveReadout(humidityState)}
+                          </div>
+                      `
+                    : ""}
+            </section>
+        `;
+    }
+
     /** The dot signals "this number is live," full stop (design brief:
      * "stays green in both sections... independent of the
      * oxblood/cold-blue theming" -- and, same principle, independent
@@ -400,11 +572,13 @@ export class IrDeviceSettingsDialog extends LitElement {
              * -- explicitly NOT a sidebar rule. A left border was here
              * in an earlier build pass and got corrected out (bench
              * pass, post-launch): the design brief calls a left rule
-             * out by name as the thing this treatment is NOT. The
-             * CLIMATE section (next pass) reuses this same anatomy in
-             * cold blue via --section-accent / --section-accent-bright
-             * -- only the .section-power modifier below is wired up
-             * today. */
+             * out by name as the thing this treatment is NOT. CLIMATE
+             * (climate-sensors.md) reuses this same anatomy in cold
+             * blue via --section-accent / --section-accent-bright --
+             * the brief specs a single cold-blue value for both,
+             * unlike power's separate border/bright shades, so the
+             * .section-climate modifier below repeats the one hex
+             * twice on purpose rather than inventing a second shade. */
             .settings-section {
                 margin: 16px 0;
             }
@@ -412,6 +586,11 @@ export class IrDeviceSettingsDialog extends LitElement {
                 --section-accent: #8e3b3b;
                 --section-accent-bright: #b05050;
                 --section-wash: rgba(142, 59, 59, 0.12);
+            }
+            .settings-section.section-climate {
+                --section-accent: #58a6d8;
+                --section-accent-bright: #58a6d8;
+                --section-wash: rgba(88, 166, 216, 0.12);
             }
             .section-label {
                 margin: 0 0 4px;
@@ -445,10 +624,11 @@ export class IrDeviceSettingsDialog extends LitElement {
                 margin-top: 6px;
             }
             /* Labels bold, descriptive text (.section-explainer) not
-             * -- owner ruling, bench pass. Scoped to this section so
-             * it doesn't reach into the shared dialogStyles .field
-             * label rule other dialogs use. */
-            .section-power label {
+             * -- owner ruling, bench pass. Scoped to these two
+             * sections so it doesn't reach into the shared
+             * dialogStyles .field label rule other dialogs use. */
+            .section-power label,
+            .section-climate label {
                 font-weight: 600;
             }
             /* dialogStyles only styles input[type="text"]/select --
@@ -491,16 +671,17 @@ export class IrDeviceSettingsDialog extends LitElement {
              * shape since it's a plainer element to reason about than
              * a native form control's background layer, even though
              * the select itself would have worked fine once the
-             * markup was valid. The fill is hardcoded to POWER's
-             * --section-accent-bright (#b05050) rather than reading
-             * the CSS var, since a data-URI background-image can't
-             * reference one -- CLIMATE (next pass) will need its own
-             * .section-climate chevron rule with a cold-blue fill
-             * rather than inheriting this one. */
+             * markup was valid. The fill is hardcoded per section
+             * rather than reading the CSS var, since a data-URI
+             * background-image can't reference one -- POWER's copy
+             * uses its --section-accent-bright (#b05050), CLIMATE's
+             * copy below uses its single cold-blue value (#58a6d8)
+             * the same way. */
             .select-wrap {
                 position: relative;
             }
-            .section-power select {
+            .section-power select,
+            .section-climate select {
                 appearance: none;
                 -webkit-appearance: none;
                 padding-right: 32px;
@@ -514,6 +695,19 @@ export class IrDeviceSettingsDialog extends LitElement {
                 transform: translateY(-50%);
                 pointer-events: none;
                 background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23b05050' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: center;
+                background-size: 18px;
+            }
+            .section-climate .select-chevron {
+                position: absolute;
+                top: 50%;
+                right: 10px;
+                width: 18px;
+                height: 18px;
+                transform: translateY(-50%);
+                pointer-events: none;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2358a6d8' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
                 background-repeat: no-repeat;
                 background-position: center;
                 background-size: 18px;

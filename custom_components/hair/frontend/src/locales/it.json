@@ -754,5 +754,9 @@
     "devsettings.readout_now": "Ora: {value}",
     "devsettings.override_note": "Le letture sostituiscono lo stato presunto acceso/spento del dispositivo.",
     "devsettings.validation_incomplete": "Inserisci entrambe le soglie in watt.",
-    "devsettings.validation_order": "«Accendi sopra» deve essere maggiore o uguale a «Spegni sotto»."
+    "devsettings.validation_order": "«Accendi sopra» deve essere maggiore o uguale a «Spegni sotto».",
+    "devsettings.climate_section_label": "Sensori climatici",
+    "devsettings.climate_intro": "I sensori della stanza alimentano la scheda del termostato di questo dispositivo. Solo visualizzazione; non viene trasmesso nulla.",
+    "devsettings.temp_sensor_label": "Sensore di temperatura",
+    "devsettings.humidity_sensor_label": "Sensore di umidità"
 }

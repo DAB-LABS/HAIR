@@ -1,4 +1,4 @@
-"""Device Settings + power sensor (v0.9.9), commit 4/6: restore on reboot.
+"""Device Settings + power sensor (0.9.8), commit 4/6: restore on reboot.
 
 Tests the RestoreEntity mixin wired into the five entity platforms that
 mirror IR device state (switch, light, fan, media_player, climate).

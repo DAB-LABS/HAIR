@@ -593,13 +593,19 @@ export interface IRDevice {
     // synchronous ``hasSource`` gate (whether UPDATE CLOSET WIG is
     // even offered) reads straight off this field, no fetch needed.
     source_wig_id: string | null;
-    // Device Settings (v0.9.9), commit 1: power-sensor-based state
+    // Device Settings (0.9.8), commit 1: power-sensor-based state
     // correction. All three null means "not configured" -- the
     // settings dialog (ir-device-settings-dialog.ts) is the only
     // frontend surface that writes these.
     power_sensor_entity_id: string | null;
     power_off_below_w: number | null;
     power_on_above_w: number | null;
+    // Climate room sensors (climate-sensors.md, riding 0.9.8), commit
+    // 1: which thermometer/hygrometer feeds this device's thermostat
+    // card. Both null means "not configured" -- unlike power, the two
+    // are independent (either can be set or cleared on its own).
+    temperature_sensor_entity_id: string | null;
+    humidity_sensor_entity_id: string | null;
 }
 
 export interface DeviceSummary {

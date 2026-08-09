@@ -210,7 +210,7 @@ class IRDevice:
     manufacturer: str | None = None
     model: str | None = None
     emitter_entity_ids: list[str] = field(default_factory=list)
-    # Power monitoring (Device Settings, v0.9.9). Install wiring, like
+    # Power monitoring (Device Settings, 0.9.8). Install wiring, like
     # emitter_entity_ids -- which smart plug feeds this device, not
     # wig content. power_sensor_entity_id is a ``sensor.`` entity with
     # device_class power; both thresholds are watts. All three None

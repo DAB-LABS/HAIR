@@ -83,7 +83,7 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
         self._state = MediaPlayerState.OFF
         self._volume_level = 0.5
         self._is_muted = False
-        # Power monitoring (Device Settings, v0.9.9). None until
+        # Power monitoring (Device Settings, 0.9.8). None until
         # async_added_to_hass connects; None again after removal.
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
 
@@ -144,7 +144,7 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
             self._power_verdict_unsub = None
 
     async def _async_restore_state(self) -> None:
-        """Reboot survival (Device Settings, v0.9.9). Seeds assumed
+        """Reboot survival (Device Settings, 0.9.8). Seeds assumed
         state from the entity's state before this restart -- the power
         monitor's STARTUP SEED (power_monitor.py, commit 2) corrects it
         immediately after if a sensor is configured, so restore only

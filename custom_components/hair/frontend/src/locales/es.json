@@ -754,5 +754,9 @@
     "devsettings.readout_now": "Ahora: {value}",
     "devsettings.override_note": "Las lecturas anulan el estado asumido de encendido/apagado del dispositivo.",
     "devsettings.validation_incomplete": "Introduce ambos umbrales en vatios.",
-    "devsettings.validation_order": "«Encender por encima de» debe ser mayor o igual que «Apagar por debajo de»."
+    "devsettings.validation_order": "«Encender por encima de» debe ser mayor o igual que «Apagar por debajo de».",
+    "devsettings.climate_section_label": "Sensores climáticos",
+    "devsettings.climate_intro": "Los sensores de la habitación alimentan la tarjeta del termostato de este dispositivo. Solo de visualización; no se transmite nada.",
+    "devsettings.temp_sensor_label": "Sensor de temperatura",
+    "devsettings.humidity_sensor_label": "Sensor de humedad"
 }

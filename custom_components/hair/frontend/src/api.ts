@@ -102,13 +102,18 @@ export class HairApi {
             model: string | null;
             emitter_entity_ids: string[];
             device_type: string;
-            // Device Settings (v0.9.9): power-sensor-based state
+            // Device Settings (0.9.8): power-sensor-based state
             // correction. Sending power_sensor_entity_id: null clears
             // it, which the backend also forces both thresholds to
             // null for (thresholds without a sensor are meaningless).
             power_sensor_entity_id: string | null;
             power_off_below_w: number | null;
             power_on_above_w: number | null;
+            // Climate room sensors (climate-sensors.md), riding 0.9.8:
+            // independent of each other and of the power fields above
+            // -- either clears on its own with a null.
+            temperature_sensor_entity_id: string | null;
+            humidity_sensor_entity_id: string | null;
         }>,
     ): Promise<IRDevice> {
         return this.hass.connection.sendMessagePromise<IRDevice>({

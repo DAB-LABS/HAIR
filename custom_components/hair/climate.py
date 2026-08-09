@@ -143,7 +143,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # (owner ruling 2026-07-29): the machine cell_key never
         # appears on a user surface. None until the first send.
         self._matrix_cell: str | None = None
-        # Power monitoring (Device Settings, v0.9.9). The mode this
+        # Power monitoring (Device Settings, 0.9.8). The mode this
         # entity was in the last time it went off (by any means -- a
         # HAIR send or a power-verdict correction), so a later "on"
         # verdict has something to restore instead of guessing AUTO.
@@ -183,7 +183,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._unsubscribe_sensors()
 
     async def _async_restore_state(self) -> None:
-        """Reboot survival (Device Settings, v0.9.9). Seeds mode,
+        """Reboot survival (Device Settings, 0.9.8). Seeds mode,
         setpoint, fan, and swing from the entity's state before this
         restart. The power monitor's STARTUP SEED (power_monitor.py,
         commit 2) corrects the mode immediately after if a sensor is

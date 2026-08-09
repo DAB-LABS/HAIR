@@ -91,7 +91,7 @@ export const trashButtonStyles = css`
 
 /**
  * The wrench and screwdriver, from images/tools.svg. Opens the device
- * settings dialog (Device Settings, v0.9.9) -- NEVER an MDI gear;
+ * settings dialog (Device Settings, 0.9.8) -- NEVER an MDI gear;
  * RULED 2026-08-09 this replaced an earlier comb-and-scissors concept
  * (images/settings.svg) because it reads better at small size against
  * the grey rest state.
