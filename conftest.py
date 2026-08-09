@@ -96,6 +96,7 @@ class _Platform(StrEnum):
 class _UnitOfTemperature:
     FAHRENHEIT = "°F"
     CELSIUS = "°C"
+    KELVIN = "K"
 
 class _UnitOfPower(StrEnum):
     WATT = "W"
@@ -327,6 +328,43 @@ def _ordered_list_item_to_percentage(ordered_list, item):
 _stub("homeassistant.util.percentage", {
     "percentage_to_ordered_list_item": _percentage_to_ordered_list_item,
     "ordered_list_item_to_percentage": _ordered_list_item_to_percentage,
+})
+
+# --- homeassistant.util.unit_conversion (climate room sensors, 0.9.8) ---
+#
+# Real HA implements this as a generic linear-unit converter; climate.py
+# only ever calls TemperatureConverter.convert(value, from_unit, to_unit)
+# for C/F/K, so the stub just needs matching input/output behavior for
+# those three, not the real class hierarchy.
+
+
+class _TemperatureConverter:
+    @classmethod
+    def convert(cls, value: float, from_unit: str, to_unit: str) -> float:
+        if from_unit == to_unit:
+            return value
+        celsius = cls._to_celsius(value, from_unit)
+        return cls._from_celsius(celsius, to_unit)
+
+    @staticmethod
+    def _to_celsius(value: float, unit: str) -> float:
+        if unit == _UnitOfTemperature.FAHRENHEIT:
+            return (value - 32) * 5 / 9
+        if unit == _UnitOfTemperature.KELVIN:
+            return value - 273.15
+        return value
+
+    @staticmethod
+    def _from_celsius(value: float, unit: str) -> float:
+        if unit == _UnitOfTemperature.FAHRENHEIT:
+            return value * 9 / 5 + 32
+        if unit == _UnitOfTemperature.KELVIN:
+            return value + 273.15
+        return value
+
+
+_stub("homeassistant.util.unit_conversion", {
+    "TemperatureConverter": _TemperatureConverter,
 })
 
 # --- Light ---
