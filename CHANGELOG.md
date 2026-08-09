@@ -5,7 +5,7 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.8] - 2026-08-08 -- Wig Primping & Device Settings
+## [0.9.8] - 2026-08-09 -- Wig Primping & Device Settings
 
 ### Changed
 
@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stores its codes without that pause, so the same source file
   imported before and after this version yields two distinct wigs --
   deliberate, and supersession is there to resolve it if the two
-  ever meet in the same shop.
+  ever meet in the same shop. Reported by @yacinbm (GH #93).
 - **State-matrix devices get a Power row, and their type stops being
   editable.** The STATE MATRIX card now shows an Off chip above Mode
   (and an On chip too, for the rare unit that needs an explicit wake
