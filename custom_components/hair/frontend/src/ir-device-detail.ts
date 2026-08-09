@@ -778,6 +778,16 @@ export class IrDeviceDetail extends LitElement {
             ".commands-list",
         ) as HTMLElement | null;
         if (!container) return;
+        // Command row restructure (command-row-restructure.md, commit
+        // 2 of 2): checked whether this selector needed to change for
+        // the grip's new position and it doesn't. .grip-handle is a
+        // light-DOM child of <ir-command-row> (slotted in below, via
+        // slot="status") -- ir-command-row's restructure only moved
+        // .status around inside ITS OWN shadow DOM (nesting it in
+        // .top-line instead of a grid column), which never touches
+        // .grip-handle's actual position in the light DOM tree that
+        // Sortable's handle matching (closest()) walks. Verified live
+        // post-deploy: drag-from-grip still reorders and persists.
         this._sortable = Sortable.create(container, {
             handle: ".grip-handle",
             animation: 150,

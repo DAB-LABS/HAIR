@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial attestation still parse, still count in the ledger, and
   still show there as "Incomplete" -- this only changes what the
   authoring UI can produce going forward.
+- **Command rows keep a constant height now.** The code fingerprint
+  (the S/L diamond pattern on a captured Pronto command) moved to
+  its own line under the row instead of stacking under the name, so
+  a long AC/matrix code no longer stretches the row taller than its
+  neighbors. The drag handle moved up to sit beside the name that
+  goes with it, rather than floating at the center of however tall
+  the row happened to be.
 
 ### Added
 
