@@ -25,11 +25,13 @@ from homeassistant.components.climate import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
+from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 from .wig_climate import (
     cell_display_name,
     ha_mode_for,
@@ -131,6 +133,13 @@ class HAIRClimateEntity(ClimateEntity):
         # (owner ruling 2026-07-29): the machine cell_key never
         # appears on a user surface. None until the first send.
         self._matrix_cell: str | None = None
+        # Power monitoring (Device Settings, v0.9.9). The mode this
+        # entity was in the last time it went off (by any means -- a
+        # HAIR send or a power-verdict correction), so a later "on"
+        # verdict has something to restore instead of guessing AUTO.
+        # None only until the entity has ever been on.
+        self._last_active_hvac_mode: HVACMode | None = None
+        self._power_verdict_unsub: CALLBACK_TYPE | None = None
         self._seed_target_temperature()
 
     @property
@@ -139,9 +148,55 @@ class HAIRClimateEntity(ClimateEntity):
 
     async def async_added_to_hass(self) -> None:
         # Real HA calls the base hook (a no-op) here; the matrix load
-        # is this entity's only lifecycle need.
+        # is this entity's only other lifecycle need.
         if self._matrix_mode and self._matrix is None:
             await self._async_load_matrix()
+        self._power_verdict_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._power_verdict_unsub is not None:
+            self._power_verdict_unsub()
+            self._power_verdict_unsub = None
+
+    def _capture_active_mode(self) -> None:
+        """Remember the mode about to be left, before flipping to OFF.
+
+        Called at every transition to OFF -- a HAIR send or a power
+        verdict -- so a later "on" verdict can restore last non-off
+        mode/setpoint/fan/swing (the setpoint/fan/swing fields are
+        never cleared on off, so remembering the mode is the only
+        piece that would otherwise be lost).
+        """
+        if self._hvac_mode != HVACMode.OFF:
+            self._last_active_hvac_mode = self._hvac_mode
+
+    @callback
+    def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
+        """Apply a power_monitor.py verdict to assumed state.
+
+        Bookkeeping only -- NEVER sends IR. "off": the mode goes OFF,
+        same as a HAIR-initiated off; setpoint/fan/swing are left
+        untouched so they're there to come back to. "on" while
+        currently off: restore the last non-off mode (setpoint/fan/
+        swing need no restoring -- they were never cleared), falling
+        back to the same synthetic first-mode/AUTO convention
+        async_turn_on already uses for a device that has never been on.
+        """
+        if device_id != self._device.id:
+            return
+        if verdict == "off":
+            self._capture_active_mode()
+            self._hvac_mode = HVACMode.OFF
+        else:
+            if self._hvac_mode == HVACMode.OFF:
+                fallback = (
+                    self._first_matrix_hvac_mode()
+                    if self._matrix_mode else HVACMode.AUTO
+                )
+                self._hvac_mode = self._last_active_hvac_mode or fallback
+        self.async_write_ha_state()
 
     async def _async_load_matrix(self) -> None:
         self._matrix = await self._manager.async_get_matrix(self._device.id)
@@ -453,6 +508,7 @@ class HAIRClimateEntity(ClimateEntity):
                 self._device.id, name, self._matrix.off
             )
             self._matrix_cell = name
+        self._capture_active_mode()
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
 
@@ -479,6 +535,7 @@ class HAIRClimateEntity(ClimateEntity):
             return
         if hvac_mode == HVACMode.OFF:
             await self._send("turn_off", "power_toggle")
+            self._capture_active_mode()
             self._hvac_mode = HVACMode.OFF
             self.async_write_ha_state()
             return
@@ -571,6 +628,7 @@ class HAIRClimateEntity(ClimateEntity):
             await self._async_matrix_off()
             return
         await self._send("turn_off", "power_toggle")
+        self._capture_active_mode()
         self._hvac_mode = HVACMode.OFF
         self.async_write_ha_state()
 

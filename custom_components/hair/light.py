@@ -9,11 +9,13 @@ from homeassistant.components.light import (
     LightEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
+from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +75,9 @@ class HAIRLightEntity(LightEntity):
         self._attr_unique_id = f"hair_{device.id}_light"
         self._attr_name = None
         self._is_on = False
+        # Power monitoring (Device Settings, v0.9.9). None until
+        # async_added_to_hass connects; None again after removal.
+        self._power_verdict_unsub: CALLBACK_TYPE | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -97,6 +102,29 @@ class HAIRLightEntity(LightEntity):
     @property
     def is_on(self) -> bool:
         return self._is_on
+
+    async def async_added_to_hass(self) -> None:
+        self._power_verdict_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._power_verdict_unsub is not None:
+            self._power_verdict_unsub()
+            self._power_verdict_unsub = None
+
+    @callback
+    def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
+        """Apply a power_monitor.py verdict to assumed state.
+
+        Bookkeeping only -- NEVER sends IR. "off" catches up with a
+        physical-remote-off; "on" catches up with a physical-remote-on.
+        A plain on/off light has nothing else to restore.
+        """
+        if device_id != self._device.id:
+            return
+        self._is_on = verdict == "on"
+        self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._send("turn_on", "power_toggle")
