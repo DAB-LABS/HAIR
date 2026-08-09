@@ -35,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   neighbors. The drag handle moved up to sit beside the name that
   goes with it, rather than floating at the center of however tall
   the row happened to be.
+- **Sends no longer carry the leftover pause from a Broadlink
+  capture.** A code learned on a Broadlink RM ends with about 100ms
+  of silence baked in by the device's own capture timeout, not part
+  of the signal. HAIR used to send that pause along with the code;
+  some 16-bit emitters (Tuya and ZoSung blasters reached through
+  Zigbee2MQTT, for example) rejected the whole code outright once
+  the pause pushed a value over their format's limit. Sends now stop
+  at the last real mark instead. A newly imported SmartIR file also
+  stores its codes without that pause, so the same source file
+  imported before and after this version yields two distinct wigs --
+  deliberate, and supersession is there to resolve it if the two
+  ever meet in the same shop.
 
 ### Added
 
