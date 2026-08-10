@@ -7,8 +7,11 @@ from pathlib import Path
 import pytest
 
 from custom_components.hair.ir_command import (
+    TERMINATOR_SPACE_US,
+    Command,
     ProntoCommand,
     RawTimingsCommand,
+    TerminatedCommand,
     build_command,
     build_decoded_command,
     raw_to_pronto,
@@ -431,3 +434,73 @@ class TestSnapPronto:
             assert result.valid
             # Carrier word is rounded, so allow sub-kHz quantization error.
             assert abs(result.frequency_khz - std / 1000) < 0.6
+
+
+class TestTerminatedCommand:
+    """The transmit-boundary terminator wrapper (GH #93 -> GH #98).
+
+    Parse-side classes keep the 0.9.8 strip byte-for-byte (identity
+    stability); the wire copy alone gains a bounded trailing space.
+    These pin both constraints: a space must EXIST (RM4 Pro firmware
+    garbles mark-terminated streams) and must FIT uint16 (Tuya/ZoSung
+    16-bit formats).
+    """
+
+    class _Stub(Command):
+        def __init__(self, timings, modulation=38000, repeat_count=0):
+            self._t = timings
+            super().__init__(
+                modulation=modulation, repeat_count=repeat_count
+            )
+
+        def get_raw_timings(self):
+            return list(self._t)
+
+    def test_stripped_replay_gains_terminator(self):
+        """The common case: a stripped Pronto replay ends on a mark;
+        the wrapper appends the terminator."""
+        inner = ProntoCommand("0000 006D 0002 0000 0020 0100 0020 0100")
+        wire = TerminatedCommand(inner).get_raw_timings()
+        assert wire[:-1] == inner.get_raw_timings()
+        assert wire[-1] == -TERMINATOR_SPACE_US
+
+    def test_oversized_trailing_space_clamps(self):
+        """A decoded/canonical inner ending with a huge gap clamps to
+        the cap and fits uint16 (the GH #93 pin)."""
+        wire = TerminatedCommand(
+            self._Stub([9000, -4500, 560, -100150])
+        ).get_raw_timings()
+        assert wire == [9000, -4500, 560, -TERMINATOR_SPACE_US]
+        assert max(abs(t) for t in wire) <= 0xFFFF
+
+    def test_small_trailing_space_untouched(self):
+        wire = TerminatedCommand(
+            self._Stub([9000, -4500, 560, -3000])
+        ).get_raw_timings()
+        assert wire == [9000, -4500, 560, -3000]
+
+    def test_interior_gap_never_touched(self):
+        wire = TerminatedCommand(
+            self._Stub([9000, -60000, 560])
+        ).get_raw_timings()
+        assert wire == [9000, -60000, 560, -TERMINATOR_SPACE_US]
+
+    def test_empty_inner_is_noop(self):
+        assert TerminatedCommand(self._Stub([])).get_raw_timings() == []
+
+    def test_modulation_and_repeat_ride_through(self):
+        wrapped = TerminatedCommand(
+            self._Stub([100], modulation=36000, repeat_count=3)
+        )
+        assert wrapped.modulation == 36000
+        assert wrapped.repeat_count == 3
+
+    def test_inner_command_untouched(self):
+        """The wrapper never mutates the inner array: parse-side
+        consumers of the same object stay identity-stable."""
+        inner = self._Stub([9000, -4500, 560])
+        TerminatedCommand(inner).get_raw_timings()
+        assert inner.get_raw_timings() == [9000, -4500, 560]
+
+    def test_terminator_fits_uint16(self):
+        assert TERMINATOR_SPACE_US <= 0xFFFF

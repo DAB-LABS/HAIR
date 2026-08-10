@@ -91,6 +91,21 @@ def _failing_sender(dead: set[str]) -> AsyncMock:
 _BDC = "custom_components.hair.ir_command.build_decoded_command"
 
 
+def _decoded_stub():
+    """A minimal decoded-command stand-in. A bare object() no longer
+    suffices: the broadcast path reads modulation/repeat_count to
+    build the terminated wire copy (GH #98, TerminatedCommand)."""
+
+    class _Stub:
+        modulation = 38000
+        repeat_count = 0
+
+        def get_raw_timings(self):
+            return [100]
+
+    return _Stub()
+
+
 class TestPartialFailure:
     @pytest.mark.asyncio
     async def test_second_emitter_dead_still_succeeds(self, manager):
@@ -99,7 +114,7 @@ class TestPartialFailure:
         manager._store.add_device(dev)
         ir_send = _failing_sender({"infrared.athom"})
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")  # no raise
         sent_to = [c.args[1] for c in ir_send.call_args_list]
         assert "infrared.broadlink" in sent_to
@@ -112,7 +127,7 @@ class TestPartialFailure:
         manager._store.add_device(dev)
         ir_send = _failing_sender({"infrared.athom"})
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         sent_to = [c.args[1] for c in ir_send.call_args_list]
         assert "infrared.broadlink" in sent_to
@@ -127,7 +142,7 @@ class TestPartialFailure:
         manager._store.add_device(dev)
         ir_send = _failing_sender({"infrared.athom"})
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         assert dev.commands[0].decoded_extras["counter"] == 3
 
@@ -139,7 +154,7 @@ class TestPartialFailure:
         manager._store.add_device(dev)
         ir_send = _failing_sender({"infrared.athom"})
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         athom_calls = [
             c for c in ir_send.call_args_list
@@ -160,7 +175,7 @@ class TestTotalFailure:
         manager._store.add_device(dev)
         ir_send = _failing_sender({"infrared.a", "infrared.b"})
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()), \
+                patch(_BDC, return_value=_decoded_stub()), \
                 pytest.raises(RuntimeError, match="All emitters for Fan"):
             await manager.async_send_command(dev.id, "c1")
 
@@ -171,7 +186,7 @@ class TestTotalFailure:
         manager._store.add_device(dev)
         ir_send = _failing_sender({"infrared.a", "infrared.b"})
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()), pytest.raises(RuntimeError):
+                patch(_BDC, return_value=_decoded_stub()), pytest.raises(RuntimeError):
             await manager.async_send_command(dev.id, "c1")
         assert dev.commands[0].decoded_extras["counter"] == 2
 
@@ -189,7 +204,7 @@ class TestTotalFailure:
         manager._store.add_device(dev)
         ir_send = _failing_sender({"infrared.a"})
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()), pytest.raises(RuntimeError):
+                patch(_BDC, return_value=_decoded_stub()), pytest.raises(RuntimeError):
             await manager.async_send_command(dev.id, "c1")
         assert cmd.decoded_extras["toggle"] == 0
 
@@ -210,7 +225,7 @@ class TestPreSkip:
         fake_hass.states.get = MagicMock(side_effect=_state)
         ir_send = _failing_sender(set())
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         sent_to = [c.args[1] for c in ir_send.call_args_list]
         assert sent_to == ["infrared.up"]
@@ -247,7 +262,7 @@ class TestPreSkip:
         )
         ir_send = _failing_sender(set())
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         sent_to = [c.args[1] for c in ir_send.call_args_list]
         assert sent_to == ["infrared.brand_new"]
@@ -269,7 +284,7 @@ class TestPreSkip:
         fake_hass.states.get = MagicMock(side_effect=_state)
         ir_send = _failing_sender(set())
         with patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         sent_to = [c.args[1] for c in ir_send.call_args_list]
         assert sent_to == ["infrared.brand_new"]
@@ -293,7 +308,7 @@ class TestDegradeNotification:
         with patch.object(pn, "async_create") as create, \
                 patch.object(pn, "async_dismiss") as dismiss, \
                 patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         assert create.call_count == 1
         kwargs = create.call_args.kwargs
@@ -316,7 +331,7 @@ class TestDegradeNotification:
         ir_send = _failing_sender({"infrared.a", "infrared.b"})
         with patch.object(pn, "async_create") as create, \
                 patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()), \
+                patch(_BDC, return_value=_decoded_stub()), \
                 pytest.raises(RuntimeError):
             await manager.async_send_command(dev.id, "c1")
         ids = {
@@ -356,7 +371,7 @@ class TestDegradeNotification:
                 patch.object(
                     _infrared_mod, "async_send_command", AsyncMock()
                 ), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")
         create.assert_not_called()
         dismissed = [c.args[1] for c in dismiss.call_args_list]
@@ -376,5 +391,40 @@ class TestDegradeNotification:
                     side_effect=RuntimeError("notification bus down"),
                 ), \
                 patch.object(_infrared_mod, "async_send_command", ir_send), \
-                patch(_BDC, return_value=object()):
+                patch(_BDC, return_value=_decoded_stub()):
             await manager.async_send_command(dev.id, "c1")  # no raise
+
+
+class TestTrailingTerminator:
+    """GH #98: the broadcast path hands the emitter a wire copy whose
+    timing array ends on the bounded terminator space, while the
+    stored command's own parse stays stripped (identity-stable)."""
+
+    @pytest.mark.asyncio
+    async def test_broadcast_sends_terminated_wire_copy(self, manager):
+        from custom_components.hair.ir_command import (
+            TERMINATOR_SPACE_US,
+            TerminatedCommand,
+        )
+
+        cmd = IRCommand(
+            id="c1",
+            name="Power",
+            protocol="PRONTO",
+            code="0000 006D 0002 0000 0020 0100 0020 0100",
+        )
+        dev = IRDevice(
+            name="TV",
+            emitter_entity_ids=["infrared.rm4pro"],
+            commands=[cmd],
+        )
+        manager._store.add_device(dev)
+        ir_send = AsyncMock()
+        with patch.object(_infrared_mod, "async_send_command", ir_send):
+            await manager.async_send_command(dev.id, "c1")
+
+        sent_cmd = ir_send.call_args_list[0].args[2]
+        assert isinstance(sent_cmd, TerminatedCommand)
+        wire = sent_cmd.get_raw_timings()
+        assert wire[-1] == -TERMINATOR_SPACE_US
+        assert all(w > 0 or -w <= 0xFFFF for w in wire)

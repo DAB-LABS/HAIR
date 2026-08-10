@@ -5,6 +5,19 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10] - 2026-08-10 -- Quick Wash
+
+### Fixed
+
+- **Broadlink RM4 Pro commands work again.** The 0.9.8 change that
+  trimmed the leftover capture pause for Zigbee blasters left
+  outgoing codes with no trailing pause at all, and RM4 Pro
+  firmware garbles codes that end that way. Sends now finish with
+  a short bounded pause that satisfies both the RM4 Pro and the
+  Zigbee 16-bit limit. Files imported under 0.9.8 or 0.9.9 heal
+  automatically; nothing needs re-importing. Reported by
+  @Lilian877 (GH #98).
+
 ## [0.9.9] - 2026-08-10 -- Straight Iron
 
 ### Fixed

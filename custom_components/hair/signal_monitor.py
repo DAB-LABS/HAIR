@@ -2044,8 +2044,12 @@ class SignalMonitor:
         # call per selected emitter concurrently, and without the gate
         # both blasters key up at once -- the superimposed hybrid fails
         # the echo claim and mints a junk Sniffer row (see tx_gate).
+        from .ir_command import TerminatedCommand
         from .tx_gate import gated_send
 
+        # GH #98: same bounded trailing terminator as the device
+        # broadcast path -- the wire copy only.
+        ir_cmd = TerminatedCommand(ir_cmd)
         try:
             for i in range(send_count):
                 if i:

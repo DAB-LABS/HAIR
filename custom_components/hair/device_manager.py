@@ -717,6 +717,13 @@ class DeviceManager:
         # dead unit); the command succeeds when at least one (emitter,
         # frame) landed.
         landed: set[str] = set()
+        # GH #98: the wire copy ends on a bounded trailing space
+        # (RM4 Pro firmware garbles mark-terminated streams; the
+        # 16-bit Zigbee formats bound its size). Transmit-only --
+        # ir_cmd's own array stays identity-stable.
+        from .ir_command import TerminatedCommand
+
+        ir_cmd = TerminatedCommand(ir_cmd)
         failures: dict[str, str] = {}
         for i in range(send_count):
             if i:

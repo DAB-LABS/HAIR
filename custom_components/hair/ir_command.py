@@ -38,6 +38,71 @@ _PRONTO_LEARNED = 0x0000
 _PRONTO_FREQ_FACTOR = 0.241246
 
 
+# The transmit-side trailing terminator (GH #93 -> GH #98). Two
+# hardware constraints meet at the emitter: 16-bit formats (Tuya and
+# ZoSung blasters behind Zigbee2MQTT) reject any timing value over
+# 65,535us, so a captured Broadlink RM's ~102ms learning-timeout gap
+# cannot ride out as-is (GH #93) -- while Broadlink RM4 Pro firmware
+# garbles a pulse stream that does not END on a space, because every
+# packet the device ever produces itself ends with that same capture
+# timeout (GH #98: dead commands, one transmitting a bogus ~8ms
+# trailing mark the source never contained; the RM4 Mini tolerated
+# the identical stream). 0.9.8's constructor strip satisfied the
+# first constraint and violated the second. A BOUNDED terminator,
+# added ONLY at the transmit boundary, satisfies both: 50ms fits
+# uint16 with margin, exceeds the largest interior frame gap in the
+# SmartIR corpus (the Daikin 35ms), and is dead air to any receiver.
+TERMINATOR_SPACE_US = 50_000
+
+
+def _normalize_trailing_space(timings: list[int]) -> None:
+    """End the array on a bounded space, in place.
+
+    Oversized trailing space -> clamped to TERMINATOR_SPACE_US.
+    Ends on a mark (every stripped replay, and gapless 0.9.8-era
+    imports) -> a terminator space is appended. A small trailing
+    space passes untouched. Empty -> no-op.
+    """
+    if not timings:
+        return
+    if timings[-1] < 0:
+        if -timings[-1] > TERMINATOR_SPACE_US:
+            timings[-1] = -TERMINATOR_SPACE_US
+        return
+    timings.append(-TERMINATOR_SPACE_US)
+
+
+class TerminatedCommand(Command):
+    """Transmit-boundary wrapper adding the bounded terminator.
+
+    Wraps the command actually handed to an emitter (gated_send in
+    device_manager._async_broadcast and signal_monitor's test path)
+    so its timing array ends on a bounded space. Parse-side consumers
+    (identity, triggers, decode, storage) construct ProntoCommand /
+    RawTimingsCommand directly and are NEVER wrapped: the constructor
+    strip below has been part of signal identity since 0.9.8 and must
+    stay byte-stable, or every stored identity splits again.
+    """
+
+    def __init__(self, inner: Command) -> None:
+        # Deliberately no super().__init__: modulation and
+        # repeat_count delegate through __getattr__ below, so the
+        # wrapper never has to introspect (or get ahead of) whatever
+        # the inner command carries.
+        self._inner = inner
+
+    def get_raw_timings(self) -> list[int]:
+        timings = list(self._inner.get_raw_timings())
+        _normalize_trailing_space(timings)
+        return timings
+
+    def __getattr__(self, name: str):
+        # Transparent for everything else (decoded fields, toggle
+        # counters, whatever the platform or the Mirror inspects):
+        # only the timing array differs from the inner command.
+        return getattr(self._inner, name)
+
+
 class ProntoCommand(Command):
     """Wrap a Pronto hex string as an infrared_protocols.Command."""
 
@@ -91,7 +156,10 @@ class ProntoCommand(Command):
         # Broadlink RM's ~102ms learning-mode timeout, which 16-bit
         # emitters (Tuya/ZoSung) reject outright (GH #93). A trailing
         # MARK is left untouched -- that would be a malformed code, a
-        # different problem for the comb, not this strip.
+        # different problem for the comb, not this strip. The transmit
+        # boundary re-adds a BOUNDED trailing space after this strip
+        # (GH #98, TerminatedCommand above): the strip is part of
+        # signal identity and stays; the wire gets its terminator.
         if self._timings and self._timings[-1] < 0:
             self._timings.pop()
 
