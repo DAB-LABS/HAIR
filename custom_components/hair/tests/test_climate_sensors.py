@@ -355,3 +355,105 @@ class TestTemperatureConversion:
             _state(72.5, unit="°F", entity_id="sensor.temp")
         )
         assert entity.current_temperature == pytest.approx(72.5)
+
+
+class TestStateAnnouncement:
+    """GH #91: the mirror must ANNOUNCE (async_write_ha_state).
+
+    Updating the internal reading without a state write leaves the
+    dashboard card serving the last written value until an unrelated
+    update (a command, a power verdict) flushes state. These assert
+    the WRITE, not the property -- asserting the property is exactly
+    how the original suite missed the bug.
+    """
+
+    @pytest.mark.asyncio
+    async def test_temperature_event_writes_ha_state(self):
+        device = _device(temperature_sensor_entity_id="sensor.temp")
+        captured = {}
+
+        def _fake_track(hass_arg, ids, action):
+            captured["fn"] = action
+            return MagicMock()
+
+        with patch(TRACK, side_effect=_fake_track):
+            entity, _mgr = await _entity(device=device)
+        entity.async_write_ha_state.reset_mock()
+
+        event = MagicMock()
+        event.data = {
+            "entity_id": "sensor.temp",
+            "new_state": _state(21.0, entity_id="sensor.temp"),
+        }
+        captured["fn"](event)
+
+        assert entity.current_temperature == 21.0
+        entity.async_write_ha_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_humidity_event_writes_ha_state(self):
+        device = _device(humidity_sensor_entity_id="sensor.humidity")
+        captured = {}
+
+        def _fake_track(hass_arg, ids, action):
+            captured["fn"] = action
+            return MagicMock()
+
+        with patch(TRACK, side_effect=_fake_track):
+            entity, _mgr = await _entity(device=device)
+        entity.async_write_ha_state.reset_mock()
+
+        event = MagicMock()
+        event.data = {
+            "entity_id": "sensor.humidity",
+            "new_state": _state(48, entity_id="sensor.humidity"),
+        }
+        captured["fn"](event)
+
+        assert entity.current_humidity == 48.0
+        entity.async_write_ha_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_identical_reading_does_not_rewrite(self):
+        device = _device(temperature_sensor_entity_id="sensor.temp")
+        captured = {}
+
+        def _fake_track(hass_arg, ids, action):
+            captured["fn"] = action
+            return MagicMock()
+
+        with patch(TRACK, side_effect=_fake_track):
+            entity, _mgr = await _entity(device=device)
+        entity.async_write_ha_state.reset_mock()
+
+        event = MagicMock()
+        event.data = {
+            "entity_id": "sensor.temp",
+            "new_state": _state(21.0, entity_id="sensor.temp"),
+        }
+        captured["fn"](event)
+        captured["fn"](event)
+
+        entity.async_write_ha_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_startup_seed_announces_when_readings_exist(self):
+        # Baseline: the same fixture with no sensors configured, so
+        # whatever async_added_to_hass writes on its own is subtracted
+        # out and only the seed write remains under test.
+        with patch(TRACK):
+            bare, _mgr = await _entity()
+        baseline = bare.async_write_ha_state.call_count
+
+        device = _device(temperature_sensor_entity_id="sensor.temp")
+        hass = _hass()
+        hass.states.get.side_effect = lambda eid: (
+            _state(22.0, entity_id="sensor.temp")
+            if eid == "sensor.temp"
+            else None
+        )
+        with patch(TRACK):
+            entity, _mgr = await _entity(device=device, hass=hass)
+
+        assert entity.current_temperature == 22.0
+        assert entity.async_write_ha_state.call_count == baseline + 1
