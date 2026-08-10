@@ -550,3 +550,35 @@ async def test_assign_to_new_device_ws_carries_repeat_count(fake_hass):
     )
     assert res2["success"]
     assert res2["device"].commands[0].repeat_count == 2
+
+
+@pytest.mark.asyncio
+async def test_test_signal_sends_terminated_wire_copy(fake_hass):
+    """GH #98 regression guard for the SECOND transmit path: the
+    Sniffer/catalog test send must hand the emitter the terminated
+    wire copy, same as the device broadcast path. If the wrapper is
+    ever removed from signal_monitor.test_signal, this fails."""
+    from custom_components.hair.ir_command import (
+        TERMINATOR_SPACE_US,
+        TerminatedCommand,
+    )
+
+    sig = _decoded_sig("s1")
+    monitor, _ = _monitor(fake_hass, sig)
+    with (
+        patch.object(
+            _infrared_mod, "async_send_command", AsyncMock()
+        ) as ir_send,
+        patch(
+            "custom_components.hair.ir_command.build_decoded_command",
+            return_value=_cmd_stub(),
+        ),
+        patch("custom_components.hair.ir_command.build_command"),
+    ):
+        res = await monitor.test_signal("s1", "infrared.e")
+    assert res["success"]
+    sent = ir_send.call_args[0][2]
+    assert isinstance(sent, TerminatedCommand)
+    wire = sent.get_raw_timings()
+    assert wire[-1] == -TERMINATOR_SPACE_US
+    assert max(abs(t) for t in wire) <= 0xFFFF
