@@ -23,6 +23,29 @@ from custom_components.hair.storage import HAIRStore
 from custom_components.hair.trigger_manager import TriggerManager
 
 
+def _cmd_stub(**attrs):
+    """A minimal command stand-in. A bare object() no longer works on
+    the wire: the broadcast path wraps the outgoing command in
+    TerminatedCommand (GH #98), which reads modulation/repeat_count."""
+
+    class _Stub:
+        modulation = 38000
+        repeat_count = 0
+
+        def get_raw_timings(self):
+            return [100]
+
+    stub = _Stub()
+    for k, v in attrs.items():
+        setattr(stub, k, v)
+    return stub
+
+
+def _unwrap(sent):
+    """The inner command behind the GH #98 transmit wrapper."""
+    return sent._inner
+
+
 class _FakeStore:
     def __init__(self, *args, **kwargs):
         self._data = None
@@ -69,7 +92,7 @@ async def test_send_command_uses_decoded_when_present(manager):
     )
     dev = IRDevice(name="TV", emitter_entity_ids=["infrared.e"], commands=[cmd])
     manager._store.add_device(dev)
-    sentinel = object()
+    sentinel = _cmd_stub()
     with patch.object(
         _infrared_mod, "async_send_command", AsyncMock()
     ) as ir_send, patch(
@@ -82,7 +105,7 @@ async def test_send_command_uses_decoded_when_present(manager):
     bdc.assert_called_once()
     bc.assert_not_called()
     ir_send.assert_awaited_once()
-    assert ir_send.call_args[0][2] is sentinel
+    assert _unwrap(ir_send.call_args[0][2]) is sentinel
 
 
 @pytest.mark.asyncio
@@ -100,7 +123,7 @@ async def test_send_command_falls_back_when_tx_force_raw(manager):
     )
     dev = IRDevice(name="TV", emitter_entity_ids=["infrared.e"], commands=[cmd])
     manager._store.add_device(dev)
-    fallback = object()
+    fallback = _cmd_stub()
     with patch.object(
         _infrared_mod, "async_send_command", AsyncMock()
     ) as ir_send, patch(
@@ -110,7 +133,7 @@ async def test_send_command_falls_back_when_tx_force_raw(manager):
     ):
         await manager.async_send_command(dev.id, "c1")
     bdc.assert_not_called()
-    assert ir_send.call_args[0][2] is fallback
+    assert _unwrap(ir_send.call_args[0][2]) is fallback
 
 
 @pytest.mark.asyncio

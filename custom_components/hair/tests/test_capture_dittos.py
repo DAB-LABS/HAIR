@@ -47,6 +47,31 @@ _MONO = "custom_components.hair.signal_monitor.time.monotonic"
 # ---------------------------------------------------------------------------
 
 
+
+
+def _cmd_stub(**attrs):
+    """A minimal command stand-in. A bare object() no longer works on
+    the wire: the broadcast path wraps the outgoing command in
+    TerminatedCommand (GH #98), which reads modulation/repeat_count."""
+
+    class _Stub:
+        modulation = 38000
+        repeat_count = 0
+
+        def get_raw_timings(self):
+            return [100]
+
+    stub = _Stub()
+    for k, v in attrs.items():
+        setattr(stub, k, v)
+    return stub
+
+
+def _unwrap(sent):
+    """The inner command behind the GH #98 transmit wrapper."""
+    return sent._inner
+
+
 def _monitor(fake_hass, *signals: UnknownSignal):
     store = SignalStore(fake_hass)
     store._loaded = True
@@ -222,7 +247,7 @@ async def test_test_signal_honors_repeat_count(fake_hass):
         patch.object(_infrared_mod, "async_send_command", AsyncMock()),
         patch(
             "custom_components.hair.ir_command.build_decoded_command",
-            return_value=object(),
+            return_value=_cmd_stub(),
         ) as bdc,
         patch("custom_components.hair.ir_command.build_command"),
     ):
@@ -241,7 +266,7 @@ async def test_test_signal_honors_send_count(fake_hass):
         patch.object(_infrared_mod, "async_send_command", AsyncMock()) as ir_send,
         patch(
             "custom_components.hair.ir_command.build_decoded_command",
-            return_value=object(),
+            return_value=_cmd_stub(),
         ),
         patch("custom_components.hair.ir_command.build_command"),
         patch(
@@ -262,7 +287,7 @@ async def test_test_signal_composes_repeat_and_send(fake_hass):
         patch.object(_infrared_mod, "async_send_command", AsyncMock()) as ir_send,
         patch(
             "custom_components.hair.ir_command.build_decoded_command",
-            return_value=object(),
+            return_value=_cmd_stub(),
         ) as bdc,
         patch("custom_components.hair.ir_command.build_command"),
         patch("custom_components.hair.signal_monitor.asyncio.sleep", AsyncMock()),
@@ -288,7 +313,7 @@ async def test_test_signal_raw_fallback_honors_repeat_count(fake_hass):
         patch("custom_components.hair.ir_command.build_decoded_command") as bdc,
         patch(
             "custom_components.hair.ir_command.build_command",
-            return_value=object(),
+            return_value=_cmd_stub(),
         ) as bc,
         patch("custom_components.hair.signal_monitor.asyncio.sleep", AsyncMock()),
     ):
