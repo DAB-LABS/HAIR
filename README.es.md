@@ -46,4 +46,4 @@ El README completo, con el YAML de configuración, el hardware compatible, las g
 
 ---
 
-*Traducido del README en inglés, versión v0.9.8. Este archivo fue redactado por un asistente de programación y se actualiza con cada versión. Los hablantes nativos son bienvenidos a hacerse cargo de él; ver [Adding a language](CONTRIBUTING.md#adding-a-language).*
+*Traducido del README en inglés, versión v0.9.9. Este archivo fue redactado por un asistente de programación y se actualiza con cada versión. Los hablantes nativos son bienvenidos a hacerse cargo de él; ver [Adding a language](CONTRIBUTING.md#adding-a-language).*

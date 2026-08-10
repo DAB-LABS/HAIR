@@ -394,21 +394,39 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
 
         @callback
         def _on_state_change(event: Event) -> None:
-            self._apply_sensor_reading(
+            # GH #91: announce the fresh reading, or the dashboard card
+            # serves the last WRITTEN value until an unrelated update
+            # (a command, a power verdict) happens to flush state. Only
+            # on an actual change: a measurement sensor can re-report
+            # the same number.
+            if self._apply_sensor_reading(
                 event.data.get("entity_id"), event.data.get("new_state")
-            )
+            ):
+                self.async_write_ha_state()
 
         self._sensor_unsub = async_track_state_change_event(
             self.hass, ids, _on_state_change
         )
         # Startup seed, same rule as the power monitor's: evaluate the
         # CURRENT reading now rather than waiting for the next event.
+        seeded = False
         if temp_id:
-            self._apply_sensor_reading(temp_id, self.hass.states.get(temp_id))
-        if humidity_id:
-            self._apply_sensor_reading(
-                humidity_id, self.hass.states.get(humidity_id)
+            seeded = self._apply_sensor_reading(
+                temp_id, self.hass.states.get(temp_id)
             )
+        if humidity_id:
+            seeded = (
+                self._apply_sensor_reading(
+                    humidity_id, self.hass.states.get(humidity_id)
+                )
+                or seeded
+            )
+        # GH #91, the same announce rule for the seed: a reboot or a
+        # settings save should show the room immediately, not the last
+        # value written before it. Both call paths (async_added_to_hass
+        # and the update_device hook) only reach here with hass set.
+        if seeded and self.hass is not None:
+            self.async_write_ha_state()
 
     def _unsubscribe_sensors(self) -> None:
         if self._sensor_unsub is not None:
@@ -417,11 +435,19 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
 
     def _apply_sensor_reading(
         self, entity_id: str | None, state: State | None
-    ) -> None:
+    ) -> bool:
+        """Mirror one reading; True when the stored value changed."""
         if entity_id == self._device.temperature_sensor_entity_id:
-            self._current_temperature = self._read_temperature(state)
-        elif entity_id == self._device.humidity_sensor_entity_id:
-            self._current_humidity = self._read_numeric(state)
+            value = self._read_temperature(state)
+            changed = value != self._current_temperature
+            self._current_temperature = value
+            return changed
+        if entity_id == self._device.humidity_sensor_entity_id:
+            value = self._read_numeric(state)
+            changed = value != self._current_humidity
+            self._current_humidity = value
+            return changed
+        return False
 
     def _read_temperature(self, state: State | None) -> float | None:
         value = self._read_numeric(state)

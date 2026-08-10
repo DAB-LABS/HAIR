@@ -5,6 +5,21 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.9] - 2026-08-10 -- Straight Iron
+
+### Fixed
+
+- **Linked room sensors now update the climate card the moment the
+  sensor changes.** The 0.9.8 sensor mirror read the linked
+  temperature and humidity sensors correctly but never announced a
+  new reading to Home Assistant, so the climate card kept showing
+  the last value it had been told about until the next command or
+  power correction happened to refresh it; the HAIR settings
+  dialog, which reads the sensor directly, looked right the whole
+  time. The card now updates the instant the sensor does, including
+  right after a restart. Reported by @mode0192 (GH #91) the same
+  day the feature shipped.
+
 ## [0.9.8] - 2026-08-09 -- Wig Primping & Device Settings
 
 ### Changed

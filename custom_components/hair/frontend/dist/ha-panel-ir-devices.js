@@ -11900,7 +11900,7 @@ function e(e,t,i,o){var a,s=arguments.length,n=s<3?t:null===o?o=Object.getOwnPro
                       ></ir-add-device-dialog>
                   `:""}
 
-            <div class="version-footer">v${"0.9.8"}</div>
+            <div class="version-footer">v${"0.9.9"}</div>
             </ha-top-app-bar-fixed>
         `:F`<div class="loading">${ke("panel.loading")}</div>`}};ba.styles=n`
         :host {
