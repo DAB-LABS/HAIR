@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "Zobacz lub edytuj kod",
     "cmdrow.comb_suspect": "Grzebien mial watpliwosci co do tego wiersza w oryginalnym wigu. Warto go przetestowac.",
     "cmdrow.map_action": "Przypisz mapowanie akcji",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "AKCJE",
     "cmdrow.test": "Test",
     "testbtn.sent": "wysłano",

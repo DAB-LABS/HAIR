@@ -11,7 +11,13 @@ import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import "./ir-command-row.js";
 
-/** Action-badge sizing constants (owner ruling, 2026-08-01).
+/** Action-badge sizing constants (owner ruling, 2026-08-01; box model
+ *  REWORKED 2026-08-11, fourth bench pass -- the fixed-width reservation
+ *  these drive was reinstated in ir-command-row.ts after commit 2 dropped
+ *  it along with the old bordered .badge-btn. See _measureActionBadges
+ *  for what changed: the new link-A label has no padding or border to
+ *  account for, and no letter-spacing, but DOES have an arrow glyph
+ *  ("-> ") that the old plain-text badge never rendered.
  *  The cap is the width the badge is allowed to reserve before its label
  *  starts stepping down a font tier. 96px clears fan (90px) and
  *  media_player (93px) at full size, so the common device types never
@@ -19,8 +25,9 @@ import "./ir-command-row.js";
 const ACTION_BADGE_CAP_PX = 96;
 const ACTION_BADGE_FONT_LADDER = [10.5, 9.5, 9];
 const ACTION_BADGE_WEIGHT = 500;
-const ACTION_BADGE_TRACKING = 0.03; // letter-spacing, em
-const ACTION_BADGE_CHROME_PX = 22; // 10px padding + 1px border, both sides
+const ACTION_BADGE_TRACKING = 0; // the link-A label carries no letter-spacing, unlike the old uppercase badge button's 0.03em
+const ACTION_ARROW_CHAR = "→"; // matches .map-arrow's glyph in ir-command-row.ts
+const ACTION_ARROW_GAP_PX = 3; // matches .action-visible/.action-sizer's flex gap there
 import "./ir-capture-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-save-perfect-dialog.js";
@@ -517,10 +524,12 @@ export class IrDeviceDetail extends LitElement {
      *
      *  Every command row in one device detail draws from the same option
      *  list, so one reserved width makes the whole list rigid: mapping an
-     *  action can no longer grow the button and shove the buttons after it
+     *  action can no longer grow the label and shove the buttons after it
      *  sideways. Measured once here rather than per render, and only to
      *  choose a font tier -- the actual width is settled in CSS by a hidden
-     *  copy of the widest label, which stays correct in any language.
+     *  copy of the widest label, stacked in the same grid cell as the
+     *  visible one (ir-command-row.ts's .action-sizer), which stays
+     *  correct in any language.
      *
      *  Labels that do not fit the cap step down a tier rather than being
      *  truncated: the two long ones are Color Temp Warmer / Cooler, and
@@ -532,16 +541,23 @@ export class IrDeviceDetail extends LitElement {
         const ctx = document.createElement("canvas").getContext("2d");
         if (!ctx) return null;
         const family = getComputedStyle(this).fontFamily || "sans-serif";
-        // measureText knows nothing about letter-spacing, and the badge
-        // carries 0.03em; the chrome is the 10px side padding plus 1px
-        // border, doubled.
+        // The reservation has to cover the MAPPED rendering (arrow +
+        // label), the wider of the two states a row can show, since an
+        // unmapped row can be mapped later without ever changing width.
+        // The arrow renders at 0.8em relative to whichever font tier the
+        // label itself lands on (.map-arrow, ir-command-row.ts), so it's
+        // measured here at that same relative size rather than a fixed
+        // px guess. No padding or border to add on top of that -- the
+        // link-A label has neither, unlike the old bordered badge button
+        // this replaced.
         const widthOf = (text: string, px: number): number => {
             ctx.font = `${ACTION_BADGE_WEIGHT} ${px}px ${family}`;
-            return (
+            const textWidth =
                 ctx.measureText(text).width +
-                text.length * px * ACTION_BADGE_TRACKING +
-                ACTION_BADGE_CHROME_PX
-            );
+                text.length * px * ACTION_BADGE_TRACKING;
+            ctx.font = `${px * 0.8}px ${family}`;
+            const arrowWidth = ctx.measureText(ACTION_ARROW_CHAR).width;
+            return textWidth + arrowWidth + ACTION_ARROW_GAP_PX;
         };
         const tierFor = (text: string): number =>
             ACTION_BADGE_FONT_LADDER.find(
@@ -727,8 +743,16 @@ export class IrDeviceDetail extends LitElement {
         const { command } = e.detail as { command: IRCommand };
         if (!command) return;
 
-        // Position popover near the badge button using fixed viewport coords.
-        const badge = (e.target as LitElement).shadowRoot?.querySelector(".badge-btn") as HTMLElement | null;
+        // Position popover near the row's action-mapping label, using fixed
+        // viewport coords (.action-popover is position: fixed, per
+        // ir-popover-styles.ts). BUG FIX (owner report 2026-08-11, third
+        // bench look): this selector still said ".badge-btn", the OLD
+        // ACTIONS button class from before mobile-polish.md 2.2's link-A
+        // swap (commit 2) renamed it to ".map-action-label" -- so this
+        // query always missed, top/left stayed at their 0/0 default, and
+        // the popover rendered pinned to the page's top-left corner
+        // instead of near the label that opened it.
+        const badge = (e.target as LitElement).shadowRoot?.querySelector(".map-action-label") as HTMLElement | null;
         if (badge) {
             const rect = badge.getBoundingClientRect();
             this._popoverTop = rect.bottom + 4;

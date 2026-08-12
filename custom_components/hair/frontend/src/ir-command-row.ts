@@ -1,6 +1,6 @@
 /**
  * One row in the device-detail command checklist.
- * - Captured commands show protocol info plus Test / Delete actions and an action badge.
+ * - Captured commands show protocol info plus Test / Delete actions and an action-mapping label.
  * - Unlearned templates show a single Learn button.
  *
  * TWO-LINE ANATOMY (command-row-restructure.md, commit 1 of 2, rides
@@ -20,8 +20,8 @@
  * that always stays whatever height the name needs: grip, then the
  * name (with its rename pencil) in .name-line, then the SAME
  * .actions cluster as before this pass -- protocol chip, edit,
- * mapping badge, TEST, TRIGGER, delete -- pushed to the far right via
- * margin-left: auto (owner ruling 2026-08-09: the chip and badge
+ * mapping label, TEST, TRIGGER, delete -- pushed to the far right via
+ * margin-left: auto (owner ruling 2026-08-09: the chip and label
  * stay put on the right; only the grip moves). Line two (.meta) is
  * what used to be nested under the name -- diamonds, the plain
  * label, or "not learned" -- now a full-width block of its own
@@ -29,9 +29,59 @@
  * long diamond pattern wraps in its own space without ever touching
  * line one's height. flex-wrap on .top-line is the whole answer to
  * narrow widths (RULED: no container queries, no collapse logic this
- * pass -- the wrap itself is the win); the deferred mobile-polish.md
- * 2.2 items (pencil removal, mapping-label redesign, hairline, TEST
- * vs SEND) stay queued for their own pass.
+ * pass -- the wrap itself is the win).
+ *
+ * EDIT GLYPH + ACTION-MAPPING LABEL (edit-and-actions-coding-plan.md,
+ * 2026-08-11, device-detail bench pilot): the edit button now renders
+ * via the shared renderEditBtn helper (ir-icons.ts) rather than a
+ * local ICON_COPY button. BENCH RULING (2026-08-11, first look at
+ * VM999): the button moved again -- immediately left of the trash
+ * can, matching edit-button-pass.md's general position rule for
+ * every other surface -- after the initial pass kept it in the
+ * pre-existing restructured slot per the standing sequencing ruling
+ * and the owner found it read too small and too far from delete on
+ * the actual bench. This also means commit 3's five-surface rollout
+ * now matches this row's position exactly, so there is no longer a
+ * device-detail exception to carry forward. The mapping badge is a
+ * link-style label, not a button: blue "-> action name" when mapped,
+ * muted gray "Map action" when empty. mobile-polish.md 2.2's
+ * hide-when-equal rule (skip the label when the mapped action's name
+ * equals the command name) shipped in the first bench pass and was
+ * DROPPED the same day (owner ruling 2026-08-11, second look at
+ * VM999): most self-descriptive command names (Power On, Volume Up,
+ * Mute) are mapped to an action of the same name, so hiding on match
+ * thinned out most of the list rather than the occasional row --
+ * every mapped command now shows what it is mapped to, unconditionally.
+ * THIRD bench ruling (2026-08-11): the label lost the word "Map" --
+ * it now reads plain "Action" empty / "-> action name" mapped
+ * (cmdrow.map_action_label; devdetail.map_action, the popover's own
+ * title, is a separately-translated string left untouched this pass)
+ * -- and gained a bit of trailing margin so it does not crowd TEST.
+ * A "returning arrow" glyph the owner recalled from an earlier comp,
+ * to replace the plain "->" here, was not found in either spec doc
+ * (edit-and-actions-coding-plan.md, mobile-polish.md 2.2 -- both say
+ * only "small arrow glyph"); left as-is pending the owner tracking
+ * that comp down.
+ * FOURTH bench ruling (2026-08-11): edit glyph 20px -> 22px, still
+ * catching up to the trash can's visual weight (see ir-icons.ts).
+ * Edit and trash now sit in their own .edit-trash-group wrapper with
+ * a zero gap, so their hover boxes butt directly against each other
+ * rather than sitting the shared .actions gap (4px) apart. The
+ * action-mapping label's fixed-width reservation (actionBadgeLabel /
+ * actionBadgeFontPx) is reinstated -- dropped in commit 2 on the
+ * theory that a plain label was free to change width row to row, but
+ * the owner wants every row's action column, and everything after
+ * it, landing at the same x position, same as the old bordered
+ * .badge-btn did (git 159b6b3^) before the link-A swap.
+ * FIFTH bench ruling (2026-08-11): settles the empty-state glyph
+ * question left open after the "U-turn" comp didn't turn up
+ * anywhere searchable (checked the repo's own screenshot assets,
+ * images/screenshots/action-mapping.png and neighbors -- all three
+ * predate the link-A redesign) -- a plain "+" before "Action"
+ * instead, same muted gray as the rest of the empty state
+ * (.map-plus).
+ * The remaining mobile-polish.md 2.2 items (pencil removal, hairline,
+ * TEST vs SEND) stay queued for their own pass.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -40,6 +90,8 @@ import {
     ICON_TRASH,
     TRASH_VIEWBOX,
     trashButtonStyles,
+    editButtonStyles,
+    renderEditBtn,
 } from "./ir-icons.js";
 import "./ir-protocol-chip.js";
 
@@ -53,10 +105,6 @@ const ICON_COMB =
 import "./ir-tx-knobs.js";
 import "./ir-count-dot.js";
 import type { IRCommand } from "./types.js";
-
-// mdi:content-copy -- shared view/edit glyph (matches the signal rows).
-const ICON_COPY =
-    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 
 @customElement("ir-command-row")
 export class IrCommandRow extends LitElement {
@@ -74,9 +122,14 @@ export class IrCommandRow extends LitElement {
      * Falls back to hasTrigger (0/1) when the parent doesn't supply a count. */
     @property({ type: Number }) public triggerCount = 0;
 
-    /** The widest label this device type's action list can produce, used
-     *  as an invisible sizer so the badge button never changes width when
-     *  a command is mapped. Null leaves the button sized to its content. */
+    /** The widest label this device type's action list can render (with
+     *  its arrow prefix), used as an invisible sizer so the link-A label
+     *  never changes width row to row -- FOURTH bench ruling (2026-08-11):
+     *  reinstated after commit 2 dropped this reservation on the theory
+     *  that a plain label was allowed to change width; the owner wants
+     *  every row's action column, TEST, TRIGGER, edit and trash all
+     *  landing at the same x position instead, which needs the fixed
+     *  width back. Null leaves the label sized to its own content. */
     @property({ attribute: false }) public actionBadgeLabel: string | null =
         null;
     /** Font size the sizer renders at, so the reserved width matches the
@@ -84,7 +137,7 @@ export class IrCommandRow extends LitElement {
     @property({ attribute: false }) public actionBadgeFontPx: number | null =
         null;
     /** Font size for THIS row's visible label. Long labels step down so
-     *  they fit the reserved width; short ones stay at full size. */
+     *  they read cleanly rather than crowding the actions cluster. */
     @property({ attribute: false }) public actionFontPx: number | null = null;
 
     /** Whether to show the action-mapping ("ACTIONS") button. Hidden for
@@ -212,6 +265,7 @@ export class IrCommandRow extends LitElement {
     render() {
         const learned = this.command !== null;
         const diamonds = learned ? this._renderDiamonds() : null;
+        const showActionLabel = learned && this.showActionMapping;
         return html`
             <div class="row" data-learned=${learned ? "true" : "false"}>
                 <div class="top-line">
@@ -283,37 +337,50 @@ export class IrCommandRow extends LitElement {
                                             ></ir-protocol-chip>`
                                           : ""}
                                   </div>
-                                  <button
-                                      class="icon-btn edit-btn"
-                                      ?disabled=${this.busy}
-                                      @click=${() => this._emit("edit-command")}
-                                      title=${t("cmdrow.edit_code")}
-                                  ><ha-svg-icon
-                                          class="edit-glyph"
-                                          .path=${ICON_COPY}
-                                      ></ha-svg-icon></button>
-                                  ${this.showActionMapping
+                                  ${showActionLabel
                                       ? html`<button
-                                      class="action-btn badge-btn"
+                                      class="map-action-label"
                                       ?data-mapped=${!!this.actionLabel}
                                       ?disabled=${this.busy}
                                       @click=${() => this._emit("map-action")}
                                       title=${t("cmdrow.map_action")}
+                                      aria-label=${t("cmdrow.map_action")}
                                   >${this.actionBadgeLabel
                                           ? html`<span
-                                                class="badge-sizer"
+                                                class="action-sizer"
                                                 aria-hidden="true"
                                                 style="font-size:${this
                                                     .actionBadgeFontPx ?? 10.5}px"
-                                                >${this.actionBadgeLabel}</span
+                                                ><span class="map-arrow"
+                                                    >&#8594;</span
+                                                ><span class="map-label"
+                                                    >${this
+                                                        .actionBadgeLabel}</span
+                                                ></span
                                             >`
-                                          : ""}<span
-                                          class="badge-label"
-                                          style=${this.actionFontPx
-                                              ? `font-size:${this.actionFontPx}px`
-                                              : ""}
-                                          >${this.actionLabel ||
-                                          t("cmdrow.actions")}</span
+                                          : ""}<span class="action-visible"
+                                          >${this.actionLabel
+                                              ? html`<span
+                                                    class="map-arrow"
+                                                    aria-hidden="true"
+                                                    >&#8594;</span
+                                                ><span
+                                                    class="map-label"
+                                                    style=${this.actionFontPx
+                                                        ? `font-size:${this.actionFontPx}px`
+                                                        : ""}
+                                                    >${this
+                                                        .actionLabel}</span
+                                                >`
+                                              : html`<span
+                                                    class="map-plus"
+                                                    aria-hidden="true"
+                                                    >+</span
+                                                ><span class="map-label"
+                                                    >${t(
+                                                        "cmdrow.map_action_label",
+                                                    )}</span
+                                                >`}</span
                                       ></button>`
                                       : ""}
                                   <button
@@ -331,18 +398,25 @@ export class IrCommandRow extends LitElement {
                                           .count=${this.triggerCount ||
                                           (this.hasTrigger ? 1 : 0)}
                                       ></ir-count-dot></button>
-                                  <button
-                                      class="trash-btn"
-                                      title=${t("cmdrow.delete_title")}
-                                      aria-label=${t("cmdrow.delete_title")}
-                                      ?disabled=${this.busy}
-                                      @click=${() => this._emit("delete")}
-                                  >
-                                      <ha-svg-icon
-                                          .path=${ICON_TRASH}
-                                          .viewBox=${TRASH_VIEWBOX}
-                                      ></ha-svg-icon>
-                                  </button>
+                                  <div class="edit-trash-group">
+                                      ${renderEditBtn(
+                                          () => this._emit("edit-command"),
+                                          t("cmdrow.edit_code"),
+                                          this.busy,
+                                      )}
+                                      <button
+                                          class="trash-btn"
+                                          title=${t("cmdrow.delete_title")}
+                                          aria-label=${t("cmdrow.delete_title")}
+                                          ?disabled=${this.busy}
+                                          @click=${() => this._emit("delete")}
+                                      >
+                                          <ha-svg-icon
+                                              .path=${ICON_TRASH}
+                                              .viewBox=${TRASH_VIEWBOX}
+                                          ></ha-svg-icon>
+                                      </button>
+                                  </div>
                               `
                             : html`
                                   <button
@@ -364,7 +438,7 @@ export class IrCommandRow extends LitElement {
         `;
     }
 
-    static styles = [trashButtonStyles, css`
+    static styles = [trashButtonStyles, editButtonStyles, css`
         :host {
             display: block;
         }
@@ -509,25 +583,6 @@ export class IrCommandRow extends LitElement {
             padding: 0 0 1px;
             min-width: 120px;
         }
-        .icon-btn {
-            background: none;
-            border: none;
-            padding: 2px;
-            display: inline-flex;
-            align-items: center;
-            cursor: pointer;
-            color: var(--secondary-text-color);
-        }
-        .icon-btn:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
-        .icon-btn:hover:not(:disabled) {
-            color: var(--primary-text-color);
-        }
-        .edit-glyph {
-            --mdc-icon-size: 10px;
-        }
         /* 44px = .status's flex-basis (32px) + .top-line's gap
            (12px) -- the exact distance from the row's left edge to
            where .name-line (and the name's first letter) starts.
@@ -625,41 +680,96 @@ export class IrCommandRow extends LitElement {
         .action-btn.learn-btn:hover {
             background: #1b5e20;
         }
-        /* The badge reserves room for the widest label its device type can
-           produce, so mapping an action never resizes the button and never
-           shoves TEST / TRIGGER / DELETE sideways (owner ruling,
-           2026-08-01). The reservation is a hidden copy of that label
-           stacked in the same grid cell as the visible one, so the browser
-           computes the width in the font and language actually rendered
-           rather than from an arithmetic guess that a translation would
-           break.
+        /* The action-mapping label, link style (mobile-polish.md 2.2,
+           owner ruling 2026-08-04): a LABEL, not a button -- no fill,
+           no border, no button padding -- so only TEST/TRIGGER read as
+           pressable. MAPPED is accent blue with a small arrow glyph
+           ("-> turn on"); EMPTY is muted gray ("Action"). Shows
+           unconditionally when mapped (owner ruling 2026-08-11, second
+           bench look) -- an earlier pass hid the label when the mapped
+           name equalled the command name, but that collapsed most of
+           the list since self-descriptive names map to themselves.
 
-           Mapped and unmapped were never different heights, despite
-           looking it: both are 23px. The filled primary tint on a mapped
-           badge simply reads heavier than a hollow one. */
-        .action-btn.badge-btn {
-            color: var(--secondary-text-color, #999);
-            border-color: var(--divider-color);
-            min-width: 50px;
-            text-align: center;
+           FIXED WIDTH, CENTERED (owner ruling 2026-08-11, fourth bench
+           look): reinstates the pre-commit-2 badge-button's own
+           technique (git 159b6b3^, .badge-btn/.badge-sizer) rather than
+           inventing a new one -- .action-sizer and .action-visible are
+           both direct children stacked in the SAME grid cell
+           (grid-area: 1/1 below), so the (invisible) sizer's width sets
+           the column's width in the font actually rendered, and the
+           visible content centers within it. actionBadgeLabel /
+           actionBadgeFontPx (ir-device-detail.ts) already computed the
+           widest label this device type's action list can produce and
+           its font tier; only the reservation on THIS side was missing
+           since commit 2 dropped the old badge-button markup. The sizer
+           always includes the arrow, since a row can go from unmapped
+           to mapped without changing width -- see
+           ir-device-detail.ts's _measureActionBadges for the matching
+           box-model rework (no more padding/border chrome, an arrow's
+           width instead). */
+        .map-action-label {
             display: inline-grid;
-            align-items: center;
             justify-items: center;
+            align-items: center;
+            background: none;
+            border: none;
+            padding: 0;
+            /* Extra breathing room before TEST (bench ruling 2026-08-11,
+               third look): .actions' own 4px flex gap read too tight
+               between a plain-text label and the first real button --
+               this only widens the label's own trailing edge, so the
+               rest of the cluster (chip/test/trigger/edit/trash) keeps
+               the standard 4px. */
+            margin-right: 6px;
+            font-size: 0.75rem;
+            font-family: inherit;
+            cursor: pointer;
+            color: var(--secondary-text-color, #999);
         }
-        .action-btn.badge-btn > * {
+        .map-action-label > * {
             grid-area: 1 / 1;
         }
-        .badge-sizer {
+        .action-sizer {
             visibility: hidden;
             pointer-events: none;
         }
-        .action-btn.badge-btn[data-mapped] {
-            color: var(--primary-color);
-            border-color: var(--primary-color);
-            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.08);
+        .action-sizer,
+        .action-visible {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
         }
-        .action-btn.badge-btn:hover {
-            background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.12);
+        .map-action-label:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+        .map-action-label[data-mapped] {
+            color: var(--primary-color);
+        }
+        .map-arrow {
+            font-size: 0.8em;
+        }
+        /* Empty-state glyph (owner ruling 2026-08-11, fifth bench look):
+           settles the "little glyph" question from the previous round --
+           a plain "+" rather than chasing the U-turn arrow from an
+           untraced comp. Stays the label's own muted gray; no separate
+           color rule needed since it only ever renders in the unmapped
+           branch, never alongside [data-mapped]'s blue. */
+        .map-plus {
+            font-size: 0.8em;
+        }
+        .map-action-label:hover:not(:disabled) .action-visible .map-label {
+            text-decoration: underline;
+        }
+        /* Edit + trash, butted together (bench ruling 2026-08-11, fourth
+           look): a wrapper with its own zero gap, rather than touching
+           either button's own padding, so their hover boxes sit flush
+           against each other -- the shared .actions gap (4px) still
+           separates this pair, as one unit, from TRIGGER on its left. */
+        .edit-trash-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 0;
         }
         .action-btn.trigger-btn {
             position: relative;

@@ -37,6 +37,8 @@ import { t, tp } from "./localize.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
+    editButtonStyles,
+    renderEditBtn,
     trashButtonStyles,
 } from "./ir-icons.js";
 import { HairApi } from "./api.js";
@@ -78,9 +80,6 @@ function relShort(iso: string | undefined): string {
     }
 }
 
-// mdi:content-copy (the code glyph, same as the other catalog tabs)
-const ICON_COPY =
-    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 // Hand mirror (SVG Repo, owner-supplied images/mirror-makeup-svgrepo-com.svg),
 // rotated 45 degrees to the tool-icon diagonal (head top-right, handle
 // bottom-left, matching the clippers and tweezers) and scaled to a 24x24 box.
@@ -902,23 +901,6 @@ export class IrMirror extends LitElement {
                             ? html` &middot; ${relShort(sig.last_seen)}`
                             : ""}</span
                     >
-                    ${sig.code
-                        ? html`
-                              <button
-                                  class="code-btn"
-                                  title=${t("cmdrow.edit_code")}
-                                  @click=${(e: Event) => {
-                                      e.stopPropagation();
-                                      this._editSignal = sig;
-                                  }}
-                              >
-                                  <ha-svg-icon
-                                      .path=${ICON_COPY}
-                                      style="--mdc-icon-size:10px"
-                                  ></ha-svg-icon>
-                              </button>
-                          `
-                        : ""}
                     <span class="mrow-btns">
                     <button
                         class="action-btn assign-btn"
@@ -970,20 +952,28 @@ export class IrMirror extends LitElement {
                             color="yellow"
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
-                    <button
-                        class="trash-btn"
-                        title=${t("mirror.delete_title")}
-                        aria-label=${t("mirror.delete_title")}
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._deleteSignal = sig;
-                        }}
-                    >
-                        <ha-svg-icon
-                            .path=${ICON_TRASH}
-                            .viewBox=${TRASH_VIEWBOX}
-                        ></ha-svg-icon>
-                    </button>
+                    <span class="edit-trash-group">
+                        ${sig.code
+                            ? renderEditBtn((e: Event) => {
+                                  e.stopPropagation();
+                                  this._editSignal = sig;
+                              }, t("cmdrow.edit_code"))
+                            : ""}
+                        <button
+                            class="trash-btn"
+                            title=${t("mirror.delete_title")}
+                            aria-label=${t("mirror.delete_title")}
+                            @click=${(e: Event) => {
+                                e.stopPropagation();
+                                this._deleteSignal = sig;
+                            }}
+                        >
+                            <ha-svg-icon
+                                .path=${ICON_TRASH}
+                                .viewBox=${TRASH_VIEWBOX}
+                            ></ha-svg-icon>
+                        </button>
+                    </span>
                     </span>
                 </div>
             </div>
@@ -1119,7 +1109,17 @@ export class IrMirror extends LitElement {
     static styles = [
         actionChipStyles,
         trashButtonStyles,
+        editButtonStyles,
         css`
+            /* Edit + trash sit as one unit, hover boxes butted with
+               zero gap -- same pairing ir-command-row.ts's device-
+               detail rows use (edit-and-actions bench passes,
+               2026-08-11), rolled out here unchanged. */
+            .edit-trash-group {
+                display: inline-flex;
+                align-items: center;
+                gap: 0;
+            }
             :host {
                 display: block;
             }
@@ -1394,16 +1394,6 @@ export class IrMirror extends LitElement {
                 font-size: 12px;
                 color: var(--secondary-text-color);
             }
-            .code-btn {
-                background: none;
-                border: none;
-                cursor: pointer;
-                color: var(--secondary-text-color);
-                padding: 2px;
-                display: inline-flex;
-                align-items: center;
-            }
-
             /* Empty state: the feature explaining itself. */
             .empty {
                 text-align: center;

@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "Ver o editar el código",
     "cmdrow.comb_suspect": "El peine dudo de esta fila en el wig de origen. Conviene probarla.",
     "cmdrow.map_action": "Asignar una acción",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "ACCIONES",
     "cmdrow.test": "Probar",
     "testbtn.sent": "enviada",

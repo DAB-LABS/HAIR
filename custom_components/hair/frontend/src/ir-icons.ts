@@ -1,4 +1,4 @@
-import { css } from "lit";
+import { css, html } from "lit";
 
 /**
  * One tree, one icon path.
@@ -56,6 +56,49 @@ export const COMB_VIEWBOX = "0 0 512 512";
  *
  * The hover wash is 0.12 where the text chip uses 0.08. A smaller hit
  * target needs a slightly stronger cue to read as the same weight.
+ *
+ * NO rest-state opacity multiplier (owner bugfix ruling 2026-08-12,
+ * user reports of the buttons reading as nearly invisible on a light
+ * theme). `--disabled-text-color` is already a theme-correct muted
+ * tone -- HA computes it separately for light and dark so it has
+ * adequate contrast against each theme's own card background.
+ * Layering a flat `opacity: 0.55` on top doesn't dim the COLOR, it
+ * blends the rendered pixel toward whatever is behind it: on a dark
+ * card that still reads as a visible light-grey icon, but on a white
+ * or near-white card the same blend washes out toward white, which
+ * is exactly the "too light to see" report. Every button in this
+ * file that shares this anatomy (trash/settings/edit/download) had
+ * the same multiplier and the same bug; all four had it removed
+ * together. The hover and :disabled opacities are untouched --
+ * :disabled's 0.25 is a real backdrop-independent "this doesn't
+ * work" cue, not a rest-state color choice, so it stays.
+ *
+ * HOVER WASH STRENGTH, ROUND 2 (owner bugfix ruling 2026-08-12, same
+ * session): the rgba() background washes on hover have the identical
+ * problem the rest-state opacity did -- their visible strength is
+ * whatever the alpha blend produces against the card behind them, not
+ * a fixed, guaranteed contrast. Trash's ember (230, 81, 0) survived at
+ * 12% alpha by luck of the hue: orange is dark and saturated enough
+ * that even diluted, it reads as a tint on white. Edit/settings'
+ * light pastel blue (100, 181, 246) is already close to white in
+ * luminance, so the same 12% diluted it to within a few RGB units of
+ * white -- no visible box, just the icon itself turning blue (owner
+ * report: "doesn't get a box... just turns the whole glyph blue").
+ * All four washes bumped from 12%/16% to a uniform 20% so the box
+ * reads reliably on a light card without needing per-hue tuning; a
+ * bit more vivid on dark as a side effect, same trade the rest-state
+ * fix already made and the owner accepted there.
+ *
+ * Download's hover icon color was the more broken case: a literal
+ * `#fff`, not a wash-alpha problem at all. White-on-white has no
+ * contrast full stop, regardless of the background wash -- it was
+ * only ever legible against a dark card. Swapped to
+ * `var(--primary-text-color)`, HA's own strongest text token: near-
+ * black on light theme, near-white on dark, computed by HA itself so
+ * it never needs to know which theme is active. Keeps the "gray
+ * family, no accent hue" rule the download button was built under
+ * (owner ruling 2026-08-11) -- this is neutral in both directions,
+ * not a new color.
  */
 export const trashButtonStyles = css`
     .trash-btn {
@@ -68,14 +111,12 @@ export const trashButtonStyles = css`
         border-radius: 4px;
         cursor: pointer;
         color: var(--disabled-text-color, #999);
-        opacity: 0.55;
         transition: background 150ms ease, color 150ms ease,
             opacity 150ms ease;
     }
     .trash-btn:hover:not(:disabled) {
-        background: rgba(230, 81, 0, 0.12);
+        background: rgba(230, 81, 0, 0.2);
         color: #e65100;
-        opacity: 1;
     }
     .trash-btn:disabled {
         cursor: default;
@@ -176,14 +217,12 @@ export const settingsButtonStyles = css`
         border-radius: 4px;
         cursor: pointer;
         color: var(--disabled-text-color, #999);
-        opacity: 0.55;
         transition: background 150ms ease, color 150ms ease,
             opacity 150ms ease;
     }
     .settings-btn:hover:not(:disabled) {
-        background: rgba(100, 181, 246, 0.12);
+        background: rgba(100, 181, 246, 0.2);
         color: #64b5f6;
-        opacity: 1;
     }
     .settings-btn:disabled {
         cursor: default;
@@ -195,3 +234,258 @@ export const settingsButtonStyles = css`
         height: 29px;
     }
 `;
+
+/**
+ * The row-level edit pencil, from images/text-edit-hair.svg -- the
+ * real edit glyph that replaces every ICON_COPY-as-edit-button
+ * across the panel (edit-button-pass.md). One path, one place, so a
+ * size or treatment change updates every installed surface at once.
+ *
+ * NOT the stroke-based two-path drawing edit-button-pass.md
+ * describes -- the asset actually on disk is a filled single path
+ * (fill, not stroke; native viewBox 144 144 512 512, not 0 0 24 24),
+ * the same shape ICON_TRASH/ICON_COMB/ICON_SETTINGS already are.
+ * Owner-confirmed 2026-08-11: render it through ha-svg-icon like
+ * those three rather than building the inline-svg stroke handling
+ * the spec assumed -- that handling doesn't apply to this asset.
+ *
+ *   <ha-svg-icon .path=${ICON_EDIT} .viewBox=${EDIT_VIEWBOX}></ha-svg-icon>
+ */
+export const ICON_EDIT =
+    "m537.43 321.7c10.555-9.9219 16.66-23.68 16.938-38.16 0.27734-14.484-5.2969-28.465-15.465-38.781-10.168-10.316-24.07-16.094-38.555-16.027-14.672 0.44141-28.617 6.5078-38.941 16.941l-202.73 202.73-13.5 89.523 89.523-13.5zm-61.777-61.777c6.1797-6.8438 14.898-10.852 24.117-11.086 9.2188-0.23047 18.129 3.3281 24.648 9.8477 6.5234 6.5195 10.082 15.43 9.8477 24.648s-4.2422 17.938-11.086 24.117l-17.504 17.504-47.52-47.535zm-206.46 253.99 8.4219-55.949 166.3-166.3 47.52 47.535-166.29 166.29zm322.26 37.195v20.152h-382.89v-20.152z";
+
+/** The viewBox ICON_EDIT is drawn in. */
+export const EDIT_VIEWBOX = "144 144 512 512";
+
+/**
+ * The row-level edit button, shared by every surface that swaps its
+ * copy-glyph edit affordance for the real pencil (edit-button-pass.md
+ * commit 1). RULED (owner 2026-08-11): the helper -- glyph, markup,
+ * tooltip wiring, treatment, and size all live here, so one change
+ * updates every installed surface. Only PLACEMENT (the helper call
+ * site, immediately left of that row's trash can) stays per-surface;
+ * a button cannot position itself in someone else's row.
+ *
+ * Treatment is .trash-btn's anatomy (grey rest, same radius/
+ * transitions/disabled state) with the settings button's blue hover
+ * (edit opens an editor, same non-destructive family as settings,
+ * not delete) rather than minting a third copy of that hover pair.
+ * FOURTH bench ruling (2026-08-11): edit and trash now also sit in
+ * their own .edit-trash-group wrapper (ir-command-row.ts) with a
+ * zero flex gap, so the two buttons' hover boxes butt directly
+ * against each other rather than sitting the row's shared 4px gap
+ * apart.
+ *
+ * FIFTH bench ruling (2026-08-11): box matched to .trash-btn's
+ * exactly -- 24x24 hover box, same as the can beside it (was 26x28
+ * against trash's 24x24, i.e. 2px wider from the padding asymmetry,
+ * 4px taller from the 22px icon that pass dropped back down from).
+ * Three earlier bench passes (19->20->22px) chased visual parity
+ * with the trash can's weight before landing here; the box-match
+ * ruling took priority over that pursuit.
+ *
+ * SIXTH bench ruling (2026-08-11): box held fixed at 24x24, glyph
+ * bumped back up within it -- 18px icon / 3px padding to 20px icon /
+ * 2px padding (18+2*3=20+2*2=24, box unchanged). Lets the pencil
+ * claw back a little of the visual weight the fifth pass's box-match
+ * cost it, without reopening the box-size question. Still a shade
+ * lighter than the can at equal box size either way (ink fills
+ * ~75% x 67% of its viewBox vs the can's ~72% x 76%, confirmed via
+ * getBBox on both paths in the second bench pass -- not a CSS
+ * stretch, the rendered icon box remains a verified 1:1 square at
+ * every size checked).
+ *
+ * SEVENTH bench ruling (2026-08-11): vertical padding split
+ * asymmetric -- 2px both sides unchanged, but top/bottom goes from
+ * an even 2px/2px to 3px/1px (3+20+1=24, box still unchanged). The
+ * even split was landing the pencil's bottom edge about a pixel
+ * above the trash can's, reading as a hairline misalignment along
+ * the row; nudging the icon down within its own box by shaving a
+ * pixel off the bottom padding and adding it to the top brings the
+ * two glyphs' bottom edges into line without touching the box
+ * itself.
+ */
+export const editButtonStyles = css`
+    .edit-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        padding: 3px 2px 1px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--disabled-text-color, #999);
+        transition: background 150ms ease, color 150ms ease,
+            opacity 150ms ease;
+    }
+    .edit-btn:hover:not(:disabled) {
+        background: rgba(100, 181, 246, 0.2);
+        color: #64b5f6;
+    }
+    .edit-btn:disabled {
+        cursor: default;
+        opacity: 0.25;
+    }
+    .edit-btn ha-svg-icon {
+        --mdc-icon-size: 20px;
+    }
+`;
+
+/**
+ * Shared edit-button template. Placement is the only thing left to
+ * the caller: put this immediately left of the row's trash can.
+ * `disabled` mirrors the row's own busy state so the edit button
+ * dims exactly like the trash can beside it.
+ */
+export function renderEditBtn(
+    onClick: (e: Event) => void,
+    title: string,
+    disabled = false,
+) {
+    return html`
+        <button
+            class="edit-btn"
+            ?disabled=${disabled}
+            @click=${onClick}
+            title=${title}
+            aria-label=${title}
+        >
+            <ha-svg-icon .path=${ICON_EDIT} .viewBox=${EDIT_VIEWBOX}></ha-svg-icon>
+        </button>
+    `;
+}
+
+/**
+ * The download arrow, from images/dl.svg (owner-supplied hand-drawn
+ * glyph, same provenance as ICON_TRASH/ICON_EDIT -- second version
+ * uploaded 2026-08-11, the first was swapped before use). Two
+ * subpaths (the arrow, the tray) concatenated into one constant in
+ * source order, same technique ICON_SETTINGS's five subpaths use --
+ * both carry the same fill, so one combined `d` renders identically
+ * to the two separate `<path>` elements the source file draws them
+ * as. The source also wraps both paths in a `<g clip-path>` against a
+ * tight bounding rect; dropping it renders pixel-identical (checked
+ * by rendering both), so ha-svg-icon's plain .path/.viewBox handles
+ * this one same as the other three, no inline-svg detour required.
+ *
+ * The path data itself is untouched below -- what changes between
+ * revisions is DOWNLOAD_VIEWBOX, not this constant.
+ *
+ *   <ha-svg-icon .path=${ICON_DOWNLOAD} .viewBox=${DOWNLOAD_VIEWBOX}></ha-svg-icon>
+ */
+export const ICON_DOWNLOAD =
+    "M70.5399 108.42C69.3338 107.513 68.0817 106.668 66.79 105.887L66.5124 105.725C63.2036 103.8 59.7827 101.808 56.3215 100.016C55.4321 99.5562 54.5374 99.0465 53.672 98.5523C51.2995 97.1989 48.8472 95.8003 46.0348 95.1284C45.911 95.0987 45.7812 95.1052 45.6609 95.1472C45.5406 95.1885 45.4349 95.2635 45.3562 95.3636L44.0191 97.0516C43.9434 97.1472 43.8957 97.2622 43.881 97.3837C43.8664 97.5045 43.8854 97.6272 43.9361 97.7377C44.0282 97.9399 44.1047 98.1453 44.18 98.345C44.3355 98.8443 44.5789 99.312 44.8989 99.7262C52.189 108.197 61.1179 115.771 73.8466 124.285C74.6232 124.777 75.4361 125.213 76.2775 125.586C77.3986 126.147 78.6319 126.451 79.8866 126.475C81.5714 126.454 83.192 125.825 84.4467 124.705C84.7153 124.48 84.9891 124.259 85.2628 124.038C85.8532 123.565 86.4631 123.074 87.0236 122.528C88.5696 121.024 90.1227 119.527 91.683 118.036C95.8188 114.066 100.095 109.961 104.095 105.722C106.573 102.979 108.877 100.085 110.993 97.0555C111.699 96.0865 112.405 95.1168 113.123 94.1614L113.203 94.0554C113.618 93.514 114.587 92.2466 113.158 90.7652C113.04 90.6438 112.881 90.5714 112.711 90.5624C110.291 90.4429 108.679 91.8544 107.124 93.2285C106.542 93.7686 105.923 94.2673 105.271 94.7202C102.835 96.3946 100.509 98.2235 98.3094 100.196L97.9078 100.541C96.7835 101.506 95.6982 102.54 94.6485 103.54C93.6455 104.495 92.6075 105.483 91.5487 106.399C90.8195 107.028 90.1344 107.726 89.4726 108.401C88.2361 109.778 86.8134 110.977 85.2447 111.963C85.2356 111.892 85.2272 111.823 85.2187 111.754C85.1311 111.197 85.0864 110.634 85.0844 110.07C85.1876 106.449 85.2998 102.827 85.4218 99.2048C85.6093 93.4204 85.8033 87.4389 85.9311 81.5517C85.9713 79.7112 86.0128 77.8694 86.0563 76.0276C86.4378 59.5541 86.8315 42.526 85.3355 25.7877C84.799 19.7797 83.8888 13.7171 83.0091 7.8519L82.6399 5.38326C82.4154 4.44906 82.0035 3.56993 81.428 2.79919C81.0764 2.23457 80.6781 1.59443 80.2324 0.77786C80.172 0.667915 80.0825 0.577258 79.9729 0.516044C79.8632 0.45483 79.7387 0.425157 79.6128 0.431506C79.4876 0.437856 79.3663 0.479415 79.2638 0.551373C79.1606 0.623332 79.0802 0.722988 79.0322 0.838425C77.5134 4.44062 77.4641 7.54543 77.4206 10.2839C77.4057 11.2406 77.3914 12.1454 77.3201 13.0434C77.1975 14.5886 77.0482 16.132 76.899 17.674C76.7102 19.6205 76.5156 21.6335 76.38 23.6219C76.1854 26.4857 76.0634 29.3997 75.9466 32.217C75.909 33.1111 75.8707 34.0048 75.8325 34.8988L75.7909 35.8369C75.6411 39.2247 75.4867 42.7273 75.3731 46.1764C75.2687 49.3703 75.1882 52.7459 75.1221 56.7997C75.0793 59.3838 75.0572 61.9716 75.0351 64.5589L75.0027 68.0823C74.991 69.2541 74.9768 70.426 74.9605 71.5979C74.9274 74.1438 74.8957 76.777 74.8957 79.3688C74.8989 82.7029 74.9197 86.6514 75.0429 90.6651C75.0935 92.3267 75.1915 94.0095 75.2869 95.6394C75.3946 97.4832 75.5055 99.3863 75.5464 101.26C75.5717 102.388 75.6644 103.539 75.754 104.651C76.0258 107.03 76.0401 109.432 75.7961 111.814C73.9556 110.825 72.1981 109.69 70.5399 108.42Z M154.191 82.8574C153.744 82.6106 153.249 82.4626 152.739 82.4239C152.229 82.3858 151.717 82.4581 151.238 82.6351C151.144 82.661 151.057 82.7068 150.984 82.7689C150.91 82.8315 150.851 82.9097 150.81 82.9975C149.077 86.7444 148.595 106.976 148.244 121.748C148.106 127.519 147.995 132.178 147.842 134.431C147.03 134.508 146.264 134.589 145.533 134.667C143.717 134.86 142.147 135.026 140.568 135.063C134.253 135.214 126.785 135.366 119.282 135.366H119.171C114.222 135.366 109.273 135.373 104.323 135.386C88.7155 135.414 72.5763 135.446 56.7109 135.16C47.361 134.991 37.8547 134.392 28.6611 133.812C24.7952 133.568 20.7976 133.316 16.8635 133.102C16.1358 133.045 15.4119 132.948 14.6953 132.809C14.4358 132.765 14.1699 132.72 13.8902 132.676C13.839 132.333 13.7844 131.996 13.7306 131.661C13.552 130.672 13.4266 129.674 13.3549 128.671C13.1928 125.566 13.0585 122.46 12.9236 119.352C12.6887 113.939 12.4461 108.341 12.0555 102.841C11.6403 96.9761 11.0487 87.1269 10.734 81.7804C10.68 80.7727 10.2445 79.8217 9.51493 79.1208C8.78547 78.4199 7.81622 78.02 6.80248 78.0019C5.76165 77.9799 4.75243 78.3578 3.98434 79.0575C3.21626 79.7578 2.74829 80.7248 2.67764 81.7591C2.03731 91.7162 0.623654 116.375 1.32302 130.28L1.36784 131.236C1.39112 133.382 1.6372 135.521 2.10221 137.617C3.06562 141.327 5.29413 142.991 9.55198 143.181C12.9314 143.333 16.3101 143.512 19.6882 143.691C25.0729 143.976 30.6451 144.272 36.131 144.446C48.1596 144.834 59.051 145.054 69.4272 145.129C74.0522 145.163 78.6766 145.205 83.3016 145.257C91.5928 145.343 100.003 145.431 108.457 145.431C119.85 145.431 131.324 145.272 142.687 144.74C145.152 144.671 147.609 144.442 150.044 144.055C153.921 143.366 156.099 140.985 156.341 137.169C156.435 135.68 156.557 134.072 156.681 132.447C156.848 130.243 157.022 127.964 157.13 125.881C157.052 111.441 155.603 86.7373 155.324 84.7993C155.288 84.413 155.169 84.0396 154.973 83.7043C154.777 83.369 154.51 83.0796 154.191 82.8574Z";
+
+/**
+ * The viewBox ICON_DOWNLOAD is drawn in.
+ *
+ * NOT the source file's own "0 -6 158 158" -- dl.svg's ink runs
+ * almost edge to edge in its native viewBox (under 1% clearance on
+ * the left/right, ~4% top/bottom, measured by rendering the path and
+ * finding its ink bounding box), unlike ICON_EDIT and ICON_TRASH,
+ * whose own source drawings carry ~13-16% breathing room baked in on
+ * every side. At matching --mdc-icon-size and identical CSS padding,
+ * that difference is exactly why the download glyph read larger and
+ * its padding read as "almost zero" next to edit/trash (owner
+ * observation, 2026-08-12) -- the CSS padding numbers were never
+ * wrong, the source artwork just had nothing built in around it the
+ * way the other two do.
+ *
+ * Fix is here, not in the padding: this viewBox pads the SAME path
+ * data out to margins of ~12.5% left/right and ~16.5% top/bottom,
+ * matched by rendering both against ICON_EDIT's own measured margins
+ * and checking the fractions land within a point of each other. The
+ * path string above is untouched -- widening the viewBox around
+ * identical coordinates is what makes the ink occupy a smaller,
+ * centered fraction of the icon box, the same way edit and trash's
+ * source files already draw their glyphs with room to spare.
+ */
+export const DOWNLOAD_VIEWBOX = "-25 -36 209 217";
+
+/**
+ * The download button. HAIR Closet only for now, sitting inside the
+ * shared edit-trash-group between edit and trash (owner ruling
+ * 2026-08-11: "I want to place it between the edit and delete
+ * buttons"). Padding is .edit-btn's own 3px/2px/1px, unchanged --
+ * owner ruling 2026-08-12 was explicit that the padding should stay
+ * "similar to the edit button" rather than grow to force a literal
+ * 24x24 box; icon is 19px (20->18->17->18->19: a fourth single-pixel
+ * bench nudge), so the button sits at 23x23, a shade under edit/
+ * trash's 24x24 the same way it has through every pass.
+ *
+ * Deliberately its own third hover treatment rather than reusing
+ * edit's blue or trash's ember: gray at rest, gray wash on hover, no
+ * accent hue at all ("we'll keep it in the gray family," owner ruling
+ * 2026-08-11) -- download is neither the destructive act trash is nor
+ * the editing act edit is, so it earns neither of those two meanings.
+ * Hover icon color started as a literal white (fine against the dark
+ * card it was designed against) and was later swapped to
+ * `var(--primary-text-color)` once it turned out to be invisible on a
+ * light theme -- see the hover-wash doc comment above trashButtonStyles
+ * for the full fix (owner bugfix ruling 2026-08-12). Still gray-
+ * family: that token is neutral in both directions, not a new hue.
+ *
+ * Sizing history (owner bench passes, 2026-08-12): first pass dropped
+ * --mdc-icon-size from 20px (edit/trash's own size) to 18px, since
+ * the glyph read visibly larger even at an identical nominal size --
+ * see DOWNLOAD_VIEWBOX's own doc comment for why (near-zero built-in
+ * margin in the source artwork). A second pass, after the viewBox fix
+ * above gave the glyph real margin, took it down one pixel further to
+ * 17px and confirmed the padding numbers should stay exactly what
+ * .edit-btn already uses rather than grow to force a matching 24x24
+ * box. A third pass judged 17px too small once the margin fix was
+ * live -- brought back up to 18px. A fourth pass judged 18px still a
+ * shade light next to edit/trash's weight -- 19px, still .edit-btn's
+ * padding untouched (owner ruling: "just do the padding 1 on the
+ * bottom and 3 on the top like the edit button" -- already exactly
+ * what this padding is and has been since the viewBox fix, confirmed
+ * rather than changed).
+ */
+export const downloadButtonStyles = css`
+    .download-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        padding: 3px 2px 1px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--disabled-text-color, #999);
+        transition: background 150ms ease, color 150ms ease,
+            opacity 150ms ease;
+    }
+    .download-btn:hover:not(:disabled) {
+        background: rgba(153, 153, 153, 0.2);
+        color: var(--primary-text-color);
+    }
+    .download-btn:disabled {
+        cursor: default;
+        opacity: 0.25;
+    }
+    .download-btn ha-svg-icon {
+        --mdc-icon-size: 19px;
+    }
+`;
+
+/**
+ * Shared download-button template, same shape as renderEditBtn.
+ */
+export function renderDownloadBtn(
+    onClick: (e: Event) => void,
+    title: string,
+    disabled = false,
+) {
+    return html`
+        <button
+            class="download-btn"
+            ?disabled=${disabled}
+            @click=${onClick}
+            title=${title}
+            aria-label=${title}
+        >
+            <ha-svg-icon .path=${ICON_DOWNLOAD} .viewBox=${DOWNLOAD_VIEWBOX}></ha-svg-icon>
+        </button>
+    `;
+}

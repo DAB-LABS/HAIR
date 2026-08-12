@@ -15,6 +15,8 @@ import { formatLanguage, t, tp } from "./localize.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
+    editButtonStyles,
+    renderEditBtn,
     trashButtonStyles,
 } from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
@@ -66,9 +68,6 @@ const ICON_CLIPPER =
 // mdi:chevron-down / up
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
-// mdi:content-copy
-const ICON_COPY =
-    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 // MDI: drag (six-dot grip) -- same handle used by the command reorder.
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
@@ -1231,19 +1230,6 @@ export class IrClips extends LitElement {
                         ? html`<span class="test-result">${this._testResult}</span>`
                         : html`<span>${Math.round(sig.frequency / 1000)} kHz</span>`}
                 </div>
-                ${sig.code
-                    ? html`<button
-                          title=${t("cmdrow.edit_code")}
-                          @click=${(e: Event) =>
-                              this._openEditSignal(deviceId, sig, e)}
-                          style="background:none;border:none;cursor:pointer;color:var(--secondary-text-color);padding:2px;display:inline-flex;align-items:center"
-                      >
-                          <ha-svg-icon
-                              .path=${ICON_COPY}
-                              style="--mdc-icon-size:10px"
-                          ></ha-svg-icon>
-                      </button>`
-                    : ""}
                 <div class="signal-actions">
                     <button
                         class="action-btn assign-btn"
@@ -1282,20 +1268,29 @@ export class IrClips extends LitElement {
                             color="yellow"
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot></button>
-                    <button
-                        class="trash-btn"
-                        title=${t("clips.delete_signal_title")}
-                        aria-label=${t("clips.delete_signal_title")}
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._openDelete(deviceId, sig);
-                        }}
-                    >
-                        <ha-svg-icon
-                            .path=${ICON_TRASH}
-                            .viewBox=${TRASH_VIEWBOX}
-                        ></ha-svg-icon>
-                    </button>
+                    <span class="edit-trash-group">
+                        ${sig.code
+                            ? renderEditBtn(
+                                  (e: Event) =>
+                                      this._openEditSignal(deviceId, sig, e),
+                                  t("cmdrow.edit_code"),
+                              )
+                            : ""}
+                        <button
+                            class="trash-btn"
+                            title=${t("clips.delete_signal_title")}
+                            aria-label=${t("clips.delete_signal_title")}
+                            @click=${(e: Event) => {
+                                e.stopPropagation();
+                                this._openDelete(deviceId, sig);
+                            }}
+                        >
+                            <ha-svg-icon
+                                .path=${ICON_TRASH}
+                                .viewBox=${TRASH_VIEWBOX}
+                            ></ha-svg-icon>
+                        </button>
+                    </span>
                 </div>
             </div>
         `;
@@ -1487,11 +1482,20 @@ export class IrClips extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, css`
         .linked-scrim {
             position: fixed;
             inset: 0;
             z-index: 39;
+        }
+        /* Edit + trash sit as one unit, hover boxes butted with zero
+           gap -- same pairing ir-command-row.ts's device-detail rows
+           use (edit-and-actions bench passes, 2026-08-11), rolled out
+           here unchanged. */
+        .edit-trash-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 0;
         }
         /* Linked-devices popover (2026-07-28 adopt polish): the shared
            action-popover anatomy replaces the bespoke list -- the count
