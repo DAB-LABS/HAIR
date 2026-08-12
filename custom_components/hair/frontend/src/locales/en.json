@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "View or edit code",
     "cmdrow.comb_suspect": "The comb doubted this row in the wig it came from. Worth testing.",
     "cmdrow.map_action": "Assign action mapping",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "ACTIONS",
     "cmdrow.test": "Test",
     "testbtn.sent": "sent",

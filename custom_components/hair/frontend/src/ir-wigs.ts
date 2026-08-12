@@ -37,6 +37,10 @@ import { t, tp } from "./localize.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
+    downloadButtonStyles,
+    editButtonStyles,
+    renderDownloadBtn,
+    renderEditBtn,
     trashButtonStyles,
 } from "./ir-icons.js";
 import { HairApi } from "./api.js";
@@ -1512,6 +1516,23 @@ export class IrWigs extends LitElement {
                         ? tp("wigs.states", row.wig.matrix.cells)
                         : tp("wigs.signals", row.signalCount)}
                 </button>
+                ${row.wig
+                    ? html`<button
+                          class="copy-glyph"
+                          title=${this._combTitle(row.wig)}
+                          @click=${() => (this._combWig = row.wig!)}
+                      >
+                          <svg
+                              class="comb-glyph ${this._combState(row.wig)}"
+                              viewBox="0 0 512 512"
+                              width="15"
+                              height="15"
+                              aria-hidden="true"
+                          >
+                              <path d=${COMB_PATH}></path>
+                          </svg>
+                      </button>`
+                    : ""}
                 ${row.wig?.fitting?.state
                     ? html`<button
                           class="fit-tick ${row.wig.fitting.state} ${row
@@ -1525,54 +1546,6 @@ export class IrWigs extends LitElement {
                       </button>`
                     : ""}
                 <span class="row-actions">
-                    <span class="glyph-slot">
-                        ${row.wig
-                            ? html`<button
-                                  class="copy-glyph"
-                                  title=${t("wigs.edit")}
-                                  @click=${() => this._openEditor(row.wig!)}
-                              >
-                                  &#10697;
-                              </button>`
-                            : ""}
-                    </span>
-                    <span class="glyph-slot">
-                        ${row.wig
-                            ? html`<button
-                                  class="copy-glyph"
-                                  title=${this._combTitle(row.wig)}
-                                  @click=${() =>
-                                      (this._combWig = row.wig!)}
-                              >
-                                  <svg
-                                      class="comb-glyph ${this._combState(
-                                          row.wig,
-                                      )}"
-                                      viewBox="0 0 512 512"
-                                      width="15"
-                                      height="15"
-                                      aria-hidden="true"
-                                  >
-                                      <path d=${COMB_PATH}></path>
-                                  </svg>
-                              </button>`
-                            : ""}
-                    </span>
-                    <span class="glyph-slot">
-                        <button
-                            class="copy-glyph"
-                            title=${t("wigs.editor.download")}
-                            @click=${() =>
-                                row.wig
-                                    ? void this._download(row.wig)
-                                    : void this._downloadLibrary(row)}
-                        >
-                            <ha-svg-icon
-                                class="dl-icon"
-                                .path=${"M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"}
-                            ></ha-svg-icon>
-                        </button>
-                    </span>
                     <button
                         class="action-btn adopt-btn"
                         title=${row.wig?.linked_devices?.length
@@ -1597,21 +1570,40 @@ export class IrWigs extends LitElement {
                     >
                         ${t("wigs.clip_it")}
                     </button>
-                    <span class="glyph-slot">
-                        ${row.wig
-                            ? html`<button
-                                  class="trash-btn"
-                                  title=${t("wigs.delete_title")}
-                                  aria-label=${t("wigs.delete_title")}
-                                  @click=${() =>
-                                      (this._confirmDelete = row.wig!)}
-                              >
-                                  <ha-svg-icon
-                                      .path=${ICON_TRASH}
-                                      .viewBox=${TRASH_VIEWBOX}
-                                  ></ha-svg-icon>
-                              </button>`
-                            : ""}
+                    <span class="edit-trash-group">
+                        <span class="icon-slot">
+                            ${row.wig
+                                ? renderEditBtn(
+                                      () => this._openEditor(row.wig!),
+                                      t("wigs.edit"),
+                                  )
+                                : ""}
+                        </span>
+                        <span class="icon-slot">
+                            ${renderDownloadBtn(
+                                () =>
+                                    row.wig
+                                        ? void this._download(row.wig)
+                                        : void this._downloadLibrary(row),
+                                t("wigs.editor.download"),
+                            )}
+                        </span>
+                        <span class="icon-slot">
+                            ${row.wig
+                                ? html`<button
+                                      class="trash-btn"
+                                      title=${t("wigs.delete_title")}
+                                      aria-label=${t("wigs.delete_title")}
+                                      @click=${() =>
+                                          (this._confirmDelete = row.wig!)}
+                                  >
+                                      <ha-svg-icon
+                                          .path=${ICON_TRASH}
+                                          .viewBox=${TRASH_VIEWBOX}
+                                      ></ha-svg-icon>
+                                  </button>`
+                                : ""}
+                        </span>
                     </span>
                 </span>
             </div>
@@ -1818,7 +1810,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    static styles = [dialogStyles, actionChipStyles, popoverStyles, trashButtonStyles, css`
+    static styles = [dialogStyles, actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, downloadButtonStyles, css`
         /* Oxblood leather, the closet's accent (owner ruling 2026-07-20). */
         :host {
             --wigs-accent: #8e3b3b;
@@ -2205,26 +2197,74 @@ export class IrWigs extends LitElement {
                sits at the same gap, exactly like the signal rows. */
             gap: 4px;
         }
-        /* Reserved, not conditional. The row's trailing controls are
-           anchored right by .row-actions{margin-left:auto}, so anything
-           missing at the end drags everything before it sideways: a
-           library row with no DELETE sat 64px right of a local one --
-           DELETE's width plus the 4px gap -- and the download icons
-           never lined up down the list (owner bench 2026-08-02). The
-           edit glyph already had a reserved slot; comb and DELETE
-           did not. */
-        .glyph-slot {
-            width: 30px;
+        /* .glyph-slot (comb's old fixed-width reservation) is gone as
+           of the comb-relocation pass below -- the width-30px wrapper
+           existed only because .row-actions{margin-left:auto} anchors
+           its contents to the row's right edge, and anything missing
+           there drags everything after it sideways (a library row
+           with no DELETE once sat 64px right of a local one, DELETE's
+           width plus the 4px gap -- owner bench 2026-08-02). Comb no
+           longer lives inside .row-actions (owner ruling 2026-08-12:
+           "move that comb glyph over to after the signals listing
+           next to the name"), so it isn't subject to that anchoring
+           and doesn't need the reservation -- same reasoning that
+           already let .wig-model and .fit-tick sit unwrapped earlier
+           in the row: nothing after comb in the row's normal left-to-
+           right flow needs to hold a fixed position the way things
+           inside the right-anchored group do.
+
+           DELETE's own reservation is still very much alive, just
+           renamed and generalized: see .icon-slot below. */
+        /* Edit + download + trash sit as one unit, hover boxes butted
+           with zero gap -- same pairing ir-command-row.ts's device-
+           detail rows use (edit-and-actions bench passes, 2026-08-11),
+           now with download inserted between them (owner ruling
+           2026-08-11: "place it between the edit and delete buttons").
+           Each of the three gets its own fixed 24px .icon-slot rather
+           than one flex-end-packed row, because download is NOT
+           conditional on row.wig the way edit and trash are -- a plain
+           packed row would slide download flush against the far right
+           edge on library rows (where it's the only thing rendering)
+           instead of holding the middle position it has on local rows,
+           the same column-drift bug the old .glyph-slot existed to
+           prevent. Three 24px slots (72px total) keep download's
+           x-position fixed regardless of which of its neighbors are
+           present, same "reserved regardless of content" rule
+           .glyph-slot used to apply to comb, applied per-icon instead
+           of per-group. */
+        /* align-items: flex-end, not center (owner ruling 2026-08-12:
+           "I'm trying to get their lower lines to line up ... the
+           Download button looks one pixel above the bottom of the
+           trash can and the Edit button"). Edit and trash's own boxes
+           are exactly 24px tall, so they fill the slot and this is a
+           no-op for them either way. Download's box is a shade under
+           24px (its icon is deliberately smaller than edit/trash's,
+           several bench passes running) -- centered, that shortfall
+           split into an equal gap top and bottom, so download's
+           bottom edge sat visibly above its neighbors'. Bottom-
+           anchoring removes the gap where it's visible and leaves it
+           at the top instead, where the row's own line spacing
+           already hides it. */
+        .edit-trash-group {
             display: flex;
-            justify-content: center;
+            align-items: flex-end;
+            gap: 0;
             flex: none;
         }
-        /* The ghost that used to hold DELETE's place is gone. It
-           rendered the real localized label so the reservation stayed
-           right in any language, which was sound reasoning right up
-           until DELETE stopped being a word: a text-width ghost against
-           an 18px can would have re-broken this alignment inverted.
-           A fixed 30px slot is locale-proof by construction. */
+        .edit-trash-group .icon-slot {
+            width: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            flex: none;
+        }
+        /* Comb moved out of .row-actions and into the row's ordinary
+           flow (owner ruling 2026-08-12), sitting between .wig-count
+           and .fit-tick -- see the comment above .icon-slot for why
+           it no longer needs a fixed-width reservation the way it did
+           inside the right-anchored group. No sizing/position rules
+           here beyond the row's own gap; .comb-glyph below still
+           carries the warn/bad glow states, untouched by the move. */
         .copy-glyph {
             font-size: 14px;
             color: var(--secondary-text-color);
@@ -2438,11 +2478,6 @@ export class IrWigs extends LitElement {
         .comb-glyph.bad {
             filter: drop-shadow(0 0 2px rgba(255, 82, 82, 0.55))
                 drop-shadow(0 0 5px rgba(255, 82, 82, 0.4));
-        }
-        .dl-icon {
-            --mdc-icon-size: 15px;
-            width: 15px;
-            height: 15px;
         }
         .spacer {
             flex: 1;

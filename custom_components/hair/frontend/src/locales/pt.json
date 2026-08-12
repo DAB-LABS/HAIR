@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "Ver ou editar o código",
     "cmdrow.comb_suspect": "O pente duvidou desta linha na wig de origem. Vale a pena testar.",
     "cmdrow.map_action": "Atribuir mapeamento de ação",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "AÇÕES",
     "cmdrow.test": "Testar",
     "testbtn.sent": "enviado",

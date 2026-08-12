@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "Visualizza o modifica il codice",
     "cmdrow.comb_suspect": "Il pettine ha avuto dubbi su questa riga nel wig di origine. Vale la pena provarla.",
     "cmdrow.map_action": "Assegna mappatura di azione",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "AZIONI",
     "cmdrow.test": "Prova",
     "testbtn.sent": "inviato",

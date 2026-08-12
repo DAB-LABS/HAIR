@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "Code bekijken of bewerken",
     "cmdrow.comb_suspect": "De kam twijfelde aan deze regel in de oorspronkelijke wig. De moeite van het testen waard.",
     "cmdrow.map_action": "Actietoewijzing instellen",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "ACTIES",
     "cmdrow.test": "Testen",
     "testbtn.sent": "verstuurd",

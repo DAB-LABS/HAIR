@@ -299,24 +299,104 @@ class TestClosetRowsLineUp:
     an icon: a text-width ghost against an 18px can would have re-broken
     the very alignment it was added to fix, inverted. A fixed 30px slot
     is locale-proof by construction, so the ghost is gone and the trash
-    is the fourth slot. The invariant is unchanged; only the mechanism.
+    was the fourth slot. The invariant is unchanged; only the mechanism.
+
+    Edit-and-actions Commit 3 (2026-08-11, owner-approved five-surface
+    rollout) moved edit out of its own leading slot to sit flush against
+    trash instead, matching every other surface's edit-trash-group
+    pairing. Comb kept its own 30px .glyph-slot at that point.
+
+    The download-button pass (2026-08-11) moved download a second time,
+    out of its own .glyph-slot and into the SAME edit-trash-group,
+    between edit and trash (owner ruling: "place it between the edit
+    and delete buttons"). Unlike edit and trash, download is NOT
+    conditional on row.wig -- library rows can download too -- so a
+    plain flex-end-packed group would slide it flush against the right
+    edge on library rows (where it is the group's only content) instead
+    of holding the middle position it has on local rows, reintroducing
+    the exact column-drift bug this row already has one fix for. Each
+    of the three buttons gets its own fixed 24px .icon-slot instead, so
+    download's x-position never moves.
+
+    The comb-relocation pass (2026-08-12, owner ruling: "move that comb
+    glyph over to after the signals listing next to the name") moved
+    comb a second time too, this time OUT of .row-actions entirely and
+    into the row's ordinary left-to-right flow, between .wig-count and
+    .fit-tick. .glyph-slot's fixed-width reservation existed only to
+    protect .row-actions's right-anchored contents from drifting when
+    something conditional was missing; comb isn't in that group anymore
+    so it doesn't need the reservation, the same way .wig-model and
+    .fit-tick already sit unwrapped earlier in the row with no drift
+    issue. .glyph-slot itself -- CSS rule and markup both -- is gone.
     """
 
     def test_the_ghost_is_gone(self):
         assert "delete-ghost" not in _read("ir-wigs.ts")
 
-    def test_delete_is_the_fourth_glyph_slot(self):
-        """Edit, comb, download, trash. The row renders all four
-        whether or not it has a wig to put in them."""
+    def test_glyph_slot_is_gone(self):
+        """Comb was the only thing that ever used .glyph-slot; once it
+        moved out of .row-actions the reservation had nothing left to
+        protect. Neither the markup nor the CSS rule should exist --
+        checked as actual code constructs, not a blanket string ban,
+        since the class docstring and nearby comments still reference
+        the old name by design, as history."""
+        text = _read("ir-wigs.ts")
+        assert 'class="glyph-slot"' not in text
+        assert ".glyph-slot {" not in text
+
+    def test_comb_sits_between_count_and_check(self):
+        """Owner-specified order: name, signal count, comb, the perfect-
+        fit checkmark -- all in the row's normal flow, not inside
+        .row-actions."""
         text = _read("ir-wigs.ts")
         row = text.split("_renderRow(row: ClosetRow)", 1)[1]
         row = row.split("_renderEditor", 1)[0]
-        assert row.count('<span class="glyph-slot">') == 4
+        count_at = row.index('class="wig-count"')
+        comb_at = row.index('class="copy-glyph"')
+        check_at = row.index('class="fit-tick')
+        assert count_at < comb_at < check_at
 
-    def test_the_slot_is_a_fixed_width(self):
+    def test_comb_is_outside_row_actions(self):
         text = _read("ir-wigs.ts")
-        block = text.split(".glyph-slot {", 1)[1].split("}", 1)[0]
-        assert "width: 30px" in block
+        row = text.split("_renderRow(row: ClosetRow)", 1)[1]
+        row = row.split("_renderEditor", 1)[0]
+        comb_at = row.index('class="copy-glyph"')
+        row_actions_at = row.index('class="row-actions"')
+        assert comb_at < row_actions_at
+
+    def test_edit_download_and_trash_share_one_group(self):
+        """One combined, always-rendered edit-trash-group at the end of
+        the row, holding all three of edit/download/trash instead of
+        each getting a separate slot."""
+        text = _read("ir-wigs.ts")
+        row = text.split("_renderRow(row: ClosetRow)", 1)[1]
+        row = row.split("_renderEditor", 1)[0]
+        assert row.count('<span class="edit-trash-group">') == 1
+        group = row.split('<span class="edit-trash-group">', 1)[1]
+        assert group.count('<span class="icon-slot">') == 3
+
+    def test_download_sits_between_edit_and_trash(self):
+        """Source order inside the group IS visual order (a plain flex
+        row, no explicit ordering) -- renderEditBtn, then
+        renderDownloadBtn, then the trash-btn markup."""
+        text = _read("ir-wigs.ts")
+        row = text.split("_renderRow(row: ClosetRow)", 1)[1]
+        row = row.split("_renderEditor", 1)[0]
+        group = row.split('<span class="edit-trash-group">', 1)[1]
+        edit_at = group.index("renderEditBtn")
+        download_at = group.index("renderDownloadBtn")
+        trash_at = group.index('class="trash-btn"')
+        assert edit_at < download_at < trash_at
+
+    def test_the_icon_slots_are_a_fixed_width(self):
+        """Three 24px slots, not one flex-end-packed group -- see the
+        class docstring for why a single packed width would have let
+        download drift between library and local rows."""
+        text = _read("ir-wigs.ts")
+        block = text.split(".edit-trash-group .icon-slot {", 1)[1].split(
+            "}", 1
+        )[0]
+        assert "width: 24px" in block
         assert "flex: none" in block
 
 
@@ -379,7 +459,14 @@ class TestEverythingThatDeletesIsEmber:
             ".trash-btn:hover:not(:disabled) {", 1
         )[1].split("}", 1)[0]
         assert "#e65100" in block
-        assert "rgba(230, 81, 0, 0.12)" in block
+        # Wash alpha bumped 12% -> 20% (owner bugfix ruling 2026-08-12):
+        # the same alpha value read as a visible box on white for
+        # trash's dark, saturated ember but washed out to nothing for
+        # edit's lighter pastel blue at the old 12%. All four shared
+        # buttons' washes moved to a uniform 20% together, not just the
+        # ones that were visibly broken -- see the doc comment above
+        # trashButtonStyles for the full reasoning.
+        assert "rgba(230, 81, 0, 0.2)" in block
 
     def test_material_red_is_gone_from_the_shipped_icons(self):
         text = _read("ir-device-list.ts")

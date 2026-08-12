@@ -18,6 +18,8 @@ import { t, tp } from "./localize.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
+    editButtonStyles,
+    renderEditBtn,
     trashButtonStyles,
 } from "./ir-icons.js";
 import { keyed } from "lit/directives/keyed.js";
@@ -54,8 +56,6 @@ const ICON_PLUCK =
     "M0.861,24c-0.22,0-0.441-0.084-0.609-0.252c-0.336-0.336-0.336-0.882,0-1.218l1.563-1.563c1.648-1.649,3.474-4.166,5.588-7.082c2.984-4.116,6.367-8.781,10.695-13.109c0.081-0.081,0.178-0.145,0.284-0.189l1.283-0.523c0.441-0.18,0.943,0.032,1.123,0.472l-0.472,1.123L19.194,2.116c-4.175,4.199-7.478,8.755-10.397,12.78c-0.275,0.379-0.545,0.752-0.811,1.117c0.365-0.266,0.738-0.536,1.117-0.811C13.128,12.284,17.685,8.98,21.884,4.806l0.457-1.121L23.464,3.212c0.44,0.18,0.652,0.682,0.472,1.123l-0.523,1.283c-0.043,0.106-0.107,0.203-0.188,0.284c-4.329,4.329-8.994,7.711-13.109,10.695c-2.915,2.114-5.433,3.939-7.082,5.588l-1.563,1.563C1.302,23.916,1.082,24,0.861,24z";
 const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
 const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
-const ICON_COPY =
-    "M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z";
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
 
@@ -1048,18 +1048,6 @@ export class IrPluck extends LitElement {
                         ? html`<span class="test-result">${this._testResult}</span>`
                         : html`<span>${Math.round(sig.frequency / 1000)} kHz</span>`}
                 </div>
-                ${sig.code
-                    ? html`<button
-                          title=${t("cmdrow.edit_code")}
-                          @click=${(e: Event) => this._openEditSignal(deviceId, sig, e)}
-                          style="background:none;border:none;cursor:pointer;color:var(--secondary-text-color);padding:2px;display:inline-flex;align-items:center"
-                      >
-                          <ha-svg-icon
-                              .path=${ICON_COPY}
-                              style="--mdc-icon-size:10px"
-                          ></ha-svg-icon>
-                      </button>`
-                    : ""}
                 <div class="signal-actions">
                     <button
                         class="action-btn assign-btn"
@@ -1104,20 +1092,29 @@ export class IrPluck extends LitElement {
                             .count=${this._triggerCountFor(sig)}
                         ></ir-count-dot>
                     </button>
-                    <button
-                        class="trash-btn"
-                        title=${t("pluck.delete_signal_title")}
-                        aria-label=${t("pluck.delete_signal_title")}
-                        @click=${(e: Event) => {
-                            e.stopPropagation();
-                            this._openDelete(deviceId, sig);
-                        }}
-                    >
-                        <ha-svg-icon
-                            .path=${ICON_TRASH}
-                            .viewBox=${TRASH_VIEWBOX}
-                        ></ha-svg-icon>
-                    </button>
+                    <span class="edit-trash-group">
+                        ${sig.code
+                            ? renderEditBtn(
+                                  (e: Event) =>
+                                      this._openEditSignal(deviceId, sig, e),
+                                  t("cmdrow.edit_code"),
+                              )
+                            : ""}
+                        <button
+                            class="trash-btn"
+                            title=${t("pluck.delete_signal_title")}
+                            aria-label=${t("pluck.delete_signal_title")}
+                            @click=${(e: Event) => {
+                                e.stopPropagation();
+                                this._openDelete(deviceId, sig);
+                            }}
+                        >
+                            <ha-svg-icon
+                                .path=${ICON_TRASH}
+                                .viewBox=${TRASH_VIEWBOX}
+                            ></ha-svg-icon>
+                        </button>
+                    </span>
                 </div>
             </div>
         `;
@@ -1298,7 +1295,16 @@ export class IrPluck extends LitElement {
         `;
     }
 
-    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, css`
+    static styles = [actionChipStyles, popoverStyles, trashButtonStyles, editButtonStyles, css`
+        /* Edit + trash sit as one unit, hover boxes butted with zero
+           gap -- same pairing ir-command-row.ts's device-detail rows
+           use (edit-and-actions bench passes, 2026-08-11), rolled out
+           here unchanged. */
+        .edit-trash-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 0;
+        }
         .linked-scrim {
             position: fixed;
             inset: 0;

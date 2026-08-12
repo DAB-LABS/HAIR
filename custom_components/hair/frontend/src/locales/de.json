@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "Code ansehen oder bearbeiten",
     "cmdrow.comb_suspect": "Der Kamm hatte Zweifel an dieser Zeile in der urspruenglichen Wig. Testen lohnt sich.",
     "cmdrow.map_action": "Aktionszuordnung zuweisen",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "AKTIONEN",
     "cmdrow.test": "Testen",
     "testbtn.sent": "gesendet",

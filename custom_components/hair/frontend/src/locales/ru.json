@@ -111,6 +111,7 @@
     "cmdrow.edit_code": "Посмотреть или изменить код",
     "cmdrow.comb_suspect": "Расческа усомнилась в этой строке в исходном вижке. Стоит проверить.",
     "cmdrow.map_action": "Назначить привязку действия",
+    "cmdrow.map_action_label": "Action",
     "cmdrow.actions": "ДЕЙСТВИЯ",
     "cmdrow.test": "Тест",
     "testbtn.sent": "отправлено",
