@@ -38,6 +38,7 @@ import type {
     SignalSourceId,
     SignalUpdatedEvent,
     TestSignalResult,
+    TriggerDrawerInfo,
     TriggerFiredEvent,
     UnknownDevice,
     UnknownDeviceSummary,
@@ -1051,6 +1052,35 @@ export class HairApi {
         return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
             type: "hair/trigger/delete",
             trigger_id: triggerId,
+        });
+    }
+
+    /**
+     * Persist a new order for the HAIR Triggers drawer's row list
+     * (Track B). ``triggerIds`` must list every trigger currently in
+     * the drawer exactly once; the backend rejects a mismatched set
+     * with ``invalid_format``. Mirrors ``reorderDevices``/
+     * ``reorderCommands``.
+     */
+    reorderTriggers(triggerIds: string[]): Promise<{ reordered: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ reordered: boolean }>({
+            type: "hair/trigger/reorder",
+            trigger_ids: triggerIds,
+        });
+    }
+
+    /** The HAIR Triggers drawer's identity (Track B header). */
+    getTriggerDrawer(): Promise<TriggerDrawerInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerDrawerInfo>({
+            type: "hair/trigger-drawer",
+        });
+    }
+
+    /** Rename the HAIR Triggers drawer (header rename-in-place). */
+    renameTriggerDrawer(name: string): Promise<TriggerDrawerInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerDrawerInfo>({
+            type: "hair/trigger-drawer/rename",
+            name,
         });
     }
 

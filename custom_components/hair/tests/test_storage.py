@@ -12,7 +12,7 @@ from custom_components.hair.const import (
     DeviceType,
 )
 from custom_components.hair.event_parser import EventParser
-from custom_components.hair.models import IRCommand, IRDevice
+from custom_components.hair.models import IRCommand, IRDevice, IRTrigger
 from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.storage import HAIRStore, _HAIRDeviceStore
 
@@ -310,3 +310,112 @@ async def test_reorder_devices_missing_raises(fake_hass):
         with pytest.raises(ValueError, match="missing"):
             store.reorder_devices([a.id])
         assert [d.id for d in store.get_all_devices()] == before
+
+
+# ---------------------------------------------------------------------------
+# reorder_triggers + trigger drawer name (Trigger Remotes signpost 1,
+# Track B: ir-trigger-row.ts drag reorder + header rename-in-place)
+# ---------------------------------------------------------------------------
+
+def _trig(name: str) -> IRTrigger:
+    return IRTrigger(name=name, signal_fingerprint=f"fp-{name}")
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_happy_path(fake_hass):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a, b, c = _trig("A"), _trig("B"), _trig("C")
+        for t in (a, b, c):
+            store.add_trigger(t)
+
+        store.reorder_triggers([c.id, a.id, b.id])
+
+        assert [t.id for t in store.get_all_triggers_ordered()] == [
+            c.id, a.id, b.id,
+        ]
+        # order is rewritten to 0..N-1, not just insertion position --
+        # the same field the automation-editor dropdown (Track A) sorts by.
+        assert store.get_trigger(c.id).order == 0
+        assert store.get_trigger(a.id).order == 1
+        assert store.get_trigger(b.id).order == 2
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_persists_order(fake_hass):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a, b = _trig("A"), _trig("B")
+        store.add_trigger(a)
+        store.add_trigger(b)
+        store.reorder_triggers([b.id, a.id])
+        await store.async_save()
+
+        store2 = HAIRStore(fake_hass)
+        store2._store = store._store  # type: ignore[attr-defined]
+        await store2.async_load()
+        assert [t.id for t in store2.get_all_triggers_ordered()] == [
+            b.id, a.id,
+        ]
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_duplicate_raises(fake_hass):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a = _trig("A")
+        store.add_trigger(a)
+        with pytest.raises(ValueError, match="Duplicate"):
+            store.reorder_triggers([a.id, a.id])
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_unknown_raises(fake_hass):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a = _trig("A")
+        store.add_trigger(a)
+        before = [t.id for t in store.get_all_triggers_ordered()]
+        with pytest.raises(ValueError, match="unknown"):
+            store.reorder_triggers([a.id, "ghost"])
+        assert [t.id for t in store.get_all_triggers_ordered()] == before
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_missing_raises(fake_hass):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        a, b = _trig("A"), _trig("B")
+        store.add_trigger(a)
+        store.add_trigger(b)
+        before = [t.id for t in store.get_all_triggers_ordered()]
+        with pytest.raises(ValueError, match="missing"):
+            store.reorder_triggers([a.id])
+        assert [t.id for t in store.get_all_triggers_ordered()] == before
+
+
+@pytest.mark.asyncio
+async def test_trigger_drawer_name_defaults_to_hair_triggers(fake_hass):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        assert store.get_trigger_drawer_name() == "HAIR Triggers"
+
+
+@pytest.mark.asyncio
+async def test_trigger_drawer_name_rename_persists(fake_hass):
+    with patch("custom_components.hair.storage._HAIRDeviceStore", _FakeStore):
+        store = HAIRStore(fake_hass)
+        await store.async_load()
+        store.set_trigger_drawer_name("Living Room Remotes")
+        await store.async_save()
+
+        store2 = HAIRStore(fake_hass)
+        store2._store = store._store  # type: ignore[attr-defined]
+        await store2.async_load()
+        assert store2.get_trigger_drawer_name() == "Living Room Remotes"

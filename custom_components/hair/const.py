@@ -135,6 +135,14 @@ SIGNAL_RAW_FINGERPRINT_LEN = 64
 # which collapses one physical press seen by several receivers.
 TRIGGER_HIT_RESET_WINDOW_S = 5
 EVENT_TRIGGER_FIRED = f"{DOMAIN}_trigger_fired"
+# Alias history cap (Trigger Remotes signpost 1, device_trigger rename
+# tolerance). A renamed trigger retires its old name here so a device
+# trigger's stored subtype (the automation editor's dropdown never stores
+# an ID, only the display name) keeps resolving after any number of
+# renames. Capped and FIFO-trimmed from the oldest end so a trigger that
+# gets renamed constantly does not grow this list unbounded; 10 covers any
+# realistic rename history with room to spare.
+TRIGGER_ALIAS_HISTORY_MAX = 10
 # Trigger dedup window (v0.5.7, resized v0.5.8). A single physical press
 # captured by several receivers within this window counts as one press per
 # (trigger, fingerprint): it increments a trigger's hit state once and fires

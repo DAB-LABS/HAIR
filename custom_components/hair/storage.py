@@ -16,6 +16,12 @@ from .models import IRDevice, IRTrigger
 
 _LOGGER = logging.getLogger(__name__)
 
+# Default display name for the HAIR Triggers drawer (Trigger Remotes
+# signpost 1, Track B). Matches event.TRIGGER_DEVICE_NAME's literal
+# value; kept as a separate constant rather than an import to avoid a
+# circular import (event.py -> trigger_manager.py -> this module).
+_DEFAULT_TRIGGER_DRAWER_NAME = "HAIR Triggers"
+
 
 class _HAIRDeviceStore(Store):
     """``Store`` subclass so the migration hook is actually invoked.
@@ -71,6 +77,15 @@ class HAIRStore:
         )
         self._data: dict[str, IRDevice] = {}
         self._triggers: dict[str, IRTrigger] = {}
+        # The HAIR Triggers drawer's own display name (Trigger Remotes
+        # signpost 1, Track B: header rename-in-place). A plain scalar,
+        # not part of any IRTrigger -- there is exactly one drawer for
+        # signpost 1, so this is not modeled as a list-backed entity the
+        # way devices/triggers are. Deliberately a local literal rather
+        # than importing event.TRIGGER_DEVICE_NAME: event.py imports
+        # trigger_manager.py, which imports this module, so importing
+        # event.py from here would be circular.
+        self._trigger_drawer_name: str = _DEFAULT_TRIGGER_DRAWER_NAME
         self._loaded = False
         # Reverse indexes for the known-command matcher (Phase B). Map a
         # signal's identity to the (device_id, command_id) that owns it, so
@@ -105,6 +120,7 @@ class HAIRStore:
         if raw is None:
             self._data = {}
             self._triggers = {}
+            self._trigger_drawer_name = _DEFAULT_TRIGGER_DRAWER_NAME
             self._loaded = True
             return
 
@@ -136,6 +152,13 @@ class HAIRStore:
                 continue
             self._triggers[trigger.id] = trigger
 
+        # Absent (pre-Track-B store) or blank both resolve to the
+        # module default -- there is no prior source of truth to
+        # backfill a rename from.
+        self._trigger_drawer_name = (
+            raw.get("trigger_drawer_name") or _DEFAULT_TRIGGER_DRAWER_NAME
+        )
+
         # v0.4.0 backfill: decode stored commands into their decoded_*
         # fields. v0.5.8 backfills: compute byte_hash for pre-0.3.4 commands
         # that carry a Pronto code, so the legacy bare-fingerprint matcher
@@ -149,6 +172,7 @@ class HAIRStore:
         changed = self._backfill_decoded_fields()
         changed = self._backfill_byte_hash() or changed
         changed = self._backfill_trigger_decoded() or changed
+        changed = self._backfill_trigger_order() or changed
         self._rebuild_command_index()
         self._loaded = True
         if changed:
@@ -162,6 +186,7 @@ class HAIRStore:
         return {
             "devices": [d.to_dict() for d in self._data.values()],
             "triggers": [t.to_dict() for t in self._triggers.values()],
+            "trigger_drawer_name": self._trigger_drawer_name,
         }
 
     # -----------------------------------------------------------------
@@ -256,6 +281,33 @@ class HAIRStore:
                 changed,
             )
         return changed > 0
+
+    def _backfill_trigger_order(self) -> bool:
+        """Assign ``order`` to triggers that predate Trigger Remotes signpost 1.
+
+        Mirrors ``_backfill_trigger_decoded``: runs once at load, mutates
+        in place, returns True when anything changed so ``async_load``
+        persists a single combined save. Each order-less trigger gets its
+        current position in the stored (insertion-ordered) list, so a
+        pre-upgrade catalog keeps listing in the order it always has
+        instead of every legacy trigger tying at the same value. A
+        running counter (rather than a bare ``enumerate``) also tolerates
+        a mixed store -- some triggers already carrying an explicit order
+        -- by never handing out a value that collides with one already
+        seen.
+        """
+        changed = False
+        next_order = 0
+        for trigger in self._triggers.values():
+            if trigger.order is not None:
+                next_order = max(next_order, trigger.order + 1)
+                continue
+            trigger.order = next_order
+            next_order += 1
+            changed = True
+        if changed:
+            _LOGGER.info("Backfilled order on trigger(s) missing one")
+        return changed
 
     def _backfill_byte_hash(self) -> bool:
         """Compute ``byte_hash`` for stored commands that predate v0.3.4.
@@ -444,6 +496,8 @@ class HAIRStore:
         return [t for t in self._triggers.values() if t.enabled]
 
     def add_trigger(self, trigger: IRTrigger) -> None:
+        if trigger.order is None:
+            trigger.order = self._next_trigger_order()
         self._triggers[trigger.id] = trigger
 
     def update_trigger(self, trigger: IRTrigger) -> None:
@@ -454,6 +508,73 @@ class HAIRStore:
             del self._triggers[trigger_id]
             return True
         return False
+
+    def _next_trigger_order(self) -> int:
+        """Return the next ``order`` value for a newly created trigger.
+
+        Appends to the end of the existing catalog, mirroring what
+        ``order`` means for pre-existing triggers via the load-time
+        backfill (list position).
+        """
+        existing = [
+            t.order for t in self._triggers.values() if t.order is not None
+        ]
+        return (max(existing) + 1) if existing else 0
+
+    def get_all_triggers_ordered(self) -> list[IRTrigger]:
+        """Return triggers sorted by ``order`` (Trigger Remotes signpost 1).
+
+        Every trigger has a non-None ``order`` by the time this can be
+        called: the load-time backfill assigns one to every pre-existing
+        trigger, and creation assigns one to every new one. The ``or 0``
+        and id tiebreak are defense-in-depth for a trigger constructed
+        directly (bypassing ``add_trigger``), not the expected path.
+        """
+        return sorted(
+            self._triggers.values(),
+            key=lambda t: (t.order if t.order is not None else 0, t.id),
+        )
+
+    def reorder_triggers(self, ordered_ids: list[str]) -> None:
+        """Reorder triggers to match ``ordered_ids`` (Track B, item 7).
+
+        Unlike ``reorder_devices`` (dict insertion order), ``IRTrigger``
+        carries an explicit ``order`` int -- also read by the automation
+        editor's device-trigger dropdown (Track A), so it must stay a
+        real, comparable field rather than implicit position -- and
+        reordering rewrites those values directly (0..N-1) instead of
+        rebuilding a dict. Same validation contract as
+        ``reorder_devices``/``IRDevice.reorder_commands``: the list must
+        be exactly the current trigger id set, no dupes/missing/unknown.
+
+        Raises :class:`ValueError` on mismatch and changes nothing.
+        """
+        if len(ordered_ids) != len(set(ordered_ids)):
+            raise ValueError("Duplicate trigger ids in reorder list")
+        current = set(self._triggers.keys())
+        requested = set(ordered_ids)
+        if requested != current:
+            missing = current - requested
+            unknown = requested - current
+            details: list[str] = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            raise ValueError(
+                "Reorder list does not match current triggers: "
+                + ", ".join(details)
+            )
+        for index, trigger_id in enumerate(ordered_ids):
+            self._triggers[trigger_id].order = index
+
+    def get_trigger_drawer_name(self) -> str:
+        """Return the HAIR Triggers drawer's current display name."""
+        return self._trigger_drawer_name
+
+    def set_trigger_drawer_name(self, name: str) -> None:
+        """Rename the HAIR Triggers drawer (header rename-in-place)."""
+        self._trigger_drawer_name = name
 
     def get_trigger_by_fingerprint(
         self, fingerprint: str

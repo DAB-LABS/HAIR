@@ -9,6 +9,7 @@ from uuid import uuid4
 from .const import (
     DEFAULT_CARRIER_FREQUENCY,
     DEFAULT_REPEAT_COUNT,
+    TRIGGER_ALIAS_HISTORY_MAX,
     CaptureProviderType,
     CaptureState,
     CommandCategory,
@@ -538,6 +539,44 @@ class IRTrigger:
     # in a way a byte_hash backfill would not be (bin-quantized hashes are
     # snap-fragile and a tier-2 mismatch is fatal; see the plan doc).
     decoded_fingerprint: str | None = None
+    # Trigger Remotes signpost 1. List position for the automation-editor
+    # dropdown (device_trigger.async_get_triggers) and, later, drag reorder.
+    # None = not yet assigned; the storage load-time backfill
+    # (_backfill_trigger_order) assigns one from the trigger's position in
+    # the stored list so a pre-upgrade catalog lists in its existing order
+    # rather than every legacy trigger tying at the same value. Creation
+    # assigns max(existing) + 1 so new triggers append to the end.
+    order: int | None = None
+    # Alias history (device_trigger rename tolerance). A device trigger's
+    # stored subtype is the trigger's NAME, not its id (HA's automation
+    # editor renders the subtype raw and stores what it shows), so a rename
+    # would silently strand every automation built against the old name.
+    # Each rename retires the name being replaced onto the front of this
+    # list (most-recent-first, deduped, capped at
+    # TRIGGER_ALIAS_HISTORY_MAX). Resolution is current-names-first, then
+    # history -- see device_trigger.py. Empty for a trigger that has never
+    # been renamed.
+    alias_history: list[str] = field(default_factory=list)
+    # Trigger Remotes signpost 1, Track B (the row's "aliveness" fact --
+    # trigger-remote-detail-design-brief.md, "live hit count -- last
+    # fired"). Cumulative across restarts, incremented once per
+    # CONFIRMED fire (i.e. once the min_hits chain actually completes
+    # and the event entity fires), not once per raw hit -- a min_hits=3
+    # trigger presses three times for one fire_count increment. Unlike
+    # ``last fired``, HA's event-entity state has no equivalent lifetime
+    # counter to read this from, so this is real, new, persisted state
+    # rather than a value derived from something HA already tracks.
+    fire_count: int = 0
+    # ISO timestamp of the last confirmed fire. The design brief's own
+    # wording points at "the event entity's state" for this fact, since
+    # an HA event entity's state IS its last-fired timestamp -- but
+    # reading it back would mean the frontend resolving each trigger's
+    # auto-assigned entity_id through the entity registry on every
+    # render, a fragile round trip for a value TriggerManager already
+    # computes at the moment it fires. Stamping it here alongside
+    # fire_count produces the identical displayed value from a single
+    # write, with no dependency on registry timing.
+    last_fired_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -555,6 +594,10 @@ class IRTrigger:
             "receiver_entity_ids": list(self.receiver_entity_ids),
             "byte_hash": self.byte_hash,
             "decoded_fingerprint": self.decoded_fingerprint,
+            "order": self.order,
+            "alias_history": list(self.alias_history),
+            "fire_count": self.fire_count,
+            "last_fired_at": self.last_fired_at,
         }
 
     @classmethod
@@ -579,7 +622,41 @@ class IRTrigger:
             # Absent or null = not decoded; the load-time backfill fills
             # this from the stored code where a decoder exists.
             decoded_fingerprint=data.get("decoded_fingerprint"),
+            # Absent (pre-signpost-1 record) or null = not yet assigned;
+            # the storage load-time backfill fills this from list position.
+            order=data.get("order"),
+            # Absent or null both resolve to [] = never renamed.
+            alias_history=list(data.get("alias_history") or []),
+            # Absent (pre-Track-B record) = never fired since this field
+            # existed. Not backfilled from anything -- there is no prior
+            # source of truth for a lifetime fire count.
+            fire_count=int(data.get("fire_count", 0)),
+            last_fired_at=data.get("last_fired_at"),
         )
+
+    def rename(self, new_name: str) -> None:
+        """Rename the trigger, retiring the old name into alias history.
+
+        No-op when the name is unchanged or was never set (creation path
+        should not seed history with an empty string). Most-recent-first,
+        deduped against both the rest of the history and the new name
+        itself (renaming back to a name already in history should not
+        leave a duplicate entry), capped at TRIGGER_ALIAS_HISTORY_MAX,
+        trimmed from the oldest (tail) end.
+
+        Live-names-always-win resolution (device_trigger.py) means a
+        stale history entry that a later trigger's current name shadows
+        is harmless to keep here; this trigger's own record does not know
+        about other triggers and should not try to.
+        """
+        old_name = self.name
+        if not old_name or old_name == new_name:
+            self.name = new_name
+            return
+        history = [n for n in self.alias_history if n != old_name and n != new_name]
+        history.insert(0, old_name)
+        self.alias_history = history[:TRIGGER_ALIAS_HISTORY_MAX]
+        self.name = new_name
 
     def matches_byte_hash(self, byte_hash: str | None) -> bool:
         """Return True if this trigger's byte-level identity matches.

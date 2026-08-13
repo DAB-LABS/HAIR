@@ -554,6 +554,105 @@ class _Store:
 _stub("homeassistant.helpers.storage", {"Store": _Store})
 
 # ---------------------------------------------------------------------------
+# homeassistant.const additions (device_trigger.py, Trigger Remotes
+# signpost 1) -- CONF_DEVICE_ID/CONF_DOMAIN/CONF_PLATFORM/CONF_TYPE are
+# generic device_automation trigger-config keys, not previously needed by
+# any other stubbed module. _stub() is additive (setattr per key onto the
+# already-created module), so this just extends the block above.
+# ---------------------------------------------------------------------------
+_stub("homeassistant.const", {
+    "CONF_DEVICE_ID": "device_id",
+    "CONF_DOMAIN": "domain",
+    "CONF_PLATFORM": "platform",
+    "CONF_TYPE": "type",
+})
+
+# ---------------------------------------------------------------------------
+# homeassistant.components.device_automation /
+# homeassistant.components.homeassistant.triggers.event /
+# homeassistant.helpers.trigger / homeassistant.helpers.typing
+#
+# device_trigger.py (Trigger Remotes signpost 1) delegates the actual
+# listening to HA's own event-trigger platform. Real voluptuous is
+# available in this sandbox (see the try/except fallback further down),
+# so these are genuine vol.Schema objects -- device_trigger.py's own
+# TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend({...}) and the
+# TRIGGER_SCHEMA(config) calls in async_validate_trigger_config /
+# async_attach_trigger run against real validation instead of a
+# passthrough, which is worth having given rename-tolerance correctness
+# hinges on the exact dict shape built at attach time.
+#
+# async_attach_trigger below is a permissive default (returns a MagicMock
+# unsubscribe callable). test_device_trigger.py monkeypatches
+# `custom_components.hair.device_trigger.event_trigger.async_attach_trigger`
+# directly per-test to capture the constructed event_data filter, rather
+# than simulating a full working HA event bus -- fake_hass/mock_hass's
+# hass.bus.async_listen is a disconnected MagicMock in this suite (see
+# tests/conftest.py), not real pub/sub. True end-to-end firing is
+# verified on the bench (VM999), not in this sandbox tier.
+# ---------------------------------------------------------------------------
+import voluptuous as vol  # noqa: E402  -- real package, confirmed available
+
+_device_trigger_base_schema = vol.Schema(
+    {
+        vol.Required("platform"): "device",
+        vol.Required("domain"): str,
+        vol.Required("device_id"): str,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+_stub("homeassistant.components.device_automation", {
+    "DEVICE_TRIGGER_BASE_SCHEMA": _device_trigger_base_schema,
+})
+
+_event_trigger_schema = vol.Schema(
+    {
+        vol.Required("platform"): "event",
+        vol.Required("event_type"): str,
+        vol.Optional("event_data"): dict,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+
+async def _stub_event_async_attach_trigger(
+    hass, config, action, trigger_info, *, platform_type="event"
+):
+    """Permissive default; tests monkeypatch this per-case (see module doc above)."""
+    return MagicMock()
+
+
+_stub("homeassistant.components.homeassistant.triggers.event", {
+    "CONF_PLATFORM": "platform",
+    "CONF_EVENT_TYPE": "event_type",
+    "CONF_EVENT_DATA": "event_data",
+    "TRIGGER_SCHEMA": _event_trigger_schema,
+    "async_attach_trigger": _stub_event_async_attach_trigger,
+})
+
+
+class _TriggerActionType:
+    """Stub of homeassistant.helpers.trigger.TriggerActionType.
+
+    A Callable protocol at runtime; device_trigger.py only uses it as a
+    type annotation (from __future__ import annotations makes it a
+    string), so the stub never needs to be callable itself.
+    """
+
+
+class _TriggerInfo(dict):
+    """Stub of homeassistant.helpers.trigger.TriggerInfo (a TypedDict at
+    runtime; same annotation-only usage as _TriggerActionType above)."""
+
+
+_stub("homeassistant.helpers.trigger", {
+    "TriggerActionType": _TriggerActionType,
+    "TriggerInfo": _TriggerInfo,
+})
+
+_stub("homeassistant.helpers.typing", {"ConfigType": dict})
+
+# ---------------------------------------------------------------------------
 # voluptuous (used by websocket_api.py and config_flow.py)
 # ---------------------------------------------------------------------------
 try:

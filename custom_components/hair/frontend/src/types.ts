@@ -913,6 +913,24 @@ export interface IRTrigger {
     // identity tier; jitter-immune, so it survives the S/L fingerprint
     // flipping on boundary protocols (Sony). null/absent = not decoded.
     decoded_fingerprint?: string | null;
+    // List position for the automation-editor dropdown (device_trigger.py)
+    // and the drawer's own drag reorder (Trigger Remotes signpost 1).
+    // null/absent = not yet assigned; the backend's load-time backfill
+    // fills it from list position, so this should only read null for a
+    // trigger the frontend itself just optimistically constructed before
+    // the create round-trip returns.
+    order?: number | null;
+    // Alias history (device_trigger.py rename tolerance). Not rendered by
+    // the panel; carried here only so the frontend type mirrors the
+    // backend's to_dict() shape in full.
+    alias_history?: string[];
+    // Cumulative fire count and last-fire timestamp (Track B "aliveness"
+    // fact -- ir-trigger-row.ts). fire_count increments once per
+    // CONFIRMED fire (the min_hits chain completing), not once per raw
+    // hit. last_fired_at is an ISO timestamp, or null if the trigger has
+    // never fired since this field existed.
+    fire_count: number;
+    last_fired_at: string | null;
 }
 
 /**
@@ -945,6 +963,14 @@ export function triggerMatchesSignal(
     const sBh = signal.byte_hash ?? null;
     if (tBh !== null && sBh !== null) return tBh === sBh;
     return trigger.signal_fingerprint === signal.fingerprint;
+}
+
+/** The HAIR Triggers drawer's identity (Track B header: rename-in-place
+ *  + exit-to-entity). ha_device_id is null until the first trigger's
+ *  event entity registers the device (empty-state case). */
+export interface TriggerDrawerInfo {
+    name: string;
+    ha_device_id: string | null;
 }
 
 export interface TriggerFiredEvent {

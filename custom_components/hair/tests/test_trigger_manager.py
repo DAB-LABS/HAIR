@@ -14,6 +14,15 @@ from custom_components.hair.trigger_manager import TriggerManager
 def mock_hass():
     hass = MagicMock()
     hass.bus = MagicMock()
+    # _fire_trigger (Track B: fire_count/last_fired_at persistence) is a
+    # sync callback that dispatches store.async_save() as a background
+    # task via hass.async_create_task, the standard HA pattern for async
+    # work from sync code. A plain MagicMock would record the call but
+    # never touch the coroutine it was handed, leaving it unawaited and
+    # printing a "coroutine was never awaited" RuntimeWarning on every
+    # fire in every test below. Closing it is the correct no-op for a
+    # synchronous test that isn't asserting persistence itself.
+    hass.async_create_task = lambda coro, *a, **kw: coro.close()
     return hass
 
 
@@ -130,6 +139,8 @@ class TestIRTriggerModel:
 
     def test_roundtrip(self):
         trigger = _make_trigger(name="Power", min_hits=3)
+        trigger.fire_count = 42
+        trigger.last_fired_at = "2026-08-13T12:00:00+00:00"
         data = trigger.to_dict()
         restored = IRTrigger.from_dict(data)
         assert restored.name == "Power"
@@ -139,6 +150,14 @@ class TestIRTriggerModel:
         assert restored.code == "0000 0001"
         assert restored.enabled is True
         assert restored.id == trigger.id
+        assert restored.fire_count == 42
+        assert restored.last_fired_at == "2026-08-13T12:00:00+00:00"
+
+    def test_from_dict_fire_count_defaults(self):
+        """Pre-Track-B record: no prior source of truth to backfill from."""
+        trigger = IRTrigger.from_dict({"name": "Legacy"})
+        assert trigger.fire_count == 0
+        assert trigger.last_fired_at is None
 
     def test_from_dict_defaults(self):
         trigger = IRTrigger.from_dict({"name": "Minimal"})
@@ -382,3 +401,68 @@ class TestTriggerManagerHitCounting:
 
         manager.on_signal_captured("fp1", "pronto", "0000 0001")
         cb.assert_not_called()
+
+
+class TestTriggerFireCount:
+    """fire_count/last_fired_at (Track B "aliveness" fact) stamp once per
+    CONFIRMED fire, not once per raw hit."""
+
+    def test_fire_count_starts_at_zero(self, mock_store):
+        t = _make_trigger()
+        mock_store.add_trigger(t)
+        assert t.fire_count == 0
+        assert t.last_fired_at is None
+
+    def test_fire_count_increments_on_fire(self, manager, mock_store, clock):
+        t = _make_trigger(min_hits=1)
+        mock_store.add_trigger(t)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        assert t.fire_count == 1
+        assert t.last_fired_at is not None
+
+    def test_fire_count_ignores_raw_hits_below_threshold(
+        self, manager, mock_store, clock
+    ):
+        """min_hits=3: the first two presses accumulate but do not fire,
+        so fire_count must still read 0 after them."""
+        t = _make_trigger(min_hits=3)
+        mock_store.add_trigger(t)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        clock.advance(1.0)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        assert t.fire_count == 0
+        assert t.last_fired_at is None
+        clock.advance(1.0)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        assert t.fire_count == 1
+
+    def test_fire_count_accumulates_across_fires(
+        self, manager, mock_store, clock
+    ):
+        t = _make_trigger(min_hits=1)
+        mock_store.add_trigger(t)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        clock.advance(1.0)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        clock.advance(1.0)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        assert t.fire_count == 3
+
+    def test_last_fired_at_advances(self, manager, mock_store, clock):
+        t = _make_trigger(min_hits=1)
+        mock_store.add_trigger(t)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        first = t.last_fired_at
+        clock.advance(1.0)
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        assert t.last_fired_at != first
+
+    def test_fire_schedules_a_save(self, manager, mock_store, mock_hass, clock):
+        t = _make_trigger(min_hits=1)
+        mock_store.add_trigger(t)
+        seen: list = []
+        mock_hass.async_create_task = lambda coro, *a, **kw: (
+            seen.append(coro) or coro.close()
+        )
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+        assert len(seen) == 1

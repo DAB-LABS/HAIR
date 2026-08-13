@@ -10,13 +10,21 @@
  */
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import { customElement, property, state } from "./decorators.js";
-import { t } from "./localize.js";
-import { ICON_TRASH, TRASH_VIEWBOX } from "./ir-icons.js";
+import { t, tp } from "./localize.js";
+import {
+    ICON_TRASH,
+    TRASH_VIEWBOX,
+    renderExitToEntityBtn,
+    exitToEntityButtonStyles,
+} from "./ir-icons.js";
+import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
+import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
+import "./ir-trigger-row.js";
 import "./ir-confirm-dialog.js";
 import "./ir-duplicate-device-dialog.js";
 import type { HairApi } from "./api.js";
@@ -26,8 +34,20 @@ import type {
     DeviceTypeId,
     IRDevice,
     IRTrigger,
+    ReceiverInfo,
+    TriggerDrawerInfo,
     TriggerFiredEvent,
 } from "./types.js";
+
+/**
+ * Sentinel "device id" for the single HAIR Triggers drawer card, reusing
+ * the parent panel's existing ``expandedDeviceId``/``device-selected``
+ * expand-one-at-a-time machinery (ha-panel-ir-devices.ts's
+ * ``_toggleDevice``) rather than inventing a second, parallel expansion
+ * concept. Guaranteed not to collide with a real device id (those are
+ * storage-assigned uuids).
+ */
+const TRIGGER_DRAWER_ID = "__hair_triggers_drawer__";
 
 const DEVICE_TYPE_ICONS: Record<DeviceTypeId, string> = {
     media_player: "M21,17H3V5H21M21,3H3A2,2 0 0,0 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5A2,2 0 0,0 21,3Z",
@@ -70,6 +90,13 @@ const ICON_PROXY =
 // MDI: flash (lightning bolt) for triggers
 const ICON_TRIGGER =
     "M7,2V13H10V22L17,10H13L17,2H7Z";
+
+// MDI: drag (six-dot grip), for the trigger row's slotted drag handle.
+// Same glyph ir-device-detail.ts's own (unexported) ICON_GRIP uses for
+// command rows -- kept as a local copy rather than a shared export,
+// matching that file's own precedent of not centralizing this one icon.
+const ICON_GRIP =
+    "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
 
 // MDI: content-copy (duplicate icon)
 const ICON_COPY =
@@ -124,6 +151,33 @@ export class IrDeviceList extends LitElement {
     @state() private _duplicateTarget: DeviceSummary | null = null;
     @state() private _confirmDeleteDevice: DeviceSummary | null = null;
 
+    // Receivers, for the trigger rows' scope-chip name resolution (v0.5.7
+    // per-trigger scoping). Fetched alongside the capture-provider list in
+    // ``_discoverHardware`` -- that method already calls ``listReceivers()``
+    // for the emitter-exclusion set but was discarding the list itself.
+    @state() private _receivers: ReceiverInfo[] = [];
+
+    // HAIR Triggers drawer identity (name + optional HA device-registry
+    // link, Track B item 9). Loaded once the trigger drawer card is
+    // expanded, not eagerly -- same lazy-load discipline as
+    // ``_expandedDevice``.
+    @state() private _triggerDrawer: TriggerDrawerInfo | null = null;
+    @state() private _editingDrawerName = false;
+    @state() private _draftDrawerName = "";
+    @state() private _drawerBusy = false;
+
+    // Drag-to-reorder for trigger rows inside the expanded drawer (grip
+    // handle, mirrors ir-device-detail.ts's command-reorder pattern).
+    @state() private _triggerRowsVersion = 0;
+    private _triggerSortable: Sortable | null = null;
+    private _pendingTriggerReorderSave: number | null = null;
+
+    // Sequence-numbered fire-glow tracker (ir-bloom-styles.ts). Replaces
+    // the old bare ``setTimeout`` + ``Set`` pair, which let a fast repeat
+    // fire's glow get cut short by the first fire's still-pending timeout
+    // (v0.7.2 bug, see ir-bloom-styles.ts's module doc).
+    private _bloomTracker = new BloomTracker();
+
     // Drag-to-reorder for the HAIR device cards (whole-card drag, no handle).
     // ``_localDevices`` holds the optimistic order between a drop and the
     // next parent refresh; it is reset to null whenever the parent pushes a
@@ -139,6 +193,7 @@ export class IrDeviceList extends LitElement {
         super.connectedCallback();
         this._discoverHardware();
         void this._loadTriggers();
+        void this._loadTriggerDrawer();
         void this._subscribeTriggerFired();
     }
 
@@ -148,6 +203,11 @@ export class IrDeviceList extends LitElement {
         this._devicesSortable?.destroy();
         this._devicesSortable = null;
         if (this._pendingDevicesSave !== null) clearTimeout(this._pendingDevicesSave);
+        this._triggerSortable?.destroy();
+        this._triggerSortable = null;
+        if (this._pendingTriggerReorderSave !== null) {
+            clearTimeout(this._pendingTriggerReorderSave);
+        }
     }
 
     protected willUpdate(changed: PropertyValues): void {
@@ -164,12 +224,14 @@ export class IrDeviceList extends LitElement {
         }
         if (changed.has("api") && this.api && !this._unsubTriggerFired) {
             void this._loadTriggers();
+            void this._loadTriggerDrawer();
             void this._subscribeTriggerFired();
         }
         if (changed.has("expandedDeviceId")) {
             void this._loadExpandedDevice();
         }
         this._syncDevicesSortable();
+        this._syncTriggerSortable();
     }
 
     /** Attach / detach the device-grid SortableJS instance. */
@@ -244,7 +306,15 @@ export class IrDeviceList extends LitElement {
     }
 
     private async _loadExpandedDevice(): Promise<void> {
-        if (!this.expandedDeviceId || !this.api) {
+        // The trigger drawer's sentinel id shares the parent's expand-one
+        // -at-a-time slot but isn't a real device -- ``getDevice`` would
+        // 404 on it. ``_loadTriggerDrawer`` (called separately, see
+        // ``updated()``) handles that case.
+        if (
+            !this.expandedDeviceId ||
+            this.expandedDeviceId === TRIGGER_DRAWER_ID ||
+            !this.api
+        ) {
             this._expandedDevice = null;
             return;
         }
@@ -307,6 +377,11 @@ export class IrDeviceList extends LitElement {
                 for (const r of receivers) {
                     receiverEntityIds.add(r.entity_id);
                 }
+                // Keep the full list too -- ir-trigger-row's scope chip
+                // resolves receiver_entity_ids to friendly names from it.
+                // (Previously this method only kept the id Set for the
+                // emitter-exclusion check below and threw the names away.)
+                this._receivers = receivers;
             } catch {
                 // Pre-2026.6 or non-fatal error.
             }
@@ -444,6 +519,18 @@ export class IrDeviceList extends LitElement {
 
     // --- Triggers ---
 
+    /**
+     * Number of trigger remotes (drawers). Always 1 today -- HAIR only
+     * supports the single "HAIR Triggers" drawer for now -- but the
+     * header counts remotes, not the triggers living inside them, so
+     * this becomes meaningful the moment multi-drawer support ships
+     * (owner ruling 2026-08-14: "each remote card has their own
+     * numbered triggers on it").
+     */
+    private get _triggerDrawerCount(): number {
+        return 1;
+    }
+
     private async _loadTriggers(): Promise<void> {
         if (!this.api) return;
         try {
@@ -458,16 +545,36 @@ export class IrDeviceList extends LitElement {
         try {
             this._unsubTriggerFired = await this.api.subscribeTriggerFired(
                 (ev: TriggerFiredEvent) => {
-                    // Glow the card and flash the bolt.
-                    this._glowTriggerIds = new Set([
-                        ...this._glowTriggerIds,
+                    // Glow the collapsed drawer card and the fired row alike
+                    // (BloomTracker's sequence numbering is what fixes the
+                    // v0.7.2 repeat-fire-cut-short bug -- see
+                    // ir-bloom-styles.ts's module doc).
+                    this._bloomTracker.trigger(
                         ev.trigger_id,
-                    ]);
-                    setTimeout(() => {
-                        const next = new Set(this._glowTriggerIds);
-                        next.delete(ev.trigger_id);
-                        this._glowTriggerIds = next;
-                    }, 2500);
+                        () => {
+                            this._glowTriggerIds = new Set([
+                                ...this._glowTriggerIds,
+                                ev.trigger_id,
+                            ]);
+                        },
+                        () => {
+                            const next = new Set(this._glowTriggerIds);
+                            next.delete(ev.trigger_id);
+                            this._glowTriggerIds = next;
+                        },
+                    );
+                    // Bump the trigger's own fire_count/last_fired_at
+                    // optimistically so the row's aliveness phrase updates
+                    // without waiting on a full _loadTriggers() round-trip.
+                    this._triggers = this._triggers.map((t) =>
+                        t.id === ev.trigger_id
+                            ? {
+                                  ...t,
+                                  fire_count: t.fire_count + 1,
+                                  last_fired_at: new Date().toISOString(),
+                              }
+                            : t,
+                    );
                 },
             );
         } catch {
@@ -482,8 +589,8 @@ export class IrDeviceList extends LitElement {
         }
     }
 
-    private _openEditTrigger(trigger: IRTrigger, e: Event): void {
-        e.stopPropagation();
+    private _openEditTrigger(trigger: IRTrigger, e?: Event): void {
+        e?.stopPropagation();
         this._editTrigger = trigger;
     }
 
@@ -496,8 +603,8 @@ export class IrDeviceList extends LitElement {
         await this._loadTriggers();
     }
 
-    private async _toggleTriggerEnabled(trigger: IRTrigger, e: Event): Promise<void> {
-        e.stopPropagation();
+    private async _toggleTriggerEnabled(trigger: IRTrigger, e?: Event): Promise<void> {
+        e?.stopPropagation();
         try {
             await this.api!.updateTrigger(trigger.id, {
                 enabled: !trigger.enabled,
@@ -508,8 +615,8 @@ export class IrDeviceList extends LitElement {
         }
     }
 
-    private _requestDeleteTrigger(trigger: IRTrigger, e: Event): void {
-        e.stopPropagation();
+    private _requestDeleteTrigger(trigger: IRTrigger, e?: Event): void {
+        e?.stopPropagation();
         this._confirmDeleteTrigger = trigger;
     }
 
@@ -523,6 +630,149 @@ export class IrDeviceList extends LitElement {
         } catch {
             // Non-fatal.
         }
+    }
+
+    /** ``rename-trigger`` from an ``<ir-trigger-row>`` -- rides the same
+     *  ``updateTrigger`` patch path the edit dialog uses (device_trigger.py's
+     *  alias-history tolerance already covers a plain name patch). */
+    private async _onRenameTrigger(
+        ev: CustomEvent<{ trigger: IRTrigger; name: string }>,
+    ): Promise<void> {
+        const { trigger, name } = ev.detail;
+        if (!this.api) return;
+        try {
+            await this.api.updateTrigger(trigger.id, { name });
+            await this._loadTriggers();
+        } catch {
+            // Non-fatal; the row reverts to the server-confirmed name on
+            // the next render since it reads straight off this._triggers.
+        }
+    }
+
+    // --- HAIR Triggers drawer identity (name + go-to-HA link) ---
+
+    private async _loadTriggerDrawer(): Promise<void> {
+        if (!this.api) {
+            this._triggerDrawer = null;
+            return;
+        }
+        try {
+            this._triggerDrawer = await this.api.getTriggerDrawer();
+        } catch {
+            this._triggerDrawer = null;
+        }
+    }
+
+    private _startEditDrawerName(e: Event): void {
+        e.stopPropagation();
+        if (this._drawerBusy || !this._triggerDrawer) return;
+        this._draftDrawerName = this._triggerDrawer.name;
+        this._editingDrawerName = true;
+        void this.updateComplete.then(() => {
+            const input = this.renderRoot.querySelector<HTMLInputElement>(
+                ".drawer-name-input",
+            );
+            input?.focus();
+            input?.select();
+        });
+    }
+
+    private async _saveDrawerName(): Promise<void> {
+        if (!this._editingDrawerName) return;
+        const name = this._draftDrawerName.trim();
+        this._editingDrawerName = false;
+        if (!name || !this.api || name === this._triggerDrawer?.name) return;
+        this._drawerBusy = true;
+        try {
+            this._triggerDrawer = await this.api.renameTriggerDrawer(name);
+        } catch {
+            // Non-fatal; keeps the prior drawer name displayed.
+        } finally {
+            this._drawerBusy = false;
+        }
+    }
+
+    private _onDrawerNameKeydown(e: KeyboardEvent): void {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            void this._saveDrawerName();
+        } else if (e.key === "Escape") {
+            this._editingDrawerName = false;
+        }
+    }
+
+    // --- Trigger row drag reorder (grip handle, mirrors
+    //     ir-device-detail.ts's command-reorder pattern) ---
+
+    private _syncTriggerSortable(): void {
+        const list = this.renderRoot.querySelector(
+            ".trigger-rows",
+        ) as HTMLElement | null;
+        if (list && !this._triggerSortable) {
+            this._attachTriggerSortable(list);
+        } else if (!list && this._triggerSortable) {
+            this._triggerSortable.destroy();
+            this._triggerSortable = null;
+        }
+    }
+
+    private _attachTriggerSortable(list: HTMLElement): void {
+        this._triggerSortable = Sortable.create(list, {
+            handle: ".grip-handle",
+            animation: 150,
+            ghostClass: "sortable-ghost",
+            onEnd: (e) => {
+                const oldIndex = e.oldIndex;
+                const newIndex = e.newIndex;
+                if (
+                    oldIndex === undefined ||
+                    newIndex === undefined ||
+                    oldIndex === newIndex
+                ) {
+                    return;
+                }
+                const triggers = [...this._triggers];
+                const [moved] = triggers.splice(oldIndex, 1);
+                triggers.splice(newIndex, 0, moved);
+                this._triggers = triggers;
+
+                // Tear down and let ``updated()`` re-attach against a
+                // fresh ``.trigger-rows`` DOM tree, same discipline as
+                // ir-device-detail.ts's command reorder -- avoids
+                // SortableJS leaving the dragged row outside keyed()'s
+                // managed range after the rebuild.
+                this._triggerSortable?.destroy();
+                this._triggerSortable = null;
+                const container = this.renderRoot.querySelector(
+                    ".trigger-rows",
+                );
+                if (container) {
+                    for (const row of Array.from(
+                        container.querySelectorAll("ir-trigger-row"),
+                    )) {
+                        row.remove();
+                    }
+                }
+                this._triggerRowsVersion++;
+                this._scheduleTriggerReorderSave(triggers.map((t) => t.id));
+            },
+        });
+    }
+
+    private _scheduleTriggerReorderSave(triggerIds: string[]): void {
+        if (this._pendingTriggerReorderSave !== null) {
+            clearTimeout(this._pendingTriggerReorderSave);
+        }
+        this._pendingTriggerReorderSave = window.setTimeout(async () => {
+            this._pendingTriggerReorderSave = null;
+            if (!this.api) return;
+            try {
+                await this.api.reorderTriggers(triggerIds);
+            } catch {
+                // Backend rejected (stale set) -- resync from server.
+                await this._loadTriggers();
+            }
+        }, REORDER_DEBOUNCE_MS);
     }
 
     private _emitterIntegrationDomain(entityId: string): string {
@@ -683,7 +933,6 @@ export class IrDeviceList extends LitElement {
         const { receivers, proxies } = this._classifyHardware();
         const hasReceivers = receivers.length > 0;
         const hasProxies = proxies.length > 0;
-        const hasTriggers = this._triggers.length > 0;
         const hasNothing = !hasDevices && !hasEmitters && !hasReceivers && !hasProxies;
 
         if (hasNothing) {
@@ -806,60 +1055,128 @@ export class IrDeviceList extends LitElement {
                       </div>
                   `}
 
-            <!-- Triggers -->
-            ${hasTriggers
-                ? html`
-                      <div class="section-header">
-                          <h2>${t("popover.triggers")}</h2>
-                          <span class="section-count">${this._triggers.length}</span>
-                      </div>
-                      <div class="grid">
-                          ${this._triggers.map(
-                              (trig) => html`
-                                  <div
-                                      class="card trigger-card ${this._glowTriggerIds.has(trig.id) ? "trigger-glow" : ""} ${!trig.enabled ? "trigger-disabled" : ""}"
-                                      tabindex="0"
-                                      @click=${(e: Event) => this._openEditTrigger(trig, e)}
-                                      @keydown=${(e: KeyboardEvent) => {
-                                          if (e.key === "Enter" || e.key === " ") {
-                                              e.preventDefault();
-                                              this._openEditTrigger(trig, e);
-                                          }
-                                      }}
-                                  >
-                                      <div class="card-header">
-                                          <ha-svg-icon class="trigger-icon" .path=${ICON_TRIGGER}></ha-svg-icon>
-                                          <div class="card-name">${trig.name}</div>
-                                      </div>
-                                      <div class="card-meta">${t("trigger.event")}</div>
-                                      <div class="card-footer">
-                                          ${trig.min_hits > 1
-                                              ? html`<span class="badge trigger-hits-badge">
-                                                    ${t("devlist.hits_badge", { count: trig.min_hits })}
-                                                </span>`
+            <!-- Trigger Remotes: one HAIR Triggers drawer card, same size as
+                 a collapsed device card (owner bench ruling), expanding via
+                 the same expandedDeviceId/device-selected slot a device
+                 card uses (TRIGGER_DRAWER_ID sentinel). Renders even at
+                 zero triggers -- the drawer itself is a permanent fixture,
+                 not conditional on having any remotes captured yet; the
+                 expanded view's own empty state (trow.empty_state) covers
+                 that case instead of hiding the section. -->
+            <div class="toolbar trigger-toolbar">
+                <span class="toolbar-title trigger-toolbar-title">
+                    <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
+                    ${t("devlist.trigger_remotes_title")}
+                    <span class="toolbar-count">(${this._triggerDrawerCount})</span>
+                </span>
+            </div>
+            <div class="grid">
+                <div
+                    class="card trigger-drawer-card ${this.expandedDeviceId === TRIGGER_DRAWER_ID ? "expanded" : ""} ${this._glowTriggerIds.size > 0 ? "bloom" : ""}"
+                    tabindex="0"
+                    @click=${() => this._select(TRIGGER_DRAWER_ID)}
+                    @keydown=${(e: KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            this._select(TRIGGER_DRAWER_ID);
+                        }
+                    }}
+                >
+                    <div class="card-header">
+                        <ha-svg-icon class="trigger-icon" .path=${ICON_TRIGGER}></ha-svg-icon>
+                        <div class="card-name">
+                            ${this._triggerDrawer?.name ?? t("devlist.trigger_drawer_default_name")}
+                        </div>
+                    </div>
+                    <div class="card-meta">
+                        ${tp("trow.header_count", this._triggers.length)}
+                    </div>
+                </div>
+                ${this.expandedDeviceId === TRIGGER_DRAWER_ID
+                    ? html`
+                          <div class="expanded-detail trigger-drawer-detail">
+                              <section class="header trh-header">
+                                  <div class="header-left">
+                                      <div class="name-row">
+                                          ${this._editingDrawerName
+                                              ? html`
+                                                    <input
+                                                        class="name-input drawer-name-input"
+                                                        type="text"
+                                                        .value=${this._draftDrawerName}
+                                                        @input=${(e: Event) =>
+                                                            (this._draftDrawerName = (
+                                                                e.target as HTMLInputElement
+                                                            ).value)}
+                                                        @blur=${this._saveDrawerName}
+                                                        @keydown=${this._onDrawerNameKeydown}
+                                                        ?disabled=${this._drawerBusy}
+                                                    />
+                                                `
+                                              : html`
+                                                    <h1
+                                                        class="editable-name"
+                                                        @click=${this._startEditDrawerName}
+                                                        title=${t("cmdrow.rename")}
+                                                    >
+                                                        ${this._triggerDrawer?.name ?? t("devlist.trigger_drawer_default_name")}
+                                                        <span class="edit-icon">&#9998;</span>
+                                                    </h1>
+                                                `}
+                                          ${this._triggerDrawer?.ha_device_id
+                                              ? renderExitToEntityBtn(
+                                                    `/config/devices/device/${this._triggerDrawer.ha_device_id}`,
+                                                    t("devices.open_in_ha"),
+                                                )
                                               : nothing}
-                                          <span
-                                              class="badge trigger-toggle ${trig.enabled ? "trigger-enabled" : "trigger-off"}"
-                                              @click=${(e: Event) => this._toggleTriggerEnabled(trig, e)}
-                                          >${trig.enabled ? t("devlist.on") : t("devlist.off")}</span>
-                                          <button
-                                              class="trigger-trash"
-                                              title=${t("devlist.delete_trigger")}
-                                              aria-label=${t("devlist.delete_trigger")}
-                                              @click=${(e: Event) => this._requestDeleteTrigger(trig, e)}
-                                          >
-                                              <ha-svg-icon
-                                                  .path=${ICON_TRASH}
-                                                  .viewBox=${TRASH_VIEWBOX}
-                                              ></ha-svg-icon>
-                                          </button>
+                                      </div>
+                                      <div class="trh-subtitle">
+                                          ${tp("trow.header_count", this._triggers.length)}
                                       </div>
                                   </div>
-                              `,
-                          )}
-                      </div>
-                  `
-                : nothing}
+                                  <button
+                                      class="collapse-btn"
+                                      @click=${() => this._select(TRIGGER_DRAWER_ID)}
+                                      title=${t("common.close")}
+                                  >&#x2715;</button>
+                              </section>
+                              ${this._triggers.length > 0
+                                  ? html`
+                                        <div class="trigger-rows">
+                                            ${keyed(
+                                                this._triggerRowsVersion,
+                                                repeat(
+                                                    this._triggers,
+                                                    (trig) => trig.id,
+                                                    (trig) => html`
+                                                        <ir-trigger-row
+                                                            .trigger=${trig}
+                                                            .receivers=${this._receivers}
+                                                            .bloom=${this._glowTriggerIds.has(trig.id)}
+                                                            @rename-trigger=${this._onRenameTrigger}
+                                                            @toggle-enabled=${(ev: CustomEvent) =>
+                                                                this._toggleTriggerEnabled(ev.detail.trigger, ev)}
+                                                            @edit-trigger=${(ev: CustomEvent) =>
+                                                                this._openEditTrigger(ev.detail.trigger, ev)}
+                                                            @delete-trigger=${(ev: CustomEvent) =>
+                                                                this._requestDeleteTrigger(ev.detail.trigger, ev)}
+                                                        >
+                                                            <ha-svg-icon
+                                                                slot="grip"
+                                                                class="grip-handle"
+                                                                .path=${ICON_GRIP}
+                                                            ></ha-svg-icon>
+                                                        </ir-trigger-row>
+                                                    `,
+                                                ),
+                                            )}
+                                        </div>
+                                    `
+                                  : html`<div class="trigger-drawer-empty">${t("trow.empty_state")}</div>`}
+                          </div>
+                      `
+                    : nothing}
+            </div>
 
             <!-- Blasters (Pluckable) -- vendor IR blasters HAIR can pull from -->
             ${this._pluckBlasters.length > 0
@@ -1078,7 +1395,10 @@ export class IrDeviceList extends LitElement {
         `;
     }
 
-    static styles = css`
+    static styles = [
+        exitToEntityButtonStyles,
+        bloomStyles,
+        css`
         :host {
             display: block;
         }
@@ -1154,6 +1474,20 @@ export class IrDeviceList extends LitElement {
             font-weight: 400;
             color: var(--secondary-text-color);
             font-size: 0.9rem;
+        }
+        /* Trigger Remotes' own toolbar -- same treatment as the devices
+           toolbar above (icon + title + count), gold instead of device
+           green, with the section boundary itself living here as a
+           border-top (owner ruling 2026-08-14: the line caps off
+           Controlled Devices, the header sits below it, not the other
+           way around). */
+        .trigger-toolbar {
+            border-top: 2px solid var(--divider-color);
+            padding-top: 20px;
+            margin: 24px 0 16px;
+        }
+        .trigger-toolbar-title ha-svg-icon {
+            color: #d4a017;
         }
 
         /* --- Section headers (neutral) --- */
@@ -1232,6 +1566,7 @@ export class IrDeviceList extends LitElement {
         }
         .card-meta {
             margin-top: 6px;
+            margin-left: 35px;
             font-size: 0.78rem;
             color: var(--secondary-text-color);
             white-space: nowrap;
@@ -1240,15 +1575,17 @@ export class IrDeviceList extends LitElement {
         }
         .card-footer {
             margin-top: 8px;
+            margin-left: 32px;
             display: flex;
             gap: 6px;
             align-items: center;
         }
         .badge {
             border-radius: 4px;
-            padding: 2px 8px;
+            padding: 2px 4px;
             font-size: 0.72rem;
             font-weight: 500;
+            line-height: 1;
         }
 
         /* Command count badge (green) */
@@ -1349,6 +1686,16 @@ export class IrDeviceList extends LitElement {
             top: 6px;
             right: 6px;
             color: var(--disabled-text-color, #999);
+            opacity: 0;
+        }
+        /* Hidden until the card itself is hovered or has focus within
+           (keyboard users tabbing onto the card or its children) --
+           always-visible at rest read as busy (owner catch
+           2026-08-14). */
+        .device-card:hover .duplicate-action,
+        .device-card:focus-within .duplicate-action,
+        .device-card:hover .delete-action,
+        .device-card:focus-within .delete-action {
             opacity: 0.55;
         }
         .duplicate-action ha-svg-icon {
@@ -1365,7 +1712,7 @@ export class IrDeviceList extends LitElement {
             bottom: 6px;
             right: 6px;
             color: var(--disabled-text-color, #999);
-            opacity: 0.55;
+            opacity: 0;
         }
         /* EMBER, not material red (owner ruling 2026-08-03). Ember is
            already the panel's delete colour on every text chip, and the
@@ -1389,103 +1736,139 @@ export class IrDeviceList extends LitElement {
             text-transform: uppercase;
         }
 
-        /* --- Trigger section --- */
-        .trigger-card {
+        /* --- Trigger Remotes: single HAIR Triggers drawer card --- */
+        .trigger-drawer-card {
             transition: transform 120ms ease, box-shadow 300ms ease,
                         border-color 300ms ease, background 400ms ease;
+            position: relative;
         }
-        .trigger-card .trigger-icon {
+        .trigger-drawer-card .trigger-icon {
+            /* Gold, matching the drawer's own palette (bloomStyles'
+               default hue) -- not the device green .toolbar-title uses,
+               per the owner's green = device-ward ruling above. */
+            color: #d4a017;
             transition: color 200ms ease, transform 200ms ease;
         }
-        .trigger-card.trigger-disabled {
-            opacity: 0.5;
+        .trigger-drawer-card.expanded {
+            border-color: #d4a017;
+            box-shadow: 0 0 0 1px #d4a017;
+        }
+        /* Fire-glow now rides the shared .bloom class (ir-bloom-styles.ts)
+           instead of this file's own trigger-card-flash/trigger-bolt-pulse
+           keyframes -- same shape the Mirror's silver bloom uses, gold by
+           this class's own default custom properties. */
+        .trigger-drawer-card.bloom .trigger-icon {
+            color: var(--bloom-peak);
         }
 
-        /* --- Trigger fire animation (card + bolt) --- */
-        .trigger-card.trigger-glow {
-            border-color: #d4a017;
-            background: rgba(212, 160, 23, 0.08);
-            animation: trigger-card-flash 2.4s ease-out;
+        /* --- Drawer header (rename-in-place + go-to-HA + close),
+               parity with ir-device-detail.ts's own device header --- */
+        .trh-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
         }
-        .trigger-card.trigger-glow .trigger-icon {
-            color: #f5a623;
-            animation: trigger-bolt-pulse 2.4s ease-out;
+        .trh-header .header-left {
+            flex: 1;
+            min-width: 0;
         }
-        @keyframes trigger-card-flash {
-            0% {
-                background: rgba(212, 160, 23, 0.18);
-                border-color: #f5a623;
-                box-shadow: 0 0 16px 4px rgba(245, 166, 35, 0.4);
-            }
-            30% {
-                background: rgba(212, 160, 23, 0.1);
-                border-color: #d4a017;
-                box-shadow: 0 0 8px 2px rgba(245, 166, 35, 0.2);
-            }
-            60% {
-                background: rgba(212, 160, 23, 0.06);
-                box-shadow: 0 0 4px 1px rgba(245, 166, 35, 0.1);
-            }
-            100% {
-                background: transparent;
-                border-color: var(--divider-color);
-                box-shadow: none;
-            }
+        .trh-header .name-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
         }
-        @keyframes trigger-bolt-pulse {
-            0% { color: #ffb300; transform: scale(1.4); }
-            15% { color: #f5a623; transform: scale(1.0); }
-            30% { color: #ffb300; transform: scale(1.35); }
-            50% { color: #d4a017; transform: scale(1.0); }
-            100% { color: var(--secondary-text-color); transform: scale(1.0); }
+        .trh-header h1 {
+            font-size: 1.3rem;
+            margin: 0;
         }
-        .trigger-hits-badge {
-            background: rgba(184, 153, 48, 0.15);
-            color: #b89930;
-            text-transform: uppercase;
-        }
-        .trigger-toggle {
+        .trh-header .editable-name {
             cursor: pointer;
-            transition: background 150ms ease;
-        }
-        .trigger-toggle.trigger-enabled {
-            background: rgba(46, 125, 50, 0.15);
-            color: #2e7d32;
-        }
-        .trigger-toggle.trigger-enabled:hover {
-            background: rgba(46, 125, 50, 0.25);
-        }
-        .trigger-toggle.trigger-off {
-            background: var(--secondary-background-color);
-            color: var(--disabled-text-color, #999);
-        }
-        .trigger-toggle.trigger-off:hover {
-            background: rgba(0, 0, 0, 0.1);
-        }
-        /* Matches the device-card .delete-action palette so the trigger
-           trash and the device-card trash read as the same control. */
-        /* A real button, not a bare icon with a click handler: it was
-           unreachable by keyboard for as long as it has shipped. */
-        .trigger-trash {
-            --mdc-icon-size: 16px;
             display: inline-flex;
             align-items: center;
-            background: none;
-            border: none;
-            color: var(--disabled-text-color, #999);
-            cursor: pointer;
-            margin-left: auto;
-            opacity: 0.55;
-            border-radius: 4px;
-            padding: 2px;
-            transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
+            gap: 6px;
+            border-bottom: 1px dashed transparent;
+            transition: border-color 150ms ease;
         }
-        .trigger-trash:hover {
-            background: rgba(230, 81, 0, 0.12);
-            color: #e65100;
+        .trh-header .editable-name:hover {
+            border-bottom-color: var(--primary-color);
+        }
+        .trh-header .edit-icon {
+            /* .editable-name's own flex gap (6px) already spaces this
+               from the name -- an explicit margin here would double
+               up with it (bench catch 2026-08-14: pushed the pencil
+               out to 12px instead of 6). */
+            font-size: 0.7rem;
+            color: var(--secondary-text-color);
+            opacity: 0;
+            transition: opacity 150ms ease;
+        }
+        .trh-header .editable-name:hover .edit-icon {
             opacity: 1;
         }
-    `;
+        .trh-header .name-input {
+            font-size: 1.3rem;
+            font-family: inherit;
+            font-weight: bold;
+            border: none;
+            border-bottom: 2px solid var(--primary-color);
+            background: transparent;
+            color: var(--primary-text-color);
+            outline: none;
+            flex: 1;
+            min-width: 0;
+            padding: 0 0 2px;
+        }
+        .trh-subtitle {
+            margin-top: 2px;
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
+        }
+        .trh-header .collapse-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            padding: 4px;
+            border-radius: 4px;
+            font-size: 1rem;
+            line-height: 1;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            flex-shrink: 0;
+            align-self: center;
+            transition: background 150ms ease, color 150ms ease;
+        }
+        .trh-header .collapse-btn:hover {
+            color: var(--primary-text-color);
+            background: var(--secondary-background-color);
+        }
+
+        /* --- Trigger row list (SortableJS grip-drag) --- */
+        .trigger-rows {
+            display: flex;
+            flex-direction: column;
+        }
+        .trigger-rows ir-trigger-row.sortable-ghost {
+            opacity: 0.4;
+        }
+        .grip-handle {
+            --mdc-icon-size: 18px;
+            color: var(--disabled-text-color, #999);
+            cursor: grab;
+        }
+        .trigger-drawer-empty {
+            padding: 20px 8px;
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--secondary-text-color);
+            font-style: italic;
+        }
+    `,
+    ];
 }
 
 declare global {

@@ -1,6 +1,7 @@
 """Tests for the HAIR WebSocket API handlers."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -38,11 +39,16 @@ from custom_components.hair.websocket_api import (
     ws_get_command_templates,
     ws_get_device,
     ws_get_devices,
+    ws_get_receivers,
     ws_get_sniffer_status,
+    ws_get_trigger_drawer,
+    ws_get_triggers,
     ws_get_unknown_device,
     ws_get_unknown_devices,
+    ws_rename_trigger_drawer,
     ws_reorder_commands,
     ws_reorder_devices,
+    ws_reorder_triggers,
     ws_reorder_unknown_devices,
     ws_reorder_unknown_signals,
     ws_save_captured_command,
@@ -94,6 +100,22 @@ def _make_signal_monitor(hass):
     hair_store.get_device = MagicMock(return_value=None)
     hair_store.async_save = AsyncMock()
     return SignalMonitor(hass, signal_store, hair_store)
+
+
+def _wire_triggers(hass, store=None):
+    """Set up hass.data[DOMAIN] with a store + config_entry, the shape the
+    trigger/trigger-drawer handlers read (``_get_first_entry_data`` only
+    requires "device_manager" to be present to recognize the entry)."""
+    if store is None:
+        store = MagicMock()
+        store.async_save = AsyncMock()
+    entry_data = {
+        "device_manager": MagicMock(),
+        "store": store,
+        "config_entry": SimpleNamespace(entry_id="entry-1"),
+    }
+    hass.data[DOMAIN] = {"entry-1": entry_data}
+    return store
 
 
 def _mock_device_registry(ha_device_id: str | None):
@@ -850,6 +872,93 @@ async def test_set_tx_force_raw_not_found(fake_hass):
         },
     )
     conn.send_error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_receivers_uses_device_name_not_friendly_name(fake_hass):
+    """Owner bench catch 2026-08-14: the receiver picker was showing
+    HA's auto-composed "<device> <entity>" friendly_name instead of
+    just the device's own name."""
+    entity_id = "infrared.anthem_receiver"
+    fake_hass.states.get = MagicMock(
+        return_value=MagicMock(
+            attributes={
+                "friendly_name": "Anthem RF IR remote 1 IR Proxy Receiver"
+            }
+        )
+    )
+    entity_entry = MagicMock(device_id="dev1")
+    # MagicMock's own constructor reserves the ``name`` kwarg for its
+    # internal repr name, not an attribute -- must be set after
+    # construction to actually stick as device_entry.name.
+    device_entry = MagicMock(name_by_user=None)
+    device_entry.name = "Anthem RF IR remote 1"
+    entity_registry = MagicMock()
+    entity_registry.async_get = MagicMock(return_value=entity_entry)
+    device_registry = MagicMock()
+    device_registry.async_get = MagicMock(return_value=device_entry)
+
+    conn = _make_connection()
+    with patch(
+        "homeassistant.components.infrared.async_get_receivers",
+        return_value=[entity_id],
+        create=True,
+    ), patch(
+        "custom_components.hair.receiver_filter.er.async_get",
+        return_value=MagicMock(async_get=MagicMock(return_value=None)),
+    ), patch(
+        "custom_components.hair.websocket_api.er.async_get",
+        return_value=entity_registry,
+    ), patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=device_registry,
+    ):
+        await ws_get_receivers(
+            fake_hass, conn, {"id": 12, "type": "hair/receivers"}
+        )
+
+    conn.send_result.assert_called_once_with(
+        12,
+        [{"entity_id": entity_id, "name": "Anthem RF IR remote 1"}],
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_receivers_falls_back_to_friendly_name_without_device(
+    fake_hass,
+):
+    """No entity-registry entry (or no linked device) -- falls back to
+    the old friendly_name behavior rather than dropping the receiver."""
+    entity_id = "infrared.unregistered_receiver"
+    fake_hass.states.get = MagicMock(
+        return_value=MagicMock(attributes={"friendly_name": "Some Receiver"})
+    )
+    entity_registry = MagicMock()
+    entity_registry.async_get = MagicMock(return_value=None)
+
+    conn = _make_connection()
+    with patch(
+        "homeassistant.components.infrared.async_get_receivers",
+        return_value=[entity_id],
+        create=True,
+    ), patch(
+        "custom_components.hair.receiver_filter.er.async_get",
+        return_value=MagicMock(async_get=MagicMock(return_value=None)),
+    ), patch(
+        "custom_components.hair.websocket_api.er.async_get",
+        return_value=entity_registry,
+    ), patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=MagicMock(),
+    ):
+        await ws_get_receivers(
+            fake_hass, conn, {"id": 13, "type": "hair/receivers"}
+        )
+
+    conn.send_result.assert_called_once_with(
+        13,
+        [{"entity_id": entity_id, "name": "Some Receiver"}],
+    )
 
 
 @pytest.mark.asyncio
@@ -2175,6 +2284,167 @@ async def test_reorder_devices_invalid_format(fake_hass):
     )
     conn.send_error.assert_called_once()
     assert conn.send_error.call_args[0][1] == "invalid_format"
+
+
+# ---------------------------------------------------------------------------
+# ws_get_triggers / ws_reorder_triggers / trigger drawer (Trigger Remotes
+# signpost 1, Track B)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_triggers_uses_ordered(fake_hass):
+    """The drawer's row list renders in persisted order, not dict order."""
+    store = _wire_triggers(fake_hass)
+    trig = MagicMock()
+    trig.to_dict.return_value = {"id": "t1", "name": "Power"}
+    store.get_all_triggers_ordered = MagicMock(return_value=[trig])
+    store.get_all_triggers = MagicMock(
+        side_effect=AssertionError("should call the ordered variant")
+    )
+
+    conn = _make_connection()
+    await ws_get_triggers(fake_hass, conn, {"id": 1, "type": "hair/triggers"})
+
+    store.get_all_triggers_ordered.assert_called_once()
+    conn.send_result.assert_called_once_with(1, [{"id": "t1", "name": "Power"}])
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_success(fake_hass):
+    store = _wire_triggers(fake_hass)
+    store.reorder_triggers = MagicMock()
+
+    conn = _make_connection()
+    await ws_reorder_triggers(
+        fake_hass, conn,
+        {"id": 400, "type": "hair/trigger/reorder", "trigger_ids": ["b", "a"]},
+    )
+    store.reorder_triggers.assert_called_once_with(["b", "a"])
+    store.async_save.assert_awaited_once()
+    conn.send_result.assert_called_once_with(400, {"reordered": True})
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_invalid_format(fake_hass):
+    store = _wire_triggers(fake_hass)
+    store.reorder_triggers = MagicMock(
+        side_effect=ValueError("Reorder list does not match current triggers")
+    )
+
+    conn = _make_connection()
+    await ws_reorder_triggers(
+        fake_hass, conn,
+        {"id": 401, "type": "hair/trigger/reorder", "trigger_ids": ["ghost"]},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    store.async_save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reorder_triggers_not_configured(fake_hass):
+    conn = _make_connection()
+    await ws_reorder_triggers(
+        fake_hass, conn,
+        {"id": 402, "type": "hair/trigger/reorder", "trigger_ids": []},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_configured"
+
+
+@pytest.mark.asyncio
+async def test_get_trigger_drawer_no_registry_entry(fake_hass):
+    """Empty state: no device registered until the first trigger lands."""
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_drawer_name = MagicMock(return_value="HAIR Triggers")
+
+    conn = _make_connection()
+    with _mock_device_registry(None):
+        await ws_get_trigger_drawer(
+            fake_hass, conn, {"id": 500, "type": "hair/trigger-drawer"},
+        )
+    conn.send_result.assert_called_once_with(
+        500, {"name": "HAIR Triggers", "ha_device_id": None},
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_trigger_drawer_with_registry_entry(fake_hass):
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_drawer_name = MagicMock(return_value="Living Room Remotes")
+
+    conn = _make_connection()
+    with _mock_device_registry("ha-dev-99"):
+        await ws_get_trigger_drawer(
+            fake_hass, conn, {"id": 501, "type": "hair/trigger-drawer"},
+        )
+    conn.send_result.assert_called_once_with(
+        501, {"name": "Living Room Remotes", "ha_device_id": "ha-dev-99"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_rename_trigger_drawer_success(fake_hass):
+    store = _wire_triggers(fake_hass)
+    store.set_trigger_drawer_name = MagicMock()
+
+    conn = _make_connection()
+    with _mock_device_registry(None), patch(
+        "custom_components.hair.event.resync_drawer_name"
+    ) as resync:
+        await ws_rename_trigger_drawer(
+            fake_hass, conn,
+            {"id": 502, "type": "hair/trigger-drawer/rename", "name": "Den Remotes"},
+        )
+    store.set_trigger_drawer_name.assert_called_once_with("Den Remotes")
+    store.async_save.assert_awaited_once()
+    resync.assert_called_once_with(fake_hass, "entry-1", "Den Remotes")
+    conn.send_result.assert_called_once_with(
+        502, {"name": "Den Remotes", "ha_device_id": None},
+    )
+
+
+@pytest.mark.asyncio
+async def test_rename_trigger_drawer_updates_registry_entry(fake_hass):
+    """When the drawer already has a live HA device, the rename must also
+    reach the registry directly -- device_info alone only syncs at entity
+    ADD time, not on every state write."""
+    _wire_triggers(fake_hass)
+
+    conn = _make_connection()
+    registry = MagicMock()
+    ha_device = MagicMock(id="ha-dev-7")
+    registry.async_get_device.return_value = ha_device
+    with patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=registry,
+    ), patch("custom_components.hair.event.resync_drawer_name"):
+        await ws_rename_trigger_drawer(
+            fake_hass, conn,
+            {"id": 503, "type": "hair/trigger-drawer/rename", "name": "New Name"},
+        )
+    registry.async_update_device.assert_called_once_with(
+        "ha-dev-7", name="New Name",
+    )
+    conn.send_result.assert_called_once_with(
+        503, {"name": "New Name", "ha_device_id": "ha-dev-7"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_rename_trigger_drawer_rejects_blank_name(fake_hass):
+    store = _wire_triggers(fake_hass)
+    store.set_trigger_drawer_name = MagicMock()
+
+    conn = _make_connection()
+    await ws_rename_trigger_drawer(
+        fake_hass, conn,
+        {"id": 504, "type": "hair/trigger-drawer/rename", "name": "   "},
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+    store.set_trigger_drawer_name.assert_not_called()
 
 
 @pytest.mark.asyncio

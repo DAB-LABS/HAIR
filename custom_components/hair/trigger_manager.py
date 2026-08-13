@@ -309,6 +309,24 @@ class TriggerManager:
     ) -> None:
         """Fire the HA event and notify subscribers."""
         now_iso = datetime.now(UTC).isoformat()
+
+        # Trigger Remotes signpost 1, Track B: stamp the row's "aliveness"
+        # fact (trigger-remote-detail-design-brief.md). Once per CONFIRMED
+        # fire, not once per raw hit -- this runs after the min_hits chain
+        # already completed, the same call site the event/bus fire itself
+        # happens from. _fire_trigger is a sync callback (called from
+        # on_signal_captured, itself called from the signal-monitor
+        # capture path), so the save is dispatched as a background task
+        # rather than awaited; a trigger fire is a human-press-paced
+        # event, not the high-frequency signal-capture path SAVE_DEBOUNCE
+        # exists for, so an immediate per-fire save (matching every WS
+        # trigger mutation's own async_save-per-call convention) is
+        # proportionate and simpler than adding a new debounce layer.
+        trigger.fire_count += 1
+        trigger.last_fired_at = now_iso
+        self._store.update_trigger(trigger)
+        self._hass.async_create_task(self._store.async_save())
+
         event_data = {
             "trigger_id": trigger.id,
             "trigger_name": trigger.name,

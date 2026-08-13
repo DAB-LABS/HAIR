@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from . import pluck
 from .capture import (
@@ -144,6 +145,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_trigger)
     websocket_api.async_register_command(hass, ws_delete_trigger)
     websocket_api.async_register_command(hass, ws_subscribe_triggers)
+    websocket_api.async_register_command(hass, ws_reorder_triggers)
+    websocket_api.async_register_command(hass, ws_get_trigger_drawer)
+    websocket_api.async_register_command(hass, ws_rename_trigger_drawer)
 
 
 def _get_first_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
@@ -1043,6 +1047,9 @@ async def ws_get_receivers(
 
         from .receiver_filter import is_rf_receiver
 
+        entity_registry = er.async_get(hass)
+        device_registry = dr.async_get(hass)
+
         entity_ids = async_get_receivers(hass)
         for entity_id in entity_ids:
             if is_rf_receiver(hass, entity_id):
@@ -1053,6 +1060,17 @@ async def ws_get_receivers(
             name = entity_id
             if state is not None:
                 name = state.attributes.get("friendly_name", entity_id)
+            # Prefer the owning device's own name over the entity's
+            # friendly_name, which HA auto-composes as "<device name>
+            # <entity name>" (e.g. "Anthem RF IR remote 1 IR Proxy
+            # Receiver") -- accurate, but not what a user picking a
+            # receiver from a short list wants to read (owner bench
+            # catch 2026-08-14).
+            entry = entity_registry.async_get(entity_id)
+            if entry is not None and entry.device_id is not None:
+                device = device_registry.async_get(entry.device_id)
+                if device is not None:
+                    name = device.name_by_user or device.name or name
             receivers.append({
                 "entity_id": entity_id,
                 "name": str(name),
@@ -2493,13 +2511,16 @@ async def ws_get_triggers(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return all triggers."""
+    """Return all triggers, ordered (Trigger Remotes signpost 1, Track B:
+    the drawer's row list renders in the persisted ``order``, not
+    insertion/dict order -- the same field the automation-editor
+    dropdown (Track A, device_trigger.py) already sorts by)."""
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_result(msg["id"], [])
         return
     store = data["store"]
-    triggers = store.get_all_triggers()
+    triggers = store.get_all_triggers_ordered()
     connection.send_result(msg["id"], [t.to_dict() for t in triggers])
 
 
@@ -2670,7 +2691,10 @@ async def ws_update_trigger(
     from datetime import UTC, datetime
 
     if "name" in msg:
-        trigger.name = msg["name"]
+        # Trigger Remotes signpost 1: retire the old name into alias
+        # history rather than overwriting it, so a device trigger built
+        # against the old name keeps resolving (device_trigger.py).
+        trigger.rename(msg["name"])
     if "min_hits" in msg:
         trigger.min_hits = max(1, msg["min_hits"])
     if "enabled" in msg:
@@ -2763,6 +2787,137 @@ async def ws_subscribe_triggers(
 
     connection.subscriptions[msg["id"]] = _on_disconnect
     connection.send_result(msg["id"], {"subscribed": True})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger/reorder",
+    vol.Required("trigger_ids"): [str],
+})
+@websocket_api.async_response
+async def ws_reorder_triggers(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Reorder the HAIR Triggers drawer's row list.
+
+    Mirrors ``hair/devices/reorder`` and ``hair/device/reorder-commands``
+    (Trigger Remotes signpost 1, Track B: ir-trigger-row.ts drag reorder).
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    try:
+        store.reorder_triggers(list(msg["trigger_ids"]))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    await store.async_save()
+    connection.send_result(msg["id"], {"reordered": True})
+
+
+def _trigger_drawer_ha_device_id(hass: HomeAssistant) -> str | None:
+    """Resolve the HAIR Triggers drawer's HA device-registry id, if any.
+
+    None until the first trigger's event entity registers the device
+    (empty-state ruling, design brief section "Empty state": "No HA
+    device link yet -- there's nothing registered until the first
+    trigger lands"). Mirrors ``_ha_device_id`` above, keyed on the
+    drawer's own fixed identifier instead of a per-device id.
+    """
+    from .event import TRIGGER_DEVICE_ID
+
+    registry = dr.async_get(hass)
+    ha_device = registry.async_get_device(identifiers={(DOMAIN, TRIGGER_DEVICE_ID)})
+    return ha_device.id if ha_device is not None else None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-drawer",
+})
+@websocket_api.async_response
+async def ws_get_trigger_drawer(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the HAIR Triggers drawer's identity (name + HA device link).
+
+    Trigger Remotes signpost 1, Track B header: name (rename-in-place),
+    the exit-to-entity glyph (only rendered by the frontend when
+    ``ha_device_id`` is not None). Trigger count is not included here --
+    the frontend already holds the full trigger list via
+    ``hair/triggers`` and can just take its length, so this stays a
+    two-field payload instead of a second source of truth for a count.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    connection.send_result(msg["id"], {
+        "name": store.get_trigger_drawer_name(),
+        "ha_device_id": _trigger_drawer_ha_device_id(hass),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-drawer/rename",
+    vol.Required("name"): str,
+})
+@websocket_api.async_response
+async def ws_rename_trigger_drawer(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Rename the HAIR Triggers drawer.
+
+    Updates the stored name (the single source of truth new entities
+    register under, see event.py) and, when the drawer already has a
+    live HA device-registry entry, that entry's own ``name`` directly --
+    HA only syncs an entity's ``device_info`` into the registry at
+    entity-add time, not on every state write, so a bare
+    ``async_write_ha_state()`` after the rename would not reach the
+    registry on its own. ``name`` (the integration-owned base name),
+    not ``name_by_user`` (HA's own "user overrode this via Settings"
+    field) -- this rename comes from HAIR's own panel and IS the new
+    canonical name, the same relationship every other HAIR device's
+    name already has to its own registry entry (no device carries a
+    manual dr.async_update_device call for its own rename either; see
+    ws_update_device).
+    """
+    name = msg["name"].strip()
+    if not name:
+        connection.send_error(msg["id"], "invalid_format", "Name is required")
+        return
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    store.set_trigger_drawer_name(name)
+    await store.async_save()
+
+    from .event import TRIGGER_DEVICE_ID, resync_drawer_name
+
+    entry_id = data["config_entry"].entry_id
+    resync_drawer_name(hass, entry_id, name)
+
+    registry = dr.async_get(hass)
+    ha_device = registry.async_get_device(identifiers={(DOMAIN, TRIGGER_DEVICE_ID)})
+    if ha_device is not None:
+        registry.async_update_device(ha_device.id, name=name)
+
+    connection.send_result(msg["id"], {
+        "name": name,
+        "ha_device_id": ha_device.id if ha_device is not None else None,
+    })
 
 
 # --- Wigs (v0.7.0 Big Wig): the closet over WebSocket ---

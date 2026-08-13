@@ -489,9 +489,11 @@ class TestEveryTrashIsNamed:
 
     def test_the_trigger_trash_became_focusable(self):
         """It shipped as a bare ha-svg-icon with a click handler, so it
-        was unreachable by keyboard for as long as it has existed."""
-        text = _read("ir-device-list.ts")
-        before, block = text.split('class="trigger-trash"', 1)
+        was unreachable by keyboard for as long as it has existed. The
+        trigger row, trash button included, later moved out of
+        ir-device-list.ts into its own component."""
+        text = _read("ir-trigger-row.ts")
+        before, block = text.split('class="trash-btn"', 1)
         assert "aria-label=" in block.split(">", 1)[0]
         # The tag it opens now, not the tag it used to open.
         assert before.rstrip().endswith("<button")

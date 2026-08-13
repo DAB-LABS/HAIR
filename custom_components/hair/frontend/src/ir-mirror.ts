@@ -42,6 +42,7 @@ import {
     trashButtonStyles,
 } from "./ir-icons.js";
 import { HairApi } from "./api.js";
+import { BloomTracker, bloomStyles } from "./ir-bloom-styles.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-signal-editor.js";
@@ -89,14 +90,6 @@ const ICON_MIRROR =
 /** The separator record_send/_match_echo bake into echo_source. */
 const VIA_SEP = " -- via ";
 
-/** Bloom duration must match the CSS animation. */
-// Held 100ms past the 2.4s animation on purpose: when the animation
-// ends, the static .bloom styles snap back for one last silver pass,
-// then the class drops and the row's transitions fade it out. This is
-// the trigger card's exact glow lifecycle (see ir-device-list.ts,
-// trigger-glow at 2.4s animation / 2500ms class hold).
-const BLOOM_MS = 2500;
-
 /** Debounce between a live push and the full device re-fetch. */
 const REFRESH_DEBOUNCE_MS = 300;
 
@@ -132,6 +125,11 @@ export class IrMirror extends LitElement {
     @state() private _filter: string = "all"; // "all" | "notheard" | emitter name
     @state() private _search = "";
     @state() private _bloomIds = new Set<string>();
+    // Sequence-numbered fire tracker (ir-bloom-styles.ts, Track B bloom
+    // extraction) -- replaces the bare setTimeout+Set pair below, which
+    // let a fast repeat send's glow get cut short by the first send's
+    // still-pending timeout (the same v0.7.2 bug the trigger card had).
+    private _bloomTracker = new BloomTracker();
 
     // Dialog / popover state (the Sniffer's row-action vocabulary)
     @state() private _assignSignal: {
@@ -269,12 +267,17 @@ export class IrMirror extends LitElement {
         if (ev.device_fingerprint !== MIRROR_DEVICE_FP) return;
 
         // Silver bloom on the touched row while you watch.
-        this._bloomIds = new Set([...this._bloomIds, ev.signal_id]);
-        setTimeout(() => {
-            const next = new Set(this._bloomIds);
-            next.delete(ev.signal_id);
-            this._bloomIds = next;
-        }, BLOOM_MS);
+        this._bloomTracker.trigger(
+            ev.signal_id,
+            () => {
+                this._bloomIds = new Set([...this._bloomIds, ev.signal_id]);
+            },
+            () => {
+                const next = new Set(this._bloomIds);
+                next.delete(ev.signal_id);
+                this._bloomIds = next;
+            },
+        );
 
         // Debounced re-fetch: a dial drag can fire many sends per second.
         if (this._refreshTimer !== null) clearTimeout(this._refreshTimer);
@@ -1110,6 +1113,7 @@ export class IrMirror extends LitElement {
         actionChipStyles,
         trashButtonStyles,
         editButtonStyles,
+        bloomStyles,
         css`
             /* Edit + trash sit as one unit, hover boxes butted with
                zero gap -- same pairing ir-command-row.ts's device-
@@ -1270,36 +1274,20 @@ export class IrMirror extends LitElement {
             }
             /* The silver bloom a send makes while you watch: the WHOLE
                card glows and fades (owner bench note -- the old left-edge
-               chip read as a sliver). Lifecycle is the trigger card's,
-               verbatim, in silver: the animation fades to nothing over
-               2.4s, the class's static styles snap back for one last
-               pass (class held to 2500ms, see BLOOM_MS), then the class
-               drops and the row's transitions carry the soft exit. */
+               chip read as a sliver). Now rides the shared .bloom class
+               (ir-bloom-styles.ts, Track B bloom extraction) -- same
+               shape and timing the trigger row/card use, silver here via
+               these three custom-property overrides instead of the
+               module's gold default. The old mirror-bloom keyframes and
+               the .mrow.bloom border/background "snap-back" base rule
+               (a one-more-pass-before-fade flourish) are retired with
+               it: the shared module doesn't reproduce that nuance for
+               any of its three consumers, trading a small polish detail
+               for one real animation instead of three drifting copies. */
             .mrow.bloom {
-                border-color: #90a4ae;
-                background: rgba(144, 164, 174, 0.08);
-                animation: mirror-bloom 2.4s ease-out;
-            }
-            @keyframes mirror-bloom {
-                0% {
-                    background: rgba(144, 164, 174, 0.18);
-                    border-color: #b0bec5;
-                    box-shadow: 0 0 16px 4px rgba(144, 164, 174, 0.4);
-                }
-                30% {
-                    background: rgba(144, 164, 174, 0.1);
-                    border-color: #90a4ae;
-                    box-shadow: 0 0 8px 2px rgba(144, 164, 174, 0.2);
-                }
-                60% {
-                    background: rgba(144, 164, 174, 0.06);
-                    box-shadow: 0 0 4px 1px rgba(144, 164, 174, 0.1);
-                }
-                100% {
-                    background: transparent;
-                    border-color: var(--divider-color);
-                    box-shadow: none;
-                }
+                --bloom-rgb: 144, 164, 174;
+                --bloom-peak: #b0bec5;
+                --bloom-edge: #90a4ae;
             }
             .mrow-main {
                 min-width: 0;
