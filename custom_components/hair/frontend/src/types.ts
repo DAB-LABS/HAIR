@@ -568,6 +568,35 @@ export interface EntityConfig {
     swing_modes?: string[] | null;
 }
 
+/** Add Popups signpost 2, Track 1B/3: a named trigger remote --
+ * position-independent from any single device, position-dependent on
+ * nothing but its own row in storage.py. Mirrors TriggerRemote.to_dict()
+ * plus the two websocket-only riders (ha_device_id, trigger_count) every
+ * list/create/rename response adds. */
+export interface TriggerRemoteInfo {
+    id: string;
+    name: string;
+    receiver_scope: string[];
+    origin: string | null;
+    created_at: string;
+    updated_at: string;
+    ha_device_id: string | null;
+    trigger_count: number;
+}
+
+/** Add Popups signpost 2, Track 3: one wig signal's derived identity,
+ * as returned by hair/wigs/signals -- everything
+ * ir-add-trigger-remote-dialog.ts needs to seed a hair/trigger/create
+ * call without re-deriving fingerprint/byte_hash/decoded_fingerprint
+ * itself (there is no Pronto decoder on the frontend). */
+export interface WigSignalIdentity {
+    name: string;
+    signal_fingerprint: string;
+    code: string | null;
+    byte_hash: string | null;
+    decoded_fingerprint: string | null;
+}
+
 export interface IRDevice {
     id: string;
     name: string;
@@ -920,6 +949,11 @@ export interface IRTrigger {
     // trigger the frontend itself just optimistically constructed before
     // the create round-trip returns.
     order?: number | null;
+    // Owning remote (Add Popups signpost 2, Track 1B backend field;
+    // this frontend declaration was added in Track 5). null/absent =
+    // the HAIR Triggers drawer. See models.py's IRTrigger.trigger_remote_id
+    // for the full field doc -- this mirrors it, not a fresh concept.
+    trigger_remote_id?: string | null;
     // Alias history (device_trigger.py rename tolerance). Not rendered by
     // the panel; carried here only so the frontend type mirrors the
     // backend's to_dict() shape in full.

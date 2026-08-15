@@ -10,13 +10,14 @@ import { customElement, property, state } from "./decorators.js";
 import { HairApi } from "./api.js";
 import { setPanelLanguage, t } from "./localize.js";
 import "./ir-device-list.js";
-import "./ir-add-device-dialog.js";
+import "./ir-add-controlled-device-dialog.js";
+import "./ir-add-trigger-remote-dialog.js";
 import "./ir-signal-monitor.js";
 import "./ir-clips.js";
 import "./ir-pluck.js";
 import "./ir-mirror.js";
 import "./ir-wigs.js";
-import type { DeviceSummary, IRDevice } from "./types.js";
+import type { DeviceSummary, IRDevice, TriggerRemoteInfo } from "./types.js";
 
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
@@ -38,6 +39,8 @@ export class HaPanelIrDevices extends LitElement {
     @state() private _loading = true;
     @state() private _error: string | null = null;
     @state() private _addDialogOpen = false;
+    @state() private _addRemoteDialogOpen = false;
+    @state() private _triggerRemotes: TriggerRemoteInfo[] = [];
     @state() private _pluckersAvailable = false;
     @state() private _pendingPluckEntity = "";
 
@@ -65,6 +68,7 @@ export class HaPanelIrDevices extends LitElement {
     private _init(): void {
         this._api = new HairApi(this.hass);
         void this._refreshDevices();
+        void this._refreshTriggerRemotes();
         void this._checkPluckers();
     }
 
@@ -100,6 +104,24 @@ export class HaPanelIrDevices extends LitElement {
         }
     }
 
+    /**
+     * Add Popups signpost 2, Track 4: named trigger remotes for the
+     * Trigger Remotes section's card list. Parent-owned and passed
+     * down as a property, same shape as _devices/_refreshDevices()
+     * above -- the HAIR Triggers drawer itself stays self-loaded
+     * inside ir-device-list.ts (getTriggerDrawer()/listTriggers()),
+     * untouched by this.
+     */
+    private async _refreshTriggerRemotes(): Promise<void> {
+        if (!this._api) return;
+        try {
+            this._triggerRemotes = await this._api.listTriggerRemotes();
+        } catch {
+            // Non-fatal; the section keeps showing its last-known list
+            // until the next successful refresh.
+        }
+    }
+
     private _toggleDevice(deviceId: string): void {
         this._expandedDeviceId =
             this._expandedDeviceId === deviceId ? null : deviceId;
@@ -107,6 +129,10 @@ export class HaPanelIrDevices extends LitElement {
 
     private _openAddDialog(): void {
         this._addDialogOpen = true;
+    }
+
+    private _openAddRemoteDialog(): void {
+        this._addRemoteDialogOpen = true;
     }
 
     private _onNavigatePlucker(
@@ -128,6 +154,10 @@ export class HaPanelIrDevices extends LitElement {
         this._addDialogOpen = false;
     }
 
+    private _closeAddRemoteDialog(): void {
+        this._addRemoteDialogOpen = false;
+    }
+
     private async _onDeviceCreated(event: CustomEvent<IRDevice>): Promise<void> {
         this._addDialogOpen = false;
         await this._refreshDevices();
@@ -141,6 +171,25 @@ export class HaPanelIrDevices extends LitElement {
     private async _onDeviceDeleted(): Promise<void> {
         this._expandedDeviceId = null;
         await this._refreshDevices();
+    }
+
+    private async _onRemoteCreated(
+        _event: CustomEvent<TriggerRemoteInfo>,
+    ): Promise<void> {
+        this._addRemoteDialogOpen = false;
+        await this._refreshTriggerRemotes();
+    }
+
+    private async _onRemoteDeleted(): Promise<void> {
+        await this._refreshTriggerRemotes();
+    }
+
+    /** Add Popups signpost 2, Track 5: rename-in-place and duplicate
+     *  both just need the same list refresh remote-deleted already
+     *  triggers -- neither changes which remotes exist, only one
+     *  remote's fields or the count. */
+    private async _onRemoteChanged(): Promise<void> {
+        await this._refreshTriggerRemotes();
     }
 
     private _switchTab(tab: PanelTab): void {
@@ -269,6 +318,7 @@ export class HaPanelIrDevices extends LitElement {
                     ? html`
                           <ir-device-list
                               .devices=${this._devices}
+                              .triggerRemotes=${this._triggerRemotes}
                               .hass=${this.hass}
                               .api=${this._api}
                               .loading=${this._loading}
@@ -282,6 +332,11 @@ export class HaPanelIrDevices extends LitElement {
                               @navigate-mirror=${() => this._switchTab("mirror")}
                               @navigate-plucker=${this._onNavigatePlucker}
                               @add-device=${this._openAddDialog}
+                              @add-trigger-remote=${this._openAddRemoteDialog}
+                              @remote-deleted=${this._onRemoteDeleted}
+                              @remote-renamed=${this._onRemoteChanged}
+                              @remote-duplicated=${this._onRemoteChanged}
+                              @remote-receivers-changed=${this._onRemoteChanged}
                           ></ir-device-list>
 
                       `
@@ -330,12 +385,23 @@ export class HaPanelIrDevices extends LitElement {
 
             ${this._addDialogOpen
                 ? html`
-                      <ir-add-device-dialog
+                      <ir-add-controlled-device-dialog
                           .api=${this._api}
                           .hass=${this.hass}
                           @closed=${this._closeAddDialog}
                           @device-created=${this._onDeviceCreated}
-                      ></ir-add-device-dialog>
+                      ></ir-add-controlled-device-dialog>
+                  `
+                : ""}
+
+            ${this._addRemoteDialogOpen
+                ? html`
+                      <ir-add-trigger-remote-dialog
+                          .api=${this._api}
+                          .hass=${this.hass}
+                          @closed=${this._closeAddRemoteDialog}
+                          @remote-created=${this._onRemoteCreated}
+                      ></ir-add-trigger-remote-dialog>
                   `
                 : ""}
 

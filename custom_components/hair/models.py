@@ -262,6 +262,16 @@ class IRDevice:
     # clipping. Local renames and send-count tweaks never touch either.
     source_wig_id: str | None = None
     source_file: str | None = None
+    # Creation-door provenance (Add Popups signpost 2, 2026-08-10
+    # provenance ruling): "manual" | "closet" | "device" | "remote",
+    # taken from whichever tab of the add dialog created this device.
+    # Distinct from source_wig_id/source_file above -- those answer
+    # "which wig, if any, backs this device" for the closet's own
+    # update-vs-create routing; this answers "which door was clicked"
+    # and exists for every device regardless of wig linkage. None for
+    # devices created before this field existed; not backfilled, per
+    # the ruling ("no chip renders yet -- the field is the point").
+    origin: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -450,6 +460,7 @@ class IRDevice:
             "climate_matrix": self.climate_matrix,
             "source_wig_id": self.source_wig_id,
             "source_file": self.source_file,
+            "origin": self.origin,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -498,6 +509,9 @@ class IRDevice:
             # correctly as "built from scratch here".
             source_wig_id=data.get("source_wig_id") or None,
             source_file=data.get("source_file") or None,
+            # Absent on every device made before Add Popups signpost 2;
+            # not backfilled, per the provenance ruling.
+            origin=data.get("origin") or None,
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         )
@@ -577,6 +591,25 @@ class IRTrigger:
     # fire_count produces the identical displayed value from a single
     # write, with no dependency on registry timing.
     last_fired_at: str | None = None
+    # Owning remote (Add Popups signpost 2, Track 1B). None = the HAIR
+    # Triggers drawer -- the same "no explicit group" default
+    # trigger-remotes.md section 4.1 specified: "None means the default
+    # HAIR Triggers device. No migration hook." Every pre-signpost-2
+    # trigger reads as drawer-owned with zero backfill needed. Set once
+    # at creation (Manual/Closet/Device tabs of the new Add Trigger
+    # Remote dialog, or the drawer's own "+ Add Trigger" leaving it
+    # None); never reassigned afterward -- moving between remotes was
+    # ruled out 2026-08-10 ("they just create a brand new one... and put
+    # it on the other device"). unique_id (event.py) is qualified by
+    # this field so the same signal can legitimately carry triggers on
+    # two different remotes.
+    trigger_remote_id: str | None = None
+    # Creation-door provenance (2026-08-10 origin-tracking ruling):
+    # "manual" | "closet" | "device" | "remote". Drawer-created triggers
+    # (the existing "+ Add Trigger" dialog, untouched by signpost 2) get
+    # "manual" going forward. None for triggers created before this
+    # field existed; not backfilled.
+    origin: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -598,6 +631,8 @@ class IRTrigger:
             "alias_history": list(self.alias_history),
             "fire_count": self.fire_count,
             "last_fired_at": self.last_fired_at,
+            "trigger_remote_id": self.trigger_remote_id,
+            "origin": self.origin,
         }
 
     @classmethod
@@ -632,6 +667,13 @@ class IRTrigger:
             # source of truth for a lifetime fire count.
             fire_count=int(data.get("fire_count", 0)),
             last_fired_at=data.get("last_fired_at"),
+            # Absent (pre-signpost-2 record) or null both resolve to
+            # None = owned by the HAIR Triggers drawer. No migration
+            # hook, matching trigger-remotes.md section 4.1.
+            trigger_remote_id=data.get("trigger_remote_id") or None,
+            # Absent on every trigger made before signpost 2; not
+            # backfilled, per the provenance ruling.
+            origin=data.get("origin") or None,
         )
 
     def rename(self, new_name: str) -> None:
@@ -713,6 +755,92 @@ class IRTrigger:
         if receiver_entity_id is None:
             return False
         return receiver_entity_id in self.receiver_entity_ids
+
+
+@dataclass
+class TriggerRemote:
+    """A named group that triggers belong to (Add Popups signpost 2).
+
+    Each remote becomes a real HA device carrying its triggers' event
+    entities and device-trigger dropdown, per trigger-remotes.md
+    section 4.1. Deliberately thin -- area lives in Home Assistant, not
+    here. The HAIR Triggers drawer is NOT one of these: it is the
+    ``trigger_remote_id is None`` default (event.py's fixed
+    ``TRIGGER_DEVICE_ID``), non-deletable by construction since there
+    is no row here to delete.
+    """
+
+    id: str = field(default_factory=_new_id)
+    name: str = ""
+    # Remote-level receiver scope (2026-08-10 scoping ruling). Empty =
+    # any receiver. No per-trigger receiver UI ever appears on a named
+    # remote's rows -- that stays exclusive to HAIR Triggers drawer
+    # rows, which keep their own per-trigger receiver_entity_ids.
+    receiver_scope: list[str] = field(default_factory=list)
+    # Creation-door provenance (2026-08-10 origin-tracking ruling):
+    # "manual" | "closet" | "device" | "remote", taken from the tab
+    # that created this remote.
+    origin: str | None = None
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "receiver_scope": list(self.receiver_scope),
+            "origin": self.origin,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TriggerRemote:
+        return cls(
+            id=data.get("id") or _new_id(),
+            name=data.get("name", ""),
+            receiver_scope=list(data.get("receiver_scope") or []),
+            origin=data.get("origin"),
+            created_at=data.get("created_at") or _now_iso(),
+            updated_at=data.get("updated_at") or _now_iso(),
+        )
+
+    def matches_receiver(self, receiver_entity_id: str | None) -> bool:
+        """Return True if this remote's scope matches the capturing receiver.
+
+        Same three-way shape as ``IRTrigger.matches_receiver``: empty
+        scope = unscoped = matches any receiver, including a legacy
+        capture with no receiver_entity_id at all.
+        """
+        if not self.receiver_scope:
+            return True
+        if receiver_entity_id is None:
+            return False
+        return receiver_entity_id in self.receiver_scope
+
+    def clone(self, new_name: str) -> TriggerRemote:
+        """Return a copy of this remote (not its triggers) under a new name.
+
+        Add Popups signpost 2, Track 5: mirrors IRDevice.clone()'s
+        shape -- fresh id/timestamps, everything else about the remote
+        itself copied. receiver_scope is copied since it is genuinely
+        part of the remote's own identity; origin is always "manual"
+        since duplicating is itself a manual action regardless of how
+        the source remote was created.
+
+        This does NOT touch triggers. Unlike IRDevice.clone(), which
+        explicitly excludes them (see that method's own docstring),
+        the caller here (ws_duplicate_trigger_remote) copies them
+        separately -- a trigger remote's triggers are its entire
+        content, so leaving that decision to a shared dataclass method
+        would either force it on every caller or require a parameter
+        this method has no other reason to carry.
+        """
+        return TriggerRemote(
+            name=new_name,
+            receiver_scope=list(self.receiver_scope),
+            origin="manual",
+        )
 
 
 @dataclass

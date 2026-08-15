@@ -32,7 +32,7 @@ import pytest
 from custom_components.hair import device_trigger
 from custom_components.hair.const import DOMAIN, EVENT_TRIGGER_FIRED
 from custom_components.hair.event import TRIGGER_DEVICE_ID
-from custom_components.hair.models import IRTrigger
+from custom_components.hair.models import IRTrigger, TriggerRemote
 from custom_components.hair.storage import HAIRStore
 from custom_components.hair.trigger_manager import TriggerManager
 
@@ -77,8 +77,28 @@ def _hair_triggers_device_entry():
     return SimpleNamespace(identifiers={(DOMAIN, TRIGGER_DEVICE_ID)})
 
 
+def _remote_device_entry(remote_id: str):
+    return SimpleNamespace(identifiers={(DOMAIN, remote_id)})
+
+
 def _other_device_entry():
     return SimpleNamespace(identifiers={("other_domain", "other-id")})
+
+
+def _patch_device_registry(monkeypatch, entries_by_device_id: dict[str, object]):
+    """Patch device_trigger.dr.async_get so async_get(device_id) resolves
+    per ``entries_by_device_id`` (missing ids resolve to None, i.e. an
+    unknown/removed device) -- Add Popups signpost 2, Track 1B-B5's
+    ``_owning_scope_for_device`` now runs on every attach, not just
+    async_get_triggers, so async_attach_trigger tests need the registry
+    wired the same way those already did."""
+    monkeypatch.setattr(
+        device_trigger.dr,
+        "async_get",
+        lambda _h: SimpleNamespace(
+            async_get=lambda device_id: entries_by_device_id.get(device_id)
+        ),
+    )
 
 
 def _trigger(*, name: str = "Power", fingerprint: str = "fp1", **kw) -> IRTrigger:
@@ -219,6 +239,7 @@ class TestAsyncAttachTrigger:
     async def test_attach_resolves_current_name_and_filters_on_id(
         self, wired_hass, mock_store, monkeypatch
     ):
+        _patch_device_registry(monkeypatch, {"dev-1": _hair_triggers_device_entry()})
         t = _trigger(name="Power")
         mock_store.add_trigger(t)
 
@@ -256,6 +277,7 @@ class TestAsyncAttachTrigger:
         """An automation attached (or re-attached, e.g. HA restart) AFTER
         a rename, still carrying the OLD subtype in its stored config,
         resolves to the correct, still-current trigger id."""
+        _patch_device_registry(monkeypatch, {"dev-1": _hair_triggers_device_entry()})
         t = _trigger(name="Power")
         mock_store.add_trigger(t)
         t.rename("Power Toggle")
@@ -287,6 +309,7 @@ class TestAsyncAttachTrigger:
     ):
         """A deleted trigger's automation attaches cleanly (HA convention)
         and simply never fires again -- no sweep, no error."""
+        _patch_device_registry(monkeypatch, {"dev-1": _hair_triggers_device_entry()})
         attach_mock = AsyncMock(return_value=MagicMock())
         monkeypatch.setattr(
             device_trigger.event_trigger, "async_attach_trigger", attach_mock
@@ -309,6 +332,121 @@ class TestAsyncAttachTrigger:
         ]
         # Sentinel never matches a real stored trigger id (uuid4 strings).
         assert fired_trigger_id == device_trigger._UNRESOLVED_SENTINEL
+
+    async def test_attach_on_removed_device_never_falls_back_to_drawer(
+        self, wired_hass, mock_store, monkeypatch
+    ):
+        """The device itself is gone (dr.async_get returns None) -- must
+        attach to a never-firing filter, NOT fall back to searching the
+        drawer. A same-named drawer trigger existing must not hijack a
+        deleted remote's automation (Add Popups signpost 2, Track
+        1B-B5)."""
+        _patch_device_registry(monkeypatch, {})  # "dev-1" resolves to None
+        mock_store.add_trigger(_trigger(name="Power"))  # drawer-owned decoy
+
+        attach_mock = AsyncMock(return_value=MagicMock())
+        monkeypatch.setattr(
+            device_trigger.event_trigger, "async_attach_trigger", attach_mock
+        )
+
+        config = {
+            "platform": "device",
+            "domain": DOMAIN,
+            "device_id": "dev-1",
+            "type": device_trigger.TRIGGER_TYPE_BUTTON_PRESSED,
+            "subtype": "Power",
+        }
+        await device_trigger.async_attach_trigger(
+            wired_hass, config, MagicMock(), {}
+        )
+
+        event_config = attach_mock.await_args.args[1]
+        fired_trigger_id = event_config[device_trigger.event_trigger.CONF_EVENT_DATA][
+            "trigger_id"
+        ]
+        assert fired_trigger_id == device_trigger._UNRESOLVED_SENTINEL
+
+
+# ---------------------------------------------------------------------------
+# Named remote scoping (Add Popups signpost 2, Track 1B-B5): a device
+# trigger's device_id resolves to either the drawer or a specific
+# TriggerRemote, and resolution never crosses that boundary.
+# ---------------------------------------------------------------------------
+
+
+class TestNamedRemoteScoping:
+    async def test_get_triggers_scoped_to_owning_remote_only(
+        self, wired_hass, mock_store, monkeypatch
+    ):
+        remote = TriggerRemote(name="Living Room Remote")
+        mock_store.add_trigger_remote(remote)
+        remote_trigger = _trigger(
+            name="Power", fingerprint="fp-remote", trigger_remote_id=remote.id
+        )
+        drawer_trigger = _trigger(name="Volume Up", fingerprint="fp-drawer")
+        mock_store.add_trigger(remote_trigger)
+        mock_store.add_trigger(drawer_trigger)
+
+        _patch_device_registry(monkeypatch, {"dev-remote": _remote_device_entry(remote.id)})
+
+        result = await device_trigger.async_get_triggers(wired_hass, "dev-remote")
+
+        assert [r[device_trigger.CONF_SUBTYPE] for r in result] == ["Power"]
+
+    def test_same_named_buttons_on_drawer_and_remote_do_not_collide(
+        self, wired_hass, mock_store
+    ):
+        remote = TriggerRemote(name="Living Room Remote")
+        mock_store.add_trigger_remote(remote)
+        drawer_power = _trigger(name="Power", fingerprint="fp-drawer")
+        remote_power = _trigger(
+            name="Power", fingerprint="fp-remote", trigger_remote_id=remote.id
+        )
+        mock_store.add_trigger(drawer_power)
+        mock_store.add_trigger(remote_power)
+
+        assert device_trigger._resolve_subtype(wired_hass, "Power") == drawer_power.id
+        assert (
+            device_trigger._resolve_subtype(wired_hass, "Power", remote.id)
+            == remote_power.id
+        )
+
+    async def test_attach_on_named_remote_resolves_its_own_trigger(
+        self, wired_hass, mock_store, monkeypatch
+    ):
+        """Attaching against a named remote's device_id must resolve to
+        THAT remote's same-named trigger, never the drawer's."""
+        remote = TriggerRemote(name="Living Room Remote")
+        mock_store.add_trigger_remote(remote)
+        drawer_power = _trigger(name="Power", fingerprint="fp-drawer")
+        remote_power = _trigger(
+            name="Power", fingerprint="fp-remote", trigger_remote_id=remote.id
+        )
+        mock_store.add_trigger(drawer_power)
+        mock_store.add_trigger(remote_power)
+
+        _patch_device_registry(monkeypatch, {"dev-remote": _remote_device_entry(remote.id)})
+        attach_mock = AsyncMock(return_value=MagicMock())
+        monkeypatch.setattr(
+            device_trigger.event_trigger, "async_attach_trigger", attach_mock
+        )
+
+        config = {
+            "platform": "device",
+            "domain": DOMAIN,
+            "device_id": "dev-remote",
+            "type": device_trigger.TRIGGER_TYPE_BUTTON_PRESSED,
+            "subtype": "Power",
+        }
+        await device_trigger.async_attach_trigger(
+            wired_hass, config, MagicMock(), {}
+        )
+
+        event_config = attach_mock.await_args.args[1]
+        assert (
+            event_config[device_trigger.event_trigger.CONF_EVENT_DATA]["trigger_id"]
+            == remote_power.id
+        )
 
 
 # ---------------------------------------------------------------------------

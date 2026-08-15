@@ -246,20 +246,35 @@ export class IrTriggerDialog extends LitElement {
                         ?disabled=${this._busy}
                     />
 
-                    <!-- Receiver scope -->
-                    <div class="receiver-field">
-                        <ir-receiver-picker
-                            .api=${this.api}
-                            .value=${this._receiverIds}
-                            ?disabled=${this._busy}
-                            @receivers-changed=${(e: CustomEvent) => {
-                                this._receiverIds = e.detail.value;
-                            }}
-                        ></ir-receiver-picker>
-                        <p class="field-hint scope-hint">
-                            ${t("trigger.scope_hint")}
-                        </p>
-                    </div>
+                    <!-- Receiver scope: a remote-owned trigger has no
+                         per-trigger scope at all (trigger_manager.py's
+                         _effective_receiver_scope resolves it entirely
+                         from the owning TriggerRemote's receiver_scope,
+                         Track 1B-B6) -- showing the picker here would be
+                         inert and read as "no receiver set" when the
+                         trigger is, in fact, scoped, just one level up.
+                         Point at the remote's own view instead. -->
+                    ${this.trigger?.trigger_remote_id
+                        ? html`
+                              <p class="field-hint scope-hint">
+                                  ${t("trigger.remote_scope_note")}
+                              </p>
+                          `
+                        : html`
+                              <div class="receiver-field">
+                                  <ir-receiver-picker
+                                      .api=${this.api}
+                                      .value=${this._receiverIds}
+                                      ?disabled=${this._busy}
+                                      @receivers-changed=${(e: CustomEvent) => {
+                                          this._receiverIds = e.detail.value;
+                                      }}
+                                  ></ir-receiver-picker>
+                                  <p class="field-hint scope-hint">
+                                      ${t("trigger.scope_hint")}
+                                  </p>
+                              </div>
+                          `}
 
                     ${this._error
                         ? html`<p class="error">${this._error}</p>`

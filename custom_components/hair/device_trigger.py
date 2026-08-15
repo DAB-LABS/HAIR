@@ -1,11 +1,15 @@
-"""Device trigger platform for HAIR Triggers.
+"""Device trigger platform for HAIR Triggers and named trigger remotes.
 
-Lets the automation editor offer "Device: HAIR Triggers -> <button>"
-instead of picking an event entity by hand (Trigger Remotes signpost 1;
-the device_trigger ruling in docs/internal/plans/trigger-remotes-release-a.md,
-"Ruling: device triggers ship in Release A", 2026-08-10). Works against the
-single existing HAIR Triggers device today; nothing here assumes named
-remotes, which are a later signpost.
+Lets the automation editor offer "Device: <name> -> <button>" instead of
+picking an event entity by hand (Trigger Remotes signpost 1; the
+device_trigger ruling in
+docs/internal/plans/trigger-remotes-release-a.md, "Ruling: device
+triggers ship in Release A", 2026-08-10). Originally written against the
+single HAIR Triggers device; generalized (Add Popups signpost 2, Track
+1B-B5) to recognize any HAIR trigger-bearing device -- the drawer OR a
+named TriggerRemote -- and to scope subtype resolution to whichever one
+owns the device_id in front of it, so two remotes (or a remote and the
+drawer) can carry same-named buttons without colliding.
 
 Rename tolerance is the whole point, not an afterthought. HA's automation
 editor stores the picked dropdown entry's ``subtype`` as a raw string --
@@ -86,21 +90,52 @@ def _get_first_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
     return None
 
 
-def _is_hair_triggers_device(hass: HomeAssistant, device_id: str) -> bool:
-    """Return True if device_id is the HAIR Triggers device.
+# Sentinel distinguishing "not a HAIR trigger device at all" (e.g. a
+# Controlled Device, or some other integration's device) from a real
+# scope that happens to resolve to the drawer (whose own scope value,
+# TRIGGER_DEVICE_ID, is a normal string and cannot double as its own
+# not-found marker).
+_NOT_A_TRIGGER_DEVICE = object()
 
-    Signpost 1 has exactly one trigger-bearing device; this guard is what
-    keeps HAIR from offering (nonexistent) device triggers on a
-    Controlled Device.
+
+def _owning_scope_for_device(hass: HomeAssistant, device_id: str) -> Any:
+    """Resolve which HAIR trigger scope owns ``device_id``.
+
+    Returns ``TRIGGER_DEVICE_ID`` when ``device_id`` is the HAIR
+    Triggers drawer, a TriggerRemote's own id when it is a named remote
+    (Add Popups signpost 2), or ``_NOT_A_TRIGGER_DEVICE`` when it is
+    neither -- e.g. a Controlled Device, which must never be offered
+    (nonexistent) device triggers.
     """
     device_entry = dr.async_get(hass).async_get(device_id)
     if device_entry is None:
-        return False
-    return (DOMAIN, TRIGGER_DEVICE_ID) in device_entry.identifiers
+        return _NOT_A_TRIGGER_DEVICE
+    identifier_values = {
+        identifier for domain, identifier in device_entry.identifiers
+        if domain == DOMAIN
+    }
+    if TRIGGER_DEVICE_ID in identifier_values:
+        return TRIGGER_DEVICE_ID
+    data = _get_first_entry_data(hass)
+    if data is not None:
+        store = data["store"]
+        for identifier in identifier_values:
+            if store.get_trigger_remote(identifier) is not None:
+                return identifier
+    return _NOT_A_TRIGGER_DEVICE
 
 
-def _resolve_subtype(hass: HomeAssistant, subtype: str) -> str | None:
+def _resolve_subtype(
+    hass: HomeAssistant, subtype: str, remote_id: str | None = None
+) -> str | None:
     """Resolve a device trigger's stored subtype to a trigger id.
+
+    Scoped to ``remote_id``'s own rows (None = the drawer, also the
+    default -- pre-signpost-2 callers that never pass it keep resolving
+    against the drawer exactly as before). Add Popups signpost 2, Track
+    1B-B5: two remotes (or a remote and the drawer) may carry
+    same-named buttons, so resolution must never search past the
+    device the automation was actually built against.
 
     Current names win first: a live trigger whose CURRENT name equals
     ``subtype`` always resolves to itself, even if some other trigger's
@@ -120,7 +155,7 @@ def _resolve_subtype(hass: HomeAssistant, subtype: str) -> str | None:
     if data is None:
         return None
     store = data["store"]
-    triggers = store.get_all_triggers()
+    triggers = store.get_triggers_for_remote(remote_id)
     for trigger in triggers:
         if trigger.name == subtype:
             return trigger.id
@@ -133,13 +168,17 @@ def _resolve_subtype(hass: HomeAssistant, subtype: str) -> str | None:
 async def async_get_triggers(
     hass: HomeAssistant, device_id: str
 ) -> list[dict[str, Any]]:
-    """List device triggers: one per stored trigger, in order.
+    """List device triggers: one per stored trigger owned by
+    ``device_id``, in order.
 
-    Only the HAIR Triggers device offers any -- signpost 1 introduces no
-    other kind of trigger-bearing device yet.
+    Only a HAIR trigger device (the drawer or a named remote) offers
+    any -- ``_owning_scope_for_device`` is what keeps HAIR from
+    offering (nonexistent) device triggers on a Controlled Device.
     """
-    if not _is_hair_triggers_device(hass, device_id):
+    scope = _owning_scope_for_device(hass, device_id)
+    if scope is _NOT_A_TRIGGER_DEVICE:
         return []
+    remote_id = None if scope == TRIGGER_DEVICE_ID else scope
     data = _get_first_entry_data(hass)
     if data is None:
         return []
@@ -152,7 +191,7 @@ async def async_get_triggers(
             CONF_TYPE: TRIGGER_TYPE_BUTTON_PRESSED,
             CONF_SUBTYPE: trigger.name,
         }
-        for trigger in store.get_all_triggers_ordered()
+        for trigger in store.get_triggers_for_remote(remote_id)
     ]
 
 
@@ -186,9 +225,25 @@ async def async_attach_trigger(
     an automation attached (or re-attached, e.g. on HA restart) AFTER a
     rename -- still carrying the OLD subtype in its stored config --
     resolve to the correct, still-current trigger.
+
+    Resolves the owning device's scope (drawer vs. named remote) fresh
+    at attach time too, same as the subtype -- so an automation still
+    resolves correctly even if it was attached before its remote
+    existed and only now does (device_id is stable; scope lookup is
+    cheap and re-run on every attach, never cached).
     """
     config = TRIGGER_SCHEMA(config)
-    trigger_id = _resolve_subtype(hass, config[CONF_SUBTYPE])
+    scope = _owning_scope_for_device(hass, config[CONF_DEVICE_ID])
+    if scope is _NOT_A_TRIGGER_DEVICE:
+        # The device itself is gone (or was never a HAIR trigger
+        # device) -- do not fall back to searching the drawer, that
+        # would let a deleted remote's automation start resolving
+        # against an unrelated same-named drawer trigger. Unresolved,
+        # same as a subtype that matches nothing (see below).
+        trigger_id = None
+    else:
+        remote_id = None if scope == TRIGGER_DEVICE_ID else scope
+        trigger_id = _resolve_subtype(hass, config[CONF_SUBTYPE], remote_id)
     event_config = event_trigger.TRIGGER_SCHEMA(
         {
             event_trigger.CONF_PLATFORM: "event",

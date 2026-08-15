@@ -39,12 +39,14 @@ import type {
     SignalUpdatedEvent,
     TestSignalResult,
     TriggerDrawerInfo,
+    TriggerRemoteInfo,
     TriggerFiredEvent,
     UnknownDevice,
     UnknownDeviceSummary,
     UnknownSignal,
     UnknownSignalEvent,
     WigsList,
+    WigSignalIdentity,
 } from "./types.js";
 
 interface HaConnection {
@@ -1023,10 +1025,131 @@ export class HairApi {
         receiver_entity_ids?: string[];
         byte_hash?: string | null;
         decoded_fingerprint?: string | null;
+        // Add Popups signpost 2, Track 3. Both optional/absent by
+        // default -- the drawer's own + Add Trigger dialog never sends
+        // either and stays drawer-owned/origin-less, unaffected.
+        trigger_remote_id?: string | null;
+        origin?: string | null;
     }): Promise<IRTrigger> {
         return this.hass.connection.sendMessagePromise<IRTrigger>({
             type: "hair/trigger/create",
             ...payload,
+        });
+    }
+
+    /**
+     * Add Popups signpost 2, Track 3: create a named trigger remote.
+     * Manual tab calls this alone (0 triggers seeded); Closet/Device
+     * tabs call it first, then loop createTrigger() with
+     * trigger_remote_id set to the result's id (wigSignals() /
+     * getDevice() supply what to loop over).
+     */
+    createTriggerRemote(payload: {
+        name: string;
+        receiver_scope?: string[];
+        origin?: string | null;
+    }): Promise<TriggerRemoteInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
+            type: "hair/trigger-remote/create",
+            ...payload,
+        });
+    }
+
+    /**
+     * Add Popups signpost 2, Track 3: delete a named remote (takes its
+     * triggers with it, per the release-a.md ruling -- enforced
+     * server-side). The dialog's only caller today is its own
+     * best-effort rollback when Closet/Device seeding fails partway
+     * through the create loop.
+     */
+    deleteTriggerRemote(remoteId: string): Promise<{ removed: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ removed: boolean }>({
+            type: "hair/trigger-remote/delete",
+            remote_id: remoteId,
+        });
+    }
+
+    /**
+     * Add Popups signpost 2, Track 4: list all named trigger remotes
+     * (the HAIR Triggers drawer is separate -- getTriggerDrawer() /
+     * listTriggers() cover it). Track 3 deliberately left this
+     * unwritten ("no caller yet"); the Trigger Remotes section's card
+     * list and its + Add button's post-create/-delete refresh are that
+     * caller now.
+     */
+    listTriggerRemotes(): Promise<TriggerRemoteInfo[]> {
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo[]>({
+            type: "hair/trigger-remotes",
+        });
+    }
+
+    /**
+     * Add Popups signpost 2, Track 5: rename a named remote (the
+     * expand view's header rename-in-place, same pattern as
+     * renameTriggerDrawer above but scoped to one remote_id).
+     */
+    renameTriggerRemote(
+        remoteId: string,
+        name: string,
+    ): Promise<TriggerRemoteInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
+            type: "hair/trigger-remote/rename",
+            remote_id: remoteId,
+            name,
+        });
+    }
+
+    /**
+     * Add Popups signpost 2, Track 5: clone a named remote AND its
+     * triggers under a new name (owner ruling 2026-08-14 -- unlike
+     * duplicateDevice above, this one's triggers ARE copied; see
+     * ir-duplicate-trigger-remote-dialog.ts and the backend
+     * ws_duplicate_trigger_remote docstring for the full semantics).
+     */
+    duplicateTriggerRemote(
+        remoteId: string,
+        newName: string,
+    ): Promise<TriggerRemoteInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
+            type: "hair/trigger-remote/duplicate",
+            remote_id: remoteId,
+            new_name: newName,
+        });
+    }
+
+    /**
+     * Add Popups signpost 2, Track 5 follow-up (owner bench request,
+     * 2026-08-14): set a named remote's receiver_scope after creation
+     * -- the expand view's own ir-receiver-picker, mirroring
+     * ir-device-detail.ts's emitter picker up top. Remote-level only,
+     * same field the Add Trigger Remote dialog's footer picker
+     * already writes at creation.
+     */
+    setTriggerRemoteReceiverScope(
+        remoteId: string,
+        receiverScope: string[],
+    ): Promise<TriggerRemoteInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
+            type: "hair/trigger-remote/set-receiver-scope",
+            remote_id: remoteId,
+            receiver_scope: receiverScope,
+        });
+    }
+
+    /**
+     * Add Popups signpost 2, Track 3: a wig's discrete-signal identities
+     * (matrix cells excluded -- see the backend docstring), for the Add
+     * Trigger Remote dialog's Closet tab to seed one createTrigger()
+     * call per signal. Same EITHER/OR source shape wigMakeDevice uses.
+     */
+    wigSignals(
+        source: { filename: string } | { codebookId: string },
+    ): Promise<{ signals: WigSignalIdentity[] }> {
+        return this.hass.connection.sendMessagePromise<{ signals: WigSignalIdentity[] }>({
+            type: "hair/wigs/signals",
+            ...("filename" in source
+                ? { filename: source.filename }
+                : { codebook_id: source.codebookId }),
         });
     }
 

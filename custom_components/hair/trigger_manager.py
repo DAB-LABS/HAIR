@@ -191,7 +191,7 @@ class TriggerManager:
         area_name: str | None = None
 
         for trigger in triggers:
-            if not trigger.matches_receiver(receiver_entity_id):
+            if not self._receiver_scope_matches(trigger, receiver_entity_id):
                 continue
 
             # Cross-receiver dedup: within the window, a repeat capture of
@@ -247,8 +247,12 @@ class TriggerManager:
                 fired_ids.append(trigger.id)
 
                 # Diagnostic: a scoped trigger fired while other receivers also
-                # observed the same press within the dedup window.
-                if trigger.receiver_entity_ids and obs.other_observers:
+                # observed the same press within the dedup window. Scope here
+                # is the SAME effective scope _receiver_scope_matches just
+                # checked -- the trigger's own receiver_entity_ids when
+                # drawer-owned, or the owning remote's receiver_scope when
+                # not (Add Popups signpost 2, Track 1B-B6).
+                if self._effective_receiver_scope(trigger) and obs.other_observers:
                     _LOGGER.info(
                         "Trigger '%s' fired from %s; signal also observed by %s",
                         trigger.name,
@@ -257,6 +261,43 @@ class TriggerManager:
                     )
 
         return fired_ids
+
+    def _effective_receiver_scope(self, trigger: IRTrigger) -> list[str]:
+        """Return the receiver-id list that governs ``trigger``'s scope.
+
+        Receiver-level scoping (Add Popups signpost 2, Track 1B-B6): a
+        drawer-owned trigger (``trigger_remote_id is None``) keeps its
+        own per-trigger ``receiver_entity_ids`` -- unchanged since the
+        2026-08-10 scoping ruling. A named-remote-owned trigger has no
+        per-trigger receiver UI at all (trigger-remotes-release-a.md);
+        its scope is entirely the owning ``TriggerRemote``'s
+        ``receiver_scope``, set once at creation. A trigger whose
+        owning remote has since vanished (should not happen --
+        delete-takes-its-triggers cascades the remote's own triggers)
+        falls back to empty -- unscoped, matches any receiver -- rather
+        than silently stop firing on an orphaned row.
+        """
+        if trigger.trigger_remote_id is None:
+            return trigger.receiver_entity_ids
+        remote = self._store.get_trigger_remote(trigger.trigger_remote_id)
+        return remote.receiver_scope if remote is not None else []
+
+    def _receiver_scope_matches(
+        self, trigger: IRTrigger, receiver_entity_id: str | None
+    ) -> bool:
+        """Return True if ``trigger`` matches the capturing receiver,
+        resolving scope from the drawer or the owning remote as
+        ``_effective_receiver_scope`` describes (Track 1B-B6). Delegates
+        the actual three-way match (empty=any, no-receiver-fails-scoped)
+        to whichever object owns the scope, so the matching rule itself
+        stays defined in exactly one place per owner type.
+        """
+        if trigger.trigger_remote_id is None:
+            return trigger.matches_receiver(receiver_entity_id)
+        remote = self._store.get_trigger_remote(trigger.trigger_remote_id)
+        if remote is None:
+            return True
+        return remote.matches_receiver(receiver_entity_id)
 
     def _maybe_prune_recent_fires(self) -> None:
         """Evict stale ``_recent_fires`` entries (older than 5x the window).

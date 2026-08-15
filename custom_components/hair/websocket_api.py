@@ -38,7 +38,7 @@ from .const import (
 from .device_manager import DeviceManager, category_for_command_name
 from .frequency_standards import IR_CARRIER_STANDARDS_HZ
 from .identity import SignalIdentity
-from .models import IRDevice, IRTrigger
+from .models import IRDevice, IRTrigger, TriggerRemote
 from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
@@ -129,6 +129,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_wigs_save_plan)
     websocket_api.async_register_command(hass, ws_wigs_save)
     websocket_api.async_register_command(hass, ws_wigs_comb)
+    # Add Popups signpost 2, Track 3: Closet-tab signal identities
+    # for the Add Trigger Remote dialog's seeding loop.
+    websocket_api.async_register_command(hass, ws_wig_signals)
 
     # Fitting (Perfect Fit)
     websocket_api.async_register_command(hass, ws_wig_make_device)
@@ -148,6 +151,14 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_reorder_triggers)
     websocket_api.async_register_command(hass, ws_get_trigger_drawer)
     websocket_api.async_register_command(hass, ws_rename_trigger_drawer)
+
+    # Trigger Remotes (Add Popups signpost 2, Track 1B-B2/B3)
+    websocket_api.async_register_command(hass, ws_list_trigger_remotes)
+    websocket_api.async_register_command(hass, ws_create_trigger_remote)
+    websocket_api.async_register_command(hass, ws_rename_trigger_remote)
+    websocket_api.async_register_command(hass, ws_delete_trigger_remote)
+    websocket_api.async_register_command(hass, ws_duplicate_trigger_remote)
+    websocket_api.async_register_command(hass, ws_set_trigger_remote_receiver_scope)
 
 
 def _get_first_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
@@ -2537,6 +2548,12 @@ async def ws_get_triggers(
     vol.Optional("receiver_entity_ids"): [str],
     vol.Optional("byte_hash"): vol.Any(str, None),
     vol.Optional("decoded_fingerprint"): vol.Any(str, None),
+    # Add Popups signpost 2, Track 3: owning remote + creation-door
+    # provenance. Both default to None/absent, matching the pre-Track-3
+    # behavior exactly (drawer-owned, no origin) -- the drawer's own
+    # "+ Add Trigger" dialog never sends either and is unaffected.
+    vol.Optional("trigger_remote_id"): vol.Any(str, None),
+    vol.Optional("origin"): vol.Any(str, None),
 })
 @websocket_api.async_response
 async def ws_create_trigger(
@@ -2635,6 +2652,9 @@ async def ws_create_trigger(
         receiver_entity_ids=list(msg.get("receiver_entity_ids") or []),
         byte_hash=byte_hash,
         decoded_fingerprint=decoded_fingerprint,
+        # Add Popups signpost 2, Track 3.
+        trigger_remote_id=msg.get("trigger_remote_id"),
+        origin=msg.get("origin"),
     )
     if trigger.decoded_fingerprint is None and trigger.code:
         # Safe server-side derive (see the comment at the top of the
@@ -2917,6 +2937,344 @@ async def ws_rename_trigger_drawer(
     connection.send_result(msg["id"], {
         "name": name,
         "ha_device_id": ha_device.id if ha_device is not None else None,
+    })
+
+
+# --- Trigger Remotes (Add Popups signpost 2, Track 1B-B2/B3) ---
+#
+# A named remote is a real HA device, same as a controlled device --
+# but there is no explicit "register the device" call anywhere below.
+# HA creates the device-registry entry the first time an entity's
+# device_info identifiers are seen (event.py's
+# ``_device_identity_for_trigger``), exactly mirroring how the HAIR
+# Triggers drawer itself has no HA device link until its first trigger
+# lands (see ws_get_trigger_drawer's docstring). Create/rename/delete
+# here only ever touch the TriggerRemote row and, for rename/delete,
+# a device registry entry that may or may not exist yet.
+
+
+def _trigger_remote_ha_device_id(hass: HomeAssistant, remote_id: str) -> str | None:
+    """Resolve a named remote's HA device-registry id, if any.
+
+    None until the remote's first trigger lands and its event entity
+    registers the device -- mirrors ``_trigger_drawer_ha_device_id``
+    above, keyed on the remote's own id instead of the drawer's fixed
+    identifier.
+    """
+    registry = dr.async_get(hass)
+    ha_device = registry.async_get_device(identifiers={(DOMAIN, remote_id)})
+    return ha_device.id if ha_device is not None else None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remotes",
+})
+@websocket_api.async_response
+async def ws_list_trigger_remotes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return every named trigger remote, each carrying its HA device
+    link (if any) and owned-trigger count -- the Trigger Remotes
+    section renders one card per row from this alone, no per-remote
+    follow-up call. The drawer itself is never in this list; it is not
+    a TriggerRemote row (see ``TriggerRemote`` in models.py)."""
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_result(msg["id"], [])
+        return
+    store = data["store"]
+    remotes = store.get_all_trigger_remotes()
+    connection.send_result(msg["id"], [
+        {
+            **remote.to_dict(),
+            "ha_device_id": _trigger_remote_ha_device_id(hass, remote.id),
+            "trigger_count": len(store.get_triggers_for_remote(remote.id)),
+        }
+        for remote in remotes
+    ])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/create",
+    vol.Required("name"): str,
+    vol.Optional("receiver_scope"): [str],
+    vol.Optional("origin"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_create_trigger_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Create an empty named remote (Manual tab of the Add Trigger
+    Remote dialog, Track 3). Closet/Device-sourced creation, which
+    seeds triggers in the same call, is out of this command's scope --
+    it is a Track 3 concern gated behind this track's bench gate, not
+    itemized as its own WS command yet."""
+    name = msg["name"].strip()
+    if not name:
+        connection.send_error(msg["id"], "invalid_format", "Name is required")
+        return
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = TriggerRemote(
+        name=name,
+        receiver_scope=list(msg.get("receiver_scope") or []),
+        origin=msg.get("origin"),
+    )
+    store.add_trigger_remote(remote)
+    await store.async_save()
+    connection.send_result(msg["id"], {
+        **remote.to_dict(),
+        "ha_device_id": None,
+        "trigger_count": 0,
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/rename",
+    vol.Required("remote_id"): str,
+    vol.Required("name"): str,
+})
+@websocket_api.async_response
+async def ws_rename_trigger_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Rename a named remote.
+
+    Mirrors ``ws_rename_trigger_drawer``: updates the stored row (the
+    source new entities register under), pushes the new name onto any
+    already-live event entities (``event.resync_remote_name``), and --
+    same registry-sync-only-at-entity-add-time reasoning as the drawer
+    -- updates the HA device registry entry directly when one already
+    exists.
+    """
+    name = msg["name"].strip()
+    if not name:
+        connection.send_error(msg["id"], "invalid_format", "Name is required")
+        return
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+
+    from datetime import UTC, datetime
+
+    remote.name = name
+    remote.updated_at = datetime.now(UTC).isoformat()
+    store.update_trigger_remote(remote)
+    await store.async_save()
+
+    from .event import resync_remote_name
+
+    entry_id = data["config_entry"].entry_id
+    resync_remote_name(hass, entry_id, remote.id, name)
+
+    registry = dr.async_get(hass)
+    ha_device = registry.async_get_device(identifiers={(DOMAIN, remote.id)})
+    if ha_device is not None:
+        registry.async_update_device(ha_device.id, name=name)
+
+    connection.send_result(msg["id"], {
+        **remote.to_dict(),
+        "ha_device_id": ha_device.id if ha_device is not None else None,
+        "trigger_count": len(store.get_triggers_for_remote(remote.id)),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/set-receiver-scope",
+    vol.Required("remote_id"): str,
+    vol.Required("receiver_scope"): [str],
+})
+@websocket_api.async_response
+async def ws_set_trigger_remote_receiver_scope(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set a named remote's receiver_scope after creation.
+
+    Add Popups signpost 2, Track 5 follow-up (owner bench request,
+    2026-08-14): the Add Trigger Remote dialog's footer picker was the
+    only way to set this before now -- nothing let a user change it on
+    an existing remote. Remote-level only, same field
+    ir-add-trigger-remote-dialog.ts already writes at creation; this
+    does not touch any trigger's own receiver_entity_ids (the
+    2026-08-10 ruling keeps those two concepts separate -- no
+    per-trigger receiver UI on a named remote's rows, only this one
+    remote-wide scope).
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+
+    from datetime import UTC, datetime
+
+    remote.receiver_scope = list(msg["receiver_scope"])
+    remote.updated_at = datetime.now(UTC).isoformat()
+    store.update_trigger_remote(remote)
+    await store.async_save()
+
+    registry = dr.async_get(hass)
+    ha_device = registry.async_get_device(identifiers={(DOMAIN, remote.id)})
+    connection.send_result(msg["id"], {
+        **remote.to_dict(),
+        "ha_device_id": ha_device.id if ha_device is not None else None,
+        "trigger_count": len(store.get_triggers_for_remote(remote.id)),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/delete",
+    vol.Required("remote_id"): str,
+})
+@websocket_api.async_response
+async def ws_delete_trigger_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete a named remote AND every trigger it owns
+    (delete-takes-its-triggers, Release A ruling).
+
+    Mirrors ``DeviceManager.async_remove_device``'s ordering: remove
+    the owned event entities first, then explicitly remove the HA
+    device-registry entry (entity removal alone does not clean up an
+    otherwise-orphaned device), then commit the store change.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    removed = store.remove_trigger_remote(msg["remote_id"])
+    if removed is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+    await store.async_save()
+
+    from .event import sync_trigger_entities
+
+    entry_id = data["config_entry"].entry_id
+    for trigger in removed:
+        sync_trigger_entities(hass, entry_id, removed_id=trigger.id)
+
+    registry = dr.async_get(hass)
+    ha_device = registry.async_get_device(
+        identifiers={(DOMAIN, msg["remote_id"])}
+    )
+    if ha_device is not None:
+        registry.async_remove_device(ha_device.id)
+
+    connection.send_result(msg["id"], {
+        "removed": True,
+        "removed_trigger_ids": [t.id for t in removed],
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/duplicate",
+    vol.Required("remote_id"): str,
+    vol.Required("new_name"): str,
+})
+@websocket_api.async_response
+async def ws_duplicate_trigger_remote(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Clone a named trigger remote AND its triggers under a new name.
+
+    Add Popups signpost 2, Track 5 (owner ruling 2026-08-14): unlike
+    ``ws_duplicate_device``, which explicitly excludes triggers (see
+    ``IRDevice.clone``'s own docstring), a trigger remote's triggers
+    are its entire content -- an empty duplicate would just be a
+    second empty shell, which ``ws_create_trigger_remote`` already
+    covers. Every trigger is copied with a fresh id, the source's
+    enabled state carried over as-is (owner-accepted trade-off: if the
+    source remote is still receiving real signals, both it and the
+    copy fire until the user turns off or deletes the ones they do
+    not want live -- ir-duplicate-trigger-remote-dialog.ts's own hint
+    text says this plainly), fire_count/last_fired_at/alias_history
+    reset to a clean slate, and receiver_entity_ids forced empty --
+    named-remote rows never carry per-trigger receiver scope
+    (2026-08-10 ruling), only the remote-level receiver_scope, which
+    the clone already inherited via ``TriggerRemote.clone``.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    source = store.get_trigger_remote(msg["remote_id"])
+    if source is None:
+        connection.send_error(msg["id"], "not_found", "Trigger remote not found")
+        return
+
+    new_name = msg["new_name"].strip()
+    if not new_name:
+        connection.send_error(
+            msg["id"], "invalid_format", "Name cannot be empty"
+        )
+        return
+
+    clone = source.clone(new_name)
+    store.add_trigger_remote(clone)
+
+    from .event import sync_trigger_entities
+
+    entry_id = data["config_entry"].entry_id
+    copied: list[IRTrigger] = []
+    for trig in store.get_triggers_for_remote(source.id):
+        new_trigger = IRTrigger(
+            name=trig.name,
+            signal_fingerprint=trig.signal_fingerprint,
+            protocol=trig.protocol,
+            code=trig.code,
+            min_hits=trig.min_hits,
+            enabled=trig.enabled,
+            source_device_id=trig.source_device_id,
+            source_command_id=trig.source_command_id,
+            receiver_entity_ids=[],
+            byte_hash=trig.byte_hash,
+            decoded_fingerprint=trig.decoded_fingerprint,
+            trigger_remote_id=clone.id,
+            origin="manual",
+        )
+        store.add_trigger(new_trigger)
+        sync_trigger_entities(hass, entry_id, trigger=new_trigger)
+        copied.append(new_trigger)
+
+    await store.async_save()
+    connection.send_result(msg["id"], {
+        **clone.to_dict(),
+        "ha_device_id": None,
+        "trigger_count": len(copied),
     })
 
 
@@ -4875,6 +5233,90 @@ def _mint_cell_rows(
         device.add_command(command)
         minted += 1
     return minted
+
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/wigs/signals",
+    vol.Exclusive("filename", "wig_source"): vol.All(
+        str, vol.Length(max=300)
+    ),
+    vol.Exclusive("codebook_id", "wig_source"): vol.All(
+        str, vol.Length(max=300)
+    ),
+})
+@websocket_api.async_response
+async def ws_wig_signals(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Add Popups signpost 2, Track 3: a wig's discrete signals with
+    identity already derived, for the Add Trigger Remote dialog's
+    Closet tab to seed one hair/trigger/create call per signal.
+
+    Deliberately read-only and narrow -- it does not create anything,
+    it just hands back what ws_wig_make_device already computes for
+    itself when adopting a wig as a device: each signal's fingerprint,
+    byte_hash, and decoded_fingerprint, via the exact same
+    wig_signal_identity() helper. Matrix cells are never included --
+    ``wig.signals`` is the flat/depth-0 list already, the matrix lives
+    in its own structure (see ws_wig_make_device's docstring) -- so a
+    pure-matrix wig legitimately returns an empty list, not an error.
+
+    Same source resolution as ws_wig_make_device: EITHER a closet
+    ``filename`` or a library ``codebook_id`` (the codebook path
+    renders a transient wig, nothing written to the closet). A signal
+    whose Pronto fails to validate is skipped, same as
+    wig_signal_identities() does for its other caller.
+    """
+    filename = msg.get("filename")
+    codebook_id = msg.get("codebook_id")
+    if filename is None and codebook_id is None:
+        connection.send_error(
+            msg["id"], "invalid_format",
+            "Provide filename or codebook_id",
+        )
+        return
+
+    if filename is not None:
+        from .wig_store import load_wig
+
+        wig = await hass.async_add_executor_job(
+            load_wig, hass.config.config_dir, filename
+        )
+    else:
+        from .code_library import build_wig_from_codebook
+
+        wig = await hass.async_add_executor_job(
+            build_wig_from_codebook, codebook_id
+        )
+    if wig is None:
+        connection.send_error(msg["id"], "not_found", "Wig not found")
+        return
+
+    from .wig_identity import wig_signal_identities
+
+    identities = await hass.async_add_executor_job(
+        wig_signal_identities, wig
+    )
+
+    signals = []
+    for index, (sig, identity) in enumerate(
+        zip(wig.signals, identities, strict=True)
+    ):
+        if identity is None:
+            continue
+        signals.append({
+            "name": sig.alias.strip() or f"Signal {index}",
+            "signal_fingerprint": identity.fingerprint,
+            "code": identity.pronto,
+            "byte_hash": identity.byte_hash,
+            "decoded_fingerprint": identity.decoded_fingerprint,
+        })
+
+    connection.send_result(msg["id"], {"signals": signals})
 
 
 @websocket_api.require_admin

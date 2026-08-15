@@ -12,7 +12,7 @@ from .const import (
     STORAGE_VERSION,
     STORAGE_VERSION_MINOR,
 )
-from .models import IRDevice, IRTrigger
+from .models import IRDevice, IRTrigger, TriggerRemote
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +77,12 @@ class HAIRStore:
         )
         self._data: dict[str, IRDevice] = {}
         self._triggers: dict[str, IRTrigger] = {}
+        # Named trigger remotes (Add Popups signpost 2, Track 1B). The
+        # HAIR Triggers drawer is NOT stored here -- it is the implicit
+        # ``IRTrigger.trigger_remote_id is None`` default, so there is
+        # no row to accidentally delete and the non-deletable-drawer
+        # rule needs no special-case guard.
+        self._trigger_remotes: dict[str, TriggerRemote] = {}
         # The HAIR Triggers drawer's own display name (Trigger Remotes
         # signpost 1, Track B: header rename-in-place). A plain scalar,
         # not part of any IRTrigger -- there is exactly one drawer for
@@ -120,6 +126,7 @@ class HAIRStore:
         if raw is None:
             self._data = {}
             self._triggers = {}
+            self._trigger_remotes = {}
             self._trigger_drawer_name = _DEFAULT_TRIGGER_DRAWER_NAME
             self._loaded = True
             return
@@ -151,6 +158,25 @@ class HAIRStore:
                 )
                 continue
             self._triggers[trigger.id] = trigger
+
+        # Named trigger remotes (signpost 2, Track 1B). Absent on every
+        # store written before this field existed -- resolves to {},
+        # matching every IRTrigger in it reading trigger_remote_id as
+        # None (drawer-owned), which is exactly correct: there is
+        # nothing to migrate, the drawer already held them.
+        remotes_raw = raw.get("trigger_remotes") or []
+        self._trigger_remotes = {}
+        for entry in remotes_raw:
+            try:
+                remote = TriggerRemote.from_dict(entry)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Skipping malformed trigger remote entry %s: %s",
+                    entry.get("id"),
+                    err,
+                )
+                continue
+            self._trigger_remotes[remote.id] = remote
 
         # Absent (pre-Track-B store) or blank both resolve to the
         # module default -- there is no prior source of truth to
@@ -186,6 +212,9 @@ class HAIRStore:
         return {
             "devices": [d.to_dict() for d in self._data.values()],
             "triggers": [t.to_dict() for t in self._triggers.values()],
+            "trigger_remotes": [
+                r.to_dict() for r in self._trigger_remotes.values()
+            ],
             "trigger_drawer_name": self._trigger_drawer_name,
         }
 
@@ -575,6 +604,64 @@ class HAIRStore:
     def set_trigger_drawer_name(self, name: str) -> None:
         """Rename the HAIR Triggers drawer (header rename-in-place)."""
         self._trigger_drawer_name = name
+
+    # -----------------------------------------------------------------
+    # Trigger remotes (Add Popups signpost 2, Track 1B)
+    # -----------------------------------------------------------------
+
+    def get_trigger_remote(self, remote_id: str) -> TriggerRemote | None:
+        return self._trigger_remotes.get(remote_id)
+
+    def get_all_trigger_remotes(self) -> list[TriggerRemote]:
+        return list(self._trigger_remotes.values())
+
+    def add_trigger_remote(self, remote: TriggerRemote) -> None:
+        self._trigger_remotes[remote.id] = remote
+
+    def update_trigger_remote(self, remote: TriggerRemote) -> None:
+        self._trigger_remotes[remote.id] = remote
+
+    def remove_trigger_remote(self, remote_id: str) -> list[IRTrigger] | None:
+        """Delete a named remote AND every trigger it owns.
+
+        Delete-takes-its-triggers (Release A ruling). There is no
+        drawer row to protect here -- the drawer is not stored as a
+        TriggerRemote at all, so a caller can never pass its id in.
+        Returns the removed triggers (not just their ids) so the
+        caller can sync/remove their event entities and clean up any
+        device-registry state, mirroring how ``remove_device`` callers
+        need the removed device's own data, not just a bool.
+
+        Returns ``None`` (not ``[]``) when ``remote_id`` does not
+        exist, so callers can tell "not found" apart from "found but
+        owned zero triggers" -- both are legitimate but distinct
+        outcomes for a WS delete handler's error reporting.
+        """
+        if remote_id not in self._trigger_remotes:
+            return None
+        del self._trigger_remotes[remote_id]
+        removed = [
+            t for t in self._triggers.values() if t.trigger_remote_id == remote_id
+        ]
+        for trigger in removed:
+            del self._triggers[trigger.id]
+        return removed
+
+    def get_triggers_for_remote(self, remote_id: str | None) -> list[IRTrigger]:
+        """Return triggers owned by ``remote_id`` (None = the drawer).
+
+        Ordered the same way ``get_all_triggers_ordered`` orders the
+        drawer's own rows, so a named remote's device-trigger dropdown
+        and (later) detail-view rows sort consistently with it.
+        """
+        return sorted(
+            (
+                t
+                for t in self._triggers.values()
+                if t.trigger_remote_id == remote_id
+            ),
+            key=lambda t: (t.order if t.order is not None else 0, t.id),
+        )
 
     def get_trigger_by_fingerprint(
         self, fingerprint: str

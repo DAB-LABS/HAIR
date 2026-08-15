@@ -25,6 +25,31 @@ TRIGGER_DEVICE_NAME = "HAIR Triggers"
 EVENT_TYPE = "ir_command_received"
 
 
+def _device_identity_for_trigger(store: Any, trigger: IRTrigger) -> tuple[str, str]:
+    """Resolve the (HA device identifier, device name) an event entity
+    for ``trigger`` should register under.
+
+    ``trigger.trigger_remote_id`` is None for every row that lives in
+    the HAIR Triggers drawer (the implicit default -- see models.py)
+    and is a TriggerRemote's id for a row owned by a named remote (Add
+    Popups signpost 2, Track 1B). The drawer keeps its fixed
+    ``TRIGGER_DEVICE_ID`` identifier; a named remote gets its own
+    device keyed by the TriggerRemote's (stable) id, not its name, so
+    renaming the remote never orphans the HA device the identifier
+    resolves to.
+    """
+    if trigger.trigger_remote_id is None:
+        return TRIGGER_DEVICE_ID, store.get_trigger_drawer_name()
+    remote = store.get_trigger_remote(trigger.trigger_remote_id)
+    if remote is None:
+        # The owning remote is gone (remove_trigger_remote cascades its
+        # triggers, so this should not happen in practice) -- fall back
+        # to the drawer rather than construct an entity with a dangling
+        # device identifier.
+        return TRIGGER_DEVICE_ID, store.get_trigger_drawer_name()
+    return remote.id, remote.name
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -47,14 +72,15 @@ async def async_setup_entry(
     trigger_manager.register_entity_callback(_fire_entity)
 
     # Bootstrap: create entities for existing triggers. Every entity is
-    # constructed with the drawer's CURRENT name (Trigger Remotes
-    # signpost 1, Track B: rename-in-place on the HAIR Triggers header)
-    # so the device registry entry it registers under carries whatever
-    # the owner has renamed the drawer to, not the module default.
-    drawer_name = store.get_trigger_drawer_name()
+    # constructed with its owning device's CURRENT identity (drawer or
+    # named remote -- Trigger Remotes signpost 1 Track B and Add Popups
+    # signpost 2 Track 1B) so the device registry entry it registers
+    # under carries whatever the owner has renamed that device to, not
+    # a module default.
     new_entities: list[HAIRTriggerEventEntity] = []
     for trigger in store.get_all_triggers():
-        entity = HAIRTriggerEventEntity(trigger, drawer_name)
+        device_id, device_name = _device_identity_for_trigger(store, trigger)
+        entity = HAIRTriggerEventEntity(trigger, device_id, device_name)
         entities[trigger.id] = entity
         new_entities.append(entity)
     if new_entities:
@@ -90,15 +116,17 @@ def sync_trigger_entities(
         hass.async_create_task(entity.async_remove())
 
     if trigger and trigger.id not in entities:
-        drawer_name = data["store"].get_trigger_drawer_name()
-        entity = HAIRTriggerEventEntity(trigger, drawer_name)
+        store = data["store"]
+        device_id, device_name = _device_identity_for_trigger(store, trigger)
+        entity = HAIRTriggerEventEntity(trigger, device_id, device_name)
         entities[trigger.id] = entity
         if async_add_entities:
             async_add_entities([entity])
 
 
 def resync_drawer_name(hass: HomeAssistant, entry_id: str, drawer_name: str) -> None:
-    """Push a renamed drawer's name onto every live trigger entity.
+    """Push a renamed drawer's name onto every live drawer-owned trigger
+    entity (``trigger_remote_id is None``).
 
     Trigger Remotes signpost 1, Track B (header rename-in-place). A
     fresh ``device_info`` alone does not reach the device registry --
@@ -106,7 +134,10 @@ def resync_drawer_name(hass: HomeAssistant, entry_id: str, drawer_name: str) -> 
     every state write -- so the WS rename handler also updates the
     registry entry directly (``dr.async_update_device``); this just
     keeps each entity's own cached copy consistent for any future
-    lookup that reads ``device_info`` off the entity itself.
+    lookup that reads ``device_info`` off the entity itself. Scoped to
+    drawer-owned entities only -- a named remote's entities carry their
+    own device identity and must not pick up the drawer's rename (Add
+    Popups signpost 2, Track 1B).
     """
     data = hass.data.get(DOMAIN, {}).get(entry_id)
     if data is None:
@@ -115,7 +146,29 @@ def resync_drawer_name(hass: HomeAssistant, entry_id: str, drawer_name: str) -> 
         "_trigger_entities", {}
     )
     for entity in entities.values():
-        entity.update_drawer_name(drawer_name)
+        if entity.trigger.trigger_remote_id is None:
+            entity.update_device_identity(TRIGGER_DEVICE_ID, drawer_name)
+
+
+def resync_remote_name(
+    hass: HomeAssistant, entry_id: str, remote_id: str, remote_name: str
+) -> None:
+    """Push a renamed named-remote's name onto its live trigger entities.
+
+    Mirrors ``resync_drawer_name`` for a TriggerRemote instead of the
+    drawer (Add Popups signpost 2, Track 1B-B3): same reasoning applies
+    -- the WS rename handler updates the registry entry directly, this
+    keeps each owned entity's own cached copy consistent.
+    """
+    data = hass.data.get(DOMAIN, {}).get(entry_id)
+    if data is None:
+        return
+    entities: dict[str, HAIRTriggerEventEntity] = data.get(
+        "_trigger_entities", {}
+    )
+    for entity in entities.values():
+        if entity.trigger.trigger_remote_id == remote_id:
+            entity.update_device_identity(remote_id, remote_name)
 
 
 class HAIRTriggerEventEntity(EventEntity):
@@ -125,25 +178,38 @@ class HAIRTriggerEventEntity(EventEntity):
     _attr_should_poll = False
     _attr_event_types: ClassVar[list[str]] = [EVENT_TYPE]
 
-    def __init__(self, trigger: IRTrigger, drawer_name: str = TRIGGER_DEVICE_NAME) -> None:
+    def __init__(
+        self,
+        trigger: IRTrigger,
+        device_identifier: str = TRIGGER_DEVICE_ID,
+        device_name: str = TRIGGER_DEVICE_NAME,
+    ) -> None:
         self._trigger = trigger
-        self._drawer_name = drawer_name
+        self._device_identifier = device_identifier
+        self._device_name = device_name
         self._attr_unique_id = f"hair_trigger_{trigger.id}"
         self._attr_name = trigger.name
 
     @property
+    def trigger(self) -> IRTrigger:
+        """The IRTrigger this entity fires for (read by the resync helpers
+        above to tell drawer-owned rows apart from named-remote rows)."""
+        return self._trigger
+
+    @property
     def device_info(self) -> dict[str, Any]:
         return {
-            "identifiers": {(DOMAIN, TRIGGER_DEVICE_ID)},
-            "name": self._drawer_name,
+            "identifiers": {(DOMAIN, self._device_identifier)},
+            "name": self._device_name,
             "manufacturer": "HAIR",
             "model": "IR Triggers",
         }
 
     @callback
-    def update_drawer_name(self, drawer_name: str) -> None:
-        """Update this entity's cached drawer name after a rename."""
-        self._drawer_name = drawer_name
+    def update_device_identity(self, device_identifier: str, device_name: str) -> None:
+        """Update this entity's cached device identity after a rename."""
+        self._device_identifier = device_identifier
+        self._device_name = device_name
 
     @callback
     def fire_event(self, event_data: dict[str, Any]) -> None:

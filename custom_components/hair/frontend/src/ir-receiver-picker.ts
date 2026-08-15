@@ -1,12 +1,38 @@
 /**
- * Reusable multi-receiver picker with chip-based UI.
+ * Reusable multi-receiver picker: a label and a row of toggle chips.
  *
- * The mirror image of ir-emitter-picker: it lists native
- * ``InfraredReceiverEntity`` instances (from ``api.listReceivers()``) so a
- * trigger can be scoped to fire only when specific receivers observe the
- * signal. Empty selection = "Any receiver" (backward-compat: fires on any
- * capture). Unlike the emitter picker there is NO auto-select -- leaving the
- * field empty is the meaningful default.
+ * Converted in place to the ir-emitter-picker.ts toggle-chip pattern
+ * (add-popups-signpost-2-coding-plan.md section 2, ruled 2026-08-13
+ * then reversed to in-place-everywhere in section 10 -- "We are going
+ * to replace the receiver picker in all the places, including its
+ * current place... replace the existing one in place and then use it
+ * everywhere"). Every consumer inherits the new rendering automatically
+ * since the public contract (`.api`, `.value`, `disabled`, the
+ * `receivers-changed` event with `detail: { value: string[] }`) is
+ * unchanged -- as of this conversion that's exactly one consumer,
+ * ir-trigger-dialog.ts (Track 0's 2026-08-13 consumer sweep), plus the
+ * new Add Trigger Remote dialog's footer landing in Track 3.
+ *
+ * Replaces the old ADD-via-dropdown / REMOVE-via-chip-x model (selected
+ * receivers shown as chips, unselected ones in a <select>) with the
+ * emitter picker's own: every known receiver always renders as a
+ * toggle chip, default OFF/grey, click to turn ON/green. No dropdown,
+ * no add/remove-x, no "Default all receivers" copy -- the empty,
+ * all-grey state IS the explanation, same as an emitter picker with
+ * nothing lit needs no caption.
+ *
+ * Deliberately does NOT reuse ir-emitter-picker's three-state
+ * (on/down/off) treatment: the ruling only ever describes ON/OFF for
+ * receivers, and ReceiverInfo carries no availability flag to key a
+ * third state on (unlike emitters, whose availability comes off
+ * `hass.states`). Two states, not three.
+ *
+ * Stored semantics are unchanged: zero chips selected still serializes
+ * as empty/unscoped ("any receiver"), so a remote created with nothing
+ * clicked on keeps hearing new receivers added later, same as before.
+ * Unlike the emitter picker there is still NO auto-select -- leaving
+ * the field empty is the meaningful default, not a first-render
+ * convenience fill.
  *
  * Usage:
  *   <ir-receiver-picker
@@ -55,22 +81,16 @@ export class IrReceiverPicker extends LitElement {
         }
     }
 
-    private _receiverName(entityId: string): string {
-        const match = this._receivers.find((r) => r.entity_id === entityId);
-        return match?.name ?? entityId;
-    }
-
-    private _onAdd(e: Event): void {
-        const select = e.target as HTMLSelectElement;
-        const entityId = select.value;
-        if (!entityId) return;
-        select.value = "";
-        if (this.value.includes(entityId)) return;
-        this._fireChange([...this.value, entityId]);
-    }
-
-    private _onRemove(entityId: string): void {
-        this._fireChange(this.value.filter((id) => id !== entityId));
+    /** One control where there were two (mirrors ir-emitter-picker.ts's
+     *  own note): a chip's on state IS the selection, there is no
+     *  separate add-then-remove gesture anymore. */
+    private _toggle(entityId: string): void {
+        if (this.disabled) return;
+        this._fireChange(
+            this.value.includes(entityId)
+                ? this.value.filter((id) => id !== entityId)
+                : [...this.value, entityId],
+        );
     }
 
     private _fireChange(newValue: string[]): void {
@@ -85,119 +105,106 @@ export class IrReceiverPicker extends LitElement {
     }
 
     render() {
-        const available = this._receivers.filter(
-            (r) => !this.value.includes(r.entity_id),
-        );
-
         return html`
             <label>${t("picker.receivers_label")}</label>
+            <div class="chips">
+                ${this._receivers.length === 0
+                    ? html`<span class="no-receivers"
+                          >${t("picker.no_receivers")}</span
+                      >`
+                    : this._receivers.map((r) => this._renderChip(r))}
+            </div>
+        `;
+    }
 
-            ${this.value.length > 0
-                ? html`
-                      <div class="chips">
-                          ${this.value.map(
-                              (id) => html`
-                                  <span class="chip">
-                                      <span class="chip-name"
-                                          >${this._receiverName(id)}</span
-                                      >
-                                      ${!this.disabled
-                                          ? html`<button
-                                                class="chip-remove"
-                                                @click=${() => this._onRemove(id)}
-                                                title=${t("common.remove")}
-                                            >
-                                                &times;
-                                            </button>`
-                                          : ""}
-                                  </span>
-                              `,
-                          )}
-                      </div>
-                  `
-                : ""}
-
-            ${this._receivers.length === 0
-                ? html`<div class="no-receivers">${t("picker.no_receivers")}</div>`
-                : available.length > 0
-                  ? html`
-                        <select @change=${this._onAdd} ?disabled=${this.disabled}>
-                            <option value="">${t("picker.add_receiver")}</option>
-                            ${available.map(
-                                (r) => html`
-                                    <option value=${r.entity_id}>
-                                        ${r.name}
-                                    </option>
-                                `,
-                            )}
-                        </select>
-                    `
-                  : html`<div class="all-selected">${t("picker.all_receivers_selected")}</div>`}
+    private _renderChip(r: ReceiverInfo) {
+        const on = this.value.includes(r.entity_id);
+        const word = on ? t("picker.state_on") : t("picker.state_off");
+        return html`
+            <button
+                class="rx ${on ? "on" : ""}"
+                role="switch"
+                aria-checked=${on ? "true" : "false"}
+                aria-label="${r.name}, ${word}"
+                ?disabled=${this.disabled}
+                title="${r.entity_id} · ${word}"
+                @click=${() => this._toggle(r.entity_id)}
+            >
+                <span class="dot"></span>
+                <span class="rx-name">${r.name}</span>
+            </button>
         `;
     }
 
     static styles = css`
         :host {
-            display: block;
+            display: var(--picker-host-display, block);
+            align-items: var(--picker-host-align, flex-start);
+            gap: var(--picker-host-gap, 0);
         }
         label {
             display: var(--picker-label-display, block);
-            font-size: 0.82rem;
-            font-weight: 500;
-            color: var(--primary-text-color);
-            margin-bottom: 6px;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--secondary-text-color);
+            margin-bottom: var(--picker-label-margin-bottom, 5px);
+            flex-shrink: 0;
         }
         .chips {
             display: flex;
             flex-wrap: wrap;
-            gap: 6px;
-            margin-bottom: 8px;
+            gap: 7px;
+            padding-top: 2px;
+            flex: 1 1 auto;
+            min-width: 0;
         }
-        .chip {
+        .rx {
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            background: var(--secondary-background-color);
-            color: var(--primary-color);
-            font-size: 0.82rem;
-            font-weight: 500;
-            padding: 4px 8px;
-            border-radius: 4px;
-            line-height: 1;
+            gap: 7px;
+            padding: 4px 11px 4px 9px;
+            border: 1px solid var(--divider-color);
+            border-radius: 14px;
+            background: none;
+            font-family: inherit;
+            font-size: 12px;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            transition: border-color 140ms ease, background 140ms ease,
+                color 140ms ease;
         }
-        .chip-name {
+        .rx:hover:not(:disabled) {
+            border-color: var(--secondary-text-color);
+        }
+        .rx:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+        .rx-name {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 200px;
         }
-        .chip-remove {
-            background: none;
-            border: none;
-            color: inherit;
-            font-size: 1rem;
-            cursor: pointer;
-            padding: 0 2px;
-            line-height: 1;
-            opacity: 0.65;
-            transition: opacity 120ms ease;
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #4d5359;
+            flex: none;
         }
-        .chip-remove:hover {
-            opacity: 1;
-        }
-        select {
-            width: 100%;
-            padding: 6px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--divider-color);
-            background: var(--card-background-color);
+        .rx.on {
+            border-color: rgba(79, 158, 90, 0.5);
+            background: rgba(79, 158, 90, 0.12);
             color: var(--primary-text-color);
-            font-family: inherit;
-            font-size: 0.85rem;
         }
-        .no-receivers,
-        .all-selected {
-            font-size: 0.8rem;
+        .rx.on .dot {
+            background: #6cbf78;
+            box-shadow: 0 0 5px rgba(108, 191, 120, 0.6);
+        }
+        .no-receivers {
+            font-size: 0.85rem;
             color: var(--secondary-text-color);
             font-style: italic;
         }

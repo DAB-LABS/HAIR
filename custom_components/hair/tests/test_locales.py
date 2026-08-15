@@ -227,6 +227,12 @@ class TestNoUnintentionalDuplication:
         # threshold); this key's value is long enough to need the
         # explicit exemption instead.
         "devices.open_in_ha",
+        # add-popups-signpost-2-coding-plan.md Track 4 item 19
+        # (2026-08-14) did the real ten-locale translation pass for
+        # every key the Track 1/2/3 batches above deferred (the wig/
+        # device/remote pickers, both new dialogs) -- they're real,
+        # distinct-per-locale text now, not placeholders, so they've
+        # come off this list. See that commit for the before/after.
     }
 
     _MIN_SUSPICIOUS_LENGTH = 15

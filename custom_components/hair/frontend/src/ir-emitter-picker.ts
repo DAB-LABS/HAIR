@@ -37,8 +37,9 @@
  *
  * Fires `emitters-changed` with detail: { value: string[] }. The
  * contract is unchanged from the dropdown era, which is why
- * ir-add-device-dialog, ir-assign-signal-dialog and ir-promote-dialog
- * inherited this for free.
+ * ir-assign-signal-dialog, ir-promote-dialog, and (add-popups
+ * signpost 2) ir-add-controlled-device-dialog inherited this for
+ * free.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";

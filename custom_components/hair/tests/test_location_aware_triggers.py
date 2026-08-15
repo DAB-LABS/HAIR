@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.hair.models import IRTrigger
+from custom_components.hair.models import IRTrigger, TriggerRemote
 from custom_components.hair.storage import HAIRStore
 from custom_components.hair.trigger_manager import TriggerManager
 
@@ -67,6 +67,7 @@ def _trigger(
     code: str = "c1",
     min_hits: int = 1,
     receivers: list[str] | None = None,
+    trigger_remote_id: str | None = None,
 ) -> IRTrigger:
     return IRTrigger(
         name=name,
@@ -75,6 +76,7 @@ def _trigger(
         code=code,
         min_hits=min_hits,
         receiver_entity_ids=receivers or [],
+        trigger_remote_id=trigger_remote_id,
     )
 
 
@@ -321,3 +323,104 @@ class TestFromDictMigration:
         t = _trigger(receivers=["infrared.garage"])
         restored = IRTrigger.from_dict(t.to_dict())
         assert restored.receiver_entity_ids == ["infrared.garage"]
+
+
+# ---------------------------------------------------------------------------
+# Add Popups signpost 2, Track 1B-B6: a named-remote-owned trigger's
+# effective receiver scope comes from the owning TriggerRemote, never
+# from its own (always-empty-in-practice) receiver_entity_ids.
+# ---------------------------------------------------------------------------
+
+
+class TestNamedRemoteReceiverScope:
+    def test_remote_scoped_trigger_fires_only_for_remotes_receivers(
+        self, manager, mock_store, clock
+    ):
+        remote = TriggerRemote(name="Living Room", receiver_scope=["infrared.garage"])
+        mock_store.add_trigger_remote(remote)
+        t = _trigger(trigger_remote_id=remote.id)
+        mock_store.add_trigger(t)
+
+        # Non-matching receiver -> no fire, even though the trigger's OWN
+        # receiver_entity_ids is empty (which alone would mean "any").
+        assert (
+            manager.on_signal_captured("fp1", "pronto", "c1", None, "infrared.kitchen")
+            == []
+        )
+        clock.advance(1.0)
+        assert t.id in manager.on_signal_captured(
+            "fp1", "pronto", "c1", None, "infrared.garage"
+        )
+
+    def test_remote_with_empty_scope_fires_for_any_receiver(
+        self, manager, mock_store, clock
+    ):
+        remote = TriggerRemote(name="Living Room", receiver_scope=[])
+        mock_store.add_trigger_remote(remote)
+        t = _trigger(trigger_remote_id=remote.id)
+        mock_store.add_trigger(t)
+
+        assert t.id in manager.on_signal_captured("fp1", "pronto", "c1", None, None)
+        clock.advance(1.0)
+        assert t.id in manager.on_signal_captured(
+            "fp1", "pronto", "c1", None, "infrared.anywhere"
+        )
+
+    def test_remotes_own_receiver_entity_ids_are_ignored(
+        self, manager, mock_store, clock
+    ):
+        """No per-trigger receiver UI exists on a named remote's rows, but
+        defensively: even if a remote-owned trigger somehow carried its
+        own receiver_entity_ids, the owning remote's scope governs, not
+        the trigger's own field."""
+        remote = TriggerRemote(name="Living Room", receiver_scope=["infrared.garage"])
+        mock_store.add_trigger_remote(remote)
+        t = _trigger(trigger_remote_id=remote.id, receivers=["infrared.kitchen"])
+        mock_store.add_trigger(t)
+
+        # The trigger's own (ignored) scope says "kitchen"; the remote's
+        # scope says "garage" -- garage must be what actually governs.
+        assert (
+            manager.on_signal_captured("fp1", "pronto", "c1", None, "infrared.kitchen")
+            == []
+        )
+        clock.advance(1.0)
+        assert t.id in manager.on_signal_captured(
+            "fp1", "pronto", "c1", None, "infrared.garage"
+        )
+
+    def test_drawer_and_remote_scopes_never_cross(self, manager, mock_store, clock):
+        """A drawer-owned trigger and a remote-owned trigger scoped to
+        DIFFERENT receivers each fire only for their own receiver."""
+        remote = TriggerRemote(name="Living Room", receiver_scope=["infrared.garage"])
+        mock_store.add_trigger_remote(remote)
+        drawer_t = _trigger(
+            name="Drawer", fingerprint="fp-d", receivers=["infrared.kitchen"]
+        )
+        remote_t = _trigger(
+            name="Remote", fingerprint="fp-r", trigger_remote_id=remote.id
+        )
+        mock_store.add_trigger(drawer_t)
+        mock_store.add_trigger(remote_t)
+
+        fired = manager.on_signal_captured(
+            "fp-d", "pronto", "c1", None, "infrared.kitchen"
+        )
+        assert fired == [drawer_t.id]
+        clock.advance(1.0)
+        fired = manager.on_signal_captured(
+            "fp-r", "pronto", "c1", None, "infrared.garage"
+        )
+        assert fired == [remote_t.id]
+
+    def test_orphaned_remote_trigger_falls_back_to_any_receiver(
+        self, manager, mock_store, clock
+    ):
+        """A trigger whose trigger_remote_id points at a remote that no
+        longer exists (should not happen -- delete-takes-its-triggers
+        cascades) still fires rather than being silently orphaned."""
+        t = _trigger(trigger_remote_id="ghost-remote-id")
+        mock_store.add_trigger(t)
+        assert t.id in manager.on_signal_captured(
+            "fp1", "pronto", "c1", None, "infrared.anywhere"
+        )

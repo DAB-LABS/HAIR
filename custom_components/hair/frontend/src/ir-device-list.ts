@@ -27,6 +27,8 @@ import "./ir-trigger-dialog.js";
 import "./ir-trigger-row.js";
 import "./ir-confirm-dialog.js";
 import "./ir-duplicate-device-dialog.js";
+import "./ir-duplicate-trigger-remote-dialog.js";
+import "./ir-receiver-picker.js";
 import type { HairApi } from "./api.js";
 import type {
     CaptureProviderInfo,
@@ -37,6 +39,7 @@ import type {
     ReceiverInfo,
     TriggerDrawerInfo,
     TriggerFiredEvent,
+    TriggerRemoteInfo,
 } from "./types.js";
 
 /**
@@ -130,6 +133,12 @@ interface MergedHardwareEntry {
 @customElement("ir-device-list")
 export class IrDeviceList extends LitElement {
     @property({ attribute: false }) public devices: DeviceSummary[] = [];
+    // Add Popups signpost 2, Track 4: named trigger remotes, parent-owned
+    // and refreshed the same way ``devices`` is -- see this property's
+    // sibling in ha-panel-ir-devices.ts. The HAIR Triggers drawer itself
+    // (below) stays self-loaded via ``_triggerDrawer``/``_triggers``,
+    // unaffected.
+    @property({ attribute: false }) public triggerRemotes: TriggerRemoteInfo[] = [];
     @property({ attribute: false }) public hass?: any;
     @property({ attribute: false }) public api?: HairApi;
     @property({ type: Boolean }) public loading = false;
@@ -150,6 +159,19 @@ export class IrDeviceList extends LitElement {
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
     @state() private _duplicateTarget: DeviceSummary | null = null;
     @state() private _confirmDeleteDevice: DeviceSummary | null = null;
+    @state() private _confirmDeleteRemote: TriggerRemoteInfo | null = null;
+    // Add Popups signpost 2, Track 5: named-remote expand-view
+    // rename-in-place. Single-instance, same shape as the drawer's
+    // own _editingDrawerName/_draftDrawerName/_drawerBusy trio --
+    // safe because only one card (drawer OR one remote) can be
+    // expanded at a time via the shared expandedDeviceId slot.
+    @state() private _editingRemoteName = false;
+    @state() private _draftRemoteName = "";
+    @state() private _remoteNameBusy = false;
+    @state() private _duplicateRemoteTarget: TriggerRemoteInfo | null = null;
+    // Add Popups signpost 2, Track 5 follow-up: the expand view's
+    // own receiver-scope picker (owner bench request 2026-08-14).
+    @state() private _remoteReceiversBusy = false;
 
     // Receivers, for the trigger rows' scope-chip name resolution (v0.5.7
     // per-trigger scoping). Fetched alongside the capture-provider list in
@@ -226,6 +248,16 @@ export class IrDeviceList extends LitElement {
             void this._loadTriggers();
             void this._loadTriggerDrawer();
             void this._subscribeTriggerFired();
+        }
+        if (changed.has("triggerRemotes") && this.api) {
+            // Add Popups signpost 2, Track 5 bench catch
+            // (2026-08-14): the parent hands down a brand new array
+            // every time it refreshes this list -- after creating,
+            // duplicating, renaming, or deleting a remote. None of
+            // those flows live in this component, so without this
+            // our own _triggers stays stale and a freshly seeded
+            // remote's expand view reads empty until a hard reload.
+            void this._loadTriggers();
         }
         if (changed.has("expandedDeviceId")) {
             void this._loadExpandedDevice();
@@ -313,6 +345,11 @@ export class IrDeviceList extends LitElement {
         if (
             !this.expandedDeviceId ||
             this.expandedDeviceId === TRIGGER_DRAWER_ID ||
+            // Add Popups signpost 2, Track 5: a named remote shares
+            // this same expand-one-at-a-time slot (its own card sets
+            // expandedDeviceId to its id) -- getDevice() would 404 on
+            // it exactly like it would on TRIGGER_DRAWER_ID above.
+            this.triggerRemotes.some((r) => r.id === this.expandedDeviceId) ||
             !this.api
         ) {
             this._expandedDevice = null;
@@ -497,6 +534,131 @@ export class IrDeviceList extends LitElement {
         this._confirmDeleteDevice = device;
     }
 
+    // --- Trigger remotes (Add Popups signpost 2, Track 4) ---
+
+    private _addRemote(): void {
+        this.dispatchEvent(
+            new CustomEvent("add-trigger-remote", { bubbles: true, composed: true }),
+        );
+    }
+
+    private _requestDeleteRemote(remote: TriggerRemoteInfo, e: Event): void {
+        e.stopPropagation();
+        this._confirmDeleteRemote = remote;
+    }
+
+    private async _doDeleteRemote(): Promise<void> {
+        if (!this._confirmDeleteRemote || !this.api) return;
+        const remote = this._confirmDeleteRemote;
+        this._confirmDeleteRemote = null;
+        try {
+            await this.api.deleteTriggerRemote(remote.id);
+            this.dispatchEvent(
+                new CustomEvent("remote-deleted", { bubbles: true, composed: true }),
+            );
+        } catch {
+            // Non-fatal; parent refresh will reconcile.
+        }
+    }
+
+    // --- Named remote rename-in-place (Track 5, mirrors the drawer's
+    //     own _startEditDrawerName/_saveDrawerName/_onDrawerNameKeydown
+    //     trio further down this file) ---
+
+    private _startEditRemoteName(remote: TriggerRemoteInfo, e: Event): void {
+        e.stopPropagation();
+        if (this._remoteNameBusy) return;
+        this._draftRemoteName = remote.name;
+        this._editingRemoteName = true;
+        void this.updateComplete.then(() => {
+            const input = this.renderRoot.querySelector<HTMLInputElement>(
+                ".remote-name-input",
+            );
+            input?.focus();
+            input?.select();
+        });
+    }
+
+    private async _saveRemoteName(): Promise<void> {
+        if (!this._editingRemoteName) return;
+        const name = this._draftRemoteName.trim();
+        this._editingRemoteName = false;
+        const remoteId = this.expandedDeviceId;
+        const current = this.triggerRemotes.find((r) => r.id === remoteId);
+        if (!name || !this.api || !remoteId || name === current?.name) return;
+        this._remoteNameBusy = true;
+        try {
+            await this.api.renameTriggerRemote(remoteId, name);
+            this.dispatchEvent(
+                new CustomEvent("remote-renamed", { bubbles: true, composed: true }),
+            );
+        } catch {
+            // Non-fatal; the header reverts to the parent-refreshed name.
+        } finally {
+            this._remoteNameBusy = false;
+        }
+    }
+
+    private _onRemoteNameKeydown(e: KeyboardEvent): void {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            void this._saveRemoteName();
+        } else if (e.key === "Escape") {
+            this._editingRemoteName = false;
+        }
+    }
+
+    // --- Named remote duplicate (Track 5, mirrors
+    //     _openDuplicateDialog/_closeDuplicateDialog/_onDeviceDuplicated
+    //     further down this file, device-card's own corner action) ---
+
+    private _openDuplicateRemoteDialog(
+        remote: TriggerRemoteInfo,
+        e: Event,
+    ): void {
+        e.stopPropagation();
+        this._duplicateRemoteTarget = remote;
+    }
+
+    private _closeDuplicateRemoteDialog(): void {
+        this._duplicateRemoteTarget = null;
+    }
+
+    private _onRemoteDuplicated(): void {
+        this._duplicateRemoteTarget = null;
+        this.dispatchEvent(
+            new CustomEvent("remote-duplicated", { bubbles: true, composed: true }),
+        );
+    }
+
+    // --- Named remote receiver scope (Track 5 follow-up, mirrors
+    //     ir-device-detail.ts's _onEmittersChanged) ---
+
+    private async _onRemoteReceiversChanged(
+        remote: TriggerRemoteInfo,
+        e: CustomEvent<{ value: string[] }>,
+    ): Promise<void> {
+        if (!this.api) return;
+        this._remoteReceiversBusy = true;
+        try {
+            await this.api.setTriggerRemoteReceiverScope(
+                remote.id,
+                e.detail.value,
+            );
+            this.dispatchEvent(
+                new CustomEvent("remote-receivers-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch {
+            // Non-fatal; the picker reverts once the parent refresh
+            // hands back the server-confirmed scope.
+        } finally {
+            this._remoteReceiversBusy = false;
+        }
+    }
+
     private async _doDeleteDevice(): Promise<void> {
         if (!this._confirmDeleteDevice || !this.api) return;
         const device = this._confirmDeleteDevice;
@@ -520,15 +682,14 @@ export class IrDeviceList extends LitElement {
     // --- Triggers ---
 
     /**
-     * Number of trigger remotes (drawers). Always 1 today -- HAIR only
-     * supports the single "HAIR Triggers" drawer for now -- but the
-     * header counts remotes, not the triggers living inside them, so
-     * this becomes meaningful the moment multi-drawer support ships
-     * (owner ruling 2026-08-14: "each remote card has their own
-     * numbered triggers on it").
+     * Number of trigger remotes: the HAIR Triggers drawer plus every
+     * named remote. The header counts remotes, not the triggers living
+     * inside them (owner ruling 2026-08-14: "each remote card has their
+     * own numbered triggers on it") -- multi-drawer support shipped in
+     * this track, so this is no longer the hardcoded 1 it was before.
      */
     private get _triggerDrawerCount(): number {
-        return 1;
+        return 1 + this.triggerRemotes.length;
     }
 
     private async _loadTriggers(): Promise<void> {
@@ -538,6 +699,22 @@ export class IrDeviceList extends LitElement {
         } catch {
             // Non-fatal.
         }
+    }
+
+    // Add Popups signpost 2, Track 5: listTriggers() returns every
+    // trigger system-wide, drawer- and remote-owned alike (same flat
+    // list ws_get_triggers has always returned). Before this track
+    // the drawer's own expand view rendered that whole list
+    // unfiltered -- harmless while no named remote had triggers to
+    // leak, but wrong now that they do. These two views split it.
+    private get _drawerTriggers(): IRTrigger[] {
+        return this._triggers.filter((trig) => !trig.trigger_remote_id);
+    }
+
+    private _remoteTriggers(remoteId: string): IRTrigger[] {
+        return this._triggers.filter(
+            (trig) => trig.trigger_remote_id === remoteId,
+        );
     }
 
     private async _subscribeTriggerFired(): Promise<void> {
@@ -731,9 +908,28 @@ export class IrDeviceList extends LitElement {
                 ) {
                     return;
                 }
-                const triggers = [...this._triggers];
-                const [moved] = triggers.splice(oldIndex, 1);
-                triggers.splice(newIndex, 0, moved);
+                // Add Popups signpost 2, Track 5 bench catch
+                // (2026-08-14): .trigger-rows now renders either the
+                // drawer's own triggers or one named remote's, never
+                // the full this._triggers list -- so oldIndex/
+                // newIndex from SortableJS are positions WITHIN that
+                // subset, not the full array. Reorder the subset,
+                // then splice it back into the full list in place
+                // (every trigger outside the subset keeps its exact
+                // slot) so the save below still sends the complete
+                // ordering store.reorder_triggers requires.
+                const remoteId = this.expandedDeviceId;
+                const inSubset =
+                    remoteId && remoteId !== TRIGGER_DRAWER_ID
+                        ? (t: IRTrigger) => t.trigger_remote_id === remoteId
+                        : (t: IRTrigger) => !t.trigger_remote_id;
+                const subset = this._triggers.filter(inSubset);
+                const [moved] = subset.splice(oldIndex, 1);
+                subset.splice(newIndex, 0, moved);
+                const queue = [...subset];
+                const triggers = this._triggers.map((t) =>
+                    inSubset(t) ? queue.shift()! : t,
+                );
                 this._triggers = triggers;
 
                 // Tear down and let ``updated()`` re-attach against a
@@ -948,11 +1144,14 @@ export class IrDeviceList extends LitElement {
         return html`
             <!-- Devices -->
             <div class="toolbar">
-                <span class="toolbar-title">
-                    <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
-                    ${t("devlist.title")}
-                    <span class="toolbar-count">(${this.devices.length})</span>
-                </span>
+                <div class="toolbar-title-group">
+                    <span class="toolbar-title">
+                        <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
+                        ${t("devlist.title")}
+                        <span class="toolbar-count">(${this.devices.length})</span>
+                    </span>
+                    <div class="toolbar-tagline">${t("devlist.tagline")}</div>
+                </div>
                 <button class="add-btn" @click=${this._add}>
                     ${t("devlist.add_device_plus")}
                 </button>
@@ -1055,7 +1254,7 @@ export class IrDeviceList extends LitElement {
                       </div>
                   `}
 
-            <!-- Trigger Remotes: one HAIR Triggers drawer card, same size as
+            <!-- Remotes: one HAIR Triggers drawer card, same size as
                  a collapsed device card (owner bench ruling), expanding via
                  the same expandedDeviceId/device-selected slot a device
                  card uses (TRIGGER_DRAWER_ID sentinel). Renders even at
@@ -1064,15 +1263,21 @@ export class IrDeviceList extends LitElement {
                  expanded view's own empty state (trow.empty_state) covers
                  that case instead of hiding the section. -->
             <div class="toolbar trigger-toolbar">
-                <span class="toolbar-title trigger-toolbar-title">
-                    <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
-                    ${t("devlist.trigger_remotes_title")}
-                    <span class="toolbar-count">(${this._triggerDrawerCount})</span>
-                </span>
+                <div class="toolbar-title-group">
+                    <span class="toolbar-title trigger-toolbar-title">
+                        <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
+                        ${t("devlist.trigger_remotes_title")}
+                        <span class="toolbar-count">(${this._triggerDrawerCount})</span>
+                    </span>
+                    <div class="toolbar-tagline">${t("devlist.trigger_remotes_tagline")}</div>
+                </div>
+                <button class="add-btn trigger-add-btn" @click=${this._addRemote}>
+                    ${t("devlist.add_device_plus")}
+                </button>
             </div>
             <div class="grid">
                 <div
-                    class="card trigger-drawer-card ${this.expandedDeviceId === TRIGGER_DRAWER_ID ? "expanded" : ""} ${this._glowTriggerIds.size > 0 ? "bloom" : ""}"
+                    class="card trigger-drawer-card ${this.expandedDeviceId === TRIGGER_DRAWER_ID ? "expanded" : ""} ${this._drawerTriggers.some((t) => this._glowTriggerIds.has(t.id)) ? "bloom" : ""}"
                     tabindex="0"
                     @click=${() => this._select(TRIGGER_DRAWER_ID)}
                     @keydown=${(e: KeyboardEvent) => {
@@ -1089,7 +1294,7 @@ export class IrDeviceList extends LitElement {
                         </div>
                     </div>
                     <div class="card-meta">
-                        ${tp("trow.header_count", this._triggers.length)}
+                        ${tp("trow.header_count", this._drawerTriggers.length)}
                     </div>
                 </div>
                 ${this.expandedDeviceId === TRIGGER_DRAWER_ID
@@ -1131,7 +1336,7 @@ export class IrDeviceList extends LitElement {
                                               : nothing}
                                       </div>
                                       <div class="trh-subtitle">
-                                          ${tp("trow.header_count", this._triggers.length)}
+                                          ${tp("trow.header_count", this._drawerTriggers.length)}
                                       </div>
                                   </div>
                                   <button
@@ -1140,13 +1345,13 @@ export class IrDeviceList extends LitElement {
                                       title=${t("common.close")}
                                   >&#x2715;</button>
                               </section>
-                              ${this._triggers.length > 0
+                              ${this._drawerTriggers.length > 0
                                   ? html`
                                         <div class="trigger-rows">
                                             ${keyed(
                                                 this._triggerRowsVersion,
                                                 repeat(
-                                                    this._triggers,
+                                                    this._drawerTriggers,
                                                     (trig) => trig.id,
                                                     (trig) => html`
                                                         <ir-trigger-row
@@ -1176,6 +1381,144 @@ export class IrDeviceList extends LitElement {
                           </div>
                       `
                     : nothing}
+                ${repeat(
+                    this.triggerRemotes,
+                    (remote) => remote.id,
+                    (remote) => html`
+                        <div
+                            class="card trigger-remote-card ${remote.id === this.expandedDeviceId ? "expanded" : ""} ${this._remoteTriggers(remote.id).some((t) => this._glowTriggerIds.has(t.id)) ? "bloom" : ""}"
+                            tabindex="0"
+                            @click=${() => this._select(remote.id)}
+                            @keydown=${(e: KeyboardEvent) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    this._select(remote.id);
+                                }
+                            }}
+                        >
+                            <button
+                                class="card-action duplicate-action"
+                                title=${t("duptr.heading")}
+                                @click=${(e: Event) =>
+                                    this._openDuplicateRemoteDialog(remote, e)}
+                            >
+                                <ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>
+                            </button>
+                            <button
+                                class="card-action delete-action"
+                                title=${t("devlist.del_remote_title")}
+                                @click=${(e: Event) => this._requestDeleteRemote(remote, e)}
+                            >
+                                <ha-svg-icon
+                                    .path=${ICON_TRASH}
+                                    .viewBox=${TRASH_VIEWBOX}
+                                ></ha-svg-icon>
+                            </button>
+                            <div class="card-header">
+                                <ha-svg-icon class="trigger-icon" .path=${ICON_TRIGGER}></ha-svg-icon>
+                                <div class="card-name">${remote.name}</div>
+                            </div>
+                            <div class="card-meta">
+                                ${tp("trow.header_count", remote.trigger_count)}
+                            </div>
+                        </div>
+                        ${remote.id === this.expandedDeviceId
+                            ? html`
+                                  <div class="expanded-detail trigger-remote-detail">
+                                      <section class="header trh-header">
+                                          <div class="header-left">
+                                              <div class="name-row">
+                                                  ${this._editingRemoteName
+                                                      ? html`
+                                                            <input
+                                                                class="name-input remote-name-input"
+                                                                type="text"
+                                                                .value=${this._draftRemoteName}
+                                                                @input=${(e: Event) =>
+                                                                    (this._draftRemoteName = (
+                                                                        e.target as HTMLInputElement
+                                                                    ).value)}
+                                                                @blur=${this._saveRemoteName}
+                                                                @keydown=${this._onRemoteNameKeydown}
+                                                                ?disabled=${this._remoteNameBusy}
+                                                            />
+                                                        `
+                                                      : html`
+                                                            <h1
+                                                                class="editable-name"
+                                                                @click=${(e: Event) =>
+                                                                    this._startEditRemoteName(remote, e)}
+                                                                title=${t("cmdrow.rename")}
+                                                            >
+                                                                ${remote.name}
+                                                                <span class="edit-icon">&#9998;</span>
+                                                            </h1>
+                                                        `}
+                                                  <span class="trh-count"
+                                                      >(${tp("trow.header_count", remote.trigger_count)})</span
+                                                  >
+                                                  ${remote.ha_device_id
+                                                      ? renderExitToEntityBtn(
+                                                            `/config/devices/device/${remote.ha_device_id}`,
+                                                            t("devices.open_in_ha"),
+                                                        )
+                                                      : nothing}
+                                                  <div class="remote-receiver-scope">
+                                                      <ir-receiver-picker
+                                                          .api=${this.api}
+                                                          .value=${remote.receiver_scope}
+                                                          ?disabled=${this._remoteReceiversBusy}
+                                                          @receivers-changed=${(
+                                                              ev: CustomEvent<{ value: string[] }>,
+                                                          ) => this._onRemoteReceiversChanged(remote, ev)}
+                                                      ></ir-receiver-picker>
+                                                  </div>
+                                              </div>
+                                          </div>
+                                          <button
+                                              class="collapse-btn"
+                                              @click=${() => this._select(remote.id)}
+                                              title=${t("common.close")}
+                                          >&#x2715;</button>
+                                      </section>
+                                      ${this._remoteTriggers(remote.id).length > 0
+                                          ? html`
+                                                <div class="trigger-rows">
+                                                    ${keyed(
+                                                        this._triggerRowsVersion,
+                                                        repeat(
+                                                            this._remoteTriggers(remote.id),
+                                                            (trig) => trig.id,
+                                                            (trig) => html`
+                                                                <ir-trigger-row
+                                                                    .trigger=${trig}
+                                                                    .receivers=${this._receivers}
+                                                                    .bloom=${this._glowTriggerIds.has(trig.id)}
+                                                                    @rename-trigger=${this._onRenameTrigger}
+                                                                    @toggle-enabled=${(ev: CustomEvent) =>
+                                                                        this._toggleTriggerEnabled(ev.detail.trigger, ev)}
+                                                                    @edit-trigger=${(ev: CustomEvent) =>
+                                                                        this._openEditTrigger(ev.detail.trigger, ev)}
+                                                                    @delete-trigger=${(ev: CustomEvent) =>
+                                                                        this._requestDeleteTrigger(ev.detail.trigger, ev)}
+                                                                >
+                                                                    <ha-svg-icon
+                                                                        slot="grip"
+                                                                        class="grip-handle"
+                                                                        .path=${ICON_GRIP}
+                                                                    ></ha-svg-icon>
+                                                                </ir-trigger-row>
+                                                            `,
+                                                        ),
+                                                    )}
+                                                </div>
+                                            `
+                                          : html`<div class="trigger-drawer-empty">${t("trow.empty_state")}</div>`}
+                                  </div>
+                              `
+                            : nothing}
+                    `,
+                )}
             </div>
 
             <!-- Blasters (Pluckable) -- vendor IR blasters HAIR can pull from -->
@@ -1380,6 +1723,18 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
+            ${this._duplicateRemoteTarget && this.api
+                ? html`
+                      <ir-duplicate-trigger-remote-dialog
+                          .api=${this.api}
+                          .sourceId=${this._duplicateRemoteTarget.id}
+                          .sourceName=${this._duplicateRemoteTarget.name}
+                          @remote-duplicated=${this._onRemoteDuplicated}
+                          @closed=${this._closeDuplicateRemoteDialog}
+                      ></ir-duplicate-trigger-remote-dialog>
+                  `
+                : nothing}
+
             ${this._confirmDeleteDevice
                 ? html`
                       <ir-confirm-dialog
@@ -1389,6 +1744,19 @@ export class IrDeviceList extends LitElement {
                           .destructive=${true}
                           @confirmed=${this._doDeleteDevice}
                           @closed=${() => (this._confirmDeleteDevice = null)}
+                      ></ir-confirm-dialog>
+                  `
+                : nothing}
+
+            ${this._confirmDeleteRemote
+                ? html`
+                      <ir-confirm-dialog
+                          title=${t("devlist.del_remote_title")}
+                          message=${t("devlist.del_remote_msg", { name: this._confirmDeleteRemote.name })}
+                          confirmLabel="Delete"
+                          .destructive=${true}
+                          @confirmed=${this._doDeleteRemote}
+                          @closed=${() => (this._confirmDeleteRemote = null)}
                       ></ir-confirm-dialog>
                   `
                 : nothing}
@@ -1430,6 +1798,11 @@ export class IrDeviceList extends LitElement {
             flex-wrap: wrap;
             gap: 8px;
         }
+        .toolbar-title-group {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
         .toolbar-title {
             display: flex;
             align-items: center;
@@ -1437,6 +1810,17 @@ export class IrDeviceList extends LitElement {
             font-size: 1.1rem;
             font-weight: 500;
             color: var(--primary-text-color);
+        }
+        /* Remotes Rename Label Pass (owner request, 2026-08-14): a
+           one-line description under each section header -- "Devices"
+           and "Remotes" alone are generic enough to want the
+           disambiguation. Indented to align under the title text,
+           past the icon (24px) + .toolbar-title's own gap (8px). */
+        .toolbar-tagline {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--secondary-text-color);
+            margin-left: 32px;
         }
         .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
@@ -1475,11 +1859,11 @@ export class IrDeviceList extends LitElement {
             color: var(--secondary-text-color);
             font-size: 0.9rem;
         }
-        /* Trigger Remotes' own toolbar -- same treatment as the devices
+        /* Remotes' own toolbar -- same treatment as the devices
            toolbar above (icon + title + count), gold instead of device
            green, with the section boundary itself living here as a
            border-top (owner ruling 2026-08-14: the line caps off
-           Controlled Devices, the header sits below it, not the other
+           Devices, the header sits below it, not the other
            way around). */
         .trigger-toolbar {
             border-top: 2px solid var(--divider-color);
@@ -1489,6 +1873,13 @@ export class IrDeviceList extends LitElement {
         .trigger-toolbar-title ha-svg-icon {
             color: #d4a017;
         }
+        .trigger-add-btn {
+            color: #d4a017;
+            border-color: #d4a017;
+        }
+        .trigger-add-btn:hover {
+            background: rgba(212, 160, 23, 0.08);
+        }
 
         /* --- Section headers (neutral) --- */
         .section-header {
@@ -1496,8 +1887,8 @@ export class IrDeviceList extends LitElement {
             align-items: center;
             gap: 8px;
             margin: 24px 0 10px;
-            padding-bottom: 6px;
-            border-bottom: 2px solid var(--divider-color);
+            padding-top: 14px;
+            border-top: 2px solid var(--divider-color);
         }
         .section-header:first-child {
             margin-top: 0;
@@ -1736,7 +2127,7 @@ export class IrDeviceList extends LitElement {
             text-transform: uppercase;
         }
 
-        /* --- Trigger Remotes: single HAIR Triggers drawer card --- */
+        /* --- Remotes: single HAIR Triggers drawer card --- */
         .trigger-drawer-card {
             transition: transform 120ms ease, box-shadow 300ms ease,
                         border-color 300ms ease, background 400ms ease;
@@ -1759,6 +2150,39 @@ export class IrDeviceList extends LitElement {
            this class's own default custom properties. */
         .trigger-drawer-card.bloom .trigger-icon {
             color: var(--bloom-peak);
+        }
+
+        /* --- Remotes: named-remote cards (Track 4 minimal
+           card; Track 5 full expand/rename/duplicate parity with the
+           drawer -- clickable now, so no cursor/hover override left
+           to neutralize). Corner actions follow the same hover-to-
+           reveal treatment .device-card's own actions use (owner
+           catch 2026-08-14: always-visible reads as busy);
+           .expanded uses the same gold outline
+           .trigger-drawer-card.expanded uses. --- */
+        .trigger-remote-card {
+            position: relative;
+        }
+        .trigger-remote-card .trigger-icon {
+            color: #d4a017;
+        }
+        .trigger-remote-card.expanded {
+            border-color: #d4a017;
+            box-shadow: 0 0 0 1px #d4a017;
+        }
+        /* Add Popups signpost 2, Track 5 follow-up: the drawer card's
+           own .bloom icon-color rule (below) predates named remotes
+           having cards of their own to glow -- same treatment, once
+           the remote card actually gets the .bloom class (see the
+           class= edit above). */
+        .trigger-remote-card.bloom .trigger-icon {
+            color: var(--bloom-peak);
+        }
+        .trigger-remote-card:hover .delete-action,
+        .trigger-remote-card:focus-within .delete-action,
+        .trigger-remote-card:hover .duplicate-action,
+        .trigger-remote-card:focus-within .duplicate-action {
+            opacity: 0.55;
         }
 
         /* --- Drawer header (rename-in-place + go-to-HA + close),
@@ -1784,6 +2208,18 @@ export class IrDeviceList extends LitElement {
             font-size: 1.3rem;
             margin: 0;
         }
+        /* Add Popups signpost 2, Track 5 follow-up: a named remote's
+           trigger count, inline right after its name instead of on
+           its own subtitle row below (owner request 2026-08-14,
+           "Samsung TV (49 triggers)"). The HAIR Triggers drawer keeps
+           its own count on .trh-subtitle -- unchanged, not part of
+           this request. */
+        .trh-header .trh-count {
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
         .trh-header .editable-name {
             cursor: pointer;
             display: inline-flex;
@@ -1791,6 +2227,15 @@ export class IrDeviceList extends LitElement {
             gap: 6px;
             border-bottom: 1px dashed transparent;
             transition: border-color 150ms ease;
+            flex-shrink: 0;
+        }
+        /* Add Popups signpost 2, Track 5 follow-up: the exit-to-entity
+           button used to be the last thing on the name-row -- now the
+           receiver-scope standoff box sits after it and can wrap to
+           two lines, so pin this in place too rather than letting it
+           get squeezed. */
+        .trh-header .exit-to-entity-btn {
+            flex-shrink: 0;
         }
         .trh-header .editable-name:hover {
             border-bottom-color: var(--primary-color);
@@ -1845,6 +2290,38 @@ export class IrDeviceList extends LitElement {
         .trh-header .collapse-btn:hover {
             color: var(--primary-text-color);
             background: var(--secondary-background-color);
+        }
+
+        /* Add Popups signpost 2, Track 5 follow-up (owner bench
+           request, 2026-08-14): the receiver-scope picker used to be
+           its own full-width row below trh-header -- now it lives
+           inline on .name-row, right after the exit-to-entity button.
+           A left border + padding stand it off as its own thing
+           rather than reading as part of the name line; min-width: 0
+           + flex keep it from blowing out the row when the name is
+           long. The nested ir-receiver-picker override pushes its
+           internal label-above-chips layout to label-beside-chips
+           (--picker-host-display: flex) and confines wrapped chips to
+           the picker's own column (flex: 1 1 auto; min-width: 0 on
+           both the box and .chips) instead of spanning the full row
+           width under the name too. */
+        .trh-header .remote-receiver-scope {
+            display: flex;
+            align-items: baseline;
+            margin-left: 14px;
+            padding-left: 14px;
+            border-left: 1px solid var(--divider-color);
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+        .trh-header .remote-receiver-scope ir-receiver-picker {
+            --picker-host-display: flex;
+            --picker-host-align: baseline;
+            --picker-host-gap: 10px;
+            --picker-label-display: inline;
+            --picker-label-margin-bottom: 0;
+            flex: 1 1 auto;
+            min-width: 0;
         }
 
         /* --- Trigger row list (SortableJS grip-drag) --- */
