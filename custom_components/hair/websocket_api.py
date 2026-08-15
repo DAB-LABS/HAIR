@@ -7,6 +7,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 
 from . import pluck
 from .capture import (
@@ -157,6 +158,20 @@ def _get_first_entry_data(hass: HomeAssistant) -> dict[str, Any] | None:
     return None
 
 
+def _ha_device_id(hass: HomeAssistant, device: IRDevice) -> str | None:
+    """Resolve this IR device's HA device-registry id, if it has one.
+
+    Feeds the exit-to-entity link (docs/internal/plans/exit-to-entity-
+    link.md): the frontend renders no glyph at all when this is None,
+    since there is nowhere in HA to send the user. Same identifier
+    tuple every entity platform's own device_info already registers
+    under -- (DOMAIN, device.id), see e.g. switch.py's device_info.
+    """
+    registry = dr.async_get(hass)
+    ha_device = registry.async_get_device(identifiers={(DOMAIN, device.id)})
+    return ha_device.id if ha_device is not None else None
+
+
 def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
     return {
         "id": device.id,
@@ -173,6 +188,7 @@ def _device_summary(device: IRDevice, hass: HomeAssistant) -> dict[str, Any]:
         "command_count": len(device.commands),
         "created_at": device.created_at,
         "updated_at": device.updated_at,
+        "ha_device_id": _ha_device_id(hass, device),
     }
 
 
@@ -181,6 +197,7 @@ async def _device_full(
 ) -> dict[str, Any]:
     full = device.to_dict()
     full["command_count"] = len(device.commands)
+    full["ha_device_id"] = _ha_device_id(hass, device)
     # The matrix summary rides the full payload (owner ruling
     # 2026-07-28) so the device page renders its state-matrix card
     # without a second round trip. Loading goes through the manager's

@@ -63,6 +63,7 @@
     "devices.matrix_dim_fan": "Wentylator",
     "devices.matrix_dim_swing": "Żaluzje",
     "devices.matrix_absent": "Macierz nie ma komórki dla tej temperatury",
+    "devices.open_in_ha": "Open in Home Assistant",
     "devices.matrix_set_state": "Ustaw stan: {name}",
     "devices.matrix_add_command": "+ Polecenie",
     "devices.state_chip": "Stan",

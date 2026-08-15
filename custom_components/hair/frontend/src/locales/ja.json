@@ -63,6 +63,7 @@
     "devices.matrix_dim_fan": "風量",
     "devices.matrix_dim_swing": "スイング",
     "devices.matrix_absent": "この温度のセルはマトリクスにありません",
+    "devices.open_in_ha": "Open in Home Assistant",
     "devices.matrix_set_state": "設定する状態: {name}",
     "devices.matrix_add_command": "+ コマンド",
     "devices.state_chip": "状態",

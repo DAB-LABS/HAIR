@@ -63,6 +63,7 @@
     "devices.matrix_dim_fan": "Вентилятор",
     "devices.matrix_dim_swing": "Жалюзи",
     "devices.matrix_absent": "В матрице нет ячейки для этой температуры",
+    "devices.open_in_ha": "Open in Home Assistant",
     "devices.matrix_set_state": "Задать состояние: {name}",
     "devices.matrix_add_command": "+ Команда",
     "devices.state_chip": "Состояние",

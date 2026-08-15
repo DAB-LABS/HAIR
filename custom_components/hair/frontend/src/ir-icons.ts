@@ -333,6 +333,42 @@ export const editButtonStyles = css`
 `;
 
 /**
+ * Exit-to-entity's own treatment -- split out from editButtonStyles
+ * (owner bench pass, 2026-08-12): the glyph read too big at edit's
+ * 20px/24x24, so this button now diverges rather than sharing edit's
+ * box. Owner ruling: 20% smaller glyph (20px -> 16px) and 2px padding
+ * on every side (was inheriting edit's 3px/2px/1px top/side/bottom,
+ * tuned for edit's own bottom-edge alignment against trash -- a
+ * concern that doesn't apply here), landing on a 20x20 box, centered
+ * on both axes as the owner originally asked for this button.
+ * Hover/rest color treatment (grey rest, blue #64b5f6 hover) is
+ * unchanged and still matches edit's own -- only size and padding
+ * split off.
+ */
+export const exitToEntityButtonStyles = css`
+    .exit-to-entity-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        padding: 2px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--disabled-text-color, #999);
+        transition: background 150ms ease, color 150ms ease,
+            opacity 150ms ease;
+    }
+    .exit-to-entity-btn:hover {
+        background: rgba(100, 181, 246, 0.2);
+        color: #64b5f6;
+    }
+    .exit-to-entity-btn ha-svg-icon {
+        --mdc-icon-size: 14px;
+    }
+`;
+
+/**
  * Shared edit-button template. Placement is the only thing left to
  * the caller: put this immediately left of the row's trash can.
  * `disabled` mirrors the row's own busy state so the edit button
@@ -353,6 +389,75 @@ export function renderEditBtn(
         >
             <ha-svg-icon .path=${ICON_EDIT} .viewBox=${EDIT_VIEWBOX}></ha-svg-icon>
         </button>
+    `;
+}
+
+/**
+ * The exit-to-entity glyph, from images/exit-to-entity.svg
+ * (owner-supplied, verified 2026-08-12): fill-based single path,
+ * native viewBox 0 0 512 512, arrow-out-of-box. Renders through
+ * ha-svg-icon like ICON_EDIT/ICON_TRASH/ICON_COMB -- not the stroke
+ * trap edit-button-pass.md warned about for ICON_EDIT's own asset.
+ * The source file's hardcoded fill="#000000" and 800px width/height
+ * are dropped on export; currentColor and --mdc-icon-size drive it
+ * exactly like every other shared glyph here.
+ *
+ * docs/internal/plans/exit-to-entity-link.md (owner go 2026-08-12):
+ * the go-to-HA link on the controlled-device detail header. Same
+ * one-spot family rule as edit -- glyph, helper, and treatment all
+ * live here so the later trigger-remote header install (Track B,
+ * signpost 1) is a call site, not a second implementation.
+ */
+export const ICON_EXIT_TO_ENTITY =
+    "M421.24,269.93h30V429.84a48.72,48.72,0,0,1-48.66,48.66H82.77a48.72,48.72,0,0,1-48.66-48.66V110A48.72,48.72,0,0,1,82.77,61.37H242.68v30H82.77A18.68,18.68,0,0,0,64.11,110V429.84A18.68,18.68,0,0,0,82.77,448.5H402.58a18.68,18.68,0,0,0,18.66-18.66Zm-69-236.43v30h74.4L249.5,240.68l21.21,21.21L447.89,84.71v74.4h30V33.5Z";
+
+/** The viewBox ICON_EXIT_TO_ENTITY is drawn in -- its own native one,
+ * unlike ICON_DOWNLOAD's, needed no adjustment (measured margins
+ * already read close to ICON_EDIT/ICON_TRASH's own ~13-16%). */
+export const EXIT_TO_ENTITY_VIEWBOX = "0 0 512 512";
+
+/**
+ * SPA-navigate to an in-app HA path without a full page reload --
+ * the standard history.pushState + location-changed event idiom the
+ * HA frontend itself listens for (there is no existing helper or
+ * navigate() call anywhere else in this codebase to reuse; this is
+ * that idiom reimplemented locally rather than a new invention).
+ */
+function _spaNavigate(href: string): void {
+    history.pushState(null, "", href);
+    window.dispatchEvent(
+        new CustomEvent("location-changed", { bubbles: true, composed: true }),
+    );
+}
+
+/**
+ * Shared exit-to-entity template: a REAL <a href> so middle-click and
+ * ctrl/cmd-click open a new tab natively, with a plain left click
+ * intercepted for in-app SPA navigation instead of a full reload.
+ * Guard is the caller's job (docs/internal/plans/exit-to-entity-
+ * link.md: no ha_device_id -> don't call this at all, no dead
+ * buttons) -- href is always assumed real here.
+ */
+export function renderExitToEntityBtn(href: string, title: string) {
+    return html`
+        <a
+            class="exit-to-entity-btn"
+            href=${href}
+            title=${title}
+            aria-label=${title}
+            @click=${(e: MouseEvent) => {
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+                    return;
+                }
+                e.preventDefault();
+                _spaNavigate(href);
+            }}
+        >
+            <ha-svg-icon
+                .path=${ICON_EXIT_TO_ENTITY}
+                .viewBox=${EXIT_TO_ENTITY_VIEWBOX}
+            ></ha-svg-icon>
+        </a>
     `;
 }
 

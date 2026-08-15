@@ -63,6 +63,7 @@
     "devices.matrix_dim_fan": "Lüfter",
     "devices.matrix_dim_swing": "Lamellen",
     "devices.matrix_absent": "Die Matrix hat keine Zelle bei dieser Temperatur",
+    "devices.open_in_ha": "Open in Home Assistant",
     "devices.matrix_set_state": "Zustand setzen: {name}",
     "devices.matrix_add_command": "+ Befehl",
     "devices.state_chip": "Zustand",

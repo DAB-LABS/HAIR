@@ -606,6 +606,11 @@ export interface IRDevice {
     // are independent (either can be set or cleared on its own).
     temperature_sensor_entity_id: string | null;
     humidity_sensor_entity_id: string | null;
+    // Exit-to-entity (exit-to-entity-link.md): the HA device-registry
+    // id this IR device resolves to, null when it has no registry
+    // entry (no entities yet). The detail header's go-to-HA glyph
+    // renders only when this is set -- no dead buttons.
+    ha_device_id: string | null;
 }
 
 export interface DeviceSummary {
@@ -618,6 +623,7 @@ export interface DeviceSummary {
     command_count: number;
     created_at: string;
     updated_at: string;
+    ha_device_id: string | null;
 }
 
 export interface CaptureProviderInfo {

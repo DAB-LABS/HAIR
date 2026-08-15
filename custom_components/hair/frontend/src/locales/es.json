@@ -63,6 +63,7 @@
     "devices.matrix_dim_fan": "Ventilador",
     "devices.matrix_dim_swing": "Oscilación",
     "devices.matrix_absent": "La matriz no tiene celda a esta temperatura",
+    "devices.open_in_ha": "Open in Home Assistant",
     "devices.matrix_set_state": "Fijar estado: {name}",
     "devices.matrix_add_command": "+ Comando",
     "devices.state_chip": "Estado",

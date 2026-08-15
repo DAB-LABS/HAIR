@@ -63,6 +63,7 @@
     "devices.matrix_dim_fan": "Fan",
     "devices.matrix_dim_swing": "Swing",
     "devices.matrix_absent": "The matrix has no cell at this temperature",
+    "devices.open_in_ha": "Open in Home Assistant",
     "devices.matrix_set_state": "Set state: {name}",
     "devices.matrix_add_command": "+ Command",
     "devices.state_chip": "State",

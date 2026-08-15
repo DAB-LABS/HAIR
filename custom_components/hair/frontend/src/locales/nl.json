@@ -63,6 +63,7 @@
     "devices.matrix_dim_fan": "Ventilator",
     "devices.matrix_dim_swing": "Lamellen",
     "devices.matrix_absent": "De matrix heeft geen cel op deze temperatuur",
+    "devices.open_in_ha": "Open in Home Assistant",
     "devices.matrix_set_state": "Toestand instellen: {name}",
     "devices.matrix_add_command": "+ Commando",
     "devices.state_chip": "Toestand",

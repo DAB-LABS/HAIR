@@ -96,6 +96,19 @@ def _make_signal_monitor(hass):
     return SignalMonitor(hass, signal_store, hair_store)
 
 
+def _mock_device_registry(ha_device_id: str | None):
+    """Patch websocket_api's dr.async_get the same way
+    test_device_manager.py patches device_manager's -- registered
+    devices resolve to a MagicMock HA device carrying ha_device_id;
+    None reproduces the unregistered case _ha_device_id() must also
+    handle."""
+    resolved = MagicMock(id=ha_device_id) if ha_device_id is not None else None
+    return patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=MagicMock(async_get_device=MagicMock(return_value=resolved)),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registration tests
 # ---------------------------------------------------------------------------
@@ -137,6 +150,46 @@ async def test_get_devices_returns_summaries(fake_hass, mock_device):
     assert result[0]["command_count"] == len(mock_device.commands)
 
 
+@pytest.mark.asyncio
+async def test_get_devices_summary_carries_ha_device_id_when_registered(
+    fake_hass, mock_device
+):
+    """Exit-to-entity link (exit-to-entity-link.md): a device with a
+    matching HA registry entry surfaces that entry's id on the list
+    payload, not just the full one -- the Closet/device-list surfaces
+    read summaries, not full payloads."""
+    manager = MagicMock()
+    manager.get_all_devices.return_value = [mock_device]
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    with _mock_device_registry("ha-dev-42"):
+        await ws_get_devices(fake_hass, conn, {"id": 1, "type": "hair/devices"})
+
+    result = conn.send_result.call_args[0][1]
+    assert result[0]["ha_device_id"] == "ha-dev-42"
+
+
+@pytest.mark.asyncio
+async def test_get_devices_summary_ha_device_id_none_when_unregistered(
+    fake_hass, mock_device
+):
+    """No matching HA registry entry -> None, not a missing key or a
+    raised error. The frontend's guard (no glyph without an id) relies
+    on this being an honest null, the same shape the matrix field
+    already uses for its own "nothing here" case."""
+    manager = MagicMock()
+    manager.get_all_devices.return_value = [mock_device]
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    with _mock_device_registry(None):
+        await ws_get_devices(fake_hass, conn, {"id": 1, "type": "hair/devices"})
+
+    result = conn.send_result.call_args[0][1]
+    assert result[0]["ha_device_id"] is None
+
+
 # ---------------------------------------------------------------------------
 # ws_get_device
 # ---------------------------------------------------------------------------
@@ -156,6 +209,44 @@ async def test_get_device_found(fake_hass, mock_device):
     result = conn.send_result.call_args[0][1]
     assert result["id"] == mock_device.id
     assert result["command_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_device_full_carries_ha_device_id_when_registered(
+    fake_hass, mock_device
+):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    with _mock_device_registry("ha-dev-42"):
+        await ws_get_device(
+            fake_hass,
+            conn,
+            {"id": 2, "type": "hair/device", "device_id": mock_device.id},
+        )
+    result = conn.send_result.call_args[0][1]
+    assert result["ha_device_id"] == "ha-dev-42"
+
+
+@pytest.mark.asyncio
+async def test_get_device_full_ha_device_id_none_when_unregistered(
+    fake_hass, mock_device
+):
+    manager = MagicMock()
+    manager.get_device.return_value = mock_device
+    _wire_hass(fake_hass, manager=manager)
+
+    conn = _make_connection()
+    with _mock_device_registry(None):
+        await ws_get_device(
+            fake_hass,
+            conn,
+            {"id": 2, "type": "hair/device", "device_id": mock_device.id},
+        )
+    result = conn.send_result.call_args[0][1]
+    assert result["ha_device_id"] is None
 
 
 @pytest.mark.asyncio

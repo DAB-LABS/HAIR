@@ -218,7 +218,15 @@ class TestNoUnintentionalDuplication:
     # untranslated -- the same pattern already used elsewhere in the
     # codebase (e.g. "wig" itself stays untranslated in many strings).
     EXEMPT_DUPLICATE_KEYS: ClassVar[set[str]] = {
-        "wigs.editor.kind_placeholder"
+        "wigs.editor.kind_placeholder",
+        # exit-to-entity-link.md (2026-08-12), same shape as
+        # cmdrow.map_action_label before it: a translation pass
+        # hasn't touched the nine non-English locales yet, so all ten
+        # carry the English string as a placeholder. map_action_label
+        # dodged this test on length alone (10 chars, under the 15
+        # threshold); this key's value is long enough to need the
+        # explicit exemption instead.
+        "devices.open_in_ha",
     }
 
     _MIN_SUSPICIOUS_LENGTH = 15

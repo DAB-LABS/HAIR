@@ -50,6 +50,8 @@ import {
     ICON_SETTINGS,
     SETTINGS_VIEWBOX,
     settingsButtonStyles,
+    exitToEntityButtonStyles,
+    renderExitToEntityBtn,
 } from "./ir-icons.js";
 import "./ir-device-settings-dialog.js";
 import { settingsSections } from "./ir-device-settings-dialog.js";
@@ -1786,32 +1788,40 @@ export class IrDeviceDetail extends LitElement {
         const count = commands.length;
 
         return html`
-            <!-- Header: editable name + delete -->
+            <!-- Header: editable name + exit-to-entity + delete -->
             <section class="header">
                 <div class="header-left">
-                    ${this._editingName
-                        ? html`
-                              <input
-                                  class="name-input"
-                                  type="text"
-                                  .value=${this._draftName}
-                                  @input=${(e: Event) =>
-                                      (this._draftName = (e.target as HTMLInputElement).value)}
-                                  @blur=${this._saveName}
-                                  @keydown=${this._onNameKeyDown}
-                                  ?disabled=${this._busy}
-                              />
-                          `
-                        : html`
-                              <h1
-                                  class="editable-name"
-                                  @click=${this._startEditName}
-                                  title=${t("cmdrow.rename")}
-                              >
-                                  ${this.device.name}
-                                  <span class="edit-icon">&#9998;</span>
-                              </h1>
-                          `}
+                    <div class="name-row">
+                        ${this._editingName
+                            ? html`
+                                  <input
+                                      class="name-input"
+                                      type="text"
+                                      .value=${this._draftName}
+                                      @input=${(e: Event) =>
+                                          (this._draftName = (e.target as HTMLInputElement).value)}
+                                      @blur=${this._saveName}
+                                      @keydown=${this._onNameKeyDown}
+                                      ?disabled=${this._busy}
+                                  />
+                              `
+                            : html`
+                                  <h1
+                                      class="editable-name"
+                                      @click=${this._startEditName}
+                                      title=${t("cmdrow.rename")}
+                                  >
+                                      ${this.device.name}
+                                      <span class="edit-icon">&#9998;</span>
+                                  </h1>
+                              `}
+                        ${this.device.ha_device_id
+                            ? renderExitToEntityBtn(
+                                  `/config/devices/device/${this.device.ha_device_id}`,
+                                  t("devices.open_in_ha"),
+                              )
+                            : nothing}
+                    </div>
                 </div>
                 <button
                     class="stc-btn"
@@ -2258,6 +2268,7 @@ export class IrDeviceDetail extends LitElement {
         actionChipStyles,
         popoverStyles,
         settingsButtonStyles,
+        exitToEntityButtonStyles,
         css`
         /* Device Settings (0.9.8): nudge the settings button down by
            the label line's height (the .sl label's font-size plus its
@@ -2353,6 +2364,12 @@ export class IrDeviceDetail extends LitElement {
             flex: 1;
             min-width: 0;
         }
+        .name-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+        }
         h1 {
             font-size: 1.5rem;
             margin: 0;
@@ -2386,7 +2403,8 @@ export class IrDeviceDetail extends LitElement {
             background: transparent;
             color: var(--primary-text-color);
             outline: none;
-            width: 100%;
+            flex: 1;
+            min-width: 0;
             padding: 0 0 2px;
         }
         .header .action-btn.collapse-btn {
