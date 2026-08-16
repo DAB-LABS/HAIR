@@ -293,6 +293,11 @@ class TestEchoClaim:
             "sig_fp": n.sig_fp,
             "row_key": n.decoded_fingerprint or n.sig_fp,
             "expires": 10**12,
+            # Armed in the past with the guard window already closed
+            # (Track 3a): this test is about the ticket claim itself,
+            # not about the post-send guard standing in for it.
+            "armed_at": 0.0,
+            "guard_until": 0.0,
             "cancel": None,
         })
 
@@ -332,6 +337,8 @@ class TestEchoClaim:
             "sig_fp": n.sig_fp,
             "row_key": n.sig_fp,
             "expires": 0.0,  # long past
+            "armed_at": 0.0,
+            "guard_until": 0.0,
             "cancel": None,
         })
         await monitor._process_parsed_signal(parsed, receiver_entity_id=None)
@@ -622,6 +629,8 @@ class TestGarbledEchoSwallow:
             "expires": 10**12,
             "sl": sm.EventParser._pronto_sl_pattern(n.code),
             "garble_expires": 10**12,
+            "armed_at": 0.0,
+            "guard_until": 0.0,
             "cancel": None,
         })
 

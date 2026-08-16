@@ -32,6 +32,7 @@ htmlcov/
 # Backups
 *.bak
 *.bak2
+*.bak-*
 .backups/
 
 # OS

@@ -601,6 +601,19 @@ export interface TriggerRemoteInfo {
     // the list call, no per-remote follow-up.
     enabled_count: number;
     disabled_count: number;
+    // Signpost 4, Track 4. Which devices this remote drives, and what
+    // each of its triggers drives on them -- resolved to names by the
+    // backend so a trigger row can render without fetching every
+    // pinned device just to read command names. A trigger with no
+    // mapping is absent from pin_map entirely.
+    pinned_device_ids: string[];
+    pin_map: Record<string, PinMapEntry[]>;
+}
+
+/** One "this trigger drives that command over there" fact. */
+export interface PinMapEntry {
+    device_name: string;
+    command_name: string;
 }
 
 /** Add Popups signpost 2, Track 3: one wig signal's derived identity,

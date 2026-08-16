@@ -2751,6 +2751,12 @@ async def ws_create_trigger(
         _, _, _, derived = decode_to_fields(_raw)
         trigger.decoded_fingerprint = derived
     store.add_trigger(trigger)
+    # Signpost 4, Track 1: a new trigger may map onto commands of
+    # devices already pinned to its remote, so the map is recomputed
+    # before the save rather than waiting for the next restart.
+    from .pin_bindings import rederive_all_pinned
+
+    rederive_all_pinned(store)
     await store.async_save()
 
     # Create the event entity.
@@ -2813,6 +2819,13 @@ async def ws_update_trigger(
     trigger.updated_at = datetime.now(UTC).isoformat()
 
     store.update_trigger(trigger)
+    # An edit can change the trigger's identity (byte_hash, decoded
+    # fingerprint, a re-snapped code), which is exactly what the map is
+    # keyed on -- so the map is stale the moment this returns unless it
+    # is rebuilt here.
+    from .pin_bindings import rederive_all_pinned
+
+    rederive_all_pinned(store)
     await store.async_save()
 
     # Update event entity name if changed.
@@ -2845,6 +2858,9 @@ async def ws_delete_trigger(
     if not removed:
         connection.send_error(msg["id"], "not_found", "Trigger not found")
         return
+    from .pin_bindings import rederive_all_pinned
+
+    rederive_all_pinned(store)
     await store.async_save()
 
     # Remove the event entity.
@@ -3106,12 +3122,36 @@ async def ws_list_trigger_remotes(
         # Track 1B.
         triggers = store.get_triggers_for_remote(remote.id)
         enabled_count = sum(1 for t in triggers if t.enabled)
+        # Signpost 4, Track 4: what each trigger actually drives, named.
+        # remote.bindings stores ids, and a trigger row needs words, so
+        # the resolution happens here rather than making the frontend
+        # fetch every pinned device just to read command names. Same
+        # one-call rule the ON:/OFF: badges follow. Triggers with no
+        # mapping are simply absent -- the UI says "unmapped" only when
+        # the remote has pins at all, so an unpinned remote stays quiet.
+        pin_map: dict[str, list[dict[str, str]]] = {}
+        for pinned_id in remote.pinned_device_ids:
+            pinned_device = store.get_device(pinned_id)
+            if pinned_device is None:
+                continue
+            command_names = {c.id: c.name for c in pinned_device.commands}
+            for trigger_id, command_id in (
+                remote.bindings.get(pinned_id) or {}
+            ).items():
+                name = command_names.get(command_id)
+                if name is None:
+                    continue
+                pin_map.setdefault(trigger_id, []).append({
+                    "device_name": pinned_device.name,
+                    "command_name": name,
+                })
         result.append({
             **remote.to_dict(),
             "ha_device_id": _trigger_remote_ha_device_id(hass, remote.id),
             "trigger_count": len(triggers),
             "enabled_count": enabled_count,
             "disabled_count": len(triggers) - enabled_count,
+            "pin_map": pin_map,
         })
     connection.send_result(msg["id"], result)
 
@@ -3380,6 +3420,12 @@ async def ws_pin_trigger_remote_device(
 
         remote.pinned_device_ids.append(device_id)
         remote.updated_at = datetime.now(UTC).isoformat()
+        # Signpost 4, Track 1: a pin with no derived button map drives
+        # nothing, so derivation is part of pinning rather than a
+        # follow-up call a caller could forget to make.
+        from .pin_bindings import rederive_remote
+
+        rederive_remote(store, remote)
         store.update_trigger_remote(remote)
         await store.async_save()
     connection.send_result(msg["id"], {
@@ -3418,6 +3464,13 @@ async def ws_unpin_trigger_remote_device(
 
         remote.pinned_device_ids.remove(device_id)
         remote.updated_at = datetime.now(UTC).isoformat()
+        # The unpinned device's map goes with it: derive_bindings walks
+        # pinned devices only, so re-deriving here drops the stale entry
+        # in the same write that drops the pin. No orphan can outlive
+        # the pin and drive a device the user just detached.
+        from .pin_bindings import rederive_remote
+
+        rederive_remote(store, remote)
         store.update_trigger_remote(remote)
         await store.async_save()
     connection.send_result(msg["id"], {

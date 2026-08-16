@@ -825,6 +825,15 @@ class TriggerRemote:
     # PINNING_UI_ENABLED = False until the owner flips it at the
     # signpost boundary.
     pinned_device_ids: list[str] = field(default_factory=list)
+    # DERIVED BUTTON MAP (signpost 4, Track 1): per pinned device,
+    # which command each of this remote's triggers drives --
+    # {device_id: {trigger_id: command_id}}. Content-matched by
+    # pin_bindings.derive_bindings and rewritten whenever either side
+    # changes (pin, unpin, trigger or command mutation). NEVER computed
+    # on the fire path, which only reads it. A pinned device sharing no
+    # content maps to an empty dict, which is how a detail page tells
+    # "pinned, nothing matched" apart from "not pinned at all".
+    bindings: dict[str, dict[str, str]] = field(default_factory=dict)
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -837,6 +846,9 @@ class TriggerRemote:
             "source_wig_id": self.source_wig_id,
             "source_device_id": self.source_device_id,
             "pinned_device_ids": list(self.pinned_device_ids),
+            "bindings": {
+                d: dict(m) for d, m in self.bindings.items()
+            },
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -853,6 +865,19 @@ class TriggerRemote:
             # resolves correctly as "not minted from a device".
             source_device_id=data.get("source_device_id"),
             pinned_device_ids=list(data.get("pinned_device_ids") or []),
+            # Absent on every remote written before signpost 4, and on
+            # any remote pinned during signpost 3's dark period --
+            # both resolve to {} and are filled by the load-time
+            # backfill in HAIRStore.async_load. Coerced defensively:
+            # a hand-edited store must not put non-strings on the
+            # fire path.
+            bindings={
+                str(d): {
+                    str(t): str(c) for t, c in m.items()
+                }
+                for d, m in (data.get("bindings") or {}).items()
+                if isinstance(m, dict)
+            },
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         )

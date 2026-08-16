@@ -7,13 +7,12 @@
  * promise if the signpost 3 boundary becomes a public release -- every
  * bit of pin UI renders behind this one const.
  *
- * Flip to true only at the owner's bench checkpoint (coding plan
- * section 5: "SIGNPOST BOUNDARY... rules on flipping
- * PINNING_UI_ENABLED early if holding"), and only once Track 2 item 5
- * (pin storage: `pinned_device_ids` on TriggerRemote, WS set/unset
- * commands) has actually landed -- until then the Pin groups this
- * const gates are `readonly` previews with nothing behind them (see
- * ir-header-chip-group.ts's `readonly` prop), not live controls.
+ * FLIPPED 2026-08-16 (signpost 4, Track 4). The machinery this was
+ * waiting for is built and benched: derivation stores which command
+ * each trigger drives, a confirmed fire retransmits it, and the echo
+ * defense keeps a pinned remote from hearing itself. The chip groups
+ * are live controls now -- toggling one pins or unpins, and the rows
+ * read stored state rather than rendering every chip off.
  *
  * PIN_BLUE is `#4dabf7`, the Remote detail Pin group's color (owner-
  * ruled 2026-08-15, section 0 item 4 of the coding plan): "distinct
@@ -23,6 +22,6 @@
  * Remote-kind surface already uses) -- no new constant needed for
  * that half.
  */
-export const PINNING_UI_ENABLED = false;
+export const PINNING_UI_ENABLED = true;
 
 export const PIN_BLUE = "#4dabf7";

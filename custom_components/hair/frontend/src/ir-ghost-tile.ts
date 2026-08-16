@@ -213,7 +213,12 @@ export class IrGhostTile extends LitElement {
             border-color: ${unsafeCSS(ORIGIN_COLORS.remote)};
             color: ${unsafeCSS(ORIGIN_COLORS.remote)};
         }
-        .gt-tile-compact,
+        /* The populated-grid tile takes its height from the row,
+           so it carries no floor of its own: with one, it became the
+           tallest item in the Remotes grid and set the row instead of
+           following it (punch list item 12, ~92px against ~72px
+           cards). Devices never showed it -- those cards are taller
+           than the floor was. */
         .gt-tile-fuller {
             min-height: 66px;
         }

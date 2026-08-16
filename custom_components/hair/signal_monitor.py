@@ -56,6 +56,8 @@ from .const import (
     MIRROR_ECHO_TTL_S,
     MIRROR_OWN_BEACON_WINDOW_S,
     MIRROR_UNKNOWN_SEND_FP_PREFIX,
+    PINNED_ECHO_GUARD_S,
+    PINNED_TICKET_ARM_FALLBACK_S,
     REPEAT_ATTRIBUTION_WINDOW,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
@@ -843,6 +845,45 @@ class SignalMonitor:
             "garble_expires": now + MIRROR_OWN_BEACON_WINDOW_S,
             "cancel": None,
             "heard_future": heard_future,
+            # SINGLE-USE TICKET (signpost 4, Track 3, owner-ruled
+            # 2026-08-18). The receivers that have already spent this
+            # expectation. Before pinning, an expectation was a
+            # BLANKET: it claimed every matching capture for its whole
+            # TTL. That is invisible while only HAIR transmits, and
+            # wrong the moment a human can press the same button again
+            # inside the window -- the second press carries the
+            # just-sent identity, so it was claimed and eaten.
+            #
+            # One ticket per SEND: a fan-out mints one per device send,
+            # so a press driving two pinned devices mints two and a
+            # receiver hearing both echoes spends one each. Spent by
+            # one capture PER RECEIVER, so two receivers hearing the
+            # same echo each spend their own and the Mirror's heard_by
+            # stays complete.
+            #
+            # ``expires`` remains CLEANUP, not mechanism: a ticket
+            # nobody spends -- emitter aimed away, receiver in another
+            # room -- must still die on the clock, or it sits armed and
+            # eats a real press an hour later.
+            "claimed_by": set(),
+            # BEACON ANCHOR (Track 3a, owner-ruled 2026-08-18 after the
+            # bench runaway). A ticket is NOT live when it is minted.
+            # It becomes live only when IR has actually left an
+            # emitter, so nothing that arrived BEFORE the send can
+            # spend it.
+            #
+            # This is the fix for the regression single-use caused. A
+            # Samsung handset press reaches the receiver as three
+            # captures about 110 ms apart (ordinary repeat frames; the
+            # trigger dedup folds them into one fire). The ticket was
+            # minted at the fire and was spendable immediately, so
+            # frames two and three spent it while the Broadlink had not
+            # yet transmitted. The real echo then found no ticket, was
+            # read as a genuine press, fired, retransmitted, echoed --
+            # and bred, 77 fires deep.
+            "emitters": list(emitter_entity_ids),
+            "armed_at": None,
+            "guard_until": 0.0,
         }
         self._echo_expectations.append(expectation)
 
@@ -853,6 +894,33 @@ class SignalMonitor:
         expectation["cancel"] = self._hass.loop.call_later(
             max(MIRROR_ECHO_TTL_S, MIRROR_OWN_BEACON_WINDOW_S), _expire
         )
+
+        def _arm_fallback() -> None:
+            # An emitter that never writes state would leave this
+            # ticket dead and its echo unsuppressed, which is exactly
+            # how a loop starts. Arm anyway -- still strictly after the
+            # send began, so pre-send frames remain unable to spend it.
+            if expectation.get("armed_at") is None:
+                self._arm_expectation(expectation, monotonic())
+
+        self._hass.loop.call_later(
+            PINNED_TICKET_ARM_FALLBACK_S, _arm_fallback
+        )
+
+    def _arm_expectation(self, exp: dict[str, Any], now: float) -> None:
+        """Make a ticket live: IR has left, echoes may now be claimed."""
+        if exp.get("armed_at") is not None:
+            return
+        exp["armed_at"] = now
+        exp["guard_until"] = now + PINNED_ECHO_GUARD_S
+
+    def _arm_expectations_for(self, entity_id: str, now: float) -> None:
+        """Arm every ticket waiting on this emitter's beacon."""
+        for exp in self._echo_expectations:
+            if exp.get("armed_at") is None and entity_id in exp.get(
+                "emitters", ()
+            ):
+                self._arm_expectation(exp, now)
 
     def _friendly_name(self, entity_id: str) -> str:
         state = self._hass.states.get(entity_id)
@@ -905,7 +973,13 @@ class SignalMonitor:
         now = monotonic()
         own_mark = self._own_send_marks.get(entity_id)
         if own_mark is not None and now - own_mark < MIRROR_OWN_BEACON_WINDOW_S:
-            return  # HAIR's own send; already recorded with full identity
+            # HAIR's own send; already recorded with full identity. This
+            # beacon is also the moment IR actually left, so it is what
+            # arms this send's tickets (Track 3a). Before anchoring, the
+            # early return here was the whole handling and a ticket was
+            # live from the instant it was minted.
+            self._arm_expectations_for(entity_id, now)
+            return
 
         # Foreign send: emitter + moment known, identity only via echo.
         pending = self._foreign_pending.get(entity_id)
@@ -949,17 +1023,64 @@ class SignalMonitor:
         catalog pipeline. Returns True when claimed.
         """
         now = monotonic()
+        guard_hit: dict[str, Any] | None = None
         for exp in list(self._echo_expectations):
             if now > exp["expires"]:
+                continue
+            # PRE-SEND (Track 3a). A ticket that no beacon has armed
+            # covers a send whose IR has not left yet, so this capture
+            # cannot be its echo -- it is the handset still talking.
+            # Skipping here is what stops a press's own repeat frames
+            # from spending the echo's ticket.
+            if exp.get("armed_at") is None:
                 continue
             matched = (
                 exp["decoded_fp"] is not None
                 and n.decoded_fingerprint == exp["decoded_fp"]
             ) or n.sig_fp == exp["sig_fp"]
-            if matched:
-                self._resolve_heard(exp, receiver_entity_id)
-                await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
-                return True
+            if not matched:
+                continue
+            # Remember the first armed, identity-matching ticket still
+            # inside its guard window, in case every ticket turns out
+            # to be spent for this receiver.
+            if guard_hit is None and now < exp.get("guard_until", 0.0):
+                guard_hit = exp
+            # Single use, per receiver (Track 3). A ticket this receiver
+            # has already spent cannot claim again; the loop falls
+            # through to any other live ticket, which is what lets a
+            # fan-out's second device send claim this receiver's second
+            # echo.
+            #
+            # setdefault, not direct access: record_send is the only
+            # production creator and always sets the key, but the
+            # Mirror suite hand-builds expectations to exercise this
+            # loop, and an echo guard is the wrong place to be brittle
+            # about the shape of its own input.
+            claimed = exp.setdefault("claimed_by", set())
+            if receiver_entity_id in claimed:
+                continue
+            claimed.add(receiver_entity_id)
+            self._resolve_heard(exp, receiver_entity_id)
+            await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
+            return True
+
+        if guard_hit is not None:
+            # POST-SEND IDENTITY GUARD (Track 3a, the safety floor).
+            # Every ticket for this identity is spent for this receiver,
+            # but we transmitted it moments ago, so this is our own
+            # voice coming back and must not reach the triggers. The
+            # ticket does the precise per-receiver bookkeeping; this
+            # catches whatever the bookkeeping got wrong. It does NOT
+            # consume: it is a window, not a budget.
+            _LOGGER.debug(
+                "Post-send guard suppressed a capture of %s from %s",
+                guard_hit["row_key"],
+                receiver_entity_id or "<unknown receiver>",
+            )
+            await self._mirror_mark_heard(
+                guard_hit["row_key"], receiver_entity_id
+            )
+            return True
         for entity_id, pending in list(self._foreign_pending.items()):
             if now > pending["expires"]:
                 continue
@@ -1007,6 +1128,18 @@ class SignalMonitor:
                     exp_sl = exp.get("sl")
                     if not exp_sl or now > exp["garble_expires"]:
                         continue
+                    # Pre-send tickets cannot be swallowed against
+                    # either (Track 3a): the same reasoning as the
+                    # clean-claim loop above.
+                    if exp.get("armed_at") is None:
+                        continue
+                    # The swallow spends the same ticket a clean claim
+                    # would (Track 3): a mangled echo and a clean one
+                    # are both this send coming back, so they must not
+                    # each get a free pass off one expectation.
+                    claimed = exp.setdefault("claimed_by", set())
+                    if receiver_entity_id in claimed:
+                        continue
                     ratio = _sl_fuzzy_substring_ratio(cap_sl, exp_sl)
                     if ratio <= ECHO_GARBLE_SIMILARITY:
                         _LOGGER.debug(
@@ -1015,6 +1148,7 @@ class SignalMonitor:
                             ratio,
                             exp["row_key"],
                         )
+                        claimed.add(receiver_entity_id)
                         self._resolve_heard(exp, receiver_entity_id)
                         await self._mirror_mark_heard(
                             exp["row_key"], receiver_entity_id

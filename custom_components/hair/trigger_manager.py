@@ -38,6 +38,7 @@ from .const import (
     TRIGGER_HIT_RESET_WINDOW_S,
 )
 from .models import IRTrigger
+from .pin_retransmit import RetransmitDispatcher, Target
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -99,9 +100,27 @@ class TriggerManager:
     and fires the corresponding event entity when thresholds are met.
     """
 
-    def __init__(self, hass: HomeAssistant, store: HAIRStore) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        store: HAIRStore,
+        device_manager: Any | None = None,
+    ) -> None:
         self._hass = hass
         self._store = store
+        # Signpost 4, Track 2: the sender behind pinned retransmits.
+        # Optional so every existing construction site and test keeps
+        # working unchanged -- without it a pinned remote simply does
+        # not retransmit, which is exactly the pre-signpost-4 shape.
+        # Typed loosely to avoid importing DeviceManager, which would
+        # close an import cycle (device_manager already takes a
+        # TriggerManager on its command-edit path).
+        self._device_manager = device_manager
+        self._retransmit: RetransmitDispatcher | None = (
+            RetransmitDispatcher(hass, self._send_bound_command)
+            if device_manager is not None
+            else None
+        )
         self._hit_states: dict[str, _HitState] = {}
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
 
@@ -403,6 +422,69 @@ class TriggerManager:
                 cb(event_data)
             except Exception:
                 _LOGGER.exception("Error notifying trigger subscriber")
+
+        # Signpost 4, Track 2: a pinned Remote drives its pinned
+        # Devices. This rides the CONFIRMED fire -- after min_hits and
+        # after the cross-receiver dedup -- so a 3-hit trigger
+        # retransmits once, on the third press, and one physical press
+        # heard by three receivers still retransmits once. It runs
+        # AFTER the event above deliberately: pinning ADDS the
+        # retransmit and never replaces the event, so automations built
+        # on this trigger keep firing alongside it.
+        self._dispatch_retransmits(trigger)
+
+    def _dispatch_retransmits(self, trigger: IRTrigger) -> None:
+        """Drive every pinned device this trigger maps to.
+
+        Reads the STORED map (derivation is a mutation-time job, see
+        pin_bindings) and hands each target to the coalescing
+        dispatcher. A drawer-owned trigger has no remote and therefore
+        no pins, so it returns immediately -- the common case on a box
+        with no pinning configured pays one attribute check.
+
+        A disabled trigger cannot reach here at all: storage's
+        get_triggers_for_signal filters on enabled before matching, so
+        "disabled trigger, no retransmit" needs no code of its own.
+        """
+        if self._retransmit is None or trigger.trigger_remote_id is None:
+            return
+        from .pin_bindings import bound_targets
+
+        remote_id = trigger.trigger_remote_id
+        remote = self._store.get_trigger_remote(remote_id)
+        for device_id, command_id in bound_targets(
+            self._store, remote_id, trigger.id
+        ):
+            target: Target = (remote_id, device_id, command_id)
+            # Names ride along purely so the loop breaker's WARNING can
+            # tell a user which pairing it cut, in the words they gave
+            # those objects, rather than three opaque ids.
+            device = self._store.get_device(device_id)
+            label = (
+                remote.name if remote is not None else remote_id,
+                device.name if device is not None else device_id,
+                trigger.name,
+            )
+            self._retransmit.dispatch(target, label)
+
+    async def _send_bound_command(
+        self, device_id: str, command_id: str
+    ) -> None:
+        """Send one bound command the device's own way.
+
+        Goes through the device's normal send so send_count, the tx
+        gate's stagger, the emitter loop, assumed state and the
+        Mirror's echo expectation all apply without this path
+        reimplementing any of them.
+        """
+        await self._device_manager.async_send_command(
+            device_id, command_id, pinned=True
+        )
+
+    def shutdown(self) -> None:
+        """Stop dispatching retransmits (config entry unload)."""
+        if self._retransmit is not None:
+            self._retransmit.shutdown()
 
     # -----------------------------------------------------------------
     # Rewire (edit/snap of a bound signal or command)

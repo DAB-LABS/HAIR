@@ -30,10 +30,46 @@
  * than any origin/kind-color lookup of its own, so it doesn't need to
  * know whether it's showing emitters, receivers, or pins -- the
  * consumer picks the token per call site (ORIGIN_COLORS.device,
- * ORIGIN_COLORS.remote, or PIN_BLUE from ir-pin-flag.ts) and computes
- * the label text itself (including the Pin group's live "Pin:" /
- * "Pinned Remotes:" swap -- this component just renders whatever
- * label string it's given, every render).
+ * ORIGIN_COLORS.remote, or PIN_BLUE from ir-pin-flag.ts).
+ *
+ * LAYOUT REWORKED for punch list item 9 (`header-pin-layout-handoff.md`,
+ * owner-approved 2026-08-16), reconciled against this shipped component
+ * per punch list item 11: the handoff's mockups were built before this
+ * component was on a branch anyone could read, so its LAYOUT lands here
+ * while this component's BEHAVIOR (reports the full new "on" list, the
+ * parent refetches so the chips show what the backend actually kept)
+ * is what stays.
+ *
+ * The layout change is one shape, and it buys two properties at once.
+ * The label used to sit INSIDE the same wrapping flex as the chips,
+ * which meant a wrapped second line of chips slid back under the label,
+ * and two stacked groups could not line their colons up because each
+ * label was only as wide as its own text. Now the label is a
+ * fixed-width, right-justified flex item and the chips live in a
+ * `flex-wrap` SIBLING, so wrapped lines always land under the chips
+ * column and every row sharing a `labelWidth` shares a colon. Do not
+ * "simplify" this back to text-align or a margin on the label alone --
+ * the fixed-width-sibling shape is what makes both true together.
+ *
+ * `labelWidth` is derived per surface, not arbitrary: 80px on the
+ * Remote header (sized to "RECEIVERS:", 10 characters) and 76px on the
+ * Device header (sized to "EMITTERS:", 9). Re-measure against the
+ * longest label in that column before adding a new one.
+ *
+ * The label text and the button glyph both follow the row's own live
+ * pill count, not a static "is this editable" flag: zero chips on and
+ * the label reads `labelEmpty` with a lone "+", one or more and it
+ * reads `label` with "±". That rule holds for Receivers/Emitters too,
+ * even though those are rarely empty in practice -- it is
+ * row-state-driven, not row-identity-driven. `labelEmpty` is optional
+ * and falls back to `label`, which is how the Receivers/Emitters rows
+ * keep one caption in both states.
+ *
+ * Owner ruling 2026-08-16, the one place this deliberately parts from
+ * the mockup: while the group is EXPANDED the button reads "×", not
+ * the +/± glyph the mockup keeps. The mockup leaned on a border color
+ * to say "open"; this component already had an explicit close
+ * affordance and it stays.
  *
  * Three visual chip states, not two: `on` (assigned, glows), `down`
  * (assigned but unreachable -- only emitters ever set this, mirroring
@@ -42,11 +78,10 @@
  * that component was built to surface), and `off` (unassigned, hidden
  * while collapsed).
  *
- * `readonly`: the expand/collapse "+" still works (browsing candidates
- * is honest even with nothing behind it), but chip clicks are no-ops
- * -- no `chips-changed` event, no local toggle either. Used for the
- * gated Pin groups, which have no backend to call yet (pin storage is
- * Track 2 item 5); a fake local toggle would look live and isn't.
+ * (The `readonly` prop retired in signpost 4, Track 4. It existed so
+ * the gated Pin groups could be browsed while having no backend to
+ * call; they have one now, and a prop whose only consumer went live
+ * is dead weight.)
  *
  * Click-outside / Escape collapse is per-instance (each instance adds
  * its own document listeners while connected, mirroring the mockup's
@@ -77,7 +112,16 @@ export interface HeaderChipRow {
 
 @customElement("ir-header-chip-group")
 export class IrHeaderChipGroup extends LitElement {
+    /** Caption while the row holds at least one "on" chip. */
     @property() public label = "";
+
+    /** Caption while the row holds none -- optional, falls back to
+     *  `label` so a row with one caption in both states says nothing. */
+    @property() public labelEmpty = "";
+
+    /** Fixed width of the label column, in px. Every row on the same
+     *  header passes the same value; that is what aligns the colons. */
+    @property({ type: Number }) public labelWidth = 80;
 
     @property({ attribute: false }) public rows: HeaderChipRow[] = [];
 
@@ -86,10 +130,6 @@ export class IrHeaderChipGroup extends LitElement {
     @property() public tone = "var(--primary-color)";
 
     @property({ type: Boolean }) public disabled = false;
-
-    /** No backend yet for this group (the Pin groups, this signpost) --
-     *  browsing still works, toggling doesn't. See the file header. */
-    @property({ type: Boolean }) public readonly = false;
 
     @state() private _expanded = false;
 
@@ -121,7 +161,7 @@ export class IrHeaderChipGroup extends LitElement {
     }
 
     private _toggleChip(row: HeaderChipRow): void {
-        if (this.disabled || this.readonly || !this._expanded) return;
+        if (this.disabled || !this._expanded) return;
         const newIds = this.rows
             .map((r) => (r.id === row.id ? { ...r, on: !r.on } : r))
             .filter((r) => r.on)
@@ -136,18 +176,26 @@ export class IrHeaderChipGroup extends LitElement {
     }
 
     render() {
-        const visible = this._expanded ? this.rows : this.rows.filter((r) => r.on);
+        const on = this.rows.filter((r) => r.on);
+        const visible = this._expanded ? this.rows : on;
+        // Both the caption and the glyph read the live count, per the
+        // handoff's row-state rule. "×" while expanded is the owner's
+        // one deviation from the mockup (see the file header).
+        const caption = on.length === 0 && this.labelEmpty ? this.labelEmpty : this.label;
+        const glyph = this._expanded ? "×" : on.length === 0 ? "+" : "±";
         return html`
-            <div class="group ${this._expanded ? "expanded" : ""}" style="--tone:${this.tone}">
-                <span class="group-label">${this.label}</span>
-                ${visible.map((row) => this._renderChip(row))}
-                <button
-                    class="add-btn"
-                    ?disabled=${this.disabled}
-                    title=${this._expanded ? t("common.close") : t("hdrchips.expand_title")}
-                    aria-label=${this._expanded ? t("common.close") : t("hdrchips.expand_title")}
-                    @click=${this._toggleExpanded}
-                >${this._expanded ? "×" : "+"}</button>
+            <div class="hdr-row" style="--tone:${this.tone}">
+                <span class="hdr-row-label" style="width:${this.labelWidth}px">${caption}</span>
+                <div class="hdr-row-pills ${this._expanded ? "expanded" : ""}">
+                    ${visible.map((row) => this._renderChip(row))}
+                    <button
+                        class="add-btn"
+                        ?disabled=${this.disabled}
+                        title=${this._expanded ? t("common.close") : t("hdrchips.expand_title")}
+                        aria-label=${this._expanded ? t("common.close") : t("hdrchips.expand_title")}
+                        @click=${this._toggleExpanded}
+                    >${glyph}</button>
+                </div>
             </div>
         `;
     }
@@ -161,7 +209,7 @@ export class IrHeaderChipGroup extends LitElement {
             : t("picker.state_off");
         return html`
             <button
-                class="chip ${cls} ${this.readonly ? "readonly" : ""}"
+                class="chip ${cls}"
                 role="switch"
                 aria-checked=${row.on ? "true" : "false"}
                 aria-label="${row.name}, ${word}"
@@ -176,23 +224,43 @@ export class IrHeaderChipGroup extends LitElement {
     }
 
     static styles = css`
+        /* The host fills the header's row column rather than shrinking
+           to its own content: the label's fixed width plus a flexible
+           chips column is the whole mechanism, and an inline-block host
+           would collapse the flexible half. */
         :host {
-            display: inline-block;
+            display: block;
         }
-        .group {
+        .hdr-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        /* Fixed width comes from the consumer (labelWidth), so every row
+           on a header shares one colon line. Right-justified against
+           that width; padding-top lines the cap height up with the first
+           row of chips rather than their box tops. */
+        .hdr-row-label {
+            flex-shrink: 0;
+            text-align: right;
+            padding-top: 5px;
+            font-size: 0.66rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--secondary-text-color);
+            white-space: nowrap;
+        }
+        /* min-width: 0 is load-bearing -- without it the column takes a
+           content-based minimum from its own nowrap chips and overflows
+           sideways instead of wrapping in place. */
+        .hdr-row-pills {
+            flex: 1;
+            min-width: 0;
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 6px;
-        }
-        .group-label {
-            font-size: 0.7rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--secondary-text-color);
-            margin-right: 2px;
-            white-space: nowrap;
+            gap: 7px;
         }
         .chip {
             display: inline-flex;
@@ -209,10 +277,10 @@ export class IrHeaderChipGroup extends LitElement {
             transition: border-color 140ms ease, background 140ms ease,
                 color 140ms ease;
         }
-        .group.expanded .chip {
+        .hdr-row-pills.expanded .chip {
             cursor: pointer;
         }
-        .group.expanded .chip:hover:not(:disabled) {
+        .hdr-row-pills.expanded .chip:hover:not(:disabled) {
             border-color: var(--tone);
         }
         .chip:disabled {

@@ -1484,6 +1484,14 @@ class TestTheMetadataRowIsTwoColumns:
     above it, and its column is sized to content (max-content) instead
     of a flat 200px, so it stops looking oversized next to short
     values and reclaims width for Emitters.
+
+    Punch list item 9 (2026-08-16) retired the metadata ROW itself:
+    Type, the chip groups and the gear all moved into the single header
+    block above, so there are no columns left to size. The two rulings
+    this class exists for outlived the row -- no fixed label gutter, and
+    Type's label beside its control rather than stacked above it -- so
+    the class stays, pointed at where they live now. The header's own
+    layout is guarded by TestHeaderPinLayout at the end of this file.
     """
 
     def test_the_label_gutter_is_gone(self):
@@ -1499,26 +1507,36 @@ class TestTheMetadataRowIsTwoColumns:
             "ir-device-detail.ts"
         )
 
-    def test_type_is_capped_and_emitters_take_the_rest(self):
-        """A seven-item dropdown never needed 900px -- and 200px was
-        itself still wider than most values ever shown there. Owner
-        ruling 2026-08-15: sized to content (max-content) instead of a
-        flat cap, so it self-corrects per device and per locale rather
-        than needing a wider hardcoded number chosen for the longest
-        English string."""
+    def test_type_no_longer_competes_with_emitters_for_width(self):
+        """The 2026-08-15 answer was a max-content grid column, so Type
+        stopped looking oversized beside a short value like "Fan" while
+        Emitters took the rest of the row.
+
+        SUPERSEDED by punch list item 9 (header-pin-layout-handoff.md):
+        the grid is gone and Type moved under the name, inside the title
+        block, on the grounds that Type is a property of the device
+        rather than a hardware picker like Emitters and Pinned. Nothing
+        competes for that width any more, so the sizing rule has nothing
+        left to size. What still has to hold is that neither the grid
+        nor its old fixed label gutter comes back."""
         text = _read("ir-device-detail.ts")
-        assert "grid-template-columns: max-content minmax(0, 1fr)" in text
+        assert "grid-template-columns" not in text
+        assert '<div class="device-meta">' not in text
 
     def test_the_label_sits_beside_its_control(self):
         """Owner ruling 2026-08-15: Type used to stack its label above
         the dropdown; it's inline now, one line, colon baked into the
         locale string the same way hdrchips.emitters_label carries its
         own -- so this checks the flex row, not just the selector's
-        continued existence."""
+        continued existence. Still true after item 9 moved the row under
+        the name; the row's align-self went with the grid that needed
+        it."""
         text = _read("ir-device-detail.ts")
         assert 'class="sl"' in text and ".stack .sl {" in text
         assert ".stack {" in text
-        assert "align-self: start;" in text
+        stack = text.split(".stack {", 1)[1].split("}", 1)[0]
+        assert "display: flex;" in stack
+        assert "align-items: center;" in stack
         picker = _read("ir-emitter-picker.ts")
         assert "<label>" in picker
         assert 'class="capsule"' not in picker
@@ -3002,12 +3020,16 @@ class TestRemoteCardDropsTheTriggerCountLine:
             '                    <div class="card-footer">'
         ) in text
 
-    def test_the_detail_trigger_counts_are_untouched(self):
+    def test_the_detail_trigger_count_survives_on_the_drawer(self):
         text = _read("ir-device-list.ts")
-        # Only the two expanded-detail parenthesized counts survive
-        # (drawer's own and the per-remote's) -- both overview cards
-        # (drawer and per-remote) are scoped out now.
-        assert text.count('tp("trow.header_count"') == 2
+        # Was two (the drawer's own and the named remote's) when this
+        # class was written. Punch list item 9 supersedes for the named
+        # remote: header-pin-layout-handoff.md drops its "(N triggers)"
+        # suffix so the title returns to one line, on the grounds that
+        # the "Triggers (N)" section heading sits directly under the
+        # same card. The drawer's count is outside item 9's scope by
+        # ruling and stays -- that is the one left.
+        assert text.count('tp("trow.header_count"') == 1
 
 
 class TestPanelHeaderDropsTheWordmark:
@@ -3211,3 +3233,166 @@ class TestTriggerPopoverNamesTheOwningRemote:
         for lang in LOCALE_NAMES:
             data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
             assert "popover.trigger_on_remote" in data
+
+
+class TestHeaderPinLayout:
+    """Punch list items 9 and 11, `header-pin-layout-handoff.md`,
+    owner-approved 2026-08-16 (Remote) and 2026-08-16 (Device).
+
+    The handoff's mockups were built before the pin chip group was on a
+    branch anyone could read, so item 11 rules the reconciliation: the
+    shipped component's BEHAVIOR stays (it reports the full new "on"
+    list and the parent refetches, so the chips show what the backend
+    actually kept) and the handoff's LAYOUT lands on top of it.
+
+    What these guard is the layout half, because every one of them is a
+    property a screenshot shows and a type checker does not: a wrapped
+    row of chips sliding back under its label, two rows whose colons
+    drift apart, and the owner's bench note that the X and the gear
+    "seem to move" when the rows above them grow.
+    """
+
+    def test_the_label_is_a_sibling_of_the_wrapping_chips_column(self):
+        # The whole mechanism. The label used to sit INSIDE the same
+        # flex-wrap as the chips, which is what let a wrapped line fall
+        # back under it. A fixed-width label plus a flexible sibling
+        # gives wrap-under-pills and colon alignment at once -- do not
+        # let either revert to text-align or a margin on the label.
+        text = _read("ir-header-chip-group.ts")
+        row = text.split('<div class="hdr-row"', 1)[1].split("`;", 1)[0]
+        assert 'class="hdr-row-label"' in row
+        assert 'class="hdr-row-pills' in row
+        assert row.index('hdr-row-label') < row.index('hdr-row-pills')
+        assert "chip" not in row.split('class="hdr-row-pills', 1)[0].split(
+            'class="hdr-row-label"', 1,
+        )[1].split("</span>", 1)[0]
+        assert "flex-shrink: 0;" in text.split(".hdr-row-label {", 1)[1].split("}", 1)[0]
+        pills = text.split(".hdr-row-pills {", 1)[1].split("}", 1)[0]
+        assert "flex: 1;" in pills
+        assert "min-width: 0;" in pills
+        assert "flex-wrap: wrap;" in pills
+
+    def test_the_label_column_widths_are_derived_per_surface(self):
+        # 80px fits "RECEIVERS:" (10 chars), 76px fits "EMITTERS:" (9).
+        # They differ on purpose; each is the longest label its own
+        # column carries now that the pin row says "PINNED:" instead of
+        # "Pinned Devices:". Re-measure before adding a longer one.
+        remote = _read("ir-device-list.ts")
+        device = _read("ir-device-detail.ts")
+        assert "const REMOTE_HDR_LABEL_W = 80;" in remote
+        assert "const DEVICE_HDR_LABEL_W = 76;" in device
+        # Every chip group on a header passes its header's constant --
+        # a row that skips it is a row whose colon drifts.
+        assert remote.count("<ir-header-chip-group") == 2
+        assert remote.count(".labelWidth=${REMOTE_HDR_LABEL_W}") == 2
+        assert device.count("<ir-header-chip-group") == 2
+        assert device.count(".labelWidth=${DEVICE_HDR_LABEL_W}") == 2
+
+    def test_the_caption_and_glyph_follow_the_row_state(self):
+        # Row-state-driven, not row-identity-driven: the rule holds for
+        # Receivers/Emitters too, so it still reads right if a remote
+        # ever legitimately has zero receivers.
+        text = _read("ir-header-chip-group.ts")
+        body = text.split("    render() {", 1)[1].split("    private _renderChip", 1)[0]
+        assert "const on = this.rows.filter((r) => r.on);" in body
+        assert 'on.length === 0 && this.labelEmpty ? this.labelEmpty : this.label' in body
+        assert 'on.length === 0 ? "+" : "±"' in body
+        # Owner ruling 2026-08-16, the one deliberate departure from
+        # the mockup, which keeps the +/- glyph while open behind a
+        # border color instead. The close glyph is U+00D7, escaped
+        # here because ruff reads a literal one as an ambiguous "x"
+        # (RUF001).
+        assert 'this._expanded ? "\u00d7"' in body
+
+    def test_both_headers_anchor_the_actions_column_structurally(self):
+        # The fix for "right now it seems to move". A stretched column
+        # with space-between pins its first child to the top edge and
+        # its last to the bottom edge however tall the rows beside it
+        # grow. Absolute corners would break the moment a row wraps,
+        # since the card's height is content-driven.
+        for name in ("ir-device-list.ts", "ir-device-detail.ts"):
+            text = _read(name)
+            block = text.split(".rdetail-actions {", 1)[1].split("}", 1)[0]
+            assert "flex-direction: column;" in block
+            assert "justify-content: space-between;" in block
+            assert "align-self: stretch;" in block
+            assert "position: absolute" not in block
+
+    def test_the_remote_actions_column_puts_the_x_above_the_gear(self):
+        text = _read("ir-device-list.ts")
+        block = text.split('<div class="rdetail-actions">', 1)[1].split("</section>", 1)[0]
+        assert block.index("collapse-btn") < block.index("settings-btn")
+
+    def test_the_device_actions_column_anchors_save_and_x_together(self):
+        # Device-specific: the top child is a ROW of two buttons, so
+        # Save to Closet and X anchor to the top edge as one cluster
+        # and the gear still rides alone at the bottom.
+        text = _read("ir-device-detail.ts")
+        block = text.split('<div class="rdetail-actions">', 1)[1].split("</section>", 1)[0]
+        top = block.split('<div class="actions-top">', 1)[1].split("</div>", 1)[0]
+        assert top.index("stc-btn") < top.index("collapse-btn")
+        assert block.index("actions-top") < block.index("settings-btn")
+
+    def test_the_device_header_moves_type_under_the_name(self):
+        # Type is a property of the device, so it sits with the name
+        # rather than in a hardware-picker row beside Emitters/Pinned.
+        # The old .device-meta grid that carried it is gone entirely.
+        text = _read("ir-device-detail.ts")
+        assert '<div class="device-meta">' not in text
+        title = text.split('<div class="rtitle-block">', 1)[1].split(
+            '<div class="rdetail-divider">', 1,
+        )[0]
+        assert title.index('class="name-row"') < title.index('class="stack"')
+        assert 't("devdetail.type")' in title
+
+    def test_both_headers_carry_the_full_height_divider(self):
+        # New on the Device header (it had none), restored from a short
+        # stub on the Remote header.
+        for name in ("ir-device-list.ts", "ir-device-detail.ts"):
+            text = _read(name)
+            assert '<div class="rdetail-divider"></div>' in text
+            block = text.split(".rdetail-divider {", 1)[1].split("}", 1)[0]
+            assert "align-self: stretch;" in block
+
+    def test_the_pin_row_reads_one_pinned_caption_in_every_language(self):
+        # Deliberate reversal of the earlier "Pinned Devices:" /
+        # "Pinned Remotes:" ruling: the row's own pill color already
+        # carries the kind (blue for a device, gold for a remote), so
+        # the fuller wording was judged redundant. Not an oversight to
+        # "fix" back.
+        for lang in LOCALE_NAMES:
+            data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+            assert "hdrchips.pin_label_full" in data
+            assert "hdrchips.pin_label_empty" in data
+            assert "hdrchips.pin_label_full_remotes" not in data
+            assert "hdrchips.pin_label_full_devices" not in data
+        for name in ("ir-device-list.ts", "ir-device-detail.ts"):
+            text = _read(name)
+            assert 't("hdrchips.pin_label_full")' in text
+            assert 't("hdrchips.pin_label_empty")' in text
+            assert "pin_label_full_remotes" not in text
+            assert "pin_label_full_devices" not in text
+
+    def test_the_pin_pills_keep_their_kind_colors(self):
+        # The color always names the kind of thing the pill points at,
+        # never the header it happens to be on: a blue pill is a device,
+        # a gold pill is a remote. The two "Pinned:" labels reading the
+        # same is exactly why this has to stay split.
+        remote = _read("ir-device-list.ts")
+        device = _read("ir-device-detail.ts")
+        assert ".tone=${PIN_BLUE}" in remote
+        assert ".tone=${ORIGIN_COLORS.remote}" in device
+
+    def test_the_trigger_drawer_header_is_left_alone(self):
+        # Item 9's scope is the Remote and Device detail headers, no
+        # other surfaces. The drawer shares .trh-header, so the new
+        # layer is additive (.trh-header.rdetail-top) rather than a
+        # rewrite of the base rules the drawer still stands on.
+        text = _read("ir-device-list.ts")
+        drawer = text.split('<div class="expanded-detail trigger-drawer-detail">', 1)[1]
+        drawer = drawer.split("</section>", 1)[0]
+        assert 'class="header trh-header"' in drawer
+        assert "rdetail-top" not in drawer
+        assert 'class="header-left"' in drawer
+        assert 'class="trh-count"' in drawer
+        assert ".trh-header.rdetail-top {" in text

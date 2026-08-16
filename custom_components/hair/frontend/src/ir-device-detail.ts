@@ -80,6 +80,21 @@ const ICON_GRIP =
 /** Debounce delay (ms) between drag end and WS save. */
 const REORDER_DEBOUNCE_MS = 500;
 
+/**
+ * Width of the Device detail header's label column, in px (punch list
+ * item 9, `header-pin-layout-handoff.md`). Both rows on this header pass
+ * the same value to ir-header-chip-group, which is what puts
+ * "EMITTERS:" and "PINNED:" on one colon line and keeps a wrapped row of
+ * chips under the chips column instead of back under the label.
+ *
+ * DERIVED, not arbitrary: sized to "EMITTERS:", 9 characters, the
+ * longest label this column carries in any state. It is narrower than
+ * the Remote header's 80px because that header's own longest label is
+ * "RECEIVERS:" -- the two numbers are measured per surface, not shared.
+ * Re-measure before adding a longer label here.
+ */
+const DEVICE_HDR_LABEL_W = 76;
+
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
     { value: "media_player", label: "Media Player" },
     { value: "ac", label: "Air Conditioner" },
@@ -442,11 +457,55 @@ export class IrDeviceDetail extends LitElement {
         }));
     }
 
-    /** Gated (PINNING_UI_ENABLED) preview rows for the Pin: group --
-     *  every `on` is hardcoded false, since pin storage (Track 2 item
-     *  5) doesn't exist yet. See ir-pin-flag.ts. */
+    /** Rows for the Device detail's Pin: group -- candidates are
+     *  Remotes, and `on` is read from stored state (signpost 4, Track
+     *  4). The pin lives on the remote, so "is this device pinned to
+     *  that remote" is answered by looking in the remote's own list;
+     *  the device side deliberately stores nothing of its own. */
     private _pinRows(): HeaderChipRow[] {
-        return this.triggerRemotes.map((r) => ({ id: r.id, name: r.name, on: false }));
+        return this.triggerRemotes.map((r) => ({
+            id: r.id,
+            name: r.name,
+            on: (r.pinned_device_ids ?? []).includes(this.device.id),
+        }));
+    }
+
+    /** Pin or unpin this device against whichever Remote's chip moved.
+     *
+     * The group reports the full new list of "on" ids, so the delta
+     * against current state names the one remote that changed. Both
+     * directions are one call; the parent refetches remotes afterwards
+     * so the chips reflect what the backend actually stored rather
+     * than what we hoped it stored. */
+    private async _onPinsChanged(e: CustomEvent<{ value: string[] }>) {
+        const next = new Set(e.detail.value);
+        const before = new Set(
+            this._pinRows().filter((r) => r.on).map((r) => r.id),
+        );
+        const added = [...next].filter((id) => !before.has(id));
+        const removed = [...before].filter((id) => !next.has(id));
+        this._busy = true;
+        try {
+            for (const remoteId of added) {
+                await this.api.pinTriggerRemoteDevice(remoteId, this.device.id);
+            }
+            for (const remoteId of removed) {
+                await this.api.unpinTriggerRemoteDevice(
+                    remoteId,
+                    this.device.id,
+                );
+            }
+            this.dispatchEvent(
+                new CustomEvent("remote-pins-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch (err) {
+            this._toast = String(err);
+        } finally {
+            this._busy = false;
+        }
     }
 
     private async _onEmittersChanged(e: CustomEvent) {
@@ -1826,9 +1885,15 @@ export class IrDeviceDetail extends LitElement {
         const count = commands.length;
 
         return html`
-            <!-- Header: editable name + exit-to-entity + delete -->
-            <section class="header">
-                <div class="header-left">
+            <!-- Header (punch list item 9, header-pin-layout-handoff.md):
+                 one block now, not a header row plus a separate
+                 .device-meta grid below it. Left to right: the title
+                 block (name, then Type directly under it), the
+                 full-height divider, the colon-aligned Emitters/Pinned
+                 rows, and the actions column that anchors Save to
+                 Closet + X to the top edge and the gear to the bottom. -->
+            <section class="header rdetail-top">
+                <div class="rtitle-block">
                     <div class="name-row">
                         ${this._editingName
                             ? html`
@@ -1860,32 +1925,9 @@ export class IrDeviceDetail extends LitElement {
                               )
                             : nothing}
                     </div>
-                </div>
-                <button
-                    class="stc-btn"
-                    @click=${this._openSaveRoute}
-                    ?disabled=${this._busy}
-                    title=${t("wigs.save_as_wig")}
-                >
-                    <ha-svg-icon
-                        class="stc-wig"
-                        .path=${ICON_WIG}
-                    ></ha-svg-icon>
-                    ${t("wigs.save_as_wig")}
-                </button>
-                <button
-                    class="action-btn collapse-btn"
-                    @click=${() => this.dispatchEvent(new CustomEvent("collapse", { bubbles: true, composed: true }))}
-                    title=${t("common.close")}
-                >&#x2715;</button>
-            </section>
-
-            <!-- Device metadata: two columns, each label above its own
-                 control (comp L1) -->
-            <div class="device-meta">
-                <div class="stack">
-                    <span class="sl">${t("devdetail.type")}</span>
-                    ${this.device.matrix
+                    <div class="stack">
+                        <span class="sl">${t("devdetail.type")}</span>
+                        ${this.device.matrix
                         ? html`<span
                               class="type-locked"
                               title=${t("devdetail.type_locked_tooltip")}
@@ -1909,43 +1951,73 @@ export class IrDeviceDetail extends LitElement {
                                   `,
                               )}
                           </select>`}
+                    </div>
                 </div>
-                <ir-header-chip-group
-                    label=${t("hdrchips.emitters_label")}
-                    .rows=${this._emitterRows()}
-                    .tone=${GREEN_PEAK}
-                    ?disabled=${this._busy}
-                    @chips-changed=${this._onEmittersChanged}
-                ></ir-header-chip-group>
-                ${PINNING_UI_ENABLED
-                    ? html`
-                          <ir-header-chip-group
-                              readonly
-                              label=${this._pinRows().some((r) => r.on)
-                                  ? t("hdrchips.pin_label_full_remotes")
-                                  : t("hdrchips.pin_label_empty")}
-                              .rows=${this._pinRows()}
-                              .tone=${ORIGIN_COLORS.remote}
-                          ></ir-header-chip-group>
-                      `
-                    : nothing}
-                <button
-                    class="settings-btn"
-                    title=${t("devsettings.title")}
-                    ?disabled=${this._busy}
-                    @click=${() => (this._settingsOpen = true)}
-                >
-                    <svg
-                        class="settings-icon"
-                        viewBox=${SETTINGS_VIEWBOX}
+                <div class="rdetail-divider"></div>
+                <div class="hdr-rows">
+                    <ir-header-chip-group
+                        label=${t("hdrchips.emitters_label")}
+                        .labelWidth=${DEVICE_HDR_LABEL_W}
+                        .rows=${this._emitterRows()}
+                        .tone=${GREEN_PEAK}
+                        ?disabled=${this._busy}
+                        @chips-changed=${this._onEmittersChanged}
+                    ></ir-header-chip-group>
+                    ${PINNING_UI_ENABLED
+                        ? html`
+                              <ir-header-chip-group
+                                  label=${t("hdrchips.pin_label_full")}
+                                  labelEmpty=${t("hdrchips.pin_label_empty")}
+                                  .labelWidth=${DEVICE_HDR_LABEL_W}
+                                  .rows=${this._pinRows()}
+                                  .tone=${ORIGIN_COLORS.remote}
+                                  ?disabled=${this._busy}
+                                  @chips-changed=${this._onPinsChanged}
+                              ></ir-header-chip-group>
+                          `
+                        : nothing}
+                </div>
+                <div class="rdetail-actions">
+                    <div class="actions-top">
+                        <button
+                            class="stc-btn"
+                            @click=${this._openSaveRoute}
+                            ?disabled=${this._busy}
+                            title=${t("wigs.save_as_wig")}
+                        >
+                            <ha-svg-icon
+                                class="stc-wig"
+                                .path=${ICON_WIG}
+                            ></ha-svg-icon>
+                            ${t("wigs.save_as_wig")}
+                        </button>
+                        <button
+                            class="action-btn collapse-btn"
+                            @click=${() =>
+                                this.dispatchEvent(
+                                    new CustomEvent("collapse", { bubbles: true, composed: true }),
+                                )}
+                            title=${t("common.close")}
+                        >&#x2715;</button>
+                    </div>
+                    <button
+                        class="settings-btn"
+                        title=${t("devsettings.title")}
+                        ?disabled=${this._busy}
+                        @click=${() => (this._settingsOpen = true)}
                     >
-                        <path
-                            d=${ICON_SETTINGS}
-                            fill="currentColor"
-                        ></path>
-                    </svg>
-                </button>
-            </div>
+                        <svg
+                            class="settings-icon"
+                            viewBox=${SETTINGS_VIEWBOX}
+                        >
+                            <path
+                                d=${ICON_SETTINGS}
+                                fill="currentColor"
+                            ></path>
+                        </svg>
+                    </button>
+                </div>
+            </section>
 
             ${this.device.matrix ? this._renderMatrixCard() : nothing}
 
@@ -2304,25 +2376,15 @@ export class IrDeviceDetail extends LitElement {
         settingsButtonStyles,
         exitToEntityButtonStyles,
         css`
-        /* Add Popups signpost 3 (owner ruling 2026-08-15, reverses the
-           0.9.8 top-nudge below): settingsButtonStyles now sets
-           align-self: end, so the button sits at the bottom of the
-           .device-meta grid row instead of the top -- the old 19px
-           top-nudge that lined it up with the first row of emitter
-           chips no longer applies, and would only push the button
-           past the row's bottom edge if left in.
-
-           HORIZONTAL (bench pass, unchanged): the button sat flush
-           against the card's right edge while every command row's
-           trash icon sits 10px in from it (ir-command-row.ts's .row
-           has padding-right: 10px) -- measured live, an exact 10px
-           gap between the two right edges. margin-right: 10px here
-           closes that gap so the settings icon lines up with the
-           trash column beneath it instead of overhanging further
-           right. */
-        .device-meta .settings-btn {
-            margin-right: 10px;
-        }
+        /* The 0.9.8 top-nudge and the 2026-08-15 10px right inset on
+           .device-meta .settings-btn both retired
+           with .device-meta itself (punch list item 9). The gear no
+           longer floats in a grid row of its own where it needed
+           nudging toward the command rows' trash column -- it is the
+           bottom child of the header's anchored actions column now, and
+           its right edge is meant to line up with the X directly above
+           it. A 10px inset here would break exactly the alignment the
+           handoff asks for. */
         /* SAVE TO CLOSET, in the header (RULED, mockup FR5 variant V2).
            It used to sit stacked under DELETE DEVICE in the bottom
            right, which put the door into the closet next to the button
@@ -2389,16 +2451,76 @@ export class IrDeviceDetail extends LitElement {
             display: block;
         }
 
-        /* --- Header --- */
+        /* --- Header (punch list item 9, header-pin-layout-handoff.md,
+           owner-approved 2026-08-16) ------------------------------
+           The same structural pattern the Remote detail header uses, so
+           the two read as one family: title block, full-height divider,
+           colon-aligned chip rows, anchored actions column. What was
+           two separate blocks (a .header row plus a .device-meta grid)
+           is one flex row now.
+
+           align-items: stretch is load-bearing -- it is what lets the
+           actions column span the full header height, which is what the
+           X/gear anchoring below depends on. */
         .header {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
+            align-items: stretch;
+            gap: 16px;
         }
-        .header-left {
+        /* Title block is a column now: the name row, then Type directly
+           under it. Type is a property of the device itself, so it
+           belongs with the name rather than sitting in a hardware-picker
+           row beside Emitters and Pinned. */
+        .rtitle-block {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 6px;
+            flex-shrink: 0;
+            min-width: 0;
+        }
+        /* New here -- today's shipped Device header has no divider at
+           all; the Remote header's was a short stub. Full height on
+           both now. */
+        .rdetail-divider {
+            width: 1px;
+            align-self: stretch;
+            background: var(--divider-color);
+            flex-shrink: 0;
+        }
+        .hdr-rows {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 11px;
             flex: 1;
             min-width: 0;
+        }
+        /* THE ANCHORING (owner: "right now it seems to move"). Stretched
+           column + space-between pins the first child to the top edge
+           and the last to the bottom edge regardless of how tall the
+           chip rows grow. Structural, not a pixel offset -- and
+           deliberately NOT position: absolute, which would break the
+           moment the card's content-driven height changes.
+
+           Device-specific: the first child is a ROW of two buttons
+           (Save to Closet, then X) rather than a single button, so that
+           whole cluster anchors to the top as a unit. The gear stays
+           alone at the bottom. */
+        .rdetail-actions {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-self: stretch;
+            flex-shrink: 0;
+        }
+        .rdetail-actions .actions-top {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .rdetail-actions .settings-btn {
+            align-self: flex-end;
         }
         .name-row {
             display: flex;
@@ -2448,50 +2570,25 @@ export class IrDeviceDetail extends LitElement {
             align-self: center;
         }
 
-        /* --- Metadata: two columns, no label gutter (comp L1) ---
-           The old grid reserved a fixed 80px column for two words and
-           left the controls floating in what remained, which is what
-           made the row read as a form from 2004. Each label sits above
-           its own control now, and each control gets the full width of
-           its own column. TYPE is capped at 200px because a seven-item
-           dropdown never needed 900; emitters take the rest and wrap. */
-        .device-meta {
-            display: grid;
-            /* Device Settings (0.9.8): the trailing "auto" column is
-               the settings button -- auto-placed as the grid's 3rd
-               DOM child, no explicit grid-column needed. A device type
-               with nothing to configure just renders two children and
-               the column collapses to nothing.
+        /* .device-meta RETIRED (punch list item 9). It was a three-column
+           grid holding Type, the chip groups and the gear on a row of
+           its own below the header. All four moved into the single
+           header block above: Type into the title block, the chip groups
+           into .hdr-rows, the gear into the anchored actions column. The
+           grid's sizing comments went with it -- the Type column no
+           longer competes with a chip column for width, since it now
+           sits under the name. */
 
-               TYPE COLUMN SIZED TO CONTENT (owner ruling 2026-08-15):
-               was a flat 200px, which left the select/matrix-locked
-               span looking oversized next to short values like "Fan".
-               max-content lets the column shrink or grow to fit
-               whatever's actually shown for THIS device (paired with
-               .stack select / .type-locked dropping width: 100%,
-               below), topping out at the widest real value that ever
-               appears here -- a matrix AC's "Air Conditioner * State
-               matrix" label. Self-corrects per locale since nothing
-               is hardcoded to an English pixel width. */
-            grid-template-columns: max-content minmax(0, 1fr) auto;
-            gap: 0 22px;
-            align-items: start;
-            margin: 16px 0 0;
-        }
-        /* TYPE one-line (owner ruling 2026-08-15): label beside the
-           control instead of stacked above it, matching how
-           ir-header-chip-group.ts's own .group-label sits beside its
-           chips -- same bold/uppercase/colon treatment, colon baked
-           into the devdetail.type locale string the same way
-           hdrchips.emitters_label already carries its own. Explicit
-           align-self: start rather than left to .device-meta's own
-           align-items: start, same convention settingsButtonStyles
-           documents its own align-self by. */
+        /* TYPE one-line (owner ruling 2026-08-15, still true): label
+           beside the control instead of stacked above it, matching how
+           ir-header-chip-group.ts's own row label sits beside its chips
+           -- same bold/uppercase/colon treatment, colon baked into the
+           devdetail.type locale string the same way
+           hdrchips.emitters_label already carries its own. */
         .stack {
             display: flex;
             align-items: center;
             gap: 6px;
-            align-self: start;
         }
         .stack .sl {
             font-size: 0.7rem;
@@ -2501,17 +2598,33 @@ export class IrDeviceDetail extends LitElement {
             color: var(--secondary-text-color);
             white-space: nowrap;
         }
-        /* Below this, 200px plus a useful chip column stops fitting.
-           TYPE forces itself onto its own full-width row (comp L1
-           narrow), so the emitter picker and the settings button
-           auto-flow onto row 2, columns 1 and 2. */
+        /* Below this the title block, a useful chip column and the
+           actions column stop fitting on one line. The header wraps to
+           a column: title block first, then the chip rows full width,
+           with the actions column riding along the top on its own line.
+           The divider has nothing to divide once they stack, so it goes.
+
+           The anchoring rule is unaffected -- it governs the actions
+           column's own two edges, which still hold whenever the header
+           is a row. */
         @media (max-width: 700px) {
-            .device-meta {
-                grid-template-columns: minmax(0, 1fr) auto;
-                gap: 12px 0;
+            .header {
+                flex-wrap: wrap;
+                align-items: flex-start;
+                gap: 12px;
             }
-            .device-meta .stack {
-                grid-column: 1 / -1;
+            .rtitle-block {
+                flex: 1;
+            }
+            .rdetail-divider {
+                display: none;
+            }
+            .hdr-rows {
+                flex-basis: 100%;
+                order: 3;
+            }
+            .rdetail-actions {
+                align-self: flex-start;
             }
         }
         /* The STATE MATRIX card (Cold Cuts second half, mockup CC3):

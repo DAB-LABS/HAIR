@@ -143,6 +143,16 @@ class DeviceManager:
 
     async def async_update_device(self, device: IRDevice) -> IRDevice:
         self._store.update_device(device)
+        # Signpost 4, Track 1. This is the single funnel every command
+        # add, edit and delete persists through (see async_update_command
+        # and the assign paths), so re-deriving pin maps here covers
+        # every device-side content change with one hook instead of one
+        # per call site. Only remotes actually pinned to this device are
+        # touched, and it lands before the save so it costs no extra
+        # write.
+        from .pin_bindings import rederive_remotes_for_device
+
+        rederive_remotes_for_device(self._store, device.id)
         await self._store.async_save()
         self._register_ha_device(device)
         await self._entity_factory.async_update_entities(device)
@@ -530,6 +540,7 @@ class DeviceManager:
         device_id: str,
         command_id: str,
         heard_future: Any | None = None,
+        pinned: bool = False,
     ) -> None:
         """Send a stored IR command via all configured emitters (broadcast).
 
@@ -590,6 +601,7 @@ class DeviceManager:
                 if not command.tx_force_raw else None
             ),
             heard_future=heard_future,
+            pinned=pinned,
         )
 
         # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
@@ -630,6 +642,7 @@ class DeviceManager:
         send_count: int = 1,
         decoded_fingerprint: str | None = None,
         heard_future: Any | None = None,
+        pinned: bool = False,
     ) -> set[str]:
         """The shared all-emitters transmit path (GH #65 semantics).
 
@@ -691,7 +704,19 @@ class DeviceManager:
         if monitor is not None:
             monitor.record_send(
                 ir_cmd,
-                f"{device.name} / {send_name}",
+                # Provenance for the Mirror's chip (signpost 4, Track
+                # 4). A pinned retransmit is a HAIR device send in
+                # every mechanical sense, so it takes the same path,
+                # but a user reading the Mirror needs to tell "the
+                # handset drove this" from "I pressed the button in
+                # the panel". The prefix is the channel; ir-mirror.ts
+                # reads it the same way it already reads the test and
+                # fitting prefixes.
+                (
+                    f"Pinned send: {device.name} / {send_name}"
+                    if pinned
+                    else f"{device.name} / {send_name}"
+                ),
                 attempt_ids,
                 decoded_fingerprint=decoded_fingerprint,
                 # Passed explicitly: send_count is this method's loop

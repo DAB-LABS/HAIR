@@ -199,6 +199,7 @@ class HAIRStore:
         changed = self._backfill_byte_hash() or changed
         changed = self._backfill_trigger_decoded() or changed
         changed = self._backfill_trigger_order() or changed
+        changed = self._backfill_pin_bindings() or changed
         self._rebuild_command_index()
         self._loaded = True
         if changed:
@@ -271,6 +272,33 @@ class HAIRStore:
                             )
                         self._idx_bytehash[cmd.byte_hash] = ref
                         self._fps_with_hashed.add(fp)
+
+    def _backfill_pin_bindings(self) -> bool:
+        """Recompute every pinned remote's derived button map at load.
+
+        Signpost 4, Track 1. Runs AFTER the decoded/byte_hash/trigger
+        backfills, because derivation matches on exactly the identity
+        fields those fill -- deriving first would map on tier 3 alone
+        and produce a weaker map than the same content deserves.
+
+        Deliberately derives ALL pinned remotes rather than only those
+        with an empty map. It costs remotes x pinned-devices x triggers
+        on a path that already walks every device, it fills in remotes
+        pinned during signpost 3's dark period (pins existed, bindings
+        did not), and it means a restart repairs a map that drifted --
+        a mutation wire that is missed shows up as "correct after a
+        restart" rather than as a wrong retransmit that never heals.
+        Returns True when anything changed, folding into async_load's
+        single save like the other backfills.
+        """
+        from .pin_bindings import rederive_remote
+
+        changed = False
+        for remote in self._trigger_remotes.values():
+            if not remote.pinned_device_ids:
+                continue
+            changed = rederive_remote(self, remote) or changed
+        return changed
 
     def _backfill_trigger_decoded(self) -> bool:
         """Decode stored trigger codes into ``decoded_fingerprint`` in place.

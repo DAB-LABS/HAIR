@@ -349,10 +349,35 @@ export class IrMirror extends LitElement {
         const fittingPrefix = label.startsWith("Fitting send")
             ? "Fitting send"
             : undefined;
+        // A pinned Remote drove this send (signpost 4, Track 4). It is
+        // a device send in every mechanical sense, so it would
+        // otherwise read as one; the point of its own chip is that a
+        // user watching the Mirror can tell "the handset did this"
+        // from "I pressed the button in the panel", which is the whole
+        // story a proxied press is supposed to tell.
+        const pinnedPrefix = label.startsWith("Pinned send")
+            ? "Pinned send"
+            : undefined;
         if (label === "automation send") {
             chip = t("mirror.chip_automation");
         } else if (label === "integration send") {
             chip = t("mirror.chip_integration");
+        } else if (pinnedPrefix) {
+            // The row already names the source device on the left, so
+            // the chip names what the pin IS rather than repeating the
+            // mechanism (owner bench 2026-08-19). The label carries
+            // "<device> / <command>"; the device is everything before
+            // the first separator.
+            const pinnedRest =
+                label
+                    .slice(pinnedPrefix.length)
+                    .replace(/^:\s*/, "")
+                    .trim();
+            const slash = pinnedRest.indexOf(" / ");
+            chip = t("mirror.chip_pinned", {
+                device: slash >= 0 ? pinnedRest.slice(0, slash) : pinnedRest,
+            });
+            labelTitle = pinnedRest || null;
         } else if (fittingPrefix) {
             chip = t("mirror.chip_fitting");
             labelTitle =
@@ -819,10 +844,12 @@ export class IrMirror extends LitElement {
                 ${[...emitterCounts.entries()].map(
                     ([name, count]) => html`
                         <button
-                            class="fchip ${this._filter === name ? "on" : ""}"
+                            class="fchip emitterc ${this._filter === name ? "on" : ""}"
+                            title=${name}
                             @click=${() => (this._filter = name)}
                         >
-                            ${name} (${count})
+                            <span class="fchip-name">${name}</span>
+                            (${count})
                         </button>
                     `,
                 )}
@@ -1246,6 +1273,25 @@ export class IrMirror extends LitElement {
                 color: var(--secondary-text-color);
                 font-family: inherit;
                 cursor: pointer;
+            }
+            /* An emitter's friendly name can be arbitrarily long --
+               the bench fixture concatenates its receiver's name with
+               its emitter's -- and an unbounded chip pushes the search
+               box off the row. Ellipsize the NAME only so the count
+               stays visible, and put the whole name in the tooltip,
+               the same gate the card names use. The text is not
+               de-duplicated: a doubled name is a naming artifact on
+               that entity, not something to paper over here. */
+            .fchip.emitterc {
+                display: inline-flex;
+                align-items: baseline;
+                gap: 4px;
+                max-width: 220px;
+            }
+            .fchip-name {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
             .fchip.on {
                 background: #607d8b;

@@ -95,7 +95,11 @@ async def async_setup_entry(
     device_manager = DeviceManager(
         hass, store, entity_factory, entry.entry_id, power_monitor
     )
-    trigger_manager = TriggerManager(hass, store)
+    # device_manager is passed so a pinned Remote can drive its
+    # pinned Devices (signpost 4, Track 2). It is constructed
+    # above, and DeviceManager takes a TriggerManager only as a
+    # per-call argument, so this direction closes no cycle.
+    trigger_manager = TriggerManager(hass, store, device_manager)
     signal_monitor = SignalMonitor(hass, signal_store, store, trigger_manager)
 
     hass.data.setdefault(DOMAIN, {})
@@ -223,6 +227,10 @@ async def async_unload_entry(
         power_monitor: PowerMonitor | None = data.get("power_monitor")
         if power_monitor is not None:
             power_monitor.stop()
+
+        tm: TriggerManager | None = data.get("trigger_manager")
+        if tm is not None:
+            tm.shutdown()
 
 
     if not any(

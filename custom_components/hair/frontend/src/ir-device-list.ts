@@ -143,6 +143,21 @@ const ICON_BLASTER =
 const REORDER_DEBOUNCE_MS = 500;
 
 /**
+ * Width of the Remote detail header's label column, in px (punch list
+ * item 9, `header-pin-layout-handoff.md`). Every row on that header
+ * passes this same value to ir-header-chip-group, which is what puts
+ * "RECEIVERS:" and "PINNED:" on one colon line and keeps a wrapped row
+ * of chips under the chips column instead of back under the label.
+ *
+ * DERIVED, not arbitrary: sized to "RECEIVERS:", 10 characters, the
+ * longest label this column carries in any state now that the pin row
+ * says "PINNED:" rather than "Pinned Devices:". The Device header's own
+ * column is narrower (76px, sized to "EMITTERS:") and lives in
+ * ir-device-detail.ts. Re-measure before adding a longer label here.
+ */
+const REMOTE_HDR_LABEL_W = 80;
+
+/**
  * Result of merging capture providers by HA device ID.
  *
  * A physical device with both a native ``InfraredReceiverEntity`` and a
@@ -832,12 +847,48 @@ export class IrDeviceList extends LitElement {
         }));
     }
 
-    /** Gated (PINNING_UI_ENABLED) preview rows for the Remote detail's
-     *  Pin: group -- candidates are existing Devices, every `on`
-     *  hardcoded false until pin storage (Track 2 item 5) lands. See
-     *  ir-pin-flag.ts. */
-    private _pinRows(): HeaderChipRow[] {
-        return this.devices.map((d) => ({ id: d.id, name: d.name, on: false }));
+    /** Rows for a Remote detail's Pin: group -- candidates are
+     *  Devices, `on` read from that remote's stored pin list (signpost
+     *  4, Track 4). Takes the remote explicitly because several remote
+     *  cards can be on screen and each has its own pins. */
+    private _pinRows(remote: TriggerRemoteInfo): HeaderChipRow[] {
+        const pinned = new Set(remote.pinned_device_ids ?? []);
+        return this.devices.map((d) => ({
+            id: d.id,
+            name: d.name,
+            on: pinned.has(d.id),
+        }));
+    }
+
+    /** Pin or unpin whichever Device's chip moved on this Remote.
+     *
+     * Mirror image of the Device detail's handler: the group reports
+     * the full new "on" list, the delta names the device that changed,
+     * and the parent refetches so the chips show stored truth. */
+    private async _onRemotePinsChanged(
+        remote: TriggerRemoteInfo,
+        e: CustomEvent<{ value: string[] }>,
+    ): Promise<void> {
+        if (!this.api) return;
+        const next = new Set(e.detail.value);
+        const before = new Set(remote.pinned_device_ids ?? []);
+        const added = [...next].filter((id) => !before.has(id));
+        const removed = [...before].filter((id) => !next.has(id));
+        try {
+            for (const deviceId of added) {
+                await this.api.pinTriggerRemoteDevice(remote.id, deviceId);
+            }
+            for (const deviceId of removed) {
+                await this.api.unpinTriggerRemoteDevice(remote.id, deviceId);
+            }
+        } finally {
+            this.dispatchEvent(
+                new CustomEvent("remote-pins-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        }
     }
 
     private async _onRemoteReceiversChanged(
@@ -1696,10 +1747,9 @@ export class IrDeviceList extends LitElement {
                         ${remote.id === this.expandedDeviceId
                             ? html`
                                   <div class="expanded-detail trigger-remote-detail">
-                                      <section class="header trh-header">
-                                          <div class="header-left">
-                                              <div class="name-row">
-                                                  <div class="name-line">
+                                      <section class="header trh-header rdetail-top">
+                                          <div class="rtitle-block">
+                                              <div class="name-line">
                                                   ${this._editingRemoteName
                                                       ? html`
                                                             <input
@@ -1726,55 +1776,56 @@ export class IrDeviceList extends LitElement {
                                                                 <span class="edit-icon">&#9998;</span>
                                                             </h1>
                                                         `}
-                                                  <span class="trh-count"
-                                                      >(${tp("trow.header_count", remote.trigger_count)})</span
-                                                  >
                                                   ${remote.ha_device_id
                                                       ? renderExitToEntityBtn(
                                                             `/config/devices/device/${remote.ha_device_id}`,
                                                             t("devices.open_in_ha"),
                                                         )
                                                       : nothing}
-                                                  </div>
-                                                  <div class="remote-receiver-scope">
-                                                      <ir-header-chip-group
-                                                          label=${t("hdrchips.receivers_label")}
-                                                          .rows=${this._receiverRows(remote)}
-                                                          .tone=${GREEN_PEAK}
-                                                          ?disabled=${this._remoteReceiversBusy}
-                                                          @chips-changed=${(
-                                                              ev: CustomEvent<{ value: string[] }>,
-                                                          ) => this._onRemoteReceiversChanged(remote, ev)}
-                                                      ></ir-header-chip-group>
-                                                      ${PINNING_UI_ENABLED
-                                                          ? html`
-                                                                <ir-header-chip-group
-                                                                    readonly
-                                                                    label=${this._pinRows().some((r) => r.on)
-                                                                        ? t("hdrchips.pin_label_full_devices")
-                                                                        : t("hdrchips.pin_label_empty")}
-                                                                    .rows=${this._pinRows()}
-                                                                    .tone=${PIN_BLUE}
-                                                                ></ir-header-chip-group>
-                                                            `
-                                                          : nothing}
-                                                  </div>
                                               </div>
                                           </div>
-                                          <button
-                                              class="settings-btn"
-                                              title=${t("devsettings.remote_title")}
-                                              @click=${() => (this._remoteSettingsTarget = remote)}
-                                          >
-                                              <svg class="settings-icon" viewBox=${SETTINGS_VIEWBOX}>
-                                                  <path d=${ICON_SETTINGS} fill="currentColor"></path>
-                                              </svg>
-                                          </button>
-                                          <button
-                                              class="collapse-btn"
-                                              @click=${() => this._select(remote.id)}
-                                              title=${t("common.close")}
-                                          >&#x2715;</button>
+                                          <div class="rdetail-divider"></div>
+                                          <div class="hdr-rows">
+                                              <ir-header-chip-group
+                                                  label=${t("hdrchips.receivers_label")}
+                                                  .labelWidth=${REMOTE_HDR_LABEL_W}
+                                                  .rows=${this._receiverRows(remote)}
+                                                  .tone=${GREEN_PEAK}
+                                                  ?disabled=${this._remoteReceiversBusy}
+                                                  @chips-changed=${(
+                                                      ev: CustomEvent<{ value: string[] }>,
+                                                  ) => this._onRemoteReceiversChanged(remote, ev)}
+                                              ></ir-header-chip-group>
+                                              ${PINNING_UI_ENABLED
+                                                  ? html`
+                                                        <ir-header-chip-group
+                                                            label=${t("hdrchips.pin_label_full")}
+                                                            labelEmpty=${t("hdrchips.pin_label_empty")}
+                                                            .labelWidth=${REMOTE_HDR_LABEL_W}
+                                                            .rows=${this._pinRows(remote)}
+                                                            .tone=${PIN_BLUE}
+                                                            @chips-changed=${(ev: CustomEvent<{ value: string[] }>) =>
+                                                                this._onRemotePinsChanged(remote, ev)}
+                                                        ></ir-header-chip-group>
+                                                    `
+                                                  : nothing}
+                                          </div>
+                                          <div class="rdetail-actions">
+                                              <button
+                                                  class="collapse-btn"
+                                                  @click=${() => this._select(remote.id)}
+                                                  title=${t("common.close")}
+                                              >&#x2715;</button>
+                                              <button
+                                                  class="settings-btn"
+                                                  title=${t("devsettings.remote_title")}
+                                                  @click=${() => (this._remoteSettingsTarget = remote)}
+                                              >
+                                                  <svg class="settings-icon" viewBox=${SETTINGS_VIEWBOX}>
+                                                      <path d=${ICON_SETTINGS} fill="currentColor"></path>
+                                                  </svg>
+                                              </button>
+                                          </div>
                                       </section>
                                       <div class="trh-triggers-header">
                                           <span
@@ -1795,6 +1846,8 @@ export class IrDeviceList extends LitElement {
                                                                 <ir-trigger-row
                                                                     .trigger=${trig}
                                                                     .receivers=${this._receivers}
+                                                                    .mappings=${remote.pin_map?.[trig.id] ?? []}
+                                                                    .showMappings=${(remote.pinned_device_ids ?? []).length > 0}
                                                                     .bloom=${this._glowTriggerIds.has(trig.id)}
                                                                     @rename-trigger=${this._onRenameTrigger}
                                                                     @toggle-enabled=${(ev: CustomEvent) =>
@@ -2263,6 +2316,13 @@ export class IrDeviceList extends LitElement {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 12px;
+            /* Explicit though it is the default: every item in a row
+               takes the row's height, so the tallest item sets it. The
+               ghost tile used to win that contest in the Remotes grid
+               and drag the row up to its own min-height (punch list
+               item 12); the floor came off the tile rather than the
+               alignment being changed here. */
+            align-items: stretch;
         }
 
         /* --- Shared card styles (neutral, sniffer palette) --- */
@@ -2556,11 +2616,97 @@ export class IrDeviceList extends LitElement {
             flex: 1;
             min-width: 0;
         }
+
+        /* --- Named-remote header, punch list item 9 ---------------
+           header-pin-layout-handoff.md, owner-approved 2026-08-16,
+           reconciled against the shipped chip group per item 11.
+
+           This layer is ADDITIVE and applies only where .rdetail-top
+           joins .trh-header: the named remote's own header. The Trigger
+           Drawer's header keeps the plain .trh-header rules above --
+           item 9's scope is the Remote and Device detail headers, no
+           other surfaces, and the drawer has neither chip rows nor a
+           gear to anchor.
+
+           align-items: stretch (not the base rule's center) is what
+           lets the actions column span the full header height, which is
+           what the X/gear anchoring depends on. justify-content returns
+           to flex-start because the columns now carry their own widths;
+           space-between would fight the rows column's flex: 1. */
+        .trh-header.rdetail-top {
+            align-items: stretch;
+            justify-content: flex-start;
+            gap: 16px;
+        }
+        .rdetail-top .rtitle-block {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 6px;
+            flex-shrink: 0;
+            min-width: 0;
+        }
+        /* Full height of the header block, restored from the original
+           comps -- it was a short stub (a left border on the old
+           .remote-receiver-scope) in the shipped version. */
+        .rdetail-top .rdetail-divider {
+            width: 1px;
+            align-self: stretch;
+            background: var(--divider-color);
+            flex-shrink: 0;
+        }
+        .rdetail-top .hdr-rows {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 11px;
+            flex: 1;
+            min-width: 0;
+        }
+        /* THE ANCHORING (owner: "right now it seems to move"), and it is
+           structural rather than a pixel offset that happened to look
+           right in one screenshot. The column is stretched to the full
+           header height and distributes with space-between, so its first
+           child sits on the top edge and its last child on the bottom
+           edge no matter how tall the rows column grows. Do NOT
+           reimplement as position: absolute corners -- the card's height
+           is content-driven, so absolute corners break the moment a row
+           wraps. */
+        .rdetail-top .rdetail-actions {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-self: stretch;
+            flex-shrink: 0;
+        }
+        /* Both buttons hug the right edge of the column. The base
+           .trh-header .collapse-btn rule sets align-self: center, which
+           in this column means horizontally centered -- it left the X
+           9px inside the gear's right edge, measured live on the bench.
+           Both selectors carry two classes, so specificity ties and the
+           later rule wins; .trh-header.rdetail-top adds the third class
+           to settle it rather than relying on rule order in the sheet.
+           settingsButtonStyles' own align-self: end is restated for the
+           same reason. */
+        .trh-header.rdetail-top .rdetail-actions > * {
+            align-self: flex-end;
+        }
+        .trh-header.rdetail-top .rdetail-actions .collapse-btn,
+        .trh-header.rdetail-top .rdetail-actions .settings-btn {
+            align-self: flex-end;
+        }
         /* Owner ruling 2026-08-15: was align-items: center, so when
            the Receivers chip group (inside this same row) wraps to
            two lines it centered the name/count/exit-to-HA button
            against that taller wrapped content instead of pinning
-           them to the top. */
+           them to the top.
+
+           DRAWER-ONLY as of punch list item 9: the named remote's
+           header no longer nests its name inside .name-row (it uses
+           .rtitle-block above, with the chip rows in their own
+           column), so this rule and .trh-count below now serve the
+           Trigger Drawer's header alone. Both are left in place --
+           the drawer is out of item 9's scope by ruling. */
         .trh-header .name-row {
             display: flex;
             align-items: flex-start;
@@ -2574,21 +2720,20 @@ export class IrDeviceList extends LitElement {
            pinned to the top edge of the row -- so they get
            their own inner flex row, centered, nested inside
            .name-row (which stays flex-start so this group
-           does not get pushed down when
-           .remote-receiver-scope wraps below it). Shared by
-           both the named-remote header and the Trigger
-           Drawer header (same class, both blocks). */
+           does not get pushed down when the row below it
+           wraps). Shared by both the named-remote header
+           (inside .rtitle-block since item 9) and the
+           Trigger Drawer header. */
         /* Owner ruling 2026-08-15 (third pass, found via live
            Chrome DevTools inspection after two CSS-only misses):
            this block must never shrink below its own content --
-           its children (h1, .trh-count, the exit-to-HA button)
-           are all flex-shrink: 0 already and don't wrap, so
-           shrinking the box below their combined width just let
-           them overflow visibly on top of Receivers instead of
-           actually getting smaller. .remote-receiver-scope (and
-           its ir-header-chip-group child, min-width: 0 above)
-           already shrinks and wraps correctly on its own, so it
-           takes 100% of the squeeze now. */
+           its children (h1, the exit-to-HA button, and the
+           drawer's .trh-count) are all flex-shrink: 0 already
+           and don't wrap, so shrinking the box below their
+           combined width just let them overflow visibly on top
+           of Receivers instead of actually getting smaller. The
+           chip rows shrink and wrap correctly on their own, so
+           they take 100% of the squeeze. */
         .trh-header .name-line {
             display: flex;
             align-items: center;
@@ -2680,49 +2825,17 @@ export class IrDeviceList extends LitElement {
             background: var(--secondary-background-color);
         }
 
-        /* Add Popups signpost 2, Track 5 follow-up (owner bench
-           request, 2026-08-14): the receiver-scope picker used to be
-           its own full-width row below trh-header -- now it lives
-           inline on .name-row, right after the exit-to-entity button.
-           A left border + padding stand it off as its own thing
-           rather than reading as part of the name line; min-width: 0
-           + flex keep it from blowing out the row when the name is
-           long. The nested ir-receiver-picker override pushes its
-           internal label-above-chips layout to label-beside-chips
-           (--picker-host-display: flex) and confines wrapped chips to
-           the picker's own column (flex: 1 1 auto; min-width: 0 on
-           both the box and .chips) instead of spanning the full row
-           width under the name too. */
-        .trh-header .remote-receiver-scope {
-            display: flex;
-            align-items: baseline;
-            margin-left: 14px;
-            padding-left: 14px;
-            border-left: 1px solid var(--divider-color);
-            min-width: 0;
-            flex: 1 1 auto;
-        }
-
-        /* Owner ruling 2026-08-15 (second pass): the classic
-           flexbox min-width:auto gotcha -- .remote-receiver-scope
-           itself already shrinks (min-width: 0 above), but its
-           ir-header-chip-group children default to a content-
-           based minimum (their own nowrap label) and refused to
-           shrink to fit, overflowing sideways instead of wrapping
-           in place. This lets them shrink to whatever width is
-           actually available, so their own internal flex-wrap
-           (the .group rule in ir-header-chip-group.ts) wraps
-           chips onto more lines in the same column -- to the right of the
-           divider, never relocating under the title. */
-        .trh-header .remote-receiver-scope ir-header-chip-group {
-            min-width: 0;
-        }
-        /* ir-receiver-picker's label-above-chips CSS-var overrides
-           (--picker-host-display etc.) retired with the tag itself --
-           ir-header-chip-group.ts's .group is already a single-row
-           flex layout with no such vars to override (Track 1 item 5).
-           .remote-receiver-scope's own flex/border/margin above still
-           applies to whatever tag sits inside it. */
+        /* .remote-receiver-scope RETIRED, punch list item 9. It was the
+           2026-08-14 inline standoff box: the receiver picker sat on the
+           name row behind a left border, and its chips wrapped inside
+           that box. The handoff's header replaces the whole arrangement
+           -- the standoff border becomes the full-height
+           .rdetail-divider above, and the box's shrink-and-wrap job
+           moves inside ir-header-chip-group, whose own label column and
+           flex-wrap chips column now do it row by row. The rules that
+           made the old box behave (min-width: 0 on the box and on its
+           chip-group children) went with it; the replacements live in
+           .rdetail-top's block above and in the component itself. */
 
         /* Triggers section header (owner ruling 2026-08-15):
            parity with the .commands-header already used in

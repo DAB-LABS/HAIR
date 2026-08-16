@@ -55,7 +55,12 @@ import {
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { bloomStyles } from "./ir-bloom-styles.js";
 import "./ir-protocol-chip.js";
-import type { IRTrigger, ReceiverInfo } from "./types.js";
+import type {
+    IRTrigger,
+    PinMapEntry,
+    ReceiverInfo,
+} from "./types.js";
+import { PIN_BLUE } from "./ir-pin-flag.js";
 
 // mdi:repeat -- imported verbatim from ir-tx-knobs.ts's own (unexported)
 // ICON_REPEAT, reused here for the min_hits "button press count" knob
@@ -72,6 +77,15 @@ export class IrTriggerRow extends LitElement {
     /** True while this row's fire-bloom glow is active (see
      *  ir-bloom-styles.ts's BloomTracker; the parent owns the sequence). */
     @property({ type: Boolean }) public bloom = false;
+    /** Signpost 4, Track 4: what this trigger drives on the owning
+     *  remote's pinned devices, already resolved to names by the
+     *  backend (see TriggerRemoteInfo.pin_map -- the frontend has no
+     *  device commands to resolve against). */
+    @property({ attribute: false }) public mappings: PinMapEntry[] = [];
+    /** True when the owning remote has at least one pinned device.
+     *  Gates the whole treatment, so an unpinned remote's rows stay
+     *  quiet instead of every one of them reading "unmapped". */
+    @property({ type: Boolean }) public showMappings = false;
 
     @state() private _editingName = false;
     @state() private _draftName = "";
@@ -175,6 +189,36 @@ export class IrTriggerRow extends LitElement {
         return match?.name ?? entityId;
     }
 
+    /** The pin readout: one chip per pinned device this trigger
+     *  drives, or a single "unmapped" when the remote is pinned and
+     *  nothing on those devices matches this trigger's content. The
+     *  second case is the honest answer rather than a gap -- a user
+     *  who pins two devices needs to see which buttons found nothing
+     *  on them. */
+    private _renderMappings() {
+        if (!this.showMappings) return nothing;
+        if (this.mappings.length === 0) {
+            return html`<span class="pin-chip unmapped"
+                title=${t("trow.unmapped_title")}
+                >${t("trow.unmapped")}</span
+            >`;
+        }
+        return html`${this.mappings.map(
+            (m) => html`<span
+                class="pin-chip"
+                style="border-color:${PIN_BLUE};color:${PIN_BLUE}"
+                title=${t("trow.drives_title", {
+                    device: m.device_name,
+                    command: m.command_name,
+                })}
+                >&#8594;&nbsp;${t("trow.drives", {
+                    device: m.device_name,
+                    command: m.command_name,
+                })}</span
+            >`,
+        )}`;
+    }
+
     private _renderScope() {
         const ids = this.trigger.receiver_entity_ids ?? [];
         if (ids.length === 0) return nothing;
@@ -273,7 +317,8 @@ export class IrTriggerRow extends LitElement {
                         ></ir-protocol-chip>
                     </div>
                     <div class="trow-controls">
-                        ${this._renderScope()} ${this._renderAlive()}
+                        ${this._renderMappings()} ${this._renderScope()}
+                        ${this._renderAlive()}
                         <button
                             class="action-btn ${trig.enabled
                                 ? "assign-btn"
@@ -417,6 +462,23 @@ export class IrTriggerRow extends LitElement {
                 align-items: center;
                 gap: 6px;
                 margin-left: auto;
+            }
+            /* Pin readout (signpost 4, Track 4). Shares the scope
+               action idiom (mobile-polish ruling 2026-08-04): arrow
+               plus name, mapped-blue text, a LABEL and not a button --
+               no border, no background, no padding. It states where a
+               press goes; it is not something to press. The mapped
+               variant takes PIN_BLUE inline from ir-pin-flag.ts rather
+               than duplicating the token here (owner ruling
+               2026-08-15: do not merge the pin and Sniffer blues).
+               "unmapped" reads in the same ruling's empty-gray -- it
+               is an absence, not a second colour of fact. */
+            .pin-chip {
+                font-size: 11px;
+                white-space: nowrap;
+            }
+            .pin-chip.unmapped {
+                color: var(--secondary-text-color);
             }
             .scope-chip {
                 font-size: 10px;

@@ -239,6 +239,29 @@ MIRROR_ECHO_TTL_S = 2.5
 # foreign integration's (which then claimed stray captures as echoes).
 # Matches the echo TTL's generosity for slow emitters.
 MIRROR_OWN_BEACON_WINDOW_S = 3.0
+# Pinned-remote echo defense (signpost 4, Track 3a). A ticket is armed
+# by the emitter's own state beacon, which core writes on every
+# platform send. PINNED_TICKET_ARM_FALLBACK_S arms it anyway if no
+# beacon arrives: an emitter that never writes state would otherwise
+# leave the ticket dead and the echo unsuppressed, which is the
+# failure mode that breeds a loop. The fallback is still strictly
+# after the send began, so pre-send frames can never spend a ticket.
+PINNED_TICKET_ARM_FALLBACK_S = 1.5
+# The post-send identity guard: how long after the beacon a capture of
+# a just-sent identity is echo-classified regardless of ticket
+# accounting. The ticket does the precise per-receiver bookkeeping for
+# heard_by; this is the safety floor under it. Bench-tuned.
+PINNED_ECHO_GUARD_S = 1.0
+# Loop breaker. More than PINNED_LOOP_MAX_SENDS retransmits for one
+# remote/device/command inside PINNED_LOOP_WINDOW_S cuts that binding
+# for PINNED_LOOP_COOLDOWN_S. Deliberately blunt: a runaway and an
+# implausibly long button hold look alike from the dispatcher, so the
+# threshold sits above any plausible hold and below a loop's runtime.
+# The observed runaway ran at ~0.63 s per send, which trips this in
+# about thirteen seconds instead of the forty-plus it actually ran.
+PINNED_LOOP_WINDOW_S = 20.0
+PINNED_LOOP_MAX_SENDS = 20
+PINNED_LOOP_COOLDOWN_S = 60.0
 # Synthetic per-emitter fingerprint prefix for foreign sends that no
 # receiver heard (identity unknown, send still audited).
 MIRROR_UNKNOWN_SEND_FP_PREFIX = "mirror-unknown::"

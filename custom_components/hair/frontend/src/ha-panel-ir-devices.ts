@@ -400,6 +400,7 @@ export class HaPanelIrDevices extends LitElement {
                               @remote-renamed=${this._onRemoteChanged}
                               @remote-duplicated=${this._onRemoteChanged}
                               @remote-receivers-changed=${this._onRemoteChanged}
+                              @remote-pins-changed=${this._onRemoteChanged}
                               @remote-trigger-toggled=${this._onRemoteChanged}
                               @remote-created=${this._onRemoteChanged}
                               @device-created=${this._onDeviceChanged}
