@@ -941,35 +941,298 @@ class TestTheWiglessChipIsGreenNotYellow:
         assert "79, 158, 90" in block
 
 
+class TestTheAdoptCopyIsUseCopy:
+    """Exit-sweep note 1 (2026-08-16): "Adopt" is fine as internal/
+    backend vocabulary (_adopt(), AdoptResult, wigs.adopted, HA's own
+    "device is adopted" integration language) but not in copy a person
+    reads. These five keys were the flagged holdouts -- the Clipper
+    signpost dialog's heading and its two button labels, plus the two
+    lines of body copy that explain the fork. English is asserted
+    directly; the other nine locales got the same verb-root swap by
+    hand (each already had its own "adopt" translation and its own
+    established common.use word) but aren't proofread by this suite."""
+
+    def test_the_english_copy_says_use_not_adopt(self):
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        for key in (
+            "wigs.adopt",
+            "clips.signpost_body",
+            "clips.signpost_wig_road",
+            "clips.adopt_flat",
+            "clips.adopt_wig",
+            # Punch list item 2 strays (signpost 3 bench round,
+            # 2026-08-17): missing from this list is exactly how they
+            # shipped unnoticed the first time.
+            "clips.signpost_gone_hint",
+            "comb.handoff_adopt",
+        ):
+            assert "Adopt" not in data[key], f"{key} still says Adopt: {data[key]!r}"
+            assert "adopt" not in data[key], f"{key} still says adopt: {data[key]!r}"
+
+    def test_the_stray_adopt_strings_are_gone_in_every_locale(self):
+        """Punch list item 2 (signpost 3 bench round, 2026-08-17): the
+        specific buggy word each language used, keyed by the two keys
+        that slipped through the first adopt->use pass. ja is skipped
+        for signpost_gone_hint -- that sentence never said "adopt" in
+        Japanese to begin with, nothing to regress there."""
+        buggy_words_by_lang = {
+            "de": "adoptieren",
+            "es": "adoptarla",
+            "fr": "adopter",
+            "it": "adottarla",
+            "nl": "adopteren",
+            "pl": "adoptować",
+            "pt": "adotá-la",
+            "ru": "усыновить",
+        }
+        for lang, buggy in buggy_words_by_lang.items():
+            data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+            assert buggy not in data["clips.signpost_gone_hint"], (
+                f"{lang}: clips.signpost_gone_hint still has {buggy!r}: "
+                f"{data['clips.signpost_gone_hint']!r}"
+            )
+        for lang in ("de", "es", "fr", "it", "nl", "pl", "pt", "ru"):
+            data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+            assert data["comb.handoff_adopt"].strip(), f"{lang}: comb.handoff_adopt is empty"
+        ja_data = json.loads((LOCALES / "ja.json").read_text(encoding="utf-8"))
+        assert "導入" not in ja_data["comb.handoff_adopt"], (
+            f"ja: comb.handoff_adopt still has 導入 (introduce/adopt): "
+            f"{ja_data['comb.handoff_adopt']!r}"
+        )
+
+
+class TestTheSourcePickerTabsAreLive:
+    """Track 4 bench gate (2026-08-17, signpost-3-coding-plan.md
+    section 3a): the Sniffer/Clipper/Plucker/Remotes tabs in both Add
+    dialogs rendered real rows behind a "Preview" flag with Create
+    disabled -- the backend they need (promoted_from_unknown_id on
+    hair/device/create and hair/trigger-remote/create, Track 2 item 2;
+    the trigger-remote/make-device mirror path, Track 2 item 7) had
+    already shipped and just was never called from here. These guard
+    the wiring, not the backend (websocket_api.py has its own tests)."""
+
+    def test_the_picker_no_longer_renders_a_preview_flag(self):
+        text = _read("ir-source-picker.ts")
+        assert "preview-tag" not in text
+        assert "remotepicker.preview_flag" not in text
+
+    def test_the_picker_rows_are_clickable_not_blanket_inert(self):
+        text = _read("ir-source-picker.ts")
+        assert 'class="row inert" inert' not in text
+        assert '"row-picked"' in text
+        assert "private _pick(row: SourcePickRow): void" in text
+
+    def test_the_add_device_dialog_has_no_inert_tab_gate(self):
+        text = _read("ir-add-controlled-device-dialog.ts")
+        assert "function isInertTab" not in text
+
+    def test_the_add_device_dialog_calls_the_promoted_and_mirror_paths(self):
+        text = _read("ir-add-controlled-device-dialog.ts")
+        assert "promoted_from_unknown_id: this._pickedSourceRow!.id" in text
+        assert "this.api.remoteMakeDevice(" in text
+
+    def test_the_add_remote_dialog_has_no_inert_tab_gate(self):
+        text = _read("ir-add-trigger-remote-dialog.ts")
+        assert "function isInertTab" not in text
+
+    def test_the_add_remote_dialog_calls_the_promoted_path(self):
+        text = _read("ir-add-trigger-remote-dialog.ts")
+        assert "promoted_from_unknown_id: this._pickedSourceRow!.id" in text
+
+    @pytest.mark.parametrize("lang", LOCALE_NAMES)
+    def test_pick_row_required_lands_in_every_locale(self, lang):
+        data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+        assert "common.pick_row_required" in data
+        assert data["common.pick_row_required"].strip()
+
+
 class TestTheCompactPanelHeader:
     """Second Fitting v3 punch list round three, item 19: the banner
     image is gone, replaced by a slim left-aligned brand block on the
-    content column's own edge, not the viewport corner."""
+    content column's own edge, not the viewport corner.
+
+    Signpost 3, second revision (2026-08-15): the brand block moved
+    again -- off its own row entirely and into the tab row, shrunk to
+    46px and pushed to the row's right end via margin-left: auto, per
+    the owner's "not use as much header space... tuck it in next to
+    the tabs" follow-up.
+
+    Signpost 3, third revision (2026-08-15): HAIR now sits to the
+    LEFT of the mascot (was: mascot then HAIR) with the mascot hard
+    against the row's right edge, and the mascot carries its own 5px
+    top/bottom margin so it reads as framed rather than floating."""
 
     def test_the_banner_image_is_gone(self):
         text = _read("ha-panel-ir-devices.ts")
         assert "header-banner" not in text
         assert "hair-header.png" not in text
 
-    def test_the_brand_block_uses_the_content_column_edge(self):
+    def test_the_brand_block_lives_in_the_tab_row(self):
+        """Signpost 3, second revision (2026-08-15): the brand block's
+        own centered row is gone -- it now sits inside .tab-bar,
+        pushed to the row's right end, bottom-aligned with the tab
+        labels. See the class docstring addendum."""
         text = _read("ha-panel-ir-devices.ts")
-        assert '<div class="brand-block">' in text
-        assert "hair-brand-mark.png" in text
+        assert "hair-brand-mark-character.png" in text
+        tab_bar_idx = text.index('<div class="tab-bar">')
+        mirror_tab_idx = text.index('class="tab mirror-tab', tab_bar_idx)
+        brand_block_idx = text.index('<div class="brand-block">', mirror_tab_idx)
+        # brand-block markup comes after the last (mirror) tab button,
+        # i.e. it is the tab row's last child, not a separate row above it.
+        assert tab_bar_idx < mirror_tab_idx < brand_block_idx
         block = text.split(".brand-block {", 1)[1].split("}", 1)[0]
-        assert "max-width: 1100px" in block
-        assert "margin: 0 auto" in block
+        assert "margin-left: auto" in block
 
-    def test_the_mark_is_58px_tall(self):
+    def test_the_mark_is_46px_tall(self):
+        """Signpost 3, second revision (2026-08-15): dropped from 92px
+        to 46px (~50%) when the brand block moved into the tab row --
+        46px roughly matches a tab button's own rendered height, so
+        the two bottom-align onto one visual row."""
         text = _read("ha-panel-ir-devices.ts")
         block = text.split(".brand-mark {", 1)[1].split("}", 1)[0]
-        assert "height: 58px" in block
+        assert "height: 46px" in block
 
-    def test_the_tab_row_and_tagline_are_untouched(self):
-        """The two parked extensions -- folding the tab row onto this
-        line, retiring the tagline row -- are NOT built this round."""
+    def test_the_brand_block_has_only_the_mark_left(self):
+        """Punch list item 5, owner ruling (signpost 3 bench round,
+        2026-08-17): the "HAIR" wordmark is dropped -- the sidebar
+        already carries the name, the character carries the identity.
+        Supersedes the third revision's brand-name-left-of-mark
+        ordering test, which asserted a position for an element that
+        no longer exists. See TestPanelHeaderDropsTheWordmark for the
+        rest of this item's coverage."""
         text = _read("ha-panel-ir-devices.ts")
-        assert ".tab-tagline {" in text
+        block_start = text.index('<div class="brand-block">')
+        block_end = text.index("</div>", block_start)
+        block = text[block_start:block_end]
+        assert 'class="brand-name"' not in block
+        assert 'class="brand-mark"' in block
+
+    def test_the_mark_has_a_5px_buffer(self):
+        """Signpost 3, third revision (2026-08-15): the mascot was
+        reading as "floating" without its own vertical buffer -- now
+        carries an explicit 5px top/bottom margin, independent of the
+        tab buttons' own height, so the tab-bar row grows to fit it
+        while the tab buttons stay pinned to the divider line."""
+        text = _read("ha-panel-ir-devices.ts")
+        block = text.split(".brand-mark {", 1)[1].split("}", 1)[0]
+        assert "margin: 5px 0" in block
+
+    def test_the_panel_no_longer_renders_a_shared_tagline(self):
+        """Signpost 3, third revision (2026-08-15): the tagline row
+        moved into each tab's own component (see
+        TestTheTabsIntroduceThemselves) -- the panel shell no longer
+        renders or styles one itself."""
+        text = _read("ha-panel-ir-devices.ts")
+        assert ".tab-tagline {" not in text
+        assert "_tagline()" not in text
         assert '<div class="tab-bar">' in text
+
+
+class TestTheTabsIntroduceThemselves:
+    """Signpost 3, third follow-up (2026-08-15): every non-Devices tab
+    used to show its own name twice -- once in its own icon+title+count
+    toolbar, once in the panel's separate all-caps tagline row below
+    the tab bar. Owner: "the Sniffer header needs the same treatment
+    as the Devices header in that it should be all caps, and then we
+    should move the title of the page down to be the description...
+    The title of the page should be completely removed, as it will be
+    redundant."
+
+    Fourth revision (2026-08-16): the first attempt at this (dropping
+    the icon+title, leaving a bare description-only line) was wrong.
+    The owner's actual reference is ir-device-list.ts's own Devices/
+    Remotes toolbar: icon + uppercase title + count + the description
+    running INLINE right after the count (dash-prefixed), all one
+    element -- not a separate header row. Sniffer, Clipper, Plucker,
+    Closet, and Mirror now mirror that exact pattern, each owning its
+    own icon and accent color as before."""
+
+    @pytest.mark.parametrize(
+        "filename,old_marker",
+        [
+            ("ir-signal-monitor.ts", '<span class="title">'),
+            ("ir-clips.ts", '<span class="title">'),
+            ("ir-pluck.ts", '<span class="title">'),
+            ("ir-wigs.ts", '<div class="page-title">'),
+            ("ir-mirror.ts", '<div class="tab-head">'),
+        ],
+    )
+    def test_the_old_per_page_title_is_gone(self, filename, old_marker):
+        text = _read(filename)
+        assert old_marker not in text
+
+    @pytest.mark.parametrize(
+        "filename,icon_const,accent",
+        [
+            ("ir-signal-monitor.ts", "ICON_SIGNAL", "var(--primary-color)"),
+            ("ir-clips.ts", "ICON_CLIPPER", "#b87333"),
+            ("ir-pluck.ts", "ICON_PLUCK", "#455a64"),
+            ("ir-wigs.ts", "ICON_WIG", "var(--wigs-accent)"),
+            ("ir-mirror.ts", "ICON_MIRROR", "#607d8b"),
+        ],
+    )
+    def test_every_tab_matches_the_devices_toolbar_pattern(
+        self, filename, icon_const, accent
+    ):
+        """Icon, uppercase title, count, and an inline dash-tagline --
+        same anatomy as ir-device-list.ts's own Devices/Remotes
+        toolbar, same accent color each tab already wore before this
+        round of changes."""
+        text = _read(filename)
+        assert '<span class="toolbar-title">' in text
+        assert f"<ha-svg-icon .path=${{{icon_const}}}></ha-svg-icon>" in text
+        assert '<span class="toolbar-count"' in text
+        assert '<span class="toolbar-tagline"' in text
+        title_css = text.split(".toolbar-title {", 1)[1].split("}", 1)[0]
+        assert "text-transform: uppercase" in title_css
+        icon_css = text.split(".toolbar-title ha-svg-icon {", 1)[1].split("}", 1)[0]
+        assert accent in icon_css
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "ir-signal-monitor.ts",
+            "ir-clips.ts",
+            "ir-pluck.ts",
+            "ir-wigs.ts",
+            "ir-mirror.ts",
+        ],
+    )
+    def test_no_tab_has_a_bare_standalone_tagline_row(self, filename):
+        """The fourth revision's whole point: the description is part
+        of the title element, not a separate row sitting below it."""
+        text = _read(filename)
+        assert '<div class="tab-tagline">' not in text
+
+    def test_pluck_title_lost_its_hair_prefix(self):
+        """pluck.title was "HAIR Plucker" -- the odd one out, since
+        sniffer/clips/wigs had their "HAIR " prefix stripped in an
+        earlier pass. Left alone it would render "HAIR PLUCKER (...)"
+        instead of matching its four siblings."""
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["pluck.title"] == "Plucker"
+
+    @pytest.mark.parametrize("locale", LOCALE_NAMES)
+    @pytest.mark.parametrize(
+        "tagline_key,title_key",
+        [
+            ("panel.tagline.sniffer", "sniffer.title"),
+            ("panel.tagline.clips", "clips.title"),
+            ("panel.tagline.mirror", "mirror.title"),
+            ("panel.tagline.wigs", "wigs.title"),
+        ],
+    )
+    def test_tagline_strings_no_longer_prefix_their_own_name(
+        self, locale, tagline_key, title_key
+    ):
+        """The composed .tab-tagline line now builds "NAME (count) -
+        description" from *.title plus panel.tagline.X in code -- if
+        panel.tagline.X still carried its own "Name - " prefix the
+        name would render twice."""
+        data = json.loads((LOCALES / f"{locale}.json").read_text(encoding="utf-8"))
+        name = data[title_key]
+        tagline = data[tagline_key]
+        assert not tagline.startswith(f"{name} - ")
 
 
 class TestTheCombReportAnchorsNearCenter:
@@ -1212,8 +1475,15 @@ class TestEmittersHaveThreeStates:
 
 class TestTheMetadataRowIsTwoColumns:
     """An 80px column reserved for two words, with the controls left
-    floating in what remained. Each label sits above its own control
-    now and each control gets the full width of its own column.
+    floating in what remained. Each control gets the full width of its
+    own column.
+
+    Owner ruling 2026-08-15: Type is the exception -- its label now
+    sits beside its control on one line (matching
+    ir-header-chip-group.ts's own label style) instead of stacked
+    above it, and its column is sized to content (max-content) instead
+    of a flat 200px, so it stops looking oversized next to short
+    values and reclaims width for Emitters.
     """
 
     def test_the_label_gutter_is_gone(self):
@@ -1230,13 +1500,25 @@ class TestTheMetadataRowIsTwoColumns:
         )
 
     def test_type_is_capped_and_emitters_take_the_rest(self):
-        """A seven-item dropdown never needed 900px."""
+        """A seven-item dropdown never needed 900px -- and 200px was
+        itself still wider than most values ever shown there. Owner
+        ruling 2026-08-15: sized to content (max-content) instead of a
+        flat cap, so it self-corrects per device and per locale rather
+        than needing a wider hardcoded number chosen for the longest
+        English string."""
         text = _read("ir-device-detail.ts")
-        assert "grid-template-columns: 200px minmax(0, 1fr)" in text
+        assert "grid-template-columns: max-content minmax(0, 1fr)" in text
 
-    def test_the_label_sits_above_its_control(self):
+    def test_the_label_sits_beside_its_control(self):
+        """Owner ruling 2026-08-15: Type used to stack its label above
+        the dropdown; it's inline now, one line, colon baked into the
+        locale string the same way hdrchips.emitters_label carries its
+        own -- so this checks the flex row, not just the selector's
+        continued existence."""
         text = _read("ir-device-detail.ts")
         assert 'class="sl"' in text and ".stack .sl {" in text
+        assert ".stack {" in text
+        assert "align-self: start;" in text
         picker = _read("ir-emitter-picker.ts")
         assert "<label>" in picker
         assert 'class="capsule"' not in picker
@@ -2669,3 +2951,263 @@ class TestTheSweepThatClosedTheFork:
         for category in ("one", "few", "many", "other"):
             key = f"{base}.{category}"
             assert key in data, f"{locale} missing {key}"
+
+
+class TestRemoteCardReactsToTriggerToggle:
+    """Punch list item 3 (2026-08-17): toggling a trigger on/off in a
+    remote's detail drawer did not move the Remote card's ON:/OFF:
+    badges until reload. _toggleTriggerEnabled() only refreshed its
+    own local drawer state; the overview card's counts come from
+    `triggerRemotes`, a property the panel shell owns and only
+    re-fetches on its own remote-* events."""
+
+    def test_toggle_dispatches_a_remote_trigger_toggled_event(self):
+        text = _read("ir-device-list.ts")
+        block = text.split(
+            "private async _toggleTriggerEnabled(", 1,
+        )[1].split("\n    private", 1)[0]
+        assert 'new CustomEvent("remote-trigger-toggled"' in block
+        assert "bubbles: true, composed: true" in block
+
+    def test_the_shell_wires_the_toggle_event_to_a_refresh(self):
+        text = _read("ha-panel-ir-devices.ts")
+        assert "@remote-trigger-toggled=${this._onRemoteChanged}" in text
+
+
+class TestRemoteCardDropsTheTriggerCountLine:
+    """Punch list item 4, owner ruling (2026-08-17), corrected 2026-08-16
+    after a live bench catch: the "N triggers" line under the remote
+    name is redundant now the ON:/OFF: badges exist. Applies to every
+    overview card, including the HAIR Triggers drawer's own -- the
+    original patch only touched the per-remote cards' loop and missed
+    the drawer's separate template, so "HAIR Triggers" kept showing
+    "7 triggers" under its name after the rest of the round had
+    already shipped. Only the two expanded-detail parenthesized counts
+    (drawer's own and the per-remote's) are untouched now."""
+
+    def test_the_overview_card_no_longer_shows_the_count_line(self):
+        text = _read("ir-device-list.ts")
+        assert (
+            '<div class="card-name">${remote.name}</div>\n'
+            "                            </div>\n"
+            '                            <div class="card-footer">'
+        ) in text
+
+    def test_the_drawer_overview_card_no_longer_shows_the_count_line(self):
+        text = _read("ir-device-list.ts")
+        assert (
+            '${this._triggerDrawer?.name ?? t("devlist.trigger_drawer_default_name")}\n'
+            "                        </div>\n"
+            "                    </div>\n"
+            '                    <div class="card-footer">'
+        ) in text
+
+    def test_the_detail_trigger_counts_are_untouched(self):
+        text = _read("ir-device-list.ts")
+        # Only the two expanded-detail parenthesized counts survive
+        # (drawer's own and the per-remote's) -- both overview cards
+        # (drawer and per-remote) are scoped out now.
+        assert text.count('tp("trow.header_count"') == 2
+
+
+class TestPanelHeaderDropsTheWordmark:
+    """Punch list item 5, owner ruling (2026-08-17): the "HAIR" word
+    goes from the panel header; the character mascot stays. Layout
+    only, same spirit as the 0.5.0 toolbar-title removal -- not a
+    documented feature. alt="HAIR" on the character image is left
+    alone: it's non-visual (screen reader only) and correctly
+    describes the graphic, not visible on-screen text."""
+
+    def test_the_wordmark_span_is_gone(self):
+        text = _read("ha-panel-ir-devices.ts")
+        assert 'class="brand-name"' not in text
+        assert '<span class="brand-name">HAIR</span>' not in text
+
+    def test_the_character_image_and_its_alt_text_survive(self):
+        text = _read("ha-panel-ir-devices.ts")
+        assert 'class="brand-mark"' in text
+        assert 'alt="HAIR"' in text
+
+    def test_the_dead_css_rule_is_gone(self):
+        text = _read("ha-panel-ir-devices.ts")
+        assert ".brand-name {" not in text
+
+
+class TestLocaleFirstPaintRace:
+    """Punch list item 7 (2026-08-17, fix-if-cheap): the tab bar's own
+    t()-driven labels painted stale for one frame after a language
+    switch, because setPanelLanguage() ran in updated() -- after this
+    component's own render already committed with the old language --
+    and nothing asked for a follow-up render."""
+
+    def test_updated_requests_a_rerender_on_actual_language_change(self):
+        text = _read("ha-panel-ir-devices.ts")
+        block = text.split(
+            "protected updated(", 1,
+        )[1].split("\n    private _init", 1)[0]
+        assert "setPanelLanguage(this.hass.language)" in block
+        assert "this.hass.language !== this._lastLanguage" in block
+        assert "this.requestUpdate()" in block
+
+    def test_the_language_tracking_field_exists(self):
+        text = _read("ha-panel-ir-devices.ts")
+        assert "private _lastLanguage?: string;" in text
+class TestAddDialogFormClaritySections:
+    """Punch list item 6, owner-approved 2026-08-16: both Add dialogs
+    restructure into three always-labeled .dlg-section blocks. The
+    Create button loses its per-tab tint (static green, matching
+    ir-duplicate-device-dialog.ts) and the Name field gets a live
+    (input-bound, not blur-time) "Required" attention treatment,
+    distinct from the existing submit-time red --error-color alert."""
+
+    def test_add_device_dialog_calls_all_three_sections(self):
+        text = _read("ir-add-controlled-device-dialog.ts")
+        assert "${this._renderSourceSection(sourceColor)}" in text
+        assert "${this._renderDeviceSection()}" in text
+        assert "${this._renderEmittersSection()}" in text
+
+    def test_add_device_dialog_create_button_has_no_tab_tint(self):
+        text = _read("ir-add-controlled-device-dialog.ts")
+        assert 'class="action-btn create-btn"' in text
+        # The old per-tab inline fill is gone from the button entirely.
+        assert 'style="background:${color};border-color:${color};"' not in text
+
+    def test_add_device_dialog_name_field_is_live_required(self):
+        text = _read("ir-add-controlled-device-dialog.ts")
+        body = text.split("private _renderDeviceSection()", 1)[1]
+        body = body.split("private _renderEmittersSection", 1)[0]
+        assert 'class="field ${nameEmpty ? "req-empty" : ""}"' in body
+        assert "field-req-caption" in body
+        # Live-bound: same @input handler the field already used, not a
+        # new @blur-time check -- the attention treatment tracks _name
+        # on every keystroke via the nameEmpty local, not a submit gate.
+        assert "@input=${(e: Event) => {" in body
+        assert "this._nameEdited = true;" in body
+
+    def test_add_trigger_remote_dialog_calls_all_three_sections(self):
+        text = _read("ir-add-trigger-remote-dialog.ts")
+        assert "_renderSourceSection" in text
+        assert "private _renderRemoteSection()" in text
+        assert "private _renderReceiversSection()" in text
+
+    def test_add_trigger_remote_dialog_create_button_has_no_tab_tint(self):
+        text = _read("ir-add-trigger-remote-dialog.ts")
+        assert 'class="action-btn create-btn"' in text
+        assert 'style="background:${color};border-color:${color};"' not in text
+
+    def test_add_trigger_remote_dialog_name_field_is_live_required(self):
+        text = _read("ir-add-trigger-remote-dialog.ts")
+        body = text.split("private _renderRemoteSection()", 1)[1]
+        body = body.split("private _renderReceiversSection", 1)[0]
+        assert 'class="field ${nameEmpty ? "req-empty" : ""}"' in body
+        assert "field-req-caption" in body
+
+    def test_both_dialogs_share_the_section_head_css(self):
+        for name in (
+            "ir-add-controlled-device-dialog.ts",
+            "ir-add-trigger-remote-dialog.ts",
+        ):
+            text = _read(name)
+            assert ".dlg-section-head {" in text
+            assert '.field.req-empty input[type="text"] {' in text
+
+    def test_the_new_locale_keys_exist_in_every_language(self):
+        for lang in LOCALE_NAMES:
+            data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+            assert "adddc.section_source" in data
+            assert "adddc.type_label" in data
+            assert "adddc.name_required_caption" in data
+            assert "adddc.preview_dropped" in data
+            assert "addtr.section_source" in data
+            assert "addtr.name_required_caption" in data
+
+
+class TestTriggerDialogAimsAtAnyRemote:
+    """Punch list item 8, ruled 2026-08-10, re-scoped 2026-08-17, built
+    2026-08-16: a REMOTE picker in create mode (drawer preselected,
+    every named TriggerRemote listed, "+ New Remote" last), a fixed
+    label in edit mode (no moving a trigger between remotes once
+    created), and the receiver picker gated on the drawer being the
+    effective target either way."""
+
+    def test_is_drawer_target_covers_both_edit_and_create_modes(self):
+        text = _read("ir-trigger-dialog.ts")
+        body = text.split("private get _isDrawerTarget()", 1)[1]
+        body = body.split("private _remoteName", 1)[0]
+        assert "this.trigger.trigger_remote_id ?? null" in body
+        assert "this._selectedRemoteId" in body
+        assert "return id === null;" in body
+
+    def test_create_payload_carries_the_selected_remote(self):
+        text = _read("ir-trigger-dialog.ts")
+        assert "trigger_remote_id: this._selectedRemoteId," in text
+
+    def test_edit_mode_shows_a_fixed_non_interactive_label(self):
+        text = _read("ir-trigger-dialog.ts")
+        assert '<div class="remote-fixed">' in text
+        assert "this._remoteName(this.trigger!.trigger_remote_id!)" in text
+
+    def test_create_mode_shows_the_picker_with_drawer_then_remotes_then_new(self):
+        text = _read("ir-trigger-dialog.ts")
+        body = text.split('<div class="remote-picker-list">', 1)[1]
+        body = body.split("<!-- Name -->", 1)[0]
+        drawer_idx = body.index("this._pickRemote(null)")
+        remotes_idx = body.index("this._triggerRemotes.map")
+        new_idx = body.index("this._openAddRemote")
+        assert drawer_idx < remotes_idx < new_idx
+        assert 't("trigger.new_remote_option")' in body
+
+    def test_receiver_section_is_gated_on_the_drawer_target(self):
+        text = _read("ir-trigger-dialog.ts")
+        assert "${this._isDrawerTarget" in text
+        # The old gate (present only on an already-saved trigger) would
+        # have missed the create-mode case entirely.
+        assert "this.trigger?.trigger_remote_id ?" not in text
+
+    def test_add_remote_dialog_is_nested_and_wired_to_the_picker(self):
+        text = _read("ir-trigger-dialog.ts")
+        assert 'import "./ir-add-trigger-remote-dialog.js";' in text
+        assert "${this._showAddRemote" in text
+        assert "<ir-add-trigger-remote-dialog" in text
+        assert "@remote-created=${this._onRemoteCreated}" in text
+
+    def test_the_new_locale_key_exists_in_every_language(self):
+        for lang in LOCALE_NAMES:
+            data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+            assert "trigger.new_remote_option" in data
+
+
+class TestTriggerPopoverNamesTheOwningRemote:
+    """Punch list item 8: each popover row now names its owning remote
+    (the drawer or a named TriggerRemote), self-fetched off an optional
+    `.api` the same way ir-receiver-picker.ts already self-fetches its
+    own chip labels -- a caller that never sets `.api` keeps rendering
+    exactly as before."""
+
+    def test_api_is_optional_and_self_fetches_on_first_set(self):
+        text = _read("ir-trigger-popover.ts")
+        assert "api?: HairApi;" in text
+        assert 'changed.has("api") && this.api && !this._remotesLoaded' in text
+
+    def test_render_meta_prefixes_the_row_with_the_owning_remote(self):
+        text = _read("ir-trigger-popover.ts")
+        assert ">${this._renderMeta(trig)}</span" in text
+        body = text.split("private _renderMeta(trig: IRTrigger): string {", 1)[1]
+        body = body.split("private _friendly", 1)[0]
+        assert "trig.trigger_remote_id" in body
+        assert 't("popover.trigger_on_remote"' in body
+        # Only the drawer-owned case still appends the existing scope
+        # text -- a remote-owned trigger's receiver scope is inert.
+        assert "this._renderScope(trig)" in body
+
+    def test_all_four_consumers_wire_api_into_the_popover(self):
+        for name in ("ir-clips.ts", "ir-pluck.ts", "ir-mirror.ts", "ir-signal-monitor.ts"):
+            text = _read(name)
+            idx = text.index("<ir-trigger-popover")
+            snippet = text[idx : idx + 200]
+            assert ".api=${this.api}" in snippet
+
+    def test_the_new_locale_key_exists_in_every_language(self):
+        for lang in LOCALE_NAMES:
+            data = json.loads((LOCALES / f"{lang}.json").read_text(encoding="utf-8"))
+            assert "popover.trigger_on_remote" in data

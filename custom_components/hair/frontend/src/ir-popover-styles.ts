@@ -99,4 +99,26 @@ export const popoverStyles = css`
         font-size: 0.7rem;
         color: var(--secondary-text-color);
     }
+    /* Kind badge (signpost 3, Track 2 item 0.1 / Track 3 item 1): the
+       combined device+remote linked popover tags each row green
+       Device / gold Remote, same accent colors as the USE fork's own
+       two tiles (ir-use-fork-popup.ts / ir-origin-colors.ts). */
+    .popover-kind-badge {
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-right: 6px;
+        flex: none;
+    }
+    .popover-kind-badge.kind-device {
+        background: rgba(46, 125, 50, 0.18);
+        color: #2e7d32;
+    }
+    .popover-kind-badge.kind-remote {
+        background: rgba(245, 166, 35, 0.18);
+        color: #f5a623;
+    }
 `;

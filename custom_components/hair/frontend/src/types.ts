@@ -158,6 +158,19 @@ export interface MatrixCells {
     cells: MatrixCellCoord[];
 }
 
+// Combined linked-count entry (signpost 3, Track 2 item 0.1 / Track 3
+// item 1): a source (a closet wig, or a Sniffer/Clipper/Plucker
+// catalog remote) can now feed BOTH a HAIR device and a HAIR trigger
+// remote, so the popover list the USE button's linked-count dot opens
+// is one kind-tagged union instead of two lists the UI would have to
+// merge itself. Every entry the backend sends carries `kind` now
+// (ws_get_unknown_devices, ws_wigs_list) -- there is no legacy
+// kind-less shape left to support, so this is a real discriminated
+// union, not an optional field bolted onto the old shape.
+export type LinkedEntry =
+    | { kind: "device"; device_id: string; device_name: string }
+    | { kind: "remote"; remote_id: string; remote_name: string };
+
 // Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
 export interface WigInfo {
     filename: string;
@@ -180,8 +193,9 @@ export interface WigInfo {
     // the fitted/unfitted filter, computed server-side.
     fitting?: FittingSummary;
     // Adopt Device (v0.8.1): HAIR devices already carrying this wig's
-    // codes, by tiered identity match.
-    linked_devices?: { device_id: string; device_name: string }[];
+    // codes, by tiered identity match. Combined with the trigger-remote
+    // half (signpost 3, Track 2 item 0.1) -- see LinkedEntry below.
+    linked_devices?: LinkedEntry[];
     // Cold Cuts (v0.8.8): non-null for matrix wigs. Drives the "N
     // states" chip, the peek summary, CLIP suppression, and the
     // fit-tick's cold blue glow.
@@ -582,6 +596,11 @@ export interface TriggerRemoteInfo {
     updated_at: string;
     ha_device_id: string | null;
     trigger_count: number;
+    // Add Popups signpost 3, Track 2 item 0.6 / Track 3 item 2: the
+    // Remote card's ON:/OFF: badge line reads these two straight off
+    // the list call, no per-remote follow-up.
+    enabled_count: number;
+    disabled_count: number;
 }
 
 /** Add Popups signpost 2, Track 3: one wig signal's derived identity,
@@ -786,9 +805,11 @@ export interface UnknownDeviceSummary {
     order?: number;
     vendor_entity_id?: string | null;
     appliance?: string | null;
-    // The HAIR devices this remote feeds (v0.7.0): stored promote link
-    // plus per-signal assignment targets, resolved live by id.
-    linked_devices?: { device_id: string; device_name: string }[];
+    // The HAIR objects this remote feeds (v0.7.0; combined device+
+    // remote kind tagging added signpost 3, Track 2 item 0.1): stored
+    // promote link(s) plus per-signal assignment targets, resolved
+    // live by id. See LinkedEntry.
+    linked_devices?: LinkedEntry[];
     // Cold Cuts (v0.8.8): the matrix-clip provenance stamp. Non-null
     // only for remotes clipped open (include_matrix) from a matrix
     // wig; drives the adopt signpost.

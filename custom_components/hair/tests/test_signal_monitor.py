@@ -20,6 +20,7 @@ from custom_components.hair.event_parser import EventParser
 from custom_components.hair.models import (
     IRCommand,
     IRDevice,
+    TriggerRemote,
     UnknownDevice,
     UnknownSignal,
 )
@@ -973,6 +974,64 @@ class TestPublicAPI:
         result = monitor.get_unknown_devices()
         assert len(result) == 1
         assert result[0].id == "d2"
+
+    def test_get_unknown_devices_noise_filter_skips_non_sniffed_source(self):
+        """Punch list item 1 (signpost 3 bench round, 2026-08-17): a
+        Clipper/Plucker remote's hit_count is 0 by nature (it is authored
+        by hand, not accumulated by repeated hits). Asking for its source
+        explicitly must not run it through the sniffed noise filter, or
+        every manual/plucked remote vanishes from its own tab."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        clipped = UnknownDevice(
+            id="c1", fingerprint="fpc", hit_count=0, source="manual"
+        )
+        plucked = UnknownDevice(
+            id="p1", fingerprint="fpp", hit_count=0, source="plucked"
+        )
+        sniffed_below_threshold = UnknownDevice(
+            id="s1", fingerprint="fps", hit_count=1, source="sniffed"
+        )
+        store.add_device(clipped)
+        store.add_device(plucked)
+        store.add_device(sniffed_below_threshold)
+
+        # Explicit non-sniffed source: noise filter skipped, zero-hit
+        # remotes come back.
+        result = monitor.get_unknown_devices(source="manual")
+        assert [d.id for d in result] == ["c1"]
+
+        result = monitor.get_unknown_devices(source="plucked")
+        assert [d.id for d in result] == ["p1"]
+
+        # Explicit sniffed source: noise filter still applies.
+        result = monitor.get_unknown_devices(source="sniffed")
+        assert result == []
+
+        # No source (mixed list): noise filter still applies to
+        # EVERY device uniformly, unchanged from before this fix --
+        # this fix only touches the explicit non-sniffed-source path.
+        # All three fixtures are below SIGNAL_CLUSTER_THRESHOLD (3),
+        # so the mixed list comes back empty, same as pre-fix.
+        result = monitor.get_unknown_devices()
+        assert result == []
+
+    def test_get_unknown_devices_min_hits_explicit_zero_still_skips_filter_by_source(
+        self,
+    ):
+        """min_hits=0 already bypasses the filter outright; confirms the
+        new source gate does not interfere with that existing override."""
+        hass = _make_hass()
+        store = _make_signal_store(hass)
+        monitor = SignalMonitor(hass, store, _make_hair_store())
+
+        d = UnknownDevice(id="s1", fingerprint="fps", hit_count=0, source="sniffed")
+        store.add_device(d)
+
+        result = monitor.get_unknown_devices(source="sniffed", min_hits=0)
+        assert [dv.id for dv in result] == ["s1"]
 
     def test_get_unknown_device(self):
         hass = _make_hass()
@@ -2066,3 +2125,76 @@ async def test_copy_signals_to_device_names_and_provenance():
 
     missing = await monitor.copy_signals_to_device("nope", device.id)
     assert missing["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_mark_promoted_remote_stamps_and_survives_missing():
+    """The identity promote link's REMOTE half (signpost 3, Track 2
+    item 2): stamped on promote, no-op on an unknown catalog id."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    remote = UnknownDevice(label="Remote 1", source="sniffed")
+    store.add_device(remote)
+    await monitor.mark_promoted_remote(remote.id, "tr42")
+    assert store.get_device(remote.id).promoted_to_remote == "tr42"
+    await monitor.mark_promoted_remote("nope", "tr42")
+
+
+@pytest.mark.asyncio
+async def test_copy_signals_to_trigger_remote_names_order_and_provenance():
+    """USE as a Remote (Sniffer promote / Clipper / Plucker door):
+    every catalog signal becomes a named trigger in capture order,
+    origin "remote", the catalog left untouched."""
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    hair_store = _make_hair_store()
+    monitor = SignalMonitor(hass, store, hair_store)
+    remote = UnknownDevice(label="Samsung TV", source="sniffed")
+    remote.signals.append(UnknownSignal(
+        fingerprint="S1L2", protocol="PRONTO",
+        code="0000 006D 0001 0000 00E0 0070", frequency=38000,
+        alias="Power", byte_hash="bh1", decoded_fingerprint="df1",
+    ))
+    remote.signals.append(UnknownSignal(
+        fingerprint="S3L4", protocol="PRONTO",
+        code="0000 006D 0001 0000 00A0 0050", frequency=38000,
+        alias="",
+    ))
+    store.add_device(remote)
+
+    trigger_remote = TriggerRemote(name="Samsung TV")
+    hair_store.get_trigger_remote = MagicMock(return_value=trigger_remote)
+    added: list = []
+    hair_store.add_trigger = MagicMock(side_effect=added.append)
+
+    result = await monitor.copy_signals_to_trigger_remote(
+        remote.id, trigger_remote.id
+    )
+    assert result["success"] is True
+    names = [t.name for t in result["triggers"]]
+    assert names == ["Power", "Signal 2"]
+    # Capture order preserved via insertion order (order field is left
+    # to HAIRStore.add_trigger's own sequential assignment in real use;
+    # this test's mocked add_trigger just records call order).
+    assert added == result["triggers"]
+    for trig in result["triggers"]:
+        assert trig.trigger_remote_id == trigger_remote.id
+        assert trig.origin == "remote"
+    assert result["triggers"][0].byte_hash == "bh1"
+    assert result["triggers"][0].decoded_fingerprint == "df1"
+    # Catalog untouched: signals are copied, never moved.
+    assert len(store.get_device(remote.id).signals) == 2
+
+    missing = await monitor.copy_signals_to_trigger_remote(
+        "nope", trigger_remote.id
+    )
+    assert missing["success"] is False
+    assert missing["code"] == "device_not_found"
+
+    hair_store.get_trigger_remote = MagicMock(return_value=None)
+    no_target = await monitor.copy_signals_to_trigger_remote(
+        remote.id, "ghost"
+    )
+    assert no_target["success"] is False
+    assert no_target["code"] == "target_not_found"

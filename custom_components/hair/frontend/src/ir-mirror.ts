@@ -707,16 +707,20 @@ export class IrMirror extends LitElement {
         const filtered = this._filteredRows(rows);
 
         return html`
-            <div class="tab-head">
-                <span class="title">
-                    <ha-svg-icon .path=${ICON_MIRROR}></ha-svg-icon>
-                    HAIR Mirror
-                    ${!this._loading
-                        ? html`<span class="count"
-                              >(${tp("mirror.signals", rows.length)})</span
-                          >`
-                        : ""}
-                </span>
+            <div class="toolbar">
+                <div class="toolbar-title-group">
+                    <span class="toolbar-title">
+                        <ha-svg-icon .path=${ICON_MIRROR}></ha-svg-icon>
+                        ${t("mirror.title")}
+                        ${!this._loading
+                            ? html`<span class="toolbar-count"
+                                  >(${tp("mirror.signals", rows.length)})</span
+                              ><span class="toolbar-tagline"
+                                  >- ${t("panel.tagline.mirror")}</span
+                              >`
+                            : ""}
+                    </span>
+                </div>
             </div>
             ${this._error
                 ? html`<div class="error">${this._error}</div>`
@@ -1002,6 +1006,7 @@ export class IrMirror extends LitElement {
         return html`
             ${this._triggerPopover
                 ? html`<ir-trigger-popover
+                      .api=${this.api}
                       .triggers=${this._triggers.filter((t) =>
                           triggerMatchesSignal(t, this._triggerPopover!.signal),
                       )}
@@ -1134,29 +1139,47 @@ export class IrMirror extends LitElement {
                 padding: 24px;
             }
 
-            /* Tab header, same anatomy as the Sniffer/Clipper/Plucker
-               titles; the mirror icon wears the tab's silver. */
-            .tab-head {
+            /* Signpost 3, fourth revision (2026-08-16): matches
+               ir-device-list.ts's Devices/Remotes toolbar exactly
+               (owner ruling) -- icon + uppercase title + count +
+               inline dash-tagline, all one line. */
+            .toolbar {
                 display: flex;
+                justify-content: space-between;
                 align-items: center;
                 margin-bottom: 12px;
+                flex-wrap: wrap;
+                gap: 8px;
             }
-            .title {
+            .toolbar-title-group {
+                display: flex;
+            }
+            .toolbar-title {
                 display: flex;
                 align-items: center;
                 gap: 8px;
                 font-size: 1.1rem;
                 font-weight: 500;
                 color: var(--primary-text-color);
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
             }
-            .title ha-svg-icon {
+            .toolbar-title ha-svg-icon {
                 --mdc-icon-size: 24px;
                 color: #607d8b;
             }
-            .title .count {
-                font-size: 0.85rem;
+            .toolbar-count {
                 font-weight: 400;
                 color: var(--secondary-text-color);
+                font-size: 0.9rem;
+                text-transform: uppercase;
+            }
+            .toolbar-tagline {
+                font-size: 0.8rem;
+                font-weight: 400;
+                color: var(--secondary-text-color);
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
             }
             .error {
                 color: var(--error-color, #db4437);

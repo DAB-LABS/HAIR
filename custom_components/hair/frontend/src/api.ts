@@ -561,6 +561,74 @@ export class HairApi {
         });
     }
 
+    /**
+     * "Make a Device" mirror-door mint (signpost 3, Track 3.5, owner-
+     * directed 2026-08-15): wigMakeDevice's twin, sourced from a live
+     * Remote's own triggers instead of a closet wig
+     * (hair/trigger-remote/make-device). No matrix concept on a
+     * Remote's triggers, so device_type is a free pick, same as the
+     * Manual add-device tab.
+     */
+    remoteMakeDevice(
+        remoteId: string,
+        name: string,
+        deviceType: DeviceTypeId,
+        emitterEntityIds: string[],
+    ): Promise<IRDevice & { copied: number }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/trigger-remote/make-device",
+            remote_id: remoteId,
+            name,
+            device_type: deviceType,
+            emitter_entity_ids: emitterEntityIds,
+        });
+    }
+
+    /**
+     * Signpost 3, Track 2 item 2 / Track 3 item 1: USE as a Remote,
+     * Closet door -- mints a named Remote straight from a wig (EITHER
+     * a closet filename or a library codebook_id, same shape
+     * wigMakeDevice uses), seeding one trigger per discrete signal in
+     * one backend call (hair/wigs/make-remote). Mirrors wigMakeDevice
+     * exactly except there is no device_type/emitter concept on the
+     * remote side.
+     */
+    wigMakeRemote(
+        source: { filename: string } | { codebookId: string },
+        name: string,
+        receiverScope: string[],
+    ): Promise<TriggerRemoteInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
+            type: "hair/wigs/make-remote",
+            ...("filename" in source
+                ? { filename: source.filename }
+                : { codebook_id: source.codebookId }),
+            name,
+            receiver_scope: receiverScope,
+        });
+    }
+
+    /**
+     * "Make a Remote" mirror-door mint (signpost 3, Track 3.5, owner-
+     * directed 2026-08-15): wigMakeRemote's twin, sourced from a live
+     * Device's own commands instead of a closet wig
+     * (hair/device/make-remote). Matrix-cell porthole rows are
+     * excluded server-side, same discrete-press subset the device
+     * picker already applies -- nothing for the caller to filter.
+     */
+    deviceMakeRemote(
+        deviceId: string,
+        name: string,
+        receiverScope: string[],
+    ): Promise<TriggerRemoteInfo> {
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
+            type: "hair/device/make-remote",
+            device_id: deviceId,
+            name,
+            receiver_scope: receiverScope,
+        });
+    }
+
     wigRender(
         codebookId: string,
     ): Promise<{ text: string; name: string; filename: string }> {
@@ -1048,6 +1116,14 @@ export class HairApi {
         name: string;
         receiver_scope?: string[];
         origin?: string | null;
+        // Signpost 3, Track 2 item 2 / Track 3 item 1: set when this
+        // remote is minted from a Sniffer/Clipper/Plucker catalog row
+        // (the USE fork's non-Closet doors) -- every signal on that
+        // row becomes a named trigger in capture order, and origin
+        // defaults to "remote" server-side when this is set and origin
+        // is omitted. Manual-tab creation (Track 2 3) omits this
+        // entirely, exactly as before.
+        promoted_from_unknown_id?: string | null;
     }): Promise<TriggerRemoteInfo> {
         return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
             type: "hair/trigger-remote/create",
@@ -1109,12 +1185,19 @@ export class HairApi {
     duplicateTriggerRemote(
         remoteId: string,
         newName: string,
+        // Track 2 item 6: the duplicate dialog footer's receiver-chip
+        // picker override. Omit to inherit the source's scope
+        // unchanged (the pre-item-6 default); pass a list, including
+        // an empty one, to set it explicitly.
+        receiverScope?: string[],
     ): Promise<TriggerRemoteInfo> {
-        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>({
+        const msg: Record<string, unknown> = {
             type: "hair/trigger-remote/duplicate",
             remote_id: remoteId,
             new_name: newName,
-        });
+        };
+        if (receiverScope !== undefined) msg.receiver_scope = receiverScope;
+        return this.hass.connection.sendMessagePromise<TriggerRemoteInfo>(msg);
     }
 
     /**
@@ -1133,6 +1216,39 @@ export class HairApi {
             type: "hair/trigger-remote/set-receiver-scope",
             remote_id: remoteId,
             receiver_scope: receiverScope,
+        });
+    }
+
+    /**
+     * Pin storage (signpost 3, Track 2 item 5 / section 0b): add a
+     * device to a remote's pinned_device_ids. Storage only -- no
+     * retransmit/derivation behavior until signpost 4. First real
+     * caller is ir-pin-prompt-dialog.ts's "Pin" button (Track 3.5);
+     * the header Pin: chip group stays a readonly preview
+     * (PINNING_UI_ENABLED) until that signpost.
+     */
+    pinTriggerRemoteDevice(
+        remoteId: string,
+        deviceId: string,
+    ): Promise<{ pinned_device_ids: string[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/trigger-remote/pin",
+            remote_id: remoteId,
+            device_id: deviceId,
+        });
+    }
+
+    /** Unpin, the reverse of pinTriggerRemoteDevice above. Not yet
+     *  called anywhere (the chip group that will call it is gated),
+     *  added alongside pin for symmetry. */
+    unpinTriggerRemoteDevice(
+        remoteId: string,
+        deviceId: string,
+    ): Promise<{ pinned_device_ids: string[] }> {
+        return this.hass.connection.sendMessagePromise({
+            type: "hair/trigger-remote/unpin",
+            remote_id: remoteId,
+            device_id: deviceId,
         });
     }
 

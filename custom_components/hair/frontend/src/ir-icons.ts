@@ -197,20 +197,23 @@ export const SETTINGS_VIEWBOX = "0 0 382.673 382.673";
  * read best) once the size CHANGE itself -- not just the small
  * resting size -- turned out to be the thing that read as unclean.
  *
- * TOP-ALIGNED (owner ruling 2026-08-09): explicit align-self so this
- * button stays pinned to the top of its device-meta grid cell even
- * once IR EMITTERS grows past one row and wraps -- .device-meta's own
- * align-items: start (ir-device-detail.ts) already implies this, but
- * it's spelled out here rather than left to inherit, since this
- * button is the one thing in the row that must never re-center when
- * its sibling cell grows taller.
+ * BOTTOM-ALIGNED (owner ruling 2026-08-15, reverses the 2026-08-09
+ * top-alignment ruling above): explicit align-self so this button
+ * stays pinned to the BOTTOM of its containing cell instead --
+ * .device-meta's grid row on the Device side, .trh-header's flex row
+ * on the Remote side -- so it stays low against the commands/triggers
+ * list that follows, regardless of how tall the Emitters/Receivers
+ * chip group above it grows. One shared style, both call sites, so
+ * this single change covers both settings gears per the owner's own
+ * framing ("both ... should be justified to the bottom of the cell
+ * that they're in").
  */
 export const settingsButtonStyles = css`
     .settings-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        align-self: start;
+        align-self: end;
         background: none;
         border: none;
         padding: 5px;

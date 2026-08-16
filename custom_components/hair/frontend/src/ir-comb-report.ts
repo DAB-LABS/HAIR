@@ -33,7 +33,7 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { CombFinding, CombReport, WigInfo } from "./types.js";
+import type { CombFinding, CombReport, LinkedEntry, WigInfo } from "./types.js";
 
 export const COMB_PATH = "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667 c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64 c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512 c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667 v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160 c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667 s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160 c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667 c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123 c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517 c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64 c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853 c12.245,10.304,19.264,25.259,19.264,41.024V320z";
 
@@ -509,7 +509,15 @@ export class IrCombReport extends LitElement {
      */
     private _renderHandoff() {
         if (!this._report || !this._buckets().length) return nothing;
-        const linked = this.wig.linked_devices ?? [];
+        // Combined kind-tagged union (signpost 3, Track 2 item 0.1):
+        // this handoff is device-specific (comb diffs against an
+        // existing device's commands, which a remote has none of), so
+        // a remote-only link falls through to the same "offer to
+        // adopt" empty state a wig with no links at all already gets.
+        const linked = (this.wig.linked_devices ?? []).filter(
+            (entry): entry is Extract<LinkedEntry, { kind: "device" }> =>
+                entry.kind === "device",
+        );
         const suspects = this._flagged(this._buckets());
         if (!linked.length) {
             // A library codebook has no file to adopt from, so the

@@ -40,13 +40,22 @@
  * ir-assign-signal-dialog, ir-promote-dialog, and (add-popups
  * signpost 2) ir-add-controlled-device-dialog inherited this for
  * free.
+ *
+ * `getEmitterOptions()` (signpost 3, Track 1 item 5): the entity-
+ * discovery half of `_getEmitters()` below, pulled out to a standalone
+ * exported function so ir-device-detail.ts's new header chip group
+ * (ir-header-chip-group.ts) can build the SAME on/down/off-eligible
+ * emitter list this component shows, without a second, drifting copy
+ * of the `infrared.*` / receiver-exclusion / `hair_observer` filter.
+ * The class method below is now a thin delegate to it -- behavior is
+ * unchanged, only where the logic lives moved.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import type { HairApi } from "./api.js";
 
-interface EmitterInfo {
+export interface EmitterInfo {
     entity_id: string;
     name: string;
     /** HA's own verdict. device_manager.py skips these at send time and
@@ -60,6 +69,44 @@ interface EmitterInfo {
  * blaster in "unknown" is unproven, not down -- painting it amber
  * told every fresh install its hardware was broken (GH #83). */
 const DEAD_STATES = new Set(["unavailable"]);
+
+/** Every `infrared.*` entity that can be assigned as an emitter: not a
+ *  known receiver, not flagged `hair_observer`, not in `excludeIds`.
+ *  `receiverIds` is the caller's job to supply (this function does no
+ *  fetching of its own -- ir-emitter-picker.ts loads its own via
+ *  `api.listReceivers()`; ir-device-detail.ts reuses ir-device-list.ts's
+ *  already-loaded receivers list instead of a second fetch). */
+export function getEmitterOptions(
+    hass: any,
+    receiverIds: Set<string>,
+    excludeEntityIds: string[] = [],
+): EmitterInfo[] {
+    const states = (hass?.states ?? {}) as Record<
+        string,
+        {
+            entity_id: string;
+            state?: string;
+            attributes: { friendly_name?: string; hair_observer?: boolean };
+        }
+    >;
+    const excludeSet = new Set(excludeEntityIds);
+    const emitters: EmitterInfo[] = [];
+    for (const [entityId, st] of Object.entries(states)) {
+        if (
+            entityId.startsWith("infrared.") &&
+            !excludeSet.has(entityId) &&
+            !receiverIds.has(entityId) &&
+            !st.attributes.hair_observer
+        ) {
+            emitters.push({
+                entity_id: entityId,
+                name: st.attributes.friendly_name ?? entityId,
+                available: !DEAD_STATES.has(st.state ?? ""),
+            });
+        }
+    }
+    return emitters;
+}
 
 @customElement("ir-emitter-picker")
 export class IrEmitterPicker extends LitElement {
@@ -129,31 +176,7 @@ export class IrEmitterPicker extends LitElement {
     }
 
     private _getEmitters(): EmitterInfo[] {
-        const states = (this.hass?.states ?? {}) as Record<
-            string,
-            {
-                entity_id: string;
-                state?: string;
-                attributes: { friendly_name?: string; hair_observer?: boolean };
-            }
-        >;
-        const excludeSet = new Set(this.excludeEntityIds);
-        const emitters: EmitterInfo[] = [];
-        for (const [entityId, st] of Object.entries(states)) {
-            if (
-                entityId.startsWith("infrared.") &&
-                !excludeSet.has(entityId) &&
-                !this._receiverIds.has(entityId) &&
-                !st.attributes.hair_observer
-            ) {
-                emitters.push({
-                    entity_id: entityId,
-                    name: st.attributes.friendly_name ?? entityId,
-                    available: !DEAD_STATES.has(st.state ?? ""),
-                });
-            }
-        }
-        return emitters;
+        return getEmitterOptions(this.hass, this._receiverIds, this.excludeEntityIds);
     }
 
     /**
@@ -219,7 +242,7 @@ export class IrEmitterPicker extends LitElement {
                 aria-checked=${on ? "true" : "false"}
                 aria-label="${em.name}, ${word}"
                 ?disabled=${this.disabled}
-                title="${em.entity_id} \u00b7 ${word}"
+                title="${em.entity_id} · ${word}"
                 @click=${() => this._toggle(em.entity_id)}
             >
                 <span class="dot"></span>

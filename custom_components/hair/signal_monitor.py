@@ -1677,15 +1677,25 @@ class SignalMonitor:
         Ordered by the persisted ``order`` field (ascending; lower sorts
         higher), not by hit_count. Newly-discovered remotes are inserted
         on top via ``SignalStore.add_device`` and stay there until the
-        user drags them. The min_hits noise filter is unchanged.
+        user drags them.
+
+        The min_hits noise filter only applies to the sniffed slice
+        (source is "sniffed" or None, the mixed-list default). An
+        explicit non-sniffed source (manual/plucked/echo) skips it --
+        those remotes are authored by hand, not accumulated by RF/IR
+        hits, so hit_count is zero on all of them by nature (punch
+        list item 1, signpost 3 bench round, 2026-08-17).
 
         Args:
             include_dismissed: Include dismissed devices in results.
-            min_hits: Minimum hit_count to include. Defaults to
-                ``SIGNAL_CLUSTER_THRESHOLD``. Pass ``0`` to include all.
-            source: If given (``"sniffed"`` or ``"manual"``), return only
-                devices of that source. Lets the Sniffer and Clips tabs
-                each request their own slice. ``None`` returns both.
+            min_hits: Minimum hit_count to include when the noise
+                filter applies. Defaults to ``SIGNAL_CLUSTER_THRESHOLD``.
+                Pass ``0`` to include all regardless of source.
+            source: If given (``"sniffed"``, ``"manual"``,
+                ``"plucked"``, or ``"echo"``), return only devices of
+                that source. Lets the Sniffer/Clipper/Plucker/Mirror
+                tabs each request their own slice. ``None`` returns
+                all sources, noise-filtered same as before.
         """
         if min_hits is None:
             min_hits = SIGNAL_CLUSTER_THRESHOLD
@@ -1693,7 +1703,11 @@ class SignalMonitor:
         devices = self._signal_store.get_all_devices()
         if not include_dismissed:
             devices = [d for d in devices if not d.dismissed]
-        if min_hits > 0:
+        # Noise filter only makes sense for hit-accumulated (sniffed)
+        # remotes. An explicit non-sniffed source (manual/plucked/echo)
+        # skips it -- those are authored by hand and have hit_count 0
+        # by nature, so the filter would zero them out every time.
+        if min_hits > 0 and source in (None, "sniffed"):
             devices = [d for d in devices if d.hit_count >= min_hits]
         if source is not None:
             devices = [d for d in devices if d.source == source]
@@ -2748,6 +2762,71 @@ class SignalMonitor:
             if device is None:
                 return
             device.promoted_to = hair_device_id
+            await self._signal_store.async_save()
+
+    async def copy_signals_to_trigger_remote(
+        self, device_id: str, trigger_remote_id: str
+    ) -> dict[str, Any]:
+        """Copy EVERY signal on a catalog remote into a named Remote as
+        triggers, in capture order (signpost 3, Track 2 item 2 -- the
+        Sniffer promote / Clipper / Plucker door of "three doors, one
+        machinery", the GH #69 headline). Mirrors
+        copy_signals_to_device's shape exactly -- same locking, same
+        catalog-remote validation, same alias/plucked-name/decoded-
+        fingerprint naming fallback chain -- minted as IRTrigger rows
+        instead of IRCommand rows. A catalog remote's signals are
+        always a flat list, never a lattice, so the matrix rule needs
+        no separate guard here; that only matters for the Closet wig
+        door (ws_wig_make_remote), where a matrix wig's cells live in
+        wig.climate, never in wig.signals.
+        """
+        from .models import IRTrigger
+
+        async with self._lock:
+            unknown = self._signal_store.get_device(device_id)
+            if unknown is None or unknown.source == "echo":
+                return {"success": False, "code": "device_not_found",
+                        "error": "Catalog remote not found"}
+            remote = self._hair_store.get_trigger_remote(trigger_remote_id)
+            if remote is None:
+                return {"success": False, "code": "target_not_found",
+                        "error": "Target remote not found"}
+            triggers: list[IRTrigger] = []
+            for i, signal in enumerate(unknown.signals, start=1):
+                name = (
+                    (signal.alias or "").strip()
+                    or (signal.plucked_command_name or "").strip()
+                    or (signal.decoded_fingerprint or "").strip()
+                    or f"Signal {i}"
+                )
+                trigger = IRTrigger(
+                    name=name,
+                    signal_fingerprint=signal.fingerprint,
+                    protocol=signal.protocol,
+                    code=signal.code,
+                    byte_hash=signal.byte_hash,
+                    decoded_fingerprint=signal.decoded_fingerprint,
+                    trigger_remote_id=trigger_remote_id,
+                    origin="remote",
+                )
+                self._hair_store.add_trigger(trigger)
+                triggers.append(trigger)
+            if triggers:
+                await self._hair_store.async_save()
+        return {"success": True, "triggers": triggers}
+
+    async def mark_promoted_remote(
+        self, device_id: str, trigger_remote_id: str
+    ) -> None:
+        """Stamp a catalog remote with the named Remote it was promoted
+        into (identity link; survives renames on both sides). Mirrors
+        mark_promoted's device-side counterpart -- see
+        UnknownDevice.promoted_to_remote."""
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return
+            device.promoted_to_remote = trigger_remote_id
             await self._signal_store.async_save()
 
     async def delete_sniffed_remote(self, device_id: str) -> dict[str, Any]:

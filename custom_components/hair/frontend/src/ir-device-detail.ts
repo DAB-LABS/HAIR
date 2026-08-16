@@ -34,7 +34,11 @@ import "./ir-save-perfect-dialog.js";
 import "./ir-save-route-dialog.js";
 import "./ir-save-new-dialog.js";
 import "./ir-save-update-dialog.js";
-import "./ir-emitter-picker.js";
+import { getEmitterOptions } from "./ir-emitter-picker.js";
+import "./ir-header-chip-group.js";
+import type { HeaderChipRow } from "./ir-header-chip-group.js";
+import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
+import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import type { SaveRoute } from "./ir-save-route-dialog.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
@@ -54,7 +58,6 @@ import {
     renderExitToEntityBtn,
 } from "./ir-icons.js";
 import "./ir-device-settings-dialog.js";
-import { settingsSections } from "./ir-device-settings-dialog.js";
 import type { HairApi } from "./api.js";
 import type {
     ActionOption,
@@ -66,6 +69,7 @@ import type {
     MatrixCells,
     ReceiverInfo,
     SavePlan,
+    TriggerRemoteInfo,
 } from "./types.js";
 import { displayTemp, installUnit } from "./temperature.js";
 
@@ -91,11 +95,19 @@ export class IrDeviceDetail extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public hass: any;
     @property({ attribute: false }) public device!: IRDevice;
+    /** ir-device-list.ts's own already-loaded receivers list, reused
+     *  so the header Emitters group can exclude RX-only entities the
+     *  same way ir-emitter-picker.ts's .api-driven fetch does, without
+     *  a second network call (signpost 3, Track 1 item 5). */
+    @property({ attribute: false }) public receivers: ReceiverInfo[] = [];
+    /** Candidate list for the gated Pin: group -- existing Trigger
+     *  Remotes, pinned items on a Device ARE Remotes. Unused while
+     *  PINNING_UI_ENABLED is false. */
+    @property({ attribute: false }) public triggerRemotes: TriggerRemoteInfo[] = [];
 
     @state() private _busy = false;
     @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
-    @state() private _confirmDelete = false;
     /** Second Fitting v3 punch list item 6: the window itself opens on
      * this alone, synchronously, the moment SAVE TO CLOSET is clicked
      * -- it no longer waits on the plan fetch below. False closes the
@@ -164,8 +176,11 @@ export class IrDeviceDetail extends LitElement {
     @state() private _selPower: "on" | "off" | null = null;
 
     // Device Settings (0.9.8): the settings button in the meta row.
-    // Gated by settingsSections(device) so a device type with nothing
-    // to configure never shows the button at all.
+    // Universal across every device type (Track 1 item 6, coding plan
+    // item 0.2) -- settingsSections(device) still decides which
+    // power/climate sections show INSIDE the dialog, but no longer
+    // gates the button's own visibility; the dialog always has the
+    // convert/Duplicate/Delete rows even when both sections are empty.
     @state() private _settingsOpen = false;
 
     // Triggers
@@ -411,6 +426,29 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
+    /** Every assignable emitter (getEmitterOptions -- the same
+     *  infrared.* / receiver-exclusion / hair_observer filter
+     *  ir-emitter-picker.ts itself uses), mapped to header-chip-group's
+     *  row shape. `down` mirrors that component's own three-state
+     *  logic: assigned but HA reports it unreachable. */
+    private _emitterRows(): HeaderChipRow[] {
+        const receiverIds = new Set(this.receivers.map((r) => r.entity_id));
+        const value = this.device.emitter_entity_ids ?? [];
+        return getEmitterOptions(this.hass, receiverIds).map((em) => ({
+            id: em.entity_id,
+            name: em.name,
+            on: value.includes(em.entity_id),
+            down: value.includes(em.entity_id) && !em.available,
+        }));
+    }
+
+    /** Gated (PINNING_UI_ENABLED) preview rows for the Pin: group --
+     *  every `on` is hardcoded false, since pin storage (Track 2 item
+     *  5) doesn't exist yet. See ir-pin-flag.ts. */
+    private _pinRows(): HeaderChipRow[] {
+        return this.triggerRemotes.map((r) => ({ id: r.id, name: r.name, on: false }));
+    }
+
     private async _onEmittersChanged(e: CustomEvent) {
         const newIds: string[] = e.detail.value;
         const previousIds = [...this.device.emitter_entity_ids];
@@ -426,7 +464,10 @@ export class IrDeviceDetail extends LitElement {
             this.device = await this.api.updateDevice(this.device.id, {
                 emitter_entity_ids: newIds,
             });
-            this._flash(t("devdetail.emitters_updated"));
+            // Signpost 3 follow-up (2026-08-15): no success flash here --
+            // the picker's own chips turning green already signal the
+            // update, matching the (already flash-less) receiver picker
+            // on the remote side. The failure flash below is unchanged.
             this.dispatchEvent(
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
@@ -1133,22 +1174,19 @@ export class IrDeviceDetail extends LitElement {
         );
     }
 
-    private async _deleteDevice() {
-        this._busy = true;
-        try {
-            await this.api.deleteDevice(this.device.id);
-            this.dispatchEvent(
-                new CustomEvent("device-deleted", {
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
-        } catch (err) {
-            this._flash(`Delete failed: ${(err as Error).message}`);
-        } finally {
-            this._busy = false;
-            this._confirmDelete = false;
-        }
+    /** Dispatched by both the footer's "Delete Device" button below
+     *  and (bubbling straight through, composed, from the nested
+     *  <ir-device-settings-dialog>) its Settings-dialog Delete button.
+     *  ir-device-list.ts's <ir-device-detail> instantiation catches
+     *  this and reuses its own already-tested _confirmDeleteDevice /
+     *  _doDeleteDevice flow -- the same one the card's hover-trash
+     *  icon triggers -- rather than this file keeping a second,
+     *  separate delete implementation of its own (Track 1 item 6,
+     *  "not two flows"). */
+    private _requestDelete(): void {
+        this.dispatchEvent(
+            new CustomEvent("request-delete", { bubbles: true, composed: true }),
+        );
     }
 
     private _navigateIntegration(url: string | null) {
@@ -1872,33 +1910,41 @@ export class IrDeviceDetail extends LitElement {
                               )}
                           </select>`}
                 </div>
-                <ir-emitter-picker
-                    .hass=${this.hass}
-                    .api=${this.api}
-                    .value=${this.device.emitter_entity_ids ?? []}
+                <ir-header-chip-group
+                    label=${t("hdrchips.emitters_label")}
+                    .rows=${this._emitterRows()}
+                    .tone=${GREEN_PEAK}
                     ?disabled=${this._busy}
-                    @emitters-changed=${this._onEmittersChanged}
-                ></ir-emitter-picker>
-                ${settingsSections(this.device).length > 0
+                    @chips-changed=${this._onEmittersChanged}
+                ></ir-header-chip-group>
+                ${PINNING_UI_ENABLED
                     ? html`
-                          <button
-                              class="settings-btn"
-                              title=${t("devsettings.title")}
-                              ?disabled=${this._busy}
-                              @click=${() => (this._settingsOpen = true)}
-                          >
-                              <svg
-                                  class="settings-icon"
-                                  viewBox=${SETTINGS_VIEWBOX}
-                              >
-                                  <path
-                                      d=${ICON_SETTINGS}
-                                      fill="currentColor"
-                                  ></path>
-                              </svg>
-                          </button>
+                          <ir-header-chip-group
+                              readonly
+                              label=${this._pinRows().some((r) => r.on)
+                                  ? t("hdrchips.pin_label_full_remotes")
+                                  : t("hdrchips.pin_label_empty")}
+                              .rows=${this._pinRows()}
+                              .tone=${ORIGIN_COLORS.remote}
+                          ></ir-header-chip-group>
                       `
                     : nothing}
+                <button
+                    class="settings-btn"
+                    title=${t("devsettings.title")}
+                    ?disabled=${this._busy}
+                    @click=${() => (this._settingsOpen = true)}
+                >
+                    <svg
+                        class="settings-icon"
+                        viewBox=${SETTINGS_VIEWBOX}
+                    >
+                        <path
+                            d=${ICON_SETTINGS}
+                            fill="currentColor"
+                        ></path>
+                    </svg>
+                </button>
             </div>
 
             ${this.device.matrix ? this._renderMatrixCard() : nothing}
@@ -2076,7 +2122,7 @@ export class IrDeviceDetail extends LitElement {
                 </div>
                 <button
                     class="action-btn delete-btn"
-                    @click=${() => (this._confirmDelete = true)}
+                    @click=${this._requestDelete}
                     ?disabled=${this._busy}
                 >${t("devdetail.delete_device")}</button>
             </div>
@@ -2133,18 +2179,6 @@ export class IrDeviceDetail extends LitElement {
                           @closed=${this._onCaptureClosed}
                           @command-saved=${this._onCommandSaved}
                       ></ir-capture-dialog>
-                  `
-                : ""}
-            ${this._confirmDelete
-                ? html`
-                      <ir-confirm-dialog
-                          title=${t("devdetail.del_device_title", { name: this.device.name })}
-                          message=${t("devdetail.del_device_msg")}
-                          confirmLabel="Delete"
-                          .destructive=${true}
-                          @confirmed=${this._deleteDevice}
-                          @closed=${() => (this._confirmDelete = false)}
-                      ></ir-confirm-dialog>
                   `
                 : ""}
             ${this._commandToDelete
@@ -2270,21 +2304,23 @@ export class IrDeviceDetail extends LitElement {
         settingsButtonStyles,
         exitToEntityButtonStyles,
         css`
-        /* Device Settings (0.9.8): nudge the settings button down by
-           the label line's height (the .sl label's font-size plus its
-           5px margin-bottom, ~19px total, no exact figure specified)
-           so the icon aligns with the first row of emitter chips
-           instead of the tiny uppercase label beside it.
+        /* Add Popups signpost 3 (owner ruling 2026-08-15, reverses the
+           0.9.8 top-nudge below): settingsButtonStyles now sets
+           align-self: end, so the button sits at the bottom of the
+           .device-meta grid row instead of the top -- the old 19px
+           top-nudge that lined it up with the first row of emitter
+           chips no longer applies, and would only push the button
+           past the row's bottom edge if left in.
 
-           HORIZONTAL (bench pass): the button sat flush against the
-           card's right edge while every command row's trash icon
-           sits 10px in from it (ir-command-row.ts's .row has
-           padding-right: 10px) -- measured live, an exact 10px gap
-           between the two right edges. margin-right: 10px here closes
-           that gap so the settings icon lines up with the trash
-           column beneath it instead of overhanging further right. */
+           HORIZONTAL (bench pass, unchanged): the button sat flush
+           against the card's right edge while every command row's
+           trash icon sits 10px in from it (ir-command-row.ts's .row
+           has padding-right: 10px) -- measured live, an exact 10px
+           gap between the two right edges. margin-right: 10px here
+           closes that gap so the settings icon lines up with the
+           trash column beneath it instead of overhanging further
+           right. */
         .device-meta .settings-btn {
-            margin-top: 19px;
             margin-right: 10px;
         }
         /* SAVE TO CLOSET, in the header (RULED, mockup FR5 variant V2).
@@ -2425,19 +2461,45 @@ export class IrDeviceDetail extends LitElement {
                the settings button -- auto-placed as the grid's 3rd
                DOM child, no explicit grid-column needed. A device type
                with nothing to configure just renders two children and
-               the column collapses to nothing. */
-            grid-template-columns: 200px minmax(0, 1fr) auto;
+               the column collapses to nothing.
+
+               TYPE COLUMN SIZED TO CONTENT (owner ruling 2026-08-15):
+               was a flat 200px, which left the select/matrix-locked
+               span looking oversized next to short values like "Fan".
+               max-content lets the column shrink or grow to fit
+               whatever's actually shown for THIS device (paired with
+               .stack select / .type-locked dropping width: 100%,
+               below), topping out at the widest real value that ever
+               appears here -- a matrix AC's "Air Conditioner * State
+               matrix" label. Self-corrects per locale since nothing
+               is hardcoded to an English pixel width. */
+            grid-template-columns: max-content minmax(0, 1fr) auto;
             gap: 0 22px;
             align-items: start;
             margin: 16px 0 0;
         }
+        /* TYPE one-line (owner ruling 2026-08-15): label beside the
+           control instead of stacked above it, matching how
+           ir-header-chip-group.ts's own .group-label sits beside its
+           chips -- same bold/uppercase/colon treatment, colon baked
+           into the devdetail.type locale string the same way
+           hdrchips.emitters_label already carries its own. Explicit
+           align-self: start rather than left to .device-meta's own
+           align-items: start, same convention settingsButtonStyles
+           documents its own align-self by. */
+        .stack {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            align-self: start;
+        }
         .stack .sl {
-            display: block;
             font-size: 0.7rem;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--secondary-text-color);
-            margin-bottom: 5px;
+            white-space: nowrap;
         }
         /* Below this, 200px plus a useful chip column stops fitting.
            TYPE forces itself onto its own full-width row (comp L1
@@ -2598,14 +2660,14 @@ export class IrDeviceDetail extends LitElement {
             background: rgba(184, 115, 51, 0.08);
         }
         .stack select {
-            width: 100%;
-            padding: 6px 8px;
+            box-sizing: border-box;
+            padding: 3px 10px 3px 8px;
             border-radius: 4px;
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--primary-text-color);
             font-family: inherit;
-            font-size: 0.85rem;
+            font-size: 11.5px;
         }
         /* Type lock (matrix-power-row.md item 4): a matrix device's
            type control is a static label, not a dropdown -- sized to
@@ -2615,14 +2677,13 @@ export class IrDeviceDetail extends LitElement {
         .type-locked {
             display: block;
             box-sizing: border-box;
-            width: 100%;
-            padding: 6px 8px;
+            padding: 3px 10px 3px 8px;
             border-radius: 4px;
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--secondary-text-color);
             font-family: inherit;
-            font-size: 0.85rem;
+            font-size: 11.5px;
             cursor: default;
         }
 

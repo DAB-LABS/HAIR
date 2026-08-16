@@ -23,6 +23,7 @@ import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import "./ir-receiver-picker.js";
 import type { HairApi } from "./api.js";
 import type { TriggerRemoteInfo } from "./types.js";
 
@@ -36,13 +37,21 @@ export class IrDuplicateTriggerRemoteDialog extends LitElement {
     /** Name of the source remote (for the hint text and default name). */
     @property({ attribute: false }) public sourceName = "";
 
+    /** The source remote's own receiver_scope (Track 2 item 6): the
+     *  footer picker's starting selection, overridable before Create.
+     *  Stored semantics unchanged -- this is just what the picker
+     *  shows lit on open. */
+    @property({ attribute: false }) public sourceReceiverScope: string[] = [];
+
     @state() private _name = "";
+    @state() private _receiverIds: string[] = [];
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
         this._name = `${this.sourceName} (Copy)`;
+        this._receiverIds = [...this.sourceReceiverScope];
     }
 
     private _close(): void {
@@ -63,6 +72,7 @@ export class IrDuplicateTriggerRemoteDialog extends LitElement {
             const created = await this.api.duplicateTriggerRemote(
                 this.sourceId,
                 name,
+                this._receiverIds,
             );
             this.dispatchEvent(
                 new CustomEvent<TriggerRemoteInfo>("remote-duplicated", {
@@ -119,6 +129,14 @@ export class IrDuplicateTriggerRemoteDialog extends LitElement {
                             (e.target as HTMLInputElement).select()}
                     />
                 </div>
+
+                <ir-receiver-picker
+                    .api=${this.api}
+                    .value=${this._receiverIds}
+                    ?disabled=${this._busy}
+                    @receivers-changed=${(e: CustomEvent) =>
+                        (this._receiverIds = e.detail.value)}
+                ></ir-receiver-picker>
 
                 <div class="dialog-actions">
                     <button

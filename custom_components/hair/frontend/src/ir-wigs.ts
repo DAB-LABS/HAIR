@@ -55,17 +55,25 @@ import "./ir-supersede-dialog.js";
 import "./ir-count-dot.js";
 import "./ir-claims-ledger.js";
 import "./ir-promote-dialog.js";
+import "./ir-promote-remote-dialog.js";
+import "./ir-use-fork-popup.js";
+import "./ir-pin-prompt-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
     FittingSummary,
+    IRDevice,
+    LinkedEntry,
     MatrixSummary,
     ReverseSupersessionBlock,
     SupersessionBlock,
+    TriggerRemoteInfo,
     WigInfo,
     WigInvalid,
     WigsList,
 } from "./types.js";
+import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
+import { singleOppositeLink } from "./ir-pin-link-match.js";
 
 type FilterChip = "all" | "library" | "yours" | "fitted" | "unfitted";
 
@@ -78,6 +86,13 @@ interface ClosetRow {
     signalNames: string[];
     wig?: WigInfo;
 }
+
+/** The USE fork's two possible sources on this surface (signpost 3,
+ *  Track 3 item 1) -- mirrors _onAdoptClick's own wig-vs-codebook
+ *  discrimination, which predates this track. */
+type UseForkSource =
+    | { kind: "wig"; wig: WigInfo }
+    | { kind: "codebook"; row: ClosetRow };
 
 interface BrandRow {
     key: string;
@@ -179,6 +194,32 @@ export class IrWigs extends LitElement {
     @state() private _adoptWig: WigInfo | null = null;
     // Adopt from a library row: the codebook row instead (no wig file).
     @state() private _adoptCodebook: ClosetRow | null = null;
+    // USE fork (signpost 3, Track 3 item 1): staged source while the
+    // fork popup is open, and the resolved remote-door target once
+    // "Use as a Remote" is picked -- mirrors _adoptWig/_adoptCodebook's
+    // shape for the device door.
+    @state() private _forkSource: UseForkSource | null = null;
+    // USE fork pin-prompt trigger (Track 3 item 5): the opposite-kind
+    // link staged between the fork pick and the mint's own completion,
+    // and the resolved target once it lands. Only the "wig" door
+    // stages a candidate -- a library "codebook" row has no
+    // linked_devices to read here, so it stays null rather than
+    // guessing (ir-pin-link-match.ts). Null whenever PINNING_UI_ENABLED
+    // is false too.
+    @state() private _pinLinkCandidate: LinkedEntry | null = null;
+    @state() private _pinPromptTarget: {
+        remoteId: string;
+        remoteName: string;
+        deviceId: string;
+        deviceName: string;
+    } | null = null;
+    @state() private _promoteRemoteTarget: {
+        wigFilename?: string;
+        codebookId?: string;
+        suggestedName: string;
+        previewCount: number;
+        isMatrix: boolean;
+    } | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
     @state() private _peekId: string | null = null;
@@ -966,15 +1007,97 @@ export class IrWigs extends LitElement {
     private _onAdoptClick(row: ClosetRow, e: Event): void {
         if (!row.wig) {
             // Library row (v0.8.1): no wig file, no linked scan --
-            // straight to the dialog on the codebook road.
-            this._adoptCodebook = row;
+            // straight to the fork on the codebook road.
+            this._openUseFork({ kind: "codebook", row });
             return;
         }
         if (!row.wig.linked_devices?.length) {
-            this._adoptWig = row.wig;
+            this._openUseFork({ kind: "wig", wig: row.wig });
             return;
         }
         this._toggleLinkedPopover(row.id, e);
+    }
+
+    /** USE fork (signpost 3, Track 3 item 1): one popup, two device/
+     *  remote doors, four surfaces -- this is the Closet entry point. */
+    private _openUseFork(source: UseForkSource): void {
+        this._forkSource = source;
+    }
+
+    private _forkSourceName(): string {
+        const f = this._forkSource;
+        if (!f) return "";
+        return f.kind === "wig" ? f.wig.name : f.row.label;
+    }
+
+    private _forkSourceLine(): string {
+        const f = this._forkSource;
+        if (!f) return "";
+        if (f.kind === "wig") {
+            return t("usefork.source_wig", {
+                count: String(f.wig.signal_count),
+            });
+        }
+        return t("usefork.source_library", {
+            count: String(f.row.signalCount),
+        });
+    }
+
+    private _onForkUseDevice(): void {
+        const f = this._forkSource;
+        this._forkSource = null;
+        if (!f) return;
+        if (f.kind === "wig") {
+            this._adoptWig = f.wig;
+            this._pinLinkCandidate = singleOppositeLink(
+                f.wig.linked_devices,
+                "remote",
+            );
+        } else {
+            this._adoptCodebook = f.row;
+        }
+    }
+
+    private _onForkUseRemote(): void {
+        const f = this._forkSource;
+        this._forkSource = null;
+        if (!f) return;
+        if (f.kind === "wig") {
+            this._promoteRemoteTarget = {
+                wigFilename: f.wig.filename,
+                suggestedName: f.wig.name,
+                previewCount: f.wig.signal_count,
+                isMatrix: !!f.wig.matrix,
+            };
+            this._pinLinkCandidate = singleOppositeLink(
+                f.wig.linked_devices,
+                "device",
+            );
+        } else {
+            this._promoteRemoteTarget = {
+                codebookId: f.row.id,
+                suggestedName: f.row.label,
+                previewCount: f.row.signalCount,
+                isMatrix: false,
+            };
+        }
+    }
+
+    private async _onRemotePromoted(
+        e: CustomEvent<TriggerRemoteInfo>,
+    ): Promise<void> {
+        this._promoteRemoteTarget = null;
+        const link = this._pinLinkCandidate;
+        this._pinLinkCandidate = null;
+        if (PINNING_UI_ENABLED && link?.kind === "device" && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: e.detail.id,
+                remoteName: e.detail.name,
+                deviceId: link.device_id,
+                deviceName: link.device_name,
+            };
+        }
+        await this._refresh();
     }
 
     private _toggleLinkedPopover(rowId: string, e: Event): void {
@@ -1019,7 +1142,7 @@ export class IrWigs extends LitElement {
                     @click=${(e: Event) => {
                         e.stopPropagation();
                         this._linkedPopoverId = null;
-                        this._adoptWig = wig;
+                        this._openUseFork({ kind: "wig", wig });
                     }}
                 >
                     <span>${t("wigs.linked_new")}</span>
@@ -1033,15 +1156,25 @@ export class IrWigs extends LitElement {
                             this._linkedPopoverId = null;
                             this.dispatchEvent(
                                 new CustomEvent("navigate-device", {
-                                    detail: entry.device_id,
+                                    detail:
+                                        entry.kind === "device"
+                                            ? entry.device_id
+                                            : entry.remote_id,
                                     bubbles: true,
                                     composed: true,
                                 }),
                             );
                         }}
                     >
+                        <span class="popover-kind-badge kind-${entry.kind}"
+                            >${entry.kind === "device"
+                                ? t("common.kind_device")
+                                : t("common.kind_remote")}</span
+                        >
                         <span class="popover-name"
-                            >${entry.device_name}</span
+                            >${entry.kind === "device"
+                                ? entry.device_name
+                                : entry.remote_name}</span
                         >
                         <ha-svg-icon
                             class="linked-chevron"
@@ -1217,12 +1350,18 @@ export class IrWigs extends LitElement {
         const counts = this._counts();
         const brands = this._brandRows();
         return html`
-            <div class="page-title">
-                <ha-svg-icon .path=${ICON_WIG}></ha-svg-icon>
-                ${t("wigs.title")}
-                <span class="page-count"
-                    >(${tp("wigs.count", counts.all)})</span
-                >
+            <div class="toolbar">
+                <div class="toolbar-title-group">
+                    <span class="toolbar-title">
+                        <ha-svg-icon .path=${ICON_WIG}></ha-svg-icon>
+                        ${t("wigs.title")}
+                        <span class="toolbar-count"
+                            >(${tp("wigs.count", counts.all)})</span
+                        ><span class="toolbar-tagline"
+                            >- ${t("panel.tagline.wigs")}</span
+                        >
+                    </span>
+                </div>
             </div>
             <div
                 class="drop-bar ${this._dragOver ? "over" : ""} ${this
@@ -1361,6 +1500,41 @@ export class IrWigs extends LitElement {
                       @closed=${() => (this._adoptCodebook = null)}
                   ></ir-promote-dialog>`
                 : ""}
+            ${this._forkSource
+                ? html`<ir-use-fork-popup
+                      .sourceName=${this._forkSourceName()}
+                      .sourceLine=${this._forkSourceLine()}
+                      @use-device=${this._onForkUseDevice}
+                      @use-remote=${this._onForkUseRemote}
+                      @closed=${() => (this._forkSource = null)}
+                  ></ir-use-fork-popup>`
+                : ""}
+            ${this._promoteRemoteTarget
+                ? html`<ir-promote-remote-dialog
+                      .api=${this.api}
+                      .suggestedName=${this._promoteRemoteTarget
+                          .suggestedName}
+                      .wigFilename=${this._promoteRemoteTarget.wigFilename ??
+                      ""}
+                      .codebookId=${this._promoteRemoteTarget.codebookId ??
+                      ""}
+                      .previewCount=${this._promoteRemoteTarget.previewCount}
+                      .isMatrix=${this._promoteRemoteTarget.isMatrix}
+                      @remote-created=${this._onRemotePromoted}
+                      @closed=${() => (this._promoteRemoteTarget = null)}
+                  ></ir-promote-remote-dialog>`
+                : ""}
+            ${this._pinPromptTarget && this.api
+                ? html`<ir-pin-prompt-dialog
+                      .api=${this.api}
+                      .remoteId=${this._pinPromptTarget.remoteId}
+                      .remoteName=${this._pinPromptTarget.remoteName}
+                      .deviceId=${this._pinPromptTarget.deviceId}
+                      .deviceName=${this._pinPromptTarget.deviceName}
+                      @pinned=${() => (this._pinPromptTarget = null)}
+                      @closed=${() => (this._pinPromptTarget = null)}
+                  ></ir-pin-prompt-dialog>`
+                : ""}
             ${this._renderLinkedWigPopover()}
             ${this._combWig
                 ? html`<ir-comb-report
@@ -1369,13 +1543,16 @@ export class IrWigs extends LitElement {
                       @combed=${() => void this._refresh(true)}
                       @closed=${() => (this._combWig = null)}
                       @adopt-wig=${(e: CustomEvent) => {
-                          // The report's handoff offers ADOPT when the
+                          // The report's handoff offers USE when the
                           // wig is on no device yet. It hands the wig
-                          // straight to the dialog the closet row's own
-                          // ADOPT would have opened, so there is one
-                          // adopt path and not two.
+                          // straight to the fork the closet row's own
+                          // USE would have opened, so there is one
+                          // use path and not two.
                           this._combWig = null;
-                          this._adoptWig = e.detail as WigInfo;
+                          this._openUseFork({
+                              kind: "wig",
+                              wig: e.detail as WigInfo,
+                          });
                       }}
                   ></ir-comb-report>`
                 : ""}
@@ -1389,7 +1566,7 @@ export class IrWigs extends LitElement {
         `;
     }
 
-    private async _onWigAdopted(): Promise<void> {
+    private async _onWigAdopted(e: CustomEvent<IRDevice>): Promise<void> {
         const name =
             this._adoptWig?.name ?? this._adoptCodebook?.label ?? "";
         // Held before the fields are cleared: the comb runs on the wig
@@ -1397,9 +1574,19 @@ export class IrWigs extends LitElement {
         // The codebook path has no file to comb -- adopting from the
         // library builds a device from catalog entries.
         const adopted = this._adoptWig?.filename;
+        const link = this._pinLinkCandidate;
+        this._pinLinkCandidate = null;
         this._adoptWig = null;
         this._adoptCodebook = null;
         this._flash(t("wigs.adopted", { name }), "ok");
+        if (PINNING_UI_ENABLED && link?.kind === "remote" && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: link.remote_id,
+                remoteName: link.remote_name,
+                deviceId: e.detail.id,
+                deviceName: e.detail.name,
+            };
+        }
         await this._refresh();
         // Same reasoning as the upload: a wig becoming a live device is
         // the last moment before its codes start being pressed in
@@ -1553,11 +1740,11 @@ export class IrWigs extends LitElement {
                                   "wigs.linked",
                                   row.wig.linked_devices.length,
                               )
-                            : t("wigs.adopt")}
+                            : t("usefork.open_title")}
                         @click=${(e: Event) =>
                             this._onAdoptClick(row, e)}
                     >
-                        ${t("wigs.adopt")}<ir-count-dot
+                        ${t("common.use")}<ir-count-dot
                             color="green"
                             .count=${row.wig?.linked_devices
                                 ?.length ?? 0}
@@ -2115,27 +2302,47 @@ export class IrWigs extends LitElement {
         .wdot.mine {
             background: var(--wigs-accent);
         }
-        /* Page title -- same anatomy as the Clipper/Sniffer/Plucker
-           toolbars (24px tool icon in the tab accent, 1.1rem title,
-           gray count), so the Closet introduces itself like every
-           other station in the shop. */
-        .page-title {
+        /* Signpost 3, fourth revision (2026-08-16): matches
+           ir-device-list.ts's Devices/Remotes toolbar exactly (owner
+           ruling) -- icon + uppercase title + count + inline
+           dash-tagline, all one line. */
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .toolbar-title-group {
+            display: flex;
+        }
+        .toolbar-title {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 1.1rem;
             font-weight: 500;
             color: var(--primary-text-color);
-            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
-        .page-title ha-svg-icon {
+        .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
             color: var(--wigs-accent);
         }
-        .page-count {
+        .toolbar-count {
             font-weight: 400;
             color: var(--secondary-text-color);
             font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+        .toolbar-tagline {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--secondary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .wig-name {
             font-weight: 500;
@@ -2343,6 +2550,7 @@ export class IrWigs extends LitElement {
             color: #4caf50;
             border-color: rgba(76, 175, 80, 0.3);
             position: relative; /* anchor for the green linked-count dot */
+            text-transform: uppercase; /* USE cutover -- see locale patch note */
         }
         .action-btn.adopt-btn:hover:not(:disabled) {
             background: rgba(76, 175, 80, 0.08);

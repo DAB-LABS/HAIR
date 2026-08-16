@@ -27,6 +27,9 @@ import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-create-remote-dialog.js";
 import "./ir-promote-dialog.js";
+import "./ir-promote-remote-dialog.js";
+import "./ir-use-fork-popup.js";
+import "./ir-pin-prompt-dialog.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
 import "./ir-test-emitter-dialog.js";
@@ -41,13 +44,37 @@ import "./ir-tx-knobs.js";
 import type {
     AssignResult,
     DeviceSummary,
+    IRDevice,
     IRTrigger,
+    LinkedEntry,
     ReceiverInfo,
     SignalAssignment,
+    TriggerRemoteInfo,
     UnknownDevice,
     UnknownDeviceSummary,
     UnknownSignal,
 } from "./types.js";
+import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
+import { singleOppositeLink } from "./ir-pin-link-match.js";
+
+/** The USE fork's two possible sources on this surface (signpost 3,
+ *  Track 3 item 1): a Clipper catalog row, or -- via the matrix-clip
+ *  signpost's "adopt the wig instead" branch -- the wig itself. */
+type UseForkSource =
+    | { kind: "unknown"; target: UnknownDeviceSummary }
+    | {
+          kind: "wig";
+          filename: string;
+          suggestedName: string;
+          // The clip-stamped remote's own known signal count, reused
+          // as the fork/dialog preview -- the wig road is a rare edge
+          // path (matrix-clip-stamped remotes only) and the remote's
+          // captured count is the same underlying signal set, so a
+          // second live lookup just to refine this preview number
+          // isn't worth the added async step.
+          signalCount: number;
+          isMatrix: boolean;
+      };
 
 function fmtTime(iso: string): string {
     try {
@@ -113,6 +140,32 @@ export class IrClips extends LitElement {
     @state() private _adoptWigTarget: {
         filename: string;
         suggestedName: string;
+    } | null = null;
+    // USE fork (signpost 3, Track 3 item 1): staged source while the
+    // fork popup is open, and the resolved remote-door target once
+    // "Use as a Remote" is picked -- mirrors _promoteTarget/
+    // _adoptWigTarget's shape for the device door.
+    @state() private _forkSource: UseForkSource | null = null;
+    // USE fork pin-prompt trigger (Track 3 item 5): the opposite-kind
+    // link staged between the fork pick and the mint's own completion,
+    // and the resolved target once it lands. Only the catalog-row
+    // ("unknown") door stages a candidate -- the wig door has no
+    // linked_devices in hand here, so it stays null rather than
+    // guessing (ir-pin-link-match.ts). Null whenever PINNING_UI_ENABLED
+    // is false too.
+    @state() private _pinLinkCandidate: LinkedEntry | null = null;
+    @state() private _pinPromptTarget: {
+        remoteId: string;
+        remoteName: string;
+        deviceId: string;
+        deviceName: string;
+    } | null = null;
+    @state() private _promoteRemoteTarget: {
+        sourceUnknownId?: string;
+        wigFilename?: string;
+        suggestedName: string;
+        previewCount: number;
+        isMatrix: boolean;
     } | null = null;
     @state() private _linkedPopoverId: string | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
@@ -535,7 +588,92 @@ export class IrClips extends LitElement {
             this._signpostTarget = d;
             return;
         }
-        this._promoteTarget = d;
+        this._openUseFork({ kind: "unknown", target: d });
+    }
+
+    /** USE fork (signpost 3, Track 3 item 1): one popup, two devices/
+     *  remote doors, four surfaces -- this is the Clipper entry point.
+     *  Resolves via _onForkUseDevice/_onForkUseRemote once a tile is
+     *  picked, or clears on close without committing to either. */
+    private _openUseFork(source: UseForkSource): void {
+        this._forkSource = source;
+    }
+
+    private _forkSourceName(): string {
+        const f = this._forkSource;
+        if (!f) return "";
+        return f.kind === "unknown" ? f.target.label ?? "" : f.suggestedName;
+    }
+
+    private _forkSourceLine(): string {
+        const f = this._forkSource;
+        if (!f) return "";
+        if (f.kind === "unknown") {
+            return t("usefork.source_clipper", {
+                count: String(f.target.signal_count),
+            });
+        }
+        return t("usefork.source_wig", { count: String(f.signalCount) });
+    }
+
+    private _onForkUseDevice(): void {
+        const f = this._forkSource;
+        this._forkSource = null;
+        if (!f) return;
+        if (f.kind === "unknown") {
+            this._promoteTarget = f.target;
+            this._pinLinkCandidate = singleOppositeLink(
+                f.target.linked_devices,
+                "remote",
+            );
+        } else {
+            this._adoptWigTarget = {
+                filename: f.filename,
+                suggestedName: f.suggestedName,
+            };
+        }
+    }
+
+    private _onForkUseRemote(): void {
+        const f = this._forkSource;
+        this._forkSource = null;
+        if (!f) return;
+        if (f.kind === "unknown") {
+            this._promoteRemoteTarget = {
+                sourceUnknownId: f.target.id,
+                suggestedName: f.target.label ?? "",
+                previewCount: f.target.signal_count,
+                isMatrix: false,
+            };
+            this._pinLinkCandidate = singleOppositeLink(
+                f.target.linked_devices,
+                "device",
+            );
+        } else {
+            this._promoteRemoteTarget = {
+                wigFilename: f.filename,
+                suggestedName: f.suggestedName,
+                previewCount: f.signalCount,
+                isMatrix: f.isMatrix,
+            };
+        }
+    }
+
+    private async _onRemotePromoted(
+        e: CustomEvent<TriggerRemoteInfo>,
+    ): Promise<void> {
+        this._promoteRemoteTarget = null;
+        const link = this._pinLinkCandidate;
+        this._pinLinkCandidate = null;
+        if (PINNING_UI_ENABLED && link?.kind === "device" && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: e.detail.id,
+                remoteName: e.detail.name,
+                deviceId: link.device_id,
+                deviceName: link.device_name,
+            };
+        }
+        await this._load();
     }
 
     /** The wig's CURRENT filename when the closet still has it (under
@@ -547,17 +685,20 @@ export class IrClips extends LitElement {
     private _signpostAdoptFlat(): void {
         const d = this._signpostTarget;
         this._signpostTarget = null;
-        if (d) this._promoteTarget = d;
+        if (d) this._openUseFork({ kind: "unknown", target: d });
     }
 
     private _signpostAdoptWig(): void {
         const d = this._signpostTarget;
         this._signpostTarget = null;
         if (!d) return;
-        this._adoptWigTarget = {
+        this._openUseFork({
+            kind: "wig",
             filename: this._signpostFilename(d),
             suggestedName: d.label ?? "",
-        };
+            signalCount: d.signal_count,
+            isMatrix: true,
+        });
     }
 
     private _renderSignpost() {
@@ -674,11 +815,26 @@ export class IrClips extends LitElement {
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._linkedPopoverId = null;
-                            this._navigateToDevice(entry.device_id);
+                            // Shared expansion slot (ir-device-list.ts's
+                            // expandedDeviceId already expands device
+                            // AND trigger-remote cards alike), so both
+                            // kinds reuse the same navigate-device event.
+                            this._navigateToDevice(
+                                entry.kind === "device"
+                                    ? entry.device_id
+                                    : entry.remote_id,
+                            );
                         }}
                     >
+                        <span class="popover-kind-badge kind-${entry.kind}"
+                            >${entry.kind === "device"
+                                ? t("common.kind_device")
+                                : t("common.kind_remote")}</span
+                        >
                         <span class="popover-name"
-                            >${entry.device_name}</span
+                            >${entry.kind === "device"
+                                ? entry.device_name
+                                : entry.remote_name}</span
                         >
                         <ha-svg-icon
                             class="linked-chevron"
@@ -699,8 +855,20 @@ export class IrClips extends LitElement {
         );
     }
 
-    private async _onDevicePromoted(): Promise<void> {
+    private async _onDevicePromoted(
+        e: CustomEvent<IRDevice>,
+    ): Promise<void> {
         this._promoteTarget = null;
+        const link = this._pinLinkCandidate;
+        this._pinLinkCandidate = null;
+        if (PINNING_UI_ENABLED && link?.kind === "remote" && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: link.remote_id,
+                remoteName: link.remote_name,
+                deviceId: e.detail.id,
+                deviceName: e.detail.name,
+            };
+        }
         await this._load();
     }
 
@@ -1000,15 +1168,19 @@ export class IrClips extends LitElement {
                 @drop=${this._onWigDrop}
             >
             <div class="toolbar">
-                <span class="title">
-                    <ha-svg-icon .path=${ICON_CLIPPER}></ha-svg-icon>
-                    ${t("clips.title")}
-                    ${!this._loading
-                        ? html`<span class="count"
-                              >(${tp("sniffer.remotes", count)})</span
-                          >`
-                        : ""}
-                </span>
+                <div class="toolbar-title-group">
+                    <span class="toolbar-title">
+                        <ha-svg-icon .path=${ICON_CLIPPER}></ha-svg-icon>
+                        ${t("clips.title")}
+                        ${!this._loading
+                            ? html`<span class="toolbar-count"
+                                  >(${tp("sniffer.remotes", count)})</span
+                              ><span class="toolbar-tagline"
+                                  >- ${t("panel.tagline.clips")}</span
+                              >`
+                            : ""}
+                    </span>
+                </div>
                 <div class="toolbar-actions">
                     <button
                         class="action-btn create-btn"
@@ -1107,9 +1279,9 @@ export class IrClips extends LitElement {
                         class="action-btn adopt-btn"
                         title=${d.linked_devices?.length
                             ? tp("sniffer.linked", d.linked_devices.length)
-                            : t("wigs.adopt")}
+                            : t("usefork.open_title")}
                         @click=${(e: Event) => this._onAdoptClick(d, e)}
-                    >${t("wigs.adopt")}<ir-count-dot
+                    >${t("common.use")}<ir-count-dot
                             color="green"
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
@@ -1372,6 +1544,42 @@ export class IrClips extends LitElement {
                   ></ir-promote-dialog>`
                 : ""}
 
+            ${this._forkSource
+                ? html`<ir-use-fork-popup
+                      .sourceName=${this._forkSourceName()}
+                      .sourceLine=${this._forkSourceLine()}
+                      @use-device=${this._onForkUseDevice}
+                      @use-remote=${this._onForkUseRemote}
+                      @closed=${() => (this._forkSource = null)}
+                  ></ir-use-fork-popup>`
+                : ""}
+
+            ${this._promoteRemoteTarget
+                ? html`<ir-promote-remote-dialog
+                      .api=${this.api}
+                      .suggestedName=${this._promoteRemoteTarget.suggestedName}
+                      .sourceUnknownId=${this._promoteRemoteTarget
+                          .sourceUnknownId ?? ""}
+                      .wigFilename=${this._promoteRemoteTarget.wigFilename ??
+                      ""}
+                      .previewCount=${this._promoteRemoteTarget.previewCount}
+                      .isMatrix=${this._promoteRemoteTarget.isMatrix}
+                      @remote-created=${this._onRemotePromoted}
+                      @closed=${() => (this._promoteRemoteTarget = null)}
+                  ></ir-promote-remote-dialog>`
+                : ""}
+            ${this._pinPromptTarget && this.api
+                ? html`<ir-pin-prompt-dialog
+                      .api=${this.api}
+                      .remoteId=${this._pinPromptTarget.remoteId}
+                      .remoteName=${this._pinPromptTarget.remoteName}
+                      .deviceId=${this._pinPromptTarget.deviceId}
+                      .deviceName=${this._pinPromptTarget.deviceName}
+                      @pinned=${() => (this._pinPromptTarget = null)}
+                      @closed=${() => (this._pinPromptTarget = null)}
+                  ></ir-pin-prompt-dialog>`
+                : ""}
+
             ${this._deleteSignal
                 ? html`<ir-confirm-dialog
                       title=${t("sniffer.del_signal_title")}
@@ -1409,6 +1617,7 @@ export class IrClips extends LitElement {
 
             ${this._triggerPopover
                 ? html`<ir-trigger-popover
+                      .api=${this.api}
                       .triggers=${this._triggers.filter((t) =>
                           triggerMatchesSignal(t, this._triggerPopover!.signal),
                       )}
@@ -1505,6 +1714,29 @@ export class IrClips extends LitElement {
             color: var(--secondary-text-color);
             flex: none;
         }
+        /* Kind badge (signpost 3, Track 2 item 0.1 / Track 3 item 1):
+           green Device / gold Remote, same accent colors as the USE
+           fork's own two tiles (ir-use-fork-popup.ts / ir-origin-
+           colors.ts), so a row's kind reads consistently wherever it
+           shows up. */
+        .popover-kind-badge {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 1px 5px;
+            border-radius: 3px;
+            margin-right: 6px;
+            flex: none;
+        }
+        .popover-kind-badge.kind-device {
+            background: rgba(46, 125, 50, 0.18);
+            color: #2e7d32;
+        }
+        .popover-kind-badge.kind-remote {
+            background: rgba(245, 166, 35, 0.18);
+            color: #f5a623;
+        }
 
         /* Adopt signpost (mockup CC5): the ir-confirm-dialog anatomy
            under its own class names -- ir-clips cannot spread
@@ -1592,6 +1824,9 @@ export class IrClips extends LitElement {
         :host {
             display: block;
         }
+        /* Matches ir-device-list.ts's Devices/Remotes toolbar exactly
+           (owner ruling): icon + uppercase title + count + inline
+           dash-tagline, all one line -- not a separate header row. */
         .toolbar {
             display: flex;
             justify-content: space-between;
@@ -1600,22 +1835,35 @@ export class IrClips extends LitElement {
             flex-wrap: wrap;
             gap: 8px;
         }
-        .title {
+        .toolbar-title-group {
+            display: flex;
+        }
+        .toolbar-title {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 1.1rem;
             font-weight: 500;
             color: var(--primary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
-        .title ha-svg-icon {
+        .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
             color: #b87333;
         }
-        .count {
+        .toolbar-count {
             font-weight: 400;
             color: var(--secondary-text-color);
             font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+        .toolbar-tagline {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--secondary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .toolbar-actions {
             display: flex;
@@ -1821,6 +2069,7 @@ export class IrClips extends LitElement {
             color: #4caf50;
             border-color: rgba(76, 175, 80, 0.3);
             position: relative; /* anchor for the green linked-count dot */
+            text-transform: uppercase; /* USE cutover -- see locale patch note */
         }
         .action-btn.adopt-btn:hover:not(:disabled) {
             background: rgba(76, 175, 80, 0.08);

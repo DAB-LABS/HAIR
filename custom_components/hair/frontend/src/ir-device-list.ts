@@ -14,6 +14,9 @@ import { t, tp } from "./localize.js";
 import {
     ICON_TRASH,
     TRASH_VIEWBOX,
+    ICON_SETTINGS,
+    SETTINGS_VIEWBOX,
+    settingsButtonStyles,
     renderExitToEntityBtn,
     exitToEntityButtonStyles,
 } from "./ir-icons.js";
@@ -28,8 +31,17 @@ import "./ir-trigger-row.js";
 import "./ir-confirm-dialog.js";
 import "./ir-duplicate-device-dialog.js";
 import "./ir-duplicate-trigger-remote-dialog.js";
-import "./ir-receiver-picker.js";
+import "./ir-promote-remote-dialog.js";
+import "./ir-promote-dialog.js";
+import "./ir-pin-prompt-dialog.js";
+import "./ir-header-chip-group.js";
+import type { HeaderChipRow } from "./ir-header-chip-group.js";
+import "./ir-trigger-remote-settings-dialog.js";
+import "./ir-ghost-tile.js";
+import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
+import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
 import type { HairApi } from "./api.js";
+import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
     CaptureProviderInfo,
     DeviceSummary,
@@ -77,6 +89,24 @@ const DEVICE_TYPE_LABEL_KEYS: Record<DeviceTypeId, string> = {
 // Remote control (SVG Repo, scaled to a 24x24 box).
 const ICON_DEVICES =
     "M17.655 0C17.391 0.034 17.201 0.276 17.235 0.54C17.269 0.804 17.511 0.994 17.775 0.96C17.775 0.96 18.154 0.941 18.81 1.155C19.466 1.369 20.353 1.804 21.255 2.73C22.162 3.66 22.611 4.551 22.83 5.205C23.049 5.859 23.04 6.24 23.04 6.24C23.038 6.412 23.128 6.574 23.278 6.662C23.428 6.748 23.612 6.748 23.762 6.662C23.912 6.574 24.002 6.412 24 6.24C24 6.24 23.991 5.679 23.73 4.905C23.469 4.131 22.957 3.109 21.945 2.07C20.927 1.027 19.894 0.495 19.11 0.24C18.326 -0.015 17.745 0 17.745 0C17.73 0 17.715 0 17.7 0C17.685 0 17.67 0 17.655 0 Z M 13.77 2.88C13.26 2.88 12.746 3.064 12.345 3.435C12.339 3.441 12.336 3.444 12.33 3.45L0.57 15.255C-0.195 16.02 -0.188 17.286 0.555 18.09C0.561 18.096 0.564 18.099 0.57 18.105L5.955 23.475C6.72 24.24 7.971 24.232 8.775 23.49C8.781 23.484 8.784 23.481 8.79 23.475L20.55 11.715C20.556 11.706 20.561 11.694 20.565 11.685C21.289 10.841 21.315 9.6 20.55 8.835L15.165 3.45C14.782 3.067 14.28 2.88 13.77 2.88 Z M 17.67 2.88C17.406 2.904 17.211 3.141 17.235 3.405C17.259 3.669 17.496 3.864 17.76 3.84C17.76 3.84 17.91 3.831 18.21 3.93C18.51 4.029 18.911 4.241 19.335 4.665C19.759 5.089 19.971 5.49 20.07 5.79C20.169 6.09 20.16 6.24 20.16 6.24C20.158 6.412 20.248 6.574 20.398 6.662C20.548 6.748 20.732 6.748 20.882 6.662C21.032 6.574 21.122 6.412 21.12 6.24C21.12 6.24 21.111 5.91 20.97 5.49C20.829 5.07 20.561 4.511 20.025 3.975C19.489 3.439 18.93 3.171 18.51 3.03C18.09 2.889 17.76 2.88 17.76 2.88C17.745 2.88 17.73 2.88 17.715 2.88C17.7 2.88 17.685 2.88 17.67 2.88 Z M 13.77 3.84C14.04 3.84 14.297 3.932 14.49 4.125L19.875 9.51C20.263 9.898 20.274 10.569 19.845 11.07L8.115 22.785C7.671 23.194 7.018 23.188 6.63 22.8L1.26 17.43C1.254 17.424 1.251 17.421 1.245 17.415C0.849 16.971 0.862 16.328 1.245 15.945L13.005 4.14C13.226 3.936 13.5 3.84 13.77 3.84 Z M 13.44 6.72C11.325 6.72 9.6 8.445 9.6 10.56C9.6 12.675 11.325 14.4 13.44 14.4C15.555 14.4 17.28 12.675 17.28 10.56C17.28 8.445 15.555 6.72 13.44 6.72 Z M 13.44 7.68C15.036 7.68 16.32 8.964 16.32 10.56C16.32 12.156 15.036 13.44 13.44 13.44C11.844 13.44 10.56 12.156 10.56 10.56C10.56 8.964 11.844 7.68 13.44 7.68 Z M 13.44 9.6C12.909 9.6 12.48 10.029 12.48 10.56C12.48 11.091 12.909 11.52 13.44 11.52C13.971 11.52 14.4 11.091 14.4 10.56C14.4 10.029 13.971 9.6 13.44 9.6 Z M 7.2 12.96C6.669 12.96 6.24 13.389 6.24 13.92C6.24 14.451 6.669 14.88 7.2 14.88C7.731 14.88 8.16 14.451 8.16 13.92C8.16 13.389 7.731 12.96 7.2 12.96 Z M 4.8 15.36C4.269 15.36 3.84 15.789 3.84 16.32C3.84 16.851 4.269 17.28 4.8 17.28C5.331 17.28 5.76 16.851 5.76 16.32C5.76 15.789 5.331 15.36 4.8 15.36 Z M 10.08 15.84C9.549 15.84 9.12 16.269 9.12 16.8C9.12 17.331 9.549 17.76 10.08 17.76C10.611 17.76 11.04 17.331 11.04 16.8C11.04 16.269 10.611 15.84 10.08 15.84 Z M 7.68 18.24C7.149 18.24 6.72 18.669 6.72 19.2C6.72 19.731 7.149 20.16 7.68 20.16C8.211 20.16 8.64 19.731 8.64 19.2C8.64 18.669 8.211 18.24 7.68 18.24Z";
+
+// TV (owner-supplied, images/tv2.svg, scaled to a 490.797x490.797
+// box -- non-24x24 native viewBox, paired with TV_VIEWBOX per the
+// ICON_X/X_VIEWBOX convention below). Devices toolbar only -- the
+// Remotes toolbar keeps ICON_DEVICES, the remote-control glyph.
+const TV_VIEWBOX = "0 0 490.797 490.797";
+const ICON_DEVICES_TV =
+    "M56.879,450.427c9.517,1.554,20.216,3.072,32.626,4.621c0.508,1.838,1.041,3.661,1.569,5.484 c1.153,3.966,2.351,8.059,3.22,12.115c1.412,6.607,7.978,11.583,15.279,11.583c1.356,0,2.691-0.178,3.961-0.522 c8.079-2.225,12.781-10.42,10.938-19.062c-0.432-2.026-0.939-4.022-1.453-5.911c46.662,4.397,99.148,6.622" +
+    ",156.087,6.622 c29.071,0,58.971-0.59,88.91-1.752c-0.396,2.392-1.025,4.656-1.985,7.17c-1.314,3.468-1.03,7.378,0.817,11.014 c2.093,4.123,5.84,7.271,10.009,8.42c1.402,0.386,2.813,0.589,4.199,0.589l0,0c6.571,0,12.289-4.316,14.925-11.253 c1.909-5.018,3.011-10.45,3.514-17.387c15.991-0.838,31.347-1.788,45." +
+    "682-2.839c9.485-0.69,14.619-8.439,14.904-15.899 c32.245-93.363,31.478-201.943-2.225-314.032c-2.026-6.743-7.643-10.933-14.665-10.933c-0.828,0-1.66,0.061-2.488,0.175 c-1.514-0.437-2.925-0.645-4.383-0.645c-32.772-0.084-68.237-0.734-105.784-1.424c-39.166-0.719-79.587-1.462-119.602-1.597 c26.334-17.189,5" +
+    "2.131-35.561,76.779-54.692c4.946-3.836,6.713-9.161,4.845-14.609c-2.229-6.51-9.283-11.42-16.402-11.42 c-3.595,0-7.063,1.216-10.034,3.521c-35.688,27.677-74.326,53.771-114.869,77.538l-4.108,0.063 c-7.003-37.315-16.595-71.648-29.29-104.901C115.388,4.009,109.502,0,102.49,0c-5.535,0-10.705,2.501-13.472,6." +
+    "535 c-2.478,3.596-2.869,8.107-1.112,12.7c11.811,30.922,20.886,62.657,27.695,96.918c-26.096,0.868-48.982,2.178-69.873,3.994 c-5.967,0.516-10.75,3.895-13.213,9.303c-1.742,1.785-3.011,3.94-3.773,6.421c-32.575,106.863-28.335,212.94,12.258,306.75 C43.87,449.259,50.192,452.296,56.879,450.427z M57.032,150." +
+    "517c37.923-2.93,84.092-4.354,141.051-4.354 c44.26,0,89.327,0.822,132.916,1.617c35.476,0.645,69.025,1.259,100.006,1.394c28.386,101.054,28.701,195.174,0.925,279.825 c-50.582,3.478-104.114,5.321-154.935,5.321c-82.177,0-155.305-4.834-211.614-13.995 C32.226,338.899,29.342,245.688,57.032,150.517z M99.306," +
+    "407.589c43.6,7.114,89.738,10.572,140.995,10.572c0,0,0,0,0.005,0c32.662,0,67.853-1.411,107.577-4.326 c8.506-0.625,13.208-7.363,13.686-14.005c23.008-66.994,22.424-144.794-1.701-225.025c-2.037-6.762-8.171-10.766-15.168-10.096 c-1.123-0.269-2.229-0.403-3.352-0.403c-24.359-0.063-49.155-0.584-73.128-1.087" +
+    "c-25.634-0.541-52.136-1.092-78.216-1.092 c-38.156,0-69.639,1.191-99.061,3.743c-5.215,0.452-9.592,3.433-11.908,8.039c-1.417,1.571-2.452,3.417-3.092,5.507 c-23.41,76.8-20.353,153.061,8.851,220.547C87.373,405.913,93.223,408.95,99.306,407.589z M101.85,193.971 c26.472-1.983,54.761-2.913,88.626-2.913c25.9" +
+    "08,0,52.278,0.546,77.784,1.082c21.876,0.452,44.448,0.924,66.75,1.049 c19.104,69.464,19.342,134.208,0.717,192.554c-35.871,2.438-67.599,3.621-96.888,3.621c-47.931,0-90.896-3.144-131.235-9.613 C85.23,323.579,83.24,259.495,101.85,193.971z M411.912,232.147c4.672,0,8.617-1.722,11.415-4.972c2.433-2.828,3.7" +
+    "73-6.608,3.773-10.638 c0-7.759-5.216-15.61-15.188-15.61c-4.672,0-8.617,1.722-11.415,4.972c-2.433,2.828-3.773,6.609-3.773,10.638 C396.723,224.294,401.938,232.147,411.912,232.147z M413.537,249.715c-4.667,0-8.612,1.727-11.41,4.977c-2.433,2.823-3.778,6.606-3.778,10.633 c0,7.759,5.215,15.61,15.184,15.61c" +
+    "4.672,0,8.617-1.717,11.41-4.967c2.432-2.834,3.777-6.611,3.777-10.644 C428.725,257.575,423.504,249.715,413.537,249.715z";
 
 // MDI: upload-outline for emitters (mirrors download-outline for receivers)
 const ICON_EMITTER =
@@ -159,6 +189,24 @@ export class IrDeviceList extends LitElement {
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
     @state() private _duplicateTarget: DeviceSummary | null = null;
     @state() private _confirmDeleteDevice: DeviceSummary | null = null;
+    // Mirror-door mints (signpost 3, Track 3.5, owner-directed
+    // 2026-08-15): the source object riding between a Settings
+    // dialog's request-make-remote/request-make-device and the mint
+    // dialog it opens. The full IRDevice (not DeviceSummary) is
+    // needed on the remote-mint side for its own .commands, to count
+    // eligible (non-matrix-cell) rows for the preview line.
+    @state() private _makeRemoteSource: IRDevice | null = null;
+    @state() private _makeDeviceSource: TriggerRemoteInfo | null = null;
+    // Pin prompt (Track 3.5): the remote/device pair riding from a
+    // mirror-door mint's completion into ir-pin-prompt-dialog.ts.
+    // Null whenever PINNING_UI_ENABLED is false, or the mint's own
+    // source somehow went missing (defensive; should not happen).
+    @state() private _pinPromptTarget: {
+        remoteId: string;
+        remoteName: string;
+        deviceId: string;
+        deviceName: string;
+    } | null = null;
     @state() private _confirmDeleteRemote: TriggerRemoteInfo | null = null;
     // Add Popups signpost 2, Track 5: named-remote expand-view
     // rename-in-place. Single-instance, same shape as the drawer's
@@ -172,6 +220,10 @@ export class IrDeviceList extends LitElement {
     // Add Popups signpost 2, Track 5 follow-up: the expand view's
     // own receiver-scope picker (owner bench request 2026-08-14).
     @state() private _remoteReceiversBusy = false;
+    // Track 1 item 6: the Remote settings dialog target. Universal --
+    // Remotes never had a settings dialog before this item, so unlike
+    // the Device gear there's no prior gating logic to generalize.
+    @state() private _remoteSettingsTarget: TriggerRemoteInfo | null = null;
 
     // Receivers, for the trigger rows' scope-chip name resolution (v0.5.7
     // per-trigger scoping). Fetched alongside the capture-provider list in
@@ -542,6 +594,78 @@ export class IrDeviceList extends LitElement {
         );
     }
 
+    /** Ghost tile drop wiring (signpost 3, Track 3 item 3). See the
+     *  file header note above the imports for the full design; this
+     *  is the funnel call + preselect-or-quiet-fallback itself. Only
+     *  the first dropped file is processed -- a drop target names one
+     *  file in both the s11 mock and the Track 3.3 bench, and looping
+     *  multiple files into an ambiguous multi-preselect isn't worth
+     *  building for a case nothing exercises. */
+    private async _onGhostTileDrop(
+        kind: "device" | "remote",
+        e: CustomEvent<{ files: File[] }>,
+    ): Promise<void> {
+        const file = e.detail.files[0];
+        if (!file || !this.api) return;
+        let text: string;
+        try {
+            text = await file.text();
+        } catch {
+            return;
+        }
+        try {
+            const result = await this.api.wigsUpload(text, file.name);
+            if (result.reverse_supersession) return;
+            if (!result.success) {
+                this.dispatchEvent(
+                    new CustomEvent("drop-upload-failed", {
+                        detail: t("wigs.upload_failed", {
+                            reason: (result.errors ?? []).join("; "),
+                        }),
+                        bubbles: true,
+                        composed: true,
+                    }),
+                );
+                return;
+            }
+            const landed = result.files ?? [];
+            if (landed.length !== 1) return;
+            const filename = landed[0].filename;
+            const list = await this.api.wigsList();
+            const wig = list.wigs.find((w) => w.filename === filename);
+            if (!wig) return;
+            const row: WigPickRow = {
+                source: "local",
+                id: `wig:${wig.filename}`,
+                label: wig.name,
+                signalCount: wig.signal_count,
+                wig,
+                brand: null,
+                codebook: null,
+            };
+            this.dispatchEvent(
+                new CustomEvent(
+                    kind === "device" ? "add-device" : "add-trigger-remote",
+                    {
+                        detail: { dropSource: row },
+                        bubbles: true,
+                        composed: true,
+                    },
+                ),
+            );
+        } catch (err) {
+            this.dispatchEvent(
+                new CustomEvent("drop-upload-failed", {
+                    detail: t("wigs.upload_failed", {
+                        reason: (err as Error).message,
+                    }),
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        }
+    }
+
     private _requestDeleteRemote(remote: TriggerRemoteInfo, e: Event): void {
         e.stopPropagation();
         this._confirmDeleteRemote = remote;
@@ -631,8 +755,90 @@ export class IrDeviceList extends LitElement {
         );
     }
 
+    // --- Mirror-door mints (signpost 3, Track 3.5, owner-directed
+    //     2026-08-15): "Make a Remote" (device -> remote) and
+    //     "Make a Device" (remote -> device). Both mint dialogs
+    //     already dispatch the generic remote-created/device-created
+    //     events on success (every other door through them does the
+    //     same); these handlers just close the source state and let
+    //     that bubble on up to ha-panel-ir-devices.ts's own
+    //     _onRemoteChanged/_onDeviceChanged refresh. ---
+
+    private _onMakeRemoteRequested(device: IRDevice | null): void {
+        this._makeRemoteSource = device;
+    }
+
+    private _closeMakeRemoteDialog(): void {
+        this._makeRemoteSource = null;
+    }
+
+    private _onRemoteMinted(e: CustomEvent<TriggerRemoteInfo>): void {
+        const source = this._makeRemoteSource;
+        this._makeRemoteSource = null;
+        // Mirror-door mint: the source device IS the new remote's
+        // counterpart by construction (owner ruling 2026-08-15), no
+        // matching to do. e.detail is only populated on this
+        // sourceDeviceId branch (see ir-promote-remote-dialog.ts).
+        if (PINNING_UI_ENABLED && source && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: e.detail.id,
+                remoteName: e.detail.name,
+                deviceId: source.id,
+                deviceName: source.name,
+            };
+        }
+    }
+
+    private _onMakeDeviceRequested(remote: TriggerRemoteInfo | null): void {
+        this._makeDeviceSource = remote;
+    }
+
+    private _closeMakeDeviceDialog(): void {
+        this._makeDeviceSource = null;
+    }
+
+    private _onDeviceMinted(e: CustomEvent<IRDevice>): void {
+        const source = this._makeDeviceSource;
+        this._makeDeviceSource = null;
+        if (PINNING_UI_ENABLED && source && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: source.id,
+                remoteName: source.name,
+                deviceId: e.detail.id,
+                deviceName: e.detail.name,
+            };
+        }
+    }
+
+    /** Non-matrix-cell command count, for the mint dialog's preview
+     *  line only -- ws_device_make_remote applies the authoritative
+     *  filter server-side regardless (THE MATRIX RULE). */
+    private _eligibleCommandCount(device: IRDevice): number {
+        return device.commands.filter((c) => !c.matrix_cell).length;
+    }
+
     // --- Named remote receiver scope (Track 5 follow-up, mirrors
     //     ir-device-detail.ts's _onEmittersChanged) ---
+
+    /** Every known receiver (this._receivers -- already loaded, no new
+     *  fetch), mapped to header-chip-group's row shape. Two states
+     *  only, same as ir-receiver-picker.ts: receivers carry no
+     *  availability flag to key a `down` state on. */
+    private _receiverRows(remote: TriggerRemoteInfo): HeaderChipRow[] {
+        return this._receivers.map((r) => ({
+            id: r.entity_id,
+            name: r.name,
+            on: remote.receiver_scope.includes(r.entity_id),
+        }));
+    }
+
+    /** Gated (PINNING_UI_ENABLED) preview rows for the Remote detail's
+     *  Pin: group -- candidates are existing Devices, every `on`
+     *  hardcoded false until pin storage (Track 2 item 5) lands. See
+     *  ir-pin-flag.ts. */
+    private _pinRows(): HeaderChipRow[] {
+        return this.devices.map((d) => ({ id: d.id, name: d.name, on: false }));
+    }
 
     private async _onRemoteReceiversChanged(
         remote: TriggerRemoteInfo,
@@ -787,6 +993,15 @@ export class IrDeviceList extends LitElement {
                 enabled: !trigger.enabled,
             });
             await this._loadTriggers();
+            // Punch list item 3 (signpost 3 bench round, 2026-08-17):
+            // _loadTriggers() only refreshes this drawer's own trigger
+            // rows. The Remote card's ON:/OFF: badges read `triggerRemotes`,
+            // a property the panel shell owns and only re-fetches on its
+            // own remote-* events -- tell it this one changed too, same
+            // as remote-renamed/remote-duplicated/remote-receivers-changed.
+            this.dispatchEvent(
+                new CustomEvent("remote-trigger-toggled", { bubbles: true, composed: true }),
+            );
         } catch {
             // Non-fatal.
         }
@@ -1146,15 +1361,12 @@ export class IrDeviceList extends LitElement {
             <div class="toolbar">
                 <div class="toolbar-title-group">
                     <span class="toolbar-title">
-                        <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
+                        <ha-svg-icon .path=${ICON_DEVICES_TV} .viewBox=${TV_VIEWBOX}></ha-svg-icon>
                         ${t("devlist.title")}
                         <span class="toolbar-count">(${this.devices.length})</span>
+                        <span class="toolbar-tagline">- ${t("devlist.tagline")}</span>
                     </span>
-                    <div class="toolbar-tagline">${t("devlist.tagline")}</div>
                 </div>
-                <button class="add-btn" @click=${this._add}>
-                    ${t("devlist.add_device_plus")}
-                </button>
             </div>
             ${hasDevices
                 ? html`
@@ -1234,11 +1446,25 @@ export class IrDeviceList extends LitElement {
                                                     .api=${this.api}
                                                     .device=${this._expandedDevice}
                                                     .hass=${this.hass}
+                                                    .receivers=${this._receivers}
+                                                    .triggerRemotes=${this.triggerRemotes}
                                                     @device-changed=${this._onExpandedDeviceChanged}
                                                     @device-deleted=${this._onExpandedDeviceDeleted}
                                                     @commands-reordered=${this._onCommandsReordered}
                                                     @trigger-changed=${this._loadTriggers}
                                                     @collapse=${this._onCollapse}
+                                                    @request-duplicate=${(ev: Event) =>
+                                                        this._expandedDevice &&
+                                                        this._openDuplicateDialog(this._expandedDevice, ev)}
+                                                    @request-delete=${() => {
+                                                        if (this._expandedDevice) {
+                                                            this._confirmDeleteDevice = this._expandedDevice;
+                                                        }
+                                                    }}
+                                                    @request-make-remote=${() =>
+                                                        this._onMakeRemoteRequested(
+                                                            this._expandedDevice,
+                                                        )}
                                                 ></ir-device-detail>
                                             </div>
                                         `
@@ -1246,11 +1472,24 @@ export class IrDeviceList extends LitElement {
                               `,
                               ),
                           )}
+                          <ir-ghost-tile
+                              kind="device"
+                              @add-click=${this._add}
+                              @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
+                                  this._onGhostTileDrop("device", e)}
+                          ></ir-ghost-tile>
                       </div>
                   `
                 : html`
-                      <div class="empty-devices">
-                          No devices yet. Sniff some signals, then add your first device.
+                      <div class="grid device-grid">
+                          <ir-ghost-tile
+                              kind="device"
+                              .empty=${true}
+                              .spanFull=${true}
+                              @add-click=${this._add}
+                              @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
+                                  this._onGhostTileDrop("device", e)}
+                          ></ir-ghost-tile>
                       </div>
                   `}
 
@@ -1268,12 +1507,9 @@ export class IrDeviceList extends LitElement {
                         <ha-svg-icon .path=${ICON_DEVICES}></ha-svg-icon>
                         ${t("devlist.trigger_remotes_title")}
                         <span class="toolbar-count">(${this._triggerDrawerCount})</span>
+                        <span class="toolbar-tagline">- ${t("devlist.trigger_remotes_tagline")}</span>
                     </span>
-                    <div class="toolbar-tagline">${t("devlist.trigger_remotes_tagline")}</div>
                 </div>
-                <button class="add-btn trigger-add-btn" @click=${this._addRemote}>
-                    ${t("devlist.add_device_plus")}
-                </button>
             </div>
             <div class="grid">
                 <div
@@ -1293,8 +1529,23 @@ export class IrDeviceList extends LitElement {
                             ${this._triggerDrawer?.name ?? t("devlist.trigger_drawer_default_name")}
                         </div>
                     </div>
-                    <div class="card-meta">
-                        ${tp("trow.header_count", this._drawerTriggers.length)}
+                    <div class="card-footer">
+                        <span class="badge cmd-badge"
+                            >${t("devlist.on_badge", {
+                                count: this._drawerTriggers.filter(
+                                    (trig) => trig.enabled,
+                                ).length,
+                            })}</span
+                        >
+                        ${this._drawerTriggers.some((trig) => !trig.enabled)
+                            ? html`<span class="badge trigger-off-badge"
+                                  >${t("devlist.off_badge", {
+                                      count: this._drawerTriggers.filter(
+                                          (trig) => !trig.enabled,
+                                      ).length,
+                                  })}</span
+                              >`
+                            : ""}
                     </div>
                 </div>
                 ${this.expandedDeviceId === TRIGGER_DRAWER_ID
@@ -1303,6 +1554,7 @@ export class IrDeviceList extends LitElement {
                               <section class="header trh-header">
                                   <div class="header-left">
                                       <div class="name-row">
+                                          <div class="name-line">
                                           ${this._editingDrawerName
                                               ? html`
                                                     <input
@@ -1328,15 +1580,16 @@ export class IrDeviceList extends LitElement {
                                                         <span class="edit-icon">&#9998;</span>
                                                     </h1>
                                                 `}
+                                          <span class="trh-count"
+                                              >(${tp("trow.header_count", this._drawerTriggers.length)})</span
+                                          >
                                           ${this._triggerDrawer?.ha_device_id
                                               ? renderExitToEntityBtn(
                                                     `/config/devices/device/${this._triggerDrawer.ha_device_id}`,
                                                     t("devices.open_in_ha"),
                                                 )
                                               : nothing}
-                                      </div>
-                                      <div class="trh-subtitle">
-                                          ${tp("trow.header_count", this._drawerTriggers.length)}
+                                          </div>
                                       </div>
                                   </div>
                                   <button
@@ -1345,6 +1598,13 @@ export class IrDeviceList extends LitElement {
                                       title=${t("common.close")}
                                   >&#x2715;</button>
                               </section>
+                              <div class="trh-triggers-header">
+                                  <span
+                                      >${t("trow.section_header", {
+                                          count: this._drawerTriggers.length,
+                                      })}</span
+                                  >
+                              </div>
                               ${this._drawerTriggers.length > 0
                                   ? html`
                                         <div class="trigger-rows">
@@ -1418,8 +1678,19 @@ export class IrDeviceList extends LitElement {
                                 <ha-svg-icon class="trigger-icon" .path=${ICON_TRIGGER}></ha-svg-icon>
                                 <div class="card-name">${remote.name}</div>
                             </div>
-                            <div class="card-meta">
-                                ${tp("trow.header_count", remote.trigger_count)}
+                            <div class="card-footer">
+                                <span class="badge cmd-badge"
+                                    >${t("devlist.on_badge", {
+                                        count: remote.enabled_count,
+                                    })}</span
+                                >
+                                ${remote.disabled_count > 0
+                                    ? html`<span class="badge trigger-off-badge"
+                                          >${t("devlist.off_badge", {
+                                              count: remote.disabled_count,
+                                          })}</span
+                                      >`
+                                    : ""}
                             </div>
                         </div>
                         ${remote.id === this.expandedDeviceId
@@ -1428,6 +1699,7 @@ export class IrDeviceList extends LitElement {
                                       <section class="header trh-header">
                                           <div class="header-left">
                                               <div class="name-row">
+                                                  <div class="name-line">
                                                   ${this._editingRemoteName
                                                       ? html`
                                                             <input
@@ -1463,24 +1735,54 @@ export class IrDeviceList extends LitElement {
                                                             t("devices.open_in_ha"),
                                                         )
                                                       : nothing}
+                                                  </div>
                                                   <div class="remote-receiver-scope">
-                                                      <ir-receiver-picker
-                                                          .api=${this.api}
-                                                          .value=${remote.receiver_scope}
+                                                      <ir-header-chip-group
+                                                          label=${t("hdrchips.receivers_label")}
+                                                          .rows=${this._receiverRows(remote)}
+                                                          .tone=${GREEN_PEAK}
                                                           ?disabled=${this._remoteReceiversBusy}
-                                                          @receivers-changed=${(
+                                                          @chips-changed=${(
                                                               ev: CustomEvent<{ value: string[] }>,
                                                           ) => this._onRemoteReceiversChanged(remote, ev)}
-                                                      ></ir-receiver-picker>
+                                                      ></ir-header-chip-group>
+                                                      ${PINNING_UI_ENABLED
+                                                          ? html`
+                                                                <ir-header-chip-group
+                                                                    readonly
+                                                                    label=${this._pinRows().some((r) => r.on)
+                                                                        ? t("hdrchips.pin_label_full_devices")
+                                                                        : t("hdrchips.pin_label_empty")}
+                                                                    .rows=${this._pinRows()}
+                                                                    .tone=${PIN_BLUE}
+                                                                ></ir-header-chip-group>
+                                                            `
+                                                          : nothing}
                                                   </div>
                                               </div>
                                           </div>
+                                          <button
+                                              class="settings-btn"
+                                              title=${t("devsettings.remote_title")}
+                                              @click=${() => (this._remoteSettingsTarget = remote)}
+                                          >
+                                              <svg class="settings-icon" viewBox=${SETTINGS_VIEWBOX}>
+                                                  <path d=${ICON_SETTINGS} fill="currentColor"></path>
+                                              </svg>
+                                          </button>
                                           <button
                                               class="collapse-btn"
                                               @click=${() => this._select(remote.id)}
                                               title=${t("common.close")}
                                           >&#x2715;</button>
                                       </section>
+                                      <div class="trh-triggers-header">
+                                          <span
+                                              >${t("trow.section_header", {
+                                                  count: remote.trigger_count,
+                                              })}</span
+                                          >
+                                      </div>
                                       ${this._remoteTriggers(remote.id).length > 0
                                           ? html`
                                                 <div class="trigger-rows">
@@ -1519,6 +1821,13 @@ export class IrDeviceList extends LitElement {
                             : nothing}
                     `,
                 )}
+                <ir-ghost-tile
+                    kind="remote"
+                    .empty=${this.triggerRemotes.length === 0}
+                    @add-click=${this._addRemote}
+                    @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
+                        this._onGhostTileDrop("remote", e)}
+                ></ir-ghost-tile>
             </div>
 
             <!-- Blasters (Pluckable) -- vendor IR blasters HAIR can pull from -->
@@ -1729,6 +2038,7 @@ export class IrDeviceList extends LitElement {
                           .api=${this.api}
                           .sourceId=${this._duplicateRemoteTarget.id}
                           .sourceName=${this._duplicateRemoteTarget.name}
+                          .sourceReceiverScope=${this._duplicateRemoteTarget.receiver_scope}
                           @remote-duplicated=${this._onRemoteDuplicated}
                           @closed=${this._closeDuplicateRemoteDialog}
                       ></ir-duplicate-trigger-remote-dialog>
@@ -1760,13 +2070,83 @@ export class IrDeviceList extends LitElement {
                       ></ir-confirm-dialog>
                   `
                 : nothing}
+
+            ${this._remoteSettingsTarget
+                ? html`
+                      <ir-trigger-remote-settings-dialog
+                          .remote=${this._remoteSettingsTarget}
+                          @request-duplicate=${(ev: Event) => {
+                              const target = this._remoteSettingsTarget;
+                              this._remoteSettingsTarget = null;
+                              if (target) this._openDuplicateRemoteDialog(target, ev);
+                          }}
+                          @request-delete=${() => {
+                              const target = this._remoteSettingsTarget;
+                              this._remoteSettingsTarget = null;
+                              if (target) this._confirmDeleteRemote = target;
+                          }}
+                          @request-make-device=${() => {
+                              const target = this._remoteSettingsTarget;
+                              this._remoteSettingsTarget = null;
+                              this._onMakeDeviceRequested(target);
+                          }}
+                          @closed=${() => (this._remoteSettingsTarget = null)}
+                      ></ir-trigger-remote-settings-dialog>
+                  `
+                : nothing}
+
+            ${this._makeRemoteSource && this.api
+                ? html`
+                      <ir-promote-remote-dialog
+                          .api=${this.api}
+                          .sourceDeviceId=${this._makeRemoteSource.id}
+                          .suggestedName=${this._makeRemoteSource.name}
+                          .previewCount=${this._eligibleCommandCount(
+                              this._makeRemoteSource,
+                          )}
+                          @remote-created=${this._onRemoteMinted}
+                          @closed=${this._closeMakeRemoteDialog}
+                      ></ir-promote-remote-dialog>
+                  `
+                : nothing}
+
+            ${this._makeDeviceSource && this.api
+                ? html`
+                      <ir-promote-dialog
+                          .api=${this.api}
+                          .hass=${this.hass}
+                          .sourceRemoteId=${this._makeDeviceSource.id}
+                          .suggestedName=${this._makeDeviceSource.name}
+                          @device-created=${this._onDeviceMinted}
+                          @closed=${this._closeMakeDeviceDialog}
+                      ></ir-promote-dialog>
+                  `
+                : nothing}
+
+            ${this._pinPromptTarget && this.api
+                ? html`
+                      <ir-pin-prompt-dialog
+                          .api=${this.api}
+                          .remoteId=${this._pinPromptTarget.remoteId}
+                          .remoteName=${this._pinPromptTarget.remoteName}
+                          .deviceId=${this._pinPromptTarget.deviceId}
+                          .deviceName=${this._pinPromptTarget.deviceName}
+                          @pinned=${() => (this._pinPromptTarget = null)}
+                          @closed=${() => (this._pinPromptTarget = null)}
+                      ></ir-pin-prompt-dialog>
+                  `
+                : nothing}
         `;
     }
 
     static styles = [
         exitToEntityButtonStyles,
+        settingsButtonStyles,
         bloomStyles,
         css`
+        .trh-header .settings-btn {
+            margin-right: 2px;
+        }
         :host {
             display: block;
         }
@@ -1781,14 +2161,6 @@ export class IrDeviceList extends LitElement {
             color: var(--primary-text-color);
         }
 
-        .empty-devices {
-            text-align: center;
-            padding: 24px 16px;
-            color: var(--secondary-text-color);
-            font-size: 0.9rem;
-            margin-bottom: 16px;
-        }
-
         /* --- Devices toolbar (matches sniffer) --- */
         .toolbar {
             display: flex;
@@ -1800,9 +2172,20 @@ export class IrDeviceList extends LitElement {
         }
         .toolbar-title-group {
             display: flex;
-            flex-direction: column;
-            gap: 3px;
         }
+        /* Remotes Rename Label Pass (owner request, 2026-08-14): a
+           one-line description of each section header -- "Devices"
+           and "Remotes" alone are generic enough to want the
+           disambiguation.
+
+           ONE LINE + ALL CAPS (owner ruling 2026-08-15): the tagline
+           used to sit on its own indented row below the title -- now
+           it runs inline right after the count, prefixed with a
+           hyphen so it reads as a continuation of the title rather
+           than a caption. Both title and tagline are upper-cased,
+           matching the small-caps convention already used for
+           header-chip-group labels and the device Type label
+           elsewhere on this page. */
         .toolbar-title {
             display: flex;
             align-items: center;
@@ -1810,17 +2193,15 @@ export class IrDeviceList extends LitElement {
             font-size: 1.1rem;
             font-weight: 500;
             color: var(--primary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
-        /* Remotes Rename Label Pass (owner request, 2026-08-14): a
-           one-line description under each section header -- "Devices"
-           and "Remotes" alone are generic enough to want the
-           disambiguation. Indented to align under the title text,
-           past the icon (24px) + .toolbar-title's own gap (8px). */
         .toolbar-tagline {
             font-size: 0.8rem;
             font-weight: 400;
             color: var(--secondary-text-color);
-            margin-left: 32px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
@@ -1828,31 +2209,6 @@ export class IrDeviceList extends LitElement {
                expanded-card stroke and the Assign chip (owner ruling,
                2026-07-20 -- green = device-ward, everywhere). */
             color: #2e7d32;
-        }
-        .add-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            background: none;
-            color: #2e7d32;
-            border: 1px solid #2e7d32;
-            border-radius: 4px;
-            /* Chip metrics, matching the Clipper's Add Remote exactly
-               (owner bench find: this one ran a size larger). */
-            padding: 4px 10px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-            transition: background 150ms ease;
-        }
-        .add-btn ha-svg-icon {
-            --mdc-icon-size: 18px;
-        }
-        .add-btn:hover {
-            background: rgba(46, 125, 50, 0.08);
         }
         .toolbar-count {
             font-weight: 400;
@@ -1873,14 +2229,6 @@ export class IrDeviceList extends LitElement {
         .trigger-toolbar-title ha-svg-icon {
             color: #d4a017;
         }
-        .trigger-add-btn {
-            color: #d4a017;
-            border-color: #d4a017;
-        }
-        .trigger-add-btn:hover {
-            background: rgba(212, 160, 23, 0.08);
-        }
-
         /* --- Section headers (neutral) --- */
         .section-header {
             display: flex;
@@ -2002,6 +2350,16 @@ export class IrDeviceList extends LitElement {
             background: var(--secondary-background-color);
             color: var(--disabled-text-color, #999);
             font-style: italic;
+        }
+
+        /* Remote card ON:/OFF: badges (signpost 3, Track 2 item 0.6 /
+           Track 3 item 2). ON: reuses .cmd-badge verbatim (see the
+           markup). OFF: keeps .tx-badge's shape -- dark chip
+           background -- but swaps TX:'s amber for this project's
+           ember, deliberately: do not carry the amber over. */
+        .trigger-off-badge {
+            background: var(--secondary-background-color);
+            color: #e65100;
         }
 
         /* Hardware section badges -- consistent <direction>-<source> pattern. */
@@ -2198,22 +2556,57 @@ export class IrDeviceList extends LitElement {
             flex: 1;
             min-width: 0;
         }
+        /* Owner ruling 2026-08-15: was align-items: center, so when
+           the Receivers chip group (inside this same row) wraps to
+           two lines it centered the name/count/exit-to-HA button
+           against that taller wrapped content instead of pinning
+           them to the top. */
         .trh-header .name-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            min-width: 0;
+        }
+        /* Owner ruling 2026-08-15: the name, trigger count,
+           and exit-to-HA button should center against each
+           other (not the whole row, which can grow taller
+           than them once Receivers wraps) while staying
+           pinned to the top edge of the row -- so they get
+           their own inner flex row, centered, nested inside
+           .name-row (which stays flex-start so this group
+           does not get pushed down when
+           .remote-receiver-scope wraps below it). Shared by
+           both the named-remote header and the Trigger
+           Drawer header (same class, both blocks). */
+        /* Owner ruling 2026-08-15 (third pass, found via live
+           Chrome DevTools inspection after two CSS-only misses):
+           this block must never shrink below its own content --
+           its children (h1, .trh-count, the exit-to-HA button)
+           are all flex-shrink: 0 already and don't wrap, so
+           shrinking the box below their combined width just let
+           them overflow visibly on top of Receivers instead of
+           actually getting smaller. .remote-receiver-scope (and
+           its ir-header-chip-group child, min-width: 0 above)
+           already shrinks and wraps correctly on its own, so it
+           takes 100% of the squeeze now. */
+        .trh-header .name-line {
             display: flex;
             align-items: center;
             gap: 6px;
-            min-width: 0;
+            flex-shrink: 0;
         }
         .trh-header h1 {
             font-size: 1.3rem;
             margin: 0;
         }
-        /* Add Popups signpost 2, Track 5 follow-up: a named remote's
-           trigger count, inline right after its name instead of on
-           its own subtitle row below (owner request 2026-08-14,
-           "Samsung TV (49 triggers)"). The HAIR Triggers drawer keeps
-           its own count on .trh-subtitle -- unchanged, not part of
-           this request. */
+        /* Add Popups signpost 2, Track 5 follow-up: the
+           trigger count for a named remote sits inline right
+           after its name instead of on its own subtitle row
+           below (owner request 2026-08-14, "Samsung TV (49
+           triggers)"). Owner ruling 2026-08-15: the Trigger
+           Drawer catch-all gets the same treatment now --
+           its count moved here too, off the retired
+           .trh-subtitle. */
         .trh-header .trh-count {
             font-size: 0.78rem;
             color: var(--secondary-text-color);
@@ -2266,11 +2659,6 @@ export class IrDeviceList extends LitElement {
             min-width: 0;
             padding: 0 0 2px;
         }
-        .trh-subtitle {
-            margin-top: 2px;
-            font-size: 0.78rem;
-            color: var(--secondary-text-color);
-        }
         .trh-header .collapse-btn {
             display: inline-flex;
             align-items: center;
@@ -2314,14 +2702,48 @@ export class IrDeviceList extends LitElement {
             min-width: 0;
             flex: 1 1 auto;
         }
-        .trh-header .remote-receiver-scope ir-receiver-picker {
-            --picker-host-display: flex;
-            --picker-host-align: baseline;
-            --picker-host-gap: 10px;
-            --picker-label-display: inline;
-            --picker-label-margin-bottom: 0;
-            flex: 1 1 auto;
+
+        /* Owner ruling 2026-08-15 (second pass): the classic
+           flexbox min-width:auto gotcha -- .remote-receiver-scope
+           itself already shrinks (min-width: 0 above), but its
+           ir-header-chip-group children default to a content-
+           based minimum (their own nowrap label) and refused to
+           shrink to fit, overflowing sideways instead of wrapping
+           in place. This lets them shrink to whatever width is
+           actually available, so their own internal flex-wrap
+           (the .group rule in ir-header-chip-group.ts) wraps
+           chips onto more lines in the same column -- to the right of the
+           divider, never relocating under the title. */
+        .trh-header .remote-receiver-scope ir-header-chip-group {
             min-width: 0;
+        }
+        /* ir-receiver-picker's label-above-chips CSS-var overrides
+           (--picker-host-display etc.) retired with the tag itself --
+           ir-header-chip-group.ts's .group is already a single-row
+           flex layout with no such vars to override (Track 1 item 5).
+           .remote-receiver-scope's own flex/border/margin above still
+           applies to whatever tag sits inside it. */
+
+        /* Triggers section header (owner ruling 2026-08-15):
+           parity with the .commands-header already used in
+           ir-device-detail.ts -- a named remote trigger list
+           used to start directly under the drawer header
+           with no label of its own, unlike Commands.
+           Same-day follow-up: the Trigger Drawer catch-all
+           gets this header too, above its own trigger-rows
+           / empty-state block -- .trh-subtitle (its
+           previous, differently formatted count) is
+           retired. */
+        .trh-triggers-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin: 4px 0 8px;
+            padding-top: 9px;
+            border-top: 1px solid var(--divider-color);
+            color: var(--primary-text-color);
         }
 
         /* --- Trigger row list (SortableJS grip-drag) --- */
