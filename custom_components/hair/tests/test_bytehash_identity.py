@@ -65,11 +65,17 @@ BUTTONS = {
 
 
 def _fp(code: str) -> str:
-    return EventParser.signal_fingerprint("PRONTO", code, None)
+    # Canonical (wire) identity: HAIR hashes what a receiver would
+    # hand it, not the file text (identity.py's canonical-form block).
+    from custom_components.hair.identity import canonical_fingerprint
+
+    return canonical_fingerprint("PRONTO", code, None)
 
 
 def _bh(code: str) -> str:
-    bh = EventParser.pronto_byte_hash(code)
+    from custom_components.hair.identity import canonical_byte_hash
+
+    bh = canonical_byte_hash(code)
     assert bh is not None
     return bh
 

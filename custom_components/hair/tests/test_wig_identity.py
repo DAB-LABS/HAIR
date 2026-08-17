@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.hair.event_parser import EventParser
 from custom_components.hair.pronto_validator import validate_pronto
 from custom_components.hair.wig_identity import wig_signal_identity
 
@@ -32,10 +31,19 @@ class TestWigSignalIdentity:
         assert ident is not None
         normalized = validate_pronto(PRONTO).normalized
         assert ident.pronto == normalized
-        assert ident.fingerprint == EventParser.signal_fingerprint(
+        # Identity is the CANONICAL (wire) form as of 2026-08-17: a
+        # file Pronto's trailing gap word does not survive the capture
+        # path, so hashing the file text produced an identity no real
+        # press could match (identity.py's canonical-form block).
+        from custom_components.hair.identity import (
+            canonical_byte_hash,
+            canonical_fingerprint,
+        )
+
+        assert ident.fingerprint == canonical_fingerprint(
             "PRONTO", normalized, None
         )
-        assert ident.byte_hash == EventParser.pronto_byte_hash(normalized)
+        assert ident.byte_hash == canonical_byte_hash(normalized)
         assert ident.raw_timings
         assert ident.frequency > 0
 

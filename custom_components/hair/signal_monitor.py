@@ -67,6 +67,7 @@ from .const import (
     TWEEZER_OBSERVER_ATTR,
 )
 from .event_parser import EventParser
+from .identity import canonical_byte_hash, canonical_fingerprint
 from .ir_command import raw_to_pronto
 from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
@@ -263,11 +264,16 @@ class SignalMonitor:
         signal_store: SignalStore,
         hair_store: HAIRStore,
         trigger_manager: Any | None = None,
+        matrix_listener: Any | None = None,
     ) -> None:
         self._hass = hass
         self._signal_store = signal_store
         self._hair_store = hair_store
         self._trigger_manager = trigger_manager
+        # The hear side of a matrix Remote (signpost 4, Track M).
+        # Optional for the same reason trigger_manager is: plenty of
+        # tests drive the capture pipeline without one.
+        self._matrix_listener = matrix_listener
         self._unsub: CALLBACK_TYPE | None = None
         self._unsubs: list[CALLBACK_TYPE] = []
         # Per-receiver subscription handles, keyed by entity_id (receiver
@@ -1450,6 +1456,17 @@ class SignalMonitor:
                 receiver_entity_id, byte_hash, decoded_fingerprint,
             )
 
+        # Step 3b: the lattice (signpost 4, Track M). A matrix Remote
+        # hears its own states here, beside the trigger match and
+        # behind the same echo gate above -- the house's own
+        # transmissions must never read as a handset press, whether
+        # they would land on a trigger or on a cell. Not a trigger
+        # lookup: see matrix_listener's module docstring.
+        if self._matrix_listener is not None:
+            await self._matrix_listener.on_signal_captured(
+                sig_fp, byte_hash, decoded_fingerprint, receiver_entity_id,
+            )
+
         # The v0.4.0 known-command suppression is GONE (v0.6.6, "heard
         # means shown"): a human pressing an assigned button is Sniffer
         # activity like any other press -- the row flashes, counts, and
@@ -2312,8 +2329,12 @@ class SignalMonitor:
 
             now_iso = datetime.now(UTC).isoformat()
             code = result.normalized
-            sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-            byte_hash = EventParser.pronto_byte_hash(code)
+            # Identity on the CANONICAL (wire) form -- a pasted file
+            # Pronto and the same code off the air must land on one
+            # identity (identity.py's canonical-form block). The stored
+            # ``code`` stays exactly as pasted.
+            sig_fp = canonical_fingerprint("PRONTO", code, [])
+            byte_hash = canonical_byte_hash(code)
             from .ir_command import ProntoCommand
 
             # Decode-on-paste: mirror the Sniffer capture path so a pasted NEC
@@ -2453,8 +2474,12 @@ class SignalMonitor:
 
             now_iso = datetime.now(UTC).isoformat()
             code = result.normalized
-            sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-            byte_hash = EventParser.pronto_byte_hash(code)
+            # Identity on the CANONICAL (wire) form -- a pasted file
+            # Pronto and the same code off the air must land on one
+            # identity (identity.py's canonical-form block). The stored
+            # ``code`` stays exactly as pasted.
+            sig_fp = canonical_fingerprint("PRONTO", code, [])
+            byte_hash = canonical_byte_hash(code)
             from .ir_command import ProntoCommand
 
             # Decode-on-place: mirror the Sniffer/clip path so a plucked NEC
@@ -2561,8 +2586,8 @@ class SignalMonitor:
                         "error": "Signal not found"}
 
             code = result.normalized
-            new_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-            new_byte_hash = EventParser.pronto_byte_hash(code)
+            new_fp = canonical_fingerprint("PRONTO", code, [])
+            new_byte_hash = canonical_byte_hash(code)
 
             # Re-evaluate the new code as a fresh capture: derive timings
             # from the Pronto and decode, so the signal stays first-class

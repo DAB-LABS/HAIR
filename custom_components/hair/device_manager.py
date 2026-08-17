@@ -186,7 +186,6 @@ class DeviceManager:
         Returns ``{success, command, triggers, mappings_updated}`` on
         success, or ``{success: False, code, error}``.
         """
-        from .event_parser import EventParser
         from .ir_command import ProntoCommand
         from .pronto_validator import validate_pronto
         from .protocol_decode import try_decode_identity
@@ -235,7 +234,9 @@ class DeviceManager:
                               else "Invalid Pronto code"),
                 }
             new_code = result.normalized
-            old_fp = EventParser.signal_fingerprint(
+            from .identity import canonical_fingerprint as _canon_fp
+
+            old_fp = _canon_fp(
                 command.protocol, command.code, command.raw_timings
             )
             # Captured BEFORE the mutations below: a sub-threshold edit
@@ -244,8 +245,12 @@ class DeviceManager:
             # precisely (v0.5.8 unified identity).
             old_byte_hash = command.byte_hash
             old_decoded_fingerprint = command.decoded_fingerprint
-            new_fp = EventParser.signal_fingerprint("PRONTO", new_code, [])
-            new_byte_hash = EventParser.pronto_byte_hash(new_code)
+            # Canonical (wire) identity for the edited code; the stored
+            # code text stays as the user typed it (identity.py).
+            from .identity import canonical_byte_hash, canonical_fingerprint
+
+            new_fp = canonical_fingerprint("PRONTO", new_code, [])
+            new_byte_hash = canonical_byte_hash(new_code)
             try:
                 raw = ProntoCommand(new_code).get_raw_timings()
             except Exception:  # bad code falls back to no decoded timings
@@ -811,6 +816,7 @@ class DeviceManager:
         pronto: str,
         send_count: int = 1,
         heard_future: Any | None = None,
+        pinned: bool = False,
     ) -> None:
         """Send one climate matrix cell's raw Pronto (Cold Cuts).
 
@@ -844,6 +850,10 @@ class DeviceManager:
             device, ir_cmd, cell_name,
             send_count=max(1, send_count or 1),
             heard_future=heard_future,
+            # Signpost 4, Track 4: a heard state driving a pinned
+            # matrix Device rides here, and the Mirror row has to read
+            # "Pinned send" like any other retransmit.
+            pinned=pinned,
         )
 
     # --- Emitter-degrade notifications (GH #65 rider, v0.8.1) ---

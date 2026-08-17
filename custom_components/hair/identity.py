@@ -107,3 +107,101 @@ def same_signal(
     return SignalIdentity(a_decoded, a_byte_hash, a_fingerprint).same_as(
         SignalIdentity(b_decoded, b_byte_hash, b_fingerprint)
     )
+
+
+# ---------------------------------------------------------------------------
+# THE CANONICAL FORM: identity is computed on the WIRE Pronto, never the
+# file Pronto (owner ruling 2026-08-17, one authoritative form)
+# ---------------------------------------------------------------------------
+#
+# A Pronto that came out of a FILE and the same code coming back off a
+# RECEIVER are not the same string, so hashing them gives different
+# identities. The mechanism is the trailing gap word:
+#
+#   file  ... 002E 0011 0F1C     <- the inter-frame gap, as written
+#   wire  ... 002E 0011 0000     <- what a capture rebuilds to
+#
+# Every capture is rebuilt from raw timings through ``raw_to_pronto``,
+# and ``ProntoCommand.get_raw_timings`` strips the trailing space on the
+# way out (the 0.9.8 identity rule, GH #98 terminator handling). One
+# word is enough: both the S/L fingerprint and the byte hash move with
+# it. So identity derived from file text can never match a real press.
+#
+# This is not theoretical. Measured on the bench closet, 2026-08-17:
+#
+#   - 469 of 943 flat wig signals change identity across that round
+#     trip. 348 of them are rescued by the decoded tier, which is
+#     computed from timings and so is form-independent. The remaining
+#     121 are undecoded and MISSED ENTIRELY -- a Remote minted from
+#     such a wig sat there with its triggers never firing (reproduced
+#     on the bench with acer-rc-17de0: 16 triggers, 0 fires, until the
+#     press was matched on the wire form).
+#   - 80 of 272 Pronto commands on wig-adopted devices carry file-form
+#     identity, 23 of them undecoded, so ``match_command`` did not
+#     recognize the real remote's press and ``pin_bindings`` could not
+#     map a capture-minted trigger onto them.
+#
+# Hence: canonicalize BEFORE hashing, everywhere. Mint doors, edit
+# paths, both reverse indexes, and the matrix cell index all go through
+# the three helpers below, so a second form cannot be reintroduced by
+# adding a call site.
+#
+# What is NOT canonicalized is the stored Pronto TEXT. It stays exactly
+# as written, because a wig's claim digests hash that text
+# (``wig_format.row_digest``) and rewriting it would invalidate every
+# fitting ever signed -- verified on the bench: the digest is stable
+# across this change, and the digest OF the wire text differs. Identity
+# fields move; the code a person can read and paste does not.
+#
+# Canonicalization is idempotent (verified over 1,411 closet codes:
+# canonical(canonical(x)) == canonical(x)), which is what lets the
+# load-time backfill run on every boot without churn.
+
+
+def canonical_pronto(code: str | None) -> str | None:
+    """The Pronto a receiver would hand us for ``code``, or None.
+
+    None when the code is absent, unparseable, or yields no timings --
+    callers then fall back to the code as written, which is the old
+    behavior and no worse than it was.
+    """
+    if not code:
+        return None
+    from .ir_command import ProntoCommand, raw_to_pronto
+
+    try:
+        command = ProntoCommand(code)
+        raw = command.get_raw_timings()
+    except (ValueError, IndexError, TypeError):
+        return None
+    if not raw:
+        return None
+    try:
+        return raw_to_pronto(raw, frequency=command.modulation)
+    except (ValueError, TypeError):
+        return None
+
+
+def canonical_fingerprint(
+    protocol: str | None, code: str | None, raw_timings: list[int] | None
+) -> str:
+    """``EventParser.signal_fingerprint`` on the canonical form.
+
+    Non-Pronto protocols pass straight through: their fingerprint is
+    hashed from protocol and code, which no round trip touches.
+    """
+    from .event_parser import EventParser
+
+    if protocol and protocol.upper() == "PRONTO":
+        wire = canonical_pronto(code)
+        if wire is not None:
+            return EventParser.signal_fingerprint("PRONTO", wire, raw_timings)
+    return EventParser.signal_fingerprint(protocol, code, raw_timings)
+
+
+def canonical_byte_hash(code: str | None) -> str | None:
+    """``EventParser.pronto_byte_hash`` on the canonical form."""
+    from .event_parser import EventParser
+
+    wire = canonical_pronto(code)
+    return EventParser.pronto_byte_hash(wire if wire is not None else code)

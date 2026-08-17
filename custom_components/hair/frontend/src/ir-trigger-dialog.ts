@@ -54,6 +54,20 @@ export class IrTriggerDialog extends LitElement {
     @property() public sourceDeviceId: string | null = null;
     @property() public sourceCommandId: string | null = null;
 
+    /** Create mode, signpost 4 Track M: where the REMOTE picker opens.
+     * The three matrix doors already know which remote they belong to,
+     * so the picker starts on it instead of on the drawer. It stays a
+     * picker -- the user may retarget before saving, exactly as on any
+     * other create door -- this only sets the starting selection. */
+    @property() public remoteId: string | null = null;
+    /** Create mode: which door minted this trigger. "matrix" is what
+     * earns the row's STATE chip; null everywhere else, which is the
+     * pre-Track-M behavior unchanged. */
+    @property() public origin: string | null = null;
+    /** Create mode: a name the door already knows, pre-filled and
+     * still editable. */
+    @property() public presetName: string | null = null;
+
     /** For edit mode: pass the existing trigger. */
     @property({ attribute: false }) public trigger: IRTrigger | null = null;
 
@@ -83,6 +97,20 @@ export class IrTriggerDialog extends LitElement {
             this._name = this.trigger.name;
             this._minHits = this.trigger.min_hits;
             this._receiverIds = [...(this.trigger.receiver_entity_ids ?? [])];
+        } else if (this.remoteId) {
+            // Create mode opened from a door that already knows its
+            // remote (signpost 4, Track M). Set before the list loads:
+            // the picker renders the selection by id, so it lands
+            // correctly whichever arrives first.
+            this._selectedRemoteId = this.remoteId;
+        }
+        if (!this.trigger && this.presetName) {
+            // A name the calling door already knows (the matrix doors
+            // pass the cell's display name, "Cool 24 Auto"). Editable
+            // like any other create-mode name. Deliberately NOT read
+            // off ``alias``, which several existing doors already pass
+            // for the diamond line and which has never seeded a name.
+            this._name = this.presetName;
         }
         void this._loadTriggerRemotes();
     }
@@ -200,6 +228,12 @@ export class IrTriggerDialog extends LitElement {
                 }
                 if (this.decodedFingerprint) {
                     payload.decoded_fingerprint = this.decodedFingerprint;
+                }
+                // Signpost 4, Track M: the minting door's provenance.
+                // Sent only when a door set it, so every pre-Track-M
+                // caller keeps producing an origin-less trigger.
+                if (this.origin) {
+                    payload.origin = this.origin;
                 }
                 saved = await this.api.createTrigger(payload);
             }
@@ -644,13 +678,24 @@ export class IrTriggerDialog extends LitElement {
         .cancel {
             color: var(--secondary-text-color);
         }
+        /* Create is ALWAYS green, across every create dialog (add-dialog
+           form clarity ruling, 2026-08-16; punch list item 18). This
+           button was the trigger family's one holdout in gold, which
+           read as "gold means trigger" rather than "green means the
+           thing this dialog makes". Gold keeps everything it actually
+           owns -- the trigger chips, the "+ Trigger" doors on the
+           matrix card and the LAST HEARD row -- and this one hex now
+           matches ir-add-controlled-device-dialog.ts and
+           ir-duplicate-device-dialog.ts exactly. Edit mode's Update
+           rides the same class, which is correct: same button, same
+           position, same primary meaning. */
         .save {
             color: #fff;
-            background: #b89930;
-            border-color: #b89930;
+            background: #2e7d32;
+            border-color: #2e7d32;
         }
-        .save:hover {
-            background: #a08328;
+        .save:hover:not(:disabled) {
+            opacity: 0.9;
         }
         .delete-btn {
             color: #e65100;

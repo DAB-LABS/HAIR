@@ -79,13 +79,15 @@ def build_device_index(device: IRDevice) -> DeviceCommandIndex:
     so a device whose commands share an identity resolves the same way
     here as it does for the known-command matcher.
     """
-    from .event_parser import EventParser
+    from .identity import canonical_fingerprint
 
     index = DeviceCommandIndex()
     for cmd in device.commands:
         if cmd.decoded_fingerprint:
             index.decoded[cmd.decoded_fingerprint] = cmd.id
-        fp = EventParser.signal_fingerprint(
+        # Canonical (wire) form, so a capture-minted trigger and a
+        # wig-adopted command meet on the same identity (identity.py).
+        fp = canonical_fingerprint(
             cmd.protocol, cmd.code, cmd.raw_timings
         )
         if not fp:

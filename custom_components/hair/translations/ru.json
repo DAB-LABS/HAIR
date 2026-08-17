@@ -30,7 +30,8 @@
     },
     "device_automation": {
         "trigger_type": {
-            "button_pressed": "Нажата кнопка «{subtype}»"
+            "button_pressed": "Нажата кнопка «{subtype}»",
+            "state_heard": "Услышано состояние"
         }
     }
 }

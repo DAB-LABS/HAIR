@@ -834,6 +834,28 @@ class TriggerRemote:
     # content maps to an empty dict, which is how a detail page tells
     # "pinned, nothing matched" apart from "not pinned at all".
     bindings: dict[str, dict[str, str]] = field(default_factory=dict)
+    # THE HEAR-SIDE LATTICE (signpost 4, Track M). The exact mirror of
+    # IRDevice.climate_matrix, and a boolean for the same reason: the
+    # matrix itself lives in its own file at
+    # ``hair/matrices/<remote_id>.matrix.json`` (matrix_store names
+    # files by whatever id it is handed and both tables mint uuid4, so
+    # remotes and devices share one flat namespace without colliding),
+    # and the reference stays implicit so a remote payload cannot
+    # orphan-point at a wrong matrix. A matrix Remote HEARS its
+    # lattice where a matrix Device SENDS from one -- same bytes,
+    # opposite direction.
+    climate_matrix: bool = False
+    # THE MOST RECENT STATE HEARD (signpost 4, Track M, handoff
+    # reviewer addendum "Persistence"). Stamped by the matrix listener
+    # on every heard cell the way _fire_trigger stamps a trigger's
+    # fire_count, and the single stored fact behind three surfaces: the
+    # card's rest ring, its slim readout, and the LAST HEARD row. Absent
+    # (None) reads as "Nothing heard yet" and is what a remote carries
+    # until its handset is first heard. Shape: cell_key, cell_name,
+    # power ("on"/"off"/None), at (iso), sl_pattern, receiver_entity_id,
+    # receiver_area_name. A loose dict rather than a dataclass because
+    # nothing computes on it -- it is stamped whole and rendered whole.
+    last_heard: dict[str, Any] | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -849,6 +871,10 @@ class TriggerRemote:
             "bindings": {
                 d: dict(m) for d, m in self.bindings.items()
             },
+            "climate_matrix": self.climate_matrix,
+            "last_heard": (
+                dict(self.last_heard) if self.last_heard else None
+            ),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -878,6 +904,16 @@ class TriggerRemote:
                 for d, m in (data.get("bindings") or {}).items()
                 if isinstance(m, dict)
             },
+            # Absent on every remote written before signpost 4's Track
+            # M; False and None are exactly right for one -- no matrix
+            # file was ever written under its id, and nothing has been
+            # heard into a lattice it does not have.
+            climate_matrix=bool(data.get("climate_matrix", False)),
+            last_heard=(
+                dict(lh)
+                if isinstance(lh := data.get("last_heard"), dict)
+                else None
+            ),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         )
@@ -912,11 +948,20 @@ class TriggerRemote:
         content, so leaving that decision to a shared dataclass method
         would either force it on every caller or require a parameter
         this method has no other reason to carry.
+
+        ``climate_matrix`` rides along, exactly as IRDevice.clone()
+        carries it: the FLAG is part of what this remote is, the FILE
+        is the caller's job (ws_duplicate_trigger_remote copies it and
+        clears the flag if the copy fails, the same shape
+        ws_duplicate_device already uses). ``last_heard`` does NOT: a
+        copy has heard nothing, and inheriting a timestamp would put a
+        stale "2 min ago" on a remote that has never been in the room.
         """
         return TriggerRemote(
             name=new_name,
             receiver_scope=list(self.receiver_scope),
             origin="manual",
+            climate_matrix=self.climate_matrix,
         )
 
 

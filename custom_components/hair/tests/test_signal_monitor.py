@@ -835,9 +835,12 @@ class TestPublicAPI:
             )
             # Second code must have a DIFFERENT S/L pattern (a long pulse,
             # >= 0x30) so its fingerprint differs -- otherwise the new
-            # duplicate guard would (correctly) reject it.
+            # duplicate guard would (correctly) reject it. The long word
+            # must not be the TRAILING one: the trailing gap is stripped
+            # on the way to the wire, so two codes differing only there
+            # are one signal (identity.py's canonical-form block).
             second = await monitor.create_manual_signal(
-                device.id, "0000 006D 0002 0000 0010 0010 0010 0040"
+                device.id, "0000 006D 0002 0000 0040 0010 0010 0010"
             )
 
         assert first["success"] and second["success"]

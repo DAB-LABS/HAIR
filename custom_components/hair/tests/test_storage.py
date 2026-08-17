@@ -11,7 +11,7 @@ from custom_components.hair.const import (
     STORAGE_VERSION_MINOR,
     DeviceType,
 )
-from custom_components.hair.event_parser import EventParser
+from custom_components.hair.identity import canonical_fingerprint
 from custom_components.hair.models import IRCommand, IRDevice, IRTrigger
 from custom_components.hair.protocol_decode import DecodedIdentity
 from custom_components.hair.storage import HAIRStore, _HAIRDeviceStore
@@ -65,7 +65,7 @@ def test_match_command_fingerprint_and_bytehash_tiers(fake_hass):
     )
     store = HAIRStore(fake_hass)
     store.add_device(dev)
-    fp = EventParser.signal_fingerprint("PRONTO", _PRONTO_CODE, None)
+    fp = canonical_fingerprint("PRONTO", _PRONTO_CODE, None)
     ref = (dev.id, dev.commands[0].id)
     assert store.match_command(None, fp, "bh1") == ref
     assert store.match_command(None, fp, "other") is None
@@ -85,7 +85,7 @@ def test_match_command_legacy_bare_fp_tier(fake_hass):
     )
     store = HAIRStore(fake_hass)
     store.add_device(dev)
-    fp = EventParser.signal_fingerprint("PRONTO", _PRONTO_CODE, None)
+    fp = canonical_fingerprint("PRONTO", _PRONTO_CODE, None)
     ref = (dev.id, dev.commands[0].id)
     assert store.match_command(None, fp, None) == ref
     assert store.match_command(None, fp, "anything") == ref

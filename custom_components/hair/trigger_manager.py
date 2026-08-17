@@ -38,7 +38,12 @@ from .const import (
     TRIGGER_HIT_RESET_WINDOW_S,
 )
 from .models import IRTrigger
-from .pin_retransmit import RetransmitDispatcher, Target
+from .pin_retransmit import (
+    CELL_TARGET_PREFIX,
+    Label,
+    RetransmitDispatcher,
+    Target,
+)
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -250,7 +255,7 @@ class TriggerManager:
 
             if count >= trigger.min_hits:
                 if not area_resolved:
-                    area_id, area_name = self._resolve_receiver_area(
+                    area_id, area_name = self.resolve_receiver_area(
                         receiver_entity_id
                     )
                     area_resolved = True
@@ -331,7 +336,7 @@ class TriggerManager:
             k: v for k, v in self._recent_fires.items() if now - v < cutoff
         }
 
-    def _resolve_receiver_area(
+    def resolve_receiver_area(
         self, receiver_entity_id: str | None
     ) -> tuple[str | None, str | None]:
         """Resolve a receiver entity to its ``(area_id, area_name)``.
@@ -467,16 +472,62 @@ class TriggerManager:
             )
             self._retransmit.dispatch(target, label)
 
+    def set_matrix_listener(self, listener: Any) -> None:
+        """Wire the hear side in (signpost 4, Track M).
+
+        Set after construction because the listener takes this manager
+        in ITS constructor. Only the cell branch of the sender below
+        needs it.
+        """
+        self._matrix_listener = listener
+
+    def dispatch_cell_retransmit(
+        self,
+        remote_id: str,
+        device_id: str,
+        cell_key: str,
+        label: Label | None = None,
+    ) -> bool:
+        """Queue a heard state onto a pinned device (signpost 4, Track 4).
+
+        The matrix listener's door into THIS manager's dispatcher --
+        not one of its own. A house with a matrix pair and a flat pair
+        pinned to the same device has one coalescer and one loop
+        breaker across both, which is the only way the breaker's rate
+        can mean what it says.
+        """
+        if self._retransmit is None:
+            return False
+        target: Target = (
+            remote_id, device_id, CELL_TARGET_PREFIX + cell_key
+        )
+        return self._retransmit.dispatch(target, label)
+
     async def _send_bound_command(
         self, device_id: str, command_id: str
     ) -> None:
-        """Send one bound command the device's own way.
+        """Send one bound target the device's own way.
 
         Goes through the device's normal send so send_count, the tx
         gate's stagger, the emitter loop, assumed state and the
         Mirror's echo expectation all apply without this path
         reimplementing any of them.
+
+        A target whose command id carries the cell prefix is a heard
+        STATE driving a pinned matrix Device (signpost 4, Track 4)
+        rather than a button driving a command. It goes to the matrix
+        listener, which owns both lattices, and comes back through the
+        same broadcast path -- one dispatcher, one coalescer, one loop
+        breaker for both kinds of retransmit.
         """
+        if command_id.startswith(CELL_TARGET_PREFIX):
+            listener = getattr(self, "_matrix_listener", None)
+            if listener is None:
+                return
+            await listener.async_send_pinned_cell(
+                device_id, command_id[len(CELL_TARGET_PREFIX):]
+            )
+            return
         await self._device_manager.async_send_command(
             device_id, command_id, pinned=True
         )
@@ -576,6 +627,21 @@ class TriggerManager:
     # -----------------------------------------------------------------
     # Subscriber management (WebSocket push for card glow)
     # -----------------------------------------------------------------
+
+    def notify_subscribers(self, payload: dict[str, Any]) -> None:
+        """Push one payload to every panel subscriber.
+
+        The fan-out ``_fire_trigger`` performs, exposed so the matrix
+        listener can put a heard state down the same pipe (signpost 4,
+        Track M). Subscribers discriminate on the payload's own
+        ``kind``; a trigger fire carries none, which is what keeps
+        every existing consumer reading exactly what it always did.
+        """
+        for cb in self._subscribers:
+            try:
+                cb(payload)
+            except Exception:
+                _LOGGER.exception("Error notifying subscriber")
 
     def subscribe(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Register a callback for real-time trigger fire notifications."""

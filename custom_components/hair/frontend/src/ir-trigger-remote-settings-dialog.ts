@@ -114,26 +114,19 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
                     </div>
                 </section>
                 <div class="dialog-actions">
-                    <div class="left-group">
-                        <button
-                            class="action-btn cancel-btn"
-                            @click=${this._close}
-                        >
-                            ${t("common.close")}
-                        </button>
-                        <button
-                            class="action-btn duplicate-btn"
-                            @click=${this._requestDuplicate}
-                        >
-                            ${t("devsettings.duplicate")}
-                        </button>
-                        <button
-                            class="action-btn delete-btn"
-                            @click=${this._requestDelete}
-                        >
-                            ${t("devsettings.delete")}
-                        </button>
-                    </div>
+                    <button
+                        class="action-btn delete-btn"
+                        @click=${this._requestDelete}
+                    >
+                        ${t("devsettings.delete")}
+                    </button>
+                    <span class="actions-spacer"></span>
+                    <button
+                        class="action-btn duplicate-btn"
+                        @click=${this._requestDuplicate}
+                    >
+                        ${t("devsettings.duplicate")}
+                    </button>
                 </div>
             </ha-dialog>
         `;
@@ -176,17 +169,15 @@ export class IrTriggerRemoteSettingsDialog extends LitElement {
             .convert-btn {
                 width: 100%;
             }
-            /* No Save button (see file header) -- the left group is
-             * everything this dialog's action bar has, so flex-start
-             * reads correctly with nothing on the right, unlike the
-             * Device dialog's space-between. */
-            .dialog-actions {
-                justify-content: flex-start;
-            }
-            .left-group {
-                display: flex;
-                gap: 8px;
-            }
+            /* The same footer as the Device settings dialog (punch
+             * list item 20), so the two popups read as one family:
+             * Delete alone on the left, the constructive side on the
+             * right, the grey Close gone. This dialog has no Save
+             * (see the file header -- a Remote has nothing to save
+             * through here), so the right side is Duplicate by
+             * itself; the shape is the rule, not the button count.
+             * The spacer does the work, so no justify-content
+             * override is needed. */
             .duplicate-btn {
                 background: none;
                 border-color: #43a047;

@@ -69,12 +69,18 @@ def wig_signal_identity(pronto: str) -> WigSignalIdentity | None:
         return None
 
     # The exact Sniffer/Plucker normalization, so identity can never
-    # drift between a wig signal and the same signal off the air.
+    # drift between a wig signal and the same signal off the air. The
+    # code fed to it is the CANONICAL (wire) form, not the file text:
+    # see identity.py's canonical-form block for why a file Pronto's
+    # trailing gap word makes the two hash differently. ``pronto``
+    # below stays the file text -- that is what callers store as the
+    # code, and what a wig's claim digests hash.
+    from .identity import canonical_pronto
     from .signal_monitor import normalize
 
     parsed = CaptureResult(
         protocol="PRONTO",
-        code=normalized,
+        code=canonical_pronto(normalized) or normalized,
         raw_timings=raw,
         frequency=command.modulation,
         confidence=1.0,

@@ -64,6 +64,14 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 # (remote_id, device_id, command_id)
+#
+# The third element is a command id, EXCEPT for a matrix Remote driving
+# a matrix Device (signpost 4, Track 4), where it is this prefix plus
+# the heard cell's key -- "cell:cool/auto/23". A lattice cell has no
+# command row to point at, and keying the coalescer and the loop
+# breaker on the cell means a held handset collapses per state exactly
+# as a held button collapses per command.
+CELL_TARGET_PREFIX = "cell:"
 Target = tuple[str, str, str]
 # (remote_name, device_name, trigger_name), for the WARNING only.
 Label = tuple[str, str, str]

@@ -24,6 +24,7 @@ import type {
     IRCommand,
     IRDevice,
     IRTrigger,
+    MatrixCellDetail,
     MatrixCells,
     PluckRunResult,
     PluckVendor,
@@ -271,6 +272,51 @@ export class HairApi {
             type: "hair/devices/matrix-cells",
             device_id: deviceId,
         });
+    }
+
+    /** The same lattice, read off a Remote instead of a Device
+     * (signpost 4, Track M). Byte-identical payload -- the card is one
+     * component in two moods -- with no send or command sibling,
+     * because nothing transmits from a Remote. */
+    remoteMatrixCells(remoteId: string): Promise<MatrixCells> {
+        return this.hass.connection.sendMessagePromise<MatrixCells>({
+            type: "hair/trigger-remote/matrix-cells",
+            remote_id: remoteId,
+        });
+    }
+
+    /** ONE cell's code, display name and identity, by the coordinates
+     * remoteMatrixCells already handed over (signpost 4, Track M).
+     * Read-only: this is what pre-fills the trigger dialog through each
+     * of the three doors, and asking neither stores nor transmits
+     * anything. Coordinates go over verbatim -- the backend resolves
+     * exactly and never snaps -- and ``power`` is EXCLUSIVE with the
+     * cell dimensions rather than winning over them, so a trigger about
+     * to be minted can never quietly become a different one than the
+     * card previewed. */
+    remoteMatrixCell(
+        remoteId: string,
+        pick: {
+            mode?: string | null;
+            fan?: string | null;
+            swing?: string | null;
+            temp?: number | null;
+            power?: "on" | "off" | null;
+        },
+    ): Promise<MatrixCellDetail> {
+        const msg: Record<string, unknown> = {
+            type: "hair/trigger-remote/matrix-cell",
+            remote_id: remoteId,
+        };
+        if (pick.power) {
+            msg.power = pick.power;
+        } else {
+            if (pick.mode != null) msg.mode = pick.mode;
+            if (pick.fan != null) msg.fan = pick.fan;
+            if (pick.swing != null) msg.swing = pick.swing;
+            if (pick.temp != null) msg.temp = pick.temp;
+        }
+        return this.hass.connection.sendMessagePromise<MatrixCellDetail>(msg);
     }
 
     /** Fire one exact cell, or a power code. Coordinates must be read

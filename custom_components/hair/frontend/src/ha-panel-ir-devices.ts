@@ -402,6 +402,7 @@ export class HaPanelIrDevices extends LitElement {
                               @remote-receivers-changed=${this._onRemoteChanged}
                               @remote-pins-changed=${this._onRemoteChanged}
                               @remote-trigger-toggled=${this._onRemoteChanged}
+                              @remote-state-heard=${this._onRemoteChanged}
                               @remote-created=${this._onRemoteChanged}
                               @device-created=${this._onDeviceChanged}
                           ></ir-device-list>

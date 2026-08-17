@@ -28,6 +28,11 @@ import Sortable from "sortablejs";
 import "./ir-device-detail.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-row.js";
+// Signpost 4, Track M: the remote detail's hear-side pair. The card is
+// the device page's lattice in "hear" mode; the row is the readout of
+// the one state most recently heard through it.
+import "./ir-matrix-card.js";
+import "./ir-last-heard-row.js";
 import "./ir-confirm-dialog.js";
 import "./ir-duplicate-device-dialog.js";
 import "./ir-duplicate-trigger-remote-dialog.js";
@@ -41,6 +46,7 @@ import "./ir-ghost-tile.js";
 import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
 import { PINNING_UI_ENABLED, PIN_BLUE } from "./ir-pin-flag.js";
 import type { HairApi } from "./api.js";
+import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
     CaptureProviderInfo,
@@ -48,6 +54,8 @@ import type {
     DeviceTypeId,
     IRDevice,
     IRTrigger,
+    LastHeard,
+    MatrixCellDetail,
     ReceiverInfo,
     TriggerDrawerInfo,
     TriggerFiredEvent,
@@ -201,6 +209,16 @@ export class IrDeviceList extends LitElement {
     @state() private _triggers: IRTrigger[] = [];
     @state() private _glowTriggerIds = new Set<string>();
     @state() private _editTrigger: IRTrigger | null = null;
+    // Signpost 4, Track M: the create-mode trigger dialog, opened
+    // pre-filled from a matrix cell. Three doors reach it -- the LAST
+    // HEARD row, the card's action bar on the heard cell, the card's
+    // action bar on a cell never heard -- and all three resolve to
+    // this one piece of state, because they open the SAME dialog
+    // aimed at the same remote with the same cell already in hand.
+    @state() private _mintTrigger: {
+        remoteId: string;
+        detail: MatrixCellDetail;
+    } | null = null;
     @state() private _confirmDeleteTrigger: IRTrigger | null = null;
     @state() private _duplicateTarget: DeviceSummary | null = null;
     @state() private _confirmDeleteDevice: DeviceSummary | null = null;
@@ -804,6 +822,35 @@ export class IrDeviceList extends LitElement {
         }
     }
 
+    /** The mirror-door pin prompt was accepted (punch list item 19).
+     *
+     * A pin is one fact standing on TWO objects: the remote gains the
+     * device in its pinned list, the device gains the remote in its
+     * own. Both of those lists are owned by the panel shell and passed
+     * down as properties, and nothing was asking it to re-read either
+     * one after the pin call returned -- so the freshly minted object
+     * opened with empty pin chips, and its counterpart did not show
+     * the new pin either, until a page refresh proved the storage side
+     * had been right all along.
+     *
+     * Both sides are told, not one: whichever object the user opens
+     * next, the mint could have gone in either direction. */
+    private _onPinPromptPinned(): void {
+        this._pinPromptTarget = null;
+        this.dispatchEvent(
+            new CustomEvent("remote-pins-changed", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
+        this.dispatchEvent(
+            new CustomEvent("device-changed", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     private _onMakeDeviceRequested(remote: TriggerRemoteInfo | null): void {
         this._makeDeviceSource = remote;
     }
@@ -979,6 +1026,28 @@ export class IrDeviceList extends LitElement {
         try {
             this._unsubTriggerFired = await this.api.subscribeTriggerFired(
                 (ev: TriggerFiredEvent) => {
+                    // One channel, two kinds of news (signpost 4, Track M):
+                    // a matrix Remote's heard state rides this same
+                    // subscription with kind "state_heard". It is not a
+                    // fire, so none of the trigger bookkeeping below
+                    // applies -- but the remote it names now holds a new
+                    // last_heard, and that one stored fact is what the
+                    // card's rest ring, its slim readout and the LAST
+                    // HEARD row all render from. Ask the shell for a
+                    // fresh remote list (the one-call rule: last_heard
+                    // rides the list payload, there is no per-remote
+                    // follow-up), and the new value reaching the card as
+                    // a property is what blooms it.
+                    if (ev.kind === "state_heard") {
+                        this.dispatchEvent(
+                            new CustomEvent("remote-state-heard", {
+                                bubbles: true,
+                                composed: true,
+                            }),
+                        );
+                        return;
+                    }
+                    if (ev.kind) return;
                     // Glow the collapsed drawer card and the fired row alike
                     // (BloomTracker's sequence numbering is what fixes the
                     // v0.7.2 repeat-fire-cut-short bug -- see
@@ -1035,6 +1104,102 @@ export class IrDeviceList extends LitElement {
     private async _onTriggerUpdated(): Promise<void> {
         this._editTrigger = null;
         await this._loadTriggers();
+    }
+
+    // --- The three doors onto a state trigger (signpost 4, Track M) ---
+    //
+    // A matrix Remote can mint a trigger from a cell in three places,
+    // and the handoff is explicit that all three land in the SAME
+    // dialog, pre-aimed at this remote and pre-filled from the cell.
+    // Two of them (the card's action bar) already hold coordinates; the
+    // third (the LAST HEARD row) holds a stored heard state, which
+    // carries the very same coordinates. So both shapes fold into one
+    // coordinate pick, one fetch, one dialog -- rather than three code
+    // paths that would have to be kept saying the same thing.
+    //
+    // The fetch is what the cell browser's no-bytes contract requires:
+    // the lattice ships without Pronto, so the door asks for the single
+    // cell it is about to use. Coordinates come from the card or the
+    // stored fact verbatim, never re-derived from the display name.
+
+    // A matrix cell's code is Pronto by construction -- a wig file
+    // stores nothing else -- and ``protocol`` on a trigger is the
+    // TRANSPORT, which is what ir-trigger-row gates its S/L diamond
+    // line on and what the dialog gates its own preview on. Not to be
+    // confused with the endpoint's ``decoded_protocol``, which is the
+    // decoder's name for the frame and is null for every AC lattice
+    // frame in the corpus; feeding that into this prop cost the minted
+    // row both its protocol chip and its whole fingerprint line.
+    // (Bench, 2026-08-17.)
+    private async _mintFromMatrix(
+        remoteId: string,
+        pick: {
+            mode: string | null;
+            fan: string | null;
+            swing: string | null;
+            temp: number | null;
+            power: "on" | "off" | null;
+        },
+    ): Promise<void> {
+        if (!this.api) return;
+        try {
+            const detail = await this.api.remoteMatrixCell(remoteId, pick);
+            this._mintTrigger = { remoteId, detail };
+        } catch {
+            // The cell stopped resolving between the card drawing it
+            // and the click (a matrix file edited underneath, a remote
+            // deleted in another tab). Non-fatal: no dialog opens, and
+            // the card is still showing the truth it last fetched.
+        }
+    }
+
+    /** Door 1: the LAST HEARD row's + Trigger. */
+    private _onLastHeardTrigger(remoteId: string, heard: LastHeard): void {
+        void this._mintFromMatrix(remoteId, {
+            mode: heard.mode,
+            fan: heard.fan,
+            swing: heard.swing,
+            temp: heard.temp,
+            power: heard.power,
+        });
+    }
+
+    /** Doors 2 and 3: the card's action bar, on a browsed cell that
+     * has been heard and on one that never has. They are the same
+     * door as far as minting goes -- the card reports what is browsed
+     * and the browse is what gets minted, heard or not. That the
+     * never-heard case works at all is the point of the card
+     * rendering live from the start. */
+    private _onMatrixSaveTrigger(
+        remoteId: string,
+        ev: CustomEvent<MatrixCardPick>,
+    ): void {
+        const p = ev.detail;
+        void this._mintFromMatrix(remoteId, {
+            mode: p.mode,
+            fan: p.fan,
+            swing: p.swing,
+            temp: p.temp,
+            power: p.power,
+        });
+    }
+
+    private _closeMintTrigger(): void {
+        this._mintTrigger = null;
+    }
+
+    private async _onMintTriggerSaved(): Promise<void> {
+        this._mintTrigger = null;
+        await this._loadTriggers();
+        // The remote's own trigger_count and badge line live on the
+        // parent-owned remote list, the same reason a toggle tells the
+        // shell to refetch.
+        this.dispatchEvent(
+            new CustomEvent("remote-trigger-toggled", {
+                bubbles: true,
+                composed: true,
+            }),
+        );
     }
 
     private async _toggleTriggerEnabled(trigger: IRTrigger, e?: Event): Promise<void> {
@@ -1827,6 +1992,33 @@ export class IrDeviceList extends LitElement {
                                               </button>
                                           </div>
                                       </section>
+                                      ${remote.matrix
+                                          ? html`
+                                                <ir-matrix-card
+                                                    .hass=${this.hass}
+                                                    mode="hear"
+                                                    .summary=${remote.matrix}
+                                                    .cellsKey=${remote.id}
+                                                    .cellsLoader=${() =>
+                                                        this.api!.remoteMatrixCells(remote.id)}
+                                                    .heard=${remote.last_heard}
+                                                    .haDeviceId=${remote.ha_device_id}
+                                                    @matrix-save-trigger=${(
+                                                        ev: CustomEvent<MatrixCardPick>,
+                                                    ) => this._onMatrixSaveTrigger(remote.id, ev)}
+                                                ></ir-matrix-card>
+                                                <div class="trh-triggers-header">
+                                                    <span>${t("lastheard.header")}</span>
+                                                </div>
+                                                <ir-last-heard-row
+                                                    .heard=${remote.last_heard}
+                                                    .receivers=${this._receivers}
+                                                    @last-heard-trigger=${(
+                                                        ev: CustomEvent<LastHeard>,
+                                                    ) => this._onLastHeardTrigger(remote.id, ev.detail)}
+                                                ></ir-last-heard-row>
+                                            `
+                                          : nothing}
                                       <div class="trh-triggers-header">
                                           <span
                                               >${t("trow.section_header", {
@@ -2060,6 +2252,27 @@ export class IrDeviceList extends LitElement {
                   `
                 : nothing}
 
+            ${this._mintTrigger
+                ? html`
+                      <ir-trigger-dialog
+                          .api=${this.api}
+                          .remoteId=${this._mintTrigger.remoteId}
+                          origin="matrix"
+                          .presetName=${this._mintTrigger.detail.name}
+                          .code=${this._mintTrigger.detail.pronto}
+                          protocol="PRONTO"
+                          .signalFingerprint=${this._mintTrigger.detail.identity
+                              .signal_fingerprint}
+                          .byteHash=${this._mintTrigger.detail.identity
+                              .byte_hash}
+                          .decodedFingerprint=${this._mintTrigger.detail
+                              .identity.decoded_fingerprint}
+                          @trigger-saved=${this._onMintTriggerSaved}
+                          @closed=${this._closeMintTrigger}
+                      ></ir-trigger-dialog>
+                  `
+                : nothing}
+
             ${this._confirmDeleteTrigger
                 ? html`
                       <ir-confirm-dialog
@@ -2184,7 +2397,7 @@ export class IrDeviceList extends LitElement {
                           .remoteName=${this._pinPromptTarget.remoteName}
                           .deviceId=${this._pinPromptTarget.deviceId}
                           .deviceName=${this._pinPromptTarget.deviceName}
-                          @pinned=${() => (this._pinPromptTarget = null)}
+                          @pinned=${this._onPinPromptPinned}
                           @closed=${() => (this._pinPromptTarget = null)}
                       ></ir-pin-prompt-dialog>
                   `
@@ -2197,9 +2410,17 @@ export class IrDeviceList extends LitElement {
         settingsButtonStyles,
         bloomStyles,
         css`
-        .trh-header .settings-btn {
-            margin-right: 2px;
-        }
+        /* Punch list item 17. A .trh-header .settings-btn rule setting
+           margin-right 2px used to live here, from the header this one
+           replaced, and it was the entire difference between the two
+           details: measured on the bench, the Device gear's right edge sits at
+           the X's exactly (delta 0) while the Remote's sat 2px inside
+           it. Everything else -- the stretched actions column, the
+           space-between distribution, align-self: flex-end on both
+           children -- was already identical. The gear is the only
+           .settings-btn in this file (the Trigger Drawer header has no
+           gear to nudge), so the rule had no other consumer and is
+           gone rather than re-scoped. */
         :host {
             display: block;
         }
@@ -2694,6 +2915,33 @@ export class IrDeviceList extends LitElement {
         .trh-header.rdetail-top .rdetail-actions .collapse-btn,
         .trh-header.rdetail-top .rdetail-actions .settings-btn {
             align-self: flex-end;
+        }
+        /* Punch list item 23: ONE fixed square box for both actions.
+           Item 17 aligned the button EDGES and they do align -- but a
+           box's edge is not what the eye reads, its glyph is, and the
+           two glyphs sat at different insets because the two buttons
+           carried different padding (the Device header's X had
+           2px 8px, this one had 4px, the shared gear has 5px around a 29px
+           icon). Right-aligning boxes of different widths lines up the
+           right edges and nothing else.
+
+           Equal squares fix it by construction rather than by
+           arithmetic: each glyph is centered in its own box, the boxes
+           are the same size, and their right edges already coincide,
+           so the glyph centers coincide too -- on this header and on
+           the Device's, which carries the identical rule. Nothing here
+           needs to be re-derived if a glyph or a font size changes
+           later. */
+        .trh-header.rdetail-top .rdetail-actions .collapse-btn,
+        .trh-header.rdetail-top .rdetail-actions .settings-btn {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            padding: 0;
+            box-sizing: border-box;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
         /* Owner ruling 2026-08-15: was align-items: center, so when
            the Receivers chip group (inside this same row) wraps to

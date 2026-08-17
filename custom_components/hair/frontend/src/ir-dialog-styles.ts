@@ -102,6 +102,14 @@ export const dialogStyles = css`
         padding-top: 16px;
         border-top: 1px solid var(--divider-color);
     }
+    /* Splits a footer into a left side and a right side without a
+       second justify-content mode: put it between the two groups and
+       the markup reads as the layout (punch list item 20, where the
+       settings dialogs moved Delete to the far left and kept the
+       constructive buttons together on the right). */
+    .actions-spacer {
+        flex: 1;
+    }
 
     /* --- Action buttons: outlined family (the majority) --- */
     .action-btn {

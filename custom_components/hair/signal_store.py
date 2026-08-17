@@ -566,6 +566,50 @@ def _transform_loaded(
             decoded_backfilled,
         )
 
+    # Canonical identity backfill (2026-08-17). Clipper and Plucker rows
+    # were hashed from the code AS PASTED. A real press arrives rebuilt
+    # from raw timings, which drops the trailing gap word, so a pasted
+    # row and its own signal off the air carried different identities
+    # and never met -- identity.py's canonical-form block has the
+    # mechanism and the bench numbers. Captured rows are already on the
+    # wire form, and canonicalization is idempotent, so this only moves
+    # the pasted ones. THE STORED CODE TEXT IS NEVER REWRITTEN: only
+    # fingerprint and byte_hash move, because the code is what a person
+    # reads and copies (and what a wig's claim digest hashes once the
+    # row is saved to the closet). Runs BEFORE the duplicate heal below,
+    # which keys on exactly these values.
+    from .identity import (
+        canonical_byte_hash,
+        canonical_fingerprint,
+        canonical_pronto,
+    )
+
+    canon_moved = 0
+    for device in devices.values():
+        for sig in device.signals:
+            # Only rows whose code is readable Pronto have a wire form.
+            # Manual and legacy rows keep the identity they have.
+            if not sig.code or canonical_pronto(sig.code) is None:
+                continue
+            moved = False
+            fresh_hash = canonical_byte_hash(sig.code)
+            if fresh_hash is not None and fresh_hash != sig.byte_hash:
+                sig.byte_hash = fresh_hash
+                moved = True
+            fresh_fp = canonical_fingerprint(sig.protocol, sig.code, None)
+            if fresh_fp and fresh_fp != sig.fingerprint:
+                sig.fingerprint = fresh_fp
+                moved = True
+            if moved:
+                canon_moved += 1
+    if canon_moved:
+        dirty = True
+        _LOGGER.info(
+            "Canonical identity backfill: %d catalog signal(s) repointed "
+            "onto the wire form (stored codes unchanged)",
+            canon_moved,
+        )
+
     # Duplicate-signal cleanup (v0.3.2; composite key as of v0.3.4;
     # tiered identity as of v0.5.8; O(n) as of GH #72). See
     # ``_heal_device_signals`` for the semantics.

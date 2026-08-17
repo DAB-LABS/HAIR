@@ -46,7 +46,7 @@ from homeassistant.helpers import (
 from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, EVENT_TRIGGER_FIRED
+from .const import DOMAIN, EVENT_STATE_HEARD, EVENT_TRIGGER_FIRED
 from .event import TRIGGER_DEVICE_ID
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,7 +57,20 @@ _LOGGER = logging.getLogger(__name__)
 CONF_SUBTYPE = "subtype"
 
 TRIGGER_TYPE_BUTTON_PRESSED = "button_pressed"
-TRIGGER_TYPES = {TRIGGER_TYPE_BUTTON_PRESSED}
+# The lattice's own row (signpost 4, Track M). A matrix Remote offers
+# exactly ONE of these, next to its button rows: every heard state
+# fires it, and the cell rides in the event data, so an automation
+# templates on trigger.event.data.mode / .fan / .swing / .temp (or
+# .power) instead of needing a row per state. The lattice never mints
+# rows -- that is the whole reason this type exists.
+TRIGGER_TYPE_STATE_HEARD = "state_heard"
+TRIGGER_TYPES = {TRIGGER_TYPE_BUTTON_PRESSED, TRIGGER_TYPE_STATE_HEARD}
+
+# The one subtype the state-heard row carries. Unlike a button row's
+# subtype -- a trigger NAME, which is why all the alias-history
+# machinery below exists -- this is a fixed label: there is one such
+# row per remote and nothing about it can be renamed.
+STATE_HEARD_SUBTYPE = "State heard"
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {
@@ -183,7 +196,7 @@ async def async_get_triggers(
     if data is None:
         return []
     store = data["store"]
-    return [
+    triggers: list[dict[str, Any]] = [
         {
             CONF_PLATFORM: "device",
             CONF_DEVICE_ID: device_id,
@@ -193,6 +206,21 @@ async def async_get_triggers(
         }
         for trigger in store.get_triggers_for_remote(remote_id)
     ]
+    # One state-heard row per matrix Remote, after its buttons: the
+    # lattice is a property of the remote, not one of its rows. The
+    # drawer never has one (it owns no lattice), and neither does a
+    # flat remote.
+    if remote_id is not None:
+        remote = store.get_trigger_remote(remote_id)
+        if remote is not None and remote.climate_matrix:
+            triggers.append({
+                CONF_PLATFORM: "device",
+                CONF_DEVICE_ID: device_id,
+                CONF_DOMAIN: DOMAIN,
+                CONF_TYPE: TRIGGER_TYPE_STATE_HEARD,
+                CONF_SUBTYPE: STATE_HEARD_SUBTYPE,
+            })
+    return triggers
 
 
 async def async_validate_trigger_config(
@@ -234,6 +262,28 @@ async def async_attach_trigger(
     """
     config = TRIGGER_SCHEMA(config)
     scope = _owning_scope_for_device(hass, config[CONF_DEVICE_ID])
+    if config[CONF_TYPE] == TRIGGER_TYPE_STATE_HEARD:
+        # The lattice row listens to its own bus event, filtered on the
+        # remote id -- an id, so renaming the remote never strands an
+        # automation, and no subtype resolution is needed at all. A
+        # device that is no longer a HAIR remote resolves to the
+        # sentinel and simply never fires, the same permissive shape
+        # the button rows use.
+        remote_filter = (
+            scope
+            if scope is not _NOT_A_TRIGGER_DEVICE and scope != TRIGGER_DEVICE_ID
+            else _UNRESOLVED_SENTINEL
+        )
+        state_config = event_trigger.TRIGGER_SCHEMA(
+            {
+                event_trigger.CONF_PLATFORM: "event",
+                event_trigger.CONF_EVENT_TYPE: EVENT_STATE_HEARD,
+                event_trigger.CONF_EVENT_DATA: {"remote_id": remote_filter},
+            }
+        )
+        return await event_trigger.async_attach_trigger(
+            hass, state_config, action, trigger_info, platform_type="device"
+        )
     if scope is _NOT_A_TRIGGER_DEVICE:
         # The device itself is gone (or was never a HAIR trigger
         # device) -- do not fall back to searching the drawer, that

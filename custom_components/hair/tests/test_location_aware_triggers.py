@@ -217,7 +217,7 @@ class TestFirePayload:
         t = _trigger(min_hits=1, receivers=["infrared.garage"])
         mock_store.add_trigger(t)
         with patch.object(
-            manager, "_resolve_receiver_area", return_value=("area_g", "Garage")
+            manager, "resolve_receiver_area", return_value=("area_g", "Garage")
         ):
             manager.on_signal_captured(
                 "fp1", "pronto", "c1", None, "infrared.garage"
@@ -241,7 +241,7 @@ class TestFirePayload:
 
 class TestResolveReceiverArea:
     def test_none_receiver_short_circuits(self, manager):
-        assert manager._resolve_receiver_area(None) == (None, None)
+        assert manager.resolve_receiver_area(None) == (None, None)
 
     def test_full_chain_resolves(self, manager, monkeypatch):
         ent_reg = MagicMock()
@@ -262,7 +262,7 @@ class TestResolveReceiverArea:
             "custom_components.hair.trigger_manager.ar.async_get",
             lambda _h: area_reg,
         )
-        assert manager._resolve_receiver_area("infrared.garage") == (
+        assert manager.resolve_receiver_area("infrared.garage") == (
             "area1",
             "Garage",
         )
@@ -274,7 +274,7 @@ class TestResolveReceiverArea:
             "custom_components.hair.trigger_manager.er.async_get",
             lambda _h: ent_reg,
         )
-        assert manager._resolve_receiver_area("infrared.x") == (None, None)
+        assert manager.resolve_receiver_area("infrared.x") == (None, None)
 
     def test_area_rename_reflected_on_next_fire(self, manager, monkeypatch):
         """Area is resolved fresh at fire time -- a rename shows up next fire."""
@@ -293,10 +293,10 @@ class TestResolveReceiverArea:
         monkeypatch.setattr(
             "custom_components.hair.trigger_manager.ar.async_get", lambda _h: area_reg
         )
-        assert manager._resolve_receiver_area("x")[1] == "Garage"
+        assert manager.resolve_receiver_area("x")[1] == "Garage"
         # Rename the area in the registry -- next resolution reflects it.
         area_reg.async_get_area.return_value = SimpleNamespace(name="Workshop")
-        assert manager._resolve_receiver_area("x")[1] == "Workshop"
+        assert manager.resolve_receiver_area("x")[1] == "Workshop"
 
 
 # ---------------------------------------------------------------------------

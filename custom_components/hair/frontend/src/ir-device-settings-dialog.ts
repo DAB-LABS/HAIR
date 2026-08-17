@@ -357,29 +357,21 @@ export class IrDeviceSettingsDialog extends LitElement {
                 ${this._renderConvertSection()}
             </div>
             <div class="dialog-actions">
-                <div class="left-group">
-                    <button
-                        class="action-btn cancel-btn"
-                        @click=${this._close}
-                        ?disabled=${this._busy}
-                    >
-                        ${t("common.close")}
-                    </button>
-                    <button
-                        class="action-btn duplicate-btn"
-                        @click=${this._requestDuplicate}
-                        ?disabled=${this._busy}
-                    >
-                        ${t("devsettings.duplicate")}
-                    </button>
-                    <button
-                        class="action-btn delete-btn"
-                        @click=${this._requestDelete}
-                        ?disabled=${this._busy}
-                    >
-                        ${t("devsettings.delete")}
-                    </button>
-                </div>
+                <button
+                    class="action-btn delete-btn"
+                    @click=${this._requestDelete}
+                    ?disabled=${this._busy}
+                >
+                    ${t("devsettings.delete")}
+                </button>
+                <span class="actions-spacer"></span>
+                <button
+                    class="action-btn duplicate-btn"
+                    @click=${this._requestDuplicate}
+                    ?disabled=${this._busy}
+                >
+                    ${t("devsettings.duplicate")}
+                </button>
                 <button
                     class="action-btn save-btn"
                     @click=${this._save}
@@ -647,19 +639,14 @@ export class IrDeviceSettingsDialog extends LitElement {
                 grid-template-columns: 1fr 1fr;
                 column-gap: 10px;
             }
-            /* Close/Duplicate/Delete grouped left, Save alone on the
-             * right (s10 .sd-actions: "justify-content:
-             * space-between"), replacing the old CLOSE-left/SAVE-right
-             * two-button idiom the .spacer trick built (Track 1 item
-             * 6 -- Duplicate/Delete are new occupants of that left
-             * side, not a spacer-vs-flex-end problem anymore). */
-            .dialog-actions {
-                justify-content: space-between;
-            }
-            .left-group {
-                display: flex;
-                gap: 8px;
-            }
+            /* Destructive alone on the left, constructive pair on the
+             * right, with a growing spacer between (punch list item
+             * 20). The grey Close is gone: the dialog's own X already
+             * closes it, and two close doors on one popup read as
+             * clutter -- Escape and the X both still work. The
+             * grouping lives in the markup rather than in a
+             * justify-content mode, so the footer says its own shape:
+             * Delete, gap, Duplicate, Save. */
             /* Mirror-door row (s10 .convert-grid/.convert-text/
              * .convert-btn-cell): description on the left, a
              * fixed-width button cell on the right so the button reads
@@ -747,8 +734,18 @@ export class IrDeviceSettingsDialog extends LitElement {
              * the DOM but hidden) never leaves a dangling line with
              * nothing visible above it -- the rule only fires between
              * two sections that are both actually showing.
+             *
+             * GENERAL sibling, not adjacent (punch list item 20). With
+             * "+" the pair had to be DOM-adjacent, so a flat device --
+             * whose hidden climate wrapper sits between power and the
+             * mirror door -- matched nothing and drew no divider at
+             * all, while a matrix device drew two. Same dialog, two
+             * looks, entirely because of which optional sections
+             * happened to be present. "~" says what the rule always
+             * meant: every visible section after the first gets a
+             * seam above it, whatever is hidden in between.
              */
-            .section-slot:not([hidden]) + .section-slot:not([hidden]) {
+            .section-slot:not([hidden]) ~ .section-slot:not([hidden]) {
                 border-top: 1px solid var(--divider-color);
                 padding-top: 8px;
             }

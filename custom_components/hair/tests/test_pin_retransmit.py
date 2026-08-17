@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from time import monotonic
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -567,3 +568,86 @@ async def test_without_a_device_manager_nothing_retransmits(fake_hass):
 
     assert fired == ["trg1"]
     tm.shutdown()  # must not raise with no dispatcher
+
+
+# ---------------------------------------------------------------------------
+# Cell targets: a heard STATE on the same dispatcher (signpost 4, Track 4)
+# ---------------------------------------------------------------------------
+#
+# A matrix pair has no button and no command row, so its target's third
+# element is the heard cell key behind a prefix. It shares the coalescer
+# and the loop breaker with command retransmits deliberately: a house
+# with both kinds pinned to one device has one rate, and a breaker that
+# counted two half-rates would never trip on the sum.
+
+
+@pytest.mark.asyncio
+async def test_a_cell_target_goes_to_the_matrix_listener(fake_hass):
+    store, _ = _pinned_setup(fake_hass)
+    dm = _RecordingDeviceManager()
+    listener = MagicMock()
+    listener.async_send_pinned_cell = AsyncMock()
+    tm = TriggerManager(fake_hass, store, dm)
+    tm.set_matrix_listener(listener)
+
+    await tm._send_bound_command("dev1", "cell:cool/auto/23")
+
+    listener.async_send_pinned_cell.assert_awaited_once_with(
+        "dev1", "cool/auto/23"
+    )
+    # And never as a command: there is no command row with that id.
+    assert dm.sent == []
+
+
+@pytest.mark.asyncio
+async def test_a_cell_target_with_no_listener_sends_nothing(fake_hass):
+    store, _ = _pinned_setup(fake_hass)
+    dm = _RecordingDeviceManager()
+    tm = TriggerManager(fake_hass, store, dm)
+
+    await tm._send_bound_command("dev1", "cell:cool/auto/23")
+
+    assert dm.sent == []
+
+
+@pytest.mark.asyncio
+async def test_the_listener_dispatches_onto_the_managers_dispatcher(fake_hass):
+    """One dispatcher, not one per hear side: the target arrives with
+    the cell prefix and reaches the same sender."""
+    store, _ = _pinned_setup(fake_hass)
+    listener = MagicMock()
+    listener.async_send_pinned_cell = AsyncMock()
+    hass = _TaskHass()
+    hass.bus = fake_hass.bus
+    tm = TriggerManager(hass, store, _RecordingDeviceManager())
+    tm.set_matrix_listener(listener)
+
+    assert tm.dispatch_cell_retransmit("rem1", "dev1", "cool/auto/23") is True
+    await hass.drain()
+
+    listener.async_send_pinned_cell.assert_awaited_once_with(
+        "dev1", "cool/auto/23"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_runaway_cell_target_is_cut_like_any_other(fake_hass, caplog):
+    """A handset left face-down on a sofa cushion is the matrix version
+    of a held button, and the same floor catches it."""
+    store, _ = _pinned_setup(fake_hass)
+    listener = MagicMock()
+    listener.async_send_pinned_cell = AsyncMock()
+    hass = _TaskHass()
+    hass.bus = fake_hass.bus
+    tm = TriggerManager(hass, store, _RecordingDeviceManager())
+    tm.set_matrix_listener(listener)
+    label = ("Bedroom AC", "Bedroom Head Unit", "cool / fan: auto / 23")
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(PINNED_LOOP_MAX_SENDS + 1):
+            tm.dispatch_cell_retransmit("rem1", "dev1", "cool/auto/23", label)
+            await hass.drain()
+
+    assert listener.async_send_pinned_cell.await_count == PINNED_LOOP_MAX_SENDS
+    assert tm.dispatch_cell_retransmit("rem1", "dev1", "cool/auto/23") is False
+    assert "Bedroom Head Unit" in caplog.text

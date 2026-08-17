@@ -23,17 +23,28 @@
  *     the fuller hint, `grid-column: 1 / -1`. The Devices-section-has-
  *     zero-devices case; the tile IS the section body.
  *
- * COPY IS DELIBERATELY HARDCODED ENGLISH, NOT RUN THROUGH t():
+ * COPY: the COMPACT HINT is redlined and localized; the rest is
+ * still held.
+ *
  * add-popups-signpost-2-coding-plan.md's carry-forward note (section
- * 0.5, restated for signpost 3) rules the ghost tile's structure and
- * format list FINAL but the exact phrasing still pending the owner's
- * bench redline -- ship the s11 strings to the test box, do not push
- * locale-dictionary entries for them until redlined, so a stale
- * translation cannot ship ahead of the English it was translated from.
- * Once redlined, promote these five strings through `t()` and
- * `add_locale_keys`-style parity additions across all ten dictionaries
- * in one pass, the same way ir-use-fork-popup.ts's already-final copy
- * was done (Track 1 item 1).
+ * 0.5, restated for signpost 3) ruled the ghost tile's structure and
+ * format list FINAL but held the phrasing out of `t()` pending the
+ * owner's bench redline, so that a stale translation could not ship
+ * ahead of the English it was translated from. The redline arrived for
+ * the compact hint alone (ghost-tile-redesign-handoff.md, owner-
+ * approved 2026-08-16, punch list item 14), which is why exactly one
+ * string moved: `hintCompact` now reads through `t()` in ten
+ * dictionaries. The title, the two longer hints, and the aria label
+ * are still awaiting their own redline and stay hardcoded English on
+ * purpose -- promote them when they are ruled, not before.
+ *
+ * The compact hint's WORDING then went back (punch list item 22): the
+ * owner saw the shortened "code-set file" phrasing live and took the
+ * flip-back the handoff had named, restoring the full sentence with
+ * every format in it. Two lines are allowed here now -- the one-line
+ * fit that motivated the shorter string was never a requirement, only
+ * a margin, and the tile still takes its height from its row. The
+ * keys did not move, only their values.
  *
  * Usage:
  *   <ir-ghost-tile
@@ -51,6 +62,7 @@
  */
 import { LitElement, html, css, unsafeCSS } from "lit";
 import { customElement, property, state } from "./decorators.js";
+import { t } from "./localize.js";
 import { ORIGIN_COLORS } from "./ir-origin-colors.js";
 
 type GhostKind = "device" | "remote";
@@ -62,7 +74,7 @@ const COPY: Record<
         title: string;
         hintFull: string;
         hintFuller: string;
-        hintCompact: string;
+        hintCompactKey: string;
         aria: string;
     }
 > = {
@@ -70,14 +82,14 @@ const COPY: Record<
         title: "Add a Device",
         hintFull: "Drag a Wig, SmartIR, Flipper, LIRC, or Girr file here, or click to add",
         hintFuller: "Drag a code-set file or click",
-        hintCompact: "Click to add, or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
+        hintCompactKey: "ghost.hint_compact_device",
         aria: "Add Device -- or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
     },
     remote: {
         title: "Add a Remote",
         hintFull: "Drag a Wig, SmartIR, Flipper, LIRC, or Girr file here, or click to add",
         hintFuller: "Drag a code-set file or click",
-        hintCompact: "Click to add, or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
+        hintCompactKey: "ghost.hint_compact_remote",
         aria: "Add Remote -- or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
     },
 };
@@ -174,8 +186,22 @@ export class IrGhostTile extends LitElement {
                           </div>
                       `
                     : html`
-                          <span class="gt-plus">+</span>
-                          <div class="gt-tile-hint">${copy.hintCompact}</div>
+                          <span class="gt-glyph">
+                              <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="1.6"
+                                  aria-hidden="true"
+                              >
+                                  <circle cx="12" cy="12" r="10"></circle>
+                                  <line x1="17.19" y1="12.13" x2="7.19" y2="12.13"></line>
+                                  <line x1="12.19" y1="17.13" x2="12.19" y2="7.13"></line>
+                              </svg>
+                          </span>
+                          <div class="gt-tile-hint">${t(copy.hintCompactKey)}</div>
                       `}
             </div>
         `;
@@ -199,6 +225,32 @@ export class IrGhostTile extends LitElement {
                 color 150ms ease;
             color: var(--secondary-text-color);
             padding: 12px;
+        }
+        /* At rest the tile is a faded grey and nothing more (punch
+           list item 22). It sits in a grid of real cards carrying real
+           names and counts, and at full strength it competed with them
+           for attention it has not earned -- it is an invitation, not
+           a thing that exists yet. One rule dims the whole tile, so
+           the border, the glyph and the hint fade together and cannot
+           drift apart. Opacity rather than three dimmer colors: the
+           glyph already inherits currentColor and the hint already
+           inherits on hover, so a single value keeps all three in step
+           through every state, including whatever the theme does with
+           them.
+
+           Full strength returns on hover, focus and dragover, where
+           the kind color takes over exactly as before -- item 21
+           closed those states as built, and this does not touch them
+           beyond restoring the tile to 1. */
+        .gt-tile {
+            opacity: 0.55;
+            transition: border-color 150ms ease, background 150ms ease,
+                color 150ms ease, opacity 150ms ease;
+        }
+        .gt-tile:hover,
+        .gt-tile:focus-visible,
+        .gt-tile.gt-dragover {
+            opacity: 1;
         }
         .gt-tile:hover,
         .gt-tile:focus-visible {
@@ -248,10 +300,46 @@ export class IrGhostTile extends LitElement {
             font-weight: 600;
             color: var(--primary-text-color);
         }
+        /* Readability pass (punch list item 14): a 65-character
+           sentence set italic at 11.5px was the actual cause of the
+           owner's "hard to read", not a rendering artifact. Italic
+           strokes cost disproportionately at this size, so it goes
+           entirely, the size comes up, and the line box gets room to
+           breathe. */
         .gt-tile-hint {
-            font-size: 0.72rem;
+            font-size: 0.8rem;
             color: var(--secondary-text-color);
-            font-style: italic;
+            line-height: 1.35;
+        }
+        /* The hint was the one part of the tile that stayed grey while
+           everything around it took the kind color on hover. */
+        .gt-tile:hover .gt-tile-hint,
+        .gt-tile:focus-visible .gt-tile-hint {
+            color: inherit;
+        }
+        /* plus-circle.svg is STROKE-based, like edit.svg. Rendered
+           through ha-svg-icon it would come out as hairline garbage,
+           because that element paints path data as fill -- the trap
+           edit-button-pass.md already documents and which this pass
+           does not walk into. Inline svg, stroke: currentColor, fill:
+           none, so the kind-color hover carries the glyph too, for
+           free. 22px against the retired 20px text character: close
+           enough in footprint to sit in the same layout, heavy enough
+           to read as a deliberate icon.
+
+           Compact layout ONLY. The fuller and full layouts keep their
+           text "+" through .gt-plus / .gt-plus-lg -- carrying this
+           treatment into them is a separate decision the spec
+           explicitly declines to assume. */
+        .gt-glyph {
+            width: 22px;
+            height: 22px;
+            flex-shrink: 0;
+            display: inline-flex;
+        }
+        .gt-glyph svg {
+            width: 22px;
+            height: 22px;
         }
         .gt-tile.gt-dragover {
             border-style: solid;

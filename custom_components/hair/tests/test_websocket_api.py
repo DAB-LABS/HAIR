@@ -36,7 +36,9 @@ from custom_components.hair.websocket_api import (
     ws_delete_command,
     ws_delete_device,
     ws_delete_signal,
+    ws_delete_trigger_remote,
     ws_device_make_remote,
+    ws_device_matrix_cells,
     ws_dismiss_unknown,
     ws_duplicate_device,
     ws_duplicate_trigger_remote,
@@ -65,6 +67,8 @@ from custom_components.hair.websocket_api import (
     ws_start_capture,
     ws_test_signal,
     ws_trigger_remote_make_device,
+    ws_trigger_remote_matrix_cell,
+    ws_trigger_remote_matrix_cells,
     ws_undismiss_unknown,
     ws_unknown_signal_snap_preview,
     ws_unpin_trigger_remote_device,
@@ -2816,7 +2820,10 @@ async def test_wig_make_remote_happy_path(fake_hass):
 
     wig_signal_ok = MagicMock(alias="Power")
     wig_signal_bad = MagicMock(alias="Glitch")
-    wig = MagicMock(signals=[wig_signal_ok, wig_signal_bad])
+    # climate=None says this is a FLAT wig: as of signpost 4 Track M
+    # the make-remote door copies wig.climate when there is one, so a
+    # bare MagicMock would read as a matrix wig.
+    wig = MagicMock(signals=[wig_signal_ok, wig_signal_bad], climate=None)
 
     ident_ok = MagicMock(
         fingerprint="S1L2", pronto="0000 006D 0001 0000 00E0 0070",
@@ -2873,7 +2880,7 @@ async def test_wig_make_remote_backfills_source_wig_id(fake_hass):
     store.add_trigger_remote = MagicMock()
     store.add_trigger = MagicMock()
 
-    wig = MagicMock(signals=[])
+    wig = MagicMock(signals=[], climate=None)
     registry = MagicMock()
     registry.async_get_or_create = MagicMock(
         return_value=MagicMock(id="ha-dev-wig-2")
@@ -2914,7 +2921,7 @@ async def test_wig_make_remote_codebook_door_leaves_source_wig_id_none(
     store.add_trigger_remote = MagicMock()
     store.add_trigger = MagicMock()
 
-    wig = MagicMock(signals=[])
+    wig = MagicMock(signals=[], climate=None)
     registry = MagicMock()
     registry.async_get_or_create = MagicMock(
         return_value=MagicMock(id="ha-dev-wig-3")
@@ -3991,3 +3998,795 @@ class TestEveryRegisteredCommandIsDecorated:
             "these are decorated as WebSocket commands but are not named "
             f"like handlers; a decorator stack likely slipped: {odd}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Signpost 4, Track M: the hear-side lattice rides through every door.
+#
+# A Remote minted from a matrix wig (or through either mirror door)
+# carries a COPY of the matrix, keyed by its own id in the same
+# hair/matrices/ folder. These cover the five doors that create, copy
+# or destroy one, plus the two read paths (the list payload's summary
+# and the remote cell browser).
+# ---------------------------------------------------------------------------
+
+
+def _tiny_matrix():
+    """A two-cell lattice, enough to assert identity and counts."""
+    from custom_components.hair.wig_format import ClimateCell, ClimateMatrix
+
+    return ClimateMatrix(
+        min_temp=16, max_temp=30, off="0000 006D 0001 0000 0060 0060",
+        modes=["cool"], fan_modes=["auto"],
+        cells=[
+            ClimateCell(
+                mode="cool", fan="auto", temp=22,
+                pronto="0000 006D 0001 0000 00C0 00C0",
+            ),
+            ClimateCell(
+                mode="cool", fan="auto", temp=23,
+                pronto="0000 006D 0001 0000 00D0 00D0",
+            ),
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_wig_make_remote_matrix_wig_copies_the_lattice(fake_hass):
+    """A matrix wig's lattice is written under the NEW REMOTE's id
+    before the remote exists, and the remote is flagged. The matrix
+    rule still holds: no trigger is minted per cell."""
+    store = _wire_triggers(fake_hass)
+    store.add_trigger_remote = MagicMock()
+    store.add_trigger = MagicMock()
+
+    matrix = _tiny_matrix()
+    wig = MagicMock(signals=[], climate=matrix)
+
+    registry = MagicMock()
+    registry.async_get_or_create = MagicMock(return_value=MagicMock(id="ha-1"))
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.wig_store.load_wig", return_value=wig
+    ), patch(
+        "custom_components.hair.wig_identity.wig_signal_identities",
+        return_value=[],
+    ), patch(
+        "custom_components.hair.matrix_store.write_matrix"
+    ) as write_matrix, patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=registry,
+    ), patch(
+        "custom_components.hair.event.sync_trigger_entities"
+    ):
+        await ws_wig_make_remote(
+            fake_hass, conn,
+            {
+                "id": 901, "type": "hair/wigs/make-remote", "name": "Bedroom AC",
+                "filename": "bedroom-ac.hairwig",
+            },
+        )
+
+    created = store.add_trigger_remote.call_args[0][0]
+    assert created.climate_matrix is True
+    write_matrix.assert_called_once()
+    _cfg, written_id, written_matrix = write_matrix.call_args[0]
+    assert written_id == created.id
+    assert written_matrix is matrix
+    store.add_trigger.assert_not_called()
+    result = conn.send_result.call_args[0][1]
+    assert result["matrix_cells"] == 2
+    assert result["climate_matrix"] is True
+
+
+@pytest.mark.asyncio
+async def test_wig_make_remote_flat_wig_writes_no_matrix(fake_hass):
+    """A flat wig leaves the flag false and never touches the folder."""
+    store = _wire_triggers(fake_hass)
+    store.add_trigger_remote = MagicMock()
+    store.add_trigger = MagicMock()
+
+    registry = MagicMock()
+    registry.async_get_or_create = MagicMock(return_value=MagicMock(id="ha-1"))
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.wig_store.load_wig",
+        return_value=MagicMock(signals=[], climate=None),
+    ), patch(
+        "custom_components.hair.wig_identity.wig_signal_identities",
+        return_value=[],
+    ), patch(
+        "custom_components.hair.matrix_store.write_matrix"
+    ) as write_matrix, patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=registry,
+    ), patch(
+        "custom_components.hair.event.sync_trigger_entities"
+    ):
+        await ws_wig_make_remote(
+            fake_hass, conn,
+            {
+                "id": 902, "type": "hair/wigs/make-remote", "name": "TV Remote",
+                "filename": "tv.hairwig",
+            },
+        )
+
+    created = store.add_trigger_remote.call_args[0][0]
+    assert created.climate_matrix is False
+    write_matrix.assert_not_called()
+    assert conn.send_result.call_args[0][1]["matrix_cells"] == 0
+
+
+@pytest.mark.asyncio
+async def test_wig_make_remote_matrix_write_failure_refuses_the_mint(
+    fake_hass,
+):
+    """Same refusal the device door makes: a remote that claims a
+    lattice it does not have would render a card with nothing behind
+    it, so nothing is created at all."""
+    store = _wire_triggers(fake_hass)
+    store.add_trigger_remote = MagicMock()
+    store.add_trigger = MagicMock()
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.wig_store.load_wig",
+        return_value=MagicMock(signals=[], climate=_tiny_matrix()),
+    ), patch(
+        "custom_components.hair.wig_identity.wig_signal_identities",
+        return_value=[],
+    ), patch(
+        "custom_components.hair.matrix_store.write_matrix",
+        side_effect=OSError("disk full"),
+    ):
+        await ws_wig_make_remote(
+            fake_hass, conn,
+            {
+                "id": 903, "type": "hair/wigs/make-remote", "name": "Bedroom AC",
+                "filename": "bedroom-ac.hairwig",
+            },
+        )
+
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "write_failed"
+    store.add_trigger_remote.assert_not_called()
+    store.add_trigger.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_device_make_remote_copies_the_matrix(fake_hass):
+    """The mirror door byte-copies the device's matrix under the new
+    remote's id, so the remote hears exactly what the device sends."""
+    store = _wire_triggers(fake_hass)
+    store.add_trigger_remote = MagicMock()
+    store.add_trigger = MagicMock()
+
+    device = IRDevice(
+        id="dev-ac-1", name="Bedroom AC", device_type=DeviceType.AC,
+        climate_matrix=True,
+    )
+    fake_hass.data[DOMAIN]["entry-1"]["device_manager"].get_device = MagicMock(
+        return_value=device
+    )
+
+    registry = MagicMock()
+    registry.async_get_or_create = MagicMock(return_value=MagicMock(id="ha-1"))
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.copy_matrix", return_value=True
+    ) as copy_matrix, patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=registry,
+    ), patch(
+        "custom_components.hair.event.sync_trigger_entities"
+    ):
+        await ws_device_make_remote(
+            fake_hass, conn,
+            {
+                "id": 904, "type": "hair/device/make-remote",
+                "name": "Bedroom AC Handset", "device_id": "dev-ac-1",
+            },
+        )
+
+    created = store.add_trigger_remote.call_args[0][0]
+    assert created.climate_matrix is True
+    copy_matrix.assert_called_once()
+    _cfg, src_id, dst_id = copy_matrix.call_args[0]
+    assert (src_id, dst_id) == ("dev-ac-1", created.id)
+    assert conn.send_result.call_args[0][1]["matrix_copied"] is True
+
+
+@pytest.mark.asyncio
+async def test_device_make_remote_copy_failure_degrades_not_refuses(
+    fake_hass,
+):
+    """The triggers are the user's actual ask on this door, so a failed
+    copy yields a flat Remote that says so rather than no Remote."""
+    store = _wire_triggers(fake_hass)
+    store.add_trigger_remote = MagicMock()
+    store.add_trigger = MagicMock()
+
+    device = IRDevice(
+        id="dev-ac-2", name="Bedroom AC", device_type=DeviceType.AC,
+        climate_matrix=True,
+    )
+    fake_hass.data[DOMAIN]["entry-1"]["device_manager"].get_device = MagicMock(
+        return_value=device
+    )
+
+    registry = MagicMock()
+    registry.async_get_or_create = MagicMock(return_value=MagicMock(id="ha-1"))
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.copy_matrix", return_value=False
+    ), patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=registry,
+    ), patch(
+        "custom_components.hair.event.sync_trigger_entities"
+    ):
+        await ws_device_make_remote(
+            fake_hass, conn,
+            {
+                "id": 905, "type": "hair/device/make-remote",
+                "name": "Bedroom AC Handset", "device_id": "dev-ac-2",
+            },
+        )
+
+    created = store.add_trigger_remote.call_args[0][0]
+    assert created.climate_matrix is False
+    conn.send_error.assert_not_called()
+    assert conn.send_result.call_args[0][1]["matrix_copied"] is False
+
+
+@pytest.mark.asyncio
+async def test_trigger_remote_make_device_copies_matrix_and_forces_ac(
+    fake_hass,
+):
+    """The reverse door: the lattice lands under the DEVICE's id before
+    the device exists (the climate entity's load would race a later
+    write), and the type is forced to AC no matter what the caller
+    asked for."""
+    remote = TriggerRemote(
+        id="rem-ac-1", name="Bedroom AC Handset", climate_matrix=True
+    )
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=remote)
+    store.get_triggers_for_remote = MagicMock(return_value=[])
+
+    matrix = _tiny_matrix()
+    manager = _manager_for_device_creation()
+    # The minted device IS a matrix device now, so _device_full reads
+    # its lattice back through the manager's cache on the way out.
+    manager.async_get_matrix = AsyncMock(return_value=matrix)
+    fake_hass.data[DOMAIN]["entry-1"]["device_manager"] = manager
+
+    order: list[str] = []
+    manager.async_create_device = AsyncMock(
+        side_effect=lambda _d: order.append("create")
+    )
+
+    def _copy(_cfg, _src, _dst):
+        order.append("copy")
+        return True
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.copy_matrix", side_effect=_copy
+    ) as copy_matrix:
+        await ws_trigger_remote_make_device(
+            fake_hass, conn,
+            {
+                "id": 906, "type": "hair/trigger-remote/make-device",
+                "name": "Bedroom AC", "remote_id": "rem-ac-1",
+                "device_type": "media_player",
+                "emitter_entity_ids": ["infrared.e"],
+            },
+        )
+
+    device = manager.async_create_device.call_args[0][0]
+    assert device.climate_matrix is True
+    assert device.device_type == DeviceType.AC
+    assert order == ["copy", "create"]
+    _cfg, src_id, dst_id = copy_matrix.call_args[0]
+    assert (src_id, dst_id) == ("rem-ac-1", device.id)
+    result = conn.send_result.call_args[0][1]
+    assert result["matrix_copied"] is True
+    assert result["forced_ac"] is True
+    assert result["matrix"]["cells"] == 2
+
+
+@pytest.mark.asyncio
+async def test_trigger_remote_make_device_copy_failure_stays_flat(fake_hass):
+    """No lattice, no climate entity: the device keeps the type the
+    caller asked for rather than becoming an AC that refuses every
+    send."""
+    remote = TriggerRemote(
+        id="rem-ac-2", name="Bedroom AC Handset", climate_matrix=True
+    )
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=remote)
+    store.get_triggers_for_remote = MagicMock(return_value=[])
+
+    manager = _manager_for_device_creation()
+    fake_hass.data[DOMAIN]["entry-1"]["device_manager"] = manager
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.copy_matrix", return_value=False
+    ):
+        await ws_trigger_remote_make_device(
+            fake_hass, conn,
+            {
+                "id": 907, "type": "hair/trigger-remote/make-device",
+                "name": "Bedroom AC", "remote_id": "rem-ac-2",
+                "device_type": "media_player",
+                "emitter_entity_ids": ["infrared.e"],
+            },
+        )
+
+    device = manager.async_create_device.call_args[0][0]
+    assert device.climate_matrix is False
+    assert device.device_type == DeviceType.MEDIA_PLAYER
+    result = conn.send_result.call_args[0][1]
+    assert result["matrix_copied"] is False
+    assert result["forced_ac"] is False
+
+
+@pytest.mark.asyncio
+async def test_duplicate_trigger_remote_copies_the_matrix(fake_hass):
+    """ws_duplicate_device's shape exactly: the file rides along, and a
+    failed copy clears the flag instead of leaving a broken claim."""
+    source = TriggerRemote(id="src-m", name="Bedroom AC", climate_matrix=True)
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=source)
+    store.get_triggers_for_remote = MagicMock(return_value=[])
+    store.add_trigger_remote = MagicMock()
+
+    registry = MagicMock()
+    registry.async_get_or_create = MagicMock(return_value=MagicMock(id="ha-1"))
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.copy_matrix", return_value=True
+    ) as copy_matrix, patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=registry,
+    ):
+        await ws_duplicate_trigger_remote(
+            fake_hass, conn,
+            {
+                "id": 908, "type": "hair/trigger-remote/duplicate",
+                "remote_id": "src-m", "new_name": "Bedroom AC copy",
+            },
+        )
+
+    clone = store.add_trigger_remote.call_args[0][0]
+    assert clone.climate_matrix is True
+    _cfg, src_id, dst_id = copy_matrix.call_args[0]
+    assert (src_id, dst_id) == ("src-m", clone.id)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_trigger_remote_matrix_copy_failure_clears_flag(
+    fake_hass,
+):
+    source = TriggerRemote(id="src-m2", name="Bedroom AC", climate_matrix=True)
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=source)
+    store.get_triggers_for_remote = MagicMock(return_value=[])
+    store.add_trigger_remote = MagicMock()
+
+    registry = MagicMock()
+    registry.async_get_or_create = MagicMock(return_value=MagicMock(id="ha-1"))
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.copy_matrix", return_value=False
+    ), patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=registry,
+    ):
+        await ws_duplicate_trigger_remote(
+            fake_hass, conn,
+            {
+                "id": 909, "type": "hair/trigger-remote/duplicate",
+                "remote_id": "src-m2", "new_name": "Bedroom AC copy",
+            },
+        )
+
+    clone = store.add_trigger_remote.call_args[0][0]
+    assert clone.climate_matrix is False
+
+
+@pytest.mark.asyncio
+async def test_delete_trigger_remote_deletes_its_matrix_file(fake_hass):
+    """Delete takes the lattice with it, AFTER the store commit."""
+    remote = TriggerRemote(id="rem-del", name="Bedroom AC", climate_matrix=True)
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=remote)
+    store.remove_trigger_remote = MagicMock(return_value=[])
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.delete_matrix", return_value=True
+    ) as delete_matrix, patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=MagicMock(
+            async_get_device=MagicMock(return_value=None)
+        ),
+    ):
+        await ws_delete_trigger_remote(
+            fake_hass, conn,
+            {
+                "id": 910, "type": "hair/trigger-remote/delete",
+                "remote_id": "rem-del",
+            },
+        )
+
+    delete_matrix.assert_called_once()
+    assert delete_matrix.call_args[0][1] == "rem-del"
+    assert conn.send_result.call_args[0][1]["removed"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_flat_trigger_remote_touches_no_matrix_file(fake_hass):
+    remote = TriggerRemote(id="rem-flat", name="TV Remote")
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=remote)
+    store.remove_trigger_remote = MagicMock(return_value=[])
+
+    conn = _make_connection()
+    with patch(
+        "custom_components.hair.matrix_store.delete_matrix"
+    ) as delete_matrix, patch(
+        "custom_components.hair.websocket_api.dr.async_get",
+        return_value=MagicMock(
+            async_get_device=MagicMock(return_value=None)
+        ),
+    ):
+        await ws_delete_trigger_remote(
+            fake_hass, conn,
+            {
+                "id": 911, "type": "hair/trigger-remote/delete",
+                "remote_id": "rem-flat",
+            },
+        )
+
+    delete_matrix.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_list_trigger_remotes_carries_matrix_and_last_heard(fake_hass):
+    """The one-call rule: the card renders its lattice summary and its
+    heard state off the list payload alone."""
+    heard = {
+        "cell_key": "cool/auto/23", "cell_name": "Cool 23 Auto",
+        "power": None, "at": "2026-08-17T10:00:00+00:00",
+        "sl_pattern": "SLLS", "receiver_entity_id": "infrared.lr",
+        "receiver_area_name": "Living Room",
+    }
+    remote = TriggerRemote(
+        id="tr-m", name="Bedroom AC", climate_matrix=True, last_heard=heard
+    )
+    store = _wire_triggers(fake_hass)
+    store.get_all_trigger_remotes = MagicMock(return_value=[remote])
+    store.get_triggers_for_remote = MagicMock(return_value=[])
+
+    listener = MagicMock()
+    listener.async_get_matrix = AsyncMock(return_value=_tiny_matrix())
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+
+    conn = _make_connection()
+    with _mock_device_registry(None):
+        await ws_list_trigger_remotes(
+            fake_hass, conn, {"id": 912, "type": "hair/trigger-remotes"},
+        )
+
+    row = conn.send_result.call_args[0][1][0]
+    assert row["climate_matrix"] is True
+    assert row["matrix"]["cells"] == 2
+    assert row["matrix"]["modes"] == ["cool"]
+    assert row["last_heard"] == heard
+    listener.async_get_matrix.assert_awaited_once_with("tr-m")
+
+
+@pytest.mark.asyncio
+async def test_list_trigger_remotes_flat_remote_reads_no_file(fake_hass):
+    """A flat remote must not cost a matrix load per list call."""
+    remote = TriggerRemote(id="tr-f", name="TV Remote")
+    store = _wire_triggers(fake_hass)
+    store.get_all_trigger_remotes = MagicMock(return_value=[remote])
+    store.get_triggers_for_remote = MagicMock(return_value=[])
+
+    listener = MagicMock()
+    listener.async_get_matrix = AsyncMock(return_value=None)
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+
+    conn = _make_connection()
+    with _mock_device_registry(None):
+        await ws_list_trigger_remotes(
+            fake_hass, conn, {"id": 913, "type": "hair/trigger-remotes"},
+        )
+
+    row = conn.send_result.call_args[0][1][0]
+    assert row["matrix"] is None
+    assert row["last_heard"] is None
+    listener.async_get_matrix.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_remote_matrix_cells_matches_the_device_endpoint(fake_hass):
+    """One body, two endpoints: the remote's card is the device's card
+    in hear mode, so the same lattice must serialize byte for byte."""
+    matrix = _tiny_matrix()
+    remote = TriggerRemote(id="tr-cells", name="Bedroom AC", climate_matrix=True)
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=remote)
+
+    listener = MagicMock()
+    listener.async_get_matrix = AsyncMock(return_value=matrix)
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+
+    device = IRDevice(
+        id="dev-cells", name="Bedroom AC", device_type=DeviceType.AC,
+        climate_matrix=True,
+    )
+    manager = fake_hass.data[DOMAIN]["entry-1"]["device_manager"]
+    manager.get_device = MagicMock(return_value=device)
+    manager.async_get_matrix = AsyncMock(return_value=matrix)
+
+    remote_conn = _make_connection()
+    await ws_trigger_remote_matrix_cells(
+        fake_hass, remote_conn,
+        {
+            "id": 914, "type": "hair/trigger-remote/matrix-cells",
+            "remote_id": "tr-cells",
+        },
+    )
+    device_conn = _make_connection()
+    await ws_device_matrix_cells(
+        fake_hass, device_conn,
+        {
+            "id": 915, "type": "hair/devices/matrix-cells",
+            "device_id": "dev-cells",
+        },
+    )
+
+    remote_payload = remote_conn.send_result.call_args[0][1]
+    assert remote_payload == device_conn.send_result.call_args[0][1]
+    assert remote_payload["cells"] == [
+        {"m": "cool", "f": "auto", "t": 22},
+        {"m": "cool", "f": "auto", "t": 23},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_remote_matrix_cells_flat_remote_is_not_found(fake_hass):
+    remote = TriggerRemote(id="tr-flat2", name="TV Remote")
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=remote)
+
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cells(
+        fake_hass, conn,
+        {
+            "id": 916, "type": "hair/trigger-remote/matrix-cells",
+            "remote_id": "tr-flat2",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# hair/trigger-remote/matrix-cell -- ONE cell, with the bytes the cell
+# browser deliberately omits (signpost 4, Track M, the three doors).
+# ---------------------------------------------------------------------------
+
+
+def _wire_matrix_remote(fake_hass, matrix, remote=None):
+    """A matrix Remote whose lattice the listener serves."""
+    remote = remote or TriggerRemote(
+        id="tr-cell", name="Bedroom AC", climate_matrix=True,
+    )
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=remote)
+    listener = MagicMock()
+    listener.async_get_matrix = AsyncMock(return_value=matrix)
+    fake_hass.data[DOMAIN]["entry-1"]["matrix_listener"] = listener
+    return store, remote
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_returns_pronto_name_and_identity(fake_hass):
+    """The door's whole purpose: coordinates in, the one cell's code,
+    display name and identity out. Identity is DERIVED here rather than
+    read off the file -- a wig carries raw Pronto and no decoded fields
+    -- which is what makes a trigger minted through this door match the
+    same frame heard off the air."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 920, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "mode": "cool", "fan": "auto",
+            "temp": 22,
+        },
+    )
+    conn.send_error.assert_not_called()
+    payload = conn.send_result.call_args[0][1]
+    assert payload["pronto"] == "0000 006D 0001 0000 00C0 00C0"
+    # The owner-ruled display grammar (2026-07-29): spaced slashes,
+    # mode bare first, fan and swing LABELED, temperature a bare
+    # number last. Same string the device side freezes into a saved
+    # command, so a state trigger and a state command minted off the
+    # same cell start from the same name.
+    assert payload["name"] == "cool / fan: auto / 22"
+    identity = payload["identity"]
+    # The fingerprint is what the matcher keys on; it must be present
+    # and non-empty or the minted trigger can never fire.
+    assert identity["signal_fingerprint"]
+    assert set(identity) == {
+        "signal_fingerprint",
+        "byte_hash",
+        "decoded_fingerprint",
+        "decoded_protocol",
+    }
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_is_the_other_half_of_the_no_bytes_contract(
+    fake_hass,
+):
+    """The lattice endpoint ships not one byte of Pronto, on purpose.
+    This endpoint is why that is affordable: a door about to mint one
+    trigger asks for the one cell it needs."""
+    matrix = _tiny_matrix()
+    _wire_matrix_remote(fake_hass, matrix)
+
+    cells_conn = _make_connection()
+    await ws_trigger_remote_matrix_cells(
+        fake_hass, cells_conn,
+        {
+            "id": 921, "type": "hair/trigger-remote/matrix-cells",
+            "remote_id": "tr-cell",
+        },
+    )
+    assert "00C0" not in repr(cells_conn.send_result.call_args[0][1])
+
+    cell_conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, cell_conn,
+        {
+            "id": 922, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "mode": "cool", "fan": "auto",
+            "temp": 22,
+        },
+    )
+    assert "00C0" in cell_conn.send_result.call_args[0][1]["pronto"]
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_power_resolves_the_off_code(fake_hass):
+    _wire_matrix_remote(fake_hass, _tiny_matrix())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 923, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "power": "off",
+        },
+    )
+    conn.send_error.assert_not_called()
+    payload = conn.send_result.call_args[0][1]
+    assert payload["pronto"] == "0000 006D 0001 0000 0060 0060"
+    assert payload["name"] == "Off"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_power_on_without_an_on_code_is_not_found(
+    fake_hass,
+):
+    """_tiny_matrix has an off code and no on code, the common shape."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 924, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "power": "on",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_power_and_mode_together_is_invalid(fake_hass):
+    """EXCLUSIVE here, unlike matrix-send where power deliberately wins:
+    this caller is minting something that gets kept, so an ambiguous
+    request is a client bug worth reporting rather than papering over."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 925, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "power": "off", "mode": "cool",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_neither_power_nor_mode_is_invalid(fake_hass):
+    _wire_matrix_remote(fake_hass, _tiny_matrix())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 926, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "invalid_format"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_never_snaps(fake_hass):
+    """Matrices are sparse. The frontend round-trips coordinates read
+    off matrix-cells, so a miss means a stale client, and snapping
+    would only paper over it -- the same contract the device endpoints
+    hold."""
+    _wire_matrix_remote(fake_hass, _tiny_matrix())
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 927, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-cell", "mode": "cool", "fan": "auto",
+            "temp": 24,
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_flat_remote_is_not_found(fake_hass):
+    remote = TriggerRemote(id="tr-flat3", name="TV Remote")
+    _wire_matrix_remote(fake_hass, None, remote=remote)
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 928, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "tr-flat3", "mode": "cool",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_unknown_remote_is_not_found(fake_hass):
+    store = _wire_triggers(fake_hass)
+    store.get_trigger_remote = MagicMock(return_value=None)
+    conn = _make_connection()
+    await ws_trigger_remote_matrix_cell(
+        fake_hass, conn,
+        {
+            "id": 929, "type": "hair/trigger-remote/matrix-cell",
+            "remote_id": "nope", "mode": "cool",
+        },
+    )
+    conn.send_error.assert_called_once()
+    assert conn.send_error.call_args[0][1] == "not_found"

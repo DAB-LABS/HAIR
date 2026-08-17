@@ -135,6 +135,13 @@ SIGNAL_RAW_FINGERPRINT_LEN = 64
 # which collapses one physical press seen by several receivers.
 TRIGGER_HIT_RESET_WINDOW_S = 5
 EVENT_TRIGGER_FIRED = f"{DOMAIN}_trigger_fired"
+# A matrix Remote heard one of its own lattice states (signpost 4,
+# Track M). Its own event, not a trigger fire: the lattice never
+# auto-mints trigger rows, so there is no trigger_id to carry, and an
+# automation keys on the coordinates instead (mode / fan / swing /
+# temperature, or power). Payload also carries the v0.5.7 location
+# trio, resolved the same way a fire resolves it.
+EVENT_STATE_HEARD = f"{DOMAIN}_state_heard"
 # Alias history cap (Trigger Remotes signpost 1, device_trigger rename
 # tolerance). A renamed trigger retires its old name here so a device
 # trigger's stored subtype (the automation editor's dropdown never stores

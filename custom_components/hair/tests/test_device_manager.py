@@ -16,7 +16,6 @@ from custom_components.hair.device_manager import (
     category_for_command_name,
 )
 from custom_components.hair.entity_factory import EntityFactory
-from custom_components.hair.event_parser import EventParser
 from custom_components.hair.models import IRCommand, IRDevice, IRTrigger
 from custom_components.hair.pronto_validator import validate_pronto
 from custom_components.hair.storage import HAIRStore
@@ -343,7 +342,11 @@ _CODE_LONG = "0000 006D 0002 0000 0040 0040 0040 0040"
 
 
 def _fp(code: str, raw=None) -> str:
-    return EventParser.signal_fingerprint("PRONTO", code, raw)
+    # Canonical (wire) identity: HAIR hashes what a receiver would
+    # hand it, not the file text (identity.py's canonical-form block).
+    from custom_components.hair.identity import canonical_fingerprint
+
+    return canonical_fingerprint("PRONTO", code, raw)
 
 
 class TestUpdateCommand:

@@ -37,7 +37,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.hair.event_parser import EventParser
 from custom_components.hair.identity import SignalIdentity, same_signal
 from custom_components.hair.models import (
     IRCommand,
@@ -101,11 +100,17 @@ NEC_POWER_LEADSHIFT = "0000 006D 0022 0000 0148 00AC" + _NEC_BODY
 
 
 def _fp(code: str) -> str:
-    return EventParser.signal_fingerprint("PRONTO", code, None)
+    # Canonical (wire) identity: HAIR hashes what a receiver would
+    # hand it, not the file text (identity.py's canonical-form block).
+    from custom_components.hair.identity import canonical_fingerprint
+
+    return canonical_fingerprint("PRONTO", code, None)
 
 
 def _bh(code: str) -> str:
-    bh = EventParser.pronto_byte_hash(code)
+    from custom_components.hair.identity import canonical_byte_hash
+
+    bh = canonical_byte_hash(code)
     assert bh is not None
     return bh
 

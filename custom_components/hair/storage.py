@@ -198,6 +198,7 @@ class HAIRStore:
         changed = self._backfill_decoded_fields()
         changed = self._backfill_byte_hash() or changed
         changed = self._backfill_trigger_decoded() or changed
+        changed = self._backfill_canonical_identity() or changed
         changed = self._backfill_trigger_order() or changed
         changed = self._backfill_pin_bindings() or changed
         self._rebuild_command_index()
@@ -240,7 +241,7 @@ class HAIRStore:
         least one hash-bearing command, purely for the diagnostic log in
         ``match_command``.
         """
-        from .event_parser import EventParser
+        from .identity import canonical_fingerprint
 
         self._idx_decoded = {}
         self._idx_fp_bytehash = {}
@@ -252,7 +253,10 @@ class HAIRStore:
                 ref = (device.id, cmd.id)
                 if cmd.decoded_fingerprint:
                     self._idx_decoded[cmd.decoded_fingerprint] = ref
-                fp = EventParser.signal_fingerprint(
+                # Canonical (wire) form, always: a command minted from
+                # a wig carries file text, and a real press arrives as
+                # wire text. See identity.py's canonical-form block.
+                fp = canonical_fingerprint(
                     cmd.protocol, cmd.code, cmd.raw_timings
                 )
                 if fp:
@@ -376,18 +380,100 @@ class HAIRStore:
         legacy bare-fingerprint matcher tier, which is correct because its
         captured signals hash to None through the same code path.
         """
-        from .event_parser import EventParser
+        from .identity import canonical_byte_hash
 
         changed = False
         for device in self._data.values():
             for cmd in device.commands:
                 if cmd.byte_hash is not None:
                     continue
-                bh = EventParser.pronto_byte_hash(cmd.code)
+                # Canonical (wire) form, like every other hash in HAIR
+                # since 2026-08-17 -- identity.py's canonical-form block.
+                bh = canonical_byte_hash(cmd.code)
                 if bh is not None:
                     cmd.byte_hash = bh
                     changed = True
         return changed
+
+    def _backfill_canonical_identity(self) -> bool:
+        """Move stored identity onto the canonical (wire) form.
+
+        WHAT THIS REPAIRS. Until 2026-08-17 every mint door that started
+        from a FILE Pronto -- a closet wig adopted as a Device, USEd as a
+        Remote, a Clipper paste, a Plucker place -- hashed the file text.
+        A real press arrives rebuilt from raw timings, which drops the
+        trailing gap word (identity.py's canonical-form block has the
+        mechanism and the measured numbers), so those records carried an
+        identity nothing on the air could match: 121 of 943 flat closet
+        signals and 23 of 272 wig-adopted device commands, all of them
+        undecoded, silently never matched. Decoded records were unhurt --
+        tier 1 is computed from timings, so it never moved.
+
+        THE STORED PRONTO TEXT IS NEVER REWRITTEN. Only identity fields
+        move. A wig's claim digests hash the code text as written
+        (``wig_format.row_digest``), so rewriting it would invalidate
+        every fitting ever signed; and the text is what a person reads,
+        copies and pastes. Bench-verified: digests are stable across
+        this backfill, and the digest of the wire text differs.
+
+        Runs BEFORE ``_rebuild_command_index`` with the other backfills,
+        because the index keys on exactly these values. Canonicalization
+        is idempotent (verified over 1,411 closet codes), so this is a
+        no-op from the second boot on and folds into the one load-time
+        save when it does change something.
+        """
+        from .identity import (
+            canonical_byte_hash,
+            canonical_fingerprint,
+            canonical_pronto,
+        )
+
+        changed = commands = triggers = 0
+        for device in self._data.values():
+            for cmd in device.commands:
+                # Only rows whose code is readable Pronto have a wire
+                # form at all. A legacy protocol/code pair or a
+                # hand-written record keeps exactly the identity it has.
+                if not cmd.code or canonical_pronto(cmd.code) is None:
+                    continue
+                fresh = canonical_byte_hash(cmd.code)
+                if fresh is not None and fresh != cmd.byte_hash:
+                    cmd.byte_hash = fresh
+                    commands += 1
+                    changed += 1
+        for trigger in self._triggers.values():
+            if not trigger.code or canonical_pronto(trigger.code) is None:
+                continue
+            moved = False
+            # REPOINT an existing hash; never ADD one. A trigger that
+            # has no byte_hash is a pre-0.5.8 legacy row matching
+            # broadly on its fingerprint, and v0.5.8 ruled deliberately
+            # that the load-time backfill must not narrow it (a snapped
+            # code could then mismatch the live capture and the trigger
+            # would go silent, a tier-2 miss being fatal). What was
+            # wrong was hashing the FILE form, so that is what this
+            # repairs -- it does not change which tier a row matches on.
+            if trigger.byte_hash is not None:
+                fresh_hash = canonical_byte_hash(trigger.code)
+                if fresh_hash is not None and fresh_hash != trigger.byte_hash:
+                    trigger.byte_hash = fresh_hash
+                    moved = True
+            fresh_fp = canonical_fingerprint(
+                trigger.protocol, trigger.code, None
+            )
+            if fresh_fp and fresh_fp != trigger.signal_fingerprint:
+                trigger.signal_fingerprint = fresh_fp
+                moved = True
+            if moved:
+                triggers += 1
+                changed += 1
+        if changed:
+            _LOGGER.info(
+                "Canonical identity backfill: %d commands, %d triggers "
+                "repointed onto the wire form (stored codes unchanged)",
+                commands, triggers,
+            )
+        return bool(changed)
 
     def match_command(
         self,

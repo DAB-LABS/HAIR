@@ -15,6 +15,7 @@ from .capture_orchestrator import CaptureOrchestrator
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL, PLUCKABLE_DIRNAME
 from .device_manager import DeviceManager, prime_localized_auto_map
 from .entity_factory import EntityFactory
+from .matrix_listener import MatrixListener
 from .pluckable_loader import load_pluckables
 from .power_monitor import PowerMonitor
 from .signal_monitor import SignalMonitor
@@ -100,7 +101,22 @@ async def async_setup_entry(
     # above, and DeviceManager takes a TriggerManager only as a
     # per-call argument, so this direction closes no cycle.
     trigger_manager = TriggerManager(hass, store, device_manager)
-    signal_monitor = SignalMonitor(hass, signal_store, store, trigger_manager)
+    # The hear side of a matrix Remote (signpost 4, Track M). Owns the
+    # per-remote matrix cache and cell indexes, and is consulted from
+    # the capture path beside the trigger match. It takes the trigger
+    # manager for two things that manager already owns: resolving a
+    # receiver to an HA area, and the panel's push channel.
+    matrix_listener = MatrixListener(
+        hass, store, trigger_manager, device_manager
+    )
+    # And back the other way, after construction: a heard state on a
+    # pinned matrix Remote leaves through the trigger manager's own
+    # retransmit dispatcher (signpost 4, Track 4), so both kinds of
+    # retransmit share one coalescer and one loop breaker.
+    trigger_manager.set_matrix_listener(matrix_listener)
+    signal_monitor = SignalMonitor(
+        hass, signal_store, store, trigger_manager, matrix_listener
+    )
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
@@ -112,6 +128,7 @@ async def async_setup_entry(
         "signal_monitor": signal_monitor,
         "power_monitor": power_monitor,
         "trigger_manager": trigger_manager,
+        "matrix_listener": matrix_listener,
         "pluckable_registry": pluckable_registry,
         "config_entry": entry,
     }

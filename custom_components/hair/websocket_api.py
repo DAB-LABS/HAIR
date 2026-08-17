@@ -37,7 +37,11 @@ from .const import (
 )
 from .device_manager import DeviceManager, category_for_command_name
 from .frequency_standards import IR_CARRIER_STANDARDS_HZ
-from .identity import SignalIdentity
+from .identity import (
+    SignalIdentity,
+    canonical_byte_hash,
+    canonical_fingerprint,
+)
 from .models import IRDevice, IRTrigger, TriggerRemote
 from .pronto_validator import validate_pronto
 from .signal_monitor import SignalMonitor
@@ -82,6 +86,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_device_matrix_cells)
     websocket_api.async_register_command(hass, ws_device_matrix_send)
     websocket_api.async_register_command(hass, ws_device_matrix_command)
+    # The hear side of the same lattice (signpost 4, Track M)
+    websocket_api.async_register_command(hass, ws_trigger_remote_matrix_cells)
+    websocket_api.async_register_command(hass, ws_trigger_remote_matrix_cell)
 
     # Signal Monitor (unknown devices)
     websocket_api.async_register_command(hass, ws_get_unknown_devices)
@@ -624,14 +631,13 @@ async def ws_delete_command(
     # Capture the removed command's signal fingerprint before deletion so we
     # can notify other browser tabs that this signal's assignment set changed
     # (v0.5.7 hair_signal_updated: refreshes the green Assign badge live).
-    from .event_parser import EventParser
 
     sig_fp: str | None = None
     device = manager.get_device(msg["device_id"])
     if device is not None:
         cmd = device.get_command(msg["command_id"])
         if cmd is not None:
-            sig_fp = EventParser.signal_fingerprint(
+            sig_fp = canonical_fingerprint(
                 cmd.protocol, cmd.code, cmd.raw_timings
             )
     # The row is a porthole, so deleting it deletes the CELL. Sparse
@@ -986,7 +992,6 @@ async def ws_save_captured_command(
     # just a tiebreaker. (A load-time backfill exists for pre-0.3.4 records,
     # but a freshly captured command should not need it.) Both fields default
     # to None on undecodable / non-Pronto captures.
-    from .event_parser import EventParser
     from .protocol_decode import try_decode_identity
 
     identity = try_decode_identity(result.raw_timings)
@@ -997,10 +1002,10 @@ async def ws_save_captured_command(
     command.decoded_extras = (
         dict(identity.extras) if identity and identity.extras else None
     )
-    command.byte_hash = EventParser.pronto_byte_hash(result.code)
+    command.byte_hash = canonical_byte_hash(result.code)
     await manager.async_add_command(device.id, command)
     # Notify other tabs this signal now has an assignment (v0.5.7).
-    save_fp = EventParser.signal_fingerprint(
+    save_fp = canonical_fingerprint(
         command.protocol, command.code, command.raw_timings
     )
     if save_fp:
@@ -1276,12 +1281,11 @@ def _assignment_index(
     flip). Command counts are small and this runs on the per-device fetch,
     so the scan is cheap; correctness of the dot beats micro-optimization.
     """
-    from .event_parser import EventParser
 
     entries: list[tuple[SignalIdentity, dict[str, str]]] = []
     for device in hair_devices:
         for command in device.commands:
-            fp = EventParser.signal_fingerprint(
+            fp = canonical_fingerprint(
                 command.protocol, command.code, command.raw_timings
             )
             if not fp:
@@ -2644,7 +2648,6 @@ async def ws_create_trigger(
     msg: dict[str, Any],
 ) -> None:
     """Create a new trigger."""
-    from .event_parser import EventParser
 
     data = _get_first_entry_data(hass)
     if data is None:
@@ -2672,7 +2675,10 @@ async def ws_create_trigger(
 
     # Auto-compute fingerprint from protocol+code when not provided.
     if not sig_fp and (protocol or code):
-        sig_fp = EventParser.signal_fingerprint(protocol, code, None)
+        # Canonical (wire) identity: a trigger created from a pasted or
+        # wig-supplied code has to match the real press, which arrives
+        # rebuilt from raw timings (identity.py's canonical-form block).
+        sig_fp = canonical_fingerprint(protocol, code, None)
 
     # Resolve the source command when one was given. Two jobs, independently
     # gated: fill a missing fingerprint, and (v0.5.8) derive the byte_hash.
@@ -2690,7 +2696,7 @@ async def ws_create_trigger(
                 cmd = device.get_command(msg["source_command_id"])
                 if cmd:
                     if not sig_fp:
-                        sig_fp = EventParser.signal_fingerprint(
+                        sig_fp = canonical_fingerprint(
                             cmd.protocol, cmd.code, cmd.raw_timings,
                         )
                     if not protocol:
@@ -3068,6 +3074,43 @@ def _trigger_remote_ha_device_id(hass: HomeAssistant, remote_id: str) -> str | N
     return ha_device.id if ha_device is not None else None
 
 
+def _invalidate_remote_matrix(data: dict[str, Any], remote_id: str) -> None:
+    """Drop the listener's cached matrix for one remote.
+
+    Called by every door that writes, copies or deletes a remote's
+    matrix file (signpost 4, Track M). The cache is held for the
+    install's lifetime on the argument that nothing changes a matrix
+    behind our back, so every door that DOES change one has to say so
+    here. A no-op when no listener is registered, which is the shape
+    hand-built test entry data carries.
+    """
+    listener = data.get("matrix_listener")
+    if listener is not None:
+        listener.invalidate(remote_id)
+
+
+async def _remote_matrix(
+    hass: HomeAssistant, data: dict[str, Any], remote: TriggerRemote
+) -> Any | None:
+    """One remote's parsed matrix, or None when it has none.
+
+    Goes through the listener's cache when there is one; falls back to
+    a direct executor load otherwise, so a caller assembled without a
+    listener reads the truth off disk rather than reporting a matrix
+    remote as flat.
+    """
+    if not remote.climate_matrix:
+        return None
+    listener = data.get("matrix_listener")
+    if listener is not None:
+        return await listener.async_get_matrix(remote.id)
+    from .matrix_store import load_matrix
+
+    return await hass.async_add_executor_job(
+        load_matrix, hass.config.config_dir, remote.id
+    )
+
+
 def _register_trigger_remote_ha_device(
     hass: HomeAssistant, config_entry_id: str, remote: TriggerRemote
 ) -> str:
@@ -3145,6 +3188,17 @@ async def ws_list_trigger_remotes(
                     "device_name": pinned_device.name,
                     "command_name": name,
                 })
+        # Signpost 4, Track M: the hear-side lattice summary, the same
+        # shape and the same helper _device_full puts on a device.
+        # This list IS the detail payload (the one-call rule), so the
+        # card renders without a follow-up; the listener's cache is
+        # what keeps a per-refresh summary off the disk.
+        matrix_summary_block = None
+        matrix = await _remote_matrix(hass, data, remote)
+        if matrix is not None:
+            from .wig_climate import matrix_summary
+
+            matrix_summary_block = matrix_summary(matrix)
         result.append({
             **remote.to_dict(),
             "ha_device_id": _trigger_remote_ha_device_id(hass, remote.id),
@@ -3152,6 +3206,7 @@ async def ws_list_trigger_remotes(
             "enabled_count": enabled_count,
             "disabled_count": len(triggers) - enabled_count,
             "pin_map": pin_map,
+            "matrix": matrix_summary_block,
         })
     connection.send_result(msg["id"], result)
 
@@ -3354,18 +3409,41 @@ async def ws_delete_trigger_remote(
     Mirrors ``DeviceManager.async_remove_device``'s ordering: remove
     the owned event entities first, then explicitly remove the HA
     device-registry entry (entity removal alone does not clean up an
-    otherwise-orphaned device), then commit the store change.
+    otherwise-orphaned device), then commit the store change. Its
+    matrix file (signpost 4, Track M) goes the same way that method
+    disposes of a device's: best-effort, AFTER the store commit, so a
+    full disk or a bad permission can never resurrect a remote the
+    user already deleted. An orphaned matrix file is inert -- nothing
+    reads one without the id that names it.
     """
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     store = data["store"]
+    # Read before removal: the flag lives on the remote row, and
+    # remove_trigger_remote returns its triggers, not the remote.
+    doomed = store.get_trigger_remote(msg["remote_id"])
+    had_matrix = doomed is not None and doomed.climate_matrix
     removed = store.remove_trigger_remote(msg["remote_id"])
     if removed is None:
         connection.send_error(msg["id"], "not_found", "Trigger remote not found")
         return
     await store.async_save()
+
+    _invalidate_remote_matrix(data, msg["remote_id"])
+    if had_matrix:
+        from .matrix_store import delete_matrix
+
+        try:
+            await hass.async_add_executor_job(
+                delete_matrix, hass.config.config_dir, msg["remote_id"]
+            )
+        except Exception:
+            _LOGGER.warning(
+                "Could not delete matrix file for remote %s",
+                msg["remote_id"], exc_info=True,
+            )
 
     from .event import sync_trigger_entities
 
@@ -3535,6 +3613,19 @@ async def ws_duplicate_trigger_remote(
     clone = source.clone(new_name)
     if "receiver_scope" in msg:
         clone.receiver_scope = list(msg["receiver_scope"])
+    if clone.climate_matrix:
+        # Same shape as ws_duplicate_device: the file rides along under
+        # the copy's id, and a failed copy clears the flag rather than
+        # leaving a remote that claims a lattice it cannot read.
+        from .matrix_store import copy_matrix
+
+        copied_matrix = await hass.async_add_executor_job(
+            copy_matrix, hass.config.config_dir, source.id, clone.id
+        )
+        if copied_matrix:
+            _invalidate_remote_matrix(data, clone.id)
+        else:
+            clone.climate_matrix = False
     store.add_trigger_remote(clone)
 
     from .event import sync_trigger_entities
@@ -5555,9 +5646,22 @@ async def ws_trigger_remote_make_device(
     command just will not TX until a later edit fixes it, same
     tolerance the Pronto-edit path itself has for a bad code).
 
-    No matrix concept applies to a Remote's triggers (always flat), so
-    climate_matrix is never set and device_type is a free choice, same
-    as ws_create_device's Manual tab.
+    A Remote's TRIGGERS are always flat, so the loop below never mints
+    a cell row. The Remote itself may still carry a lattice, though
+    (signpost 4, Track M): when it does, the matrix file is byte-copied
+    under the new device's id BEFORE the device exists -- the climate
+    entity's added-to-hass hook loads it, so writing afterwards would
+    race it, the same ordering ws_wig_make_device keeps -- the device
+    is flagged ``climate_matrix``, and its type is FORCED to AC
+    regardless of what the caller asked for. Forcing rather than
+    refusing (ws_wig_make_device's answer to the same situation) is
+    deliberate on this door: the closet dialog seeds its type from the
+    wig's kind and can only send a wrong one when hand-rolled, while
+    this door's dialog offers the user a free choice and would
+    otherwise dead-end a mint they legitimately asked for. The result
+    carries ``forced_ac`` so the caller can say what happened. A failed
+    copy leaves the device flat and says so in ``matrix_copied``,
+    rather than minting a climate entity with no lattice to send.
 
     Origin recorded "remote", source recorded as the remote's id
     (IRDevice.source_remote_id) -- the Track 3.5 pin prompt's trivial
@@ -5581,6 +5685,12 @@ async def ws_trigger_remote_make_device(
         connection.send_error(msg["id"], "not_found", "Remote not found")
         return
 
+    matrix_copied = False
+    forced_ac = False
+    if remote.climate_matrix:
+        forced_ac = device_type != DeviceType.AC
+        device_type = DeviceType.AC
+
     device = IRDevice(
         name=msg["name"],
         device_type=device_type,
@@ -5588,6 +5698,20 @@ async def ws_trigger_remote_make_device(
         origin="remote",
         source_remote_id=remote.id,
     )
+    if remote.climate_matrix:
+        from .matrix_store import copy_matrix
+
+        matrix_copied = await hass.async_add_executor_job(
+            copy_matrix, hass.config.config_dir, remote.id, device.id
+        )
+        if matrix_copied:
+            device.climate_matrix = True
+        else:
+            # Nothing to send from: an AC device with no lattice would
+            # spin up a climate entity that refuses every command with
+            # no visible reason. Stay flat and report it.
+            forced_ac = False
+            device.device_type = DeviceType(msg["device_type"])
     await manager.async_create_device(device)
 
     from .ir_command import ProntoCommand
@@ -5617,6 +5741,8 @@ async def ws_trigger_remote_make_device(
     await manager.async_update_device(device)
     result = await _device_full(hass, device)
     result["copied"] = copied
+    result["matrix_copied"] = matrix_copied
+    result["forced_ac"] = forced_ac
     connection.send_result(msg["id"], result)
 
 
@@ -5646,14 +5772,23 @@ async def ws_wig_make_remote(
     ``filename`` or a library ``codebook_id``) and identity resolution
     exactly, but mints IRTrigger rows instead of IRCommand rows and
     skips everything device-only: no emitter picker, no
-    climate_matrix flag, no matrix file write, no porthole/cell_rows
-    minting. THE MATRIX RULE (trigger-remotes-release-a.md): a matrix
-    wig's lattice cells live in ``wig.climate.cells``, never in
-    ``wig.signals`` -- the same flat-signal loop ws_wig_make_device
-    already runs for a matrix wig's depth-0 extras is naturally
-    matrix-rule-compliant here too, with no separate guard needed, and
-    no AC-device-type restriction applies since a Remote has no device
-    type at all. Origin recorded "closet".
+    climate_matrix flag, no porthole/cell_rows minting. THE MATRIX
+    RULE (trigger-remotes-release-a.md): a matrix wig's lattice cells
+    live in ``wig.climate.cells``, never in ``wig.signals`` -- the same
+    flat-signal loop ws_wig_make_device already runs for a matrix wig's
+    depth-0 extras is naturally matrix-rule-compliant here too, with no
+    separate guard needed, and no AC-device-type restriction applies
+    since a Remote has no device type at all. Origin recorded "closet".
+
+    THE LATTICE NOW RIDES ALONG (signpost 4, Track M). The matrix rule
+    is unchanged -- no trigger is minted per cell, the depth-0 extras
+    are still the only rows -- but the lattice itself is COPIED to
+    ``hair/matrices/<remote_id>.matrix.json`` so the remote can HEAR
+    its own states. Written BEFORE the remote exists, and a write
+    failure refuses the whole mint: the device door's argument (never
+    leave something claiming a matrix it does not have) holds here even
+    though no entity races the file, because the remote's card, its
+    listener and its LAST HEARD row all read the flag.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -5711,12 +5846,28 @@ async def ws_wig_make_remote(
             backfill_wig_id, hass.config.config_dir, filename
         )
 
+    matrix = wig.climate
     remote = TriggerRemote(
         name=name,
         receiver_scope=list(msg.get("receiver_scope") or []),
         origin="closet",
         source_wig_id=source_wig_id,
+        climate_matrix=matrix is not None,
     )
+    if matrix is not None:
+        from .matrix_store import write_matrix
+
+        try:
+            await hass.async_add_executor_job(
+                write_matrix, hass.config.config_dir, remote.id, matrix
+            )
+        except OSError as err:
+            connection.send_error(
+                msg["id"], "write_failed",
+                f"Could not write the matrix file: {err}",
+            )
+            return
+        _invalidate_remote_matrix(data, remote.id)
     store.add_trigger_remote(remote)
 
     triggers: list[IRTrigger] = []
@@ -5755,6 +5906,7 @@ async def ws_wig_make_remote(
         **remote.to_dict(),
         "ha_device_id": ha_device_id,
         "trigger_count": len(triggers),
+        "matrix_cells": len(matrix.cells) if matrix is not None else 0,
     }
     connection.send_result(msg["id"], result)
 
@@ -5796,6 +5948,15 @@ async def ws_device_make_remote(
     is not an error, it just yields an unusually thin Remote, same as
     a matrix wig with no depth-0 extras on the wig-sourced door.
 
+    THE LATTICE COMES WITH IT (signpost 4, Track M). A matrix device's
+    matrix file is byte-copied under the new remote's id, so the
+    remote hears exactly what the device sends. Unlike the closet
+    door, a failed copy does NOT refuse the mint: the triggers above
+    are the user's actual ask and a device with an unreadable matrix
+    file is already broken on its own page. The flag stays false and
+    the result says ``matrix_copied: false`` so the caller can tell
+    the user the lattice did not come across.
+
     Origin recorded "device", source recorded as the device's id
     (TriggerRemote.source_device_id) -- the Track 3.5 pin prompt's
     trivial "content match".
@@ -5817,7 +5978,7 @@ async def ws_device_make_remote(
         connection.send_error(msg["id"], "not_found", "Device not found")
         return
 
-    from .event_parser import EventParser
+    from .identity import canonical_fingerprint
 
     remote = TriggerRemote(
         name=name,
@@ -5825,6 +5986,16 @@ async def ws_device_make_remote(
         origin="device",
         source_device_id=device.id,
     )
+    matrix_copied = False
+    if device.climate_matrix:
+        from .matrix_store import copy_matrix
+
+        matrix_copied = await hass.async_add_executor_job(
+            copy_matrix, hass.config.config_dir, device.id, remote.id
+        )
+        remote.climate_matrix = matrix_copied
+        if matrix_copied:
+            _invalidate_remote_matrix(data, remote.id)
     store.add_trigger_remote(remote)
 
     triggers: list[IRTrigger] = []
@@ -5834,7 +6005,10 @@ async def ws_device_make_remote(
         trig_name = command.name.strip() or f"Command {i}"
         trigger = IRTrigger(
             name=trig_name,
-            signal_fingerprint=EventParser.signal_fingerprint(
+            # Canonical (wire) identity, so the minted trigger matches
+            # the real handset press (identity.py's canonical-form
+            # block); the command's own code text is untouched.
+            signal_fingerprint=canonical_fingerprint(
                 command.protocol, command.code, command.raw_timings
             ),
             protocol=command.protocol,
@@ -5865,6 +6039,7 @@ async def ws_device_make_remote(
         **remote.to_dict(),
         "ha_device_id": ha_device_id,
         "trigger_count": len(triggers),
+        "matrix_copied": matrix_copied,
     }
     connection.send_result(msg["id"], result)
 
@@ -6159,6 +6334,43 @@ async def _matrix_for_request(
     return data, device, matrix
 
 
+def _matrix_cells_payload(matrix: Any) -> dict[str, Any]:
+    """The cell-browser payload for one lattice, device or remote.
+
+    One body, two endpoints (signpost 4, Track M): the remote's card is
+    the device card in hear mode and must read byte-identical bytes, so
+    the shape lives here rather than being copied into a sibling
+    handler that would drift by the second change.
+    """
+    from .wig_climate import matrix_summary
+
+    summary = matrix_summary(matrix)
+    cells: list[dict[str, Any]] = []
+    for c in matrix.cells:
+        cell: dict[str, Any] = {"m": c.mode}
+        if c.fan is not None:
+            cell["f"] = c.fan
+        if c.swing is not None:
+            cell["s"] = c.swing
+        if c.temp is not None:
+            cell["t"] = c.temp
+        cells.append(cell)
+    return {
+        # Native bounds plus the native unit (unit ruling 2026-07-29):
+        # the frontend converts for display per render and computes
+        # absent tiles from these native numbers, never the converse.
+        "min_temp": matrix.min_temp,
+        "max_temp": matrix.max_temp,
+        "precision": matrix.precision,
+        "unit": matrix.unit,
+        "modes": summary["modes"],
+        "fan_modes": summary["fan_modes"],
+        "swing_modes": summary["swing_modes"],
+        "has_on": matrix.on is not None,
+        "cells": cells,
+    }
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/devices/matrix-cells",
@@ -6184,32 +6396,192 @@ async def ws_device_matrix_cells(
     if resolved is None:
         return
     _data, _device, matrix = resolved
-    from .wig_climate import matrix_summary
+    connection.send_result(msg["id"], _matrix_cells_payload(matrix))
 
-    summary = matrix_summary(matrix)
-    cells: list[dict[str, Any]] = []
-    for c in matrix.cells:
-        cell: dict[str, Any] = {"m": c.mode}
-        if c.fan is not None:
-            cell["f"] = c.fan
-        if c.swing is not None:
-            cell["s"] = c.swing
-        if c.temp is not None:
-            cell["t"] = c.temp
-        cells.append(cell)
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/matrix-cells",
+    vol.Required("remote_id"): str,
+})
+@websocket_api.async_response
+async def ws_trigger_remote_matrix_cells(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The same cell browser, for a Remote's heard-side lattice.
+
+    Identical bytes to the device endpoint above (shared body), because
+    the remote's card is the device's card in hear mode. No send
+    sibling and no command sibling: nothing transmits from a Remote.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Remote not found")
+        return
+    matrix = await _remote_matrix(hass, data, remote)
+    if matrix is None:
+        # Covers both a flat remote and an unreadable matrix file;
+        # matrix_store already logged the reason for the latter.
+        connection.send_error(
+            msg["id"], "not_found", "Remote has no readable climate matrix"
+        )
+        return
+    connection.send_result(msg["id"], _matrix_cells_payload(matrix))
+
+
+class _MatrixPickError(Exception):
+    """One lattice coordinate set that did not resolve.
+
+    Carries the websocket error code alongside the message so a caller
+    can hand both straight to ``send_error`` without re-deciding which
+    failure it was.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _matrix_pick(
+    hass: HomeAssistant, matrix: Any, msg: dict[str, Any]
+) -> tuple[str, str, int]:
+    """Resolve coordinates to ``(display name, Pronto, send count)``.
+
+    ``power`` and ``mode`` are EXCLUSIVE here, unlike matrix-send where
+    power deliberately wins over stale cell coordinates: the callers
+    below are minting something that gets kept (a stored command, a
+    trigger), so an ambiguous request is a client bug worth reporting
+    rather than papering over.
+
+    The name is built at call time in the install's unit (unit ruling
+    2026-07-29). What each caller then does with it differs -- a stored
+    command freezes it, a trigger's name is the user's to edit in the
+    dialog -- but the string they start from is the same one the card's
+    Set-state line previewed.
+    """
+    from .wig_climate import (
+        cell_display_name,
+        exact_cell,
+        state_display_name,
+        unit_letter,
+    )
+
+    power = msg.get("power")
+    mode = msg.get("mode")
+    if power is not None and mode is not None:
+        raise _MatrixPickError("invalid_format", "Provide power or mode")
+    if power is not None:
+        pronto = matrix.off if power == "off" else matrix.on
+        if pronto is None:
+            raise _MatrixPickError("not_found", "This matrix has no on code")
+        return state_display_name(power), pronto, 1
+    if mode is None:
+        raise _MatrixPickError("invalid_format", "Provide power or mode")
+    cell = exact_cell(
+        matrix, mode, msg.get("fan"), msg.get("swing"), msg.get("temp"),
+    )
+    if cell is None:
+        raise _MatrixPickError("not_found", "No cell at those coordinates")
+    name = cell_display_name(
+        cell,
+        unit=matrix.unit,
+        display_unit=unit_letter(hass.config.units.temperature_unit),
+        precision=matrix.precision,
+    )
+    return name, cell.pronto, cell.send_count
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/trigger-remote/matrix-cell",
+    vol.Required("remote_id"): str,
+    vol.Optional("mode"): str,
+    vol.Optional("fan"): vol.Any(str, None),
+    vol.Optional("swing"): vol.Any(str, None),
+    vol.Optional("temp"): vol.Any(int, float, None),
+    vol.Optional("power"): vol.Any("on", "off"),
+})
+@websocket_api.async_response
+async def ws_trigger_remote_matrix_cell(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """ONE cell, with the bytes the cell browser deliberately omits.
+
+    matrix-cells ships the whole lattice without a byte of Pronto, and
+    that no-bytes contract is the point: the census worst case is 2,689
+    cells and the browser needs coordinates, not codes. But the three
+    doors that mint a trigger off the lattice -- the LAST HEARD row,
+    the action bar on a heard cell, the action bar on a never-heard one
+    -- each need exactly one cell's code and identity to pre-fill the
+    dialog with. So they ask for the one, by the coordinates they
+    already hold.
+
+    Identity is derived here rather than shipped from the file because
+    a wig carries raw Pronto and no decoded fields, and because a
+    trigger minted off a cell must match the same frame heard off the
+    air. ``wig_signal_identity`` is the same derivation the matrix
+    listener's own cell index uses, so the trigger created through this
+    door and the state that fires it agree by construction.
+
+    Read-only: nothing is stored and nothing transmits. The remote is a
+    listener.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    store = data["store"]
+    remote = store.get_trigger_remote(msg["remote_id"])
+    if remote is None:
+        connection.send_error(msg["id"], "not_found", "Remote not found")
+        return
+    matrix = await _remote_matrix(hass, data, remote)
+    if matrix is None:
+        connection.send_error(
+            msg["id"], "not_found", "Remote has no readable climate matrix"
+        )
+        return
+    try:
+        name, pronto, _send_count = _matrix_pick(hass, matrix, msg)
+    except _MatrixPickError as err:
+        connection.send_error(msg["id"], err.code, err.message)
+        return
+
+    from .wig_identity import wig_signal_identity
+
+    ident = await hass.async_add_executor_job(wig_signal_identity, pronto)
+    if ident is None:
+        # Possible only for a hand-edited matrix file whose code no
+        # longer validates; refuse honestly rather than hand the dialog
+        # a code it cannot mint a matching trigger from.
+        connection.send_error(
+            msg["id"], "invalid_format", "The code does not validate"
+        )
+        return
     connection.send_result(msg["id"], {
-        # Native bounds plus the native unit (unit ruling 2026-07-29):
-        # the frontend converts for display per render and computes
-        # absent tiles from these native numbers, never the converse.
-        "min_temp": matrix.min_temp,
-        "max_temp": matrix.max_temp,
-        "precision": matrix.precision,
-        "unit": matrix.unit,
-        "modes": summary["modes"],
-        "fan_modes": summary["fan_modes"],
-        "swing_modes": summary["swing_modes"],
-        "has_on": matrix.on is not None,
-        "cells": cells,
+        # The file text, which is what a trigger stores as its code --
+        # the canonical form is an identity detail, not a payload one.
+        "pronto": ident.pronto,
+        "name": name,
+        "identity": {
+            "signal_fingerprint": ident.fingerprint,
+            "byte_hash": ident.byte_hash,
+            "decoded_fingerprint": ident.decoded_fingerprint,
+            # For the dialog's protocol line. Null for every AC lattice
+            # frame in the corpus so far, which is why the LAST HEARD
+            # row draws no protocol chip yet.
+            "decoded_protocol": ident.decoded_protocol,
+        },
     })
 
 
@@ -6365,55 +6737,18 @@ async def ws_device_matrix_command(
         return
     data, device, matrix = resolved
     from .models import CaptureResult
-    from .wig_climate import (
-        cell_display_name,
-        exact_cell,
-        state_display_name,
-        unit_letter,
-    )
     from .wig_identity import wig_signal_identity
 
-    power = msg.get("power")
-    mode = msg.get("mode")
-    if power is not None and mode is not None:
-        connection.send_error(
-            msg["id"], "invalid_format", "Provide power or mode"
-        )
-        return
-    if power is not None:
-        pronto = matrix.off if power == "off" else matrix.on
-        if pronto is None:
-            connection.send_error(
-                msg["id"], "not_found", "This matrix has no on code"
-            )
-            return
-        name = state_display_name(power)
-        send_count = 1
-    elif mode is not None:
-        cell = exact_cell(
-            matrix, mode, msg.get("fan"), msg.get("swing"), msg.get("temp"),
-        )
-        if cell is None:
-            connection.send_error(
-                msg["id"], "not_found", "No cell at those coordinates"
-            )
-            return
-        # Mint-time naming (unit ruling 2026-07-29): the saved
-        # command's name freezes in the install's unit as of NOW; it
-        # never rewrites, even if the install later changes units.
-        # The frontend's Set-state line previews this exact string.
-        name = cell_display_name(
-            cell,
-            unit=matrix.unit,
-            display_unit=unit_letter(hass.config.units.temperature_unit),
-            precision=matrix.precision,
-        )
-        pronto = cell.pronto
-        send_count = cell.send_count
-    else:
-        connection.send_error(
-            msg["id"], "invalid_format", "Provide power or mode"
-        )
+    # Mint-time naming (unit ruling 2026-07-29): the saved command's
+    # name freezes in the install's unit as of NOW and never rewrites,
+    # even if the install later changes units. The frontend's Set-state
+    # line previews this exact string. The resolution itself is shared
+    # with the remote side's matrix-cell door, which mints a trigger
+    # off the same coordinates under the same power-or-mode rule.
+    try:
+        name, pronto, send_count = _matrix_pick(hass, matrix, msg)
+    except _MatrixPickError as err:
+        connection.send_error(msg["id"], err.code, err.message)
         return
 
     ident = await hass.async_add_executor_job(wig_signal_identity, pronto)

@@ -79,6 +79,42 @@ def _matrix_path(config_dir: str | Path, device_id: str) -> Path | None:
     return matrices_dir(config_dir) / f"{device_id}{MATRIX_SUFFIX}"
 
 
+INDEX_SUFFIX = ".index.json"
+
+
+def matrix_path(config_dir: str | Path, owner_id: str) -> Path | None:
+    """The matrix file for a device or remote id, or None if unsafe."""
+    return _matrix_path(config_dir, owner_id)
+
+
+def index_path(config_dir: str | Path, owner_id: str) -> Path | None:
+    """The built cell index that sits BESIDE that matrix file.
+
+    Same folder, same id, different suffix: deriving identity for a
+    lattice is seconds of decode work on a large file (signpost 4,
+    Track M), and it is the same answer every boot, so the listener
+    caches it on disk. The index names the matrix it was built from by
+    content hash, so a stale one can never be believed.
+    """
+    if not _safe_device_id(owner_id):
+        return None
+    return matrices_dir(config_dir) / f"{owner_id}{INDEX_SUFFIX}"
+
+
+def matrix_content_hash(config_dir: str | Path, owner_id: str) -> str | None:
+    """A cheap content tag for the matrix file: size and sha256."""
+    path = _matrix_path(config_dir, owner_id)
+    if path is None:
+        return None
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    import hashlib
+
+    return f"{len(raw)}:{hashlib.sha256(raw).hexdigest()[:32]}"
+
+
 def write_matrix(
     config_dir: str | Path, device_id: str, matrix: ClimateMatrix
 ) -> None:
@@ -158,11 +194,64 @@ def delete_matrix(config_dir: str | Path, device_id: str) -> bool:
         return False
     try:
         if not path.is_file():
+            delete_cell_index(config_dir, device_id)
             return False
         path.unlink()
+        delete_cell_index(config_dir, device_id)
         return True
     except OSError as err:
         _LOGGER.warning("Could not delete matrix file %s: %s", path, err)
+        return False
+
+
+def write_cell_index(
+    config_dir: str | Path, owner_id: str, payload: dict
+) -> bool:
+    """Write the built index beside the matrix. False on any problem.
+
+    Best-effort by design: a missing or unwritable index costs a
+    rebuild, never a wrong answer.
+    """
+    path = index_path(config_dir, owner_id)
+    if path is None:
+        return False
+    try:
+        ensure_matrices_dir(config_dir)
+        path.write_text(
+            json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+        )
+        return True
+    except (OSError, TypeError, ValueError) as err:
+        _LOGGER.debug("Could not write cell index %s: %s", path, err)
+        return False
+
+
+def load_cell_index(config_dir: str | Path, owner_id: str) -> dict | None:
+    """Read the built index, or None when absent or unreadable."""
+    path = index_path(config_dir, owner_id)
+    if path is None:
+        return None
+    try:
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as err:
+        _LOGGER.debug("Could not read cell index %s: %s", path, err)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def delete_cell_index(config_dir: str | Path, owner_id: str) -> bool:
+    """Remove a stale index file. False when absent or refused."""
+    path = index_path(config_dir, owner_id)
+    if path is None:
+        return False
+    try:
+        if not path.is_file():
+            return False
+        path.unlink()
+        return True
+    except OSError:
         return False
 
 
