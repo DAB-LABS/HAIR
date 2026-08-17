@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "RAW: {count} czasów",
     "cmdrow.not_learned": "Jeszcze nie nauczono",
     "cmdrow.edit_code": "Zobacz lub edytuj kod",
+    "cmdrow.star_add": "Dodaj do ustawień wstępnych klimatu",
+    "cmdrow.star_remove": "Usuń z ustawień wstępnych klimatu",
     "cmdrow.comb_suspect": "Grzebien mial watpliwosci co do tego wiersza w oryginalnym wigu. Warto go przetestowac.",
     "cmdrow.map_action": "Przypisz mapowanie akcji",
     "cmdrow.map_action_label": "Action",

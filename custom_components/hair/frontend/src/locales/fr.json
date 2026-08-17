@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "BRUT : {count} timings",
     "cmdrow.not_learned": "Pas encore appris",
     "cmdrow.edit_code": "Voir ou modifier le code",
+    "cmdrow.star_add": "Ajouter aux préréglages de climat",
+    "cmdrow.star_remove": "Retirer des préréglages de climat",
     "cmdrow.comb_suspect": "Le peigne a doute de cette ligne dans le wig d'origine. A tester.",
     "cmdrow.map_action": "Assigner un mappage d'action",
     "cmdrow.map_action_label": "Action",

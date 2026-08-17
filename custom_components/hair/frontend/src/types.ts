@@ -580,6 +580,12 @@ export interface EntityConfig {
     hvac_modes?: string[] | null;
     fan_modes?: string[] | null;
     swing_modes?: string[] | null;
+    // Climate presets: the star (climate-presets-star.md). Command
+    // names starred on an AC device, in click order; the climate
+    // entity turns them into Home Assistant preset modes. Optional
+    // because a payload written before the field existed simply
+    // omits it -- read it as empty, never as a missing device.
+    starred?: string[];
 }
 
 /** Add Popups signpost 2, Track 1B/3: a named trigger remote --

@@ -223,6 +223,15 @@ class DeviceManager:
                     if val.casefold() == old_name.casefold():
                         mapping[key] = new_name
                         mappings_updated += 1
+                # Climate presets: the star. A starred command's name IS
+                # the preset name on the climate entity, so a rename has
+                # to travel the same way the action mappings just did --
+                # otherwise the star stays lit on a row whose preset
+                # silently vanished from the more-info dialog.
+                starred = device.entity_config.starred
+                for index, entry in enumerate(starred):
+                    if entry.casefold() == old_name.casefold():
+                        starred[index] = new_name
 
         # --- pronto change: recompute identity + rewire triggers ---
         if pronto is not None:
@@ -929,6 +938,55 @@ class DeviceManager:
         await self._store.async_save()
         return True
 
+    async def async_set_starred(
+        self, device_id: str, command_name: str, starred: bool
+    ) -> list[str] | None:
+        """Star or unstar a command, and persist.
+
+        A starred command becomes a Home Assistant preset on the
+        device's climate entity, named exactly what the command is
+        named (climate-presets-star.md). One gesture, no dialog: this
+        is the whole write path behind the star glyph on the command
+        row.
+
+        Idempotent in both directions -- starring an already-starred
+        command, or unstarring one that was never starred, changes
+        nothing and writes nothing. Returns the resulting list of
+        starred names, or None when the device or the command does not
+        exist.
+
+        Persists through :meth:`async_update_device` rather than a bare
+        save so the entity ``update_device`` hooks fire and the climate
+        entity re-reads its presets; a bare save would leave the
+        more-info dialog showing the previous set until a restart.
+        """
+        device = self._store.get_device(device_id)
+        if device is None:
+            return None
+        command = device.get_command_by_name(command_name)
+        if command is None:
+            return None
+
+        current = list(device.entity_config.starred)
+        target = command.name.casefold()
+        present = any(name.casefold() == target for name in current)
+        if starred == present:
+            # Already in the asked-for state: no write, no entity
+            # refresh, and no reshuffle of the click order.
+            return current
+        if starred:
+            # Store the command's own name, not the caller's spelling,
+            # so the preset reads exactly as the row does.
+            updated = [*current, command.name]
+        else:
+            updated = [
+                name for name in current if name.casefold() != target
+            ]
+
+        device.entity_config.starred = updated
+        await self.async_update_device(device)
+        return list(device.entity_config.starred)
+
     def _register_ha_device(self, device: IRDevice) -> None:
         registry = dr.async_get(self._hass)
         registry.async_get_or_create(
@@ -1000,6 +1058,15 @@ class DeviceManager:
                     device.entity_config.fan_modes = modes
 
     def _unmap_command(self, device: IRDevice, command: IRCommand) -> None:
+        # Climate presets: the star. Deleting a starred command has to
+        # drop the star too, the same way it drops the action mapping
+        # below -- a preset naming a command that no longer exists
+        # would advertise a mode the entity could never send.
+        device.entity_config.starred = [
+            name
+            for name in device.entity_config.starred
+            if name.casefold() != command.name.casefold()
+        ]
         mapping = device.entity_config.command_mapping
         for key, value in list(mapping.items()):
             if value.casefold() == command.name.casefold():

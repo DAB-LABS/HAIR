@@ -176,11 +176,29 @@ class EntityConfig:
     hvac_modes: list[str] | None = None
     fan_modes: list[str] | None = None
     swing_modes: list[str] | None = None
+    # Climate presets: the star (climate-presets-star.md). Command
+    # NAMES a user starred on an AC device, in click order; the
+    # climate entity turns them into Home Assistant preset_modes.
+    #
+    # NOT a command_mapping key, deliberately: ws_update_mapping
+    # enforces one mapping key per command (it clears every key
+    # pointing at the command before setting a new one), and a flat
+    # "Cool" command is commonly mapped to mode_cool AND wants to be
+    # starrable. A separate list is the only shape where both can be
+    # true at once.
+    #
+    # Names, not ids, because that is how every other mapping on this
+    # dataclass refers to commands, and the rename cascade in
+    # device_manager.async_update_command already exists for names.
+    # Absent in stored JSON reads as empty; empty means the entity
+    # never advertises PRESET_MODE at all.
+    starred: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "platform": self.platform,
             "command_mapping": dict(self.command_mapping),
+            "starred": list(self.starred),
             "temperature_presets": list(self.temperature_presets)
             if self.temperature_presets
             else None,
@@ -194,6 +212,7 @@ class EntityConfig:
         return cls(
             platform=data.get("platform", "remote"),
             command_mapping=dict(data.get("command_mapping") or {}),
+            starred=list(data.get("starred") or []),
             temperature_presets=data.get("temperature_presets"),
             hvac_modes=data.get("hvac_modes"),
             fan_modes=data.get("fan_modes"),
@@ -371,6 +390,9 @@ class IRDevice:
         cloned_entity_config = EntityConfig(
             platform=self.entity_config.platform,
             command_mapping=dict(self.entity_config.command_mapping),
+            # The clone's commands keep their names, so the starred
+            # names still point at real commands on the copy.
+            starred=list(self.entity_config.starred),
             temperature_presets=(
                 list(self.entity_config.temperature_presets)
                 if self.entity_config.temperature_presets

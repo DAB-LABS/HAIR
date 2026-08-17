@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "RAW: {count} timings",
     "cmdrow.not_learned": "Not yet learned",
     "cmdrow.edit_code": "View or edit code",
+    "cmdrow.star_add": "Add to climate presets",
+    "cmdrow.star_remove": "Remove from climate presets",
     "cmdrow.comb_suspect": "The comb doubted this row in the wig it came from. Worth testing.",
     "cmdrow.map_action": "Assign action mapping",
     "cmdrow.map_action_label": "Action",

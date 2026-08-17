@@ -765,6 +765,28 @@ export class HairApi {
         });
     }
 
+    /** Star or unstar a command (climate-presets-star.md).
+     *
+     * A starred command becomes a Home Assistant preset on the
+     * device's climate entity, named exactly what the command is
+     * named. Returns the resulting list so the row repaints without a
+     * second round trip. Separate from updateMapping on purpose: a
+     * command can be both mapped and starred, which one mapping key
+     * per command could never express.
+     */
+    starCommand(
+        deviceId: string,
+        commandName: string,
+        starred: boolean,
+    ): Promise<{ starred: string[] }> {
+        return this.hass.connection.sendMessagePromise<{ starred: string[] }>({
+            type: "hair/device/star",
+            device_id: deviceId,
+            command_name: commandName,
+            starred,
+        });
+    }
+
     // --- Signal Monitor (Unknown Devices) ---
 
     getUnknownDevices(options?: {

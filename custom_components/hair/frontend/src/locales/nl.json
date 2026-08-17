@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "RUW: {count} timings",
     "cmdrow.not_learned": "Nog niet geleerd",
     "cmdrow.edit_code": "Code bekijken of bewerken",
+    "cmdrow.star_add": "Toevoegen aan klimaatvoorinstellingen",
+    "cmdrow.star_remove": "Verwijderen uit klimaatvoorinstellingen",
     "cmdrow.comb_suspect": "De kam twijfelde aan deze regel in de oorspronkelijke wig. De moeite van het testen waard.",
     "cmdrow.map_action": "Actietoewijzing instellen",
     "cmdrow.map_action_label": "Action",

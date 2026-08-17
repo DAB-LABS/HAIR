@@ -149,6 +149,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     # Action mapping
     websocket_api.async_register_command(hass, ws_get_action_options)
     websocket_api.async_register_command(hass, ws_update_mapping)
+    websocket_api.async_register_command(hass, ws_device_star)
 
     # Triggers
     websocket_api.async_register_command(hass, ws_get_triggers)
@@ -2593,6 +2594,50 @@ async def ws_update_mapping(
     connection.send_result(msg["id"], {
         "mapping": dict(mapping),
     })
+
+
+# --- Climate presets: the star ---
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/star",
+    vol.Required("device_id"): str,
+    vol.Required("command_name"): str,
+    vol.Required("starred"): bool,
+})
+@websocket_api.async_response
+async def ws_device_star(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Star or unstar a command (climate-presets-star.md).
+
+    A starred command becomes a Home Assistant preset on the device's
+    climate entity, named exactly what the command is named. Returns
+    the resulting ``starred`` list so the caller can repaint the row
+    without a second round trip; the same list also rides
+    ``entity_config`` on any later full device payload.
+
+    Deliberately NOT part of ``device/update-mapping``: that handler
+    enforces one mapping key per command, and a command can be both
+    mapped and starred.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    starred = await manager.async_set_starred(
+        msg["device_id"], msg["command_name"], msg["starred"]
+    )
+    if starred is None:
+        connection.send_error(
+            msg["id"], "not_found", "Device or command not found"
+        )
+        return
+    connection.send_result(msg["id"], {"starred": starred})
 
 
 # --- Triggers ---

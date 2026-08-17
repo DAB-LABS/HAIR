@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "SIN PROCESAR: {count} tiempos",
     "cmdrow.not_learned": "Aún no se ha aprendido",
     "cmdrow.edit_code": "Ver o editar el código",
+    "cmdrow.star_add": "Añadir a los preajustes de clima",
+    "cmdrow.star_remove": "Quitar de los preajustes de clima",
     "cmdrow.comb_suspect": "El peine dudo de esta fila en el wig de origen. Conviene probarla.",
     "cmdrow.map_action": "Asignar una acción",
     "cmdrow.map_action_label": "Action",

@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "RAW: {count} Timings",
     "cmdrow.not_learned": "Noch nicht gelernt",
     "cmdrow.edit_code": "Code ansehen oder bearbeiten",
+    "cmdrow.star_add": "Zu den Klima-Voreinstellungen hinzufügen",
+    "cmdrow.star_remove": "Aus den Klima-Voreinstellungen entfernen",
     "cmdrow.comb_suspect": "Der Kamm hatte Zweifel an dieser Zeile in der urspruenglichen Wig. Testen lohnt sich.",
     "cmdrow.map_action": "Aktionszuordnung zuweisen",
     "cmdrow.map_action_label": "Action",

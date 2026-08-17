@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "RAW: {count} таймингов",
     "cmdrow.not_learned": "Ещё не обучено",
     "cmdrow.edit_code": "Посмотреть или изменить код",
+    "cmdrow.star_add": "Добавить в предустановки климата",
+    "cmdrow.star_remove": "Удалить из предустановок климата",
     "cmdrow.comb_suspect": "Расческа усомнилась в этой строке в исходном вижке. Стоит проверить.",
     "cmdrow.map_action": "Назначить привязку действия",
     "cmdrow.map_action_label": "Action",

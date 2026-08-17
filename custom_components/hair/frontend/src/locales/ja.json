@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "RAW：{count}タイミング",
     "cmdrow.not_learned": "未学習",
     "cmdrow.edit_code": "コードを表示・編集",
+    "cmdrow.star_add": "空調プリセットに追加",
+    "cmdrow.star_remove": "空調プリセットから削除",
     "cmdrow.comb_suspect": "元のウィッグでこの行はコームに疑われました。テストする価値があります。",
     "cmdrow.map_action": "アクションマッピングを割り当て",
     "cmdrow.map_action_label": "Action",

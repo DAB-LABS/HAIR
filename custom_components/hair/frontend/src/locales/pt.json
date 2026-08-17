@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "BRUTO: {count} tempos",
     "cmdrow.not_learned": "Ainda não aprendido",
     "cmdrow.edit_code": "Ver ou editar o código",
+    "cmdrow.star_add": "Adicionar às predefinições de clima",
+    "cmdrow.star_remove": "Remover das predefinições de clima",
     "cmdrow.comb_suspect": "O pente duvidou desta linha na wig de origem. Vale a pena testar.",
     "cmdrow.map_action": "Atribuir mapeamento de ação",
     "cmdrow.map_action_label": "Action",

@@ -1065,6 +1065,62 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
+    /** Whether a command is currently a climate preset on this device.
+     *  Case-insensitive to match the backend's own name comparisons,
+     *  which is what the rename cascade and the delete prune use. */
+    private _isStarred(name: string): boolean {
+        const starred = this.device.entity_config?.starred ?? [];
+        const target = name.toLowerCase();
+        return starred.some((entry) => entry.toLowerCase() === target);
+    }
+
+    /** Climate presets: the star (climate-presets-star.md). One click,
+     *  no dialog -- toggle, take the authoritative list back, repaint.
+     *  The device's own payload is patched rather than refetched: the
+     *  handler returns the full starred list, so a round trip would
+     *  only re-read what is already in hand. */
+    private async _onStarToggle(e: CustomEvent) {
+        const { command } = e.detail as { command: IRCommand };
+        if (!command) return;
+        const next = !this._isStarred(command.name);
+        this._busy = true;
+        try {
+            const result = await this.api.starCommand(
+                this.device.id,
+                command.name,
+                next,
+            );
+            this.device = {
+                ...this.device,
+                entity_config: {
+                    ...this.device.entity_config,
+                    starred: result.starred,
+                },
+            };
+            // No success flash on purpose: the glyph filling in IS the
+            // feedback, and the feature's whole shape is "no dialog, no
+            // picker, no vocabulary". Only the failure path needs
+            // words, and it borrows the page's existing generic one
+            // rather than minting copy the handoff did not ask for
+            // (which specifies exactly two new locale keys, both
+            // titles).
+            this.dispatchEvent(
+                new CustomEvent("device-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch (err) {
+            this._flash(
+                t("devdetail.update_failed", {
+                    message: (err as Error).message,
+                }),
+            );
+        } finally {
+            this._busy = false;
+        }
+    }
+
     private async _onToggleTxRaw(e: CustomEvent) {
         const { command } = e.detail as { command: IRCommand };
         if (!command) return;
@@ -1552,12 +1608,17 @@ export class IrDeviceDetail extends LitElement {
                                           .triggerCount=${this._commandTriggerCount(cmd)}
                                           .showActionMapping=${this.device.device_type !== "other" &&
                                           !this.device.matrix}
+                                          .showStar=${this.device
+                                              .device_type === "ac" &&
+                                          !cmd.matrix_cell}
+                                          .starred=${this._isStarred(cmd.name)}
                                           @map-action=${this._onMapAction}
                                           @test=${this._onTest}
                                           @toggle-trigger=${this._onToggleTrigger}
                                           @toggle-tx-raw=${this._onToggleTxRaw}
                                           @edit-command=${this._onEditCommand}
                                           @rename-command=${this._onRenameCommand}
+                                          @star-toggle=${this._onStarToggle}
                                           @delete=${this._onDelete}
                                       >
                                           <ha-svg-icon

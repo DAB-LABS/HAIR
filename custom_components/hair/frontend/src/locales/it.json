@@ -117,6 +117,8 @@
     "cmdrow.raw_timings": "GREZZO: {count} tempi",
     "cmdrow.not_learned": "Non ancora appreso",
     "cmdrow.edit_code": "Visualizza o modifica il codice",
+    "cmdrow.star_add": "Aggiungi ai preset del clima",
+    "cmdrow.star_remove": "Rimuovi dai preset del clima",
     "cmdrow.comb_suspect": "Il pettine ha avuto dubbi su questa riga nel wig di origine. Vale la pena provarla.",
     "cmdrow.map_action": "Assegna mappatura di azione",
     "cmdrow.map_action_label": "Action",
