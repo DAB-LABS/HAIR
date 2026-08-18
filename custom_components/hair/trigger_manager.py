@@ -332,6 +332,37 @@ class TriggerManager:
             # captures of one press both pass the check.
             self._recent_fires[key] = now
 
+            # The allow path, symmetric with the suppression line above
+            # (owner ruling 2026-08-18). The suppression line on its own
+            # could not settle a bench question about two fires 3 ms
+            # apart, because a capture that PASSED the gate left no
+            # trace: "allowed" and "never reached the gate" read the same
+            # in the log. This says which.
+            #
+            # A missing stamp is reported as missing rather than printed
+            # as a number. With no prior fire ``last`` is 0.0 and the gap
+            # is time since the process started, which would read as a
+            # plausible but meaningless interval.
+            if last:
+                _LOGGER.debug(
+                    "Capture allowed for trigger %s (%s) from %s: %.0f ms "
+                    "since the last fire, outside the %.0f ms window",
+                    trigger.name,
+                    trigger.id,
+                    receiver_entity_id or "<no receiver>",
+                    gap * 1000,
+                    window * 1000,
+                )
+            else:
+                _LOGGER.debug(
+                    "Capture allowed for trigger %s (%s) from %s: no prior "
+                    "fire stamp, %.0f ms window",
+                    trigger.name,
+                    trigger.id,
+                    receiver_entity_id or "<no receiver>",
+                    window * 1000,
+                )
+
             state = self._hit_states.get(trigger.id)
             if state is None:
                 state = _HitState()
@@ -506,10 +537,15 @@ class TriggerManager:
         # Fire a general HA bus event (for automations listening directly).
         self._hass.bus.async_fire(EVENT_TRIGGER_FIRED, event_data)
 
+        # Names the capturing receiver, as the suppression and allow
+        # lines already do (owner ruling 2026-08-18). Without it the
+        # receiver behind either half of a double fire had to be
+        # reconstructed from entity history.
         _LOGGER.debug(
-            "Trigger %s (%s) fired with %d hits",
+            "Trigger %s (%s) from %s fired with %d hits",
             trigger.name,
             trigger.id,
+            receiver_entity_id or "<no receiver>",
             hit_count,
         )
 
