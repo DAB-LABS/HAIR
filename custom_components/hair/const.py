@@ -203,7 +203,10 @@ MATRIX_STATE_DEDUP_WINDOW_S = 0.400
 # the frames keep coming, and the release is invisible; anchored, the window
 # expires on schedule and the next repeat re-fires.
 #
-# 300 ms (owner ruling 2026-08-18, second pass; 250 for one bench round).
+# 300 ms (owner ruling 2026-08-18, second pass and CONFIRMED on a third:
+# 300 stands. A later bench tap whose frames spanned 318 ms fired twice,
+# which is the rule working -- the boundary moves under the thumb wherever
+# it is put, and 400 would collide with MATRIX_STATE_DEDUP_WINDOW_S).
 # Sized by measurement, twice. At 250 the bench ran three Volume Up taps
 # whose frame trains were 219, 213 and 215 ms -- every one folded to a
 # single fire, but with only 30 ms of margin. A Volume Down tap in the same

@@ -300,11 +300,36 @@ class TriggerManager:
             window = TRIGGER_FIRE_DEDUP_WINDOW_S
             if self._is_multi_frame_file_row(trigger):
                 window = max(window, MATRIX_STATE_DEDUP_WINDOW_S)
-            if now - self._recent_fires.get(key, 0.0) < window:
+            last = self._recent_fires.get(key, 0.0)
+            gap = now - last
+            if gap < window:
                 # Anchored: a suppressed capture does NOT refresh the
                 # stamp, so the window expires a fixed time after the
                 # fire it belongs to.
+                #
+                # Logged because it used to be silent, and a silent gate
+                # is unanswerable after the fact: reading the log you
+                # could not tell a capture that was suppressed here from
+                # one that never reached this point at all. A bench
+                # question about two fires 3 ms apart (2026-08-18) could
+                # not be settled from the logs for exactly that reason.
+                _LOGGER.debug(
+                    "Capture suppressed for trigger %s (%s) from %s: %.0f ms "
+                    "since the last fire, inside the %.0f ms window",
+                    trigger.name,
+                    trigger.id,
+                    receiver_entity_id or "<no receiver>",
+                    gap * 1000,
+                    window * 1000,
+                )
                 continue
+            # Recorded here, immediately after the check and BEFORE the
+            # fire path runs. There is no await between the two -- this
+            # method is synchronous -- so check-and-record cannot be
+            # interleaved by another capture on the event loop. Keep it
+            # that way: moving the record below _fire_trigger, or making
+            # this method async, would open a window in which two
+            # captures of one press both pass the check.
             self._recent_fires[key] = now
 
             state = self._hit_states.get(trigger.id)

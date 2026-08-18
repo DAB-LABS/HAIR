@@ -651,3 +651,69 @@ class TestAnchoredFireDedup:
         assert self._feed(manager, clock, (MATRIX_STATE_DEDUP_WINDOW_S,)) == [
             True,
         ]
+
+
+    async def test_two_receivers_3ms_apart_as_two_tasks_fire_once(
+        self, manager, mock_store, clock
+    ):
+        """One press, two receivers, 3 ms apart, on two event-loop tasks.
+
+        The bench saw two fires 3 ms apart on a real handset press
+        (2026-08-18) and the logs could not say why, so this pins the
+        property directly rather than by inspection.
+
+        It holds because on_signal_captured is SYNCHRONOUS: the window
+        check and the stamp that follows it are adjacent statements with
+        no await between them, so once a capture enters that block no
+        other capture can interleave. Two tasks therefore serialise, and
+        the second sees a 3 ms gap and is gated out.
+
+        Guard, not decoration: making on_signal_captured async, or moving
+        the stamp below the fire path, would break this and only this.
+        """
+        import asyncio
+
+        t = _make_trigger()
+        mock_store.add_trigger(t)
+        fired = []
+
+        async def press(receiver, delay):
+            await asyncio.sleep(delay)
+            clock.advance(delay)
+            fired.append(manager.on_signal_captured(
+                "fp1", "pronto", "0000 0001", None, receiver
+            ))
+
+        await asyncio.gather(
+            press("infrared.rx_a", 0.0),
+            press("infrared.rx_b", 0.003),
+        )
+
+        assert [bool(f) for f in fired] == [True, False]
+
+    async def test_the_same_receiver_twice_3ms_apart_fires_once(
+        self, manager, mock_store, clock
+    ):
+        """The bench's actual shape: both captures on ONE receiver.
+
+        Every capture of the press that produced two fires 3 ms apart was
+        recorded on infrared.athom_rx; no other receiver in that remote's
+        scope registered anything. So the multi-receiver fold is not the
+        case to pin here -- one receiver reporting twice is.
+        """
+        import asyncio
+
+        t = _make_trigger()
+        mock_store.add_trigger(t)
+        fired = []
+
+        async def press(delay):
+            await asyncio.sleep(delay)
+            clock.advance(delay)
+            fired.append(manager.on_signal_captured(
+                "fp1", "pronto", "0000 0001", None, "infrared.athom_rx"
+            ))
+
+        await asyncio.gather(press(0.0), press(0.003))
+
+        assert [bool(f) for f in fired] == [True, False]
