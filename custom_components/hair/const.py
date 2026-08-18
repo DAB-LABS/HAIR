@@ -201,21 +201,37 @@ MATRIX_STATE_DEDUP_WINDOW_S = 0.400
 # through, never when one is suppressed. That is the difference that makes a
 # held button usable: with a sliding window a hold is one fire for as long as
 # the frames keep coming, and the release is invisible; anchored, the window
-# expires on schedule and the next repeat re-fires. At 250 ms against a 108 ms
-# repeat that is a fire on roughly every third frame, about three a second,
-# which is the cadence the appliance itself repeats at.
+# expires on schedule and the next repeat re-fires.
 #
-# 250 ms is comfortably above the widest full-frame repeat we have measured
-# (119 ms) with room for receiver jitter, and comfortably below a deliberate
-# release-and-re-press, which cannot happen faster than about 150 ms and in
-# practice is far slower.
+# 300 ms (owner ruling 2026-08-18, second pass; 250 for one bench round).
+# Sized by measurement, twice. At 250 the bench ran three Volume Up taps
+# whose frame trains were 219, 213 and 215 ms -- every one folded to a
+# single fire, but with only 30 ms of margin. A Volume Down tap in the same
+# session ran 254 ms and fired twice, six milliseconds outside the window.
+# 300 covers the whole measured spread of a deliberate tap and still sits
+# far below a release-and-re-press, which cannot happen faster than about
+# 150 ms and in practice is far slower.
+#
+# The other reason for 300: it is SIGNAL_REPEAT_SUPPRESS_MS. The Sniffer
+# already counted one tap once while the trigger path counted it twice, and
+# the two disagreeing about what a press was is exactly the fault this
+# constant exists to fix. Three gates remain -- the Sniffer at 300, this at
+# 300, the matrix at 400 -- and a unified capture stage is expected to
+# supersede all three; until then these two at least agree.
+#
+# What it costs a held button: the cadence is whenever the first frame
+# past the window arrives, so it follows the handset's own repeat rate.
+# At the measured 100-110 ms that is one fire every 324 to 400 ms, between
+# 2.5 and 3 a second (at 250 ms the bench measured seven fires across a
+# two-second hold, 318 ms apart). A held volume button simply steps a
+# little slower.
 #
 # Composes with MATRIX_STATE_DEDUP_WINDOW_S above: the mechanism is shared and
 # the window is chosen per row. A row that is BOTH file-sourced and multi-frame
 # keeps the wider 400 ms (its two frames can be 148 ms apart and it has no
 # repeat behaviour to preserve); every other row gets this one. The wider
 # window always wins where it applies.
-TRIGGER_FIRE_DEDUP_WINDOW_S = 0.250
+TRIGGER_FIRE_DEDUP_WINDOW_S = 0.300
 
 # Pronto S/L classification threshold (in Pronto timing units).
 # Timing words below this are "short" (S), above are "long" (L).

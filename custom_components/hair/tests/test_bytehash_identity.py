@@ -209,7 +209,7 @@ class TestCrossFireMatrix:
 class TestFireDedupWindow:
     def test_sony_auto_repeat_fires_once(self, manager, mock_store, clock):
         """SIRC transmits 4-5 full frames per press ~45ms apart. Five of
-        them span 180ms, inside the 250ms window, so one press is one fire.
+        them span 180ms, inside the 300ms window, so one press is one fire.
         (Before the window was widened this relied on the sliding refresh
         to absorb a burst longer than the window; it no longer has to.)"""
         trigger = _add_trigger(mock_store, "red", SONY_RED, _bh(SONY_RED))
@@ -246,16 +246,17 @@ class TestFireDedupWindow:
     def test_deliberate_double_tap_fires_twice(self, manager, mock_store, clock):
         """The window must stay below a deliberate double-press interval.
 
-        Widened to 250ms by owner ruling 2026-08-18, so the spacing this
-        test asserts moved with it: 300ms, comfortably a release and a
-        re-press. Taps closer together than 250ms now read as one press,
+        Widened to 300ms by owner ruling 2026-08-18, so the spacing this
+        test asserts moved with it: 400ms, comfortably a release and a
+        re-press. Taps closer together than 300ms now read as one press,
         which is the deliberate cost of covering handsets that repeat the
-        whole frame every 102-119ms while the button is down.
+        whole frame for as long as the button is down -- a deliberate tap
+        measured 213 to 254ms of frames end to end on the bench.
         """
         trigger = _add_trigger(mock_store, "red", SONY_RED, _bh(SONY_RED))
         args = (_fp(SONY_RED), "PRONTO", None, None, None, _bh(SONY_RED))
         assert manager.on_signal_captured(*args) == [trigger.id]
-        clock.advance(0.300)
+        clock.advance(0.400)
         assert manager.on_signal_captured(*args) == [trigger.id]
 
     def test_multi_receiver_legacy_dedup_preserved(

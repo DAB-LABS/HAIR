@@ -475,11 +475,12 @@ class TestAnchoredFireDedup:
     frame every 102 to 119 ms on an ordinary tap. The trigger path used to
     borrow the 100 ms MULTI_RECEIVER_DEDUP_WINDOW_S, sized against Sony's
     45 ms repeats, so those frames landed just outside it and one tap fired
-    two to four times. Owner ruling 2026-08-18: a window of its own, 250 ms,
-    anchored at the fire rather than sliding.
+    two to four times. Owner ruling 2026-08-18: a window of its own,
+    300 ms, anchored at the fire rather than sliding.
 
     Spacings below are the measured ones: 108 ms for the Samsung repeat,
-    45 ms for Sony.
+    45 ms for Sony. A deliberate tap's whole frame train measured 213 to
+    254 ms on the bench, which is what 300 has to clear.
     """
 
     @staticmethod
@@ -506,30 +507,78 @@ class TestAnchoredFireDedup:
     def test_a_held_button_re_fires_on_the_anchored_ramp(
         self, manager, mock_store, clock
     ):
-        """Frames at 0 / 108 / 216 / 324 / 432 ms: two fires.
+        """Frames every 108 ms for six frames: fires on 1 and 4.
 
         This is what anchoring buys. Sliding, every suppressed frame
         refreshed the stamp, so the window never expired while the button
         was down: a two-second hold was one fire and no further sign of
-        itself. Anchored, the window expires 250 ms after the fire it
-        belongs to, so the frame at 324 ms is through -- a fire on roughly
-        every third repeat, about three a second, which is the cadence the
-        appliance itself repeats at.
+        itself. Anchored, the window expires 300 ms after the fire it
+        belongs to, so the frame at 324 ms is the first one through.
+
+        The cadence a hold produces is therefore the first frame past the
+        window, which depends on the handset's own repeat rate: at 108 ms
+        that is 324 ms (about 3 a second), at 100 ms it is 400 ms (2.5 a
+        second). The bench measured 318 ms across a real two-second hold.
         """
         mock_store.add_trigger(_make_trigger())
 
-        seen = self._feed(manager, clock, (0.0, 0.108, 0.108, 0.108, 0.108))
+        seen = self._feed(
+            manager, clock, (0.0, 0.108, 0.108, 0.108, 0.108, 0.108)
+        )
 
-        assert seen == [True, False, False, True, False]
+        assert seen == [True, False, False, True, False, False]
         assert sum(seen) == 2
 
-    def test_two_taps_300ms_apart_are_two_fires(
+    def test_two_deliberate_taps_are_two_fires(
         self, manager, mock_store, clock
     ):
-        """The window must stay under a deliberate release-and-re-press."""
+        """The window must stay under a deliberate release-and-re-press.
+
+        400 ms is a comfortable one. The boundary itself is covered by
+        test_the_boundary_is_inclusive_of_the_window below.
+        """
         mock_store.add_trigger(_make_trigger())
 
-        assert self._feed(manager, clock, (0.0, 0.300)) == [True, True]
+        assert self._feed(manager, clock, (0.0, 0.400)) == [True, True]
+
+    def test_just_past_the_window_fires_and_just_inside_does_not(
+        self, manager, mock_store, clock
+    ):
+        """The boundary, from both sides, one millisecond out.
+
+        Worth pinning: the bench's worst tap missed by six milliseconds,
+        so which side of the boundary a frame lands on is the whole
+        behaviour. Probed a millisecond out rather than exactly on the
+        window -- the comparison is float arithmetic on a monotonic clock
+        and an exact-boundary assertion would be testing IEEE rounding,
+        not the rule.
+        """
+        from custom_components.hair.const import TRIGGER_FIRE_DEDUP_WINDOW_S
+
+        mock_store.add_trigger(_make_trigger())
+
+        assert self._feed(
+            manager, clock, (0.0, TRIGGER_FIRE_DEDUP_WINDOW_S + 0.001)
+        ) == [True, True]
+
+        mock_store.add_trigger(_make_trigger(name="Second", fingerprint="fp2"))
+        assert self._feed(
+            manager, clock, (1.0, TRIGGER_FIRE_DEDUP_WINDOW_S - 0.001)
+        ) == [True, False]
+
+    def test_the_longest_measured_tap_is_one_fire(
+        self, manager, mock_store, clock
+    ):
+        """The bench's worst deliberate tap: three frames spanning 254 ms.
+
+        At 250 ms this fired twice, six milliseconds outside the window,
+        and is the measurement that moved the constant to 300.
+        """
+        mock_store.add_trigger(_make_trigger())
+
+        assert self._feed(manager, clock, (0.0, 0.163, 0.091)) == [
+            True, False, False,
+        ]
 
     def test_sonys_five_repeat_frames_are_one_fire(
         self, manager, mock_store, clock
@@ -572,9 +621,15 @@ class TestAnchoredFireDedup:
         assert second == []
 
     def test_the_window_is_the_ruled_number(self):
-        from custom_components.hair.const import TRIGGER_FIRE_DEDUP_WINDOW_S
+        from custom_components.hair.const import (
+            SIGNAL_REPEAT_SUPPRESS_MS,
+            TRIGGER_FIRE_DEDUP_WINDOW_S,
+        )
 
-        assert TRIGGER_FIRE_DEDUP_WINDOW_S == 0.250
+        assert TRIGGER_FIRE_DEDUP_WINDOW_S == 0.300
+        # ... which is deliberately the Sniffer's own number, so the two
+        # paths agree about what one press was.
+        assert TRIGGER_FIRE_DEDUP_WINDOW_S * 1000 == SIGNAL_REPEAT_SUPPRESS_MS
 
     def test_the_wider_file_sourced_window_still_wins(
         self, manager, mock_store, clock, monkeypatch
@@ -582,8 +637,8 @@ class TestAnchoredFireDedup:
         """A file-sourced multi-frame row keeps MATRIX_STATE_DEDUP_WINDOW_S.
 
         Composition: one mechanism, the window chosen per row, the wider
-        one winning where it applies. Probed at 300 ms, which is through
-        the 250 ms window and inside the 400 ms one.
+        one winning where it applies. Probed at 350 ms, which is through
+        the 300 ms window and inside the 400 ms one.
         """
         from custom_components.hair.const import MATRIX_STATE_DEDUP_WINDOW_S
 
@@ -592,7 +647,7 @@ class TestAnchoredFireDedup:
             manager, "_is_multi_frame_file_row", lambda trigger: True
         )
 
-        assert self._feed(manager, clock, (0.0, 0.300)) == [True, False]
+        assert self._feed(manager, clock, (0.0, 0.350)) == [True, False]
         assert self._feed(manager, clock, (MATRIX_STATE_DEDUP_WINDOW_S,)) == [
             True,
         ]

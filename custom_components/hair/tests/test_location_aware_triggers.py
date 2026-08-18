@@ -187,7 +187,7 @@ class TestMultiReceiverDedup:
         t = _trigger(min_hits=1, receivers=[])
         mock_store.add_trigger(t)
         assert t.id in manager.on_signal_captured("fp1", "pronto", "c1", None, "g")
-        clock.advance(0.3)  # > the 250ms fire dedup window
+        clock.advance(0.4)  # > the 300ms fire dedup window
         assert t.id in manager.on_signal_captured("fp1", "pronto", "c1", None, "g")
 
     def test_min_hits_two_receivers_of_one_press_count_once(
