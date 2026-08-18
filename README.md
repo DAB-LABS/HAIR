@@ -73,7 +73,7 @@ To go from a fresh install to a working button:
 
 ## Capture a remote
 
-The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button.
+The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button. A new remote needs at least three presses before HAIR trusts it enough to show it as its own card, so give it a few before you go looking for it.
 
 To capture a remote:
 
@@ -104,7 +104,7 @@ The Clipper is for pasting a Pronto code by hand; the Plucker pulls codes alread
 
 For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have.
 
-You can also click the dashed tile at the end of the grid to start one from scratch, or drop a code file onto it so HAIR opens the add dialog already filled in; dropping does not create anything by itself. To duplicate a Device instead, use its card; commands and emitter assignments come with it, so you only rename the clone.
+You can also click the dashed tile at the end of the grid to start one from scratch, or drop a code file onto it so HAIR opens the add dialog already filled in; dropping does not create anything by itself, and completing the dialog files the codes as a wig in your Closet at the same time it creates the Device or Remote. To duplicate a Device instead, use its card; commands and emitter assignments come with it, so you only rename the clone.
 
 <!-- screenshot: dashed add tile, Devices/Remotes grid -->
 
@@ -134,7 +134,9 @@ Every command row on an AC Device also has a star; click it to make that command
 
 <!-- screenshot: AC Remote STATE MATRIX card lit up, LAST HEARD row -->
 
-A few limits to know: files whose codes are stored as Xiaomi-controller Raw are refused, because that format is proprietary rather than timing data; a small share of corpus cells (roughly half a percent) cannot be converted and are skipped, with the reason written into the wig's notes. HAIR never invents a code for a state the file does not carry.
+A few limits to know: files whose codes are stored as Xiaomi-controller Raw are refused on import, since that format is proprietary rather than timing data HAIR can convert. Of the cells that do convert, a small share (roughly half a percent) fail and are skipped, with the reason written into the wig's notes; HAIR never invents a code for a state the file does not carry.
+
+If the comb flags a cell as suspect when you make a device from the wig, that cell gets its own named command row on the device instead of staying buried in the matrix, so you can **TEST** it, fix it, or delete it like any other command.
 
 ## Import codes (SmartIR and the closet)
 
@@ -148,6 +150,8 @@ To import a file:
 4. Click **USE** to make a Device or Remote from the entry, or **CLIP** to test it on the Clipper first.
 
 Five formats convert on drop: wig files (`.wig.json`, filed as-is), SmartIR JSON (media player, fan, and climate, in all four SmartIR encodings), Flipper Zero `.ir` files, LIRC `lircd.conf` files, and Girr exports. Anything a conversion has to skip is written into the wig's notes with a reason, so a partial import is never silent.
+
+You can also skip these steps: drop a code file straight onto the dashed add tile on the Devices tab (see [Turn signals into a device](#turn-signals-into-a-device)), and HAIR files it as a wig in your Closet and creates the Device or Remote in the same step.
 
 Good to know: a Remote made from a wig, or a Device adopted from one, recognizes its own handset's presses even from file-sourced codes.
 
