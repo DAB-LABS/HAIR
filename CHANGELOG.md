@@ -30,7 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings the matching Device. Making a trigger now asks which
   Remote owns it, HAIR Triggers by default; only HAIR Triggers
   offers a receiver picker, since a named Remote's triggers follow
-  that Remote's own receivers.
+  that Remote's own receivers. Requested by @Spamfast (GH #69), whose
+  EyeTV-remote-as-keypad thread on the HA forum started this whole
+  release, and by StePhan McKillen on the same thread.
 - **Pin a Remote to a Device.** Pressing the handset then sends the
   matching command out that Device's emitters, with HAIR working out
   which button matches which command. Open the PIN row on a Remote's
@@ -41,7 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pairing ever does run away, HAIR cuts that one pairing for a
   minute and writes a warning naming the Remote, the Device and the
   command, while the handset keeps firing its triggers throughout.
-  The Mirror marks pinned sends with their own chip.
+  The Mirror marks pinned sends with their own chip. Requested by
+  @bwarden (GH #90), who wanted a DVR remote heard in one room to
+  drive the DVR in another.
 - **Air-conditioner handsets can be Remotes.** An AC Remote carries
   the same STATE MATRIX card an AC Device has, but for listening:
   press the handset and the mode, fan, swing and temperature it sent
@@ -61,7 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what the command is named; click again to remove it. It works for
   learned commands and for states saved out of the STATE MATRIX card
   with + Command. Presets are local to the device and do not travel
-  with a wig.
+  with a wig. Requested by @mode0192 (GH #96) as native AC favourites;
+  the listening side of an AC Remote covers the state-tracking half of
+  that request.
 - **Ten languages.** Every new word in this release is translated in
   all ten panel languages, including the "State heard" trigger name
   as it reads in the automation editor.
