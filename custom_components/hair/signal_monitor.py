@@ -82,6 +82,20 @@ from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
 
+# What a catalog remote's source says about the triggers minted from it
+# (2026-08-18). UnknownDevice.source is one of sniffed / manual /
+# plucked / echo; the first three are the three USE-as-a-Remote tabs.
+# Only "sniffed" is receiver-learned -- a Clipper paste and a Plucker
+# pull are both files, and stamping them "remote" told the identity
+# rules otherwise, which is why an Arris row pasted through the Clipper
+# could not hear itself over air. "echo" never reaches this door (the
+# Mirror is not promotable) and falls through to the default.
+CATALOG_SOURCE_TRIGGER_ORIGIN = {
+    "sniffed": "remote",
+    "manual": "clip",
+    "plucked": "plucked",
+}
+
 
 @dataclass
 class NormalizedSignal:
@@ -3023,7 +3037,9 @@ class SignalMonitor:
                     byte_hash=signal.byte_hash,
                     decoded_fingerprint=signal.decoded_fingerprint,
                     trigger_remote_id=trigger_remote_id,
-                    origin="remote",
+                    origin=CATALOG_SOURCE_TRIGGER_ORIGIN.get(
+                        unknown.source, "remote"
+                    ),
                 )
                 self._hair_store.add_trigger(trigger)
                 triggers.append(trigger)

@@ -76,6 +76,13 @@ async def async_setup_entry(
     signal_store = SignalStore(hass)
     await signal_store.async_load()
 
+    # The one backfill that needs both stores loaded: a trigger minted
+    # from a Clipper or Plucker row was stamped "remote" before the
+    # origin vocabulary could say otherwise, and only the signal store
+    # knows which catalog row a Remote was promoted from. One save.
+    if store.backfill_catalog_trigger_origins(signal_store):
+        await store.async_save()
+
     # Load the pluckable YAML registry in a single executor hop (off-loop).
     pluckable_registry = await hass.async_add_executor_job(
         load_pluckables, Path(__file__).parent / PLUCKABLE_DIRNAME

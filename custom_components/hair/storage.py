@@ -361,6 +361,59 @@ class HAIRStore:
             )
         return changed > 0
 
+    def backfill_catalog_trigger_origins(self, signal_store) -> bool:
+        """Restamp Clipper and Plucker triggers written as "remote".
+
+        Runs once, from async_setup_entry, because it is the one backfill
+        that needs BOTH stores: the trigger says which Remote owns it, and
+        only the signal store knows which catalog row that Remote was
+        promoted from. Everything else in async_load can see all it needs.
+
+        Rows minted before 2026-08-18 all say "remote" regardless of which
+        of the three USE-as-a-Remote tabs made them, so a pasted or plucked
+        code was indistinguishable from a sniffed one and was refused the
+        receiver-tolerant tier. The promote linkage
+        ("UnknownDevice.promoted_to_remote") is what makes the repair
+        possible without guessing.
+
+        Deliberately narrow: only "remote" is rewritten, and only when the
+        owning Remote is linked to a catalog row whose source is "manual"
+        or "plucked". A genuine sniffed promote keeps "remote", and any
+        other origin is left alone.
+
+        Returns True when anything changed, so the caller can fold it into
+        one save.
+        """
+        from .signal_monitor import CATALOG_SOURCE_TRIGGER_ORIGIN
+
+        wanted: dict[str, str] = {}
+        for unknown in signal_store.get_all_devices():
+            remote_id = getattr(unknown, "promoted_to_remote", None)
+            if not remote_id:
+                continue
+            origin = CATALOG_SOURCE_TRIGGER_ORIGIN.get(unknown.source)
+            if origin and origin != "remote":
+                wanted[remote_id] = origin
+
+        if not wanted:
+            return False
+
+        restamped = 0
+        for trigger in self._triggers.values():
+            origin = wanted.get(trigger.trigger_remote_id or "")
+            if origin and trigger.origin == "remote":
+                trigger.origin = origin
+                restamped += 1
+
+        if restamped:
+            _LOGGER.info(
+                "Restamped %d trigger(s) minted from a Clipper or Plucker "
+                "row: they were written as 'remote' before the origin "
+                "vocabulary could tell a pasted code from a sniffed one",
+                restamped,
+            )
+        return bool(restamped)
+
     def _backfill_trigger_order(self) -> bool:
         """Assign ``order`` to triggers that predate Trigger Remotes signpost 1.
 

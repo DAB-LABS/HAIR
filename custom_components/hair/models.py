@@ -632,6 +632,14 @@ class IRTrigger:
     # Triggers drawer -- the same "no explicit group" default
     # trigger-remotes.md section 4.1 specified: "None means the default
     # HAIR Triggers device. No migration hook." Every pre-signpost-2
+    # Origin vocabulary (Add Popups signpost 2, Track 3; extended
+    # 2026-08-18): "closet" a wig file, "matrix" a lattice cell,
+    # "device" a HAIR device command, "clip" a Clipper paste,
+    # "plucked" a Plucker pull, "remote" a SNIFFED catalog row,
+    # "manual" or None the drawer dialog. Which of these are
+    # file-sourced is identity.FILE_SOURCED_TRIGGER_ORIGINS. The panel
+    # only ever tests this field for equality against "matrix"
+    # (ir-trigger-row.ts), so new values need no frontend change.
     # trigger reads as drawer-owned with zero backfill needed. Set once
     # at creation (Manual/Closet/Device tabs of the new Add Trigger
     # Remote dialog, or the drawer's own "+ Add Trigger" leaving it

@@ -566,6 +566,15 @@ def file_sourced_command(command, device=None) -> bool:
     )
 
 
+# Trigger origins whose bytes cannot have come off a receiver. One
+# home for the vocabulary: the mint doors write these, this tier reads
+# them, and the load-time backfill in storage.py repairs rows written
+# before "clip" and "plucked" existed.
+FILE_SOURCED_TRIGGER_ORIGINS = frozenset({
+    "closet", "matrix", "clip", "plucked",
+})
+
+
 def file_sourced_trigger(trigger, store) -> bool:
     """True when this trigger's bytes never came off a receiver.
 
@@ -580,12 +589,18 @@ def file_sourced_trigger(trigger, store) -> bool:
       the SOURCE COMMAND decides. A device minted from sniffed rows
       gives receiver-learned triggers; one adopted from a wig gives
       file-sourced ones.
-    - ``origin="remote"`` -- minted from a catalog remote's signals.
-      Sniffer rows are receiver-learned, and the four-value origin
-      vocabulary (which the panel renders as four colors) cannot say
-      that a Clipper paste or a Plucker pull is not. Those two miss the
-      tier today; widening the vocabulary is a frontend change and is
-      recorded as such rather than guessed at here.
+    - ``origin="clip"`` / ``origin="plucked"`` -- minted
+      from a Clipper paste or a Plucker pull. Both are files by
+      definition: those bytes were pasted or read out of a vendor
+      integration and never came off a receiver. Added 2026-08-18,
+      after the regression bench proved the gap over air -- an Arris
+      Power row pasted through the Clipper could not hear itself,
+      because the byte hash moved, the bare-fingerprint tier is
+      withheld from hash-bearing rows since v0.5.8, and the one tier
+      that did match (norm_fp was identical) was never offered.
+    - ``origin="remote"`` -- minted from a SNIFFED catalog
+      remote's signals. Receiver-learned, so it stays off the tier.
+      The only one of the three catalog sources that is.
     - ``origin="manual"`` / None -- the drawer's own dialog. Not
       file-sourced on its own.
 
@@ -596,7 +611,7 @@ def file_sourced_trigger(trigger, store) -> bool:
     (b), including the no-decoded-identity condition.
     """
     origin = getattr(trigger, "origin", None)
-    if origin in ("closet", "matrix"):
+    if origin in FILE_SOURCED_TRIGGER_ORIGINS:
         return True
     if origin == "device":
         device_id = getattr(trigger, "source_device_id", None)
