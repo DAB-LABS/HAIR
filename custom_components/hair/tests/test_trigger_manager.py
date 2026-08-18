@@ -466,3 +466,133 @@ class TestTriggerFireCount:
         )
         manager.on_signal_captured("fp1", "pronto", "0000 0001")
         assert len(seen) == 1
+
+
+class TestAnchoredFireDedup:
+    """One tap is one fire, including on a full-frame-repeat handset.
+
+    The regression bench measured a Samsung32 handset repeating its whole
+    frame every 102 to 119 ms on an ordinary tap. The trigger path used to
+    borrow the 100 ms MULTI_RECEIVER_DEDUP_WINDOW_S, sized against Sony's
+    45 ms repeats, so those frames landed just outside it and one tap fired
+    two to four times. Owner ruling 2026-08-18: a window of its own, 250 ms,
+    anchored at the fire rather than sliding.
+
+    Spacings below are the measured ones: 108 ms for the Samsung repeat,
+    45 ms for Sony.
+    """
+
+    @staticmethod
+    def _feed(manager, clock, gaps):
+        """Feed one capture per gap, returning a fired/not-fired list."""
+        seen = []
+        for gap in gaps:
+            clock.advance(gap)
+            seen.append(bool(manager.on_signal_captured(
+                "fp1", "pronto", "0000 0001"
+            )))
+        return seen
+
+    def test_one_tap_of_a_full_frame_repeater_is_one_fire(
+        self, manager, mock_store, clock
+    ):
+        """Frames at 0 / 108 / 216 ms: one tap, one fire."""
+        mock_store.add_trigger(_make_trigger())
+
+        assert self._feed(manager, clock, (0.0, 0.108, 0.108)) == [
+            True, False, False,
+        ]
+
+    def test_a_held_button_re_fires_on_the_anchored_ramp(
+        self, manager, mock_store, clock
+    ):
+        """Frames at 0 / 108 / 216 / 324 / 432 ms: two fires.
+
+        This is what anchoring buys. Sliding, every suppressed frame
+        refreshed the stamp, so the window never expired while the button
+        was down: a two-second hold was one fire and no further sign of
+        itself. Anchored, the window expires 250 ms after the fire it
+        belongs to, so the frame at 324 ms is through -- a fire on roughly
+        every third repeat, about three a second, which is the cadence the
+        appliance itself repeats at.
+        """
+        mock_store.add_trigger(_make_trigger())
+
+        seen = self._feed(manager, clock, (0.0, 0.108, 0.108, 0.108, 0.108))
+
+        assert seen == [True, False, False, True, False]
+        assert sum(seen) == 2
+
+    def test_two_taps_300ms_apart_are_two_fires(
+        self, manager, mock_store, clock
+    ):
+        """The window must stay under a deliberate release-and-re-press."""
+        mock_store.add_trigger(_make_trigger())
+
+        assert self._feed(manager, clock, (0.0, 0.300)) == [True, True]
+
+    def test_sonys_five_repeat_frames_are_one_fire(
+        self, manager, mock_store, clock
+    ):
+        """Sony SIRC sends 4-5 full frames ~45 ms apart for one press.
+
+        Five of them span 180 ms, inside the window, so the wider number
+        costs Sony nothing: still one fire per press.
+        """
+        mock_store.add_trigger(_make_trigger())
+
+        assert self._feed(
+            manager, clock, (0.0, 0.045, 0.045, 0.045, 0.045)
+        ) == [True, False, False, False, False]
+
+    def test_the_multi_receiver_fold_still_holds(
+        self, manager, mock_store, clock
+    ):
+        """One press, two receivers, 10 ms apart: one fire.
+
+        The fold MULTI_RECEIVER_DEDUP_WINDOW_S was introduced for is
+        unaffected by the trigger path getting a window of its own -- it is
+        the same gate, now a wider one. See
+        test_bytehash_identity.test_multi_receiver_legacy_dedup_preserved
+        for the harder case, where the two receivers compute different byte
+        hashes for the same press.
+        """
+        t = _make_trigger()
+        mock_store.add_trigger(t)
+
+        first = manager.on_signal_captured(
+            "fp1", "pronto", "0000 0001", None, "infrared.rx_a"
+        )
+        clock.advance(0.010)
+        second = manager.on_signal_captured(
+            "fp1", "pronto", "0000 0001", None, "infrared.rx_b"
+        )
+
+        assert first == [t.id]
+        assert second == []
+
+    def test_the_window_is_the_ruled_number(self):
+        from custom_components.hair.const import TRIGGER_FIRE_DEDUP_WINDOW_S
+
+        assert TRIGGER_FIRE_DEDUP_WINDOW_S == 0.250
+
+    def test_the_wider_file_sourced_window_still_wins(
+        self, manager, mock_store, clock, monkeypatch
+    ):
+        """A file-sourced multi-frame row keeps MATRIX_STATE_DEDUP_WINDOW_S.
+
+        Composition: one mechanism, the window chosen per row, the wider
+        one winning where it applies. Probed at 300 ms, which is through
+        the 250 ms window and inside the 400 ms one.
+        """
+        from custom_components.hair.const import MATRIX_STATE_DEDUP_WINDOW_S
+
+        mock_store.add_trigger(_make_trigger())
+        monkeypatch.setattr(
+            manager, "_is_multi_frame_file_row", lambda trigger: True
+        )
+
+        assert self._feed(manager, clock, (0.0, 0.300)) == [True, False]
+        assert self._feed(manager, clock, (MATRIX_STATE_DEDUP_WINDOW_S,)) == [
+            True,
+        ]

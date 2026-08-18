@@ -463,8 +463,8 @@ async def test_min_hits_gates_the_retransmit_too(fake_hass):
     for _ in range(3):
         tm.on_signal_captured("fp-power", None, None,
                               decoded_fingerprint="NEC:0x1:0x1")
-        # Each press must land outside the cross-receiver dedup window.
-        await asyncio.sleep(0.12)
+        # Each press must land outside the fire dedup window (250ms).
+        await asyncio.sleep(0.3)
     await hass.drain()
 
     assert dm.sent == [("dev1", "cmd1")]

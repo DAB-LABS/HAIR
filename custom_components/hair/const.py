@@ -186,6 +186,37 @@ MULTI_RECEIVER_DEDUP_WINDOW_S = 0.100
 # events.
 MATRIX_STATE_DEDUP_WINDOW_S = 0.400
 
+# Trigger fire dedup (owner ruling 2026-08-18, after the regression bench).
+# ONE TAP IS ONE FIRE, including on a handset that repeats the whole frame
+# while the button is down.
+#
+# The bench measured a Samsung32 handset repeating its full frame every 102
+# to 119 ms on an ordinary tap. That sits just outside the 100 ms
+# MULTI_RECEIVER_DEDUP_WINDOW_S the trigger path used to borrow, so a single
+# tap fired two to four times, and which it was came down to about ten
+# milliseconds of jitter. Sony's 45 ms repeats were the only spacing that
+# window was ever sized against; a full-frame repeater was not.
+#
+# ANCHORED, NOT SLIDING. The stamp is written only when a capture is allowed
+# through, never when one is suppressed. That is the difference that makes a
+# held button usable: with a sliding window a hold is one fire for as long as
+# the frames keep coming, and the release is invisible; anchored, the window
+# expires on schedule and the next repeat re-fires. At 250 ms against a 108 ms
+# repeat that is a fire on roughly every third frame, about three a second,
+# which is the cadence the appliance itself repeats at.
+#
+# 250 ms is comfortably above the widest full-frame repeat we have measured
+# (119 ms) with room for receiver jitter, and comfortably below a deliberate
+# release-and-re-press, which cannot happen faster than about 150 ms and in
+# practice is far slower.
+#
+# Composes with MATRIX_STATE_DEDUP_WINDOW_S above: the mechanism is shared and
+# the window is chosen per row. A row that is BOTH file-sourced and multi-frame
+# keeps the wider 400 ms (its two frames can be 148 ms apart and it has no
+# repeat behaviour to preserve); every other row gets this one. The wider
+# window always wins where it applies.
+TRIGGER_FIRE_DEDUP_WINDOW_S = 0.250
+
 # Pronto S/L classification threshold (in Pronto timing units).
 # Timing words below this are "short" (S), above are "long" (L).
 # Real-world IR remotes cluster around ~0x20 (short) and ~0x40 (long)

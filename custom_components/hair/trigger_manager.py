@@ -7,9 +7,11 @@ v0.5.7 (location-aware triggers): each capture is threaded with the
 receiver that observed it. Triggers gain an optional receiver scope
 (``matches_receiver``); the fire payload carries the receiver entity plus
 its resolved area. A single physical press captured by several receivers
-within ``MULTI_RECEIVER_DEDUP_WINDOW_S`` counts once per (trigger,
-fingerprint) so multi-receiver setups do not double-count toward
-``min_hits`` or double-fire.
+within the fire dedup window counts once per trigger so multi-receiver
+setups do not double-count toward ``min_hits`` or double-fire. (The key
+was per (trigger, fingerprint) when this was written; v0.5.8 made it
+trigger-global under tiered identity -- see the dedup comment in
+``on_signal_captured`` -- and this line had gone stale.)
 """
 from __future__ import annotations
 
@@ -36,6 +38,7 @@ from .const import (
     EVENT_TRIGGER_FIRED,
     MATRIX_STATE_DEDUP_WINDOW_S,
     MULTI_RECEIVER_DEDUP_WINDOW_S,
+    TRIGGER_FIRE_DEDUP_WINDOW_S,
     TRIGGER_HIT_RESET_WINDOW_S,
 )
 from .models import IRTrigger
@@ -130,13 +133,15 @@ class TriggerManager:
         self._hit_states: dict[str, _HitState] = {}
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
 
-        # Multi-receiver dedup (v0.5.7). A single physical press captured by
-        # several receivers within MULTI_RECEIVER_DEDUP_WINDOW_S counts once
-        # per (trigger_id, fingerprint): the second and later observations are
-        # gated out before the hit increment, so min_hits still counts distinct
-        # presses and a matching trigger fires at most once per press.
-        # Keyed on trigger id alone (unified identity): see the dedup
-        # comment in on_signal_captured.
+        # Fire dedup (v0.5.7, rewindowed and anchored 2026-08-18). A
+        # physical press captured by several receivers, or repeated frame
+        # by frame by the handset itself, counts once: captures inside the
+        # window are gated out before the hit increment, so min_hits still
+        # counts distinct presses and a matching trigger fires at most once
+        # per press. Keyed on trigger id alone (unified identity): see the
+        # dedup comment in on_signal_captured. The stored value is the time
+        # of the last capture ALLOWED THROUGH, never of a suppressed one --
+        # the window is anchored, not sliding.
         self._recent_fires: dict[str, float] = {}
         # Best-effort per-fingerprint observation tracking for the diagnostic
         # log line only.
@@ -190,10 +195,13 @@ class TriggerManager:
         (v0.5.8 unified identity, decoded > byte_hash > S/L fingerprint),
         so a boundary protocol's fingerprint flip no longer disconnects a
         trigger from its button. Applies each trigger's receiver scope,
-        then the existing ``min_hits`` accumulation, with a sliding
+        then the existing ``min_hits`` accumulation, with an anchored
         per-trigger dedup so one physical press counts once even for
         protocols that transmit several full frames per press (Sony sends
-        4-5 at ~45ms spacing; each skipped frame refreshes the window).
+        4-5 at ~45ms spacing, a Samsung32 handset repeats every 102-119ms
+        for as long as the button is down). Anchored at the fire rather
+        than sliding, so a held button re-fires on schedule instead of
+        going silent for the length of the hold.
 
         ``norm_fp`` is the capture's receiver-tolerant fingerprint, the
         lowest tier, which reaches only triggers whose bytes never came
@@ -239,15 +247,22 @@ class TriggerManager:
             if not self._receiver_scope_matches(trigger, receiver_entity_id):
                 continue
 
-            # Cross-receiver dedup: within the window, a repeat capture of
-            # the same press for this trigger is skipped entirely -- no hit
+            # Fire dedup: within the window, a repeat capture of the same
+            # press for this trigger is skipped entirely -- no hit
             # increment, no fire -- so min_hits counts distinct presses.
-            # The window SLIDES (v0.5.8): a skipped capture refreshes the
-            # timestamp, so protocols that transmit several full frames per
-            # press (Sony: 4-5 frames ~45ms apart, longer than the window
-            # end to end) collapse into one hit instead of re-firing on
-            # frame 3 and frame 5. Two intentional presses are never this
-            # close together; NEC dittos are filtered before this point.
+            #
+            # The window is ANCHORED at the last capture allowed through
+            # (owner ruling 2026-08-18). It used to slide, each suppressed
+            # capture refreshing the stamp, which collapsed Sony's 4-5
+            # frames per press correctly but also swallowed a held button
+            # entirely: while the frames kept arriving the window never
+            # expired, so a two-second hold produced one fire and no
+            # further sign of itself. Anchored, the window expires on
+            # schedule and the next repeat re-fires -- at 250 ms against a
+            # ~108 ms full-frame repeat, about three fires a second, the
+            # cadence the appliance repeats at. Sony's 45 ms frames still
+            # collapse to one fire per press because five of them span
+            # 180 ms, inside the window.
             #
             # Keyed on the trigger id ALONE (unified identity): under
             # tiered matching two receivers can compute DIFFERENT
@@ -262,22 +277,33 @@ class TriggerManager:
             # already, and the RC-6 bin-share corner is a case where
             # collapsing is the correct outcome.
             key = trigger.id
-            # ONE PRESS IS ONE FIRE, and for a file-sourced multi-frame
-            # code that takes longer than 100 ms (owner ruling
-            # 2026-08-18). The two frames of an AC state code arrive 103
-            # to 148 ms apart through a real receiver, so the ordinary
-            # window let one press fire a trigger twice -- measured on
-            # the bench, four fires from a three-press hold. The wider
-            # window is scoped to exactly the rows that need it, so a
-            # Sony keypad's 45 ms repeat frames keep the tighter one and
-            # a fast double-press of an ordinary button still counts
-            # twice. The matrix listener uses the same number, so the
-            # state and the trigger agree about what a press was.
-            window = MULTI_RECEIVER_DEDUP_WINDOW_S
+            # ONE PRESS IS ONE FIRE. Two windows, one mechanism, chosen
+            # per row (owner rulings 2026-08-18).
+            #
+            # A row that is BOTH file-sourced and multi-frame keeps the
+            # wider MATRIX_STATE_DEDUP_WINDOW_S: the two frames of an AC
+            # state code arrive 103 to 148 ms apart through a real
+            # receiver, and such a code has no repeat behaviour to
+            # preserve, so the wider window costs nothing. The matrix
+            # listener uses that same number, so the state and the
+            # trigger agree about what a press was.
+            #
+            # Every other row gets TRIGGER_FIRE_DEDUP_WINDOW_S, sized
+            # against handsets that repeat the whole frame while the
+            # button is down (Samsung32 measured at 102-119 ms on the
+            # bench). It used to borrow MULTI_RECEIVER_DEDUP_WINDOW_S,
+            # which is 100 ms and was sized against Sony's 45 ms repeats;
+            # a full-frame repeater landed just outside it and fired a
+            # single tap two to four times.
+            #
+            # The wider window always wins where it applies.
+            window = TRIGGER_FIRE_DEDUP_WINDOW_S
             if self._is_multi_frame_file_row(trigger):
-                window = MATRIX_STATE_DEDUP_WINDOW_S
+                window = max(window, MATRIX_STATE_DEDUP_WINDOW_S)
             if now - self._recent_fires.get(key, 0.0) < window:
-                self._recent_fires[key] = now
+                # Anchored: a suppressed capture does NOT refresh the
+                # stamp, so the window expires a fixed time after the
+                # fire it belongs to.
                 continue
             self._recent_fires[key] = now
 
@@ -364,9 +390,15 @@ class TriggerManager:
         Called every 100 captures from ``on_signal_captured``. Bounded and
         cheap; keeps the dedup map from growing with the number of distinct
         triggers seen over the process lifetime.
+
+        Sized against the WIDEST window any row can be given, not the
+        narrowest: pruning an entry whose window has not expired would
+        silently un-suppress the next repeat frame.
         """
         now = time.monotonic()
-        cutoff = 5 * MULTI_RECEIVER_DEDUP_WINDOW_S
+        cutoff = 5 * max(
+            TRIGGER_FIRE_DEDUP_WINDOW_S, MATRIX_STATE_DEDUP_WINDOW_S
+        )
         self._recent_fires = {
             k: v for k, v in self._recent_fires.items() if now - v < cutoff
         }
