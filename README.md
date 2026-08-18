@@ -48,8 +48,8 @@ Or find it by hand:
 ## Requirements
 
 - Home Assistant **2026.4** or later. **2026.6+** is recommended for native IR receivers.
-- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; any other adopter works automatically.
-- **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, or SMLIGHT.
+- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; any other adopter works automatically.
+- **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT.
 
 These integrations have adopted the `infrared` platform:
 
@@ -59,6 +59,7 @@ These integrations have adopted the `infrared` platform:
 | [Tuya Local](https://github.com/make-all/tuya-local) | Yes | No | Yes | TX 2026.4, Pluck 2026.6.2 |
 | [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | No | No | 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Yes | Yes | No | TX 2026.5, native RX (Ultima) 2026.7 |
+| [MQTT](https://www.home-assistant.io/integrations/mqtt/) | Yes | Yes | No | 2026.8 |
 
 As more integrations adopt the `infrared` platform, HAIR picks them up automatically.
 
@@ -114,6 +115,8 @@ A Device can also build you a matching Remote, and a Remote a matching Device: o
 
 <!-- screenshot: add dialog, source tabs, Device/Remote choice -->
 
+<p align="center"><img src="images/screenshots/promote-dialog.png" alt="Adopt dialog for creating a new HAIR device from an unknown remote" width="420"></p>
+
 ## Set up an air conditioner
 
 An AC remote does not send single buttons, it sends whole states: every press carries the complete mode, fan, swing, and temperature the unit should switch to. HAIR handles that as a climate entity driven by a full state matrix instead of a list of commands.
@@ -153,7 +156,7 @@ Five formats convert on drop: wig files (`.wig.json`, filed as-is), SmartIR JSON
 
 You can also skip these steps: drop a code file straight onto the dashed add tile on the Devices tab (see [Turn signals into a device](#turn-signals-into-a-device)), and HAIR files it as a wig in your Closet and creates the Device or Remote in the same step.
 
-Good to know: a Remote made from a wig, or a Device adopted from one, recognizes its own handset's presses even from file-sourced codes.
+Good to know: a Remote made from a wig, or a Device adopted from one, recognizes its own handset's presses even though HAIR never learned those codes through a receiver.
 
 Every arrival is also combed on the way in. Combing is a different question from fitting: a fitting asks whether a code works on your hardware, combing asks whether a wig's codes agree with each other, and it can answer that on its own, without hardware or a protocol decoder. It catches things like a cell that quietly sends its neighbor's code, a frame too short for the device to register, or a gap in an otherwise complete temperature run. The comb glyph on a closet row stays plain grey until something is checked, glows yellow when a finding needs a look, and glows red for the one class worth interrupting you for: the neighbor's-code mix-up, since the device answers and looks like it worked while quietly setting the wrong state.
 
@@ -234,6 +237,8 @@ HAIR does not talk to hardware directly. It sits on HA's native `infrared` platf
 The tab splits into two sections. **DEVICES** holds the things HAIR sends codes to: **HAIR Devices** (your managed profiles; drag to reorder, duplicate or delete from the corners of the card), **Emitters** and **Receivers** (your IR hardware, each showing a TX or RX badge, with `-NATIVE` or `-BRIDGE` marking which path a receiver is using), **Proxies** (hardware with both TX and RX on one board), and **Blasters** (pluckable vendor blasters, shown only when one is configured). **REMOTES** holds the handsets HAIR recognizes; **HAIR Triggers**, the built-in catch-all, is the first card there, and a Remote card shows how many of its triggers are on and off.
 
 <!-- screenshot: Devices tab, DEVICES and REMOTES sections -->
+
+![Devices overview showing HAIR Devices, Triggers, Emitters, Receivers, and Proxies](images/screenshots/devices-overview.png)
 
 ### Editing signals and commands
 
