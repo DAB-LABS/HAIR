@@ -65,9 +65,14 @@ from .const import (
     SIGNAL_REPEAT_SUPPRESS_MS,
     SIGNAL_WS_PUSH_RATE_LIMIT,
     TWEEZER_OBSERVER_ATTR,
+    CommandSource,
 )
 from .event_parser import EventParser
-from .identity import canonical_byte_hash, canonical_fingerprint
+from .identity import (
+    canonical_byte_hash,
+    canonical_fingerprint,
+    norm_fingerprint,
+)
 from .ir_command import raw_to_pronto
 from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
@@ -101,6 +106,12 @@ class NormalizedSignal:
     decoded_command: int | None
     decoded_fingerprint: str | None
     decoded_extras: dict[str, int] | None
+    # The receiver-tolerant fingerprint (2026-08-18). Computed once per
+    # capture beside the byte hash and carried down the same way, so the
+    # lowest identity tier costs one median per capture rather than one
+    # per record it is compared against. None when the capture has no
+    # structure to normalize; see identity.py.
+    norm_fp: str | None = None
 
 
 def normalize(parsed: Any) -> NormalizedSignal:
@@ -131,6 +142,12 @@ def normalize(parsed: Any) -> NormalizedSignal:
     # re-encode canonical timings. None for undecodable signals or when the
     # library is unavailable.
     identity = try_decode_identity(parsed.raw_timings)
+    # The lowest tier's value, for the records whose bytes never came
+    # through a receiver (matrix cells, wig-minted triggers and
+    # commands, Clipper, Plucker). Computing it here means every
+    # consumer of a capture gets it for free and none of them can
+    # compute it a second, different way.
+    norm_fp = norm_fingerprint(parsed.raw_timings)
     return NormalizedSignal(
         protocol=parsed.protocol,
         code=parsed.code,
@@ -147,6 +164,7 @@ def normalize(parsed: Any) -> NormalizedSignal:
         decoded_extras=(
             dict(identity.extras) if identity and identity.extras else None
         ),
+        norm_fp=norm_fp,
     )
 
 
@@ -248,6 +266,13 @@ def _apply_signal_provenance(
     # the only place it crosses onto a command (Highlights, GH #78).
     command.tx_force_raw = signal.tx_force_raw
     command.plucked_command_name = signal.plucked_command_name
+    # WHERE THE BYTES CAME FROM (2026-08-18). A Clipper paste and a
+    # Plucker pull never crossed the air, and the receiver-tolerant tier
+    # is only for records that did not. ``to_command`` stamps CAPTURED
+    # for everything, which is true of a sniffed row and of nothing
+    # else that reaches this helper.
+    if signal.source in ("manual", "plucked"):
+        command.source = CommandSource.IMPORTED
 
 
 class SignalMonitor:
@@ -839,6 +864,23 @@ class SignalMonitor:
         expectation: dict[str, Any] = {
             "decoded_fp": decoded_fp,
             "sig_fp": n.sig_fp,
+            # THE TICKET'S LOWEST TIER (owner ruling 2026-08-18, after
+            # the dress rehearsal). A ticket claims on decoded identity
+            # first and the S/L fingerprint second, and BOTH of those
+            # are computed from what we transmitted -- which, for a code
+            # that came out of a file, is not what the receiver hands
+            # back. Measured on the bench: setting a pinned matrix
+            # Device's dial put three frames back through the Athom, the
+            # fuzzy garble guard swallowed two, and the third was heard
+            # as a handset press and fired the state trigger. Twice,
+            # reproducibly, naming the cell the device had just sent.
+            #
+            # This supersedes the receiver-tolerant-identity plan's
+            # section 4.5 ("Echo matching: NO change; the garble guard
+            # already handles it"). The garble guard handles a MANGLED
+            # echo; a clean echo of a file-sourced code misses every
+            # identity the ticket held, and only this closes it.
+            "norm_fp": n.norm_fp,
             "row_key": row_key,
             "expires": now + MIRROR_ECHO_TTL_S,
             # The transmitted frame's S/L pattern, for the garbled-echo
@@ -1041,9 +1083,21 @@ class SignalMonitor:
             if exp.get("armed_at") is None:
                 continue
             matched = (
-                exp["decoded_fp"] is not None
-                and n.decoded_fingerprint == exp["decoded_fp"]
-            ) or n.sig_fp == exp["sig_fp"]
+                (
+                    exp["decoded_fp"] is not None
+                    and n.decoded_fingerprint == exp["decoded_fp"]
+                )
+                or n.sig_fp == exp["sig_fp"]
+                # The tolerant fallback, last and only for a capture
+                # nothing could decode: a frame that decoded and did not
+                # match the ticket's decoded identity is a different
+                # code, whatever shape it shares with ours.
+                or (
+                    n.decoded_fingerprint is None
+                    and n.norm_fp is not None
+                    and n.norm_fp == exp.get("norm_fp")
+                )
+            )
             if not matched:
                 continue
             # Remember the first armed, identity-matching ticket still
@@ -1454,6 +1508,7 @@ class SignalMonitor:
             self._trigger_manager.on_signal_captured(
                 sig_fp, parsed.protocol, parsed.code, dev_fp,
                 receiver_entity_id, byte_hash, decoded_fingerprint,
+                n.norm_fp,
             )
 
         # Step 3b: the lattice (signpost 4, Track M). A matrix Remote
@@ -1465,6 +1520,7 @@ class SignalMonitor:
         if self._matrix_listener is not None:
             await self._matrix_listener.on_signal_captured(
                 sig_fp, byte_hash, decoded_fingerprint, receiver_entity_id,
+                n.norm_fp,
             )
 
         # The v0.4.0 known-command suppression is GONE (v0.6.6, "heard
@@ -1702,6 +1758,7 @@ class SignalMonitor:
         signal_fingerprint: str,
         byte_hash: str | None,
         decoded_fingerprint: str | None,
+        norm_fp: str | None = None,
     ) -> tuple[str, str] | None:
         """Return the ``(device_id, command_id)`` this signal is assigned to.
 
@@ -1720,7 +1777,7 @@ class SignalMonitor:
         to suppress the re-press from the live feed.
         """
         return self._hair_store.match_command(
-            decoded_fingerprint, signal_fingerprint, byte_hash
+            decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp
         )
 
     # -----------------------------------------------------------------

@@ -34,6 +34,7 @@ from homeassistant.helpers import (
 
 from .const import (
     EVENT_TRIGGER_FIRED,
+    MATRIX_STATE_DEDUP_WINDOW_S,
     MULTI_RECEIVER_DEDUP_WINDOW_S,
     TRIGGER_HIT_RESET_WINDOW_S,
 )
@@ -146,6 +147,20 @@ class TriggerManager:
         # Callback for event entity platform to register its trigger handler.
         self._entity_fire_callback: Callable[[str, dict[str, Any]], None] | None = None
 
+    def _is_multi_frame_file_row(self, trigger: Any) -> bool:
+        """Does this trigger hold a file-sourced code of several frames?
+
+        Both halves matter. Multi-frame is what makes one press take
+        more than the ordinary window; file-sourced is what keeps the
+        wider window off receiver-learned rows, whose repeat frames are
+        the case the 100 ms window was sized for in the first place.
+        """
+        from .identity import file_sourced_trigger, is_multi_frame_code
+
+        if not trigger.code or not is_multi_frame_code(trigger.code):
+            return False
+        return file_sourced_trigger(trigger, self._store)
+
     def register_entity_callback(
         self, callback: Callable[[str, dict[str, Any]], None]
     ) -> None:
@@ -165,6 +180,7 @@ class TriggerManager:
         receiver_entity_id: str | None = None,
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
+        norm_fp: str | None = None,
     ) -> list[str]:
         """Process an incoming signal against all enabled triggers.
 
@@ -178,6 +194,10 @@ class TriggerManager:
         per-trigger dedup so one physical press counts once even for
         protocols that transmit several full frames per press (Sony sends
         4-5 at ~45ms spacing; each skipped frame refreshes the window).
+
+        ``norm_fp`` is the capture's receiver-tolerant fingerprint, the
+        lowest tier, which reaches only triggers whose bytes never came
+        through a receiver (2026-08-18).
 
         Returns the list of trigger IDs that fired (for caller awareness).
         """
@@ -202,7 +222,8 @@ class TriggerManager:
             obs.other_observers.append(receiver_entity_id)
 
         triggers = self._store.get_triggers_for_signal(
-            protocol, code, fingerprint, byte_hash, decoded_fingerprint
+            protocol, code, fingerprint, byte_hash, decoded_fingerprint,
+            norm_fp,
         )
         if not triggers:
             return []
@@ -241,7 +262,21 @@ class TriggerManager:
             # already, and the RC-6 bin-share corner is a case where
             # collapsing is the correct outcome.
             key = trigger.id
-            if now - self._recent_fires.get(key, 0.0) < MULTI_RECEIVER_DEDUP_WINDOW_S:
+            # ONE PRESS IS ONE FIRE, and for a file-sourced multi-frame
+            # code that takes longer than 100 ms (owner ruling
+            # 2026-08-18). The two frames of an AC state code arrive 103
+            # to 148 ms apart through a real receiver, so the ordinary
+            # window let one press fire a trigger twice -- measured on
+            # the bench, four fires from a three-press hold. The wider
+            # window is scoped to exactly the rows that need it, so a
+            # Sony keypad's 45 ms repeat frames keep the tighter one and
+            # a fast double-press of an ordinary button still counts
+            # twice. The matrix listener uses the same number, so the
+            # state and the trigger agree about what a press was.
+            window = MULTI_RECEIVER_DEDUP_WINDOW_S
+            if self._is_multi_frame_file_row(trigger):
+                window = MATRIX_STATE_DEDUP_WINDOW_S
+            if now - self._recent_fires.get(key, 0.0) < window:
                 self._recent_fires[key] = now
                 continue
             self._recent_fires[key] = now

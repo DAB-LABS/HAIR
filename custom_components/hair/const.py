@@ -165,6 +165,27 @@ TRIGGER_ALIAS_HISTORY_MAX = 10
 # release and re-press cannot happen faster).
 MULTI_RECEIVER_DEDUP_WINDOW_S = 0.100
 
+# The matrix listener's own window (owner ruling 2026-08-18, after the
+# dress rehearsal): ONE PRESS IS ONE EVENT. An AC state frame is not a
+# repeat frame the way Sony's is -- the code is two complete frames of
+# one press, and the bench measured them arriving 103 to 148 ms apart
+# through a real receiver, just outside the 100 ms above. Every press of
+# a two-frame cell therefore fired hair_state_heard twice and saved the
+# store twice. Nobody could see it before the receiver-tolerant tier,
+# because these codes never matched at all over the air.
+#
+# 400 ms, RAISED FROM 300 (owner ruling 2026-08-18, second bench pass).
+# Fifty presses through the ESPHome transmitter put 29 of 30 AC presses
+# inside 300 ms and one at 330, which counted twice. A human cannot
+# release and re-press an air conditioner's handset inside 400 ms, so
+# the wider window costs nothing real and turns that split into the
+# non-event it always was.
+#
+# Keyed on (remote, cell) rather than the remote alone, so a deliberate
+# change of state inside the window -- cool 23 then off -- is still two
+# events.
+MATRIX_STATE_DEDUP_WINDOW_S = 0.400
+
 # Pronto S/L classification threshold (in Pronto timing units).
 # Timing words below this are "short" (S), above are "long" (L).
 # Real-world IR remotes cluster around ~0x20 (short) and ~0x40 (long)

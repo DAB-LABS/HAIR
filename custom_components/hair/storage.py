@@ -12,6 +12,7 @@ from .const import (
     STORAGE_VERSION,
     STORAGE_VERSION_MINOR,
 )
+from .identity import NormFpIndex
 from .models import IRDevice, IRTrigger, TriggerRemote
 
 _LOGGER = logging.getLogger(__name__)
@@ -115,6 +116,12 @@ class HAIRStore:
         # Fingerprints with at least one hash-bearing command; diagnostic
         # only (the blocked-legacy-match DEBUG log in match_command).
         self._fps_with_hashed: set[str] = set()
+        # The receiver-tolerant tier (2026-08-18), lowest of the four and
+        # built ONLY for commands whose bytes never came through a
+        # receiver. See identity.file_sourced_command for who qualifies
+        # and identity.NormFpIndex for why a value two different codes
+        # claim is answered as no match at all.
+        self._idx_norm_fp: NormFpIndex = NormFpIndex()
 
     @property
     def loaded(self) -> bool:
@@ -241,16 +248,27 @@ class HAIRStore:
         least one hash-bearing command, purely for the diagnostic log in
         ``match_command``.
         """
-        from .identity import canonical_fingerprint
+        from .identity import (
+            canonical_fingerprint,
+            file_sourced_command,
+            norm_fingerprint_of_code,
+        )
 
         self._idx_decoded = {}
         self._idx_fp_bytehash = {}
         self._idx_bytehash = {}
         self._idx_fp = {}
         self._fps_with_hashed: set[str] = set()
+        self._idx_norm_fp = NormFpIndex()
         for device in self._data.values():
             for cmd in device.commands:
                 ref = (device.id, cmd.id)
+                if file_sourced_command(cmd, device):
+                    self._idx_norm_fp.add(
+                        norm_fingerprint_of_code(cmd.code),
+                        cmd.byte_hash or cmd.code,
+                        ref,
+                    )
                 if cmd.decoded_fingerprint:
                     self._idx_decoded[cmd.decoded_fingerprint] = ref
                 # Canonical (wire) form, always: a command minted from
@@ -480,6 +498,7 @@ class HAIRStore:
         decoded_fingerprint: str | None,
         signal_fingerprint: str | None,
         byte_hash: str | None,
+        norm_fp: str | None = None,
     ) -> tuple[str, str] | None:
         """Return the ``(device_id, command_id)`` a signal maps to, or None.
 
@@ -516,6 +535,20 @@ class HAIRStore:
                     signal_fingerprint,
                     byte_hash,
                 )
+        # The lowest tier, last and narrow (2026-08-18): a command whose
+        # bytes came from a file, against a capture nothing could decode.
+        # A wig-adopted device's undecoded command is otherwise invisible
+        # to the real remote's press, because the file's byte hash is not
+        # what a receiver hands back.
+        if norm_fp and not decoded_fingerprint:
+            ref = self._idx_norm_fp.get(norm_fp)
+            if ref is not None:
+                _LOGGER.debug(
+                    "Signal fp=%s hash=%s matched command %s on the "
+                    "normalized tier (a file-sourced code the air moved)",
+                    signal_fingerprint, byte_hash, ref,
+                )
+            return ref
         return None
 
     def _backfill_decoded_fields(self) -> bool:
@@ -823,6 +856,7 @@ class HAIRStore:
         fingerprint: str,
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
+        norm_fp: str | None = None,
     ) -> list[IRTrigger]:
         """Find all enabled triggers matching a signal.
 
@@ -839,8 +873,24 @@ class HAIRStore:
         no decoded identity) keep matching on bare fingerprint, so
         pre-upgrade behavior is preserved for everything except the two
         failure classes this work fixes.
+
+        THE LOWEST TIER (2026-08-18). A trigger whose bytes never came
+        through a receiver does not match its own capture on any tier
+        above: a wig-minted trigger holds the file's byte hash, and a
+        real press hashes to something else on every press. Such a
+        trigger gets one more chance, on the normalized fingerprint,
+        and only when the capture decoded as nothing.
+
+        Ambiguity is refused. If two file-sourced triggers carrying
+        DIFFERENT codes both answer to the capture's normalized value,
+        neither fires: one physical press must not run two automations
+        written for two different buttons. A sub-threshold keypad is
+        exactly that case, and the whole keypad drops together.
         """
+        from .identity import file_sourced_trigger, norm_fingerprint_of_code
+
         matches = []
+        tolerant: list[IRTrigger] = []
         for t in self._triggers.values():
             if not t.enabled:
                 continue
@@ -860,4 +910,27 @@ class HAIRStore:
                 continue
             if t.matches_signal(fingerprint, byte_hash, decoded_fingerprint):
                 matches.append(t)
+                continue
+            if (
+                norm_fp
+                and not decoded_fingerprint
+                and t.code
+                and norm_fingerprint_of_code(t.code) == norm_fp
+                and file_sourced_trigger(t, self)
+            ):
+                tolerant.append(t)
+        if len({t.code for t in tolerant}) > 1:
+            _LOGGER.debug(
+                "Normalized fingerprint %s is claimed by %d file-sourced "
+                "triggers carrying different codes; none of them match "
+                "(one press must not fire two buttons' automations)",
+                norm_fp, len(tolerant),
+            )
+        elif tolerant:
+            _LOGGER.debug(
+                "Capture matched %d file-sourced trigger(s) on the "
+                "normalized tier: %s",
+                len(tolerant), ", ".join(t.name for t in tolerant),
+            )
+            matches.extend(tolerant)
         return matches

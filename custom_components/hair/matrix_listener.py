@@ -18,15 +18,24 @@ promotes to a trigger is a plain trigger from that moment and matches
 through the ordinary path; this listener stays the always-on reading of
 the whole lattice.
 
-IDENTITY TIERS, and the one that is deliberately missing. Cells are
-indexed by decoded fingerprint, by ``(S/L fingerprint, byte_hash)``,
-and by ``byte_hash`` alone -- the order ``HAIRStore.match_command`` and
-``pin_bindings`` already use. The bare-fingerprint tier is NOT built
-here at all. AC frames are long state blobs whose S/L patterns are near
-neighbours across a whole branch, so a fingerprint-only match would
-report the wrong cell -- and reporting the wrong state is worse than
-reporting none, because a wrong state is a plausible lie the card would
-show with full confidence.
+IDENTITY TIERS, the one that is deliberately missing, and the one added
+last. Cells are indexed by decoded fingerprint, by ``(S/L fingerprint,
+byte_hash)``, and by ``byte_hash`` alone -- the order
+``HAIRStore.match_command`` and ``pin_bindings`` already use. The
+bare-fingerprint tier is NOT built here at all. AC frames are long state
+blobs whose S/L patterns are near neighbours across a whole branch, so a
+fingerprint-only match would report the wrong cell -- and reporting the
+wrong state is worse than reporting none, because a wrong state is a
+plausible lie the card would show with full confidence.
+
+Beneath those sits the receiver-tolerant tier (2026-08-18), because the
+byte hash does not survive a real air path for a lattice code: twenty
+presses of one Mitsubishi cell through a microsecond-accurate
+transmitter gave twenty byte hashes, none of them the file's. A cell is
+always file-sourced, so every cell is indexed there; the gates are that
+the CAPTURE must have decoded as nothing, and that a normalized value
+two genuinely different cells claim is dropped rather than answered.
+identity.py's normalized-fingerprint block carries the measurement.
 
 THE INDEX BUILDS IN THE BACKGROUND, ONCE. Deriving identity per cell
 runs the same decode the Sniffer runs: measured on the bench,
@@ -53,7 +62,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from .const import EVENT_STATE_HEARD, MULTI_RECEIVER_DEDUP_WINDOW_S
+from .const import EVENT_STATE_HEARD, MATRIX_STATE_DEDUP_WINDOW_S
+from .identity import (
+    TIER_BYTE_HASH,
+    TIER_DECODED,
+    TIER_NORM_FP,
+    NormFpIndex,
+    tier_name,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -66,10 +82,12 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # One capture's identity, in ``CellIndex.match`` order: decoded
-# fingerprint, S/L fingerprint, byte hash. Carried past the hearing so
-# a pinned Device can be asked "which of YOUR cells is this frame?"
-# when its lattice spells the same state with different words.
-_Identity = tuple[str | None, str | None, str | None]
+# fingerprint, S/L fingerprint, byte hash, normalized fingerprint.
+# Carried past the hearing so a pinned Device can be asked "which of
+# YOUR cells is this frame?" when its lattice spells the same state
+# with different words -- and so it can be asked with the same
+# tolerance the hearing itself had.
+_Identity = tuple[str | None, str | None, str | None, str | None]
 
 
 @dataclass(frozen=True)
@@ -109,31 +127,51 @@ class CellIndex:
         default_factory=dict
     )
     bytehash: dict[str, CellHit] = field(default_factory=dict)
+    # The receiver-tolerant tier (2026-08-18). A lattice cell is always
+    # file-sourced, so every cell earns it; the gate that matters is on
+    # the capture side, in match().
+    norm_fp: NormFpIndex = field(default_factory=NormFpIndex)
 
     def __bool__(self) -> bool:
-        return bool(self.decoded or self.fp_bytehash or self.bytehash)
+        return bool(
+            self.decoded or self.fp_bytehash or self.bytehash or self.norm_fp
+        )
 
     def match(
         self,
         decoded_fingerprint: str | None,
         signal_fingerprint: str | None,
         byte_hash: str | None,
-    ) -> CellHit | None:
-        """The cell this capture is, or None.
+        norm_fp: str | None = None,
+    ) -> tuple[CellHit, int] | None:
+        """The cell this capture is and the tier that said so, or None.
 
         Same tier order as every other matcher in HAIR, minus the bare
-        fingerprint. A frame carrying no hash and no decoded identity
-        therefore never matches a cell, which is the correct answer for
-        an AC blob HAIR could not fingerprint properly.
+        fingerprint: an AC blob's S/L pattern is a near neighbour of its
+        whole branch, so a fingerprint-only match would report the wrong
+        cell, and a wrong state is a plausible lie the card would show
+        with full confidence.
+
+        The normalized fingerprint is last, and only for a capture
+        NOTHING could decode. A frame that decoded has already been
+        answered by tier 1 -- if its decoded identity is not in this
+        lattice, the honest answer is that this lattice does not hold
+        it, not that something of a similar shape does.
         """
         if decoded_fingerprint and decoded_fingerprint in self.decoded:
-            return self.decoded[decoded_fingerprint]
+            return (self.decoded[decoded_fingerprint], TIER_DECODED)
         if signal_fingerprint or byte_hash:
             hit = self.fp_bytehash.get((signal_fingerprint, byte_hash))
             if hit is not None:
-                return hit
+                return (hit, TIER_BYTE_HASH)
         if byte_hash is not None:
-            return self.bytehash.get(byte_hash)
+            hit = self.bytehash.get(byte_hash)
+            if hit is not None:
+                return (hit, TIER_BYTE_HASH)
+        if norm_fp and not decoded_fingerprint:
+            hit = self.norm_fp.get(norm_fp)
+            if hit is not None:
+                return (hit, TIER_NORM_FP)
         return None
 
 
@@ -154,9 +192,16 @@ def build_cell_index(
     not survive the capture path, and what it cost before 2026-08-17.
     Do not add a second form here: if a cell ever fails to match a real
     frame, the answer is in that helper, not in another dict key.
+
+    The normalized fingerprint is built from the cell's TIMINGS rather
+    than its code text, and a value two genuinely different cells claim
+    is dropped rather than won by whichever came last (identity.py's
+    NormFpIndex). On the bench closet that costs a handful of lattices a
+    handful of cells, and it is the price of never naming the wrong
+    state.
     """
     from .event_parser import EventParser
-    from .identity import canonical_pronto
+    from .identity import canonical_pronto, norm_fingerprint
     from .wig_climate import cell_display_name, state_display_name
     from .wig_format import cell_key
     from .wig_identity import wig_signal_identity
@@ -182,6 +227,11 @@ def build_cell_index(
             index.fp_bytehash[(identity.fingerprint, identity.byte_hash)] = hit
         if identity.byte_hash is not None:
             index.bytehash[identity.byte_hash] = hit
+        index.norm_fp.add(
+            norm_fingerprint(identity.raw_timings),
+            identity.byte_hash or identity.fingerprint,
+            hit,
+        )
 
     for cell in matrix.cells:
         _add(
@@ -248,8 +298,11 @@ class MatrixListener:
         # Ids whose index is being built right now, so a burst of
         # frames dispatches one build rather than one per frame.
         self._building: set[str] = set()
-        # Last heard time per remote, for the cross-receiver dedup.
-        self._recent_hits: dict[str, float] = {}
+        # Last heard time per (remote, cell), for the one-press-one-event
+        # rule. Keyed on the cell as well as the remote so a deliberate
+        # change of state inside the window is still two events; see
+        # MATRIX_STATE_DEDUP_WINDOW_S.
+        self._recent_hits: dict[tuple[str, str], float] = {}
         # --- Track 4: driving pinned matrix Devices -------------------
         # The heard frame behind each dispatched cell target, by cell
         # key. The dispatcher's target is three strings, so the send
@@ -299,7 +352,8 @@ class MatrixListener:
         """
         self._matrix_cache.pop(remote_id, None)
         self._index_cache.pop(remote_id, None)
-        self._recent_hits.pop(remote_id, None)
+        for key in [k for k in self._recent_hits if k[0] == remote_id]:
+            self._recent_hits.pop(key, None)
         from .matrix_store import delete_cell_index
 
         try:
@@ -318,6 +372,7 @@ class MatrixListener:
         byte_hash: str | None,
         decoded_fingerprint: str | None,
         receiver_entity_id: str | None = None,
+        norm_fp: str | None = None,
     ) -> list[str]:
         """Match one capture against every matrix remote's lattice.
 
@@ -325,6 +380,11 @@ class MatrixListener:
         under the same not-echo gate, so HAIR never hears its own
         transmissions as handset presses. Returns the ids of the
         remotes that heard something (for caller awareness and tests).
+
+        ``norm_fp`` is the capture's receiver-tolerant fingerprint,
+        computed once per capture beside the byte hash and passed down
+        the same way. Absent (the default) simply means the lowest tier
+        is not consulted.
         """
         heard: list[str] = []
         for remote in self._store.get_all_trigger_remotes():
@@ -339,28 +399,40 @@ class MatrixListener:
             if index is None:
                 self._schedule_index_build(remote.id)
                 continue
-            hit = index.match(
-                decoded_fingerprint, signal_fingerprint, byte_hash
+            matched = index.match(
+                decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp
             )
-            if hit is None:
+            if matched is None:
                 continue
-            # One press, one hearing. Two receivers observing the same
-            # frame arrive here twice; the window slides for the same
-            # reason the trigger dedup's does, so a protocol that
-            # repeats frames while a button is held collapses too.
+            hit, tier = matched
+            # ONE PRESS IS ONE EVENT. Two receivers observing the same
+            # frame arrive here twice, and so do the two frames a single
+            # press of an AC state code is made of (103 to 148 ms apart
+            # on the bench). The window slides for the same reason the
+            # trigger dedup's does, so a held button collapses too, and
+            # it is keyed on the CELL as well as the remote: hearing a
+            # different state inside the window is a different press.
             now = time.monotonic()
+            key = (remote.id, hit.cell_key)
             if (
-                now - self._recent_hits.get(remote.id, 0.0)
-                < MULTI_RECEIVER_DEDUP_WINDOW_S
+                now - self._recent_hits.get(key, 0.0)
+                < MATRIX_STATE_DEDUP_WINDOW_S
             ):
-                self._recent_hits[remote.id] = now
+                self._recent_hits[key] = now
                 continue
-            self._recent_hits[remote.id] = now
+            self._recent_hits[key] = now
+            # WHICH TIER ANSWERED. The dress rehearsal had to rebuild
+            # the index outside HAIR to learn this; now the log says.
+            _LOGGER.debug(
+                "Remote '%s' heard %s on the %s tier (receiver %s)",
+                remote.name, hit.cell_key, tier_name(tier),
+                receiver_entity_id or "unknown",
+            )
             self._record(
                 remote,
                 hit,
                 receiver_entity_id,
-                (decoded_fingerprint, signal_fingerprint, byte_hash),
+                (decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp),
             )
             heard.append(remote.id)
         return heard
@@ -418,7 +490,7 @@ class MatrixListener:
         remote: TriggerRemote,
         hit: CellHit,
         receiver_entity_id: str | None,
-        identity: _Identity = (None, None, None),
+        identity: _Identity = (None, None, None, None),
     ) -> None:
         """Stamp the heard state, fire the event, push, and dispatch.
 
@@ -647,8 +719,11 @@ class MatrixListener:
         if index is None:
             self._schedule_index_build(device_id)
             return None
-        hit = index.match(*identity)
-        if hit is None or hit.power is not None or hit.mode is None:
+        matched = index.match(*identity)
+        if matched is None:
+            return None
+        hit, _tier = matched
+        if hit.power is not None or hit.mode is None:
             return None
         from .wig_climate import exact_cell
 
@@ -663,7 +738,10 @@ class MatrixListener:
 # module level, beside the builder they wrap, so the on-disk shape and
 # the in-memory one cannot drift apart in a refactor.
 
-INDEX_FORMAT = "hair-cell-index/1"
+# Bumped to /2 for the receiver-tolerant tier (2026-08-18). A stored /1
+# index is simply not read, so every lattice rebuilds once and gains the
+# new map; the rebuild is the same seconds-of-work the first build was.
+INDEX_FORMAT = "hair-cell-index/2"
 
 
 def _hit_to_row(hit: CellHit) -> list:
@@ -715,6 +793,10 @@ def _index_to_payload(
             for (fp, bh), hit in index.fp_bytehash.items()
         ],
         "bytehash": {k: _ref(v) for k, v in index.bytehash.items()},
+        # Only the unambiguous entries: a value two different cells
+        # claimed was already dropped at build time and must not come
+        # back through the file.
+        "norm_fp": {k: _ref(v) for k, v in index.norm_fp.refs.items()},
     }
 
 
@@ -730,6 +812,11 @@ def _payload_to_index(payload: dict) -> CellIndex | None:
             index.fp_bytehash[(fp, bh)] = hits[ref]
         for key, ref in payload["bytehash"].items():
             index.bytehash[key] = hits[ref]
+        for key, ref in payload["norm_fp"].items():
+            # Already resolved when it was written; re-claiming through
+            # add() would need the discriminators, which the file has no
+            # reason to carry.
+            index.norm_fp.refs[key] = hits[ref]
     except (KeyError, IndexError, TypeError, ValueError):
         return None
     return index or None

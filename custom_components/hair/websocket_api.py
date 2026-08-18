@@ -3691,7 +3691,13 @@ async def ws_duplicate_trigger_remote(
             byte_hash=trig.byte_hash,
             decoded_fingerprint=trig.decoded_fingerprint,
             trigger_remote_id=clone.id,
-            origin="manual",
+            # The CODE's provenance, not the click's. Duplicating is a
+            # manual action and the clone's own origin says so, but a
+            # copied trigger still holds the bytes its source got from
+            # wherever it got them -- stamping "manual" here told the
+            # identity rules a wig-minted row had been typed by hand
+            # (2026-08-18, receiver-tolerant identity).
+            origin=trig.origin,
         )
         store.add_trigger(new_trigger)
         sync_trigger_entities(hass, entry_id, trigger=new_trigger)
@@ -5444,6 +5450,14 @@ def _command_from_wig_signal(
     )
     name = sig.alias.strip() or f"Signal {index}"
     command = capture.to_command(name, CommandCategory.CUSTOM)
+    # WHERE THE BYTES CAME FROM (2026-08-18). ``to_command`` stamps
+    # CAPTURED for every caller, which is true of a sniffed row and of
+    # nothing here: this command came out of a wig file and never
+    # crossed the air. The receiver-tolerant identity tier reads this
+    # field, and IMPORTED is the value the enum already has for it (the
+    # panel renders no chip for it; the STATE chip is gated on "matrix"
+    # alone).
+    command.source = CommandSource.IMPORTED
     command.byte_hash = ident.byte_hash
     command.decoded_protocol = ident.decoded_protocol
     command.decoded_address = ident.decoded_address
@@ -5759,6 +5773,7 @@ async def ws_trigger_remote_make_device(
             device.device_type = DeviceType(msg["device_type"])
     await manager.async_create_device(device)
 
+    from .identity import file_sourced_trigger
     from .ir_command import ProntoCommand
     from .models import IRCommand
 
@@ -5778,6 +5793,14 @@ async def ws_trigger_remote_make_device(
             raw_timings=raw_timings,
             byte_hash=trig.byte_hash,
             decoded_fingerprint=trig.decoded_fingerprint,
+            # The trigger's provenance carries over with its bytes: a
+            # Remote minted from a wig gives a device whose commands
+            # came from that file (2026-08-18).
+            source=(
+                CommandSource.IMPORTED
+                if file_sourced_trigger(trig, store)
+                else CommandSource.CAPTURED
+            ),
         )
         device.add_command(command)
         manager._auto_map_command(device, command)

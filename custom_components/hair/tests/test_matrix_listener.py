@@ -17,11 +17,22 @@ The contracts under test:
 """
 from __future__ import annotations
 
+import csv as _csv
+import gzip as _gzip
+import io as _io
+import json as _json
+from pathlib import Path as _Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.hair.const import DOMAIN, EVENT_STATE_HEARD
+from custom_components.hair import matrix_listener as _ml
+from custom_components.hair.const import (
+    DOMAIN,
+    EVENT_STATE_HEARD,
+    MATRIX_STATE_DEDUP_WINDOW_S,
+)
+from custom_components.hair.identity import TIER_BYTE_HASH, TIER_NORM_FP
 from custom_components.hair.matrix_listener import (
     CellIndex,
     MatrixListener,
@@ -121,13 +132,18 @@ def _store_with(*remotes):
     return store
 
 
-def _listener_ready(remote, store=None, trigger_manager=None):
-    """A listener with the remote's index already built."""
+def _listener_ready(remote, store=None, trigger_manager=None, matrix=None):
+    """A listener with the remote's index already built.
+
+    ``matrix`` overrides the toy lattice for the tests that need real
+    codes (the air-path ones at the foot of this file).
+    """
+    lattice = matrix if matrix is not None else _matrix()
     store = store or _store_with(remote)
     hass = _hass(store)
     listener = MatrixListener(hass, store, trigger_manager)
-    listener._matrix_cache[remote.id] = _matrix()
-    listener._index_cache[remote.id] = build_cell_index(_matrix())
+    listener._matrix_cache[remote.id] = lattice
+    listener._index_cache[remote.id] = build_cell_index(lattice)
     return hass, store, listener
 
 
@@ -152,10 +168,10 @@ def test_index_matches_a_cell_by_fingerprint_and_hash():
     index = build_cell_index(_matrix())
     identity = _identity(PRONTO_COOL_22)
 
-    hit = index.match(
+    hit, tier = index.match(
         identity.decoded_fingerprint, identity.fingerprint, identity.byte_hash
     )
-    assert hit is not None
+    assert tier == TIER_BYTE_HASH
     assert hit.cell_key == "cool/auto/22"
     assert hit.mode == "cool"
     assert hit.fan == "auto"
@@ -170,9 +186,9 @@ def test_index_matches_by_byte_hash_alone():
     index = build_cell_index(_matrix())
     identity = _identity(PRONTO_COOL_23)
 
-    hit = index.match(None, "a-fingerprint-from-another-capture",
-                      identity.byte_hash)
-    assert hit is not None
+    hit, tier = index.match(None, "a-fingerprint-from-another-capture",
+                            identity.byte_hash)
+    assert tier == TIER_BYTE_HASH
     assert hit.cell_key == "cool/auto/23"
 
 
@@ -190,10 +206,9 @@ def test_index_matches_the_form_that_comes_off_the_air():
     )
     heard = _identity(wire)
 
-    hit = index.match(
+    hit, _tier = index.match(
         heard.decoded_fingerprint, heard.fingerprint, heard.byte_hash
     )
-    assert hit is not None
     assert hit.cell_key == "cool/auto/22"
 
 
@@ -203,10 +218,9 @@ def test_index_keeps_the_file_form_too():
     index = build_cell_index(_matrix())
     filed = _identity(PRONTO_COOL_23)
 
-    hit = index.match(
+    hit, _tier = index.match(
         filed.decoded_fingerprint, filed.fingerprint, filed.byte_hash
     )
-    assert hit is not None
     assert hit.cell_key == "cool/auto/23"
 
 
@@ -346,7 +360,7 @@ async def test_a_later_press_is_heard_again():
         identity.decoded_fingerprint, "infrared.bedroom",
     )
     # Past the dedup window: a real second press.
-    listener._recent_hits["r1"] = 0.0
+    listener._recent_hits.clear()  # past the window: a real second press
     await listener.on_signal_captured(
         identity.fingerprint, identity.byte_hash,
         identity.decoded_fingerprint, "infrared.bedroom",
@@ -584,7 +598,7 @@ async def test_a_state_the_device_does_not_have_sends_nothing(caplog):
 
     with caplog.at_level("DEBUG", logger="custom_components.hair.matrix_listener"):
         await _hear(listener, tasks)
-        listener._recent_hits["r1"] = 0.0
+        listener._recent_hits.clear()  # past the window: a real second press
         await _hear(listener, tasks)
     await listener.async_send_pinned_cell("dev-1", "cool/auto/22")
 
@@ -609,7 +623,7 @@ async def test_a_pairing_that_starts_working_reports_again_if_it_breaks():
 
     listener._index_cache["dev-1"] = build_cell_index(_device_matrix())
     listener._device_manager._matrix = _device_matrix()
-    listener._recent_hits["r1"] = 0.0
+    listener._recent_hits.clear()  # past the window: a real second press
     await _hear(listener, tasks)
 
     assert ("r1", "dev-1") not in listener._unmapped
@@ -704,7 +718,7 @@ async def test_the_first_press_builds_the_devices_index_and_sends_nothing():
 
     # The build lands.
     listener._index_cache["dev-1"] = build_cell_index(device_matrix)
-    listener._recent_hits["r1"] = 0.0
+    listener._recent_hits.clear()  # past the window: a real second press
     await _hear(listener, tasks)
 
     assert tm.dispatch_cell_retransmit.call_count == 1
@@ -782,10 +796,9 @@ def test_a_built_index_round_trips_through_disk(tmp_path):
 
     assert restored is not None
     identity = _identity(PRONTO_COOL_22)
-    hit = restored.match(
+    hit, _tier = restored.match(
         identity.decoded_fingerprint, identity.fingerprint, identity.byte_hash
     )
-    assert hit is not None
     assert hit.cell_key == "cool/auto/22"
     assert hit.temp == 22.0
     assert restored.match(None, None, None) is None
@@ -806,7 +819,7 @@ def test_the_stored_index_is_reused_when_the_matrix_is_unchanged(tmp_path):
     identity = _identity(PRONTO_COOL_23)
     assert reused.match(
         identity.decoded_fingerprint, identity.fingerprint, identity.byte_hash
-    ).cell_key == "cool/auto/23"
+    )[0].cell_key == "cool/auto/23"
 
 
 def test_a_rewritten_matrix_is_never_matched_against_a_stale_index(tmp_path):
@@ -873,3 +886,289 @@ async def test_invalidate_drops_the_stored_index_too(tmp_path):
     listener.invalidate("r1")
 
     assert not index_path(tmp_path, "r1").is_file()
+
+
+# ---------------------------------------------------------------------------
+# The receiver-tolerant tier (2026-08-18), against the air-path captures
+# ---------------------------------------------------------------------------
+#
+# The toy Prontos above are two burst pairs long and deliberately carry
+# no normalized fingerprint at all (nothing to find two levels in), so
+# these tests use the real lattice codes and the real captures from the
+# air-path run instead. See tests/fixtures/air-path/README.md.
+
+_AIR = _Path(__file__).parent / "fixtures" / "air-path"
+
+
+def _air_code(name: str) -> str:
+    return (_AIR / f"{name}.pronto").read_text(encoding="utf-8").strip()
+
+
+def _air_captures(code: str, transmitter: str | None = None) -> list[dict]:
+    with _gzip.open(_AIR / "captures.csv.gz", "rt", encoding="utf-8") as fh:
+        rows = list(_csv.DictReader(_io.StringIO(fh.read())))
+    return [
+        r for r in rows
+        if r["code"] == code
+        and (transmitter is None or r["transmitter"] == transmitter)
+    ]
+
+
+def _heard(row: dict):
+    """One capture, normalized exactly as the Sniffer normalizes it."""
+    from custom_components.hair.ir_command import raw_to_pronto
+    from custom_components.hair.models import CaptureResult
+    from custom_components.hair.signal_monitor import normalize
+
+    values = _json.loads(row["timings_us"])
+    raw = [v if i % 2 == 0 else -abs(v) for i, v in enumerate(values)]
+    return normalize(
+        CaptureResult(
+            protocol="PRONTO",
+            code=raw_to_pronto(raw, frequency=38000),
+            raw_timings=raw,
+            frequency=38000,
+        )
+    )
+
+
+def _air_matrix() -> ClimateMatrix:
+    """Two real cells of the bench Mitsubishi lattice."""
+    return ClimateMatrix(
+        min_temp=16.0,
+        max_temp=30.0,
+        precision=1.0,
+        modes=["cool", "heat"],
+        fan_modes=["auto", "low"],
+        swing_modes=[],
+        off=None,
+        cells=[
+            ClimateCell(
+                mode="cool", fan="auto", temp=23.0, pronto=_air_code("C1")
+            ),
+            ClimateCell(
+                mode="heat", fan="low", temp=20.0, pronto=_air_code("C2")
+            ),
+        ],
+    )
+
+
+def test_a_real_press_lands_on_its_cell_through_the_lowest_tier():
+    """The whole point, on the bench's own captures.
+
+    Every ESPHome press of C1 resolves to cool/auto/23, and none of them
+    would have on any tier above: the byte hash of a lattice frame is a
+    fresh value on every press.
+    """
+    index = build_cell_index(_air_matrix())
+    rows = _air_captures("C1", "esphome")
+    assert len(rows) == 8
+    for row in rows:
+        heard = _heard(row)
+        assert heard.byte_hash not in index.bytehash
+        assert (heard.sig_fp, heard.byte_hash) not in index.fp_bytehash
+        matched = index.match(
+            heard.decoded_fingerprint, heard.sig_fp, heard.byte_hash,
+            heard.norm_fp,
+        )
+        assert matched is not None, row["first_seen"]
+        hit, tier = matched
+        assert (hit.cell_key, tier) == ("cool/auto/23", TIER_NORM_FP)
+
+
+def test_the_broadlink_worst_case_lands_on_its_cell_too():
+    """Seven of seven for C1 through a consumer blaster."""
+    index = build_cell_index(_air_matrix())
+    rows = _air_captures("C1", "broadlink")
+    assert len(rows) == 7
+    keys = set()
+    for row in rows:
+        heard = _heard(row)
+        matched = index.match(
+            heard.decoded_fingerprint, heard.sig_fp, heard.byte_hash,
+            heard.norm_fp,
+        )
+        assert matched is not None, row["first_seen"]
+        keys.add(matched[0].cell_key)
+    assert keys == {"cool/auto/23"}
+
+
+def test_the_second_cell_is_not_confused_with_the_first():
+    """Two cells of one lattice, 29 captures, nothing crosses over."""
+    index = build_cell_index(_air_matrix())
+    for code, expected in (("C1", "cool/auto/23"), ("C2", "heat/low/20")):
+        for row in _air_captures(code):
+            heard = _heard(row)
+            matched = index.match(
+                heard.decoded_fingerprint, heard.sig_fp, heard.byte_hash,
+                heard.norm_fp,
+            )
+            if matched is None:
+                continue  # the one clipped Broadlink send of C2
+            assert matched[0].cell_key == expected
+
+
+def test_a_capture_that_decoded_never_reaches_the_lowest_tier():
+    """A frame the library read is answered by tier 1 or not at all.
+
+    If a decoded identity is not in this lattice, the honest answer is
+    that the lattice does not hold it -- not that something of a
+    similar shape does.
+    """
+    index = build_cell_index(_air_matrix())
+    heard = _heard(_air_captures("C1", "esphome")[0])
+    assert index.match(
+        "NEC:0x1234:0x56", heard.sig_fp, heard.byte_hash, heard.norm_fp
+    ) is None
+
+
+def test_a_lattice_that_spells_one_shape_twice_answers_neither():
+    """Ambiguity is not a match.
+
+    Two cells whose codes are different but whose normalized shape is
+    identical poison the value: the card would otherwise name whichever
+    cell was indexed last, with full confidence, on a frame that could
+    be either.
+    """
+    matrix = _air_matrix()
+    # A second cell carrying C1's SHAPE at a different speed: every
+    # timing word stretched by 15%, which is a different waveform by
+    # every other tier (its byte hash differs) and the same one to a
+    # measure that divides by the code's own median.
+    words = _air_code("C1").split()
+    stretched = words[:4] + [
+        f"{round(int(w, 16) * 1.15):04X}" for w in words[4:]
+    ]
+    matrix.cells.append(
+        ClimateCell(
+            mode="cool", fan="auto", temp=24.0, pronto=" ".join(stretched)
+        )
+    )
+    index = build_cell_index(matrix)
+    heard = _heard(_air_captures("C1", "esphome")[0])
+    assert heard.norm_fp in index.norm_fp.ambiguous
+    assert index.match(
+        None, heard.sig_fp, heard.byte_hash, heard.norm_fp
+    ) is None
+
+
+def test_the_stored_index_carries_the_lowest_tier(tmp_path):
+    from custom_components.hair.matrix_listener import (
+        _index_to_payload,
+        _payload_to_index,
+    )
+
+    index = build_cell_index(_air_matrix(), display_unit="C")
+    payload = _index_to_payload(index, "h1", "C")
+    assert payload["format"] == "hair-cell-index/2"
+    restored = _payload_to_index(payload)
+    assert restored is not None
+    heard = _heard(_air_captures("C1", "esphome")[0])
+    matched = restored.match(
+        None, heard.sig_fp, heard.byte_hash, heard.norm_fp
+    )
+    assert matched is not None
+    assert matched[0].cell_key == "cool/auto/23"
+
+
+def test_an_index_written_before_the_tier_existed_is_rebuilt():
+    """The format bump is what makes every lattice gain the new map."""
+    from custom_components.hair.matrix_listener import (
+        _index_to_payload,
+        _payload_to_index,
+    )
+
+    payload = _index_to_payload(build_cell_index(_matrix()), "h1", "C")
+    payload["format"] = "hair-cell-index/1"
+    assert _payload_to_index(payload) is None
+
+
+# ---------------------------------------------------------------------------
+# One press is one event (owner ruling 2026-08-18, after the rehearsal)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_two_frames_of_one_press_are_one_event():
+    """The bench's finding A, closed.
+
+    A C1 press reaches the receiver as two complete frames, measured 103
+    to 148 ms apart, which the old 100 ms window did not cover: every
+    press of a two-frame cell fired hair_state_heard twice and saved the
+    store twice.
+    """
+    remote = TriggerRemote(id="r1", name="Bench Handset", climate_matrix=True)
+    hass, _s, listener = _listener_ready(remote, matrix=_air_matrix())
+    frames = _air_captures("C1", "esphome")[:2]
+
+    for row in frames:
+        signal = _heard(row)
+        await listener.on_signal_captured(
+            signal.sig_fp, signal.byte_hash, signal.decoded_fingerprint,
+            "infrared.athom_rx", signal.norm_fp,
+        )
+
+    assert hass.bus.async_fire.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_different_state_inside_the_window_is_a_second_event():
+    """The key carries the cell, so cool 23 then off is still two.
+
+    A window keyed on the remote alone would swallow a deliberate
+    change of state made inside a third of a second -- which a script,
+    an automation, or a fast hand can do.
+    """
+    remote = TriggerRemote(id="r1", name="Bench Handset", climate_matrix=True)
+    hass, _s, listener = _listener_ready(remote, matrix=_air_matrix())
+
+    for name in ("C1", "C2"):
+        signal = _heard(_air_captures(name, "esphome")[0])
+        await listener.on_signal_captured(
+            signal.sig_fp, signal.byte_hash, signal.decoded_fingerprint,
+            "infrared.athom_rx", signal.norm_fp,
+        )
+
+    assert hass.bus.async_fire.call_count == 2
+    heard = [call.args[1]["cell_key"] for call in hass.bus.async_fire.call_args_list]
+    assert heard == ["cool/auto/23", "heat/low/20"]
+
+
+@pytest.mark.asyncio
+async def test_a_press_whose_frames_split_by_330ms_is_still_one_event(
+    monkeypatch,
+):
+    """The one outlier of the ESPHome pass, ruled a non-event.
+
+    Fifty presses through the ESP32 put 29 of 30 AC presses inside
+    300 ms and exactly one at 330, which counted twice. 400 ms covers
+    it, and a human cannot release and re-press inside that.
+    """
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(
+        _ml.time, "monotonic", lambda: clock["t"]
+    )
+    remote = TriggerRemote(id="r1", name="Bench Handset", climate_matrix=True)
+    hass, _s, listener = _listener_ready(remote, matrix=_air_matrix())
+    signal = _heard(_air_captures("C1", "esphome")[0])
+
+    async def hear():
+        await listener.on_signal_captured(
+            signal.sig_fp, signal.byte_hash, signal.decoded_fingerprint,
+            "infrared.athom_rx", signal.norm_fp,
+        )
+
+    await hear()
+    clock["t"] += 0.330
+    await hear()
+    assert hass.bus.async_fire.call_count == 1
+
+    # And a real second press, well past the window, is heard again.
+    clock["t"] += 0.500
+    await hear()
+    assert hass.bus.async_fire.call_count == 2
+
+
+def test_the_window_is_the_ruled_number():
+    """Pinned, because the number is a ruling and not a taste."""
+    assert MATRIX_STATE_DEDUP_WINDOW_S == 0.400

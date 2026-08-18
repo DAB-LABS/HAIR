@@ -42,6 +42,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from .identity import (
+    NormFpIndex,
+    file_sourced_trigger,
+    norm_fingerprint_of_code,
+)
+
 if TYPE_CHECKING:
     from .models import IRDevice, IRTrigger, TriggerRemote
     from .storage import HAIRStore
@@ -65,10 +71,20 @@ class DeviceCommandIndex:
     fp_bytehash: dict[tuple[str, str | None], str] = field(default_factory=dict)
     bytehash: dict[str, str] = field(default_factory=dict)
     fp_legacy: dict[str, str] = field(default_factory=dict)
+    # The receiver-tolerant tier (2026-08-18), built only for commands
+    # whose bytes never came through a receiver. This is what lets a
+    # trigger minted from a wig bind to the same wig's command on a
+    # device: neither side's byte hash is what the air would produce,
+    # but both were computed from the same file.
+    norm_fp: NormFpIndex = field(default_factory=NormFpIndex)
 
     def __bool__(self) -> bool:
         return bool(
-            self.decoded or self.fp_bytehash or self.bytehash or self.fp_legacy
+            self.decoded
+            or self.fp_bytehash
+            or self.bytehash
+            or self.fp_legacy
+            or self.norm_fp
         )
 
 
@@ -79,10 +95,20 @@ def build_device_index(device: IRDevice) -> DeviceCommandIndex:
     so a device whose commands share an identity resolves the same way
     here as it does for the known-command matcher.
     """
-    from .identity import canonical_fingerprint
+    from .identity import (
+        canonical_fingerprint,
+        file_sourced_command,
+        norm_fingerprint_of_code,
+    )
 
     index = DeviceCommandIndex()
     for cmd in device.commands:
+        if file_sourced_command(cmd, device):
+            index.norm_fp.add(
+                norm_fingerprint_of_code(cmd.code),
+                cmd.byte_hash or cmd.code,
+                cmd.id,
+            )
         if cmd.decoded_fingerprint:
             index.decoded[cmd.decoded_fingerprint] = cmd.id
         # Canonical (wire) form, so a capture-minted trigger and a
@@ -105,6 +131,7 @@ def match_on_device(
     decoded_fingerprint: str | None,
     signal_fingerprint: str | None,
     byte_hash: str | None,
+    norm_fp: str | None = None,
 ) -> str | None:
     """Return the command id on this device matching an identity, or None.
 
@@ -126,7 +153,13 @@ def match_on_device(
         if cmd_id is not None:
             return cmd_id
     if signal_fingerprint:
-        return index.fp_legacy.get(signal_fingerprint)
+        cmd_id = index.fp_legacy.get(signal_fingerprint)
+        if cmd_id is not None:
+            return cmd_id
+    # Lowest tier, and only when the caller supplied a value: a
+    # file-sourced trigger against a file-sourced command.
+    if norm_fp and not decoded_fingerprint:
+        return index.norm_fp.get(norm_fp)
     return None
 
 
@@ -159,11 +192,21 @@ def derive_bindings(
         index = build_device_index(device)
         mapped: dict[str, str] = {}
         for trigger in triggers:
+            # The lowest tier is offered only when BOTH sides are file
+            # records: a wig-minted trigger and the same wig's command
+            # on an adopted device hold identities computed from one
+            # file, and neither is what the air would produce.
+            tolerant = None
+            if not trigger.decoded_fingerprint and file_sourced_trigger(
+                trigger, store
+            ):
+                tolerant = norm_fingerprint_of_code(trigger.code)
             cmd_id = match_on_device(
                 index,
                 trigger.decoded_fingerprint,
                 trigger.signal_fingerprint,
                 trigger.byte_hash,
+                tolerant,
             )
             if cmd_id is not None:
                 mapped[trigger.id] = cmd_id
