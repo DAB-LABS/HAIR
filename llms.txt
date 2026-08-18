@@ -297,6 +297,44 @@ Key components:
   of corpus cells skip with the reason written into the wig's notes, sparse
   matrices are honored, and files are treated as Celsius unless they say
   otherwise -- no unit guessing.
+- Matrix Remotes and state listening (v0.10.0): a Remote made from a
+  climate matrix wig or an AC device carries the STATE MATRIX card in
+  listen mode -- no SEND on it by design, the handset is the test. A
+  decoded press lights its mode / fan / swing / temperature coordinates
+  together and leaves them marked, and a LAST HEARD row records the
+  state, the time, and the receiver that heard it. Each heard state
+  fires a hair_state_heard event carrying mode, fan, swing,
+  temperature, power and receiver, and the Remote's HA device exposes a
+  "State heard" device trigger over that event for automations that
+  want any state rather than one cell; a single cell becomes an
+  ordinary trigger from the card (+ Trigger, rendered with a STATE
+  chip). Pinning an AC Remote to an AC Device re-sends every heard
+  state through the Device's emitters.
+- Climate presets from starred commands (v0.10.0): a star on each
+  command row of an AC device promotes that command to preset_mode on
+  the climate entity, named after the command; unstarring retires it.
+  Learned commands and states saved out of the STATE MATRIX card both
+  qualify; comb repair rows do not. Presets are stored per device and
+  are never written into a wig.
+- Devices and Remotes (v0.10.0): the Devices tab carries two sections.
+  DEVICES are HAIR device profiles, the things HAIR transmits to.
+  REMOTES are handsets HAIR recognizes, and each Remote is a real Home
+  Assistant device with a device_trigger entry per button, so a
+  Remote's buttons appear by name in the automation editor's Device
+  trigger list. HAIR Triggers, the pre-existing catch-all, is the first
+  Remote in the section. A Remote owns its triggers permanently (they
+  never move between Remotes) and can scope itself to a subset of
+  receivers; only HAIR Triggers exposes a per-trigger receiver picker.
+  Pinning binds a Remote to a Device: a press on the handset resolves
+  to the matching command by signal identity and transmits it through
+  that Device's emitters. The binding is many-to-many, one Remote to
+  several Devices and one Device to several Remotes. HAIR never
+  re-fires its own transmissions -- the Mirror's echo attribution
+  already routes HAIR-originated captures away from the trigger
+  pipeline -- so a pinned handset beside a receiver cannot loop; a loop
+  breaker additionally cuts a single pairing for one minute and logs
+  the Remote, Device and command if a pairing ever does run away,
+  leaving the Remote's triggers firing throughout.
 - Device Manager: lets users create profiles for IR-controlled devices (TVs, ACs,
   fans, lights, switches, screens, generic) with assigned IR emitters and learned
   commands. Assigning a sniffed or pasted signal copies it into the device as a
@@ -385,6 +423,17 @@ Key components:
   from the median preset so the thermostat dial has a handle, and
   reports the installation's temperature unit rather than a hardcoded
   scale.
+  Tolerant match for file-sourced codes (v0.10.0): a code that entered
+  HAIR from a file (a Closet wig, a Clipper paste, a Plucker pull)
+  never passed through a receiver, so it carries none of the timing
+  skew a given receiver adds and the exact tiers above can miss a real
+  press of the handset it came from. When every exact tier misses AND
+  the stored side is file-sourced, HAIR falls back to a normalized
+  signal-shape comparison, which tolerates that skew. It applies to
+  nothing else: receiver-learned codes, and codes carrying a decoded
+  protocol identity, match exactly as they always have. Triggers and
+  Remotes built from file-sourced codes, and pin resolution on a device
+  adopted from a wig, are the paths this reaches.
 
 Signal fingerprinting details:
 - Uses S/L (short/long) pulse-duration classification. Each pulse is classified as
