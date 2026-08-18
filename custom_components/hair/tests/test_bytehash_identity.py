@@ -65,11 +65,17 @@ BUTTONS = {
 
 
 def _fp(code: str) -> str:
-    return EventParser.signal_fingerprint("PRONTO", code, None)
+    # Canonical (wire) identity: HAIR hashes what a receiver would
+    # hand it, not the file text (identity.py's canonical-form block).
+    from custom_components.hair.identity import canonical_fingerprint
+
+    return canonical_fingerprint("PRONTO", code, None)
 
 
 def _bh(code: str) -> str:
-    bh = EventParser.pronto_byte_hash(code)
+    from custom_components.hair.identity import canonical_byte_hash
+
+    bh = canonical_byte_hash(code)
     assert bh is not None
     return bh
 
@@ -196,15 +202,16 @@ class TestCrossFireMatrix:
 
 
 # ---------------------------------------------------------------------------
-# Sliding dedup window: one physical press = one fire
+# Fire dedup window: one physical press = one fire
 # ---------------------------------------------------------------------------
 
 
-class TestSlidingWindow:
+class TestFireDedupWindow:
     def test_sony_auto_repeat_fires_once(self, manager, mock_store, clock):
-        """SIRC transmits 4-5 full frames per press ~45ms apart, which is
-        longer end-to-end than the dedup window. The sliding refresh must
-        absorb the whole burst (a fixed window re-fires on frames 3+5)."""
+        """SIRC transmits 4-5 full frames per press ~45ms apart. Five of
+        them span 180ms, inside the 300ms window, so one press is one fire.
+        (Before the window was widened this relied on the sliding refresh
+        to absorb a burst longer than the window; it no longer has to.)"""
         trigger = _add_trigger(mock_store, "red", SONY_RED, _bh(SONY_RED))
         fired_total = []
         for _ in range(5):
@@ -215,9 +222,9 @@ class TestSlidingWindow:
         assert fired_total == [trigger.id], "one press must fire exactly once"
 
     def test_jittered_frame_gaps_still_fire_once(self, manager, mock_store, clock):
-        """Headroom check on MULTI_RECEIVER_DEDUP_WINDOW_S: a receiver that
-        delivers Sony's ~45ms frames late (70ms apart here) must still read
-        as one press. At the old 60ms window this fired 4 times."""
+        """Headroom check: a receiver that delivers Sony's ~45ms frames
+        late (70ms apart here) must still read as one press. At the old
+        60ms window this fired 4 times."""
         trigger = _add_trigger(mock_store, "red", SONY_RED, _bh(SONY_RED))
         fired_total = []
         for _ in range(4):
@@ -237,13 +244,19 @@ class TestSlidingWindow:
         assert manager.on_signal_captured(*args) == [trigger.id]
 
     def test_deliberate_double_tap_fires_twice(self, manager, mock_store, clock):
-        """The window must stay below a human double-press interval. A
-        release-and-re-press cannot happen faster than ~150ms, so two taps at
-        that spacing must both fire."""
+        """The window must stay below a deliberate double-press interval.
+
+        Widened to 300ms by owner ruling 2026-08-18, so the spacing this
+        test asserts moved with it: 400ms, comfortably a release and a
+        re-press. Taps closer together than 300ms now read as one press,
+        which is the deliberate cost of covering handsets that repeat the
+        whole frame for as long as the button is down -- a deliberate tap
+        measured 213 to 254ms of frames end to end on the bench.
+        """
         trigger = _add_trigger(mock_store, "red", SONY_RED, _bh(SONY_RED))
         args = (_fp(SONY_RED), "PRONTO", None, None, None, _bh(SONY_RED))
         assert manager.on_signal_captured(*args) == [trigger.id]
-        clock.advance(0.150)
+        clock.advance(0.400)
         assert manager.on_signal_captured(*args) == [trigger.id]
 
     def test_multi_receiver_legacy_dedup_preserved(

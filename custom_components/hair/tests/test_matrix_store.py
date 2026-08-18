@@ -295,6 +295,25 @@ class TestSendMatrixCell:
         assert monitor.calls[0]["decoded_fingerprint"] is None
 
     @pytest.mark.asyncio
+    async def test_a_pinned_cell_send_reads_as_pinned(self, manager, fake_hass):
+        """Signpost 4, Track 4: a heard state driving this device is a
+        HAIR send in every mechanical sense -- same ticket, same
+        broadcast -- but the Mirror has to say the handset drove it, not
+        the panel."""
+        device = _matrix_device(["infrared.a"])
+        manager._store.add_device(device)
+        monitor = _FakeMonitor()
+        self._wire_monitor(fake_hass, monitor)
+        with patch.object(_infrared_mod, "async_send_command", AsyncMock()):
+            await manager.async_send_matrix_cell(
+                "dev-1", "cool/auto/22", PRONTO_B, pinned=True
+            )
+
+        assert monitor.calls[0]["label"] == (
+            "Pinned send: Bedroom AC / cool/auto/22"
+        )
+
+    @pytest.mark.asyncio
     async def test_mirror_armed_before_transmit(self, manager, fake_hass):
         """record_send BEFORE the first frame, so the loopback echo is
         claimed as HAIR's own instead of entering the Sniffer."""
@@ -374,3 +393,70 @@ class TestSendMatrixCell:
         manager._store.add_device(device)
         with pytest.raises(RuntimeError, match="no emitters"):
             await manager.async_send_matrix_cell("dev-1", "off", PRONTO_A)
+
+
+# ---------------------------------------------------------------------------
+# MatrixListener: the remote side of the same folder (signpost 4, Track M)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_listener_loads_a_remotes_matrix_by_its_own_id(tmp_path):
+    """matrix_store names files by whatever id it is handed, so a
+    remote's lattice lives in the same flat namespace as a device's."""
+    from custom_components.hair.matrix_listener import MatrixListener
+
+    write_matrix(tmp_path, "remote-1", _matrix())
+
+    hass = MagicMock()
+    hass.config.config_dir = str(tmp_path)
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
+    listener = MatrixListener(hass, MagicMock())
+
+    loaded = await listener.async_get_matrix("remote-1")
+    assert loaded is not None
+    assert len(loaded.cells) == 4
+
+
+@pytest.mark.asyncio
+async def test_listener_caches_and_invalidates(tmp_path):
+    """One read per remote until a door says otherwise; invalidate is
+    what every write, copy and delete calls."""
+    from custom_components.hair.matrix_listener import MatrixListener
+
+    write_matrix(tmp_path, "remote-2", _matrix())
+
+    hass = MagicMock()
+    hass.config.config_dir = str(tmp_path)
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
+    listener = MatrixListener(hass, MagicMock())
+
+    await listener.async_get_matrix("remote-2")
+    await listener.async_get_matrix("remote-2")
+    assert hass.async_add_executor_job.await_count == 1
+
+    listener.invalidate("remote-2")
+    await listener.async_get_matrix("remote-2")
+    assert hass.async_add_executor_job.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_listener_does_not_cache_a_miss(tmp_path):
+    """A file that appears later (restored backup, or a mint racing a
+    list call) must be picked up on the next ask."""
+    from custom_components.hair.matrix_listener import MatrixListener
+
+    hass = MagicMock()
+    hass.config.config_dir = str(tmp_path)
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
+    listener = MatrixListener(hass, MagicMock())
+
+    assert await listener.async_get_matrix("remote-3") is None
+    write_matrix(tmp_path, "remote-3", _matrix())
+    assert await listener.async_get_matrix("remote-3") is not None

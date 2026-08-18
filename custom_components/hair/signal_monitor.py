@@ -56,6 +56,8 @@ from .const import (
     MIRROR_ECHO_TTL_S,
     MIRROR_OWN_BEACON_WINDOW_S,
     MIRROR_UNKNOWN_SEND_FP_PREFIX,
+    PINNED_ECHO_GUARD_S,
+    PINNED_TICKET_ARM_FALLBACK_S,
     REPEAT_ATTRIBUTION_WINDOW,
     SEND_REPEAT_GAP,
     SIGNAL_CLUSTER_THRESHOLD,
@@ -63,8 +65,14 @@ from .const import (
     SIGNAL_REPEAT_SUPPRESS_MS,
     SIGNAL_WS_PUSH_RATE_LIMIT,
     TWEEZER_OBSERVER_ATTR,
+    CommandSource,
 )
 from .event_parser import EventParser
+from .identity import (
+    canonical_byte_hash,
+    canonical_fingerprint,
+    norm_fingerprint,
+)
 from .ir_command import raw_to_pronto
 from .models import CaptureResult, UnknownDevice, UnknownSignal
 from .pronto_validator import validate_pronto
@@ -73,6 +81,20 @@ from .signal_store import SignalStore
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
+
+# What a catalog remote's source says about the triggers minted from it
+# (2026-08-18). UnknownDevice.source is one of sniffed / manual /
+# plucked / echo; the first three are the three USE-as-a-Remote tabs.
+# Only "sniffed" is receiver-learned -- a Clipper paste and a Plucker
+# pull are both files, and stamping them "remote" told the identity
+# rules otherwise, which is why an Arris row pasted through the Clipper
+# could not hear itself over air. "echo" never reaches this door (the
+# Mirror is not promotable) and falls through to the default.
+CATALOG_SOURCE_TRIGGER_ORIGIN = {
+    "sniffed": "remote",
+    "manual": "clip",
+    "plucked": "plucked",
+}
 
 
 @dataclass
@@ -98,6 +120,12 @@ class NormalizedSignal:
     decoded_command: int | None
     decoded_fingerprint: str | None
     decoded_extras: dict[str, int] | None
+    # The receiver-tolerant fingerprint (2026-08-18). Computed once per
+    # capture beside the byte hash and carried down the same way, so the
+    # lowest identity tier costs one median per capture rather than one
+    # per record it is compared against. None when the capture has no
+    # structure to normalize; see identity.py.
+    norm_fp: str | None = None
 
 
 def normalize(parsed: Any) -> NormalizedSignal:
@@ -128,6 +156,12 @@ def normalize(parsed: Any) -> NormalizedSignal:
     # re-encode canonical timings. None for undecodable signals or when the
     # library is unavailable.
     identity = try_decode_identity(parsed.raw_timings)
+    # The lowest tier's value, for the records whose bytes never came
+    # through a receiver (matrix cells, wig-minted triggers and
+    # commands, Clipper, Plucker). Computing it here means every
+    # consumer of a capture gets it for free and none of them can
+    # compute it a second, different way.
+    norm_fp = norm_fingerprint(parsed.raw_timings)
     return NormalizedSignal(
         protocol=parsed.protocol,
         code=parsed.code,
@@ -144,6 +178,7 @@ def normalize(parsed: Any) -> NormalizedSignal:
         decoded_extras=(
             dict(identity.extras) if identity and identity.extras else None
         ),
+        norm_fp=norm_fp,
     )
 
 
@@ -245,6 +280,13 @@ def _apply_signal_provenance(
     # the only place it crosses onto a command (Highlights, GH #78).
     command.tx_force_raw = signal.tx_force_raw
     command.plucked_command_name = signal.plucked_command_name
+    # WHERE THE BYTES CAME FROM (2026-08-18). A Clipper paste and a
+    # Plucker pull never crossed the air, and the receiver-tolerant tier
+    # is only for records that did not. ``to_command`` stamps CAPTURED
+    # for everything, which is true of a sniffed row and of nothing
+    # else that reaches this helper.
+    if signal.source in ("manual", "plucked"):
+        command.source = CommandSource.IMPORTED
 
 
 class SignalMonitor:
@@ -261,11 +303,16 @@ class SignalMonitor:
         signal_store: SignalStore,
         hair_store: HAIRStore,
         trigger_manager: Any | None = None,
+        matrix_listener: Any | None = None,
     ) -> None:
         self._hass = hass
         self._signal_store = signal_store
         self._hair_store = hair_store
         self._trigger_manager = trigger_manager
+        # The hear side of a matrix Remote (signpost 4, Track M).
+        # Optional for the same reason trigger_manager is: plenty of
+        # tests drive the capture pipeline without one.
+        self._matrix_listener = matrix_listener
         self._unsub: CALLBACK_TYPE | None = None
         self._unsubs: list[CALLBACK_TYPE] = []
         # Per-receiver subscription handles, keyed by entity_id (receiver
@@ -831,6 +878,23 @@ class SignalMonitor:
         expectation: dict[str, Any] = {
             "decoded_fp": decoded_fp,
             "sig_fp": n.sig_fp,
+            # THE TICKET'S LOWEST TIER (owner ruling 2026-08-18, after
+            # the dress rehearsal). A ticket claims on decoded identity
+            # first and the S/L fingerprint second, and BOTH of those
+            # are computed from what we transmitted -- which, for a code
+            # that came out of a file, is not what the receiver hands
+            # back. Measured on the bench: setting a pinned matrix
+            # Device's dial put three frames back through the Athom, the
+            # fuzzy garble guard swallowed two, and the third was heard
+            # as a handset press and fired the state trigger. Twice,
+            # reproducibly, naming the cell the device had just sent.
+            #
+            # This supersedes the receiver-tolerant-identity plan's
+            # section 4.5 ("Echo matching: NO change; the garble guard
+            # already handles it"). The garble guard handles a MANGLED
+            # echo; a clean echo of a file-sourced code misses every
+            # identity the ticket held, and only this closes it.
+            "norm_fp": n.norm_fp,
             "row_key": row_key,
             "expires": now + MIRROR_ECHO_TTL_S,
             # The transmitted frame's S/L pattern, for the garbled-echo
@@ -843,6 +907,45 @@ class SignalMonitor:
             "garble_expires": now + MIRROR_OWN_BEACON_WINDOW_S,
             "cancel": None,
             "heard_future": heard_future,
+            # SINGLE-USE TICKET (signpost 4, Track 3, owner-ruled
+            # 2026-08-18). The receivers that have already spent this
+            # expectation. Before pinning, an expectation was a
+            # BLANKET: it claimed every matching capture for its whole
+            # TTL. That is invisible while only HAIR transmits, and
+            # wrong the moment a human can press the same button again
+            # inside the window -- the second press carries the
+            # just-sent identity, so it was claimed and eaten.
+            #
+            # One ticket per SEND: a fan-out mints one per device send,
+            # so a press driving two pinned devices mints two and a
+            # receiver hearing both echoes spends one each. Spent by
+            # one capture PER RECEIVER, so two receivers hearing the
+            # same echo each spend their own and the Mirror's heard_by
+            # stays complete.
+            #
+            # ``expires`` remains CLEANUP, not mechanism: a ticket
+            # nobody spends -- emitter aimed away, receiver in another
+            # room -- must still die on the clock, or it sits armed and
+            # eats a real press an hour later.
+            "claimed_by": set(),
+            # BEACON ANCHOR (Track 3a, owner-ruled 2026-08-18 after the
+            # bench runaway). A ticket is NOT live when it is minted.
+            # It becomes live only when IR has actually left an
+            # emitter, so nothing that arrived BEFORE the send can
+            # spend it.
+            #
+            # This is the fix for the regression single-use caused. A
+            # Samsung handset press reaches the receiver as three
+            # captures about 110 ms apart (ordinary repeat frames; the
+            # trigger dedup folds them into one fire). The ticket was
+            # minted at the fire and was spendable immediately, so
+            # frames two and three spent it while the Broadlink had not
+            # yet transmitted. The real echo then found no ticket, was
+            # read as a genuine press, fired, retransmitted, echoed --
+            # and bred, 77 fires deep.
+            "emitters": list(emitter_entity_ids),
+            "armed_at": None,
+            "guard_until": 0.0,
         }
         self._echo_expectations.append(expectation)
 
@@ -853,6 +956,33 @@ class SignalMonitor:
         expectation["cancel"] = self._hass.loop.call_later(
             max(MIRROR_ECHO_TTL_S, MIRROR_OWN_BEACON_WINDOW_S), _expire
         )
+
+        def _arm_fallback() -> None:
+            # An emitter that never writes state would leave this
+            # ticket dead and its echo unsuppressed, which is exactly
+            # how a loop starts. Arm anyway -- still strictly after the
+            # send began, so pre-send frames remain unable to spend it.
+            if expectation.get("armed_at") is None:
+                self._arm_expectation(expectation, monotonic())
+
+        self._hass.loop.call_later(
+            PINNED_TICKET_ARM_FALLBACK_S, _arm_fallback
+        )
+
+    def _arm_expectation(self, exp: dict[str, Any], now: float) -> None:
+        """Make a ticket live: IR has left, echoes may now be claimed."""
+        if exp.get("armed_at") is not None:
+            return
+        exp["armed_at"] = now
+        exp["guard_until"] = now + PINNED_ECHO_GUARD_S
+
+    def _arm_expectations_for(self, entity_id: str, now: float) -> None:
+        """Arm every ticket waiting on this emitter's beacon."""
+        for exp in self._echo_expectations:
+            if exp.get("armed_at") is None and entity_id in exp.get(
+                "emitters", ()
+            ):
+                self._arm_expectation(exp, now)
 
     def _friendly_name(self, entity_id: str) -> str:
         state = self._hass.states.get(entity_id)
@@ -905,7 +1035,13 @@ class SignalMonitor:
         now = monotonic()
         own_mark = self._own_send_marks.get(entity_id)
         if own_mark is not None and now - own_mark < MIRROR_OWN_BEACON_WINDOW_S:
-            return  # HAIR's own send; already recorded with full identity
+            # HAIR's own send; already recorded with full identity. This
+            # beacon is also the moment IR actually left, so it is what
+            # arms this send's tickets (Track 3a). Before anchoring, the
+            # early return here was the whole handling and a ticket was
+            # live from the instant it was minted.
+            self._arm_expectations_for(entity_id, now)
+            return
 
         # Foreign send: emitter + moment known, identity only via echo.
         pending = self._foreign_pending.get(entity_id)
@@ -949,17 +1085,76 @@ class SignalMonitor:
         catalog pipeline. Returns True when claimed.
         """
         now = monotonic()
+        guard_hit: dict[str, Any] | None = None
         for exp in list(self._echo_expectations):
             if now > exp["expires"]:
                 continue
+            # PRE-SEND (Track 3a). A ticket that no beacon has armed
+            # covers a send whose IR has not left yet, so this capture
+            # cannot be its echo -- it is the handset still talking.
+            # Skipping here is what stops a press's own repeat frames
+            # from spending the echo's ticket.
+            if exp.get("armed_at") is None:
+                continue
             matched = (
-                exp["decoded_fp"] is not None
-                and n.decoded_fingerprint == exp["decoded_fp"]
-            ) or n.sig_fp == exp["sig_fp"]
-            if matched:
-                self._resolve_heard(exp, receiver_entity_id)
-                await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
-                return True
+                (
+                    exp["decoded_fp"] is not None
+                    and n.decoded_fingerprint == exp["decoded_fp"]
+                )
+                or n.sig_fp == exp["sig_fp"]
+                # The tolerant fallback, last and only for a capture
+                # nothing could decode: a frame that decoded and did not
+                # match the ticket's decoded identity is a different
+                # code, whatever shape it shares with ours.
+                or (
+                    n.decoded_fingerprint is None
+                    and n.norm_fp is not None
+                    and n.norm_fp == exp.get("norm_fp")
+                )
+            )
+            if not matched:
+                continue
+            # Remember the first armed, identity-matching ticket still
+            # inside its guard window, in case every ticket turns out
+            # to be spent for this receiver.
+            if guard_hit is None and now < exp.get("guard_until", 0.0):
+                guard_hit = exp
+            # Single use, per receiver (Track 3). A ticket this receiver
+            # has already spent cannot claim again; the loop falls
+            # through to any other live ticket, which is what lets a
+            # fan-out's second device send claim this receiver's second
+            # echo.
+            #
+            # setdefault, not direct access: record_send is the only
+            # production creator and always sets the key, but the
+            # Mirror suite hand-builds expectations to exercise this
+            # loop, and an echo guard is the wrong place to be brittle
+            # about the shape of its own input.
+            claimed = exp.setdefault("claimed_by", set())
+            if receiver_entity_id in claimed:
+                continue
+            claimed.add(receiver_entity_id)
+            self._resolve_heard(exp, receiver_entity_id)
+            await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
+            return True
+
+        if guard_hit is not None:
+            # POST-SEND IDENTITY GUARD (Track 3a, the safety floor).
+            # Every ticket for this identity is spent for this receiver,
+            # but we transmitted it moments ago, so this is our own
+            # voice coming back and must not reach the triggers. The
+            # ticket does the precise per-receiver bookkeeping; this
+            # catches whatever the bookkeeping got wrong. It does NOT
+            # consume: it is a window, not a budget.
+            _LOGGER.debug(
+                "Post-send guard suppressed a capture of %s from %s",
+                guard_hit["row_key"],
+                receiver_entity_id or "<unknown receiver>",
+            )
+            await self._mirror_mark_heard(
+                guard_hit["row_key"], receiver_entity_id
+            )
+            return True
         for entity_id, pending in list(self._foreign_pending.items()):
             if now > pending["expires"]:
                 continue
@@ -1007,6 +1202,18 @@ class SignalMonitor:
                     exp_sl = exp.get("sl")
                     if not exp_sl or now > exp["garble_expires"]:
                         continue
+                    # Pre-send tickets cannot be swallowed against
+                    # either (Track 3a): the same reasoning as the
+                    # clean-claim loop above.
+                    if exp.get("armed_at") is None:
+                        continue
+                    # The swallow spends the same ticket a clean claim
+                    # would (Track 3): a mangled echo and a clean one
+                    # are both this send coming back, so they must not
+                    # each get a free pass off one expectation.
+                    claimed = exp.setdefault("claimed_by", set())
+                    if receiver_entity_id in claimed:
+                        continue
                     ratio = _sl_fuzzy_substring_ratio(cap_sl, exp_sl)
                     if ratio <= ECHO_GARBLE_SIMILARITY:
                         _LOGGER.debug(
@@ -1015,6 +1222,7 @@ class SignalMonitor:
                             ratio,
                             exp["row_key"],
                         )
+                        claimed.add(receiver_entity_id)
                         self._resolve_heard(exp, receiver_entity_id)
                         await self._mirror_mark_heard(
                             exp["row_key"], receiver_entity_id
@@ -1314,6 +1522,19 @@ class SignalMonitor:
             self._trigger_manager.on_signal_captured(
                 sig_fp, parsed.protocol, parsed.code, dev_fp,
                 receiver_entity_id, byte_hash, decoded_fingerprint,
+                n.norm_fp,
+            )
+
+        # Step 3b: the lattice (signpost 4, Track M). A matrix Remote
+        # hears its own states here, beside the trigger match and
+        # behind the same echo gate above -- the house's own
+        # transmissions must never read as a handset press, whether
+        # they would land on a trigger or on a cell. Not a trigger
+        # lookup: see matrix_listener's module docstring.
+        if self._matrix_listener is not None:
+            await self._matrix_listener.on_signal_captured(
+                sig_fp, byte_hash, decoded_fingerprint, receiver_entity_id,
+                n.norm_fp,
             )
 
         # The v0.4.0 known-command suppression is GONE (v0.6.6, "heard
@@ -1551,6 +1772,7 @@ class SignalMonitor:
         signal_fingerprint: str,
         byte_hash: str | None,
         decoded_fingerprint: str | None,
+        norm_fp: str | None = None,
     ) -> tuple[str, str] | None:
         """Return the ``(device_id, command_id)`` this signal is assigned to.
 
@@ -1569,7 +1791,7 @@ class SignalMonitor:
         to suppress the re-press from the live feed.
         """
         return self._hair_store.match_command(
-            decoded_fingerprint, signal_fingerprint, byte_hash
+            decoded_fingerprint, signal_fingerprint, byte_hash, norm_fp
         )
 
     # -----------------------------------------------------------------
@@ -1677,15 +1899,25 @@ class SignalMonitor:
         Ordered by the persisted ``order`` field (ascending; lower sorts
         higher), not by hit_count. Newly-discovered remotes are inserted
         on top via ``SignalStore.add_device`` and stay there until the
-        user drags them. The min_hits noise filter is unchanged.
+        user drags them.
+
+        The min_hits noise filter only applies to the sniffed slice
+        (source is "sniffed" or None, the mixed-list default). An
+        explicit non-sniffed source (manual/plucked/echo) skips it --
+        those remotes are authored by hand, not accumulated by RF/IR
+        hits, so hit_count is zero on all of them by nature (punch
+        list item 1, signpost 3 bench round, 2026-08-17).
 
         Args:
             include_dismissed: Include dismissed devices in results.
-            min_hits: Minimum hit_count to include. Defaults to
-                ``SIGNAL_CLUSTER_THRESHOLD``. Pass ``0`` to include all.
-            source: If given (``"sniffed"`` or ``"manual"``), return only
-                devices of that source. Lets the Sniffer and Clips tabs
-                each request their own slice. ``None`` returns both.
+            min_hits: Minimum hit_count to include when the noise
+                filter applies. Defaults to ``SIGNAL_CLUSTER_THRESHOLD``.
+                Pass ``0`` to include all regardless of source.
+            source: If given (``"sniffed"``, ``"manual"``,
+                ``"plucked"``, or ``"echo"``), return only devices of
+                that source. Lets the Sniffer/Clipper/Plucker/Mirror
+                tabs each request their own slice. ``None`` returns
+                all sources, noise-filtered same as before.
         """
         if min_hits is None:
             min_hits = SIGNAL_CLUSTER_THRESHOLD
@@ -1693,7 +1925,11 @@ class SignalMonitor:
         devices = self._signal_store.get_all_devices()
         if not include_dismissed:
             devices = [d for d in devices if not d.dismissed]
-        if min_hits > 0:
+        # Noise filter only makes sense for hit-accumulated (sniffed)
+        # remotes. An explicit non-sniffed source (manual/plucked/echo)
+        # skips it -- those are authored by hand and have hit_count 0
+        # by nature, so the filter would zero them out every time.
+        if min_hits > 0 and source in (None, "sniffed"):
             devices = [d for d in devices if d.hit_count >= min_hits]
         if source is not None:
             devices = [d for d in devices if d.source == source]
@@ -2164,8 +2400,12 @@ class SignalMonitor:
 
             now_iso = datetime.now(UTC).isoformat()
             code = result.normalized
-            sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-            byte_hash = EventParser.pronto_byte_hash(code)
+            # Identity on the CANONICAL (wire) form -- a pasted file
+            # Pronto and the same code off the air must land on one
+            # identity (identity.py's canonical-form block). The stored
+            # ``code`` stays exactly as pasted.
+            sig_fp = canonical_fingerprint("PRONTO", code, [])
+            byte_hash = canonical_byte_hash(code)
             from .ir_command import ProntoCommand
 
             # Decode-on-paste: mirror the Sniffer capture path so a pasted NEC
@@ -2305,8 +2545,12 @@ class SignalMonitor:
 
             now_iso = datetime.now(UTC).isoformat()
             code = result.normalized
-            sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-            byte_hash = EventParser.pronto_byte_hash(code)
+            # Identity on the CANONICAL (wire) form -- a pasted file
+            # Pronto and the same code off the air must land on one
+            # identity (identity.py's canonical-form block). The stored
+            # ``code`` stays exactly as pasted.
+            sig_fp = canonical_fingerprint("PRONTO", code, [])
+            byte_hash = canonical_byte_hash(code)
             from .ir_command import ProntoCommand
 
             # Decode-on-place: mirror the Sniffer/clip path so a plucked NEC
@@ -2413,8 +2657,8 @@ class SignalMonitor:
                         "error": "Signal not found"}
 
             code = result.normalized
-            new_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-            new_byte_hash = EventParser.pronto_byte_hash(code)
+            new_fp = canonical_fingerprint("PRONTO", code, [])
+            new_byte_hash = canonical_byte_hash(code)
 
             # Re-evaluate the new code as a fresh capture: derive timings
             # from the Pronto and decode, so the signal stays first-class
@@ -2748,6 +2992,73 @@ class SignalMonitor:
             if device is None:
                 return
             device.promoted_to = hair_device_id
+            await self._signal_store.async_save()
+
+    async def copy_signals_to_trigger_remote(
+        self, device_id: str, trigger_remote_id: str
+    ) -> dict[str, Any]:
+        """Copy EVERY signal on a catalog remote into a named Remote as
+        triggers, in capture order (signpost 3, Track 2 item 2 -- the
+        Sniffer promote / Clipper / Plucker door of "three doors, one
+        machinery", the GH #69 headline). Mirrors
+        copy_signals_to_device's shape exactly -- same locking, same
+        catalog-remote validation, same alias/plucked-name/decoded-
+        fingerprint naming fallback chain -- minted as IRTrigger rows
+        instead of IRCommand rows. A catalog remote's signals are
+        always a flat list, never a lattice, so the matrix rule needs
+        no separate guard here; that only matters for the Closet wig
+        door (ws_wig_make_remote), where a matrix wig's cells live in
+        wig.climate, never in wig.signals.
+        """
+        from .models import IRTrigger
+
+        async with self._lock:
+            unknown = self._signal_store.get_device(device_id)
+            if unknown is None or unknown.source == "echo":
+                return {"success": False, "code": "device_not_found",
+                        "error": "Catalog remote not found"}
+            remote = self._hair_store.get_trigger_remote(trigger_remote_id)
+            if remote is None:
+                return {"success": False, "code": "target_not_found",
+                        "error": "Target remote not found"}
+            triggers: list[IRTrigger] = []
+            for i, signal in enumerate(unknown.signals, start=1):
+                name = (
+                    (signal.alias or "").strip()
+                    or (signal.plucked_command_name or "").strip()
+                    or (signal.decoded_fingerprint or "").strip()
+                    or f"Signal {i}"
+                )
+                trigger = IRTrigger(
+                    name=name,
+                    signal_fingerprint=signal.fingerprint,
+                    protocol=signal.protocol,
+                    code=signal.code,
+                    byte_hash=signal.byte_hash,
+                    decoded_fingerprint=signal.decoded_fingerprint,
+                    trigger_remote_id=trigger_remote_id,
+                    origin=CATALOG_SOURCE_TRIGGER_ORIGIN.get(
+                        unknown.source, "remote"
+                    ),
+                )
+                self._hair_store.add_trigger(trigger)
+                triggers.append(trigger)
+            if triggers:
+                await self._hair_store.async_save()
+        return {"success": True, "triggers": triggers}
+
+    async def mark_promoted_remote(
+        self, device_id: str, trigger_remote_id: str
+    ) -> None:
+        """Stamp a catalog remote with the named Remote it was promoted
+        into (identity link; survives renames on both sides). Mirrors
+        mark_promoted's device-side counterpart -- see
+        UnknownDevice.promoted_to_remote."""
+        async with self._lock:
+            device = self._signal_store.get_device(device_id)
+            if device is None:
+                return
+            device.promoted_to_remote = trigger_remote_id
             await self._signal_store.async_save()
 
     async def delete_sniffed_remote(self, device_id: str) -> dict[str, Any]:

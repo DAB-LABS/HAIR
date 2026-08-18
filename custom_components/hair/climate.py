@@ -40,7 +40,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from .const import DOMAIN, DeviceType
+from .const import DOMAIN, CommandSource, DeviceType
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 from .wig_climate import (
@@ -183,6 +183,14 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # (owner ruling 2026-07-29): the machine cell_key never
         # appears on a user surface. None until the first send.
         self._matrix_cell: str | None = None
+        # Climate presets: the star (climate-presets-star.md). The
+        # starred command last sent through async_set_preset_mode, or
+        # None. Deliberately NOT restored across restarts: this is an
+        # assumed-state entity, nothing tells us the unit is still in
+        # that state after a reboot, and None is the honest answer.
+        # Every other setter clears it (see the actions below) so the
+        # attribute never claims a preset the unit has since moved off.
+        self._preset_mode: str | None = None
         # Power monitoring (Device Settings, 0.9.8). The mode this
         # entity was in the last time it went off (by any means -- a
         # HAIR send or a power-verdict correction), so a later "on"
@@ -546,6 +554,16 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         features = (
             ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
         )
+        # Climate presets: the star. Starred commands are the only
+        # source of HA preset modes and they behave identically in
+        # both operating modes, so the bit lands before the branches
+        # split. Gated on the RESOLVED list rather than the raw
+        # ``starred`` field: advertising PRESET_MODE with nothing to
+        # select would put an empty picker on the more-info dialog.
+        # The two agree in practice -- delete prunes the name -- so
+        # this only ever differs on a store edited by hand.
+        if self.preset_modes:
+            features |= ClimateEntityFeature.PRESET_MODE
         if self._matrix_mode:
             m = self._matrix
             if m is not None:
@@ -688,6 +706,37 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         return self._swing_mode
 
     @property
+    def preset_modes(self) -> list[str] | None:
+        """The starred commands, in the device's own command order.
+
+        Climate presets: the star (climate-presets-star.md). The
+        stored ``starred`` list is in click order; what the picker
+        shows is the row order of the device page, so a user reading
+        the more-info dialog sees the same sequence they see on the
+        command list. Filtered to commands that still exist -- the
+        delete prune should keep the two in step, so this is a belt
+        against a hand-edited store rather than a live case.
+
+        None (not an empty list) when nothing is starred, so the
+        picker is absent rather than empty.
+        """
+        starred = {
+            name.casefold() for name in self._device.entity_config.starred
+        }
+        if not starred:
+            return None
+        names = [
+            command.name
+            for command in self._device.commands
+            if command.name.casefold() in starred
+        ]
+        return names or None
+
+    @property
+    def preset_mode(self) -> str | None:
+        return self._preset_mode
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         if not self._matrix_mode:
             return None
@@ -713,6 +762,14 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
     # because a stale mapping is inert here by construction. The
     # documented door: if preset modes ever revive on matrix devices,
     # the mapping comes back through _send, not through these paths.
+    #
+    # Home Assistant PRESET MODES (climate-presets-star.md) are not
+    # that door and do not reopen it: a starred command is sent by id
+    # through async_send_command, never resolved through
+    # command_mapping, so the Map door stays shut in both modes. Note
+    # the vocabulary clash the plan calls out -- "preset mode" in this
+    # file's own names means the flat mapped-commands operating mode,
+    # which is a different thing from HA's preset_mode selector.
 
     def _file_mode_for(self, hvac_mode: HVACMode) -> str | None:
         """The file's verbatim mode key for an HA mode, or None.
@@ -810,6 +867,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         return modes[1] if len(modes) > 1 else HVACMode.AUTO
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        self._preset_mode = None
         if self._matrix_mode:
             if hvac_mode == HVACMode.OFF:
                 await self._async_matrix_off()
@@ -842,6 +900,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         raw_target = kwargs.get(ATTR_TEMPERATURE)
         if raw_target is None:
             return
+        self._preset_mode = None
         if self._matrix_mode:
             self._target_temperature = float(raw_target)
             if self._hvac_mode != HVACMode.OFF:
@@ -863,6 +922,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
+        self._preset_mode = None
         if self._matrix_mode:
             self._fan_mode = fan_mode
             if self._hvac_mode != HVACMode.OFF:
@@ -879,12 +939,49 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # HA never routes here for it.
         if not self._matrix_mode:
             return
+        self._preset_mode = None
         self._swing_mode = swing_mode
         if self._hvac_mode != HVACMode.OFF:
             await self._async_resolve_and_send(self._hvac_mode)
         self.async_write_ha_state()
 
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Send the starred command named by ``preset_mode``.
+
+        Climate presets: the star (climate-presets-star.md). One
+        gesture, no vocabulary: the preset IS a command on this
+        device, so the send is the ordinary command send -- on a
+        matrix device the starred row is a real stored command
+        carrying its cell's Pronto (``source == "matrix"``), so the
+        same call covers both operating modes.
+
+        A preset always transmits, including while the entity reads
+        OFF: selecting a preset is an explicit "go there", unlike the
+        matrix dial setters that store state and wait (plan section
+        3.3). Nothing else about the entity's local state is
+        re-derived from the name -- the display grammar is not parsed
+        back into mode/fan/temp -- so the dial stays where it was and
+        only the cell readout follows.
+        """
+        command = self._device.get_command_by_name(preset_mode)
+        if command is None or preset_mode not in (self.preset_modes or []):
+            _LOGGER.warning(
+                "No starred command named %s on %s; nothing sent",
+                preset_mode, self._device.name,
+            )
+            return
+        await self._manager.async_send_command(self._device.id, command.id)
+        self._preset_mode = preset_mode
+        if self._matrix_mode and command.source == CommandSource.MATRIX:
+            # A STATE row's name IS its cell's display name (that is
+            # how save-state-as-command mints it), so the device
+            # page's readout and the Mirror row agree without
+            # re-resolving anything.
+            self._matrix_cell = command.name
+        self.async_write_ha_state()
+
     async def async_turn_on(self) -> None:
+        self._preset_mode = None
         if self._matrix_mode:
             m = self._matrix
             if m is not None and m.on is not None:
@@ -912,6 +1009,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self.async_write_ha_state()
 
     async def async_turn_off(self) -> None:
+        self._preset_mode = None
         if self._matrix_mode:
             await self._async_matrix_off()
             return

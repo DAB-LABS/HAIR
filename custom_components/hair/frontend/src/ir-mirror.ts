@@ -124,6 +124,8 @@ export class IrMirror extends LitElement {
     @state() private _hasReceivers = true;
     @state() private _filter: string = "all"; // "all" | "notheard" | emitter name
     @state() private _search = "";
+    /** Is the emitter dropdown showing? (punch list item 15) */
+    @state() private _emitterOpen = false;
     @state() private _bloomIds = new Set<string>();
     // Sequence-numbered fire tracker (ir-bloom-styles.ts, Track B bloom
     // extraction) -- replaces the bare setTimeout+Set pair below, which
@@ -170,6 +172,10 @@ export class IrMirror extends LitElement {
         super.disconnectedCallback();
         void this._unsubscribe();
         this._removePopoverDismiss();
+        // The emitter dropdown's outside-click and Escape listeners
+        // live on the document, so they outlive this element unless
+        // they are taken down with it (punch list item 15).
+        this._closeEmitterMenu();
         if (this._refreshTimer !== null) {
             clearTimeout(this._refreshTimer);
             this._refreshTimer = null;
@@ -349,10 +355,35 @@ export class IrMirror extends LitElement {
         const fittingPrefix = label.startsWith("Fitting send")
             ? "Fitting send"
             : undefined;
+        // A pinned Remote drove this send (signpost 4, Track 4). It is
+        // a device send in every mechanical sense, so it would
+        // otherwise read as one; the point of its own chip is that a
+        // user watching the Mirror can tell "the handset did this"
+        // from "I pressed the button in the panel", which is the whole
+        // story a proxied press is supposed to tell.
+        const pinnedPrefix = label.startsWith("Pinned send")
+            ? "Pinned send"
+            : undefined;
         if (label === "automation send") {
             chip = t("mirror.chip_automation");
         } else if (label === "integration send") {
             chip = t("mirror.chip_integration");
+        } else if (pinnedPrefix) {
+            // The row already names the source device on the left, so
+            // the chip names what the pin IS rather than repeating the
+            // mechanism (owner bench 2026-08-19). The label carries
+            // "<device> / <command>"; the device is everything before
+            // the first separator.
+            const pinnedRest =
+                label
+                    .slice(pinnedPrefix.length)
+                    .replace(/^:\s*/, "")
+                    .trim();
+            const slash = pinnedRest.indexOf(" / ");
+            chip = t("mirror.chip_pinned", {
+                device: slash >= 0 ? pinnedRest.slice(0, slash) : pinnedRest,
+            });
+            labelTitle = pinnedRest || null;
         } else if (fittingPrefix) {
             chip = t("mirror.chip_fitting");
             labelTitle =
@@ -707,16 +738,20 @@ export class IrMirror extends LitElement {
         const filtered = this._filteredRows(rows);
 
         return html`
-            <div class="tab-head">
-                <span class="title">
-                    <ha-svg-icon .path=${ICON_MIRROR}></ha-svg-icon>
-                    HAIR Mirror
-                    ${!this._loading
-                        ? html`<span class="count"
-                              >(${tp("mirror.signals", rows.length)})</span
-                          >`
-                        : ""}
-                </span>
+            <div class="toolbar">
+                <div class="toolbar-title-group">
+                    <span class="toolbar-title">
+                        <ha-svg-icon .path=${ICON_MIRROR}></ha-svg-icon>
+                        ${t("mirror.title")}
+                        ${!this._loading
+                            ? html`<span class="toolbar-count"
+                                  >(${tp("mirror.signals", rows.length)})</span
+                              ><span class="toolbar-tagline"
+                                  >- ${t("panel.tagline.mirror")}</span
+                              >`
+                            : ""}
+                    </span>
+                </div>
             </div>
             ${this._error
                 ? html`<div class="error">${this._error}</div>`
@@ -784,6 +819,22 @@ export class IrMirror extends LitElement {
         `;
     }
 
+    /** The filter header: FOUR pills, always (punch list item 15).
+     *
+     * Search, All, Not heard, and one dropdown pill carrying every
+     * emitter. The shape this replaced grew one chip per emitter, so a
+     * six-emitter house already crowded the row and a larger one wrapped
+     * it into a wall -- the row's size tracked the house's size, which
+     * is exactly what a filter header must not do. Four pills, whatever
+     * the house: only the dropdown's own list gets longer, and it
+     * scrolls internally past 280px.
+     *
+     * The FILTER ITSELF is unchanged: still the single value
+     * ``"all" | "notheard" | <emitter name>`` this component has always
+     * held, with search ANDed on top. The multi-select shapes tried in
+     * two earlier rounds were set aside deliberately -- the owner's own
+     * answer for wanting several emitters at once is the search box.
+     */
     private _renderToolbar(rows: MirrorRowView[]) {
         const notHeard = rows.filter(
             (r) => (r.sig.heard_by ?? []).length === 0,
@@ -794,11 +845,42 @@ export class IrMirror extends LitElement {
                 emitterCounts.set(e, (emitterCounts.get(e) ?? 0) + 1);
             }
         }
+        const picked =
+            this._filter !== "all" && this._filter !== "notheard"
+                ? this._filter
+                : null;
+        // The label carries the picked emitter's own count when one is
+        // picked, and the number of emitters to choose from when none
+        // is. Two different numbers, deliberately: "Emitter (6)" reads
+        // as "six to pick from", which is what the pill offers before
+        // it is used.
+        const emitterLabel = picked
+            ? picked
+            : t("mirror.filter_emitter", { count: emitterCounts.size });
+        const emitterCount = picked ? (emitterCounts.get(picked) ?? 0) : null;
         return html`
-            <div class="toolbar">
+            <div class="filter-bar">
+                <div class="search-pill-wrap">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round"
+                        aria-hidden="true">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <line x1="20" y1="20" x2="16" y2="16"></line>
+                    </svg>
+                    <input
+                        class="search-pill"
+                        type="text"
+                        placeholder=${t("mirror.search")}
+                        .value=${this._search}
+                        @input=${(e: Event) => {
+                            this._search = (e.target as HTMLInputElement).value;
+                        }}
+                    />
+                </div>
                 <button
-                    class="fchip ${this._filter === "all" ? "on" : ""}"
-                    @click=${() => (this._filter = "all")}
+                    class="fchip all-chip ${this._filter === "all" ? "on" : ""}"
+                    @click=${() => this._setFilter("all")}
                 >
                     ${t("mirror.filter_all", { count: rows.length })}
                 </button>
@@ -806,34 +888,113 @@ export class IrMirror extends LitElement {
                     ? html`
                           <button
                               class="fchip warnc ${this._filter === "notheard" ? "on" : ""}"
-                              @click=${() => (this._filter = "notheard")}
+                              @click=${() => this._setFilter("notheard")}
                           >
                               ${t("mirror.filter_not_heard", { count: notHeard })}
                           </button>
                       `
                     : ""}
-                ${[...emitterCounts.entries()].map(
-                    ([name, count]) => html`
-                        <button
-                            class="fchip ${this._filter === name ? "on" : ""}"
-                            @click=${() => (this._filter = name)}
-                        >
-                            ${name} (${count})
-                        </button>
-                    `,
-                )}
-                <input
-                    class="search"
-                    type="text"
-                    placeholder=${t("mirror.search")}
-                    .value=${this._search}
-                    @input=${(e: Event) => {
-                        this._search = (e.target as HTMLInputElement).value;
-                    }}
-                />
+                <div class="emitter-pill-wrap">
+                    <button
+                        class="fchip emitter-chip ${picked ? "on" : ""} ${this
+                            ._emitterOpen
+                            ? "open"
+                            : ""}"
+                        title=${picked ?? ""}
+                        aria-haspopup="listbox"
+                        aria-expanded=${this._emitterOpen ? "true" : "false"}
+                        @click=${this._toggleEmitterMenu}
+                    >
+                        <span class="emitter-chip-label">${emitterLabel}</span>
+                        ${emitterCount !== null ? html`(${emitterCount})` : ""}
+                        <svg class="chev" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2.2"
+                            stroke-linecap="round" stroke-linejoin="round"
+                            aria-hidden="true">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    ${this._emitterOpen
+                        ? html`
+                              <div class="emitter-dropdown open" role="listbox">
+                                  ${[...emitterCounts.entries()].map(
+                                      ([name, count]) => html`
+                                          <button
+                                              class="emitter-option ${picked === name
+                                                  ? "picked"
+                                                  : ""}"
+                                              role="option"
+                                              aria-selected=${picked === name
+                                                  ? "true"
+                                                  : "false"}
+                                              title=${name}
+                                              @click=${() => this._pickEmitter(name)}
+                                          >
+                                              <span class="rname">${name}</span>
+                                              <span class="rcount">${count}</span>
+                                          </button>
+                                      `,
+                                  )}
+                              </div>
+                          `
+                        : ""}
+                </div>
             </div>
         `;
     }
+
+    /** All / Not heard. Picking either drops any picked emitter, since
+     * only one of the three is ever the filter. */
+    private _setFilter(value: "all" | "notheard"): void {
+        this._filter = value;
+        this._closeEmitterMenu();
+    }
+
+    private _pickEmitter(name: string): void {
+        this._filter = name;
+        this._closeEmitterMenu();
+    }
+
+    private _toggleEmitterMenu(): void {
+        this._emitterOpen ? this._closeEmitterMenu() : this._openEmitterMenu();
+    }
+
+    private _openEmitterMenu(): void {
+        this._emitterOpen = true;
+        // Outside-click and Escape both close, and both are captured on
+        // the document because the click that closes can land anywhere,
+        // including inside another shadow root.
+        document.addEventListener("click", this._onDocClick, true);
+        document.addEventListener("keydown", this._onMenuKeydown, true);
+    }
+
+    private _closeEmitterMenu(): void {
+        if (!this._emitterOpen) return;
+        this._emitterOpen = false;
+        document.removeEventListener("click", this._onDocClick, true);
+        document.removeEventListener("keydown", this._onMenuKeydown, true);
+    }
+
+    /** Anything outside the pill-and-dropdown group closes the menu.
+     * composedPath is what makes this work across the shadow boundary:
+     * event.target from out here is the host, not the inner button. */
+    private _onDocClick = (e: Event): void => {
+        const wrap = this.renderRoot.querySelector(".emitter-pill-wrap");
+        if (wrap && e.composedPath().includes(wrap)) return;
+        this._closeEmitterMenu();
+    };
+
+    /** Escape closes AND hands focus back to the pill -- closing into
+     * nothing would strand a keyboard user mid-row. */
+    private _onMenuKeydown = (e: KeyboardEvent): void => {
+        if (e.key !== "Escape") return;
+        e.stopPropagation();
+        this._closeEmitterMenu();
+        const pill = this.renderRoot.querySelector(
+            ".emitter-chip",
+        ) as HTMLElement | null;
+        pill?.focus();
+    };
 
     private _renderRow(r: MirrorRowView) {
         const sig = r.sig;
@@ -1002,6 +1163,7 @@ export class IrMirror extends LitElement {
         return html`
             ${this._triggerPopover
                 ? html`<ir-trigger-popover
+                      .api=${this.api}
                       .triggers=${this._triggers.filter((t) =>
                           triggerMatchesSignal(t, this._triggerPopover!.signal),
                       )}
@@ -1134,29 +1296,47 @@ export class IrMirror extends LitElement {
                 padding: 24px;
             }
 
-            /* Tab header, same anatomy as the Sniffer/Clipper/Plucker
-               titles; the mirror icon wears the tab's silver. */
-            .tab-head {
+            /* Signpost 3, fourth revision (2026-08-16): matches
+               ir-device-list.ts's Devices/Remotes toolbar exactly
+               (owner ruling) -- icon + uppercase title + count +
+               inline dash-tagline, all one line. */
+            .toolbar {
                 display: flex;
+                justify-content: space-between;
                 align-items: center;
                 margin-bottom: 12px;
+                flex-wrap: wrap;
+                gap: 8px;
             }
-            .title {
+            .toolbar-title-group {
+                display: flex;
+            }
+            .toolbar-title {
                 display: flex;
                 align-items: center;
                 gap: 8px;
                 font-size: 1.1rem;
                 font-weight: 500;
                 color: var(--primary-text-color);
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
             }
-            .title ha-svg-icon {
+            .toolbar-title ha-svg-icon {
                 --mdc-icon-size: 24px;
                 color: #607d8b;
             }
-            .title .count {
-                font-size: 0.85rem;
+            .toolbar-count {
                 font-weight: 400;
                 color: var(--secondary-text-color);
+                font-size: 0.9rem;
+                text-transform: uppercase;
+            }
+            .toolbar-tagline {
+                font-size: 0.8rem;
+                font-weight: 400;
+                color: var(--secondary-text-color);
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
             }
             .error {
                 color: var(--error-color, #db4437);
@@ -1206,44 +1386,210 @@ export class IrMirror extends LitElement {
                 color: var(--secondary-text-color);
             }
 
-            /* Toolbar */
-            .toolbar {
+            /* Toolbar: FOUR pills, always (punch list item 15).
+               Search, All, Not heard, Emitter -- in that order, per the
+               owner's explicit instruction, not incidentally. The row
+               cannot grow with the house because it holds a fixed four
+               regardless of how many emitters exist; only the emitter
+               dropdown's own list gets longer. */
+            /* Its own class, NOT .toolbar. That name already belongs
+               to the page header row above, whose rule declares
+               justify-content: space-between -- and with equal
+               specificity the later rule won, spreading these four
+               fixed-width pills across the full width. The old filter
+               row survived the collision only because its search input
+               was flex: 1 1 180px and ate the slack, so the
+               space-between never had anywhere to push. Fixed widths
+               made it visible. */
+            .filter-bar {
                 display: flex;
                 gap: 8px;
                 align-items: center;
                 margin-bottom: 14px;
                 flex-wrap: wrap;
+                position: relative;
             }
             .fchip {
                 font-size: 12.5px;
-                padding: 5px 13px;
+                padding: 6px 14px;
+                height: 32px;
+                box-sizing: border-box;
                 border-radius: 16px;
                 border: 1px solid var(--divider-color);
                 background: var(--card-background-color);
                 color: var(--secondary-text-color);
                 font-family: inherit;
                 cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                flex: none;
+                transition: background 120ms ease, border-color 120ms ease,
+                    color 120ms ease;
             }
-            .fchip.on {
-                background: #607d8b;
-                border-color: #607d8b;
+            .fchip:focus-visible,
+            .emitter-option:focus-visible {
+                outline: 2px solid #4dabf7;
+                outline-offset: 2px;
+            }
+            /* All: green filled when it is the filter, green OUTLINE
+               when it is not -- it never falls to plain neutral. */
+            .fchip.all-chip.on {
+                background: #2e7d32;
+                border-color: #2e7d32;
+                color: #fff;
+                font-weight: 600;
+            }
+            .fchip.all-chip:not(.on) {
+                color: #2e7d32;
+                border-color: rgba(46, 125, 50, 0.4);
+                font-weight: 600;
+            }
+            /* Not heard keeps its amber in BOTH states. Straight from
+               this component's own earlier header note: it is the
+               dead-LED finder, and it has to read apart from a plain
+               pill at a glance whether or not it is the active filter.
+               Do not let it fall back to neutral when inactive. */
+            .fchip.warnc.on {
+                background: #e65100;
+                border-color: #e65100;
                 color: #fff;
             }
             .fchip.warnc:not(.on) {
                 color: #e65100;
                 border-color: #ffcf9e;
             }
-            .search {
-                flex: 1 1 180px;
+            /* The emitter pill wears All's exact green when an emitter
+               is picked. The two then read apart only by their label,
+               which the owner saw and approved rather than had forced
+               on him. Unpicked, it is the plain neutral .fchip base
+               above -- no override. */
+            .fchip.emitter-chip {
+                max-width: 220px;
+            }
+            .fchip.emitter-chip.on {
+                background: #2e7d32;
+                border-color: #2e7d32;
+                color: #fff;
+                font-weight: 600;
+            }
+            /* An emitter's friendly name can be arbitrarily long -- the
+               bench fixture concatenates its receiver's name with its
+               emitter's. Ellipsize the NAME only so the count and the
+               chevron stay visible, with the whole name in the tooltip,
+               the same gate the card names use. The text is not
+               de-duplicated: a doubled name is a naming artifact on that
+               entity, not something to paper over here. */
+            .emitter-chip-label {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .emitter-chip .chev {
+                width: 12px;
+                height: 12px;
+                flex: none;
+                transition: transform 120ms ease;
+            }
+            .emitter-chip.open .chev {
+                transform: rotate(180deg);
+            }
+            .emitter-pill-wrap {
+                position: relative;
+                flex: none;
+            }
+            /* Only this list ever grows, and past 280px only it
+               scrolls -- never the pill row above it. */
+            .emitter-dropdown {
+                position: absolute;
+                top: calc(100% + 6px);
+                left: 0;
+                min-width: 260px;
+                /* The rows ellipsize their name, which needs something
+                   to ellipsize AGAINST. Without an upper bound the
+                   panel just grows to the longest name instead -- and
+                   the bench fixture's longest is a receiver name
+                   concatenated with its emitter's, which spanned half
+                   the page. The full name stays in each row's title. */
+                max-width: 420px;
+                max-height: 280px;
+                overflow-y: auto;
+                background: var(--card-background-color);
                 border: 1px solid var(--divider-color);
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-size: 13px;
+                border-radius: 10px;
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+                z-index: 30;
+                padding: 6px;
+            }
+            /* A real button per row, not a click-only div: Tab reaches
+               each one and Enter or Space activates it for free. */
+            .emitter-option {
+                width: 100%;
+                padding: 7px 10px;
+                border: none;
+                border-radius: 6px;
+                background: none;
+                cursor: pointer;
+                font-size: 12.5px;
                 font-family: inherit;
+                color: var(--primary-text-color);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                text-align: left;
+            }
+            .emitter-option:hover,
+            .emitter-option:focus-visible {
+                background: var(--secondary-background-color);
+            }
+            .emitter-option .rname {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .emitter-option .rcount {
+                color: var(--secondary-text-color);
+                font-size: 11.5px;
+                flex: none;
+            }
+            .emitter-option.picked {
+                color: #2e7d32;
+                font-weight: 600;
+            }
+            .emitter-option.picked .rcount {
+                color: rgba(46, 125, 50, 0.7);
+            }
+            /* Search is the same pill height and rounding as the other
+               three so all four read as one family, at a fixed width
+               that neither grows nor gets squeezed. */
+            .search-pill-wrap {
+                position: relative;
+                flex: 0 0 190px;
+            }
+            .search-pill-wrap .search-icon {
+                position: absolute;
+                left: 11px;
+                top: 50%;
+                transform: translateY(-50%);
+                width: 13px;
+                height: 13px;
+                color: var(--secondary-text-color);
+                pointer-events: none;
+            }
+            .search-pill {
+                width: 100%;
+                height: 32px;
+                box-sizing: border-box;
+                border-radius: 16px;
+                border: 1px solid var(--divider-color);
                 background: var(--card-background-color);
                 color: var(--primary-text-color);
+                font-family: inherit;
+                font-size: 12.5px;
+                padding: 0 12px 0 30px;
             }
-            .search:focus {
+            .search-pill:focus {
                 outline: none;
                 border-color: #607d8b;
             }

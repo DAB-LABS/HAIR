@@ -740,3 +740,76 @@ def test_reorder_signals_missing_raises():
     with pytest.raises(ValueError, match="missing"):
         dev.reorder_signals(["a"])
     assert dev.signals == original
+
+
+# ---------------------------------------------------------------------------
+# TriggerRemote, hear-side lattice (signpost 4, Track M)
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_remote_matrix_fields_round_trip():
+    """climate_matrix and last_heard survive to_dict/from_dict whole."""
+    from custom_components.hair.models import TriggerRemote
+
+    heard = {
+        "cell_key": "cool/auto/23",
+        "cell_name": "Cool 23 Auto",
+        "power": None,
+        "at": "2026-08-17T10:00:00+00:00",
+        "sl_pattern": "SLLS",
+        "receiver_entity_id": "infrared.living_room",
+        "receiver_area_name": "Living Room",
+    }
+    remote = TriggerRemote(
+        name="Bedroom AC", climate_matrix=True, last_heard=heard
+    )
+    restored = TriggerRemote.from_dict(remote.to_dict())
+    assert restored.climate_matrix is True
+    assert restored.last_heard == heard
+
+
+def test_trigger_remote_matrix_fields_default_off():
+    """A remote written before Track M carries neither key; False and
+    None are the truth about it."""
+    from custom_components.hair.models import TriggerRemote
+
+    restored = TriggerRemote.from_dict({"id": "r1", "name": "Old Remote"})
+    assert restored.climate_matrix is False
+    assert restored.last_heard is None
+
+
+def test_trigger_remote_last_heard_rejects_non_dict():
+    """A hand-edited store must not put a string on the render path."""
+    from custom_components.hair.models import TriggerRemote
+
+    restored = TriggerRemote.from_dict(
+        {"id": "r1", "name": "Odd Remote", "last_heard": "Cool 23"}
+    )
+    assert restored.last_heard is None
+
+
+def test_trigger_remote_last_heard_is_copied_not_shared():
+    """to_dict hands out a copy, so a serialized payload cannot be
+    mutated into the live remote (the pinned_device_ids posture)."""
+    from custom_components.hair.models import TriggerRemote
+
+    remote = TriggerRemote(name="AC", last_heard={"cell_key": "cool/auto/23"})
+    payload = remote.to_dict()
+    payload["last_heard"]["cell_key"] = "heat/auto/30"
+    assert remote.last_heard["cell_key"] == "cool/auto/23"
+
+
+def test_trigger_remote_clone_carries_flag_not_heard_state():
+    """The flag is part of what the remote IS; the heard state is not.
+    A copy has heard nothing, and the file copy is the caller's job."""
+    from custom_components.hair.models import TriggerRemote
+
+    source = TriggerRemote(
+        name="Bedroom AC",
+        climate_matrix=True,
+        last_heard={"cell_key": "cool/auto/23", "cell_name": "Cool 23 Auto"},
+    )
+    clone = source.clone("Bedroom AC copy")
+    assert clone.climate_matrix is True
+    assert clone.last_heard is None
+    assert clone.id != source.id

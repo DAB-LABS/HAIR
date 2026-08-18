@@ -12,6 +12,7 @@ from .const import (
     STORAGE_VERSION,
     STORAGE_VERSION_MINOR,
 )
+from .identity import NormFpIndex
 from .models import IRDevice, IRTrigger, TriggerRemote
 
 _LOGGER = logging.getLogger(__name__)
@@ -115,6 +116,12 @@ class HAIRStore:
         # Fingerprints with at least one hash-bearing command; diagnostic
         # only (the blocked-legacy-match DEBUG log in match_command).
         self._fps_with_hashed: set[str] = set()
+        # The receiver-tolerant tier (2026-08-18), lowest of the four and
+        # built ONLY for commands whose bytes never came through a
+        # receiver. See identity.file_sourced_command for who qualifies
+        # and identity.NormFpIndex for why a value two different codes
+        # claim is answered as no match at all.
+        self._idx_norm_fp: NormFpIndex = NormFpIndex()
 
     @property
     def loaded(self) -> bool:
@@ -198,7 +205,9 @@ class HAIRStore:
         changed = self._backfill_decoded_fields()
         changed = self._backfill_byte_hash() or changed
         changed = self._backfill_trigger_decoded() or changed
+        changed = self._backfill_canonical_identity() or changed
         changed = self._backfill_trigger_order() or changed
+        changed = self._backfill_pin_bindings() or changed
         self._rebuild_command_index()
         self._loaded = True
         if changed:
@@ -239,19 +248,33 @@ class HAIRStore:
         least one hash-bearing command, purely for the diagnostic log in
         ``match_command``.
         """
-        from .event_parser import EventParser
+        from .identity import (
+            canonical_fingerprint,
+            file_sourced_command,
+            norm_fingerprint_of_code,
+        )
 
         self._idx_decoded = {}
         self._idx_fp_bytehash = {}
         self._idx_bytehash = {}
         self._idx_fp = {}
         self._fps_with_hashed: set[str] = set()
+        self._idx_norm_fp = NormFpIndex()
         for device in self._data.values():
             for cmd in device.commands:
                 ref = (device.id, cmd.id)
+                if file_sourced_command(cmd, device):
+                    self._idx_norm_fp.add(
+                        norm_fingerprint_of_code(cmd.code),
+                        cmd.byte_hash or cmd.code,
+                        ref,
+                    )
                 if cmd.decoded_fingerprint:
                     self._idx_decoded[cmd.decoded_fingerprint] = ref
-                fp = EventParser.signal_fingerprint(
+                # Canonical (wire) form, always: a command minted from
+                # a wig carries file text, and a real press arrives as
+                # wire text. See identity.py's canonical-form block.
+                fp = canonical_fingerprint(
                     cmd.protocol, cmd.code, cmd.raw_timings
                 )
                 if fp:
@@ -271,6 +294,33 @@ class HAIRStore:
                             )
                         self._idx_bytehash[cmd.byte_hash] = ref
                         self._fps_with_hashed.add(fp)
+
+    def _backfill_pin_bindings(self) -> bool:
+        """Recompute every pinned remote's derived button map at load.
+
+        Signpost 4, Track 1. Runs AFTER the decoded/byte_hash/trigger
+        backfills, because derivation matches on exactly the identity
+        fields those fill -- deriving first would map on tier 3 alone
+        and produce a weaker map than the same content deserves.
+
+        Deliberately derives ALL pinned remotes rather than only those
+        with an empty map. It costs remotes x pinned-devices x triggers
+        on a path that already walks every device, it fills in remotes
+        pinned during signpost 3's dark period (pins existed, bindings
+        did not), and it means a restart repairs a map that drifted --
+        a mutation wire that is missed shows up as "correct after a
+        restart" rather than as a wrong retransmit that never heals.
+        Returns True when anything changed, folding into async_load's
+        single save like the other backfills.
+        """
+        from .pin_bindings import rederive_remote
+
+        changed = False
+        for remote in self._trigger_remotes.values():
+            if not remote.pinned_device_ids:
+                continue
+            changed = rederive_remote(self, remote) or changed
+        return changed
 
     def _backfill_trigger_decoded(self) -> bool:
         """Decode stored trigger codes into ``decoded_fingerprint`` in place.
@@ -311,6 +361,59 @@ class HAIRStore:
             )
         return changed > 0
 
+    def backfill_catalog_trigger_origins(self, signal_store) -> bool:
+        """Restamp Clipper and Plucker triggers written as "remote".
+
+        Runs once, from async_setup_entry, because it is the one backfill
+        that needs BOTH stores: the trigger says which Remote owns it, and
+        only the signal store knows which catalog row that Remote was
+        promoted from. Everything else in async_load can see all it needs.
+
+        Rows minted before 2026-08-18 all say "remote" regardless of which
+        of the three USE-as-a-Remote tabs made them, so a pasted or plucked
+        code was indistinguishable from a sniffed one and was refused the
+        receiver-tolerant tier. The promote linkage
+        ("UnknownDevice.promoted_to_remote") is what makes the repair
+        possible without guessing.
+
+        Deliberately narrow: only "remote" is rewritten, and only when the
+        owning Remote is linked to a catalog row whose source is "manual"
+        or "plucked". A genuine sniffed promote keeps "remote", and any
+        other origin is left alone.
+
+        Returns True when anything changed, so the caller can fold it into
+        one save.
+        """
+        from .signal_monitor import CATALOG_SOURCE_TRIGGER_ORIGIN
+
+        wanted: dict[str, str] = {}
+        for unknown in signal_store.get_all_devices():
+            remote_id = getattr(unknown, "promoted_to_remote", None)
+            if not remote_id:
+                continue
+            origin = CATALOG_SOURCE_TRIGGER_ORIGIN.get(unknown.source)
+            if origin and origin != "remote":
+                wanted[remote_id] = origin
+
+        if not wanted:
+            return False
+
+        restamped = 0
+        for trigger in self._triggers.values():
+            origin = wanted.get(trigger.trigger_remote_id or "")
+            if origin and trigger.origin == "remote":
+                trigger.origin = origin
+                restamped += 1
+
+        if restamped:
+            _LOGGER.info(
+                "Restamped %d trigger(s) minted from a Clipper or Plucker "
+                "row: they were written as 'remote' before the origin "
+                "vocabulary could tell a pasted code from a sniffed one",
+                restamped,
+            )
+        return bool(restamped)
+
     def _backfill_trigger_order(self) -> bool:
         """Assign ``order`` to triggers that predate Trigger Remotes signpost 1.
 
@@ -348,24 +451,107 @@ class HAIRStore:
         legacy bare-fingerprint matcher tier, which is correct because its
         captured signals hash to None through the same code path.
         """
-        from .event_parser import EventParser
+        from .identity import canonical_byte_hash
 
         changed = False
         for device in self._data.values():
             for cmd in device.commands:
                 if cmd.byte_hash is not None:
                     continue
-                bh = EventParser.pronto_byte_hash(cmd.code)
+                # Canonical (wire) form, like every other hash in HAIR
+                # since 2026-08-17 -- identity.py's canonical-form block.
+                bh = canonical_byte_hash(cmd.code)
                 if bh is not None:
                     cmd.byte_hash = bh
                     changed = True
         return changed
+
+    def _backfill_canonical_identity(self) -> bool:
+        """Move stored identity onto the canonical (wire) form.
+
+        WHAT THIS REPAIRS. Until 2026-08-17 every mint door that started
+        from a FILE Pronto -- a closet wig adopted as a Device, USEd as a
+        Remote, a Clipper paste, a Plucker place -- hashed the file text.
+        A real press arrives rebuilt from raw timings, which drops the
+        trailing gap word (identity.py's canonical-form block has the
+        mechanism and the measured numbers), so those records carried an
+        identity nothing on the air could match: 121 of 943 flat closet
+        signals and 23 of 272 wig-adopted device commands, all of them
+        undecoded, silently never matched. Decoded records were unhurt --
+        tier 1 is computed from timings, so it never moved.
+
+        THE STORED PRONTO TEXT IS NEVER REWRITTEN. Only identity fields
+        move. A wig's claim digests hash the code text as written
+        (``wig_format.row_digest``), so rewriting it would invalidate
+        every fitting ever signed; and the text is what a person reads,
+        copies and pastes. Bench-verified: digests are stable across
+        this backfill, and the digest of the wire text differs.
+
+        Runs BEFORE ``_rebuild_command_index`` with the other backfills,
+        because the index keys on exactly these values. Canonicalization
+        is idempotent (verified over 1,411 closet codes), so this is a
+        no-op from the second boot on and folds into the one load-time
+        save when it does change something.
+        """
+        from .identity import (
+            canonical_byte_hash,
+            canonical_fingerprint,
+            canonical_pronto,
+        )
+
+        changed = commands = triggers = 0
+        for device in self._data.values():
+            for cmd in device.commands:
+                # Only rows whose code is readable Pronto have a wire
+                # form at all. A legacy protocol/code pair or a
+                # hand-written record keeps exactly the identity it has.
+                if not cmd.code or canonical_pronto(cmd.code) is None:
+                    continue
+                fresh = canonical_byte_hash(cmd.code)
+                if fresh is not None and fresh != cmd.byte_hash:
+                    cmd.byte_hash = fresh
+                    commands += 1
+                    changed += 1
+        for trigger in self._triggers.values():
+            if not trigger.code or canonical_pronto(trigger.code) is None:
+                continue
+            moved = False
+            # REPOINT an existing hash; never ADD one. A trigger that
+            # has no byte_hash is a pre-0.5.8 legacy row matching
+            # broadly on its fingerprint, and v0.5.8 ruled deliberately
+            # that the load-time backfill must not narrow it (a snapped
+            # code could then mismatch the live capture and the trigger
+            # would go silent, a tier-2 miss being fatal). What was
+            # wrong was hashing the FILE form, so that is what this
+            # repairs -- it does not change which tier a row matches on.
+            if trigger.byte_hash is not None:
+                fresh_hash = canonical_byte_hash(trigger.code)
+                if fresh_hash is not None and fresh_hash != trigger.byte_hash:
+                    trigger.byte_hash = fresh_hash
+                    moved = True
+            fresh_fp = canonical_fingerprint(
+                trigger.protocol, trigger.code, None
+            )
+            if fresh_fp and fresh_fp != trigger.signal_fingerprint:
+                trigger.signal_fingerprint = fresh_fp
+                moved = True
+            if moved:
+                triggers += 1
+                changed += 1
+        if changed:
+            _LOGGER.info(
+                "Canonical identity backfill: %d commands, %d triggers "
+                "repointed onto the wire form (stored codes unchanged)",
+                commands, triggers,
+            )
+        return bool(changed)
 
     def match_command(
         self,
         decoded_fingerprint: str | None,
         signal_fingerprint: str | None,
         byte_hash: str | None,
+        norm_fp: str | None = None,
     ) -> tuple[str, str] | None:
         """Return the ``(device_id, command_id)`` a signal maps to, or None.
 
@@ -402,6 +588,20 @@ class HAIRStore:
                     signal_fingerprint,
                     byte_hash,
                 )
+        # The lowest tier, last and narrow (2026-08-18): a command whose
+        # bytes came from a file, against a capture nothing could decode.
+        # A wig-adopted device's undecoded command is otherwise invisible
+        # to the real remote's press, because the file's byte hash is not
+        # what a receiver hands back.
+        if norm_fp and not decoded_fingerprint:
+            ref = self._idx_norm_fp.get(norm_fp)
+            if ref is not None:
+                _LOGGER.debug(
+                    "Signal fp=%s hash=%s matched command %s on the "
+                    "normalized tier (a file-sourced code the air moved)",
+                    signal_fingerprint, byte_hash, ref,
+                )
+            return ref
         return None
 
     def _backfill_decoded_fields(self) -> bool:
@@ -709,6 +909,7 @@ class HAIRStore:
         fingerprint: str,
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
+        norm_fp: str | None = None,
     ) -> list[IRTrigger]:
         """Find all enabled triggers matching a signal.
 
@@ -725,8 +926,24 @@ class HAIRStore:
         no decoded identity) keep matching on bare fingerprint, so
         pre-upgrade behavior is preserved for everything except the two
         failure classes this work fixes.
+
+        THE LOWEST TIER (2026-08-18). A trigger whose bytes never came
+        through a receiver does not match its own capture on any tier
+        above: a wig-minted trigger holds the file's byte hash, and a
+        real press hashes to something else on every press. Such a
+        trigger gets one more chance, on the normalized fingerprint,
+        and only when the capture decoded as nothing.
+
+        Ambiguity is refused. If two file-sourced triggers carrying
+        DIFFERENT codes both answer to the capture's normalized value,
+        neither fires: one physical press must not run two automations
+        written for two different buttons. A sub-threshold keypad is
+        exactly that case, and the whole keypad drops together.
         """
+        from .identity import file_sourced_trigger, norm_fingerprint_of_code
+
         matches = []
+        tolerant: list[IRTrigger] = []
         for t in self._triggers.values():
             if not t.enabled:
                 continue
@@ -746,4 +963,27 @@ class HAIRStore:
                 continue
             if t.matches_signal(fingerprint, byte_hash, decoded_fingerprint):
                 matches.append(t)
+                continue
+            if (
+                norm_fp
+                and not decoded_fingerprint
+                and t.code
+                and norm_fingerprint_of_code(t.code) == norm_fp
+                and file_sourced_trigger(t, self)
+            ):
+                tolerant.append(t)
+        if len({t.code for t in tolerant}) > 1:
+            _LOGGER.debug(
+                "Normalized fingerprint %s is claimed by %d file-sourced "
+                "triggers carrying different codes; none of them match "
+                "(one press must not fire two buttons' automations)",
+                norm_fp, len(tolerant),
+            )
+        elif tolerant:
+            _LOGGER.debug(
+                "Capture matched %d file-sourced trigger(s) on the "
+                "normalized tier: %s",
+                len(tolerant), ", ".join(t.name for t in tolerant),
+            )
+            matches.extend(tolerant)
         return matches

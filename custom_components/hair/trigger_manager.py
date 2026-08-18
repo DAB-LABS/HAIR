@@ -7,9 +7,11 @@ v0.5.7 (location-aware triggers): each capture is threaded with the
 receiver that observed it. Triggers gain an optional receiver scope
 (``matches_receiver``); the fire payload carries the receiver entity plus
 its resolved area. A single physical press captured by several receivers
-within ``MULTI_RECEIVER_DEDUP_WINDOW_S`` counts once per (trigger,
-fingerprint) so multi-receiver setups do not double-count toward
-``min_hits`` or double-fire.
+within the fire dedup window counts once per trigger so multi-receiver
+setups do not double-count toward ``min_hits`` or double-fire. (The key
+was per (trigger, fingerprint) when this was written; v0.5.8 made it
+trigger-global under tiered identity -- see the dedup comment in
+``on_signal_captured`` -- and this line had gone stale.)
 """
 from __future__ import annotations
 
@@ -34,10 +36,18 @@ from homeassistant.helpers import (
 
 from .const import (
     EVENT_TRIGGER_FIRED,
+    MATRIX_STATE_DEDUP_WINDOW_S,
     MULTI_RECEIVER_DEDUP_WINDOW_S,
+    TRIGGER_FIRE_DEDUP_WINDOW_S,
     TRIGGER_HIT_RESET_WINDOW_S,
 )
 from .models import IRTrigger
+from .pin_retransmit import (
+    CELL_TARGET_PREFIX,
+    Label,
+    RetransmitDispatcher,
+    Target,
+)
 from .storage import HAIRStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -99,19 +109,39 @@ class TriggerManager:
     and fires the corresponding event entity when thresholds are met.
     """
 
-    def __init__(self, hass: HomeAssistant, store: HAIRStore) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        store: HAIRStore,
+        device_manager: Any | None = None,
+    ) -> None:
         self._hass = hass
         self._store = store
+        # Signpost 4, Track 2: the sender behind pinned retransmits.
+        # Optional so every existing construction site and test keeps
+        # working unchanged -- without it a pinned remote simply does
+        # not retransmit, which is exactly the pre-signpost-4 shape.
+        # Typed loosely to avoid importing DeviceManager, which would
+        # close an import cycle (device_manager already takes a
+        # TriggerManager on its command-edit path).
+        self._device_manager = device_manager
+        self._retransmit: RetransmitDispatcher | None = (
+            RetransmitDispatcher(hass, self._send_bound_command)
+            if device_manager is not None
+            else None
+        )
         self._hit_states: dict[str, _HitState] = {}
         self._subscribers: list[Callable[[dict[str, Any]], None]] = []
 
-        # Multi-receiver dedup (v0.5.7). A single physical press captured by
-        # several receivers within MULTI_RECEIVER_DEDUP_WINDOW_S counts once
-        # per (trigger_id, fingerprint): the second and later observations are
-        # gated out before the hit increment, so min_hits still counts distinct
-        # presses and a matching trigger fires at most once per press.
-        # Keyed on trigger id alone (unified identity): see the dedup
-        # comment in on_signal_captured.
+        # Fire dedup (v0.5.7, rewindowed and anchored 2026-08-18). A
+        # physical press captured by several receivers, or repeated frame
+        # by frame by the handset itself, counts once: captures inside the
+        # window are gated out before the hit increment, so min_hits still
+        # counts distinct presses and a matching trigger fires at most once
+        # per press. Keyed on trigger id alone (unified identity): see the
+        # dedup comment in on_signal_captured. The stored value is the time
+        # of the last capture ALLOWED THROUGH, never of a suppressed one --
+        # the window is anchored, not sliding.
         self._recent_fires: dict[str, float] = {}
         # Best-effort per-fingerprint observation tracking for the diagnostic
         # log line only.
@@ -121,6 +151,20 @@ class TriggerManager:
 
         # Callback for event entity platform to register its trigger handler.
         self._entity_fire_callback: Callable[[str, dict[str, Any]], None] | None = None
+
+    def _is_multi_frame_file_row(self, trigger: Any) -> bool:
+        """Does this trigger hold a file-sourced code of several frames?
+
+        Both halves matter. Multi-frame is what makes one press take
+        more than the ordinary window; file-sourced is what keeps the
+        wider window off receiver-learned rows, whose repeat frames are
+        the case the 100 ms window was sized for in the first place.
+        """
+        from .identity import file_sourced_trigger, is_multi_frame_code
+
+        if not trigger.code or not is_multi_frame_code(trigger.code):
+            return False
+        return file_sourced_trigger(trigger, self._store)
 
     def register_entity_callback(
         self, callback: Callable[[str, dict[str, Any]], None]
@@ -141,6 +185,7 @@ class TriggerManager:
         receiver_entity_id: str | None = None,
         byte_hash: str | None = None,
         decoded_fingerprint: str | None = None,
+        norm_fp: str | None = None,
     ) -> list[str]:
         """Process an incoming signal against all enabled triggers.
 
@@ -150,10 +195,17 @@ class TriggerManager:
         (v0.5.8 unified identity, decoded > byte_hash > S/L fingerprint),
         so a boundary protocol's fingerprint flip no longer disconnects a
         trigger from its button. Applies each trigger's receiver scope,
-        then the existing ``min_hits`` accumulation, with a sliding
+        then the existing ``min_hits`` accumulation, with an anchored
         per-trigger dedup so one physical press counts once even for
         protocols that transmit several full frames per press (Sony sends
-        4-5 at ~45ms spacing; each skipped frame refreshes the window).
+        4-5 at ~45ms spacing, a Samsung32 handset repeats every 102-119ms
+        for as long as the button is down). Anchored at the fire rather
+        than sliding, so a held button re-fires on schedule instead of
+        going silent for the length of the hold.
+
+        ``norm_fp`` is the capture's receiver-tolerant fingerprint, the
+        lowest tier, which reaches only triggers whose bytes never came
+        through a receiver (2026-08-18).
 
         Returns the list of trigger IDs that fired (for caller awareness).
         """
@@ -178,7 +230,8 @@ class TriggerManager:
             obs.other_observers.append(receiver_entity_id)
 
         triggers = self._store.get_triggers_for_signal(
-            protocol, code, fingerprint, byte_hash, decoded_fingerprint
+            protocol, code, fingerprint, byte_hash, decoded_fingerprint,
+            norm_fp,
         )
         if not triggers:
             return []
@@ -194,15 +247,22 @@ class TriggerManager:
             if not self._receiver_scope_matches(trigger, receiver_entity_id):
                 continue
 
-            # Cross-receiver dedup: within the window, a repeat capture of
-            # the same press for this trigger is skipped entirely -- no hit
+            # Fire dedup: within the window, a repeat capture of the same
+            # press for this trigger is skipped entirely -- no hit
             # increment, no fire -- so min_hits counts distinct presses.
-            # The window SLIDES (v0.5.8): a skipped capture refreshes the
-            # timestamp, so protocols that transmit several full frames per
-            # press (Sony: 4-5 frames ~45ms apart, longer than the window
-            # end to end) collapse into one hit instead of re-firing on
-            # frame 3 and frame 5. Two intentional presses are never this
-            # close together; NEC dittos are filtered before this point.
+            #
+            # The window is ANCHORED at the last capture allowed through
+            # (owner ruling 2026-08-18). It used to slide, each suppressed
+            # capture refreshing the stamp, which collapsed Sony's 4-5
+            # frames per press correctly but also swallowed a held button
+            # entirely: while the frames kept arriving the window never
+            # expired, so a two-second hold produced one fire and no
+            # further sign of itself. Anchored, the window expires on
+            # schedule and the next repeat re-fires -- at 250 ms against a
+            # ~108 ms full-frame repeat, about three fires a second, the
+            # cadence the appliance repeats at. Sony's 45 ms frames still
+            # collapse to one fire per press because five of them span
+            # 180 ms, inside the window.
             #
             # Keyed on the trigger id ALONE (unified identity): under
             # tiered matching two receivers can compute DIFFERENT
@@ -217,10 +277,91 @@ class TriggerManager:
             # already, and the RC-6 bin-share corner is a case where
             # collapsing is the correct outcome.
             key = trigger.id
-            if now - self._recent_fires.get(key, 0.0) < MULTI_RECEIVER_DEDUP_WINDOW_S:
-                self._recent_fires[key] = now
+            # ONE PRESS IS ONE FIRE. Two windows, one mechanism, chosen
+            # per row (owner rulings 2026-08-18).
+            #
+            # A row that is BOTH file-sourced and multi-frame keeps the
+            # wider MATRIX_STATE_DEDUP_WINDOW_S: the two frames of an AC
+            # state code arrive 103 to 148 ms apart through a real
+            # receiver, and such a code has no repeat behaviour to
+            # preserve, so the wider window costs nothing. The matrix
+            # listener uses that same number, so the state and the
+            # trigger agree about what a press was.
+            #
+            # Every other row gets TRIGGER_FIRE_DEDUP_WINDOW_S, sized
+            # against handsets that repeat the whole frame while the
+            # button is down (Samsung32 measured at 102-119 ms on the
+            # bench). It used to borrow MULTI_RECEIVER_DEDUP_WINDOW_S,
+            # which is 100 ms and was sized against Sony's 45 ms repeats;
+            # a full-frame repeater landed just outside it and fired a
+            # single tap two to four times.
+            #
+            # The wider window always wins where it applies.
+            window = TRIGGER_FIRE_DEDUP_WINDOW_S
+            if self._is_multi_frame_file_row(trigger):
+                window = max(window, MATRIX_STATE_DEDUP_WINDOW_S)
+            last = self._recent_fires.get(key, 0.0)
+            gap = now - last
+            if gap < window:
+                # Anchored: a suppressed capture does NOT refresh the
+                # stamp, so the window expires a fixed time after the
+                # fire it belongs to.
+                #
+                # Logged because it used to be silent, and a silent gate
+                # is unanswerable after the fact: reading the log you
+                # could not tell a capture that was suppressed here from
+                # one that never reached this point at all. A bench
+                # question about two fires 3 ms apart (2026-08-18) could
+                # not be settled from the logs for exactly that reason.
+                _LOGGER.debug(
+                    "Capture suppressed for trigger %s (%s) from %s: %.0f ms "
+                    "since the last fire, inside the %.0f ms window",
+                    trigger.name,
+                    trigger.id,
+                    receiver_entity_id or "<no receiver>",
+                    gap * 1000,
+                    window * 1000,
+                )
                 continue
+            # Recorded here, immediately after the check and BEFORE the
+            # fire path runs. There is no await between the two -- this
+            # method is synchronous -- so check-and-record cannot be
+            # interleaved by another capture on the event loop. Keep it
+            # that way: moving the record below _fire_trigger, or making
+            # this method async, would open a window in which two
+            # captures of one press both pass the check.
             self._recent_fires[key] = now
+
+            # The allow path, symmetric with the suppression line above
+            # (owner ruling 2026-08-18). The suppression line on its own
+            # could not settle a bench question about two fires 3 ms
+            # apart, because a capture that PASSED the gate left no
+            # trace: "allowed" and "never reached the gate" read the same
+            # in the log. This says which.
+            #
+            # A missing stamp is reported as missing rather than printed
+            # as a number. With no prior fire ``last`` is 0.0 and the gap
+            # is time since the process started, which would read as a
+            # plausible but meaningless interval.
+            if last:
+                _LOGGER.debug(
+                    "Capture allowed for trigger %s (%s) from %s: %.0f ms "
+                    "since the last fire, outside the %.0f ms window",
+                    trigger.name,
+                    trigger.id,
+                    receiver_entity_id or "<no receiver>",
+                    gap * 1000,
+                    window * 1000,
+                )
+            else:
+                _LOGGER.debug(
+                    "Capture allowed for trigger %s (%s) from %s: no prior "
+                    "fire stamp, %.0f ms window",
+                    trigger.name,
+                    trigger.id,
+                    receiver_entity_id or "<no receiver>",
+                    window * 1000,
+                )
 
             state = self._hit_states.get(trigger.id)
             if state is None:
@@ -231,7 +372,7 @@ class TriggerManager:
 
             if count >= trigger.min_hits:
                 if not area_resolved:
-                    area_id, area_name = self._resolve_receiver_area(
+                    area_id, area_name = self.resolve_receiver_area(
                         receiver_entity_id
                     )
                     area_resolved = True
@@ -305,14 +446,20 @@ class TriggerManager:
         Called every 100 captures from ``on_signal_captured``. Bounded and
         cheap; keeps the dedup map from growing with the number of distinct
         triggers seen over the process lifetime.
+
+        Sized against the WIDEST window any row can be given, not the
+        narrowest: pruning an entry whose window has not expired would
+        silently un-suppress the next repeat frame.
         """
         now = time.monotonic()
-        cutoff = 5 * MULTI_RECEIVER_DEDUP_WINDOW_S
+        cutoff = 5 * max(
+            TRIGGER_FIRE_DEDUP_WINDOW_S, MATRIX_STATE_DEDUP_WINDOW_S
+        )
         self._recent_fires = {
             k: v for k, v in self._recent_fires.items() if now - v < cutoff
         }
 
-    def _resolve_receiver_area(
+    def resolve_receiver_area(
         self, receiver_entity_id: str | None
     ) -> tuple[str | None, str | None]:
         """Resolve a receiver entity to its ``(area_id, area_name)``.
@@ -390,10 +537,15 @@ class TriggerManager:
         # Fire a general HA bus event (for automations listening directly).
         self._hass.bus.async_fire(EVENT_TRIGGER_FIRED, event_data)
 
+        # Names the capturing receiver, as the suppression and allow
+        # lines already do (owner ruling 2026-08-18). Without it the
+        # receiver behind either half of a double fire had to be
+        # reconstructed from entity history.
         _LOGGER.debug(
-            "Trigger %s (%s) fired with %d hits",
+            "Trigger %s (%s) from %s fired with %d hits",
             trigger.name,
             trigger.id,
+            receiver_entity_id or "<no receiver>",
             hit_count,
         )
 
@@ -403,6 +555,115 @@ class TriggerManager:
                 cb(event_data)
             except Exception:
                 _LOGGER.exception("Error notifying trigger subscriber")
+
+        # Signpost 4, Track 2: a pinned Remote drives its pinned
+        # Devices. This rides the CONFIRMED fire -- after min_hits and
+        # after the cross-receiver dedup -- so a 3-hit trigger
+        # retransmits once, on the third press, and one physical press
+        # heard by three receivers still retransmits once. It runs
+        # AFTER the event above deliberately: pinning ADDS the
+        # retransmit and never replaces the event, so automations built
+        # on this trigger keep firing alongside it.
+        self._dispatch_retransmits(trigger)
+
+    def _dispatch_retransmits(self, trigger: IRTrigger) -> None:
+        """Drive every pinned device this trigger maps to.
+
+        Reads the STORED map (derivation is a mutation-time job, see
+        pin_bindings) and hands each target to the coalescing
+        dispatcher. A drawer-owned trigger has no remote and therefore
+        no pins, so it returns immediately -- the common case on a box
+        with no pinning configured pays one attribute check.
+
+        A disabled trigger cannot reach here at all: storage's
+        get_triggers_for_signal filters on enabled before matching, so
+        "disabled trigger, no retransmit" needs no code of its own.
+        """
+        if self._retransmit is None or trigger.trigger_remote_id is None:
+            return
+        from .pin_bindings import bound_targets
+
+        remote_id = trigger.trigger_remote_id
+        remote = self._store.get_trigger_remote(remote_id)
+        for device_id, command_id in bound_targets(
+            self._store, remote_id, trigger.id
+        ):
+            target: Target = (remote_id, device_id, command_id)
+            # Names ride along purely so the loop breaker's WARNING can
+            # tell a user which pairing it cut, in the words they gave
+            # those objects, rather than three opaque ids.
+            device = self._store.get_device(device_id)
+            label = (
+                remote.name if remote is not None else remote_id,
+                device.name if device is not None else device_id,
+                trigger.name,
+            )
+            self._retransmit.dispatch(target, label)
+
+    def set_matrix_listener(self, listener: Any) -> None:
+        """Wire the hear side in (signpost 4, Track M).
+
+        Set after construction because the listener takes this manager
+        in ITS constructor. Only the cell branch of the sender below
+        needs it.
+        """
+        self._matrix_listener = listener
+
+    def dispatch_cell_retransmit(
+        self,
+        remote_id: str,
+        device_id: str,
+        cell_key: str,
+        label: Label | None = None,
+    ) -> bool:
+        """Queue a heard state onto a pinned device (signpost 4, Track 4).
+
+        The matrix listener's door into THIS manager's dispatcher --
+        not one of its own. A house with a matrix pair and a flat pair
+        pinned to the same device has one coalescer and one loop
+        breaker across both, which is the only way the breaker's rate
+        can mean what it says.
+        """
+        if self._retransmit is None:
+            return False
+        target: Target = (
+            remote_id, device_id, CELL_TARGET_PREFIX + cell_key
+        )
+        return self._retransmit.dispatch(target, label)
+
+    async def _send_bound_command(
+        self, device_id: str, command_id: str
+    ) -> None:
+        """Send one bound target the device's own way.
+
+        Goes through the device's normal send so send_count, the tx
+        gate's stagger, the emitter loop, assumed state and the
+        Mirror's echo expectation all apply without this path
+        reimplementing any of them.
+
+        A target whose command id carries the cell prefix is a heard
+        STATE driving a pinned matrix Device (signpost 4, Track 4)
+        rather than a button driving a command. It goes to the matrix
+        listener, which owns both lattices, and comes back through the
+        same broadcast path -- one dispatcher, one coalescer, one loop
+        breaker for both kinds of retransmit.
+        """
+        if command_id.startswith(CELL_TARGET_PREFIX):
+            listener = getattr(self, "_matrix_listener", None)
+            if listener is None:
+                return
+            await listener.async_send_pinned_cell(
+                device_id, command_id[len(CELL_TARGET_PREFIX):]
+            )
+            return
+        await self._device_manager.async_send_command(
+            device_id, command_id, pinned=True
+        )
+
+    def shutdown(self) -> None:
+        """Stop dispatching retransmits (config entry unload)."""
+        if self._retransmit is not None:
+            self._retransmit.shutdown()
 
     # -----------------------------------------------------------------
     # Rewire (edit/snap of a bound signal or command)
@@ -494,6 +755,21 @@ class TriggerManager:
     # -----------------------------------------------------------------
     # Subscriber management (WebSocket push for card glow)
     # -----------------------------------------------------------------
+
+    def notify_subscribers(self, payload: dict[str, Any]) -> None:
+        """Push one payload to every panel subscriber.
+
+        The fan-out ``_fire_trigger`` performs, exposed so the matrix
+        listener can put a heard state down the same pipe (signpost 4,
+        Track M). Subscribers discriminate on the payload's own
+        ``kind``; a trigger fire carries none, which is what keeps
+        every existing consumer reading exactly what it always did.
+        """
+        for cb in self._subscribers:
+            try:
+                cb(payload)
+            except Exception:
+                _LOGGER.exception("Error notifying subscriber")
 
     def subscribe(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Register a callback for real-time trigger fire notifications."""

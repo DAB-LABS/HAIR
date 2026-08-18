@@ -7,9 +7,14 @@
  * humidity sensors (climate-sensors-coding-plan.md).
  *
  * `settingsSections(device)` is the single source of truth for which
- * sections a device gets. It gates BOTH the settings button's
- * visibility (ir-device-detail.ts) and this dialog's rendered content,
- * so they can never disagree -- there is no placeholder dialog, ever.
+ * power/climate sections a device gets INSIDE this dialog. It once
+ * also gated the settings button's own visibility in
+ * ir-device-detail.ts, but coding plan item 0.2 (Track 1 item 6, s10)
+ * made the gear universal across every device type -- the button
+ * always shows now, and this dialog's convert/Duplicate/Delete rows
+ * are unconditional too, so an empty-sections device (a plain media
+ * player, say) still opens a real, useful dialog rather than a
+ * near-blank one (bench-verified at the Track 3.4 checkpoint).
  * It returns `'power'` for the device types that can plausibly draw
  * current (ac, media_player, fan, light, switch), `'climate'` for any
  * device carrying a loaded matrix (climate-sensors.md), and `[]` for
@@ -229,6 +234,46 @@ export class IrDeviceSettingsDialog extends LitElement {
         );
     }
 
+    /** Dual-entry with ir-device-list.ts's card-corner Duplicate icon
+     *  (Track 1 item 6, s10): this dialog does not implement
+     *  duplication itself, it just asks for it and gets out of the
+     *  way. Composed so it bubbles straight through ir-device-detail.ts
+     *  (its host) to ir-device-list.ts's <ir-device-detail>
+     *  instantiation, which reuses its existing
+     *  _openDuplicateDialog/ir-duplicate-device-dialog flow verbatim. */
+    private _requestDuplicate(): void {
+        this.dispatchEvent(
+            new CustomEvent("request-duplicate", { bubbles: true, composed: true }),
+        );
+        this._close();
+    }
+
+    /** Dual-entry with the card's hover-trash icon, same one flow
+     *  (Track 1 item 6, s10 callout: "one delete flow, two entry
+     *  points"). See ir-device-detail.ts's own _requestDelete for the
+     *  footer button's identical treatment and why this consolidates
+     *  what used to be a third, separate implementation. */
+    private _requestDelete(): void {
+        this.dispatchEvent(
+            new CustomEvent("request-delete", { bubbles: true, composed: true }),
+        );
+        this._close();
+    }
+
+    /** "Make a Remote" mirror-door mint (signpost 3, Track 3.5,
+     *  owner-directed 2026-08-15). Same ask-and-get-out-of-the-way
+     *  shape as _requestDuplicate/_requestDelete above -- this dialog
+     *  does not mint anything itself, ir-device-list.ts's
+     *  <ir-promote-remote-dialog> (sourceDeviceId mode) does, reached
+     *  by composed bubbling through this dialog's host exactly like
+     *  those two requests already are. */
+    private _requestMakeRemote(): void {
+        this.dispatchEvent(
+            new CustomEvent("request-make-remote", { bubbles: true, composed: true }),
+        );
+        this._close();
+    }
+
     private _onSensorChoiceChanged(e: Event): void {
         this._sensorChoice = (e.target as HTMLSelectElement).value;
     }
@@ -302,24 +347,31 @@ export class IrDeviceSettingsDialog extends LitElement {
             <div ?hidden=${!this._error}>
                 <ha-alert alert-type="error">${this._error}</ha-alert>
             </div>
-            <div ?hidden=${sections.length > 0}>
-                <p class="empty-state">${t("devsettings.no_sections")}</p>
-            </div>
             <div class="section-slot" ?hidden=${!sections.includes("power")}>
                 ${this._renderPowerSection()}
             </div>
             <div class="section-slot" ?hidden=${!sections.includes("climate")}>
                 ${this._renderClimateSection()}
             </div>
+            <div class="section-slot">
+                ${this._renderConvertSection()}
+            </div>
             <div class="dialog-actions">
                 <button
-                    class="action-btn cancel-btn"
-                    @click=${this._close}
+                    class="action-btn delete-btn"
+                    @click=${this._requestDelete}
                     ?disabled=${this._busy}
                 >
-                    ${t("common.close")}
+                    ${t("devsettings.delete")}
                 </button>
-                <span class="spacer"></span>
+                <span class="actions-spacer"></span>
+                <button
+                    class="action-btn duplicate-btn"
+                    @click=${this._requestDuplicate}
+                    ?disabled=${this._busy}
+                >
+                    ${t("devsettings.duplicate")}
+                </button>
                 <button
                     class="action-btn save-btn"
                     @click=${this._save}
@@ -328,6 +380,40 @@ export class IrDeviceSettingsDialog extends LitElement {
                     ${this._busy ? t("common.saving") : t("common.save")}
                 </button>
             </div>
+        `;
+    }
+
+    /** "Make a Remote" mirror-door row (s10, s10's .sd-section.convert):
+     *  wired since signpost 3 Track 3.5 (owner-directed 2026-08-15) to
+     *  hair/device/make-remote via ir-device-list.ts's
+     *  <ir-promote-remote-dialog> (sourceDeviceId mode) -- the gap
+     *  flagged at the Track 3.4 checkpoint (Track 2.2 covered
+     *  Sniffer/Clipper/Plucker/Closet-wig sources but never a live
+     *  Device's own commands) is now closed. This dialog only asks
+     *  for the mint (_requestMakeRemote) and gets out of the way, same
+     *  dual-entry shape as Duplicate/Delete above. */
+    private _renderConvertSection() {
+        return html`
+            <section class="settings-section section-convert">
+                <div class="convert-row">
+                    <div class="convert-text">
+                        <h3 class="section-label convert-label">
+                            ${t("devsettings.make_remote_title")}
+                        </h3>
+                        <p class="section-explainer convert-desc">
+                            ${t("devsettings.make_remote_desc")}
+                        </p>
+                    </div>
+                    <div class="convert-btn-cell">
+                        <button
+                            class="action-btn convert-btn"
+                            @click=${this._requestMakeRemote}
+                        >
+                            ${t("devsettings.make_remote_btn")}
+                        </button>
+                    </div>
+                </div>
+            </section>
         `;
     }
 
@@ -548,22 +634,74 @@ export class IrDeviceSettingsDialog extends LitElement {
                 display: block;
                 margin: 8px 0;
             }
-            .empty-state {
-                color: var(--secondary-text-color);
-                font-size: 0.9rem;
-                margin: 8px 0 4px;
-            }
             .pair-grid {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
                 column-gap: 10px;
             }
-            /* CLOSE-left/SAVE-right idiom (ir-claims-ledger.ts,
-             * ir-comb-report.ts, ir-save-perfect-dialog.ts): dialogStyles'
-             * .dialog-actions is flex-end by default, so this spacer is
-             * what actually pushes Close to the left. */
-            .spacer {
+            /* Destructive alone on the left, constructive pair on the
+             * right, with a growing spacer between (punch list item
+             * 20). The grey Close is gone: the dialog's own X already
+             * closes it, and two close doors on one popup read as
+             * clutter -- Escape and the X both still work. The
+             * grouping lives in the markup rather than in a
+             * justify-content mode, so the footer says its own shape:
+             * Delete, gap, Duplicate, Save. */
+            /* Mirror-door row (s10 .convert-grid/.convert-text/
+             * .convert-btn-cell): description on the left, a
+             * fixed-width button cell on the right so the button reads
+             * as a standalone action rather than a right-aligned
+             * label. section-label/section-explainer are the same
+             * classes power/climate already use -- convert-label just
+             * overrides the accent color (s10: HA's own --primary-color
+             * blue, not a kind color -- this row isn't "device green"
+             * or "remote gold," it's a neutral cross-kind action). */
+            .convert-row {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+            }
+            .convert-text {
                 flex: 1;
+            }
+            .convert-label {
+                color: var(--primary-color);
+            }
+            .convert-btn-cell {
+                flex: 0 0 116px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .convert-btn {
+                width: 100%;
+            }
+            /* Duplicate: outlined GREEN_PEAK (#43a047 -- see
+             * ir-origin-colors.ts's GREEN_PEAK comment; same token
+             * ir-header-chip-group.ts's Emitters:/Receivers: groups
+             * use, confirmed against s10's own .btn-outline-green, not
+             * invented for this button). Hardcoded rather than
+             * imported/unsafeCSS'd, matching this file's own existing
+             * convention of hardcoded hex literals per accent (see
+             * .settings-section.section-power/.section-climate above). */
+            .duplicate-btn {
+                background: none;
+                border-color: #43a047;
+                color: #43a047;
+            }
+            .duplicate-btn:hover:not(:disabled) {
+                background: rgba(67, 160, 71, 0.14);
+            }
+            /* Delete: outlined ember -- the same #e65100
+             * ir-icons.ts's .trash-btn convention already uses on
+             * hover, colored at rest here per s10. */
+            .delete-btn {
+                background: none;
+                border-color: #e65100;
+                color: #e65100;
+            }
+            .delete-btn:hover:not(:disabled) {
+                background: rgba(230, 81, 0, 0.14);
             }
 
             /* Section-accent styling (owner ruling 2026-08-09, design
@@ -596,8 +734,18 @@ export class IrDeviceSettingsDialog extends LitElement {
              * the DOM but hidden) never leaves a dangling line with
              * nothing visible above it -- the rule only fires between
              * two sections that are both actually showing.
+             *
+             * GENERAL sibling, not adjacent (punch list item 20). With
+             * "+" the pair had to be DOM-adjacent, so a flat device --
+             * whose hidden climate wrapper sits between power and the
+             * mirror door -- matched nothing and drew no divider at
+             * all, while a matrix device drew two. Same dialog, two
+             * looks, entirely because of which optional sections
+             * happened to be present. "~" says what the rule always
+             * meant: every visible section after the first gets a
+             * seam above it, whatever is hidden in between.
              */
-            .section-slot:not([hidden]) + .section-slot:not([hidden]) {
+            .section-slot:not([hidden]) ~ .section-slot:not([hidden]) {
                 border-top: 1px solid var(--divider-color);
                 padding-top: 8px;
             }

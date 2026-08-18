@@ -30,7 +30,8 @@
     },
     "device_automation": {
         "trigger_type": {
-            "button_pressed": "{subtype} appuyé"
+            "button_pressed": "{subtype} appuyé",
+            "state_heard": "État entendu"
         }
     }
 }

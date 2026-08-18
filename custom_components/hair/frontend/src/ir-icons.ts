@@ -197,20 +197,23 @@ export const SETTINGS_VIEWBOX = "0 0 382.673 382.673";
  * read best) once the size CHANGE itself -- not just the small
  * resting size -- turned out to be the thing that read as unclean.
  *
- * TOP-ALIGNED (owner ruling 2026-08-09): explicit align-self so this
- * button stays pinned to the top of its device-meta grid cell even
- * once IR EMITTERS grows past one row and wraps -- .device-meta's own
- * align-items: start (ir-device-detail.ts) already implies this, but
- * it's spelled out here rather than left to inherit, since this
- * button is the one thing in the row that must never re-center when
- * its sibling cell grows taller.
+ * BOTTOM-ALIGNED (owner ruling 2026-08-15, reverses the 2026-08-09
+ * top-alignment ruling above): explicit align-self so this button
+ * stays pinned to the BOTTOM of its containing cell instead --
+ * .device-meta's grid row on the Device side, .trh-header's flex row
+ * on the Remote side -- so it stays low against the commands/triggers
+ * list that follows, regardless of how tall the Emitters/Receivers
+ * chip group above it grows. One shared style, both call sites, so
+ * this single change covers both settings gears per the owner's own
+ * framing ("both ... should be justified to the bottom of the cell
+ * that they're in").
  */
 export const settingsButtonStyles = css`
     .settings-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        align-self: start;
+        align-self: end;
         background: none;
         border: none;
         padding: 5px;
@@ -388,6 +391,119 @@ export function renderEditBtn(
             aria-label=${title}
         >
             <ha-svg-icon .path=${ICON_EDIT} .viewBox=${EDIT_VIEWBOX}></ha-svg-icon>
+        </button>
+    `;
+}
+
+/**
+ * The climate-preset star, from images/star.svg
+ * (climate-presets-star-handoff.md, owner-approved 2026-08-17).
+ *
+ * The source file is ONE path holding two overlapping star shapes in
+ * the same rotation, wound in opposite directions: an outer point and
+ * a slightly smaller inset one. Rendered together under the default
+ * nonzero fill rule they cancel in the middle and draw a hollow
+ * outline star; rendered with only the first subpath (everything up
+ * to the first `z`) the same asset draws a solid star. One file, two
+ * looks -- the same technique ICON_EDIT/ICON_TRASH already rely on
+ * here, and the reason there is no second SVG asset for the filled
+ * state.
+ *
+ * Fill-based, so both render through ha-svg-icon like every other
+ * glyph in this file, never as inline stroke SVG:
+ *
+ *   <ha-svg-icon .path=${ICON_STAR} .viewBox=${STAR_VIEWBOX}></ha-svg-icon>
+ */
+export const ICON_STAR =
+    "M19.38 12.803l-3.38-10.398-3.381 10.398h-11.013l8.925 6.397-3.427 10.395 8.896-6.448 8.895 6.448-3.426-10.395 8.925-6.397h-11.014zM20.457 19.534l2.394 7.261-6.85-4.965-6.851 4.965 2.64-8.005-0.637-0.456-6.228-4.464h8.471l2.606-8.016 2.605 8.016h8.471l-6.864 4.92 0.245 0.744z";
+
+/** The same asset's first subpath alone: the solid, starred look. */
+export const ICON_STAR_FILLED =
+    "M19.38 12.803l-3.38-10.398-3.381 10.398h-11.013l8.925 6.397-3.427 10.395 8.896-6.448 8.895 6.448-3.426-10.395 8.925-6.397h-11.014z";
+
+/** The viewBox both star paths are drawn in (the asset's native one). */
+export const STAR_VIEWBOX = "0 0 32 32";
+
+/**
+ * The star's own delta on top of editButtonStyles' box.
+ *
+ * RULED (climate-presets-star-handoff.md): the star reuses
+ * `.edit-btn`'s box WHOLESALE rather than copying its numbers, so a
+ * future bench pass on the pencil's box carries the star along for
+ * free instead of drifting out of sync -- which is why the button
+ * below wears `class="edit-btn star-btn"` and this block adds only
+ * what edit does not already say. Rest colour, hover wash, radius,
+ * padding and the 20px glyph all come from editButtonStyles; a
+ * surface using this must include BOTH.
+ *
+ * The starred colour (#4dabf7, the app's focus-ring blue) is
+ * deliberately NOT the hover wash's #64b5f6: a starred row has to
+ * still read as starred once the mouse has moved off it and nothing
+ * is hovered. Specificity keeps them in the right order without
+ * !important -- `.edit-btn:hover:not(:disabled)` outranks
+ * `.star-btn.on`, so hovering a starred star still washes blue, and
+ * `.star-btn.on` outranks `.edit-btn`, so a starred star at rest is
+ * never grey.
+ *
+ * No gold anywhere: the plan's original #f5a623 fill is retired by
+ * the handoff, not parked, and must not come back as a dead variable.
+ */
+export const starButtonStyles = css`
+    /* Owner bench ruling 2026-08-17, third look: the GLYPH loses a
+       pixel and gains a pixel of height above it; the BOX does not
+       move. 19px icon with 2px above and 3px below still totals
+       edit's 24, and 2.5px either side still totals 24 across, so the
+       star keeps the same 24x24 hover target and the same x position
+       in the row -- only the drawing inside it shifts. This is the
+       one place the star stops inheriting edit's geometry; colour,
+       hover, radius, transition and disabled state all still come
+       from editButtonStyles, so a future pass on those still carries
+       the star along. */
+    .star-btn {
+        padding: 2px 2.5px 3px;
+    }
+    .star-btn ha-svg-icon {
+        --mdc-icon-size: 19px;
+    }
+    .star-btn.on {
+        color: #4dabf7;
+    }
+    .star-btn:focus-visible {
+        outline: 2px solid #4dabf7;
+        outline-offset: 2px;
+    }
+`;
+
+/**
+ * Shared star-button template. Placement is the caller's (the row's
+ * .actions cluster, immediately left of the edit/trash pair, one
+ * normal 4px gap away from it -- it is deliberately NOT fused into
+ * that pair's zero-gap treatment, which was a ruling about edit and
+ * trash's own relationship).
+ *
+ * One click toggles, no dialog and no confirmation, like every other
+ * toggle-style control in this panel. A real <button>, so Enter and
+ * Space work and the focus ring above has something to draw on.
+ */
+export function renderStarBtn(
+    onClick: (e: Event) => void,
+    title: string,
+    starred: boolean,
+    disabled = false,
+) {
+    return html`
+        <button
+            class="edit-btn star-btn${starred ? " on" : ""}"
+            ?disabled=${disabled}
+            @click=${onClick}
+            title=${title}
+            aria-label=${title}
+            aria-pressed=${starred ? "true" : "false"}
+        >
+            <ha-svg-icon
+                .path=${starred ? ICON_STAR_FILLED : ICON_STAR}
+                .viewBox=${STAR_VIEWBOX}
+            ></ha-svg-icon>
         </button>
     `;
 }

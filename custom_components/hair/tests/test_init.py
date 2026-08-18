@@ -93,6 +93,9 @@ class TestAsyncSetupEntry:
              patch("custom_components.hair._async_register_panel", new_callable=AsyncMock):
             mock_store = MagicMock()
             mock_store.async_load = AsyncMock()
+            # The cross-store origin backfill runs here (2026-08-18);
+            # these tests are about setup wiring, so it finds nothing.
+            mock_store.backfill_catalog_trigger_origins.return_value = False
             mock_store_cls.return_value = mock_store
 
             result = await async_setup_entry(hass, entry)
@@ -115,6 +118,9 @@ class TestAsyncSetupEntry:
              patch("custom_components.hair._async_register_panel", new_callable=AsyncMock):
             mock_store = MagicMock()
             mock_store.async_load = AsyncMock()
+            # The cross-store origin backfill runs here (2026-08-18);
+            # these tests are about setup wiring, so it finds nothing.
+            mock_store.backfill_catalog_trigger_origins.return_value = False
             mock_store_cls.return_value = mock_store
 
             await async_setup_entry(hass, entry)
@@ -131,6 +137,9 @@ class TestAsyncSetupEntry:
              patch("custom_components.hair._async_register_panel", new_callable=AsyncMock):
             mock_store = MagicMock()
             mock_store.async_load = AsyncMock()
+            # The cross-store origin backfill runs here (2026-08-18);
+            # these tests are about setup wiring, so it finds nothing.
+            mock_store.backfill_catalog_trigger_origins.return_value = False
             mock_store_cls.return_value = mock_store
 
             await async_setup_entry(hass, entry)

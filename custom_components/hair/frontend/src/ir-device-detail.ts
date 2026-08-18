@@ -34,8 +34,14 @@ import "./ir-save-perfect-dialog.js";
 import "./ir-save-route-dialog.js";
 import "./ir-save-new-dialog.js";
 import "./ir-save-update-dialog.js";
-import "./ir-emitter-picker.js";
+import { getEmitterOptions } from "./ir-emitter-picker.js";
+import "./ir-header-chip-group.js";
+import type { HeaderChipRow } from "./ir-header-chip-group.js";
+import { GREEN_PEAK, ORIGIN_COLORS } from "./ir-origin-colors.js";
+import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
 import type { SaveRoute } from "./ir-save-route-dialog.js";
+import "./ir-matrix-card.js";
+import type { MatrixCardPick } from "./ir-matrix-card.js";
 import "./ir-signal-editor.js";
 import "./ir-trigger-dialog.js";
 import "./ir-trigger-popover.js";
@@ -54,7 +60,6 @@ import {
     renderExitToEntityBtn,
 } from "./ir-icons.js";
 import "./ir-device-settings-dialog.js";
-import { settingsSections } from "./ir-device-settings-dialog.js";
 import type { HairApi } from "./api.js";
 import type {
     ActionOption,
@@ -62,12 +67,10 @@ import type {
     IRDevice,
     IRTrigger,
     DeviceTypeId,
-    MatrixCellCoord,
-    MatrixCells,
     ReceiverInfo,
     SavePlan,
+    TriggerRemoteInfo,
 } from "./types.js";
-import { displayTemp, installUnit } from "./temperature.js";
 
 // MDI: drag (six-dot grip)
 const ICON_GRIP =
@@ -75,6 +78,21 @@ const ICON_GRIP =
 
 /** Debounce delay (ms) between drag end and WS save. */
 const REORDER_DEBOUNCE_MS = 500;
+
+/**
+ * Width of the Device detail header's label column, in px (punch list
+ * item 9, `header-pin-layout-handoff.md`). Both rows on this header pass
+ * the same value to ir-header-chip-group, which is what puts
+ * "EMITTERS:" and "PINNED:" on one colon line and keeps a wrapped row of
+ * chips under the chips column instead of back under the label.
+ *
+ * DERIVED, not arbitrary: sized to "EMITTERS:", 9 characters, the
+ * longest label this column carries in any state. It is narrower than
+ * the Remote header's 80px because that header's own longest label is
+ * "RECEIVERS:" -- the two numbers are measured per surface, not shared.
+ * Re-measure before adding a longer label here.
+ */
+const DEVICE_HDR_LABEL_W = 76;
 
 const DEVICE_TYPES: { value: DeviceTypeId; label: string }[] = [
     { value: "media_player", label: "Media Player" },
@@ -91,11 +109,19 @@ export class IrDeviceDetail extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public hass: any;
     @property({ attribute: false }) public device!: IRDevice;
+    /** ir-device-list.ts's own already-loaded receivers list, reused
+     *  so the header Emitters group can exclude RX-only entities the
+     *  same way ir-emitter-picker.ts's .api-driven fetch does, without
+     *  a second network call (signpost 3, Track 1 item 5). */
+    @property({ attribute: false }) public receivers: ReceiverInfo[] = [];
+    /** Candidate list for the gated Pin: group -- existing Trigger
+     *  Remotes, pinned items on a Device ARE Remotes. Unused while
+     *  PINNING_UI_ENABLED is false. */
+    @property({ attribute: false }) public triggerRemotes: TriggerRemoteInfo[] = [];
 
     @state() private _busy = false;
     @state() private _captureName: string | null = null;
     @state() private _toast: string | null = null;
-    @state() private _confirmDelete = false;
     /** Second Fitting v3 punch list item 6: the window itself opens on
      * this alone, synchronously, the moment SAVE TO CLOSET is clicked
      * -- it no longer waits on the plan fetch below. False closes the
@@ -146,26 +172,12 @@ export class IrDeviceDetail extends LitElement {
     @state() private _editingName = false;
     @state() private _draftName = "";
 
-    // State-matrix cell browser (Cold Cuts second half, mockup CC3).
-    // The lattice loads lazily the first time the card renders and is
-    // cached per device id; a load failure leaves the card summary-only
-    // rather than dead. Selection is one branch (mode, then fan/swing
-    // as the branch offers them) plus one temperature tile.
-    @state() private _matrixCells: MatrixCells | null = null;
-    private _matrixCellsFor: string | null = null;
-    @state() private _selMode: string | null = null;
-    @state() private _selFan: string | null = null;
-    @state() private _selSwing: string | null = null;
-    @state() private _selTemp: number | null = null;
-    // Power row (matrix-power-row.md item 1): a power press is a
-    // sibling selection to the cell branch, not a branch itself --
-    // picking a power chip clears the cell dimensions and vice versa,
-    // so only one of the two can ever be "the thing Send would send".
-    @state() private _selPower: "on" | "off" | null = null;
-
     // Device Settings (0.9.8): the settings button in the meta row.
-    // Gated by settingsSections(device) so a device type with nothing
-    // to configure never shows the button at all.
+    // Universal across every device type (Track 1 item 6, coding plan
+    // item 0.2) -- settingsSections(device) still decides which
+    // power/climate sections show INSIDE the dialog, but no longer
+    // gates the button's own visibility; the dialog always has the
+    // convert/Duplicate/Delete rows even when both sections are empty.
     @state() private _settingsOpen = false;
 
     // Triggers
@@ -411,6 +423,73 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
+    /** Every assignable emitter (getEmitterOptions -- the same
+     *  infrared.* / receiver-exclusion / hair_observer filter
+     *  ir-emitter-picker.ts itself uses), mapped to header-chip-group's
+     *  row shape. `down` mirrors that component's own three-state
+     *  logic: assigned but HA reports it unreachable. */
+    private _emitterRows(): HeaderChipRow[] {
+        const receiverIds = new Set(this.receivers.map((r) => r.entity_id));
+        const value = this.device.emitter_entity_ids ?? [];
+        return getEmitterOptions(this.hass, receiverIds).map((em) => ({
+            id: em.entity_id,
+            name: em.name,
+            on: value.includes(em.entity_id),
+            down: value.includes(em.entity_id) && !em.available,
+        }));
+    }
+
+    /** Rows for the Device detail's Pin: group -- candidates are
+     *  Remotes, and `on` is read from stored state (signpost 4, Track
+     *  4). The pin lives on the remote, so "is this device pinned to
+     *  that remote" is answered by looking in the remote's own list;
+     *  the device side deliberately stores nothing of its own. */
+    private _pinRows(): HeaderChipRow[] {
+        return this.triggerRemotes.map((r) => ({
+            id: r.id,
+            name: r.name,
+            on: (r.pinned_device_ids ?? []).includes(this.device.id),
+        }));
+    }
+
+    /** Pin or unpin this device against whichever Remote's chip moved.
+     *
+     * The group reports the full new list of "on" ids, so the delta
+     * against current state names the one remote that changed. Both
+     * directions are one call; the parent refetches remotes afterwards
+     * so the chips reflect what the backend actually stored rather
+     * than what we hoped it stored. */
+    private async _onPinsChanged(e: CustomEvent<{ value: string[] }>) {
+        const next = new Set(e.detail.value);
+        const before = new Set(
+            this._pinRows().filter((r) => r.on).map((r) => r.id),
+        );
+        const added = [...next].filter((id) => !before.has(id));
+        const removed = [...before].filter((id) => !next.has(id));
+        this._busy = true;
+        try {
+            for (const remoteId of added) {
+                await this.api.pinTriggerRemoteDevice(remoteId, this.device.id);
+            }
+            for (const remoteId of removed) {
+                await this.api.unpinTriggerRemoteDevice(
+                    remoteId,
+                    this.device.id,
+                );
+            }
+            this.dispatchEvent(
+                new CustomEvent("remote-pins-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch (err) {
+            this._toast = String(err);
+        } finally {
+            this._busy = false;
+        }
+    }
+
     private async _onEmittersChanged(e: CustomEvent) {
         const newIds: string[] = e.detail.value;
         const previousIds = [...this.device.emitter_entity_ids];
@@ -426,7 +505,10 @@ export class IrDeviceDetail extends LitElement {
             this.device = await this.api.updateDevice(this.device.id, {
                 emitter_entity_ids: newIds,
             });
-            this._flash(t("devdetail.emitters_updated"));
+            // Signpost 3 follow-up (2026-08-15): no success flash here --
+            // the picker's own chips turning green already signal the
+            // update, matching the (already flash-less) receiver picker
+            // on the remote side. The failure flash below is unchanged.
             this.dispatchEvent(
                 new CustomEvent("device-changed", { bubbles: true, composed: true }),
             );
@@ -463,13 +545,6 @@ export class IrDeviceDetail extends LitElement {
         if (changed.has("device")) {
             void this._loadActionOptions();
             void this._loadTriggers();
-        }
-        // Lazy matrix load, once per device id: the card renders its
-        // summary immediately and the cell browser fills in when the
-        // lattice arrives.
-        if (this.device.matrix && this._matrixCellsFor !== this.device.id) {
-            this._matrixCellsFor = this.device.id;
-            void this._loadMatrixCells();
         }
         // After a keyed rebuild of the commands-list, Sortable needs to
         // be re-attached to the freshly-created container.
@@ -990,6 +1065,62 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
+    /** Whether a command is currently a climate preset on this device.
+     *  Case-insensitive to match the backend's own name comparisons,
+     *  which is what the rename cascade and the delete prune use. */
+    private _isStarred(name: string): boolean {
+        const starred = this.device.entity_config?.starred ?? [];
+        const target = name.toLowerCase();
+        return starred.some((entry) => entry.toLowerCase() === target);
+    }
+
+    /** Climate presets: the star (climate-presets-star.md). One click,
+     *  no dialog -- toggle, take the authoritative list back, repaint.
+     *  The device's own payload is patched rather than refetched: the
+     *  handler returns the full starred list, so a round trip would
+     *  only re-read what is already in hand. */
+    private async _onStarToggle(e: CustomEvent) {
+        const { command } = e.detail as { command: IRCommand };
+        if (!command) return;
+        const next = !this._isStarred(command.name);
+        this._busy = true;
+        try {
+            const result = await this.api.starCommand(
+                this.device.id,
+                command.name,
+                next,
+            );
+            this.device = {
+                ...this.device,
+                entity_config: {
+                    ...this.device.entity_config,
+                    starred: result.starred,
+                },
+            };
+            // No success flash on purpose: the glyph filling in IS the
+            // feedback, and the feature's whole shape is "no dialog, no
+            // picker, no vocabulary". Only the failure path needs
+            // words, and it borrows the page's existing generic one
+            // rather than minting copy the handoff did not ask for
+            // (which specifies exactly two new locale keys, both
+            // titles).
+            this.dispatchEvent(
+                new CustomEvent("device-changed", {
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+        } catch (err) {
+            this._flash(
+                t("devdetail.update_failed", {
+                    message: (err as Error).message,
+                }),
+            );
+        } finally {
+            this._busy = false;
+        }
+    }
+
     private async _onToggleTxRaw(e: CustomEvent) {
         const { command } = e.detail as { command: IRCommand };
         if (!command) return;
@@ -1133,22 +1264,19 @@ export class IrDeviceDetail extends LitElement {
         );
     }
 
-    private async _deleteDevice() {
-        this._busy = true;
-        try {
-            await this.api.deleteDevice(this.device.id);
-            this.dispatchEvent(
-                new CustomEvent("device-deleted", {
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
-        } catch (err) {
-            this._flash(`Delete failed: ${(err as Error).message}`);
-        } finally {
-            this._busy = false;
-            this._confirmDelete = false;
-        }
+    /** Dispatched by both the footer's "Delete Device" button below
+     *  and (bubbling straight through, composed, from the nested
+     *  <ir-device-settings-dialog>) its Settings-dialog Delete button.
+     *  ir-device-list.ts's <ir-device-detail> instantiation catches
+     *  this and reuses its own already-tested _confirmDeleteDevice /
+     *  _doDeleteDevice flow -- the same one the card's hover-trash
+     *  icon triggers -- rather than this file keeping a second,
+     *  separate delete implementation of its own (Track 1 item 6,
+     *  "not two flows"). */
+    private _requestDelete(): void {
+        this.dispatchEvent(
+            new CustomEvent("request-delete", { bubbles: true, composed: true }),
+        );
     }
 
     private _navigateIntegration(url: string | null) {
@@ -1197,195 +1325,41 @@ export class IrDeviceDetail extends LitElement {
         return null;
     }
 
-    private async _loadMatrixCells(): Promise<void> {
-        this._matrixCells = null;
-        try {
-            const cells = await this.api.matrixCells(this.device.id);
-            this._matrixCells = cells;
-            if (cells.modes.length > 0) {
-                this._select(cells.modes[0], null, null, null);
-            }
-        } catch {
-            // Summary-only card; the backend already logged why.
-            this._matrixCells = null;
-        }
-    }
-
-    /** Fan values the mode branch actually holds, in vocabulary order. */
-    private _fansFor(mode: string): string[] {
-        const mc = this._matrixCells!;
-        const seen = new Set<string>();
-        for (const c of mc.cells) {
-            if (c.m === mode && c.f !== undefined) seen.add(c.f);
-        }
-        return mc.fan_modes.filter((f) => seen.has(f));
-    }
-
-    /** Swing values under (mode, fan), in vocabulary order. */
-    private _swingsFor(mode: string, fan: string | null): string[] {
-        const mc = this._matrixCells!;
-        const seen = new Set<string>();
-        for (const c of mc.cells) {
-            if (
-                c.m === mode &&
-                (c.f ?? null) === fan &&
-                c.s !== undefined
-            ) {
-                seen.add(c.s);
-            }
-        }
-        return mc.swing_modes.filter((s) => seen.has(s));
-    }
-
-    /** Every cell of the selected branch (exact dimension match --
-     * absent dimensions pair only with null, mirroring exact_cell). */
-    private _branchCells(
-        mode: string,
-        fan: string | null,
-        swing: string | null,
-    ): MatrixCellCoord[] {
-        return this._matrixCells!.cells.filter(
-            (c) =>
-                c.m === mode &&
-                (c.f ?? null) === fan &&
-                (c.s ?? null) === swing,
-        );
-    }
-
-    /** Move the selection, re-resolving the deeper dimensions so the
-     * result is always a branch the matrix actually has: a fan/swing
-     * that vanished with the mode change falls to the branch's first,
-     * a temperature falls to the nearest available (middle when the
-     * branch is fresh -- the entity's resolve_cell default). */
-    private _select(
-        mode: string,
-        fan: string | null,
-        swing: string | null,
-        temp: number | null,
-    ): void {
-        const fans = this._fansFor(mode);
-        const useFan =
-            fan !== null && fans.includes(fan) ? fan : (fans[0] ?? null);
-        const swings = this._swingsFor(mode, useFan);
-        const useSwing =
-            swing !== null && swings.includes(swing)
-                ? swing
-                : (swings[0] ?? null);
-        const temps = this._branchCells(mode, useFan, useSwing)
-            .filter((c) => c.t !== undefined)
-            .map((c) => c.t!)
-            .sort((a, b) => a - b);
-        let useTemp: number | null = null;
-        if (temps.length > 0) {
-            if (temp === null) {
-                useTemp = temps[Math.floor(temps.length / 2)];
-            } else if (temps.includes(temp)) {
-                useTemp = temp;
-            } else {
-                useTemp = temps.reduce((best, x) =>
-                    Math.abs(x - temp) < Math.abs(best - temp) ? x : best,
-                );
-            }
-        }
-        this._selMode = mode;
-        this._selFan = useFan;
-        this._selSwing = useSwing;
-        this._selTemp = useTemp;
-        this._selPower = null;
-    }
-
-    /** Pick a power chip (Off, or On when the matrix declares one).
-     * matrix-power-row.md item 1: "clicking a power chip clears the
-     * cell selection." That's true of what Send/Save read (_selPower
-     * wins, checked first everywhere) and of what's drawn (Mode/Fan/
-     * Swing/grid chips stop rendering "on" once _selPower is set --
-     * see the `this._selPower === null ? ... : null` guards at their
-     * call sites in _renderMatrixCard/_renderMatrixGrid). What this
-     * method deliberately does NOT do is null out _selMode/_selFan/
-     * _selSwing/_selTemp themselves: the Mode/Fan/Swing/Grid block is
-     * gated on `_selMode !== null`, and that block is where the Power
-     * row itself lives, so clearing _selMode would erase the very
-     * chips the user needs to switch back to cell-picking. */
-    private _selectPower(power: "on" | "off"): void {
-        this._selPower = power;
-    }
-
-    /** The exact cell the selection points at, or null mid-load. */
-    private _selectedCell(): MatrixCellCoord | null {
-        if (!this._matrixCells || this._selMode === null) return null;
+    /** SEND from the card: transmit the picked state now.
+     *
+     * The card resolved the coordinates and the display name before it
+     * fired; this only has to choose which shape of request they make
+     * (a power code, or a cell) and report what came back. Power wins
+     * when set, the same precedence the card itself applies. */
+    /** The climate entity's current cell, which the card rings cold.
+     * matrix-power-row.md item 3 (optional polish): matrix_cell is
+     * absent while the climate entity is off, so the readout used to
+     * go blank instead of saying so. Cheap to add -- the state object
+     * is already fetched for the cell attribute, this just also reads
+     * .state -- so no plumbing skip needed here. */
+    private _matrixCurrentName(): string | null {
+        const climateState = this._climateState();
         return (
-            this._branchCells(
-                this._selMode,
-                this._selFan,
-                this._selSwing,
-            ).find((c) => (c.t ?? null) === this._selTemp) ?? null
+            climateState?.attributes?.matrix_cell ??
+            (climateState?.state === "off" ? t("fitting.row_off") : null)
         );
     }
 
-    /** One matrix temperature as display text, converted to the
-     * viewer's install unit when it differs from the matrix's native
-     * unit (unit ruling 2026-07-29). Display-only: coordinates and
-     * the absent-tile walk stay native. */
-    private _displayTemp(temp: number): string {
-        const mc = this._matrixCells;
-        return displayTemp(
-            temp,
-            mc?.unit ?? "C",
-            installUnit(this.hass),
-            mc?.precision ?? 1,
-        );
-    }
-
-    /** The CC4 display grammar, client-side: mode bare, fan and swing
-     * labeled, temperature a bare number last. Must mirror
-     * wig_climate.cell_display_name byte-for-byte -- the current-tile
-     * glow compares this against the entity's matrix_cell attribute,
-     * which the backend also converts to the install's unit at send
-     * time, so the temperature part converts here too. */
-    private _cellName(c: MatrixCellCoord): string {
-        const parts = [c.m];
-        if (c.f !== undefined) parts.push(`fan: ${c.f}`);
-        if (c.s !== undefined) parts.push(`swing: ${c.s}`);
-        if (c.t !== undefined) parts.push(this._displayTemp(c.t));
-        return parts.join(" / ");
-    }
-
-    private async _matrixSend(): Promise<void> {
-        if (this._selPower !== null) {
-            this._busy = true;
-            try {
-                const result = await this.api.matrixSend(this.device.id, {
-                    power: this._selPower,
-                });
-                const sentMsg = t("devdetail.sent_cmd", {
-                    name: result.sent,
-                });
-                this._flash(
-                    result.heard
-                        ? `${sentMsg} \u00b7 ${t("testbtn.heard")}`
-                        : sentMsg,
-                );
-            } catch (err) {
-                this._flash(
-                    t("devdetail.send_failed", {
-                        message: (err as Error).message,
-                    }),
-                );
-            } finally {
-                this._busy = false;
-            }
-            return;
-        }
-        const cell = this._selectedCell();
-        if (!cell) return;
+    private async _matrixSend(e: CustomEvent<MatrixCardPick>): Promise<void> {
+        const pick = e.detail;
         this._busy = true;
         try {
-            const result = await this.api.matrixSend(this.device.id, {
-                mode: cell.m,
-                fan: cell.f ?? null,
-                swing: cell.s ?? null,
-                temp: cell.t ?? null,
-            });
+            const result = await this.api.matrixSend(
+                this.device.id,
+                pick.power !== null
+                    ? { power: pick.power }
+                    : {
+                          mode: pick.mode!,
+                          fan: pick.fan,
+                          swing: pick.swing,
+                          temp: pick.temp,
+                      },
+            );
             // Second Fitting v3 punch list item 14: the cell TEST now
             // carries the same SENT . HEARD reading a stored command's
             // TEST does. Reuses testbtn.heard rather than minting a
@@ -1407,55 +1381,27 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    private async _matrixSaveCommand(): Promise<void> {
-        if (this._selPower !== null) {
-            this._busy = true;
-            try {
-                // The response IS the refreshed full device (the saved
-                // state replaces by name, so the list never twins).
-                this.device = await this.api.matrixCommand(this.device.id, {
-                    power: this._selPower,
-                });
-                this._flash(
-                    t("devdetail.saved", {
-                        name:
-                            this._selPower === "on"
-                                ? t("fitting.row_on")
-                                : t("fitting.row_off"),
-                    }),
-                );
-                this.dispatchEvent(
-                    new CustomEvent("device-changed", {
-                        bubbles: true,
-                        composed: true,
-                    }),
-                );
-            } catch (err) {
-                this._flash(
-                    t("devdetail.update_failed", {
-                        message: (err as Error).message,
-                    }),
-                );
-            } finally {
-                this._busy = false;
-            }
-            return;
-        }
-        const cell = this._selectedCell();
-        if (!cell) return;
+    /** + COMMAND from the card: keep the picked state as a row. */
+    private async _matrixSaveCommand(
+        e: CustomEvent<MatrixCardPick>,
+    ): Promise<void> {
+        const pick = e.detail;
         this._busy = true;
         try {
             // The response IS the refreshed full device (the saved
             // state replaces by name, so the list never twins).
-            this.device = await this.api.matrixCommand(this.device.id, {
-                mode: cell.m,
-                fan: cell.f ?? null,
-                swing: cell.s ?? null,
-                temp: cell.t ?? null,
-            });
-            this._flash(
-                t("devdetail.saved", { name: this._cellName(cell) }),
+            this.device = await this.api.matrixCommand(
+                this.device.id,
+                pick.power !== null
+                    ? { power: pick.power }
+                    : {
+                          mode: pick.mode!,
+                          fan: pick.fan,
+                          swing: pick.swing,
+                          temp: pick.temp,
+                      },
             );
+            this._flash(t("devdetail.saved", { name: pick.name }));
             this.dispatchEvent(
                 new CustomEvent("device-changed", {
                     bubbles: true,
@@ -1473,311 +1419,6 @@ export class IrDeviceDetail extends LitElement {
         }
     }
 
-    /** The Power row (matrix-power-row.md item 1): Off always, On only
-     * when the matrix declares an explicit wake code (has_on). Kept
-     * separate from _renderDimRow rather than reusing it, since the
-     * internal values ("on"/"off") differ from their displayed labels
-     * (t("fitting.row_on")/t("fitting.row_off")). */
-    private _renderPowerRow(mc: MatrixCells) {
-        const options: Array<{ value: "on" | "off"; label: string }> = [
-            { value: "off", label: t("fitting.row_off") },
-        ];
-        if (mc.has_on) {
-            options.push({ value: "on", label: t("fitting.row_on") });
-        }
-        return html`
-            <div class="mx-dim-row">
-                <span class="mx-dim-label"
-                    >${t("devices.matrix_dim_power")}</span
-                >
-                <span class="mx-chips">
-                    ${options.map(
-                        (o) => html`<button
-                            class="mx-chip ${o.value === this._selPower
-                                ? "on"
-                                : ""}"
-                            @click=${() => this._selectPower(o.value)}
-                        >
-                            ${o.label}
-                        </button>`,
-                    )}
-                </span>
-            </div>
-        `;
-    }
-
-    /** One dimension chip row (Mode / Fan / Swing). */
-    private _renderDimRow(
-        label: string,
-        values: string[],
-        selected: string | null,
-        pick: (value: string) => void,
-    ) {
-        return html`
-            <div class="mx-dim-row">
-                <span class="mx-dim-label">${label}</span>
-                <span class="mx-chips">
-                    ${values.map(
-                        (v) => html`<button
-                            class="mx-chip ${v === selected ? "on" : ""}"
-                            @click=${() => pick(v)}
-                        >
-                            ${v}
-                        </button>`,
-                    )}
-                </span>
-            </div>
-        `;
-    }
-
-    /** The temperature tiles of the selected branch: present tiles
-     * show the number, absent positions (branch min to max stepping
-     * precision) render dashed and inert, the selected tile fills
-     * cold blue, and the tile matching the entity's current cell
-     * wears the cold glow ring. Depth-limited branches (no
-     * temperature dimension) render one bare tile for the branch. */
-    private _renderMatrixGrid(currentName: string | null) {
-        const mode = this._selMode!;
-        const branch = this._branchCells(
-            mode,
-            this._selFan,
-            this._selSwing,
-        );
-        const byTemp = new Map<number, MatrixCellCoord>();
-        for (const c of branch) {
-            if (c.t !== undefined) byTemp.set(c.t, c);
-        }
-        const temps = [...byTemp.keys()].sort((a, b) => a - b);
-        if (temps.length === 0) {
-            const bare = branch.find((c) => c.t === undefined) ?? null;
-            if (!bare) return nothing;
-            const isCurrent =
-                currentName !== null &&
-                this._cellName(bare) === currentName;
-            const isSel = this._selPower === null;
-            return html`<div class="mx-grid">
-                <button
-                    class="mx-tile ${isSel ? "sel" : ""} ${isCurrent ? "cur" : ""}"
-                    @click=${() =>
-                        this._select(
-                            mode,
-                            this._selFan,
-                            this._selSwing,
-                            null,
-                        )}
-                >
-                    ${mode}
-                </button>
-            </div>`;
-        }
-        const step =
-            this._matrixCells!.precision > 0
-                ? this._matrixCells!.precision
-                : 1;
-        const positions: number[] = [];
-        for (
-            let x = temps[0];
-            x <= temps[temps.length - 1] + step / 2;
-            x += step
-        ) {
-            // Two-decimal rounding keeps 0.5-precision walks exact.
-            positions.push(Math.round(x * 100) / 100);
-        }
-        return html`<div class="mx-grid">
-            ${positions.map((pos) => {
-                const cell = byTemp.get(pos);
-                if (!cell) {
-                    return html`<button
-                        class="mx-tile absent"
-                        disabled
-                        title=${t("devices.matrix_absent")}
-                    >
-                        ${this._displayTemp(pos)}
-                    </button>`;
-                }
-                const isCurrent =
-                    currentName !== null &&
-                    this._cellName(cell) === currentName;
-                return html`<button
-                    class="mx-tile ${
-                        this._selPower === null && pos === this._selTemp
-                            ? "sel"
-                            : ""
-                    } ${isCurrent ? "cur" : ""}"
-                    @click=${() =>
-                        this._select(
-                            mode,
-                            this._selFan,
-                            this._selSwing,
-                            pos,
-                        )}
-                >
-                    ${this._displayTemp(pos)}
-                </button>`;
-            })}
-        </div>`;
-    }
-
-    /** The STATE MATRIX card (mockups CC3/CC4): summary header, the
-     * entity's current-cell readout, one-branch dimension chips, the
-     * temperature tile grid, and the action bar (send the state, or
-     * save it as a command). The lattice loads lazily; until it
-     * arrives (or if it cannot), the card stays summary-only. */
-    private _renderMatrixCard() {
-        const m = this.device.matrix!;
-        // matrix-power-row.md item 3 (optional polish): matrix_cell is
-        // absent while the climate entity is off, so the readout used
-        // to go blank instead of saying so. Cheap to add -- the state
-        // object is already fetched for the cell attribute, this just
-        // also reads .state -- so no plumbing skip needed here.
-        const climateState = this._climateState();
-        const current =
-            climateState?.attributes?.matrix_cell ??
-            (climateState?.state === "off" ? t("fitting.row_off") : null);
-        const mc = this._matrixCells;
-        // Summary range: converted to the viewer's unit with the unit
-        // letter as suffix ("61 to 86 F"); when converted, the file's
-        // native range rides in a title tooltip (chosen over parens:
-        // the one-line summary is already five facts long). Precision
-        // comes from the loaded lattice when available; summary-only
-        // renders fall back to whole degrees, which corpus bounds are.
-        const viewUnit = installUnit(this.hass);
-        const converted = viewUnit !== m.unit;
-        const rangeTitle = converted
-            ? t("devices.matrix_native_range", {
-                  min: String(m.min_temp),
-                  max: String(m.max_temp),
-                  unit: m.unit,
-              })
-            : "";
-        const summaryText = t("devices.matrix_summary", {
-            cells: String(m.cells),
-            modes: String(m.modes.length),
-            fans: String(m.fan_modes.length),
-            min: displayTemp(
-                m.min_temp,
-                m.unit,
-                viewUnit,
-                mc?.precision ?? 1,
-            ),
-            max: displayTemp(
-                m.max_temp,
-                m.unit,
-                viewUnit,
-                mc?.precision ?? 1,
-            ),
-            unit: viewUnit,
-        });
-        const selected = this._selectedCell();
-        const fans =
-            mc && this._selMode !== null
-                ? this._fansFor(this._selMode)
-                : [];
-        const swings =
-            mc && this._selMode !== null
-                ? this._swingsFor(this._selMode, this._selFan)
-                : [];
-        return html`
-            <div class="matrix-card">
-                <div class="mx-head">
-                    <span class="mx-title">${t("devices.matrix_title")}</span>
-                    <span class="mx-summary" title=${rangeTitle}>
-                        ${summaryText}
-                    </span>
-                </div>
-                ${current != null
-                    ? html`<div class="matrix-current">
-                          ${t("devices.matrix_current", { cell: current })}
-                      </div>`
-                    : nothing}
-                ${mc && this._selMode !== null
-                    ? html`
-                          ${this._renderPowerRow(mc)}
-                          ${this._renderDimRow(
-                              t("devices.matrix_dim_mode"),
-                              mc.modes,
-                              this._selPower === null
-                                  ? this._selMode
-                                  : null,
-                              (v) =>
-                                  this._select(
-                                      v,
-                                      this._selFan,
-                                      this._selSwing,
-                                      this._selTemp,
-                                  ),
-                          )}
-                          ${fans.length > 0
-                              ? this._renderDimRow(
-                                    t("devices.matrix_dim_fan"),
-                                    fans,
-                                    this._selPower === null
-                                        ? this._selFan
-                                        : null,
-                                    (v) =>
-                                        this._select(
-                                            this._selMode!,
-                                            v,
-                                            this._selSwing,
-                                            this._selTemp,
-                                        ),
-                                )
-                              : nothing}
-                          ${swings.length > 0
-                              ? this._renderDimRow(
-                                    t("devices.matrix_dim_swing"),
-                                    swings,
-                                    this._selPower === null
-                                        ? this._selSwing
-                                        : null,
-                                    (v) =>
-                                        this._select(
-                                            this._selMode!,
-                                            this._selFan,
-                                            v,
-                                            this._selTemp,
-                                        ),
-                                )
-                              : nothing}
-                          ${this._renderMatrixGrid(current)}
-                          <div class="mx-actions">
-                              <span class="mx-set">
-                                  ${this._selPower !== null
-                                      ? t("devices.matrix_set_state", {
-                                            name:
-                                                this._selPower === "on"
-                                                    ? t("fitting.row_on")
-                                                    : t("fitting.row_off"),
-                                        })
-                                      : selected
-                                        ? t("devices.matrix_set_state", {
-                                              name: this._cellName(selected),
-                                          })
-                                        : nothing}
-                              </span>
-                              <button
-                                  class="action-btn test-btn"
-                                  ?disabled=${this._busy ||
-                                  !(selected || this._selPower)}
-                                  @click=${this._matrixSend}
-                              >
-                                  ${t("fitting.send")}
-                              </button>
-                              <button
-                                  class="action-btn mx-cmd-btn"
-                                  ?disabled=${this._busy ||
-                                  !(selected || this._selPower)}
-                                  @click=${this._matrixSaveCommand}
-                              >
-                                  ${t("devices.matrix_add_command")}
-                              </button>
-                          </div>
-                      `
-                    : nothing}
-            </div>
-        `;
-    }
-
     // ---------------------------------------------------------------
     // Render
     // ---------------------------------------------------------------
@@ -1788,9 +1429,15 @@ export class IrDeviceDetail extends LitElement {
         const count = commands.length;
 
         return html`
-            <!-- Header: editable name + exit-to-entity + delete -->
-            <section class="header">
-                <div class="header-left">
+            <!-- Header (punch list item 9, header-pin-layout-handoff.md):
+                 one block now, not a header row plus a separate
+                 .device-meta grid below it. Left to right: the title
+                 block (name, then Type directly under it), the
+                 full-height divider, the colon-aligned Emitters/Pinned
+                 rows, and the actions column that anchors Save to
+                 Closet + X to the top edge and the gear to the bottom. -->
+            <section class="header rdetail-top">
+                <div class="rtitle-block">
                     <div class="name-row">
                         ${this._editingName
                             ? html`
@@ -1822,32 +1469,9 @@ export class IrDeviceDetail extends LitElement {
                               )
                             : nothing}
                     </div>
-                </div>
-                <button
-                    class="stc-btn"
-                    @click=${this._openSaveRoute}
-                    ?disabled=${this._busy}
-                    title=${t("wigs.save_as_wig")}
-                >
-                    <ha-svg-icon
-                        class="stc-wig"
-                        .path=${ICON_WIG}
-                    ></ha-svg-icon>
-                    ${t("wigs.save_as_wig")}
-                </button>
-                <button
-                    class="action-btn collapse-btn"
-                    @click=${() => this.dispatchEvent(new CustomEvent("collapse", { bubbles: true, composed: true }))}
-                    title=${t("common.close")}
-                >&#x2715;</button>
-            </section>
-
-            <!-- Device metadata: two columns, each label above its own
-                 control (comp L1) -->
-            <div class="device-meta">
-                <div class="stack">
-                    <span class="sl">${t("devdetail.type")}</span>
-                    ${this.device.matrix
+                    <div class="stack">
+                        <span class="sl">${t("devdetail.type")}</span>
+                        ${this.device.matrix
                         ? html`<span
                               class="type-locked"
                               title=${t("devdetail.type_locked_tooltip")}
@@ -1871,37 +1495,87 @@ export class IrDeviceDetail extends LitElement {
                                   `,
                               )}
                           </select>`}
+                    </div>
                 </div>
-                <ir-emitter-picker
-                    .hass=${this.hass}
-                    .api=${this.api}
-                    .value=${this.device.emitter_entity_ids ?? []}
-                    ?disabled=${this._busy}
-                    @emitters-changed=${this._onEmittersChanged}
-                ></ir-emitter-picker>
-                ${settingsSections(this.device).length > 0
-                    ? html`
-                          <button
-                              class="settings-btn"
-                              title=${t("devsettings.title")}
-                              ?disabled=${this._busy}
-                              @click=${() => (this._settingsOpen = true)}
-                          >
-                              <svg
-                                  class="settings-icon"
-                                  viewBox=${SETTINGS_VIEWBOX}
-                              >
-                                  <path
-                                      d=${ICON_SETTINGS}
-                                      fill="currentColor"
-                                  ></path>
-                              </svg>
-                          </button>
-                      `
-                    : nothing}
-            </div>
+                <div class="rdetail-divider"></div>
+                <div class="hdr-rows">
+                    <ir-header-chip-group
+                        label=${t("hdrchips.emitters_label")}
+                        .labelWidth=${DEVICE_HDR_LABEL_W}
+                        .rows=${this._emitterRows()}
+                        .tone=${GREEN_PEAK}
+                        ?disabled=${this._busy}
+                        @chips-changed=${this._onEmittersChanged}
+                    ></ir-header-chip-group>
+                    ${PINNING_UI_ENABLED
+                        ? html`
+                              <ir-header-chip-group
+                                  label=${t("hdrchips.pin_label_full")}
+                                  labelEmpty=${t("hdrchips.pin_label_empty")}
+                                  .labelWidth=${DEVICE_HDR_LABEL_W}
+                                  .rows=${this._pinRows()}
+                                  .tone=${ORIGIN_COLORS.remote}
+                                  ?disabled=${this._busy}
+                                  @chips-changed=${this._onPinsChanged}
+                              ></ir-header-chip-group>
+                          `
+                        : nothing}
+                </div>
+                <div class="rdetail-actions">
+                    <div class="actions-top">
+                        <button
+                            class="stc-btn"
+                            @click=${this._openSaveRoute}
+                            ?disabled=${this._busy}
+                            title=${t("wigs.save_as_wig")}
+                        >
+                            <ha-svg-icon
+                                class="stc-wig"
+                                .path=${ICON_WIG}
+                            ></ha-svg-icon>
+                            ${t("wigs.save_as_wig")}
+                        </button>
+                        <button
+                            class="action-btn collapse-btn"
+                            @click=${() =>
+                                this.dispatchEvent(
+                                    new CustomEvent("collapse", { bubbles: true, composed: true }),
+                                )}
+                            title=${t("common.close")}
+                        >&#x2715;</button>
+                    </div>
+                    <button
+                        class="settings-btn"
+                        title=${t("devsettings.title")}
+                        ?disabled=${this._busy}
+                        @click=${() => (this._settingsOpen = true)}
+                    >
+                        <svg
+                            class="settings-icon"
+                            viewBox=${SETTINGS_VIEWBOX}
+                        >
+                            <path
+                                d=${ICON_SETTINGS}
+                                fill="currentColor"
+                            ></path>
+                        </svg>
+                    </button>
+                </div>
+            </section>
 
-            ${this.device.matrix ? this._renderMatrixCard() : nothing}
+            ${this.device.matrix
+                ? html`<ir-matrix-card
+                      .hass=${this.hass}
+                      mode="send"
+                      .summary=${this.device.matrix}
+                      .cellsKey=${this.device.id}
+                      .cellsLoader=${() => this.api.matrixCells(this.device.id)}
+                      .currentName=${this._matrixCurrentName()}
+                      ?busy=${this._busy}
+                      @matrix-send=${this._matrixSend}
+                      @matrix-save-command=${this._matrixSaveCommand}
+                  ></ir-matrix-card>`
+                : nothing}
 
             <!-- Commands -->
             <div class="commands-section">
@@ -1934,12 +1608,17 @@ export class IrDeviceDetail extends LitElement {
                                           .triggerCount=${this._commandTriggerCount(cmd)}
                                           .showActionMapping=${this.device.device_type !== "other" &&
                                           !this.device.matrix}
+                                          .showStar=${this.device
+                                              .device_type === "ac" &&
+                                          !cmd.matrix_cell}
+                                          .starred=${this._isStarred(cmd.name)}
                                           @map-action=${this._onMapAction}
                                           @test=${this._onTest}
                                           @toggle-trigger=${this._onToggleTrigger}
                                           @toggle-tx-raw=${this._onToggleTxRaw}
                                           @edit-command=${this._onEditCommand}
                                           @rename-command=${this._onRenameCommand}
+                                          @star-toggle=${this._onStarToggle}
                                           @delete=${this._onDelete}
                                       >
                                           <ha-svg-icon
@@ -2076,7 +1755,7 @@ export class IrDeviceDetail extends LitElement {
                 </div>
                 <button
                     class="action-btn delete-btn"
-                    @click=${() => (this._confirmDelete = true)}
+                    @click=${this._requestDelete}
                     ?disabled=${this._busy}
                 >${t("devdetail.delete_device")}</button>
             </div>
@@ -2133,18 +1812,6 @@ export class IrDeviceDetail extends LitElement {
                           @closed=${this._onCaptureClosed}
                           @command-saved=${this._onCommandSaved}
                       ></ir-capture-dialog>
-                  `
-                : ""}
-            ${this._confirmDelete
-                ? html`
-                      <ir-confirm-dialog
-                          title=${t("devdetail.del_device_title", { name: this.device.name })}
-                          message=${t("devdetail.del_device_msg")}
-                          confirmLabel="Delete"
-                          .destructive=${true}
-                          @confirmed=${this._deleteDevice}
-                          @closed=${() => (this._confirmDelete = false)}
-                      ></ir-confirm-dialog>
                   `
                 : ""}
             ${this._commandToDelete
@@ -2270,23 +1937,15 @@ export class IrDeviceDetail extends LitElement {
         settingsButtonStyles,
         exitToEntityButtonStyles,
         css`
-        /* Device Settings (0.9.8): nudge the settings button down by
-           the label line's height (the .sl label's font-size plus its
-           5px margin-bottom, ~19px total, no exact figure specified)
-           so the icon aligns with the first row of emitter chips
-           instead of the tiny uppercase label beside it.
-
-           HORIZONTAL (bench pass): the button sat flush against the
-           card's right edge while every command row's trash icon
-           sits 10px in from it (ir-command-row.ts's .row has
-           padding-right: 10px) -- measured live, an exact 10px gap
-           between the two right edges. margin-right: 10px here closes
-           that gap so the settings icon lines up with the trash
-           column beneath it instead of overhanging further right. */
-        .device-meta .settings-btn {
-            margin-top: 19px;
-            margin-right: 10px;
-        }
+        /* The 0.9.8 top-nudge and the 2026-08-15 10px right inset on
+           .device-meta .settings-btn both retired
+           with .device-meta itself (punch list item 9). The gear no
+           longer floats in a grid row of its own where it needed
+           nudging toward the command rows' trash column -- it is the
+           bottom child of the header's anchored actions column now, and
+           its right edge is meant to line up with the X directly above
+           it. A 10px inset here would break exactly the alignment the
+           handoff asks for. */
         /* SAVE TO CLOSET, in the header (RULED, mockup FR5 variant V2).
            It used to sit stacked under DELETE DEVICE in the bottom
            right, which put the door into the closet next to the button
@@ -2353,16 +2012,76 @@ export class IrDeviceDetail extends LitElement {
             display: block;
         }
 
-        /* --- Header --- */
+        /* --- Header (punch list item 9, header-pin-layout-handoff.md,
+           owner-approved 2026-08-16) ------------------------------
+           The same structural pattern the Remote detail header uses, so
+           the two read as one family: title block, full-height divider,
+           colon-aligned chip rows, anchored actions column. What was
+           two separate blocks (a .header row plus a .device-meta grid)
+           is one flex row now.
+
+           align-items: stretch is load-bearing -- it is what lets the
+           actions column span the full header height, which is what the
+           X/gear anchoring below depends on. */
         .header {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
+            align-items: stretch;
+            gap: 16px;
         }
-        .header-left {
+        /* Title block is a column now: the name row, then Type directly
+           under it. Type is a property of the device itself, so it
+           belongs with the name rather than sitting in a hardware-picker
+           row beside Emitters and Pinned. */
+        .rtitle-block {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 6px;
+            flex-shrink: 0;
+            min-width: 0;
+        }
+        /* New here -- today's shipped Device header has no divider at
+           all; the Remote header's was a short stub. Full height on
+           both now. */
+        .rdetail-divider {
+            width: 1px;
+            align-self: stretch;
+            background: var(--divider-color);
+            flex-shrink: 0;
+        }
+        .hdr-rows {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 11px;
             flex: 1;
             min-width: 0;
+        }
+        /* THE ANCHORING (owner: "right now it seems to move"). Stretched
+           column + space-between pins the first child to the top edge
+           and the last to the bottom edge regardless of how tall the
+           chip rows grow. Structural, not a pixel offset -- and
+           deliberately NOT position: absolute, which would break the
+           moment the card's content-driven height changes.
+
+           Device-specific: the first child is a ROW of two buttons
+           (Save to Closet, then X) rather than a single button, so that
+           whole cluster anchors to the top as a unit. The gear stays
+           alone at the bottom. */
+        .rdetail-actions {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-self: stretch;
+            flex-shrink: 0;
+        }
+        .rdetail-actions .actions-top {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .rdetail-actions .settings-btn {
+            align-self: flex-end;
         }
         .name-row {
             display: flex;
@@ -2411,201 +2130,100 @@ export class IrDeviceDetail extends LitElement {
             flex-shrink: 0;
             align-self: center;
         }
+        /* Punch list item 23: ONE fixed square box for both actions.
+           Item 17 aligned the button EDGES and they do align -- but a
+           box's edge is not what the eye reads, its glyph is, and the
+           two glyphs sat at different insets because the two buttons
+           carried different padding (this X had 2px 8px, the Remote
+           header's had 4px, the shared gear has 5px around a 29px
+           icon). Right-aligning boxes of different widths lines up the
+           right edges and nothing else.
 
-        /* --- Metadata: two columns, no label gutter (comp L1) ---
-           The old grid reserved a fixed 80px column for two words and
-           left the controls floating in what remained, which is what
-           made the row read as a form from 2004. Each label sits above
-           its own control now, and each control gets the full width of
-           its own column. TYPE is capped at 200px because a seven-item
-           dropdown never needed 900; emitters take the rest and wrap. */
-        .device-meta {
-            display: grid;
-            /* Device Settings (0.9.8): the trailing "auto" column is
-               the settings button -- auto-placed as the grid's 3rd
-               DOM child, no explicit grid-column needed. A device type
-               with nothing to configure just renders two children and
-               the column collapses to nothing. */
-            grid-template-columns: 200px minmax(0, 1fr) auto;
-            gap: 0 22px;
-            align-items: start;
-            margin: 16px 0 0;
+           Equal squares fix it by construction rather than by
+           arithmetic: each glyph is centered in its own box, the boxes
+           are the same size, and their right edges already coincide,
+           so the glyph centers coincide too -- on this header and on
+           the Remote's, which carries the identical rule. Nothing here
+           needs to be re-derived if a glyph or a font size changes
+           later. */
+        .rdetail-actions .action-btn.collapse-btn,
+        .rdetail-actions .settings-btn {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            padding: 0;
+            box-sizing: border-box;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* .device-meta RETIRED (punch list item 9). It was a three-column
+           grid holding Type, the chip groups and the gear on a row of
+           its own below the header. All four moved into the single
+           header block above: Type into the title block, the chip groups
+           into .hdr-rows, the gear into the anchored actions column. The
+           grid's sizing comments went with it -- the Type column no
+           longer competes with a chip column for width, since it now
+           sits under the name. */
+
+        /* TYPE one-line (owner ruling 2026-08-15, still true): label
+           beside the control instead of stacked above it, matching how
+           ir-header-chip-group.ts's own row label sits beside its chips
+           -- same bold/uppercase/colon treatment, colon baked into the
+           devdetail.type locale string the same way
+           hdrchips.emitters_label already carries its own. */
+        .stack {
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         .stack .sl {
-            display: block;
             font-size: 0.7rem;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--secondary-text-color);
-            margin-bottom: 5px;
-        }
-        /* Below this, 200px plus a useful chip column stops fitting.
-           TYPE forces itself onto its own full-width row (comp L1
-           narrow), so the emitter picker and the settings button
-           auto-flow onto row 2, columns 1 and 2. */
-        @media (max-width: 700px) {
-            .device-meta {
-                grid-template-columns: minmax(0, 1fr) auto;
-                gap: 12px 0;
-            }
-            .device-meta .stack {
-                grid-column: 1 / -1;
-            }
-        }
-        /* The STATE MATRIX card (Cold Cuts second half, mockup CC3):
-           the cell browser in the cold-blue family (#58a6d8) -- the
-           stateful signature the closet's fit-tick glow introduced.
-           Everything in here is the card's own dialect; the action bar
-           reuses the shared chip anatomy. */
-        .matrix-card {
-            margin-top: 12px;
-            padding: 9px 12px 10px;
-            border: 1px solid rgba(88, 166, 216, 0.45);
-            border-radius: 8px;
-            font-size: 0.85rem;
-            color: var(--primary-text-color);
-            line-height: 1.5;
-        }
-        .mx-head {
-            display: flex;
-            align-items: baseline;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .mx-title {
-            font-size: 0.72rem;
-            font-weight: 600;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: #58a6d8;
-        }
-        .mx-summary {
-            font-size: 0.8rem;
-            color: var(--secondary-text-color);
-        }
-        .matrix-current {
-            font-size: 0.78rem;
-            color: var(--secondary-text-color);
-        }
-        .mx-dim-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 8px;
-        }
-        .mx-dim-label {
-            flex: none;
-            width: 44px;
-            font-size: 0.68rem;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            color: var(--secondary-text-color);
-        }
-        .mx-chips {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-        .mx-chip {
-            font-size: 0.75rem;
-            font-family: inherit;
-            padding: 3px 10px;
-            border-radius: 12px;
-            border: 1px solid var(--divider-color);
-            background: none;
-            color: var(--primary-text-color);
-            cursor: pointer;
-            transition: background 150ms ease, border-color 150ms ease;
-        }
-        .mx-chip:hover {
-            border-color: rgba(88, 166, 216, 0.6);
-        }
-        .mx-chip.on {
-            background: #58a6d8;
-            border-color: #58a6d8;
-            color: #fff;
-        }
-        .mx-grid {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 10px;
-        }
-        .mx-tile {
-            width: 52px;
-            height: 38px;
-            box-sizing: border-box;
-            border: 1px solid var(--divider-color);
-            border-radius: 6px;
-            background: none;
-            font-family: inherit;
-            font-size: 0.82rem;
-            font-weight: 500;
-            color: var(--primary-text-color);
-            cursor: pointer;
-            transition: background 150ms ease, border-color 150ms ease,
-                        box-shadow 300ms ease;
-        }
-        .mx-tile:hover:not(:disabled):not(.sel) {
-            border-color: rgba(88, 166, 216, 0.6);
-        }
-        /* Absent position: the matrix is sparse and says so -- dashed,
-           inert, dimmed, with the tooltip carrying the sentence. */
-        .mx-tile.absent {
-            border-style: dashed;
-            color: var(--secondary-text-color);
-            opacity: 0.45;
-            cursor: default;
-        }
-        .mx-tile.sel {
-            background: #58a6d8;
-            border-color: #58a6d8;
-            color: #fff;
-        }
-        /* The entity's CURRENT cell wears the cold glow ring, whatever
-           else it is -- same cue language as the closet's matrix tick. */
-        .mx-tile.cur {
-            box-shadow:
-                0 0 0 2px rgba(88, 166, 216, 0.5),
-                0 0 10px rgba(88, 166, 216, 0.55);
-        }
-        .mx-actions {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 12px;
-            padding-top: 10px;
-            border-top: 1px solid var(--divider-color);
-        }
-        .mx-set {
-            flex: 1;
-            min-width: 0;
-            font-size: 0.8rem;
-            color: var(--primary-text-color);
-            font-family: var(--code-font-family, monospace);
-            overflow: hidden;
-            text-overflow: ellipsis;
             white-space: nowrap;
         }
-        /* Save-state-as-command wears the Clipper's copper: it does the
-           same kind of thing as Add Signal -- one more command row. */
-        .action-btn.mx-cmd-btn {
-            color: #b87333;
-            border-color: rgba(184, 115, 51, 0.35);
-        }
-        .action-btn.mx-cmd-btn:hover:not(:disabled) {
-            background: rgba(184, 115, 51, 0.08);
+        /* Below this the title block, a useful chip column and the
+           actions column stop fitting on one line. The header wraps to
+           a column: title block first, then the chip rows full width,
+           with the actions column riding along the top on its own line.
+           The divider has nothing to divide once they stack, so it goes.
+
+           The anchoring rule is unaffected -- it governs the actions
+           column's own two edges, which still hold whenever the header
+           is a row. */
+        @media (max-width: 700px) {
+            .header {
+                flex-wrap: wrap;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            .rtitle-block {
+                flex: 1;
+            }
+            .rdetail-divider {
+                display: none;
+            }
+            .hdr-rows {
+                flex-basis: 100%;
+                order: 3;
+            }
+            .rdetail-actions {
+                align-self: flex-start;
+            }
         }
         .stack select {
-            width: 100%;
-            padding: 6px 8px;
+            box-sizing: border-box;
+            padding: 3px 10px 3px 8px;
             border-radius: 4px;
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--primary-text-color);
             font-family: inherit;
-            font-size: 0.85rem;
+            font-size: 11.5px;
         }
         /* Type lock (matrix-power-row.md item 4): a matrix device's
            type control is a static label, not a dropdown -- sized to
@@ -2615,14 +2233,13 @@ export class IrDeviceDetail extends LitElement {
         .type-locked {
             display: block;
             box-sizing: border-box;
-            width: 100%;
-            padding: 6px 8px;
+            padding: 3px 10px 3px 8px;
             border-radius: 4px;
             border: 1px solid var(--divider-color);
             background: var(--card-background-color);
             color: var(--secondary-text-color);
             font-family: inherit;
-            font-size: 0.85rem;
+            font-size: 11.5px;
             cursor: default;
         }
 

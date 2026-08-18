@@ -30,7 +30,8 @@
     },
     "device_automation": {
         "trigger_type": {
-            "button_pressed": "{subtype}が押されました"
+            "button_pressed": "{subtype}が押されました",
+            "state_heard": "状態を受信"
         }
     }
 }

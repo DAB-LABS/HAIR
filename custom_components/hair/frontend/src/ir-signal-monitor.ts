@@ -22,6 +22,9 @@ import { HairApi } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-promote-dialog.js";
+import "./ir-promote-remote-dialog.js";
+import "./ir-use-fork-popup.js";
+import "./ir-pin-prompt-dialog.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
 import "./ir-test-emitter-dialog.js";
@@ -34,15 +37,20 @@ import { MIRROR_DEVICE_FP, triggerMatchesSignal } from "./types.js";
 import type {
     AssignResult,
     DeviceSummary,
+    IRDevice,
     IRTrigger,
+    LinkedEntry,
     ReceiverInfo,
     SignalAssignment,
     SignalRemovedEvent,
+    TriggerRemoteInfo,
     UnknownDeviceSummary,
     UnknownDevice,
     UnknownSignal,
     UnknownSignalEvent,
 } from "./types.js";
+import { PINNING_UI_ENABLED } from "./ir-pin-flag.js";
+import { singleOppositeLink } from "./ir-pin-link-match.js";
 
 /** Format an ISO timestamp to a short locale string. */
 function fmtTime(iso: string): string {
@@ -118,6 +126,18 @@ export class IrSignalMonitor extends LitElement {
     @state() private _loading = true;
     @state() private _deleteRemote: UnknownDeviceSummary | null = null;
     @state() private _linkedPopoverId: string | null = null;
+    // USE fork pin-prompt trigger (Track 3 item 5): the opposite-kind
+    // link staged between the fork pick and the mint's own completion,
+    // and the resolved target once it lands. Null whenever
+    // PINNING_UI_ENABLED is false or singleOppositeLink found none/
+    // more-than-one (ir-pin-link-match.ts -- no heuristics).
+    @state() private _pinLinkCandidate: LinkedEntry | null = null;
+    @state() private _pinPromptTarget: {
+        remoteId: string;
+        remoteName: string;
+        deviceId: string;
+        deviceName: string;
+    } | null = null;
     private _linkedPopoverPos = { top: 0, left: 0 };
     @state() private _error: string | null = null;
     // False when no receiver is configured (no native receiver, no bridge
@@ -174,6 +194,17 @@ export class IrSignalMonitor extends LitElement {
 
     // Dialog state
     @state() private _promoteTarget: UnknownDeviceSummary | null = null;
+    // USE fork (signpost 3, Track 3 item 1): the Sniffer entry point.
+    // No matrix-clip signpost on this surface (sniffed rows never
+    // carry source_wig), so the fork's only source shape is the row
+    // itself -- see ir-clips.ts for the two-source (catalog + wig
+    // road) version.
+    @state() private _forkTarget: UnknownDeviceSummary | null = null;
+    @state() private _promoteRemoteTarget: {
+        sourceUnknownId: string;
+        suggestedName: string;
+        previewCount: number;
+    } | null = null;
     @state() private _assignSignal: {
         deviceId: string;
         signal: UnknownSignal;
@@ -556,10 +587,53 @@ export class IrSignalMonitor extends LitElement {
     private _onAdoptClick(d: UnknownDeviceSummary, e: Event): void {
         e.stopPropagation();
         if (!d.linked_devices?.length) {
-            this._promoteTarget = d;
+            this._forkTarget = d;
             return;
         }
         this._toggleLinkedPopover(d.id, e);
+    }
+
+    private _onForkUseDevice(): void {
+        const d = this._forkTarget;
+        this._forkTarget = null;
+        if (!d) return;
+        this._promoteTarget = d;
+        this._pinLinkCandidate = singleOppositeLink(
+            d.linked_devices,
+            "remote",
+        );
+    }
+
+    private _onForkUseRemote(): void {
+        const d = this._forkTarget;
+        this._forkTarget = null;
+        if (!d) return;
+        this._promoteRemoteTarget = {
+            sourceUnknownId: d.id,
+            suggestedName: d.label ?? "",
+            previewCount: d.signal_count,
+        };
+        this._pinLinkCandidate = singleOppositeLink(
+            d.linked_devices,
+            "device",
+        );
+    }
+
+    private async _onRemotePromoted(
+        e: CustomEvent<TriggerRemoteInfo>,
+    ): Promise<void> {
+        this._promoteRemoteTarget = null;
+        const link = this._pinLinkCandidate;
+        this._pinLinkCandidate = null;
+        if (PINNING_UI_ENABLED && link?.kind === "device" && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: e.detail.id,
+                remoteName: e.detail.name,
+                deviceId: link.device_id,
+                deviceName: link.device_name,
+            };
+        }
+        await this._load();
     }
 
     private _toggleLinkedPopover(deviceId: string, e: Event): void {
@@ -602,7 +676,7 @@ export class IrSignalMonitor extends LitElement {
                     @click=${(e: Event) => {
                         e.stopPropagation();
                         this._linkedPopoverId = null;
-                        this._promoteTarget = d;
+                        this._forkTarget = d;
                     }}
                 >
                     <span>${t("wigs.linked_new")}</span>
@@ -614,11 +688,22 @@ export class IrSignalMonitor extends LitElement {
                         @click=${(e: Event) => {
                             e.stopPropagation();
                             this._linkedPopoverId = null;
-                            this._navigateToDevice(entry.device_id);
+                            this._navigateToDevice(
+                                entry.kind === "device"
+                                    ? entry.device_id
+                                    : entry.remote_id,
+                            );
                         }}
                     >
+                        <span class="popover-kind-badge kind-${entry.kind}"
+                            >${entry.kind === "device"
+                                ? t("common.kind_device")
+                                : t("common.kind_remote")}</span
+                        >
                         <span class="popover-name"
-                            >${entry.device_name}</span
+                            >${entry.kind === "device"
+                                ? entry.device_name
+                                : entry.remote_name}</span
                         >
                         <ha-svg-icon
                             class="linked-chevron"
@@ -643,8 +728,20 @@ export class IrSignalMonitor extends LitElement {
         this._promoteTarget = null;
     }
 
-    private async _onDevicePromoted(): Promise<void> {
+    private async _onDevicePromoted(
+        e: CustomEvent<IRDevice>,
+    ): Promise<void> {
         this._promoteTarget = null;
+        const link = this._pinLinkCandidate;
+        this._pinLinkCandidate = null;
+        if (PINNING_UI_ENABLED && link?.kind === "remote" && e.detail) {
+            this._pinPromptTarget = {
+                remoteId: link.remote_id,
+                remoteName: link.remote_name,
+                deviceId: e.detail.id,
+                deviceName: e.detail.name,
+            };
+        }
         await this._load();
     }
 
@@ -1207,15 +1304,19 @@ export class IrSignalMonitor extends LitElement {
     render() {
         return html`
             <div class="toolbar">
-                <span class="title">
-                    <ha-svg-icon .path=${ICON_SIGNAL}></ha-svg-icon>
-                    ${t("sniffer.title")}
-                    ${!this._loading
-                        ? html`<span class="count"
-                              >(${tp("sniffer.remotes", this._devices.length)})</span
-                          >`
-                        : ""}
-                </span>
+                <div class="toolbar-title-group">
+                    <span class="toolbar-title">
+                        <ha-svg-icon .path=${ICON_SIGNAL}></ha-svg-icon>
+                        ${t("sniffer.title")}
+                        ${!this._loading
+                            ? html`<span class="toolbar-count"
+                                  >(${tp("sniffer.remotes", this._devices.length)})</span
+                              ><span class="toolbar-tagline"
+                                  >- ${t("panel.tagline.sniffer")}</span
+                              >`
+                            : ""}
+                    </span>
+                </div>
             </div>
 
             ${this._error
@@ -1304,6 +1405,39 @@ export class IrSignalMonitor extends LitElement {
                       ></ir-promote-dialog>
                   `
                 : ""}
+            ${this._forkTarget
+                ? html`<ir-use-fork-popup
+                      .sourceName=${this._forkTarget.label ?? ""}
+                      .sourceLine=${t("usefork.source_sniffer", {
+                          count: String(this._forkTarget.signal_count),
+                      })}
+                      @use-device=${this._onForkUseDevice}
+                      @use-remote=${this._onForkUseRemote}
+                      @closed=${() => (this._forkTarget = null)}
+                  ></ir-use-fork-popup>`
+                : ""}
+            ${this._promoteRemoteTarget
+                ? html`<ir-promote-remote-dialog
+                      .api=${this.api}
+                      .suggestedName=${this._promoteRemoteTarget.suggestedName}
+                      .sourceUnknownId=${this._promoteRemoteTarget
+                          .sourceUnknownId}
+                      .previewCount=${this._promoteRemoteTarget.previewCount}
+                      @remote-created=${this._onRemotePromoted}
+                      @closed=${() => (this._promoteRemoteTarget = null)}
+                  ></ir-promote-remote-dialog>`
+                : ""}
+            ${this._pinPromptTarget && this.api
+                ? html`<ir-pin-prompt-dialog
+                      .api=${this.api}
+                      .remoteId=${this._pinPromptTarget.remoteId}
+                      .remoteName=${this._pinPromptTarget.remoteName}
+                      .deviceId=${this._pinPromptTarget.deviceId}
+                      .deviceName=${this._pinPromptTarget.deviceName}
+                      @pinned=${() => (this._pinPromptTarget = null)}
+                      @closed=${() => (this._pinPromptTarget = null)}
+                  ></ir-pin-prompt-dialog>`
+                : ""}
             ${this._renderLinkedPopover()}
             ${this._deleteRemote
                 ? html`<ir-confirm-dialog
@@ -1366,6 +1500,7 @@ export class IrSignalMonitor extends LitElement {
             ${this._triggerPopover
                 ? html`
                       <ir-trigger-popover
+                          .api=${this.api}
                           .triggers=${this._triggers.filter((t) =>
                               triggerMatchesSignal(
                                   t,
@@ -1514,10 +1649,10 @@ export class IrSignalMonitor extends LitElement {
                                         "sniffer.linked",
                                         d.linked_devices.length,
                                     )
-                                  : t("wigs.adopt")}
+                                  : t("usefork.open_title")}
                               @click=${(e: Event) =>
                                   this._onAdoptClick(d, e)}
-                          >${t("wigs.adopt")}<ir-count-dot
+                          >${t("common.use")}<ir-count-dot
                                   color="green"
                                   .count=${d.linked_devices?.length ?? 0}
                               ></ir-count-dot></button>`}
@@ -1756,6 +1891,9 @@ export class IrSignalMonitor extends LitElement {
             display: block;
         }
 
+        /* Matches ir-device-list.ts's Devices/Remotes toolbar exactly
+           (owner ruling): icon + uppercase title + count + inline
+           dash-tagline, all one line -- not a separate header row. */
         .toolbar {
             display: flex;
             justify-content: space-between;
@@ -1764,22 +1902,35 @@ export class IrSignalMonitor extends LitElement {
             flex-wrap: wrap;
             gap: 8px;
         }
-        .title {
+        .toolbar-title-group {
+            display: flex;
+        }
+        .toolbar-title {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 1.1rem;
             font-weight: 500;
             color: var(--primary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
-        .title ha-svg-icon {
+        .toolbar-title ha-svg-icon {
             --mdc-icon-size: 24px;
             color: var(--primary-color);
         }
-        .count {
+        .toolbar-count {
             font-weight: 400;
             color: var(--secondary-text-color);
             font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+        .toolbar-tagline {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--secondary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
         }
         .toolbar-actions {
             display: flex;
@@ -1970,6 +2121,7 @@ export class IrSignalMonitor extends LitElement {
             color: #4caf50;
             border-color: rgba(76, 175, 80, 0.3);
             position: relative; /* anchor for the green linked-count dot */
+            text-transform: uppercase; /* USE cutover -- see locale patch note */
         }
         .action-btn.adopt-btn:hover:not(:disabled) {
             background: rgba(76, 175, 80, 0.08);

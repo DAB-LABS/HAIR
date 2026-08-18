@@ -30,7 +30,8 @@
     },
     "device_automation": {
         "trigger_type": {
-            "button_pressed": "{subtype} ingedrukt"
+            "button_pressed": "{subtype} ingedrukt",
+            "state_heard": "Toestand gehoord"
         }
     }
 }

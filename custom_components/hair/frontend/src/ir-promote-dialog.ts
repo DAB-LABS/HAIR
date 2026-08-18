@@ -1,10 +1,20 @@
 /**
- * Dialog for promoting an unknown Sniffer device to a full HAIR device.
+ * Dialog for promoting an unknown Sniffer device to a full HAIR device
+ * -- or, since signpost 3 Track 3.5 (owner-directed 2026-08-15), for
+ * the reverse mirror-door mint: creating a HAIR device straight from
+ * a live Trigger Remote's own triggers when `sourceRemoteId` is set
+ * (ir-trigger-remote-settings-dialog.ts's convert section, "Make a
+ * Device"; hair/trigger-remote/make-device). That door carries no
+ * matrix concept -- a Remote's triggers are always flat -- so
+ * isMatrix and the type lock below never apply to it.
  *
  * Creates the device only -- signal assignment happens separately via
  * the assign-signal dialog.
  *
- * Fires `device-created` on success, `closed` on cancel / close.
+ * Fires `device-created` on success (bubbles/composed, detail is the
+ * minted IRDevice -- every door, not just the mirror-door one, per
+ * signpost 3 Track 3 item 5's USE-fork pin-prompt trigger), `closed`
+ * on cancel / close.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -39,6 +49,11 @@ export class IrPromoteDialog extends LitElement {
      * codebook -- the backend renders a transient wig, nothing is
      * written to the closet. Mutually exclusive with wigFilename. */
     @property() public codebookId = "";
+    /** Live Trigger Remote door (signpost 3, Track 3.5): mutually
+     *  exclusive with every door above -- the "Make a Device"
+     *  mirror-door mint, sourced from this remote's own triggers
+     *  rather than a wig or a Sniffer catalog row. */
+    @property() public sourceRemoteId = "";
     /** Seed the type dropdown (from the wig's kind); user can change. */
     @property() public suggestedType: DeviceTypeId | "" = "";
     /** Cold Cuts (v0.8.8): adopting a matrix wig locks the type to
@@ -86,8 +101,22 @@ export class IrPromoteDialog extends LitElement {
         this._error = null;
 
         try {
-            if (this.wigFilename || this.codebookId) {
-                await this.api.wigMakeDevice(
+            // Every door's minted object rides as the event's detail
+            // (signpost 3, Track 3 item 5, owner-directed
+            // 2026-08-15): the USE fork's already-linked pin-prompt
+            // trigger needs the new device's id/name on all four
+            // catalog surfaces, not just the Track 3.5 mirror door
+            // this shape originally shipped for.
+            let minted: Awaited<ReturnType<typeof this.api.createDevice>>;
+            if (this.sourceRemoteId) {
+                minted = await this.api.remoteMakeDevice(
+                    this.sourceRemoteId,
+                    name,
+                    this._type,
+                    this._emitterIds,
+                );
+            } else if (this.wigFilename || this.codebookId) {
+                minted = await this.api.wigMakeDevice(
                     this.wigFilename
                         ? { filename: this.wigFilename }
                         : { codebookId: this.codebookId },
@@ -96,7 +125,7 @@ export class IrPromoteDialog extends LitElement {
                     this._emitterIds,
                 );
             } else {
-                await this.api.createDevice({
+                minted = await this.api.createDevice({
                     name,
                     device_type: this._type,
                     emitter_entity_ids: this._emitterIds,
@@ -105,6 +134,7 @@ export class IrPromoteDialog extends LitElement {
             }
             this.dispatchEvent(
                 new CustomEvent("device-created", {
+                    detail: minted,
                     bubbles: true,
                     composed: true,
                 }),

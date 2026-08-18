@@ -143,6 +143,16 @@ class DeviceManager:
 
     async def async_update_device(self, device: IRDevice) -> IRDevice:
         self._store.update_device(device)
+        # Signpost 4, Track 1. This is the single funnel every command
+        # add, edit and delete persists through (see async_update_command
+        # and the assign paths), so re-deriving pin maps here covers
+        # every device-side content change with one hook instead of one
+        # per call site. Only remotes actually pinned to this device are
+        # touched, and it lands before the save so it costs no extra
+        # write.
+        from .pin_bindings import rederive_remotes_for_device
+
+        rederive_remotes_for_device(self._store, device.id)
         await self._store.async_save()
         self._register_ha_device(device)
         await self._entity_factory.async_update_entities(device)
@@ -176,7 +186,6 @@ class DeviceManager:
         Returns ``{success, command, triggers, mappings_updated}`` on
         success, or ``{success: False, code, error}``.
         """
-        from .event_parser import EventParser
         from .ir_command import ProntoCommand
         from .pronto_validator import validate_pronto
         from .protocol_decode import try_decode_identity
@@ -214,6 +223,15 @@ class DeviceManager:
                     if val.casefold() == old_name.casefold():
                         mapping[key] = new_name
                         mappings_updated += 1
+                # Climate presets: the star. A starred command's name IS
+                # the preset name on the climate entity, so a rename has
+                # to travel the same way the action mappings just did --
+                # otherwise the star stays lit on a row whose preset
+                # silently vanished from the more-info dialog.
+                starred = device.entity_config.starred
+                for index, entry in enumerate(starred):
+                    if entry.casefold() == old_name.casefold():
+                        starred[index] = new_name
 
         # --- pronto change: recompute identity + rewire triggers ---
         if pronto is not None:
@@ -225,7 +243,9 @@ class DeviceManager:
                               else "Invalid Pronto code"),
                 }
             new_code = result.normalized
-            old_fp = EventParser.signal_fingerprint(
+            from .identity import canonical_fingerprint as _canon_fp
+
+            old_fp = _canon_fp(
                 command.protocol, command.code, command.raw_timings
             )
             # Captured BEFORE the mutations below: a sub-threshold edit
@@ -234,8 +254,12 @@ class DeviceManager:
             # precisely (v0.5.8 unified identity).
             old_byte_hash = command.byte_hash
             old_decoded_fingerprint = command.decoded_fingerprint
-            new_fp = EventParser.signal_fingerprint("PRONTO", new_code, [])
-            new_byte_hash = EventParser.pronto_byte_hash(new_code)
+            # Canonical (wire) identity for the edited code; the stored
+            # code text stays as the user typed it (identity.py).
+            from .identity import canonical_byte_hash, canonical_fingerprint
+
+            new_fp = canonical_fingerprint("PRONTO", new_code, [])
+            new_byte_hash = canonical_byte_hash(new_code)
             try:
                 raw = ProntoCommand(new_code).get_raw_timings()
             except Exception:  # bad code falls back to no decoded timings
@@ -530,6 +554,7 @@ class DeviceManager:
         device_id: str,
         command_id: str,
         heard_future: Any | None = None,
+        pinned: bool = False,
     ) -> None:
         """Send a stored IR command via all configured emitters (broadcast).
 
@@ -590,6 +615,7 @@ class DeviceManager:
                 if not command.tx_force_raw else None
             ),
             heard_future=heard_future,
+            pinned=pinned,
         )
 
         # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
@@ -630,6 +656,7 @@ class DeviceManager:
         send_count: int = 1,
         decoded_fingerprint: str | None = None,
         heard_future: Any | None = None,
+        pinned: bool = False,
     ) -> set[str]:
         """The shared all-emitters transmit path (GH #65 semantics).
 
@@ -691,7 +718,19 @@ class DeviceManager:
         if monitor is not None:
             monitor.record_send(
                 ir_cmd,
-                f"{device.name} / {send_name}",
+                # Provenance for the Mirror's chip (signpost 4, Track
+                # 4). A pinned retransmit is a HAIR device send in
+                # every mechanical sense, so it takes the same path,
+                # but a user reading the Mirror needs to tell "the
+                # handset drove this" from "I pressed the button in
+                # the panel". The prefix is the channel; ir-mirror.ts
+                # reads it the same way it already reads the test and
+                # fitting prefixes.
+                (
+                    f"Pinned send: {device.name} / {send_name}"
+                    if pinned
+                    else f"{device.name} / {send_name}"
+                ),
                 attempt_ids,
                 decoded_fingerprint=decoded_fingerprint,
                 # Passed explicitly: send_count is this method's loop
@@ -786,6 +825,7 @@ class DeviceManager:
         pronto: str,
         send_count: int = 1,
         heard_future: Any | None = None,
+        pinned: bool = False,
     ) -> None:
         """Send one climate matrix cell's raw Pronto (Cold Cuts).
 
@@ -819,6 +859,10 @@ class DeviceManager:
             device, ir_cmd, cell_name,
             send_count=max(1, send_count or 1),
             heard_future=heard_future,
+            # Signpost 4, Track 4: a heard state driving a pinned
+            # matrix Device rides here, and the Mirror row has to read
+            # "Pinned send" like any other retransmit.
+            pinned=pinned,
         )
 
     # --- Emitter-degrade notifications (GH #65 rider, v0.8.1) ---
@@ -894,6 +938,55 @@ class DeviceManager:
         await self._store.async_save()
         return True
 
+    async def async_set_starred(
+        self, device_id: str, command_name: str, starred: bool
+    ) -> list[str] | None:
+        """Star or unstar a command, and persist.
+
+        A starred command becomes a Home Assistant preset on the
+        device's climate entity, named exactly what the command is
+        named (climate-presets-star.md). One gesture, no dialog: this
+        is the whole write path behind the star glyph on the command
+        row.
+
+        Idempotent in both directions -- starring an already-starred
+        command, or unstarring one that was never starred, changes
+        nothing and writes nothing. Returns the resulting list of
+        starred names, or None when the device or the command does not
+        exist.
+
+        Persists through :meth:`async_update_device` rather than a bare
+        save so the entity ``update_device`` hooks fire and the climate
+        entity re-reads its presets; a bare save would leave the
+        more-info dialog showing the previous set until a restart.
+        """
+        device = self._store.get_device(device_id)
+        if device is None:
+            return None
+        command = device.get_command_by_name(command_name)
+        if command is None:
+            return None
+
+        current = list(device.entity_config.starred)
+        target = command.name.casefold()
+        present = any(name.casefold() == target for name in current)
+        if starred == present:
+            # Already in the asked-for state: no write, no entity
+            # refresh, and no reshuffle of the click order.
+            return current
+        if starred:
+            # Store the command's own name, not the caller's spelling,
+            # so the preset reads exactly as the row does.
+            updated = [*current, command.name]
+        else:
+            updated = [
+                name for name in current if name.casefold() != target
+            ]
+
+        device.entity_config.starred = updated
+        await self.async_update_device(device)
+        return list(device.entity_config.starred)
+
     def _register_ha_device(self, device: IRDevice) -> None:
         registry = dr.async_get(self._hass)
         registry.async_get_or_create(
@@ -965,6 +1058,15 @@ class DeviceManager:
                     device.entity_config.fan_modes = modes
 
     def _unmap_command(self, device: IRDevice, command: IRCommand) -> None:
+        # Climate presets: the star. Deleting a starred command has to
+        # drop the star too, the same way it drops the action mapping
+        # below -- a preset naming a command that no longer exists
+        # would advertise a mode the entity could never send.
+        device.entity_config.starred = [
+            name
+            for name in device.entity_config.starred
+            if name.casefold() != command.name.casefold()
+        ]
         mapping = device.entity_config.command_mapping
         for key, value in list(mapping.items()):
             if value.casefold() == command.name.casefold():

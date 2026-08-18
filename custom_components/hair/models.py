@@ -176,11 +176,29 @@ class EntityConfig:
     hvac_modes: list[str] | None = None
     fan_modes: list[str] | None = None
     swing_modes: list[str] | None = None
+    # Climate presets: the star (climate-presets-star.md). Command
+    # NAMES a user starred on an AC device, in click order; the
+    # climate entity turns them into Home Assistant preset_modes.
+    #
+    # NOT a command_mapping key, deliberately: ws_update_mapping
+    # enforces one mapping key per command (it clears every key
+    # pointing at the command before setting a new one), and a flat
+    # "Cool" command is commonly mapped to mode_cool AND wants to be
+    # starrable. A separate list is the only shape where both can be
+    # true at once.
+    #
+    # Names, not ids, because that is how every other mapping on this
+    # dataclass refers to commands, and the rename cascade in
+    # device_manager.async_update_command already exists for names.
+    # Absent in stored JSON reads as empty; empty means the entity
+    # never advertises PRESET_MODE at all.
+    starred: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "platform": self.platform,
             "command_mapping": dict(self.command_mapping),
+            "starred": list(self.starred),
             "temperature_presets": list(self.temperature_presets)
             if self.temperature_presets
             else None,
@@ -194,6 +212,7 @@ class EntityConfig:
         return cls(
             platform=data.get("platform", "remote"),
             command_mapping=dict(data.get("command_mapping") or {}),
+            starred=list(data.get("starred") or []),
             temperature_presets=data.get("temperature_presets"),
             hvac_modes=data.get("hvac_modes"),
             fan_modes=data.get("fan_modes"),
@@ -262,6 +281,17 @@ class IRDevice:
     # clipping. Local renames and send-count tweaks never touch either.
     source_wig_id: str | None = None
     source_file: str | None = None
+    # WHERE THIS DEVICE CAME FROM, mirror-door half (signpost 3, Track
+    # 3.5, owner-directed 2026-08-15). The device-side twin of
+    # TriggerRemote.source_device_id: set only by
+    # ws_trigger_remote_make_device to the source Remote's id, so the
+    # Track 3.5 pin prompt can offer to pin the new device straight
+    # back to it -- a mirror-door mint's source IS its counterpart by
+    # construction. Mutually exclusive with source_wig_id in practice
+    # (a device is adopted from a wig OR minted from a remote's
+    # triggers, never both); nothing enforces that here, same as
+    # source_wig_id/source_file's own unenforced exclusivity above.
+    source_remote_id: str | None = None
     # Creation-door provenance (Add Popups signpost 2, 2026-08-10
     # provenance ruling): "manual" | "closet" | "device" | "remote",
     # taken from whichever tab of the add dialog created this device.
@@ -360,6 +390,9 @@ class IRDevice:
         cloned_entity_config = EntityConfig(
             platform=self.entity_config.platform,
             command_mapping=dict(self.entity_config.command_mapping),
+            # The clone's commands keep their names, so the starred
+            # names still point at real commands on the copy.
+            starred=list(self.entity_config.starred),
             temperature_presets=(
                 list(self.entity_config.temperature_presets)
                 if self.entity_config.temperature_presets
@@ -460,6 +493,7 @@ class IRDevice:
             "climate_matrix": self.climate_matrix,
             "source_wig_id": self.source_wig_id,
             "source_file": self.source_file,
+            "source_remote_id": self.source_remote_id,
             "origin": self.origin,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -509,6 +543,9 @@ class IRDevice:
             # correctly as "built from scratch here".
             source_wig_id=data.get("source_wig_id") or None,
             source_file=data.get("source_file") or None,
+            # Absent on every device made before Track 3.5 (signpost 3);
+            # resolves correctly as "not minted from a remote".
+            source_remote_id=data.get("source_remote_id") or None,
             # Absent on every device made before Add Popups signpost 2;
             # not backfilled, per the provenance ruling.
             origin=data.get("origin") or None,
@@ -595,6 +632,14 @@ class IRTrigger:
     # Triggers drawer -- the same "no explicit group" default
     # trigger-remotes.md section 4.1 specified: "None means the default
     # HAIR Triggers device. No migration hook." Every pre-signpost-2
+    # Origin vocabulary (Add Popups signpost 2, Track 3; extended
+    # 2026-08-18): "closet" a wig file, "matrix" a lattice cell,
+    # "device" a HAIR device command, "clip" a Clipper paste,
+    # "plucked" a Plucker pull, "remote" a SNIFFED catalog row,
+    # "manual" or None the drawer dialog. Which of these are
+    # file-sourced is identity.FILE_SOURCED_TRIGGER_ORIGINS. The panel
+    # only ever tests this field for equality against "matrix"
+    # (ir-trigger-row.ts), so new values need no frontend change.
     # trigger reads as drawer-owned with zero backfill needed. Set once
     # at creation (Manual/Closet/Device tabs of the new Add Trigger
     # Remote dialog, or the drawer's own "+ Add Trigger" leaving it
@@ -781,6 +826,66 @@ class TriggerRemote:
     # "manual" | "closet" | "device" | "remote", taken from the tab
     # that created this remote.
     origin: str | None = None
+    # WHERE IT CAME FROM (signpost 3, Track 2 item 4) -- the remote-side
+    # twin of IRDevice.source_wig_id. Written only by ws_wig_make_remote's
+    # filename path (a codebook-made remote renders a transient wig that
+    # was never in the closet and has nothing to inherit, so this stays
+    # None for that door, exactly as the device side does). The linked-
+    # count "pointer wins" rule (_wig_linked_remotes) reads this so a
+    # matrix wig's remote -- which, like a matrix device, may carry no
+    # flat signals to identity-match against -- still chips its wig.
+    source_wig_id: str | None = None
+    # WHERE THIS REMOTE CAME FROM, mirror-door half (signpost 3, Track
+    # 3.5, owner-directed 2026-08-15). The remote-side twin of
+    # IRDevice.source_remote_id (and, by shape, of source_wig_id just
+    # above): set only by ws_device_make_remote to the source Device's
+    # id, so the Track 3.5 pin prompt can offer to pin the new remote
+    # straight back to it. Mutually exclusive with source_wig_id in
+    # practice, same unenforced convention as the device side.
+    source_device_id: str | None = None
+    # THE PIN SCOPE SPLIT (signpost 3 coding-plan.md section 0b). The
+    # many-to-many seed: which HAIR devices this remote's presses are
+    # meant to drive. Storing a pin here does NOTHING yet -- no
+    # retransmit, no derivation, no echo defense; that machinery, and
+    # turning stored pins live, is signpost 4 / Release B. The device
+    # side deliberately stores nothing of its own and stays a derived
+    # view (queried by scanning every remote's pinned_device_ids for a
+    # given device id) so the link only ever lives in one place. All
+    # pin UI reading this stays behind ir-pin-flag.ts's
+    # PINNING_UI_ENABLED = False until the owner flips it at the
+    # signpost boundary.
+    pinned_device_ids: list[str] = field(default_factory=list)
+    # DERIVED BUTTON MAP (signpost 4, Track 1): per pinned device,
+    # which command each of this remote's triggers drives --
+    # {device_id: {trigger_id: command_id}}. Content-matched by
+    # pin_bindings.derive_bindings and rewritten whenever either side
+    # changes (pin, unpin, trigger or command mutation). NEVER computed
+    # on the fire path, which only reads it. A pinned device sharing no
+    # content maps to an empty dict, which is how a detail page tells
+    # "pinned, nothing matched" apart from "not pinned at all".
+    bindings: dict[str, dict[str, str]] = field(default_factory=dict)
+    # THE HEAR-SIDE LATTICE (signpost 4, Track M). The exact mirror of
+    # IRDevice.climate_matrix, and a boolean for the same reason: the
+    # matrix itself lives in its own file at
+    # ``hair/matrices/<remote_id>.matrix.json`` (matrix_store names
+    # files by whatever id it is handed and both tables mint uuid4, so
+    # remotes and devices share one flat namespace without colliding),
+    # and the reference stays implicit so a remote payload cannot
+    # orphan-point at a wrong matrix. A matrix Remote HEARS its
+    # lattice where a matrix Device SENDS from one -- same bytes,
+    # opposite direction.
+    climate_matrix: bool = False
+    # THE MOST RECENT STATE HEARD (signpost 4, Track M, handoff
+    # reviewer addendum "Persistence"). Stamped by the matrix listener
+    # on every heard cell the way _fire_trigger stamps a trigger's
+    # fire_count, and the single stored fact behind three surfaces: the
+    # card's rest ring, its slim readout, and the LAST HEARD row. Absent
+    # (None) reads as "Nothing heard yet" and is what a remote carries
+    # until its handset is first heard. Shape: cell_key, cell_name,
+    # power ("on"/"off"/None), at (iso), sl_pattern, receiver_entity_id,
+    # receiver_area_name. A loose dict rather than a dataclass because
+    # nothing computes on it -- it is stamped whole and rendered whole.
+    last_heard: dict[str, Any] | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -790,6 +895,16 @@ class TriggerRemote:
             "name": self.name,
             "receiver_scope": list(self.receiver_scope),
             "origin": self.origin,
+            "source_wig_id": self.source_wig_id,
+            "source_device_id": self.source_device_id,
+            "pinned_device_ids": list(self.pinned_device_ids),
+            "bindings": {
+                d: dict(m) for d, m in self.bindings.items()
+            },
+            "climate_matrix": self.climate_matrix,
+            "last_heard": (
+                dict(self.last_heard) if self.last_heard else None
+            ),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -801,6 +916,34 @@ class TriggerRemote:
             name=data.get("name", ""),
             receiver_scope=list(data.get("receiver_scope") or []),
             origin=data.get("origin"),
+            source_wig_id=data.get("source_wig_id"),
+            # Absent on every remote made before Track 3.5 (signpost 3);
+            # resolves correctly as "not minted from a device".
+            source_device_id=data.get("source_device_id"),
+            pinned_device_ids=list(data.get("pinned_device_ids") or []),
+            # Absent on every remote written before signpost 4, and on
+            # any remote pinned during signpost 3's dark period --
+            # both resolve to {} and are filled by the load-time
+            # backfill in HAIRStore.async_load. Coerced defensively:
+            # a hand-edited store must not put non-strings on the
+            # fire path.
+            bindings={
+                str(d): {
+                    str(t): str(c) for t, c in m.items()
+                }
+                for d, m in (data.get("bindings") or {}).items()
+                if isinstance(m, dict)
+            },
+            # Absent on every remote written before signpost 4's Track
+            # M; False and None are exactly right for one -- no matrix
+            # file was ever written under its id, and nothing has been
+            # heard into a lattice it does not have.
+            climate_matrix=bool(data.get("climate_matrix", False)),
+            last_heard=(
+                dict(lh)
+                if isinstance(lh := data.get("last_heard"), dict)
+                else None
+            ),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
         )
@@ -835,11 +978,20 @@ class TriggerRemote:
         content, so leaving that decision to a shared dataclass method
         would either force it on every caller or require a parameter
         this method has no other reason to carry.
+
+        ``climate_matrix`` rides along, exactly as IRDevice.clone()
+        carries it: the FLAG is part of what this remote is, the FILE
+        is the caller's job (ws_duplicate_trigger_remote copies it and
+        clears the flag if the copy fails, the same shape
+        ws_duplicate_device already uses). ``last_heard`` does NOT: a
+        copy has heard nothing, and inheriting a timestamp would put a
+        stale "2 min ago" on a remote that has never been in the room.
         """
         return TriggerRemote(
             name=new_name,
             receiver_scope=list(self.receiver_scope),
             origin="manual",
+            climate_matrix=self.climate_matrix,
         )
 
 
@@ -1099,6 +1251,17 @@ class UnknownDevice:
     # Sniffer's linked-device chip resolves it live by id, so renaming
     # either side never breaks the link. None = never promoted.
     promoted_to: str | None = None
+    # Identity-based promote linkage, the REMOTE half (signpost 3,
+    # Track 2 item 2 -- "USE as a Remote" from a Sniffer/Clipper/Plucker
+    # catalog remote). Mirrors promoted_to exactly, keyed to a
+    # TriggerRemote id instead of an IRDevice id. A single catalog
+    # remote can carry BOTH links at once (promoted_to AND
+    # promoted_to_remote both set) -- the "both-kinds" case
+    # (mockup-handoff.md open item 1, both-kinds count-dot split
+    # dropped 2026-08-15): one combined linked-count dot reads both
+    # fields, kind-badging the rows in its popover instead of tracking
+    # separate counts. None = never used as a remote.
+    promoted_to_remote: str | None = None
     # Wig provenance for a matrix clip (Cold Cuts second half, owner
     # ruling CC5 2026-07-29): {"filename": ..., "cells_hash": ...}
     # stamped when a matrix wig CLIPs with its cells. The adopt
@@ -1217,6 +1380,7 @@ class UnknownDevice:
             "vendor_entity_id": self.vendor_entity_id,
             "appliance": self.appliance,
             "promoted_to": self.promoted_to,
+            "promoted_to_remote": self.promoted_to_remote,
             "source_wig": dict(self.source_wig) if self.source_wig else None,
         }
 
@@ -1241,5 +1405,6 @@ class UnknownDevice:
             vendor_entity_id=data.get("vendor_entity_id"),
             appliance=data.get("appliance"),
             promoted_to=data.get("promoted_to"),
+            promoted_to_remote=data.get("promoted_to_remote"),
             source_wig=data.get("source_wig") or None,
         )

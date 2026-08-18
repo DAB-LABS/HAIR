@@ -135,6 +135,13 @@ SIGNAL_RAW_FINGERPRINT_LEN = 64
 # which collapses one physical press seen by several receivers.
 TRIGGER_HIT_RESET_WINDOW_S = 5
 EVENT_TRIGGER_FIRED = f"{DOMAIN}_trigger_fired"
+# A matrix Remote heard one of its own lattice states (signpost 4,
+# Track M). Its own event, not a trigger fire: the lattice never
+# auto-mints trigger rows, so there is no trigger_id to carry, and an
+# automation keys on the coordinates instead (mode / fan / swing /
+# temperature, or power). Payload also carries the v0.5.7 location
+# trio, resolved the same way a fire resolves it.
+EVENT_STATE_HEARD = f"{DOMAIN}_state_heard"
 # Alias history cap (Trigger Remotes signpost 1, device_trigger rename
 # tolerance). A renamed trigger retires its old name here so a device
 # trigger's stored subtype (the automation editor's dropdown never stores
@@ -157,6 +164,77 @@ TRIGGER_ALIAS_HISTORY_MAX = 10
 # human double-press interval (150ms+ between distinct presses, since a
 # release and re-press cannot happen faster).
 MULTI_RECEIVER_DEDUP_WINDOW_S = 0.100
+
+# The matrix listener's own window (owner ruling 2026-08-18, after the
+# dress rehearsal): ONE PRESS IS ONE EVENT. An AC state frame is not a
+# repeat frame the way Sony's is -- the code is two complete frames of
+# one press, and the bench measured them arriving 103 to 148 ms apart
+# through a real receiver, just outside the 100 ms above. Every press of
+# a two-frame cell therefore fired hair_state_heard twice and saved the
+# store twice. Nobody could see it before the receiver-tolerant tier,
+# because these codes never matched at all over the air.
+#
+# 400 ms, RAISED FROM 300 (owner ruling 2026-08-18, second bench pass).
+# Fifty presses through the ESPHome transmitter put 29 of 30 AC presses
+# inside 300 ms and one at 330, which counted twice. A human cannot
+# release and re-press an air conditioner's handset inside 400 ms, so
+# the wider window costs nothing real and turns that split into the
+# non-event it always was.
+#
+# Keyed on (remote, cell) rather than the remote alone, so a deliberate
+# change of state inside the window -- cool 23 then off -- is still two
+# events.
+MATRIX_STATE_DEDUP_WINDOW_S = 0.400
+
+# Trigger fire dedup (owner ruling 2026-08-18, after the regression bench).
+# ONE TAP IS ONE FIRE, including on a handset that repeats the whole frame
+# while the button is down.
+#
+# The bench measured a Samsung32 handset repeating its full frame every 102
+# to 119 ms on an ordinary tap. That sits just outside the 100 ms
+# MULTI_RECEIVER_DEDUP_WINDOW_S the trigger path used to borrow, so a single
+# tap fired two to four times, and which it was came down to about ten
+# milliseconds of jitter. Sony's 45 ms repeats were the only spacing that
+# window was ever sized against; a full-frame repeater was not.
+#
+# ANCHORED, NOT SLIDING. The stamp is written only when a capture is allowed
+# through, never when one is suppressed. That is the difference that makes a
+# held button usable: with a sliding window a hold is one fire for as long as
+# the frames keep coming, and the release is invisible; anchored, the window
+# expires on schedule and the next repeat re-fires.
+#
+# 300 ms (owner ruling 2026-08-18, second pass and CONFIRMED on a third:
+# 300 stands. A later bench tap whose frames spanned 318 ms fired twice,
+# which is the rule working -- the boundary moves under the thumb wherever
+# it is put, and 400 would collide with MATRIX_STATE_DEDUP_WINDOW_S).
+# Sized by measurement, twice. At 250 the bench ran three Volume Up taps
+# whose frame trains were 219, 213 and 215 ms -- every one folded to a
+# single fire, but with only 30 ms of margin. A Volume Down tap in the same
+# session ran 254 ms and fired twice, six milliseconds outside the window.
+# 300 covers the whole measured spread of a deliberate tap and still sits
+# far below a release-and-re-press, which cannot happen faster than about
+# 150 ms and in practice is far slower.
+#
+# The other reason for 300: it is SIGNAL_REPEAT_SUPPRESS_MS. The Sniffer
+# already counted one tap once while the trigger path counted it twice, and
+# the two disagreeing about what a press was is exactly the fault this
+# constant exists to fix. Three gates remain -- the Sniffer at 300, this at
+# 300, the matrix at 400 -- and a unified capture stage is expected to
+# supersede all three; until then these two at least agree.
+#
+# What it costs a held button: the cadence is whenever the first frame
+# past the window arrives, so it follows the handset's own repeat rate.
+# At the measured 100-110 ms that is one fire every 324 to 400 ms, between
+# 2.5 and 3 a second (at 250 ms the bench measured seven fires across a
+# two-second hold, 318 ms apart). A held volume button simply steps a
+# little slower.
+#
+# Composes with MATRIX_STATE_DEDUP_WINDOW_S above: the mechanism is shared and
+# the window is chosen per row. A row that is BOTH file-sourced and multi-frame
+# keeps the wider 400 ms (its two frames can be 148 ms apart and it has no
+# repeat behaviour to preserve); every other row gets this one. The wider
+# window always wins where it applies.
+TRIGGER_FIRE_DEDUP_WINDOW_S = 0.300
 
 # Pronto S/L classification threshold (in Pronto timing units).
 # Timing words below this are "short" (S), above are "long" (L).
@@ -239,6 +317,29 @@ MIRROR_ECHO_TTL_S = 2.5
 # foreign integration's (which then claimed stray captures as echoes).
 # Matches the echo TTL's generosity for slow emitters.
 MIRROR_OWN_BEACON_WINDOW_S = 3.0
+# Pinned-remote echo defense (signpost 4, Track 3a). A ticket is armed
+# by the emitter's own state beacon, which core writes on every
+# platform send. PINNED_TICKET_ARM_FALLBACK_S arms it anyway if no
+# beacon arrives: an emitter that never writes state would otherwise
+# leave the ticket dead and the echo unsuppressed, which is the
+# failure mode that breeds a loop. The fallback is still strictly
+# after the send began, so pre-send frames can never spend a ticket.
+PINNED_TICKET_ARM_FALLBACK_S = 1.5
+# The post-send identity guard: how long after the beacon a capture of
+# a just-sent identity is echo-classified regardless of ticket
+# accounting. The ticket does the precise per-receiver bookkeeping for
+# heard_by; this is the safety floor under it. Bench-tuned.
+PINNED_ECHO_GUARD_S = 1.0
+# Loop breaker. More than PINNED_LOOP_MAX_SENDS retransmits for one
+# remote/device/command inside PINNED_LOOP_WINDOW_S cuts that binding
+# for PINNED_LOOP_COOLDOWN_S. Deliberately blunt: a runaway and an
+# implausibly long button hold look alike from the dispatcher, so the
+# threshold sits above any plausible hold and below a loop's runtime.
+# The observed runaway ran at ~0.63 s per send, which trips this in
+# about thirteen seconds instead of the forty-plus it actually ran.
+PINNED_LOOP_WINDOW_S = 20.0
+PINNED_LOOP_MAX_SENDS = 20
+PINNED_LOOP_COOLDOWN_S = 60.0
 # Synthetic per-emitter fingerprint prefix for foreign sends that no
 # receiver heard (identity unknown, send still audited).
 MIRROR_UNKNOWN_SEND_FP_PREFIX = "mirror-unknown::"

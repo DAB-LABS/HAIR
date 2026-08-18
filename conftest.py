@@ -247,6 +247,10 @@ class _ClimateEntityFeature:
     TARGET_TEMPERATURE = 4
     FAN_MODE = 8
     SWING_MODE = 16
+    # Climate presets: the star (climate-presets-star.md). Bit value
+    # is arbitrary here as it is for every flag above -- the stub only
+    # has to keep them distinct; real HA numbers them differently.
+    PRESET_MODE = 32
     def __init__(self, val=0): self._val = val
     def __or__(self, other):
         if isinstance(other, int):

@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from custom_components.hair.const import DOMAIN, EVENT_SIGNAL_UPDATED
-from custom_components.hair.event_parser import EventParser
 from custom_components.hair.identity import SignalIdentity
 from custom_components.hair.models import (
     IRCommand,
@@ -33,7 +32,11 @@ _CODE_B = "0000 006D 0002 0000 0030 0050 0030 0050"
 
 
 def _fp(code: str) -> str:
-    return EventParser.signal_fingerprint("PRONTO", code, None)
+    # Canonical (wire) identity: HAIR hashes what a receiver would
+    # hand it, not the file text (identity.py's canonical-form block).
+    from custom_components.hair.identity import canonical_fingerprint
+
+    return canonical_fingerprint("PRONTO", code, None)
 
 
 def _cmd(name: str, code: str) -> IRCommand:

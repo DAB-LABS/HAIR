@@ -158,6 +158,19 @@ export interface MatrixCells {
     cells: MatrixCellCoord[];
 }
 
+// Combined linked-count entry (signpost 3, Track 2 item 0.1 / Track 3
+// item 1): a source (a closet wig, or a Sniffer/Clipper/Plucker
+// catalog remote) can now feed BOTH a HAIR device and a HAIR trigger
+// remote, so the popover list the USE button's linked-count dot opens
+// is one kind-tagged union instead of two lists the UI would have to
+// merge itself. Every entry the backend sends carries `kind` now
+// (ws_get_unknown_devices, ws_wigs_list) -- there is no legacy
+// kind-less shape left to support, so this is a real discriminated
+// union, not an optional field bolted onto the old shape.
+export type LinkedEntry =
+    | { kind: "device"; device_id: string; device_name: string }
+    | { kind: "remote"; remote_id: string; remote_name: string };
+
 // Wigs (v0.7.0 Big Wig): portable code sets in /config/hair/wigs/.
 export interface WigInfo {
     filename: string;
@@ -180,8 +193,9 @@ export interface WigInfo {
     // the fitted/unfitted filter, computed server-side.
     fitting?: FittingSummary;
     // Adopt Device (v0.8.1): HAIR devices already carrying this wig's
-    // codes, by tiered identity match.
-    linked_devices?: { device_id: string; device_name: string }[];
+    // codes, by tiered identity match. Combined with the trigger-remote
+    // half (signpost 3, Track 2 item 0.1) -- see LinkedEntry below.
+    linked_devices?: LinkedEntry[];
     // Cold Cuts (v0.8.8): non-null for matrix wigs. Drives the "N
     // states" chip, the peek summary, CLIP suppression, and the
     // fit-tick's cold blue glow.
@@ -566,6 +580,12 @@ export interface EntityConfig {
     hvac_modes?: string[] | null;
     fan_modes?: string[] | null;
     swing_modes?: string[] | null;
+    // Climate presets: the star (climate-presets-star.md). Command
+    // names starred on an AC device, in click order; the climate
+    // entity turns them into Home Assistant preset modes. Optional
+    // because a payload written before the field existed simply
+    // omits it -- read it as empty, never as a missing device.
+    starred?: string[];
 }
 
 /** Add Popups signpost 2, Track 1B/3: a named trigger remote --
@@ -582,6 +602,67 @@ export interface TriggerRemoteInfo {
     updated_at: string;
     ha_device_id: string | null;
     trigger_count: number;
+    // Add Popups signpost 3, Track 2 item 0.6 / Track 3 item 2: the
+    // Remote card's ON:/OFF: badge line reads these two straight off
+    // the list call, no per-remote follow-up.
+    enabled_count: number;
+    disabled_count: number;
+    // Signpost 4, Track 4. Which devices this remote drives, and what
+    // each of its triggers drives on them -- resolved to names by the
+    // backend so a trigger row can render without fetching every
+    // pinned device just to read command names. A trigger with no
+    // mapping is absent from pin_map entirely.
+    pinned_device_ids: string[];
+    pin_map: Record<string, PinMapEntry[]>;
+    // Where this remote came from. Both are backend fields the payload
+    // has always carried; they are declared here as of signpost 4,
+    // Track M. Mutually exclusive in practice: a remote is minted from
+    // a closet wig or from a device, never both.
+    source_wig_id: string | null;
+    source_device_id: string | null;
+    // Signpost 4, Track 4: the derived button map, ids only
+    // ({device_id: {trigger_id: command_id}}). pin_map above is the
+    // same fact resolved to names and is what rows render from; this
+    // is here because an empty inner map is how "pinned, nothing
+    // matched" reads apart from "not pinned at all".
+    bindings: Record<string, Record<string, string>>;
+    // Signpost 4, Track M: the hear-side lattice. climate_matrix is
+    // the stored flag; matrix is the same summary block a device
+    // payload carries, null for a flat remote or an unreadable file.
+    climate_matrix: boolean;
+    matrix: MatrixSummary | null;
+    // The most recent state heard, or null for "Nothing heard yet".
+    last_heard: LastHeard | null;
+}
+
+/** The most recent decoded state a matrix Remote heard (signpost 4,
+ * Track M). Persisted on the remote, so it is already filled on the
+ * first render after a reload -- one stored fact behind three
+ * surfaces: the card's rest ring, its slim readout, and the LAST HEARD
+ * row. ``power`` is set only for a power frame; a climate frame
+ * carries its coordinates in the key and its words in the name. */
+export interface LastHeard {
+    cell_key: string;
+    cell_name: string;
+    power: "on" | "off" | null;
+    // The heard cell's coordinates, in the matrix's NATIVE unit, so the
+    // card can ring the chips and the tile it came from without
+    // re-parsing the display name (which is unit-converted and
+    // localized). Absent dimensions are null, matching exact_cell.
+    mode: string | null;
+    fan: string | null;
+    swing: string | null;
+    temp: number | null;
+    at: string;
+    sl_pattern: string | null;
+    receiver_entity_id: string | null;
+    receiver_area_name: string | null;
+}
+
+/** One "this trigger drives that command over there" fact. */
+export interface PinMapEntry {
+    device_name: string;
+    command_name: string;
 }
 
 /** Add Popups signpost 2, Track 3: one wig signal's derived identity,
@@ -595,6 +676,22 @@ export interface WigSignalIdentity {
     code: string | null;
     byte_hash: string | null;
     decoded_fingerprint: string | null;
+}
+
+/** One matrix cell's code and identity, fetched by coordinates
+ *  (signpost 4, Track M). The cell browser ships no Pronto by design --
+ *  thousands of cells, and the browser needs coordinates rather than
+ *  codes -- so the three doors that mint a trigger off the lattice ask
+ *  for the single cell they are about to use. */
+export interface MatrixCellDetail {
+    pronto: string;
+    name: string;
+    identity: {
+        signal_fingerprint: string;
+        byte_hash: string | null;
+        decoded_fingerprint: string | null;
+        decoded_protocol: string | null;
+    };
 }
 
 export interface IRDevice {
@@ -786,9 +883,11 @@ export interface UnknownDeviceSummary {
     order?: number;
     vendor_entity_id?: string | null;
     appliance?: string | null;
-    // The HAIR devices this remote feeds (v0.7.0): stored promote link
-    // plus per-signal assignment targets, resolved live by id.
-    linked_devices?: { device_id: string; device_name: string }[];
+    // The HAIR objects this remote feeds (v0.7.0; combined device+
+    // remote kind tagging added signpost 3, Track 2 item 0.1): stored
+    // promote link(s) plus per-signal assignment targets, resolved
+    // live by id. See LinkedEntry.
+    linked_devices?: LinkedEntry[];
     // Cold Cuts (v0.8.8): the matrix-clip provenance stamp. Non-null
     // only for remotes clipped open (include_matrix) from a matrix
     // wig; drives the adopt signpost.
@@ -954,6 +1053,12 @@ export interface IRTrigger {
     // the HAIR Triggers drawer. See models.py's IRTrigger.trigger_remote_id
     // for the full field doc -- this mirrors it, not a fresh concept.
     trigger_remote_id?: string | null;
+    // Which door minted this trigger (Add Popups signpost 2, Track 3
+    // backend field; declared here in signpost 4, Track M). The panel
+    // reads exactly one value: "matrix" earns the cold-blue STATE chip
+    // on the row, the same chip a device's matrix-sourced command wears
+    // for the same reason. Every other value, and null, render nothing.
+    origin?: string | null;
     // Alias history (device_trigger.py rename tolerance). Not rendered by
     // the panel; carried here only so the frontend type mirrors the
     // backend's to_dict() shape in full.
@@ -1008,6 +1113,11 @@ export interface TriggerDrawerInfo {
 }
 
 export interface TriggerFiredEvent {
+    // Absent on a real fire; "state_heard" when a matrix Remote heard
+    // one of its lattice states (signpost 4, Track M). The push rides
+    // the trigger subscription rather than a second subscribe command,
+    // so every consumer discriminates on this.
+    kind?: "state_heard";
     trigger_id: string;
     trigger_name: string;
     hit_count: number;

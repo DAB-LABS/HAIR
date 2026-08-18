@@ -7,6 +7,8 @@ Built on HA's native `infrared` platform (2026.4+), HAIR handles capturing, orga
 ## What you get
 
 - **Native receiver support (HA 2026.6+)** - Captures IR via the new `InfraredReceiverEntity` API, hardware-agnostic. Falls back to the legacy ESPHome event-bus bridge automatically on 2026.4-2026.5.
+- **Devices and Remotes (new in 0.10.0 "Remotes Have Been Buffed")** - The Devices tab holds the things HAIR sends codes to and, beside them, the handsets HAIR recognizes: every Remote is its own Home Assistant device whose buttons show up in the automation editor, and pinning a Remote to a Device lets the handset drive it directly.
+- **Air-conditioner handsets** - An AC remote can be a Remote too, showing the state it just sent on a live STATE MATRIX card with a LAST HEARD row, and a "State heard" trigger that hands mode, fan, swing, and temperature to your automations.
 - **HAIR Sniffer** - Real-time IR signal monitor with fingerprinting, deduplication, and hit tracking. Find a mystery remote in seconds.
 - **HAIR Clipper** - Build virtual remotes by pasting Pronto hex codes, with live validation. For commands you have a code for but cannot sniff. The Create Remote dialog can also pick a known manufacturer and model from the device codes in your installed Home Assistant infrared library and pre-fill the buttons for you.
 - **HAIR Plucker** - Pull IR codes already learned into a vendor blaster into HAIR as native signals, without re-learning each one at a receiver. Works with integrations that can replay a stored code by name through a chosen emitter; [Tuya Local](https://github.com/make-all/tuya-local) is the first. No IR is broadcast during a pluck.

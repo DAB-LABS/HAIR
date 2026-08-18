@@ -82,6 +82,22 @@
  * (.map-plus).
  * The remaining mobile-polish.md 2.2 items (pencil removal, hairline,
  * TEST vs SEND) stay queued for their own pass.
+ *
+ * CLIMATE PRESET STAR (climate-presets-star-handoff.md, owner-approved
+ * 2026-08-17): AC rows gain one more member of .actions, between
+ * TRIGGER and the edit/trash pair -- a star that toggles the command
+ * into a Home Assistant preset on the device's climate entity, named
+ * exactly what the row is named. Grey outline at rest, solid #4dabf7
+ * once starred, edit's own hover wash in either state; no gold
+ * anywhere (the plan's original #f5a623 is retired, not parked). It
+ * reuses .edit-btn's box wholesale rather than copying its numbers
+ * (see renderStarBtn in ir-icons.ts), and it sits INSIDE
+ * .edit-trash-group, butted against the pencil at zero gap like the
+ * pencil is against the can -- owner bench ruling 2026-08-17, which
+ * supersedes the handoff's "deliberately NOT fused" line: on the box
+ * the 4px read as the star drifting away from a tight pair. The
+ * group's own 4px from TRIGGER is untouched. One click toggles, no
+ * dialog.
  */
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "./decorators.js";
@@ -91,7 +107,9 @@ import {
     TRASH_VIEWBOX,
     trashButtonStyles,
     editButtonStyles,
+    starButtonStyles,
     renderEditBtn,
+    renderStarBtn,
 } from "./ir-icons.js";
 import "./ir-protocol-chip.js";
 
@@ -144,6 +162,24 @@ export class IrCommandRow extends LitElement {
      *  device types whose platform exposes no mappable feature actions
      *  (e.g. Other / the remote platform), where the popover would be empty. */
     @property({ type: Boolean }) public showActionMapping = true;
+
+    /** Whether to show the climate-preset star. Decided per row by the
+     *  parent, which passes AC device AND not a porthole row.
+     *
+     *  Flat rows and saved-state rows from "+ Command" both get one:
+     *  those are real stored commands, and starring one is the whole
+     *  gesture. PORTHOLE rows do not (owner ruling 2026-08-17,
+     *  narrowing the plan's "all AC rows"): a porthole is a view onto
+     *  a lattice cell the comb doubted, not a command of its own, so
+     *  there is nothing stable for a preset to name -- editing the
+     *  cell or repairing the row would leave the preset pointing at a
+     *  coordinate rather than at a code the user chose. */
+    @property({ type: Boolean }) public showStar = false;
+
+    /** Whether THIS command is starred, i.e. currently a preset on the
+     *  device's climate entity. Drives the solid-vs-outline glyph and
+     *  which of the two titles the button carries. */
+    @property({ type: Boolean }) public starred = false;
 
     @state() private _editingName = false;
     @state() private _draftName = "";
@@ -399,6 +435,17 @@ export class IrCommandRow extends LitElement {
                                           (this.hasTrigger ? 1 : 0)}
                                       ></ir-count-dot></button>
                                   <div class="edit-trash-group">
+                                      ${this.showStar
+                                          ? renderStarBtn(
+                                                () =>
+                                                    this._emit("star-toggle"),
+                                                this.starred
+                                                    ? t("cmdrow.star_remove")
+                                                    : t("cmdrow.star_add"),
+                                                this.starred,
+                                                this.busy,
+                                            )
+                                          : ""}
                                       ${renderEditBtn(
                                           () => this._emit("edit-command"),
                                           t("cmdrow.edit_code"),
@@ -438,7 +485,14 @@ export class IrCommandRow extends LitElement {
         `;
     }
 
-    static styles = [trashButtonStyles, editButtonStyles, css`
+    static styles = [
+        trashButtonStyles,
+        editButtonStyles,
+        // The star wears .edit-btn as well as .star-btn, so edit's box
+        // and hover are its box and hover; this block only adds the
+        // starred colour and the focus ring (ir-icons.ts).
+        starButtonStyles,
+        css`
         :host {
             display: block;
         }
@@ -765,7 +819,14 @@ export class IrCommandRow extends LitElement {
            look): a wrapper with its own zero gap, rather than touching
            either button's own padding, so their hover boxes sit flush
            against each other -- the shared .actions gap (4px) still
-           separates this pair, as one unit, from TRIGGER on its left. */
+           separates this pair, as one unit, from TRIGGER on its left.
+           The star joined them (owner bench ruling 2026-08-17,
+           superseding climate-presets-star-handoff.md's "deliberately
+           NOT fused" line): at 4px out here it read further from the
+           pencil than the pencil sits from the can, and the owner wants
+           the three evenly spaced. Zero gap all round does that, and
+           the group's own 4px from TRIGGER is unchanged, which is the
+           relationship he asked to keep. */
         .edit-trash-group {
             display: inline-flex;
             align-items: center;
@@ -822,7 +883,8 @@ export class IrCommandRow extends LitElement {
             opacity: 0.5;
             cursor: default;
         }
-    `];
+    `,
+    ];
 }
 
 declare global {

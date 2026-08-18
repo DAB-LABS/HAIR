@@ -46,6 +46,20 @@ export const REMOTE_KIND_COLORS = {
 export type RemoteKind = keyof typeof REMOTE_KIND_COLORS;
 
 /**
+ * `#43a047` -- the s10 mockup's `--green-peak`, confirmed against its
+ * own stylesheet (`.hdr-chip.on-green { border-color: var(--green-peak)
+ * }`). NOT the same token as `ORIGIN_COLORS.device` (`#2e7d32`, the
+ * pre-existing create-button green) -- the two read close on a swatch
+ * but are genuinely different values in the mockup, and mixing them up
+ * was an actual bug in this component's first landing (Track 1 item 5,
+ * caught while re-reading the mockup for item 6's Duplicate button,
+ * which uses this same token). Used by: ir-header-chip-group.ts's
+ * Emitters:/Receivers: groups on both detail-page headers, and the
+ * Settings dialog's outlined Duplicate button (Track 1 item 6).
+ */
+export const GREEN_PEAK = "#43a047";
+
+/**
  * CSS custom properties exposing every origin/kind color, for consumers
  * that would rather write `var(--origin-manual)` in a `css` template
  * than thread the JS constant through an inline `style=`. Both are

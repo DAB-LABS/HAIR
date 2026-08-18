@@ -4,6 +4,21 @@
  * Create mode: pass signalFingerprint, protocol, code (read-only signal info).
  * Edit mode: pass an existing trigger object.
  *
+ * Add Popups signpost 2 punch list item 8 (ruled 2026-08-10, scoped
+ * 2026-08-17): a REMOTE picker now sits at the top of create mode --
+ * HAIR Triggers (the drawer) preselected, every named TriggerRemote
+ * listed below it, "+ New Remote" last (opens
+ * ir-add-trigger-remote-dialog.ts, nested inside this one, in its
+ * default Manual-tab state; its `remote-created` result becomes the
+ * new picker selection). Edit mode shows the owning remote as a
+ * FIXED, non-interactive label instead -- no picker, no moving a
+ * trigger between remotes once created (the "no-moving" ruling).
+ * Either way, the receiver picker further down renders only when the
+ * effective target is the drawer; a named remote's own receiver_scope
+ * covers its triggers instead (trigger_manager.py's
+ * _effective_receiver_scope), the same rule that already governed
+ * edit mode before this item, now driving create mode's picker too.
+ *
  * Emits:
  *   trigger-saved  -- { detail: IRTrigger }
  *   closed         -- dialog dismissed
@@ -13,8 +28,9 @@ import { customElement, property, state } from "./decorators.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-receiver-picker.js";
+import "./ir-add-trigger-remote-dialog.js";
 import type { HairApi } from "./api.js";
-import type { IRTrigger } from "./types.js";
+import type { IRTrigger, TriggerRemoteInfo } from "./types.js";
 
 @customElement("ir-trigger-dialog")
 export class IrTriggerDialog extends LitElement {
@@ -38,6 +54,20 @@ export class IrTriggerDialog extends LitElement {
     @property() public sourceDeviceId: string | null = null;
     @property() public sourceCommandId: string | null = null;
 
+    /** Create mode, signpost 4 Track M: where the REMOTE picker opens.
+     * The three matrix doors already know which remote they belong to,
+     * so the picker starts on it instead of on the drawer. It stays a
+     * picker -- the user may retarget before saving, exactly as on any
+     * other create door -- this only sets the starting selection. */
+    @property() public remoteId: string | null = null;
+    /** Create mode: which door minted this trigger. "matrix" is what
+     * earns the row's STATE chip; null everywhere else, which is the
+     * pre-Track-M behavior unchanged. */
+    @property() public origin: string | null = null;
+    /** Create mode: a name the door already knows, pre-filled and
+     * still editable. */
+    @property() public presetName: string | null = null;
+
     /** For edit mode: pass the existing trigger. */
     @property({ attribute: false }) public trigger: IRTrigger | null = null;
 
@@ -51,12 +81,102 @@ export class IrTriggerDialog extends LitElement {
     @state() private _busy = false;
     @state() private _error: string | null = null;
 
+    // Add Popups signpost 2 punch list item 8: REMOTE picker state.
+    // null selection = the HAIR Triggers drawer, mirroring the
+    // backend's own null-means-drawer convention on
+    // IRTrigger.trigger_remote_id -- deliberately no separate
+    // frontend sentinel id for "the drawer".
+    @state() private _triggerRemotes: TriggerRemoteInfo[] = [];
+    @state() private _drawerName: string | null = null;
+    @state() private _selectedRemoteId: string | null = null;
+    @state() private _showAddRemote = false;
+
     connectedCallback(): void {
         super.connectedCallback();
         if (this.trigger) {
             this._name = this.trigger.name;
             this._minHits = this.trigger.min_hits;
             this._receiverIds = [...(this.trigger.receiver_entity_ids ?? [])];
+        } else if (this.remoteId) {
+            // Create mode opened from a door that already knows its
+            // remote (signpost 4, Track M). Set before the list loads:
+            // the picker renders the selection by id, so it lands
+            // correctly whichever arrives first.
+            this._selectedRemoteId = this.remoteId;
+        }
+        if (!this.trigger && this.presetName) {
+            // A name the calling door already knows (the matrix doors
+            // pass the cell's display name, "Cool 24 Auto"). Editable
+            // like any other create-mode name. Deliberately NOT read
+            // off ``alias``, which several existing doors already pass
+            // for the diamond line and which has never seeded a name.
+            this._name = this.presetName;
+        }
+        void this._loadTriggerRemotes();
+    }
+
+    /** Named remotes for the REMOTE picker (create mode) / the fixed
+     *  owning-remote label (edit mode), plus the drawer's own live
+     *  display name -- best-effort, same catch-and-empty shape
+     *  ir-receiver-picker.ts uses for pre-2026.6 HA installs. */
+    private async _loadTriggerRemotes(): Promise<void> {
+        if (!this.api) return;
+        try {
+            this._triggerRemotes = await this.api.listTriggerRemotes();
+        } catch {
+            this._triggerRemotes = [];
+        }
+        try {
+            this._drawerName = (await this.api.getTriggerDrawer()).name;
+        } catch {
+            this._drawerName = null;
+        }
+    }
+
+    /** True when the currently-effective target (fixed in edit mode,
+     *  picked in create mode) is the HAIR Triggers drawer -- the one
+     *  case where a per-trigger receiver scope is meaningful. */
+    private get _isDrawerTarget(): boolean {
+        const id = this.trigger
+            ? this.trigger.trigger_remote_id ?? null
+            : this._selectedRemoteId;
+        return id === null;
+    }
+
+    private _remoteName(id: string): string {
+        return (
+            this._triggerRemotes.find((r) => r.id === id)?.name ??
+            t("common.kind_remote")
+        );
+    }
+
+    private get _drawerLabel(): string {
+        return this._drawerName ?? t("devlist.trigger_drawer_default_name");
+    }
+
+    private _pickRemote(id: string | null): void {
+        if (this._busy) return;
+        this._selectedRemoteId = id;
+    }
+
+    private _openAddRemote(): void {
+        this._showAddRemote = true;
+    }
+
+    private _closeAddRemote(): void {
+        this._showAddRemote = false;
+    }
+
+    /** ir-add-trigger-remote-dialog.ts's own success event, reused
+     *  verbatim -- detail is a TriggerRemoteInfo (plus a client- or
+     *  server-computed trigger_count riding along on the same
+     *  interface), so no adapter is needed to feed it straight into
+     *  the picker's own remote list. */
+    private _onRemoteCreated(e: CustomEvent<TriggerRemoteInfo>): void {
+        this._showAddRemote = false;
+        if (e.detail) {
+            this._triggerRemotes = [...this._triggerRemotes, e.detail];
+            this._selectedRemoteId = e.detail.id;
         }
     }
 
@@ -94,6 +214,11 @@ export class IrTriggerDialog extends LitElement {
                     source_device_id: this.sourceDeviceId,
                     source_command_id: this.sourceCommandId,
                     receiver_entity_ids: this._receiverIds,
+                    // Add Popups signpost 2 punch list item 8: the
+                    // REMOTE picker's selection. Sent explicitly (not
+                    // omitted for the drawer case) -- the picker
+                    // always has a live selection, drawer or named.
+                    trigger_remote_id: this._selectedRemoteId,
                 };
                 if (this.signalFingerprint) {
                     payload.signal_fingerprint = this.signalFingerprint;
@@ -103,6 +228,12 @@ export class IrTriggerDialog extends LitElement {
                 }
                 if (this.decodedFingerprint) {
                     payload.decoded_fingerprint = this.decodedFingerprint;
+                }
+                // Signpost 4, Track M: the minting door's provenance.
+                // Sent only when a door set it, so every pre-Track-M
+                // caller keeps producing an origin-less trigger.
+                if (this.origin) {
+                    payload.origin = this.origin;
                 }
                 saved = await this.api.createTrigger(payload);
             }
@@ -210,6 +341,51 @@ export class IrTriggerDialog extends LitElement {
                           </p>`
                         : ""}
 
+                    <!-- REMOTE target (punch list item 8). Create mode:
+                         a picker -- HAIR Triggers preselected, every
+                         named remote below it, "+ New Remote" last.
+                         Edit mode: a fixed, non-interactive label (no
+                         moving a trigger between remotes once
+                         created). Either way this decides whether the
+                         receiver picker further down is inert (a
+                         named remote owns its own receiver scope) or
+                         live (the drawer's per-trigger scope). -->
+                    <label class="field-label">${t("devlist.trigger_remotes_title")}</label>
+                    ${isEdit
+                        ? html`
+                              <div class="remote-fixed">
+                                  ${this._isDrawerTarget
+                                      ? this._drawerLabel
+                                      : this._remoteName(this.trigger!.trigger_remote_id!)}
+                              </div>
+                          `
+                        : html`
+                              <div class="remote-picker-list">
+                                  <button
+                                      type="button"
+                                      class="remote-row ${this._selectedRemoteId === null ? "selected" : ""}"
+                                      ?disabled=${this._busy}
+                                      @click=${() => this._pickRemote(null)}
+                                  >${this._drawerLabel}</button>
+                                  ${this._triggerRemotes.map(
+                                      (r) => html`
+                                          <button
+                                              type="button"
+                                              class="remote-row ${this._selectedRemoteId === r.id ? "selected" : ""}"
+                                              ?disabled=${this._busy}
+                                              @click=${() => this._pickRemote(r.id)}
+                                          >${r.name}</button>
+                                      `,
+                                  )}
+                                  <button
+                                      type="button"
+                                      class="remote-row new-remote"
+                                      ?disabled=${this._busy}
+                                      @click=${this._openAddRemote}
+                                  >${t("trigger.new_remote_option")}</button>
+                              </div>
+                          `}
+
                     <!-- Name -->
                     <label class="field-label">${t("trigger.name_label")}</label>
                     <input
@@ -253,14 +429,14 @@ export class IrTriggerDialog extends LitElement {
                          Track 1B-B6) -- showing the picker here would be
                          inert and read as "no receiver set" when the
                          trigger is, in fact, scoped, just one level up.
-                         Point at the remote's own view instead. -->
-                    ${this.trigger?.trigger_remote_id
+                         Point at the remote's own view instead. Punch
+                         list item 8 extends this same rule to create
+                         mode: picking a named remote in the picker
+                         above hides this section entirely, exactly
+                         like it already does once a trigger is saved
+                         onto one (_isDrawerTarget covers both). -->
+                    ${this._isDrawerTarget
                         ? html`
-                              <p class="field-hint scope-hint">
-                                  ${t("trigger.remote_scope_note")}
-                              </p>
-                          `
-                        : html`
                               <div class="receiver-field">
                                   <ir-receiver-picker
                                       .api=${this.api}
@@ -274,6 +450,11 @@ export class IrTriggerDialog extends LitElement {
                                       ${t("trigger.scope_hint")}
                                   </p>
                               </div>
+                          `
+                        : html`
+                              <p class="field-hint scope-hint">
+                                  ${t("trigger.remote_scope_note")}
+                              </p>
                           `}
 
                     ${this._error
@@ -306,6 +487,16 @@ export class IrTriggerDialog extends LitElement {
                     </div>
                 </div>
             </div>
+
+            ${this._showAddRemote
+                ? html`
+                      <ir-add-trigger-remote-dialog
+                          .api=${this.api}
+                          @closed=${this._closeAddRemote}
+                          @remote-created=${this._onRemoteCreated}
+                      ></ir-add-trigger-remote-dialog>
+                  `
+                : ""}
         `;
     }
 
@@ -392,6 +583,59 @@ export class IrTriggerDialog extends LitElement {
         .hits-input {
             width: 80px;
         }
+        .remote-fixed {
+            padding: 8px 10px;
+            border: 1px solid var(--divider-color);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            color: var(--primary-text-color);
+            background: var(--secondary-background-color);
+            margin-bottom: 14px;
+        }
+        .remote-picker-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 14px;
+            max-height: 160px;
+            overflow-y: auto;
+            border: 1px solid var(--divider-color);
+            border-radius: 6px;
+            padding: 4px;
+        }
+        .remote-row {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: left;
+            padding: 7px 10px;
+            border: 1px solid transparent;
+            border-radius: 5px;
+            background: none;
+            font-family: inherit;
+            font-size: 0.85rem;
+            color: var(--primary-text-color);
+            cursor: pointer;
+            transition: background 140ms ease, border-color 140ms ease;
+        }
+        .remote-row:hover:not(:disabled) {
+            background: var(--secondary-background-color);
+        }
+        .remote-row:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+        .remote-row.selected {
+            border-color: #b89930;
+            background: rgba(184, 153, 48, 0.12);
+            font-weight: 500;
+        }
+        .remote-row.new-remote {
+            color: var(--primary-color);
+            border-top: 1px solid var(--divider-color);
+            border-radius: 0 0 5px 5px;
+            margin-top: 2px;
+        }
         .receiver-field {
             margin-bottom: 14px;
         }
@@ -434,13 +678,24 @@ export class IrTriggerDialog extends LitElement {
         .cancel {
             color: var(--secondary-text-color);
         }
+        /* Create is ALWAYS green, across every create dialog (add-dialog
+           form clarity ruling, 2026-08-16; punch list item 18). This
+           button was the trigger family's one holdout in gold, which
+           read as "gold means trigger" rather than "green means the
+           thing this dialog makes". Gold keeps everything it actually
+           owns -- the trigger chips, the "+ Trigger" doors on the
+           matrix card and the LAST HEARD row -- and this one hex now
+           matches ir-add-controlled-device-dialog.ts and
+           ir-duplicate-device-dialog.ts exactly. Edit mode's Update
+           rides the same class, which is correct: same button, same
+           position, same primary meaning. */
         .save {
             color: #fff;
-            background: #b89930;
-            border-color: #b89930;
+            background: #2e7d32;
+            border-color: #2e7d32;
         }
-        .save:hover {
-            background: #a08328;
+        .save:hover:not(:disabled) {
+            opacity: 0.9;
         }
         .delete-btn {
             color: #e65100;

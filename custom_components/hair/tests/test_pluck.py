@@ -535,7 +535,10 @@ def test_list_vendors_skips_other_integrations(monkeypatch):
 # --- Phase 3: plucked create paths + assign propagation -------------------
 
 _PRONTO_A = "0000 006D 0002 0000 0010 0010 0010 0010"
-_PRONTO_B = "0000 006D 0002 0000 0010 0010 0010 0040"
+# Differs in a MARK, not the trailing gap: two codes that differ only
+# in the gap canonicalize to one identity (identity.py) because they
+# transmit identically.
+_PRONTO_B = "0000 006D 0002 0000 0040 0010 0010 0010"
 
 
 def _monitor():

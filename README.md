@@ -48,8 +48,8 @@ Or find it by hand:
 ## Requirements
 
 - Home Assistant **2026.4** or later. **2026.6+** is recommended for native IR receivers.
-- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; any other adopter works automatically.
-- **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, or SMLIGHT.
+- **To capture (RX):** an integration exposing HA's native `InfraredReceiverEntity`. ESPHome IR receivers work day one; SMLIGHT Ultima receivers work natively since HA 2026.7; MQTT IR hubs work since HA 2026.8, though most only listen inside a short learn-mode window that has to be re-armed; any other adopter works automatically.
+- **To send (TX):** at least one integration on HA's native `infrared` platform, such as ESPHome, [Tuya Local](https://github.com/make-all/tuya-local), Broadlink, SMLIGHT, or MQTT.
 
 These integrations have adopted the `infrared` platform:
 
@@ -59,6 +59,7 @@ These integrations have adopted the `infrared` platform:
 | [Tuya Local](https://github.com/make-all/tuya-local) | Yes | No | Yes | TX 2026.4, Pluck 2026.6.2 |
 | [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | No | No | 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Yes | Yes | No | TX 2026.5, native RX (Ultima) 2026.7 |
+| [MQTT](https://www.home-assistant.io/integrations/mqtt/) | Yes | Yes | No | 2026.8 |
 
 As more integrations adopt the `infrared` platform, HAIR picks them up automatically.
 
@@ -68,12 +69,12 @@ To go from a fresh install to a working button:
 
 1. Point your remote at the IR receiver and press a button. HAIR shows it live on the **Sniffer** tab.
 2. Hover over the remote's name and click it to rename it (optional).
-3. Click **ADOPT**. HAIR creates a device with a button entity for every signal you captured.
+3. Click **USE**, then **Make a Device**. HAIR creates a device with a button entity for every signal you captured.
 4. Open the device and press one of its buttons. Home Assistant sends the code through your emitter.
 
 ## Capture a remote
 
-The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button.
+The Sniffer is a live listener. It shows every signal your receivers hear, groups signals by the remote they came from, and filters out repeat frames from a held-down button. A new remote needs at least three presses before HAIR trusts it enough to show it as its own card, so give it a few before you go looking for it.
 
 To capture a remote:
 
@@ -81,32 +82,38 @@ To capture a remote:
 2. Point the remote at your receiver and press buttons. Each source remote appears as a card, expandable to show its individual signals with an S/L diamond fingerprint.
 3. Click a signal's diamond pattern to give it an alias, so you can tell buttons apart before you assign them.
 4. Click **Test** on a signal to fire it through an emitter and confirm it works.
-5. Click a signal to assign it to a device, or **ADOPT** the whole remote to make a new one.
+5. Click a signal to assign it to a device, or **USE** the whole remote to make a new Device or Remote.
 
 When you assign a signal, pick a name from the device-type template list (Power On, Volume Up, Mode: Cool) or type your own, and set a Send Times count if the device needs a command repeated to register; you can change this later in the editor. For an AC device, naming commands "Temp 22" or "Temp 24" wires them straight into the climate card's thermostat control, stepped to whatever temperatures you name. Assigning copies the signal into the device rather than removing it from the Sniffer, so you can assign the same signal to several devices or commands; an assigned row keeps flashing when you press its button, so you can tell the remote is still alive. Drag the grip handle on a remote, or on a signal row, to reorder them; the order sticks.
 
-A remote that leaks in from outside (a neighbor's clicker, for example) can be hidden with **Dismiss** and brought back later with **Show Dismissed**. A dot lights up on that button if a dismissed remote is still transmitting in the background. Delete on a remote or a single signal clears it, but anything a receiver hears again comes right back; Dismiss is the tool for keeping a remote hidden for good. A remote whose codes already run a device shows a numbered dot on its **ADOPT** button, so you can jump to those devices or adopt another copy for a second room.
+A remote that leaks in from outside (a neighbor's clicker, for example) can be hidden with **Dismiss** and brought back later with **Show Dismissed**. A dot lights up on that button if a dismissed remote is still transmitting in the background. Delete on a remote or a single signal clears it, but anything a receiver hears again comes right back; Dismiss is the tool for keeping a remote hidden for good. A remote already used to make a Device or Remote shows a count dot on **USE**; click it to jump to what you made, or use it again for a second room.
 
 ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png)
 
 ## Turn signals into a device
 
-Any captured, pasted, or plucked signal can become a full HAIR device with matching Home Assistant entities.
+Any captured, pasted, or plucked set of codes can become a Device, something HAIR sends codes to, or a Remote, a handset HAIR recognizes and fires triggers from.
 
-To promote a captured remote into a device:
+To turn a set of codes into a Device or Remote:
 
-1. In the Sniffer, hover over the remote's name and click it to rename it. Do this before adopting, so the new device is not stuck with an auto-generated name like "Unknown Remote 1".
-2. Click **ADOPT** on the remote.
-3. HAIR creates a device profile and the matching HA entity (`media_player`, `climate`, `fan`, and so on), with every signal arriving as a named command.
-4. Open the device and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`. Only mapped actions show up as controls, so an entity never claims a feature your remote does not have.
+1. Find the set of codes: a remote in the **Sniffer** (see [Capture a remote](#capture-a-remote)), a pasted remote in the **Clipper**, a pulled remote in the **Plucker**, or a wig in the **Closet** (see [Import codes](#import-codes-smartir-and-the-closet)).
+2. Click **USE**.
+3. Choose **Make a Device** or **Make a Remote**, name it, and pick hardware -- emitters for a Device, receivers for a Remote.
+4. Click Create.
 
-There are five other ways to start a device:
+The Clipper is for pasting a Pronto code by hand; the Plucker pulls codes already learned into a vendor blaster, such as a Tuya Local IR blaster, without transmitting anything over the air.
 
-- **From scratch** -- click **+ Add** on the Devices tab, name it, pick a type, and choose which emitters should carry its commands.
-- **From the Clipper** -- paste a Pronto hex code for each button instead of capturing it live, for codes you have on paper but not in the air. HAIR validates the code as you type and shows the same S/L fingerprint you see in the Sniffer. Pronto is the only paste format, and a code already on the remote is refused, so a remote never ends up with two identical signals.
-- **From the Plucker** -- pull codes already learned into a vendor blaster, such as a Tuya Local IR blaster, into HAIR by name. Nothing is transmitted over the air, and the vendor blaster keeps working normally.
-- **From the Closet** -- adopt a wig, SmartIR file, Flipper Zero file, LIRC file, or Girr file straight into a device; see [Import codes](#import-codes-smartir-and-the-closet).
-- **Duplicate an existing device** -- click the duplicate icon on any device card to clone it, commands and emitter assignments included, then rename the copy. Useful for a second identical AC unit, or a sandbox copy for testing action mappings.
+For a Device, open it afterward and click **ACTIONS** on a command to map it to an entity action, such as `turn_on` or `volume_up`; only mapped actions show up as controls, so an entity never claims a feature your remote does not have.
+
+You can also click the dashed tile at the end of the grid to start one from scratch, or drop a code file onto it so HAIR opens the add dialog already filled in; dropping does not create anything by itself, and completing the dialog files the codes as a wig in your Closet at the same time it creates the Device or Remote. To duplicate a Device instead, use its card; commands and emitter assignments come with it, so you only rename the clone.
+
+<!-- screenshot: dashed add tile, Devices/Remotes grid -->
+
+Each Remote you make is its own device in Home Assistant, so its triggers show up by name under Device in the automation editor; click its header's Home Assistant glyph to jump there.
+
+A Device can also build you a matching Remote, and a Remote a matching Device: open the gear, click **Make a Remote** or **Make a Device**, and name it. HAIR then asks whether to pin the two together; see [Set up triggers](#set-up-triggers).
+
+<!-- screenshot: add dialog, source tabs, Device/Remote choice -->
 
 <p align="center"><img src="images/screenshots/promote-dialog.png" alt="Adopt dialog for creating a new HAIR device from an unknown remote" width="420"></p>
 
@@ -117,12 +124,22 @@ An AC remote does not send single buttons, it sends whole states: every press ca
 To set one up:
 
 1. Drop a SmartIR climate JSON file onto the **Closet** (or find one already there).
-2. Click **ADOPT** on the entry.
+2. Click **USE**, then **Make a Device**.
 3. HAIR creates a fully-controlled `climate` entity. Change the temperature or mode on the thermostat card, and HAIR looks up and sends the matching code.
 
 Swing and temperature controls appear only when the file's matrix actually has those dimensions. The device's detail page grows a STATE MATRIX card where you can browse the lattice one branch at a time, see which state was last transmitted, send any state directly, or press **+ Command** to save one you use often as a one-tap command. A Power row sits at the top of the card: an Off chip always, an On chip when the file carries a separate wake code, and either one sends or saves as a command the same way a cell does. Temperatures display in your install's unit while the file's native numbers stay untouched underneath; climate files are read as Celsius unless they say otherwise. To prove the matrix works on your hardware, run **Validate for Perfect Fit** (see [Fit a wig](#fit-a-wig)); the checklist covers 12 to 20 rows for the modes, fan speeds, swing positions, and temperature extremes instead of every cell.
 
-A few limits to know: files whose codes are stored as Xiaomi-controller Raw are refused, because that format is proprietary rather than timing data; a small share of corpus cells (roughly half a percent) cannot be converted and are skipped, with the reason written into the wig's notes. HAIR never invents a code for a state the file does not carry.
+Every command row on an AC Device also has a star; click it to make that command a thermostat preset in Home Assistant, named after the command, click again to remove it. This works for learned commands and for states saved from the STATE MATRIX card with **+ Command**. Presets are local to the device and do not travel with a wig.
+
+<!-- screenshot: preset star on AC command row -->
+
+**Listen to the wall remote.** An air-conditioner handset can also be a Remote: it shows the same STATE MATRIX card, but for listening, with a **LAST HEARD** row naming the last state, when, and which receiver heard it. Browse to a state and click **+ Trigger** to fire on exactly that state, or use the Remote's **"State heard"** trigger to fire on any state with mode, fan, swing, and temperature as data. Pin it to a Device (see [Set up triggers](#set-up-triggers)) and every state it sends gets re-sent there, so Home Assistant and the wall remote never disagree.
+
+<!-- screenshot: AC Remote STATE MATRIX card lit up, LAST HEARD row -->
+
+A few limits to know: files whose codes are stored as Xiaomi-controller Raw are refused on import, since that format is proprietary rather than timing data HAIR can convert. Of the cells that do convert, a small share (roughly half a percent) fail and are skipped, with the reason written into the wig's notes; HAIR never invents a code for a state the file does not carry.
+
+If the comb flags a cell as suspect when you make a device from the wig, that cell gets its own named command row on the device instead of staying buried in the matrix, so you can **TEST** it, fix it, or delete it like any other command.
 
 ## Import codes (SmartIR and the closet)
 
@@ -133,9 +150,13 @@ To import a file:
 1. Open the **Closet** tab.
 2. Drag a file onto the tab, or click **Browse**. HAIR reads it, converts it if needed, and shows a receipt naming the brand it filed under.
 3. If the codes are already in your closet, the receipt turns yellow and lists every place they already hang. If the file supersedes a wig you already have, HAIR offers to replace the old one instead of filing a duplicate.
-4. Click **ADOPT** to turn the entry straight into a device, or **CLIP** to test it on the Clipper first.
+4. Click **USE** to make a Device or Remote from the entry, or **CLIP** to test it on the Clipper first.
 
 Five formats convert on drop: wig files (`.wig.json`, filed as-is), SmartIR JSON (media player, fan, and climate, in all four SmartIR encodings), Flipper Zero `.ir` files, LIRC `lircd.conf` files, and Girr exports. Anything a conversion has to skip is written into the wig's notes with a reason, so a partial import is never silent.
+
+You can also skip these steps: drop a code file straight onto the dashed add tile on the Devices tab (see [Turn signals into a device](#turn-signals-into-a-device)), and HAIR files it as a wig in your Closet and creates the Device or Remote in the same step.
+
+Good to know: a Remote made from a wig, or a Device adopted from one, recognizes its own handset's presses even though HAIR never learned those codes through a receiver.
 
 Every arrival is also combed on the way in. Combing is a different question from fitting: a fitting asks whether a code works on your hardware, combing asks whether a wig's codes agree with each other, and it can answer that on its own, without hardware or a protocol decoder. It catches things like a cell that quietly sends its neighbor's code, a frame too short for the device to register, or a gap in an otherwise complete temperature run. The comb glyph on a closet row stays plain grey until something is checked, glows yellow when a finding needs a look, and glows red for the one class worth interrupting you for: the neighbor's-code mix-up, since the device answers and looks like it worked while quietly setting the wrong state.
 
@@ -174,12 +195,18 @@ Any IR signal can fire a Home Assistant automation as a native event entity.
 
 To create a trigger:
 
-1. Click the trigger button on a signal row. There are four places to find one: a command on a device, a signal in the Sniffer, a signal in the Clipper, or a recorded send in the Mirror.
+1. Click the trigger button on a signal row, and pick which Remote it belongs to -- **HAIR Triggers** by default, or **+ New Remote** to make one on the spot. There are four places to find a signal to trigger from: a command on a device, a signal in the Sniffer, a signal in the Clipper, or a recorded send in the Mirror.
 2. Set **min hits** (1 to 10) if you want to require more than one press before the trigger fires. This filters out stray or accidental presses.
 3. Save. HAIR creates an `event` entity (for example `event.hair_triggers_tv_power`) under a shared "HAIR Triggers" device.
 4. Use that entity as a trigger condition in HA's automation editor. Its card flashes amber in the panel whenever it fires.
 
+Only **HAIR Triggers** lets you pick a receiver; a named Remote's triggers follow whichever receivers it already uses, and cannot move to another Remote later.
+
 A trigger created from a Sniffer or Clipper row reacts to a raw signal without needing it assigned to a device first. A trigger created from a Mirror row only fires on signals arriving from outside Home Assistant; the house's own sends never fire it, so an automation cannot trigger on its own output.
+
+**Pin a Remote to a Device** and pressing the handset sends the matching command through that Device's emitters; HAIR matches the button to the command on its own. Open the **PIN** row on the Remote's header, or **PINNED** on the Device's, and tick the other side; untick to unpin. One Remote can drive several Devices, and one Device several Remotes. HAIR never re-fires its own sends, so a pinned handset by the receiver will not loop, and a runaway pairing gets cut for a minute and logged without breaking the handset's triggers.
+
+<!-- screenshot: Remote PIN row, Device PINNED row -->
 
 <p align="center"><img src="images/screenshots/trigger-dialog.png" alt="Create Trigger dialog with S/L diamond pattern and min hits setting" width="420"></p>
 
@@ -192,7 +219,7 @@ To use it:
 1. Send a command from a device, a Test button, an automation, or another integration on the `infrared` platform.
 2. Open the **Mirror** tab and find the row.
 3. Check the heard-back column. "Not heard" is neutral, not an alarm, since many setups are transmit-only, but it is how you spot a dead IR LED, a misaimed emitter, or an offline device without pointing a phone camera at anything.
-4. Use the filter chips or search to narrow the list to one emitter or protocol.
+4. Use the **Search** box, the **Not heard** pill, or the **Emitter** dropdown to narrow the list to one emitter.
 5. Click **Assign** on a row to turn a command another app sent into a HAIR command, or **Trigger** to turn it into an automation trigger.
 
 Repeat sends of the same command bump one row's count instead of piling up. Deleting a row just clears the entry; it comes back the next time that signal is sent. The Mirror is also the third road for importing codes, next to the Clipper (paste) and the Plucker (pull by name): press a button in any vendor app whose blaster transmits through the `infrared` platform, and if a receiver hears it, the code appears in the Mirror ready to assign.
@@ -207,7 +234,9 @@ HAIR does not talk to hardware directly. It sits on HA's native `infrared` platf
 
 ### The Devices tab
 
-The main view groups your setup into cards: **HAIR Devices** (your managed profiles; drag to reorder, duplicate or delete from the corners of the card), **Triggers** (active automation triggers, flashing amber when one fires), **Emitters** and **Receivers** (your IR hardware, each showing a TX or RX badge, with `-NATIVE` or `-BRIDGE` marking which path a receiver is using), **Proxies** (hardware with both TX and RX on one board), and **Blasters** (pluckable vendor blasters, shown only when one is configured).
+The tab splits into two sections. **DEVICES** holds the things HAIR sends codes to: **HAIR Devices** (your managed profiles; drag to reorder, duplicate or delete from the corners of the card), **Emitters** and **Receivers** (your IR hardware, each showing a TX or RX badge, with `-NATIVE` or `-BRIDGE` marking which path a receiver is using), **Proxies** (hardware with both TX and RX on one board), and **Blasters** (pluckable vendor blasters, shown only when one is configured). **REMOTES** holds the handsets HAIR recognizes; **HAIR Triggers**, the built-in catch-all, is the first card there, and a Remote card shows how many of its triggers are on and off.
+
+<!-- screenshot: Devices tab, DEVICES and REMOTES sections -->
 
 ![Devices overview showing HAIR Devices, Triggers, Emitters, Receivers, and Proxies](images/screenshots/devices-overview.png)
 

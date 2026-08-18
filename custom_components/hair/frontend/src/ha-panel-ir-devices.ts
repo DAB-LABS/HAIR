@@ -18,11 +18,12 @@ import "./ir-pluck.js";
 import "./ir-mirror.js";
 import "./ir-wigs.js";
 import type { DeviceSummary, IRDevice, TriggerRemoteInfo } from "./types.js";
+import type { WigPickRow } from "./ir-wig-picker.js";
 
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "0.9.10";
+const HAIR_VERSION = "0.10.0";
 
 type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror" | "wigs";
 
@@ -40,11 +41,23 @@ export class HaPanelIrDevices extends LitElement {
     @state() private _error: string | null = null;
     @state() private _addDialogOpen = false;
     @state() private _addRemoteDialogOpen = false;
+    // Ghost tile drop wiring (signpost 3, Track 3 item 3): the wig a
+    // successful drop resolved, riding along until the dialog it
+    // opens reads it as .dropSource. Cleared on close/create same as
+    // the open flags themselves.
+    @state() private _addDialogDropSource: WigPickRow | null = null;
+    @state() private _addRemoteDialogDropSource: WigPickRow | null = null;
     @state() private _triggerRemotes: TriggerRemoteInfo[] = [];
     @state() private _pluckersAvailable = false;
     @state() private _pendingPluckEntity = "";
 
     private _api: HairApi | null = null;
+    // Punch list item 7 (signpost 3 bench round, 2026-08-17): tracks
+    // the last language we actually rendered the tab bar's own t()
+    // calls with, so a language switch can force the one extra render
+    // pass those calls need (see the requestUpdate() note below)
+    // without doing it on every ordinary hass update.
+    private _lastLanguage?: string;
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -56,9 +69,21 @@ export class HaPanelIrDevices extends LitElement {
     protected updated(changed: PropertyValues): void {
         if (changed.has("hass") && this.hass) {
             // Follow the USER's profile language (server language can
-            // differ). Cheap no-op when unchanged; a language change
-            // takes effect on reload per the i18n plan.
+            // differ). Cheap no-op when unchanged.
             setPanelLanguage(this.hass.language);
+            if (this.hass.language !== this._lastLanguage) {
+                this._lastLanguage = this.hass.language;
+                // This component's own render() (the tab bar's
+                // t("panel.tab.devices") / t("panel.tab.wigs") labels)
+                // just committed using the PREVIOUS language --
+                // setPanelLanguage() above only takes effect on the
+                // NEXT render. Ask for one, so the language switch
+                // does not need a reload to reach the tab bar (the
+                // child <ir-device-list>'s own body already re-renders
+                // on its own hass property change and picks the new
+                // language up without help).
+                this.requestUpdate();
+            }
             if (!this._api) {
                 this._init();
             }
@@ -67,7 +92,7 @@ export class HaPanelIrDevices extends LitElement {
 
     private _init(): void {
         this._api = new HairApi(this.hass);
-        void this._refreshDevices();
+        void this._refreshDevices({ showSpinner: true });
         void this._refreshTriggerRemotes();
         void this._checkPluckers();
     }
@@ -87,20 +112,36 @@ export class HaPanelIrDevices extends LitElement {
         }
     }
 
-    private _tagline(): string {
-        return t(`panel.tagline.${this._activeTab}`);
-    }
-
-    private async _refreshDevices(): Promise<void> {
+    private async _refreshDevices(
+        opts: { showSpinner?: boolean } = {},
+    ): Promise<void> {
         if (!this._api) return;
-        this._loading = true;
+        // Add Popups signpost 3 bench fix (2026-08-15): only the very
+        // first load should blank the list behind a spinner.
+        // ir-device-list.ts's own render() returns just its ".loading"
+        // div while `loading` is true, which tears down and rebuilds
+        // its ENTIRE device grid -- including whatever expanded-detail
+        // card is open and every custom element inside it. Every
+        // background refresh (device-changed, device-created,
+        // device-deleted) used to route through this same flag, so a
+        // routine save -- e.g. toggling an emitter chip -- silently
+        // destroyed and recreated <ir-device-detail> and its nested
+        // <ir-header-chip-group>, resetting the chip group's own
+        // `_expanded` state back to collapsed. That read to the owner
+        // as "the page refreshes" and forced a re-click of "+" after
+        // every single emitter toggle. The Remote/Receivers side never
+        // had this bug: its refresh path (_onRemoteChanged ->
+        // _refreshTriggerRemotes) never touches `_loading` at all --
+        // that asymmetry was the tell. Spinner is opt-in per call now;
+        // only _init()'s first call asks for one.
+        if (opts.showSpinner) this._loading = true;
         try {
             this._devices = await this._api.listDevices();
             this._error = null;
         } catch (err) {
             this._error = t("panel.load_failed", { message: (err as Error).message });
         } finally {
-            this._loading = false;
+            if (opts.showSpinner) this._loading = false;
         }
     }
 
@@ -127,12 +168,25 @@ export class HaPanelIrDevices extends LitElement {
             this._expandedDeviceId === deviceId ? null : deviceId;
     }
 
-    private _openAddDialog(): void {
+    private _openAddDialog(
+        e?: CustomEvent<{ dropSource?: WigPickRow }>,
+    ): void {
         this._addDialogOpen = true;
+        this._addDialogDropSource = e?.detail?.dropSource ?? null;
     }
 
-    private _openAddRemoteDialog(): void {
+    private _openAddRemoteDialog(
+        e?: CustomEvent<{ dropSource?: WigPickRow }>,
+    ): void {
         this._addRemoteDialogOpen = true;
+        this._addRemoteDialogDropSource = e?.detail?.dropSource ?? null;
+    }
+
+    /** Ghost tile drop wiring (signpost 3, Track 3 item 3): the
+     *  funnel's own refusal string, surfaced through the panel's
+     *  existing error banner -- no new error copy, per the plan. */
+    private _onDropUploadFailed(e: CustomEvent<string>): void {
+        this._error = e.detail;
     }
 
     private _onNavigatePlucker(
@@ -152,14 +206,17 @@ export class HaPanelIrDevices extends LitElement {
 
     private _closeAddDialog(): void {
         this._addDialogOpen = false;
+        this._addDialogDropSource = null;
     }
 
     private _closeAddRemoteDialog(): void {
         this._addRemoteDialogOpen = false;
+        this._addRemoteDialogDropSource = null;
     }
 
     private async _onDeviceCreated(event: CustomEvent<IRDevice>): Promise<void> {
         this._addDialogOpen = false;
+        this._addDialogDropSource = null;
         await this._refreshDevices();
         this._expandedDeviceId = event.detail.id;
     }
@@ -177,6 +234,7 @@ export class HaPanelIrDevices extends LitElement {
         _event: CustomEvent<TriggerRemoteInfo>,
     ): Promise<void> {
         this._addRemoteDialogOpen = false;
+        this._addRemoteDialogDropSource = null;
         await this._refreshTriggerRemotes();
     }
 
@@ -248,25 +306,6 @@ export class HaPanelIrDevices extends LitElement {
                 </button>
             </div>
 
-            <!-- Second Fitting v3 punch list item 19: the old
-                 full-width banner image is gone, replaced by this
-                 slim 58px-tall brand block -- the wig-on-box mark
-                 plus the "HAIR" wordmark, left-aligned to the same
-                 edge the tab row and card grid start on (the content
-                 column), not the viewport's far left corner. Two
-                 extensions (folding the tab row onto this line;
-                 retiring the tagline row) are parked awaiting the
-                 owner's call and are NOT built here -- the tab row
-                 and tagline row below are otherwise untouched. -->
-            <div class="brand-block">
-                <img
-                    src="/hair_panel/assets/hair-brand-mark.png"
-                    alt="HAIR"
-                    class="brand-mark"
-                />
-                <span class="brand-name">HAIR</span>
-            </div>
-
             <div class="tab-bar">
                 <button
                     class="tab devices-tab ${this._activeTab === "devices" ? "active" : ""}"
@@ -306,9 +345,32 @@ export class HaPanelIrDevices extends LitElement {
                 >
                     Mirror
                 </button>
-            </div>
+                <!-- Signpost 3 follow-up (2026-08-15): the brand block
+                     now lives inside the tab row itself instead of on
+                     its own line above it -- shrunk to 46px (matches
+                     a tab button's own rendered height) and bottom-
+                     aligned via .tab-bar's align-items: flex-end, so
+                     it reads as part of the same row rather than a
+                     second header line. Pushed to the far right via
+                     margin-left: auto on .brand-block.
 
-            <div class="tab-tagline">${this._tagline()}</div>
+                     Punch list item 5, owner ruling (2026-08-17): the
+                     "HAIR" wordmark is dropped -- the sidebar already
+                     names the integration and the character carries
+                     the identity, so the text was spending horizontal
+                     space the tab row needed more. Layout only, same
+                     spirit as the 0.5.0 toolbar-title removal; not
+                     documented as a feature. alt="HAIR" stays on the
+                     image below -- it is non-visual (screen reader
+                     only) and correctly describes the character. -->
+                <div class="brand-block">
+                    <img
+                        src="/hair_panel/assets/hair-brand-mark-character.png"
+                        alt="HAIR"
+                        class="brand-mark"
+                    />
+                </div>
+            </div>
 
             <div class="content">
                 ${this._error
@@ -333,10 +395,16 @@ export class HaPanelIrDevices extends LitElement {
                               @navigate-plucker=${this._onNavigatePlucker}
                               @add-device=${this._openAddDialog}
                               @add-trigger-remote=${this._openAddRemoteDialog}
+                              @drop-upload-failed=${this._onDropUploadFailed}
                               @remote-deleted=${this._onRemoteDeleted}
                               @remote-renamed=${this._onRemoteChanged}
                               @remote-duplicated=${this._onRemoteChanged}
                               @remote-receivers-changed=${this._onRemoteChanged}
+                              @remote-pins-changed=${this._onRemoteChanged}
+                              @remote-trigger-toggled=${this._onRemoteChanged}
+                              @remote-state-heard=${this._onRemoteChanged}
+                              @remote-created=${this._onRemoteChanged}
+                              @device-created=${this._onDeviceChanged}
                           ></ir-device-list>
 
                       `
@@ -388,6 +456,9 @@ export class HaPanelIrDevices extends LitElement {
                       <ir-add-controlled-device-dialog
                           .api=${this._api}
                           .hass=${this.hass}
+                          .pluckerConfigured=${this._pluckersAvailable}
+                          .triggerRemotes=${this._triggerRemotes}
+                          .dropSource=${this._addDialogDropSource}
                           @closed=${this._closeAddDialog}
                           @device-created=${this._onDeviceCreated}
                       ></ir-add-controlled-device-dialog>
@@ -399,6 +470,8 @@ export class HaPanelIrDevices extends LitElement {
                       <ir-add-trigger-remote-dialog
                           .api=${this._api}
                           .hass=${this.hass}
+                          .pluckerConfigured=${this._pluckersAvailable}
+                          .dropSource=${this._addRemoteDialogDropSource}
                           @closed=${this._closeAddRemoteDialog}
                           @remote-created=${this._onRemoteCreated}
                       ></ir-add-trigger-remote-dialog>
@@ -424,48 +497,33 @@ export class HaPanelIrDevices extends LitElement {
             font-size: 12px;
             padding: 24px 0 16px;
         }
-        /* Second Fitting v3 punch list item 19: the compact
-           header. Same content-column convention the tab bar and
-           content area already use (max-width: 1100px; margin: 0
-           auto), so the brand block lines up with them rather than
-           the viewport edge. Vertical rhythm: ~12px above the block,
-           ~18px below it before the tab row -- enough to read as its
-           own row without reopening the height the banner image used
-           to cost. */
+        /* Signpost 3, third revision (2026-08-15): brand block lives in
+           the tab row, text on the left, mascot hard right against the
+           row's own right edge (margin-left: auto pushes the whole
+           block there). The mascot carries its own 5px top/bottom
+           margin so it reads as a deliberately framed image rather
+           than a flush, floating one -- the tab-bar's flex-end
+           alignment lets the row grow to fit that margin while the
+           tab buttons stay pinned to the divider line beneath. */
         .brand-block {
             display: flex;
             align-items: center;
-            gap: 10px;
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 12px 16px 18px;
+            gap: 6px;
+            margin-left: auto;
+            padding-left: 12px;
         }
         .brand-mark {
-            height: 58px;
+            height: 46px;
             width: auto;
             display: block;
+            margin: 5px 0;
         }
-        .brand-name {
-            font-size: 1.35rem;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-            color: var(--primary-text-color);
-        }
-        .tab-tagline {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 8px 16px 0;
-            font-size: 0.82rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            text-align: center;
-            color: var(--secondary-text-color);
-            margin-top: 14px;
-        }
+        /* .brand-name removed with the wordmark, punch list item 5
+           (2026-08-17) -- the character-only image is .brand-mark's
+           sole child now. */
         .tab-bar {
             display: flex;
-            align-items: center;
+            align-items: flex-end;
             border-bottom: 1px solid var(--divider-color);
             padding: 0 16px;
             max-width: 1100px;

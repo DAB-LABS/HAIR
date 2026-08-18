@@ -5,6 +5,101 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-08-18 -- Remotes Have Been Buffed
+
+### Added
+
+- **Devices and Remotes.** The Devices tab now splits in two.
+  DEVICES are the things HAIR sends codes to, a television or an air
+  conditioner. REMOTES are the handsets HAIR recognizes: press a
+  button on one and it fires a trigger you can automate on. HAIR
+  Triggers, the catch-all that has always been there, is simply the
+  first Remote in that section, and every Remote you make is its own
+  device in Home Assistant, so its buttons appear by name in the
+  automation editor's Device trigger list. The "+ Add" buttons are
+  gone: the last tile in each section is a dashed tile you click to
+  add, or drop a code file onto (a wig, a SmartIR file, a Flipper
+  .ir, a LIRC conf, a Girr export) so the add dialog opens already
+  filled in. One dialog serves both, with a source picker (the
+  Closet, the Sniffer, the Clipper, the Plucker, an existing Device
+  or Remote, or Manual) and the hardware in the same place: emitters
+  for a Device, receivers for a Remote. Wherever HAIR shows a set of
+  codes the button now reads USE and asks which of the two to make,
+  with a count dot saying how many you have already made from that
+  set. A Device's settings can build the matching Remote, a Remote's
+  settings the matching Device. Making a trigger now asks which
+  Remote owns it, HAIR Triggers by default; only HAIR Triggers
+  offers a receiver picker, since a named Remote's triggers follow
+  that Remote's own receivers.
+- **Pin a Remote to a Device.** Pressing the handset then sends the
+  matching command out that Device's emitters, with HAIR working out
+  which button matches which command. Open the PIN row on a Remote's
+  header or the PINNED row on a Device's and tick the other side.
+  One Remote can drive several Devices and one Device can be driven
+  by several Remotes. HAIR never re-fires its own transmissions, so
+  a pinned handset sitting next to the receiver does not loop; if a
+  pairing ever does run away, HAIR cuts that one pairing for a
+  minute and writes a warning naming the Remote, the Device and the
+  command, while the handset keeps firing its triggers throughout.
+  The Mirror marks pinned sends with their own chip.
+- **Air-conditioner handsets can be Remotes.** An AC Remote carries
+  the same STATE MATRIX card an AC Device has, but for listening:
+  press the handset and the mode, fan, swing and temperature it sent
+  light up together and stay marked, with a LAST HEARD row naming
+  the last state, when it arrived, and which receiver heard it.
+  Browse to a state and click + Trigger to fire on exactly that
+  state; the trigger carries a STATE chip. For every state at once,
+  the Remote's Home Assistant device offers a "State heard" trigger
+  that fires on any state and hands mode, fan, swing and temperature
+  to your templates. Pin an AC Remote to an AC Device and every
+  state the handset sends is re-sent by the Device, so Home
+  Assistant and the wall remote never disagree. There is no SEND on
+  a Remote's card by design; the handset is the test.
+- **Thermostat presets by star.** Every command row on an
+  air-conditioner Device has a star. Click it and that command
+  becomes a preset on the thermostat card in Home Assistant, named
+  what the command is named; click again to remove it. It works for
+  learned commands and for states saved out of the STATE MATRIX card
+  with + Command. Presets are local to the device and do not travel
+  with a wig.
+- **Ten languages.** Every new word in this release is translated in
+  all ten panel languages, including the "State heard" trigger name
+  as it reads in the automation editor.
+
+### Changed
+
+- **Codes that came from a file now recognize the real handset.**
+  Remotes and triggers made from a wig, from the Clipper or from the
+  Plucker now match the real handset over the air, and a Device made
+  from a wig recognizes its own handset's presses for pinning.
+  Before this release only codes HAIR had learned through a receiver
+  matched reliably. HAIR compares the shape of the signal for
+  file-sourced codes, which is tolerant of the small timing
+  differences every receiver adds; codes learned through a receiver
+  are unchanged. Air-conditioner handsets send the longest codes,
+  and this is where the difference shows most.
+- **Mirror filter, settings, headers and finish.** The Mirror's
+  filter row is now four pills, Search, All, Not heard, and an
+  Emitter dropdown listing every emitter with its count, and it
+  neither grows nor wraps however many emitters you have. Device and
+  Remote settings share one layout: sections with dividers, and a
+  footer reading Delete on the left, Duplicate and Save on the
+  right. Device and Remote headers line their rows up, with a
+  Device's type under its name and the close and settings controls
+  in the same corners on both. The dashed add tile sits back until
+  you hover or drag onto it and names the file types it takes,
+  Create is green in every create dialog, and a long emitter name
+  shortens with the full name on hover.
+
+### Fixed
+
+- **A tap counts once, a hold steps.** A single tap on a handset
+  now counts once and holding a button steps about three times a
+  second, through its trigger and through any Device it is pinned
+  to, where handsets that repeat their whole code while held
+  (Samsung televisions among them) could previously count one tap
+  two or three times.
+
 ## [0.9.10] - 2026-08-10 -- Quick Wash
 
 ### Fixed

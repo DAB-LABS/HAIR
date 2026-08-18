@@ -54,8 +54,14 @@ import {
 } from "./ir-icons.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { bloomStyles } from "./ir-bloom-styles.js";
+import { relTime, triggerRowStyles } from "./ir-trigger-row-styles.js";
 import "./ir-protocol-chip.js";
-import type { IRTrigger, ReceiverInfo } from "./types.js";
+import type {
+    IRTrigger,
+    PinMapEntry,
+    ReceiverInfo,
+} from "./types.js";
+import { PIN_BLUE } from "./ir-pin-flag.js";
 
 // mdi:repeat -- imported verbatim from ir-tx-knobs.ts's own (unexported)
 // ICON_REPEAT, reused here for the min_hits "button press count" knob
@@ -72,6 +78,15 @@ export class IrTriggerRow extends LitElement {
     /** True while this row's fire-bloom glow is active (see
      *  ir-bloom-styles.ts's BloomTracker; the parent owns the sequence). */
     @property({ type: Boolean }) public bloom = false;
+    /** Signpost 4, Track 4: what this trigger drives on the owning
+     *  remote's pinned devices, already resolved to names by the
+     *  backend (see TriggerRemoteInfo.pin_map -- the frontend has no
+     *  device commands to resolve against). */
+    @property({ attribute: false }) public mappings: PinMapEntry[] = [];
+    /** True when the owning remote has at least one pinned device.
+     *  Gates the whole treatment, so an unpinned remote's rows stay
+     *  quiet instead of every one of them reading "unmapped". */
+    @property({ type: Boolean }) public showMappings = false;
 
     @state() private _editingName = false;
     @state() private _draftName = "";
@@ -175,6 +190,36 @@ export class IrTriggerRow extends LitElement {
         return match?.name ?? entityId;
     }
 
+    /** The pin readout: one chip per pinned device this trigger
+     *  drives, or a single "unmapped" when the remote is pinned and
+     *  nothing on those devices matches this trigger's content. The
+     *  second case is the honest answer rather than a gap -- a user
+     *  who pins two devices needs to see which buttons found nothing
+     *  on them. */
+    private _renderMappings() {
+        if (!this.showMappings) return nothing;
+        if (this.mappings.length === 0) {
+            return html`<span class="pin-chip unmapped"
+                title=${t("trow.unmapped_title")}
+                >${t("trow.unmapped")}</span
+            >`;
+        }
+        return html`${this.mappings.map(
+            (m) => html`<span
+                class="pin-chip"
+                style="border-color:${PIN_BLUE};color:${PIN_BLUE}"
+                title=${t("trow.drives_title", {
+                    device: m.device_name,
+                    command: m.command_name,
+                })}
+                >&#8594;&nbsp;${t("trow.drives", {
+                    device: m.device_name,
+                    command: m.command_name,
+                })}</span
+            >`,
+        )}`;
+    }
+
     private _renderScope() {
         const ids = this.trigger.receiver_entity_ids ?? [];
         if (ids.length === 0) return nothing;
@@ -189,24 +234,12 @@ export class IrTriggerRow extends LitElement {
     // phrase is gated, not just the digit count).
     // ---------------------------------------------------------------
 
-    /** Relative time like "2 min ago". Same four-tier shape as
-     *  ir-signal-monitor.ts's own (unexported) relTime -- a third
-     *  small local copy, matching the precedent ir-mirror.ts's own
-     *  differently-formatted relShort already set rather than forcing
-     *  a cross-module extraction for one pure four-line function. */
+    /** Relative time like "2 min ago", now from the shared helper:
+     *  the LAST HEARD row (Track M) renders the same phrase in the
+     *  same row anatomy, which is the second consumer that turns "a
+     *  small local copy" into a thing worth extracting. */
     private _relTime(iso: string | null): string {
-        if (!iso) return "";
-        try {
-            const diff = Date.now() - new Date(iso).getTime();
-            if (diff < 60_000) return t("rel.just_now");
-            if (diff < 3_600_000)
-                return t("rel.min_ago", { count: Math.floor(diff / 60_000) });
-            if (diff < 86_400_000)
-                return t("rel.h_ago", { count: Math.floor(diff / 3_600_000) });
-            return t("rel.d_ago", { count: Math.floor(diff / 86_400_000) });
-        } catch {
-            return "";
-        }
+        return relTime(iso);
     }
 
     private _renderAlive() {
@@ -268,12 +301,18 @@ export class IrTriggerRow extends LitElement {
                                   >${minHits}</span
                               >`
                             : nothing}
+                        ${trig.origin === "matrix"
+                            ? html`<span class="state-chip"
+                                  >${t("devices.state_chip")}</span
+                              >`
+                            : nothing}
                         <ir-protocol-chip
                             .protocol=${trig.protocol}
                         ></ir-protocol-chip>
                     </div>
                     <div class="trow-controls">
-                        ${this._renderScope()} ${this._renderAlive()}
+                        ${this._renderMappings()} ${this._renderScope()}
+                        ${this._renderAlive()}
                         <button
                             class="action-btn ${trig.enabled
                                 ? "assign-btn"
@@ -313,48 +352,19 @@ export class IrTriggerRow extends LitElement {
         editButtonStyles,
         actionChipStyles,
         bloomStyles,
+        // The two-line row shape, shared with the matrix Remote's LAST
+        // HEARD row (Track M, decision 8). Everything below is what
+        // only a real trigger has.
+        triggerRowStyles,
         css`
-            :host {
-                display: block;
-            }
             :host(:not(:last-of-type)) {
                 margin-bottom: 4px;
-            }
-            .trow {
-                padding: 8px 10px;
-                border-radius: 4px;
-                background: var(--primary-background-color);
-                border: 1px solid transparent;
             }
             .trow.disabled {
                 opacity: 0.5;
             }
             .trow.disabled .diamond {
                 opacity: 0.7;
-            }
-            .trow-top {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                flex-wrap: wrap;
-            }
-            .trow-grip {
-                flex: 0 0 24px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .trow-namewrap {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                flex-wrap: wrap;
-                flex: 1 1 auto;
-                min-width: 0;
-                font-weight: 500;
-            }
-            .trow-name {
-                font-size: 0.92rem;
             }
             .editable-name {
                 cursor: pointer;
@@ -418,6 +428,23 @@ export class IrTriggerRow extends LitElement {
                 gap: 6px;
                 margin-left: auto;
             }
+            /* Pin readout (signpost 4, Track 4). Shares the scope
+               action idiom (mobile-polish ruling 2026-08-04): arrow
+               plus name, mapped-blue text, a LABEL and not a button --
+               no border, no background, no padding. It states where a
+               press goes; it is not something to press. The mapped
+               variant takes PIN_BLUE inline from ir-pin-flag.ts rather
+               than duplicating the token here (owner ruling
+               2026-08-15: do not merge the pin and Sniffer blues).
+               "unmapped" reads in the same ruling's empty-gray -- it
+               is an absence, not a second colour of fact. */
+            .pin-chip {
+                font-size: 11px;
+                white-space: nowrap;
+            }
+            .pin-chip.unmapped {
+                color: var(--secondary-text-color);
+            }
             .scope-chip {
                 font-size: 10px;
                 text-transform: uppercase;
@@ -427,6 +454,28 @@ export class IrTriggerRow extends LitElement {
                 padding: 2px 7px;
                 color: var(--secondary-text-color);
                 white-space: nowrap;
+            }
+            /* STATE: this trigger was minted off a lattice cell rather
+               than off a captured button (origin "matrix"). Cold blue,
+               byte for byte the .state-chip a device's matrix-sourced
+               command row wears -- the same fact deserves the same
+               badge on both sides of the pinning intersection, so the
+               declaration is copied from ir-command-row.ts rather than
+               re-tuned. Not in ir-trigger-row-styles.ts: that module's
+               contract is what BOTH rows must agree on, and the LAST
+               HEARD row never carries this chip. A third consumer is
+               what would earn the extraction. */
+            .state-chip {
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                line-height: 1.4;
+                padding: 1px 5px;
+                border-radius: 4px;
+                color: #58a6d8;
+                background: rgba(88, 166, 216, 0.12);
+                border: 1px solid rgba(88, 166, 216, 0.45);
             }
             /* The toggle reuses actionChipStyles' semantic pair (ON =
                assign-btn's green, OFF = dismiss-btn's neutral gray)
@@ -477,30 +526,6 @@ export class IrTriggerRow extends LitElement {
                 color: var(--primary-text-color);
                 font-weight: 500;
                 font-variant-numeric: tabular-nums;
-            }
-            /* Line 2: diamonds alone, full width, wrapping freely.
-               36px aligns the first diamond under the name's first
-               letter: the grip's flex-basis (24px) + .trow-top's gap
-               (12px). */
-            .trow-diamonds {
-                margin-left: 36px;
-                margin-top: 4px;
-                min-height: 1px;
-            }
-            .diamonds {
-                display: inline-flex;
-                gap: 1px;
-                flex-wrap: wrap;
-                line-height: 1;
-            }
-            .diamond {
-                font-size: 0.7rem;
-            }
-            .diamond.long {
-                color: var(--primary-color);
-            }
-            .diamond.short {
-                color: var(--warning-color, #ff9800);
             }
         `,
     ];
