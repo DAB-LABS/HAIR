@@ -10,21 +10,34 @@
  * wiring builds this signpost as planned; see the commit message for
  * the full finding).
  *
- * Three layouts, chosen by the consumer (this component has no
- * Devices/Remotes knowledge of its own):
- *   - `empty=false` (default): compact -- just the plus, card-sized.
- *     The populated-grid case for both sections.
- *   - `empty=true, spanFull=false`: "fuller" -- plus, title, and a
- *     shorter hint, still card-sized. This is the Remotes case: the
- *     HAIR Triggers drawer always occupies a card, so Remotes' grid is
- *     never truly empty even when no named remote exists yet, and the
- *     tile sits card-sized next to the drawer rather than spanning.
- *   - `empty=true, spanFull=true`: "full" -- larger plus, title, and
- *     the fuller hint, `grid-column: 1 / -1`. The Devices-section-has-
- *     zero-devices case; the tile IS the section body.
+ * Two layouts:
+ *   - compact (default): the plus glyph and the compact hint,
+ *     card-sized. The populated-grid case, and the ONLY layout Remotes
+ *     ever uses.
+ *   - full: larger plus, title and the long hint, `grid-column: 1 /
+ *     -1`. The Devices-section-has-zero-devices case, asked for with
+ *     `empty=true`; the tile IS the section body.
  *
- * COPY: the COMPACT HINT is redlined and localized; the rest is
- * still held.
+ * The full layout is Devices-only, and the component now knows that
+ * rather than trusting its consumer with it: a Remotes tile handed
+ * `empty` renders compact. Remotes has no full-layout copy to render,
+ * so the alternative would be a tile with a blank title, and the one
+ * caller that could reach it is a future edit to ir-device-list.ts.
+ *
+ * THERE WAS A THIRD, AND IT IS GONE (0.10.1 item 6). A "fuller" middle
+ * layout existed for Remotes-with-no-named-remote, and it was the wrong
+ * shape for that case: the HAIR Triggers drawer always occupies a card,
+ * so the Remotes grid is never truly empty and the tile always has a
+ * neighbour to sit beside. Worse, it was the one layout a user could
+ * reach whose copy had never been redlined, so a fresh install read
+ * held English ("+ Add a Remote / Drag a code-set file or click") until
+ * the first Remote existed and it flipped to the redlined compact hint.
+ * Remotes is compact always; `spanFull` retired with the layout, since
+ * Devices only ever passed it together with `empty`.
+ *
+ * COPY: the COMPACT HINT is redlined and localized; the Devices full
+ * layout's title and hint are still held. Remotes carries neither,
+ * because it has no layout that could show them.
  *
  * add-popups-signpost-2-coding-plan.md's carry-forward note (section
  * 0.5, restated for signpost 3) ruled the ghost tile's structure and
@@ -34,9 +47,11 @@
  * the compact hint alone (ghost-tile-redesign-handoff.md, owner-
  * approved 2026-08-16, punch list item 14), which is why exactly one
  * string moved: `hintCompact` now reads through `t()` in ten
- * dictionaries. The title, the two longer hints, and the aria label
- * are still awaiting their own redline and stay hardcoded English on
- * purpose -- promote them when they are ruled, not before.
+ * dictionaries. The title, the long hint and the aria label are still
+ * awaiting their own redline and stay hardcoded English on purpose --
+ * promote them when they are ruled, not before. The zero-devices case
+ * that shows them is rarer than the Remotes one ever was: a HAIR
+ * install with no Devices at all.
  *
  * The compact hint's WORDING then went back (punch list item 22): the
  * owner saw the shortened "code-set file" phrasing live and took the
@@ -50,7 +65,6 @@
  *   <ir-ghost-tile
  *       kind="device"
  *       .empty=${devices.length === 0}
- *       .spanFull=${devices.length === 0}
  *       @add-click=${this._add}
  *       @files-dropped=${this._onGhostTileDrop}
  *   ></ir-ghost-tile>
@@ -68,12 +82,15 @@ import { ORIGIN_COLORS } from "./ir-origin-colors.js";
 type GhostKind = "device" | "remote";
 
 // Held-back copy -- see file header. English only, on purpose.
+// `title` and `hintFull` belong to the full layout, which only the
+// Devices section can reach, so only Devices declares them and the
+// types say so. The compact hint every user sees is localized and read
+// through t() below.
 const COPY: Record<
     GhostKind,
     {
-        title: string;
-        hintFull: string;
-        hintFuller: string;
+        title?: string;
+        hintFull?: string;
         hintCompactKey: string;
         aria: string;
     }
@@ -81,14 +98,10 @@ const COPY: Record<
     device: {
         title: "Add a Device",
         hintFull: "Drag a Wig, SmartIR, Flipper, LIRC, or Girr file here, or click to add",
-        hintFuller: "Drag a code-set file or click",
         hintCompactKey: "ghost.hint_compact_device",
         aria: "Add Device -- or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
     },
     remote: {
-        title: "Add a Remote",
-        hintFull: "Drag a Wig, SmartIR, Flipper, LIRC, or Girr file here, or click to add",
-        hintFuller: "Drag a code-set file or click",
         hintCompactKey: "ghost.hint_compact_remote",
         aria: "Add Remote -- or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
     },
@@ -100,12 +113,12 @@ export class IrGhostTile extends LitElement {
      * this tile shows when `empty` is true. */
     @property() public kind: GhostKind = "device";
 
-    /** Show the title + hint copy instead of a bare plus. */
+    /** The section has nothing in it: span the grid and show the title
+     * and long hint. Devices only, and enforced here rather than
+     * assumed -- Remotes never sets this, since its grid always holds
+     * the HAIR Triggers drawer, and it renders compact if it ever
+     * does. */
     @property({ type: Boolean }) public empty = false;
-
-    /** Span the full grid width with the larger plus (Devices' true
-     * empty-section case). Meaningless when `empty` is false. */
-    @property({ type: Boolean }) public spanFull = false;
 
     /** Tile-only dragover lighting (owner-ruled 2026-08-15: no
      * section-wide lighting -- see the coding plan's open item 0.3). */
@@ -149,14 +162,13 @@ export class IrGhostTile extends LitElement {
 
     render() {
         const copy = COPY[this.kind];
+        // Devices only, whatever the consumer passes: Remotes has no
+        // full-layout copy, so the fallback is the layout it does have.
+        const full = this.empty && this.kind === "device";
         const classes = [
             "gt-tile",
             this.kind,
-            this.empty
-                ? this.spanFull
-                    ? "gt-tile-full"
-                    : "gt-tile-fuller"
-                : "gt-tile-compact",
+            full ? "gt-tile-full" : "gt-tile-compact",
             this._dragOver ? "gt-dragover" : "",
         ]
             .filter(Boolean)
@@ -175,15 +187,11 @@ export class IrGhostTile extends LitElement {
                 @dragleave=${this._onDragLeave}
                 @drop=${this._onDrop}
             >
-                ${this.empty
+                ${full
                     ? html`
-                          <span class=${this.spanFull ? "gt-plus-lg" : "gt-plus"}
-                              >+</span
-                          >
+                          <span class="gt-plus-lg">+</span>
                           <div class="gt-tile-title">${copy.title}</div>
-                          <div class="gt-tile-hint">
-                              ${this.spanFull ? copy.hintFull : copy.hintFuller}
-                          </div>
+                          <div class="gt-tile-hint">${copy.hintFull}</div>
                       `
                     : html`
                           <span class="gt-glyph">
@@ -265,29 +273,15 @@ export class IrGhostTile extends LitElement {
             border-color: ${unsafeCSS(ORIGIN_COLORS.remote)};
             color: ${unsafeCSS(ORIGIN_COLORS.remote)};
         }
-        /* The populated-grid tile takes its height from the row,
-           so it carries no floor of its own: with one, it became the
-           tallest item in the Remotes grid and set the row instead of
-           following it (punch list item 12, ~92px against ~72px
-           cards). Devices never showed it -- those cards are taller
-           than the floor was. */
-        .gt-tile-fuller {
-            min-height: 66px;
-        }
+        /* The compact tile takes its height from the row and carries no
+           floor of its own: with one, it became the tallest item in the
+           Remotes grid and set the row instead of following it (punch
+           list item 12, ~92px against ~72px cards). Devices never
+           showed that -- those cards are taller than the floor was. */
         .gt-tile-full {
             grid-column: 1 / -1;
             min-height: 120px;
             padding: 24px;
-        }
-        .gt-plus {
-            font-size: 20px;
-            font-weight: 300;
-            line-height: 1;
-        }
-        .gt-tile-fuller .gt-plus {
-            font-size: 16px;
-            font-weight: 400;
-            margin-bottom: 2px;
         }
         .gt-plus-lg {
             font-size: 26px;
@@ -327,10 +321,9 @@ export class IrGhostTile extends LitElement {
            enough in footprint to sit in the same layout, heavy enough
            to read as a deliberate icon.
 
-           Compact layout ONLY. The fuller and full layouts keep their
-           text "+" through .gt-plus / .gt-plus-lg -- carrying this
-           treatment into them is a separate decision the spec
-           explicitly declines to assume. */
+           Compact layout ONLY. The full layout keeps its text "+"
+           through .gt-plus-lg -- carrying this treatment into it is a
+           separate decision the spec explicitly declines to assume. */
         .gt-glyph {
             width: 22px;
             height: 22px;

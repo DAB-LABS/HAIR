@@ -1701,7 +1701,6 @@ export class IrDeviceList extends LitElement {
                           <ir-ghost-tile
                               kind="device"
                               .empty=${true}
-                              .spanFull=${true}
                               @add-click=${this._add}
                               @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
                                   this._onGhostTileDrop("device", e)}
@@ -2066,9 +2065,13 @@ export class IrDeviceList extends LitElement {
                             : nothing}
                     `,
                 )}
+                <!-- Always compact (0.10.1 item 6). The Remotes grid is
+                     never truly empty -- the HAIR Triggers drawer always
+                     occupies a card -- so the zero-named-remotes case is
+                     a populated grid, not an empty section, and the tile
+                     that belongs beside a card is the compact one. -->
                 <ir-ghost-tile
                     kind="remote"
-                    .empty=${this.triggerRemotes.length === 0}
                     @add-click=${this._addRemote}
                     @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
                         this._onGhostTileDrop("remote", e)}
