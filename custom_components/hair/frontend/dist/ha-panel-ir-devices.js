@@ -15907,7 +15907,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                       ></ir-add-trigger-remote-dialog>
                   `:""}
 
-            <div class="version-footer">v${"0.10.0"}</div>
+            <div class="version-footer">v${"0.10.1"}</div>
             </ha-top-app-bar-fixed>
         `:V`<div class="loading">${xe("panel.loading")}</div>`}};sr.styles=n`
         :host {
