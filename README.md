@@ -254,6 +254,7 @@ On a state-matrix climate device the same dialog also takes a temperature sensor
 
 - **Emitter routing** -- each device can be pinned to one emitter or broadcast through several, so an AC command stays in one room while a TV Power command reaches every room at once.
 - **Ten languages** -- the panel and setup wizard follow your Home Assistant profile language automatically; see [Translations](#translations) below.
+- **Glossary** -- the words HAIR uses (Device, Remote, wig, fitting, pin, comb) are defined in [docs/glossary.md](docs/glossary.md).
 
 ### Entity platforms
 
