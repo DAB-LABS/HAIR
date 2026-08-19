@@ -9,6 +9,8 @@ row in a list.
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from custom_components.hair.event_parser import EventParser
@@ -523,3 +525,191 @@ async def test_load_leaves_an_unpinned_remote_alone(fake_hass):
     await store.async_load()
 
     assert store.get_trigger_remote("tr1").bindings == {}
+
+
+# ---------------------------------------------------------------------------
+# Dangling pins (0.10.1 item 8)
+# ---------------------------------------------------------------------------
+#
+# Deleting a Device never removed its id from a Remote's
+# pinned_device_ids, so the pin survived pointing at nothing. It stayed
+# invisible because derivation SKIPS an id it cannot resolve: the remote
+# sends nothing and cannot raise, while every surface that reads
+# "pinned" off a non-empty list keeps saying it is pinned. The live test
+# box carried four such ids across three remotes.
+
+
+@pytest.mark.asyncio
+async def test_load_drops_a_dangling_pin_and_keeps_the_valid_one(fake_hass):
+    dev = IRDevice(
+        name="TV",
+        commands=[IRCommand(name="Power", decoded_fingerprint="NEC:0x1:0x1")],
+    )
+    trig = IRTrigger(
+        name="Power",
+        trigger_remote_id="tr1",
+        decoded_fingerprint="NEC:0x1:0x1",
+    )
+    remote = TriggerRemote(
+        id="tr1", name="Handset",
+        pinned_device_ids=[dev.id, "gone-1"],
+    )
+    payload = {
+        "devices": [dev.to_dict()],
+        "triggers": [trig.to_dict()],
+        "trigger_remotes": [remote.to_dict()],
+    }
+
+    store = HAIRStore(fake_hass)
+    store._store = _FakeStore(payload)
+    await store.async_load()
+
+    loaded = store.get_trigger_remote("tr1")
+    assert loaded.pinned_device_ids == [dev.id]
+    assert set(loaded.bindings) == {dev.id}
+
+
+@pytest.mark.asyncio
+async def test_a_remote_with_only_dangling_pins_comes_back_unpinned(
+    fake_hass, caplog
+):
+    """The four-ids case on the box: pinned to nothing, saying otherwise."""
+    remote = TriggerRemote(
+        id="tr1", name="Mitsubishi C56-RW5",
+        pinned_device_ids=["e7a2a240", "d2406e7b"],
+        bindings={"e7a2a240": {}},
+    )
+    payload = {
+        "devices": [], "triggers": [], "trigger_remotes": [remote.to_dict()],
+    }
+
+    store = HAIRStore(fake_hass)
+    store._store = _FakeStore(payload)
+    with caplog.at_level(
+        logging.INFO, logger="custom_components.hair.storage"
+    ):
+        await store.async_load()
+
+    loaded = store.get_trigger_remote("tr1")
+    assert loaded.pinned_device_ids == []
+    assert loaded.bindings == {}
+    assert "Dropped 2 dangling pin(s) from Remote 'Mitsubishi C56-RW5'" in (
+        caplog.text
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_prune_writes_the_healed_store_once(fake_hass):
+    """It folds into async_load's single save like the other backfills."""
+    remote = TriggerRemote(
+        id="tr1", name="Handset", pinned_device_ids=["gone-1"]
+    )
+    payload = {
+        "devices": [], "triggers": [], "trigger_remotes": [remote.to_dict()],
+    }
+    store = HAIRStore(fake_hass)
+    store._store = _FakeStore(payload)
+
+    await store.async_load()
+
+    saved = store._store._data["trigger_remotes"][0]
+    assert saved["pinned_device_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_bindings_key_with_no_pin_is_residue_and_goes(fake_hass):
+    dev = IRDevice(name="TV")
+    remote = TriggerRemote(
+        id="tr1", name="Handset", pinned_device_ids=[],
+        bindings={dev.id: {"t1": "c1"}},
+    )
+    payload = {
+        "devices": [dev.to_dict()], "triggers": [],
+        "trigger_remotes": [remote.to_dict()],
+    }
+    store = HAIRStore(fake_hass)
+    store._store = _FakeStore(payload)
+
+    await store.async_load()
+
+    assert store.get_trigger_remote("tr1").bindings == {}
+
+
+@pytest.mark.asyncio
+async def test_a_store_with_no_dangling_pins_is_not_rewritten(fake_hass):
+    """The prune must not make every load a write."""
+    dev = IRDevice(name="TV")
+    remote = TriggerRemote(
+        id="tr1", name="Handset", pinned_device_ids=[dev.id],
+        bindings={dev.id: {}},
+    )
+    payload = {
+        "devices": [dev.to_dict()], "triggers": [],
+        "trigger_remotes": [remote.to_dict()],
+    }
+    store = HAIRStore(fake_hass)
+    store._store = _FakeStore(payload)
+    saved: list[dict] = []
+    original = store._store.async_save
+
+    async def _watch(data):
+        saved.append(data)
+        await original(data)
+
+    store._store.async_save = _watch
+
+    await store.async_load()
+
+    assert saved == []
+
+
+# ---------------------------------------------------------------------------
+# The reverse direction: deleting a Remote (0.10.1 item 8, step 3)
+# ---------------------------------------------------------------------------
+#
+# The device side deliberately stores NO pin of its own -- signpost 3's
+# pin scope split keeps the link in exactly one place and derives the
+# device view by scanning remotes -- so deleting a Remote takes the only
+# copy of the link with it. The one device-side field that names a
+# remote, IRDevice.source_remote_id, is a creation-door provenance stamp
+# that nothing resolves; these pin both facts so a future reader does
+# not have to re-derive them.
+
+
+def test_deleting_a_remote_leaves_no_device_side_pin(fake_hass):
+    store = HAIRStore(fake_hass)
+    dev = IRDevice(
+        name="TV",
+        commands=[IRCommand(name="Power", decoded_fingerprint="NEC:0x1:0x1")],
+    )
+    store.add_device(dev)
+    remote = _remote(store, "Handset", dev.id)
+    _trigger(
+        store, remote.id, "Power", decoded_fingerprint="NEC:0x1:0x1"
+    )
+    rederive_remote(store, remote)
+    assert remote.bindings[dev.id]
+
+    assert store.remove_trigger_remote(remote.id) is not None
+
+    survivor = store.get_device(dev.id)
+    assert survivor is not None
+    # No field on the device names the gone remote, so nothing can
+    # present as pinned the way pinned_device_ids did.
+    assert survivor.source_remote_id is None
+    assert bound_targets(store, remote.id, "any") == []
+
+
+def test_a_source_remote_id_pointing_at_a_gone_remote_derives_nothing(
+    fake_hass,
+):
+    """Provenance only: it is written at creation and never resolved."""
+    store = HAIRStore(fake_hass)
+    dev = IRDevice(name="TV", source_remote_id="gone-remote")
+    store.add_device(dev)
+
+    assert rederive_all_pinned(store) is False
+    assert store.get_device(dev.id).source_remote_id == "gone-remote"
+    assert store.get_device(dev.id).to_dict()["source_remote_id"] == (
+        "gone-remote"
+    )

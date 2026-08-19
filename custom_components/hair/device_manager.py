@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -341,9 +342,13 @@ class DeviceManager:
             registry.async_remove_device(ha_device.id)
 
         self._store.remove_device(device_id)
+        # Both halves of the delete commit together: the store's single
+        # save below covers the device removal and the unpin.
+        self._unpin_deleted_device(device_id)
         await self._store.async_save()
         if self._power_monitor is not None:
             self._power_monitor.remove_device(device_id)
+        self._forget_matrix_caches(device_id)
 
         # Matrix file cleanup (Cold Cuts): best-effort, AFTER the store
         # commit -- a full disk or bad permission must never resurrect
@@ -363,6 +368,66 @@ class DeviceManager:
                     device_id, exc_info=True,
                 )
         return True
+
+    def _unpin_deleted_device(self, device_id: str) -> int:
+        """Strip a deleted device's id out of every Remote that pinned it.
+
+        The mirror of the starred prune a command delete already does.
+        A pin that outlives its device is not inert: ``pin_bindings``
+        skips an id it cannot resolve, so the remote drives nothing,
+        while every surface that reads "pinned" off a non-empty
+        ``pinned_device_ids`` (the Devices card, the settings dialog,
+        the Mirror's "Pinned to") keeps saying it is pinned. A remote
+        whose only pin was the deleted device is then pinned to nothing
+        and says otherwise.
+
+        Bindings are cleaned in the same pass, including a key with no
+        matching pin, so the derived map can never outlive the pin that
+        justified it. Returns how many remotes were touched.
+        """
+        touched = 0
+        for remote in self._store.get_all_trigger_remotes():
+            if (
+                device_id not in remote.pinned_device_ids
+                and device_id not in remote.bindings
+            ):
+                continue
+            remote.pinned_device_ids = [
+                d for d in remote.pinned_device_ids if d != device_id
+            ]
+            remote.bindings.pop(device_id, None)
+            remote.updated_at = datetime.now(UTC).isoformat()
+            self._store.update_trigger_remote(remote)
+            touched += 1
+            _LOGGER.info(
+                "Unpinned Remote '%s' from deleted Device %s",
+                remote.name, device_id,
+            )
+        return touched
+
+    def _forget_matrix_caches(self, device_id: str) -> None:
+        """Drop the matrix listener's per-device state for a gone device.
+
+        A pinned matrix Device is indexed through the LISTENER's cache,
+        not this manager's, because ``_cell_by_identity`` asks its
+        lattice "which of your cells is this frame?" (Track 4). Deleting
+        the device left that index, its parsed matrix and its
+        already-reported unmapped pairings in memory for the rest of the
+        run. Inert once the pins above are gone, and still worth not
+        holding. Best effort: hygiene must never fail a delete the store
+        has already committed.
+        """
+        data = self._hass.data.get(DOMAIN, {}).get(self._config_entry_id)
+        listener = data.get("matrix_listener") if data else None
+        if listener is None:
+            return
+        try:
+            listener.forget_matrix(device_id)
+        except Exception:
+            _LOGGER.debug(
+                "Could not drop the matrix listener's caches for device %s",
+                device_id, exc_info=True,
+            )
 
     async def async_get_matrix(self, device_id: str) -> ClimateMatrix | None:
         """The device's climate matrix, cache-first (Cold Cuts).

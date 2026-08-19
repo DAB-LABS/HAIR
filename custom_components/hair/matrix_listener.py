@@ -376,6 +376,21 @@ class MatrixListener:
                 remote_id, exc_info=True,
             )
 
+    def forget_matrix(self, matrix_id: str) -> None:
+        """Drop everything held for a matrix that no longer exists.
+
+        ``invalidate`` is for a lattice that CHANGED; this is for one
+        that is GONE (0.10.1 item 8). On top of the caches invalidate
+        clears, it drops the already-reported unmapped pairings that
+        name this id, so a later id can never inherit a suppression it
+        did not earn.
+        """
+        self.invalidate(matrix_id)
+        for pair in [
+            p for p in self._unmapped if matrix_id in p
+        ]:
+            self._unmapped.discard(pair)
+
     # --- Warming ------------------------------------------------------
 
     def _matrix_ids_to_warm(self) -> list[str]:
