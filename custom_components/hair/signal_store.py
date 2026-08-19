@@ -27,6 +27,7 @@ from .const import (
     SIGNAL_STORAGE_VERSION,
 )
 from .models import UnknownDevice, UnknownSignal
+from .store_health import StoreHealth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,6 +86,12 @@ class SignalStore:
         # flood trims on every capture, and a per-capture WARNING would
         # itself become the flood.
         self._cap_warned: set[str] = set()
+        # A refused write used to be silent (0.10.1 item 1): one bad
+        # decoded value stopped every Sniffer save for eighty minutes
+        # on the bench and only HA core logged it.
+        self._health = StoreHealth(
+            hass, "signals", "Sniffer catalog", SIGNAL_STORAGE_KEY
+        )
 
     @property
     def loaded(self) -> bool:
@@ -122,11 +129,21 @@ class SignalStore:
         self._loaded = True
 
     async def async_save(self) -> None:
-        """Persist current state to disk immediately."""
+        """Persist current state to disk immediately.
+
+        A refused write is caught and SURFACED (0.10.1 item 1) rather
+        than propagating: this is called from the capture path, often as
+        a fire-and-forget task, so raising would either be swallowed by
+        the task or take a capture down with it. One WARNING and one
+        persistent notification on the first failure, cleared by the
+        next good save. See store_health.
+        """
         self._cancel_timers()
         self._dirty = False
         self._first_dirty_time = None
-        await self._store.async_save(self._serialize())
+        await self._health.guarded_save(
+            lambda: self._store.async_save(self._serialize())
+        )
 
     def schedule_save(self) -> None:
         """Schedule a debounced save.

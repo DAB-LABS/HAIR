@@ -464,6 +464,57 @@ def format_fingerprint(
     return base + _identity_suffix(protocol, extras)
 
 
+# WHAT THE STORE CAN HOLD (0.10.1 item 1). Home Assistant serializes its
+# stores through a writer that refuses an integer outside the signed
+# 64-bit range, and it refuses the WHOLE payload, not the one field: on
+# the bench a capture that decoded to a ~1.5e23 command stopped every
+# Sniffer save for eighty minutes, until the 200-signal cap happened to
+# evict the offending row.
+#
+# A value that large is not a real IR identity anyway -- the widest
+# protocol HAIR decodes is 48 bits of payload -- so this is not a
+# storage workaround dressed as a decode rule. It is the decoder saying
+# it produced something that cannot be true, which is exactly when the
+# raw timings should be left to speak for themselves. Refuse, do not
+# clamp: a truncated identity is a WRONG identity, and a wrong identity
+# would match the wrong command forever, where an absent one just means
+# the signal stays undecoded and matches on the raw tiers as it always
+# did.
+_MAX_DECODED_FIELD = 1 << 63
+
+
+def _storable(
+    label: str,
+    address: Any,
+    command: Any,
+    extras: Mapping[str, int] | None,
+) -> bool:
+    """True when every decoded field is an int the store can hold.
+
+    DEBUG, not WARNING: this is one capture out of a stream, the signal
+    is kept undecoded rather than lost, and a noisy remote could
+    otherwise produce the same line hundreds of times.
+    """
+    fields: list[tuple[str, Any]] = [("address", address), ("command", command)]
+    fields.extend((key, value) for key, value in (extras or {}).items())
+    for name, value in fields:
+        if value is None:
+            continue
+        if not isinstance(value, int) or isinstance(value, bool):
+            _LOGGER.debug(
+                "Decoder %s produced a non-integer field (%s=%r); "
+                "storing undecoded", label, name, value,
+            )
+            return False
+        if not 0 <= value < _MAX_DECODED_FIELD:
+            _LOGGER.debug(
+                "Decoder %s produced an out-of-range field (%s=%r); "
+                "storing undecoded", label, name, value,
+            )
+            return False
+    return True
+
+
 def try_decode_identity(raw_timings: list[int] | None) -> DecodedIdentity | None:
     """Decode raw timings into a :class:`DecodedIdentity`, or ``None``.
 
@@ -494,6 +545,8 @@ def try_decode_identity(raw_timings: list[int] | None) -> DecodedIdentity | None
                 if salvaged is not None:
                     address, command = salvaged
                     protocol = spec.labels[0]
+                    if not _storable(protocol, address, command, None):
+                        continue
                     return DecodedIdentity(
                         protocol=protocol,
                         address=address,
@@ -508,6 +561,11 @@ def try_decode_identity(raw_timings: list[int] | None) -> DecodedIdentity | None
         try:
             protocol, address, command, extras = spec.extract(cmd)
         except (AttributeError, TypeError, ValueError):
+            continue
+        # A decoder that produced something the store cannot hold has
+        # not identified this signal; try the next spec, and if none is
+        # left the signal stays undecoded (0.10.1 item 1).
+        if not _storable(protocol, address, command, extras):
             continue
         return DecodedIdentity(
             protocol=protocol,
@@ -541,6 +599,8 @@ def identity_from_command(command: Any) -> DecodedIdentity | None:
         try:
             protocol, address, cmd_val, extras = spec.extract(command)
         except (AttributeError, TypeError, ValueError, KeyError):
+            return None
+        if not _storable(protocol, address, cmd_val, extras):
             return None
         return DecodedIdentity(
             protocol=protocol,

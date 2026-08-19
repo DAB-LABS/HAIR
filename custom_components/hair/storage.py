@@ -14,6 +14,7 @@ from .const import (
 )
 from .identity import NormFpIndex
 from .models import IRDevice, IRTrigger, TriggerRemote
+from .store_health import StoreHealth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,6 +123,14 @@ class HAIRStore:
         # and identity.NormFpIndex for why a value two different codes
         # claim is answered as no match at all.
         self._idx_norm_fp: NormFpIndex = NormFpIndex()
+        # A refused write is reported ONCE and cleared by the next good
+        # save (0.10.1 item 1). The Sniffer catalog is where the
+        # eighty-minute silence happened; this store gets the same
+        # treatment because the failure mode is the writer's, not the
+        # payload's.
+        self._health = StoreHealth(
+            hass, "devices", "device catalog", STORAGE_KEY
+        )
 
     @property
     def loaded(self) -> bool:
@@ -214,8 +223,17 @@ class HAIRStore:
             await self.async_save()
 
     async def async_save(self) -> None:
-        """Persist current in-memory state."""
-        await self._store.async_save(self._serialize())
+        """Persist current in-memory state.
+
+        Same surfacing as the Sniffer catalog (0.10.1 item 1): a refused
+        write is caught, reported ONCE, and cleared by the next good
+        save. Deliberately does not raise -- several callers are
+        fire-and-forget tasks off the capture and fire paths, so raising
+        here would be swallowed anyway and lose the report with it.
+        """
+        await self._health.guarded_save(
+            lambda: self._store.async_save(self._serialize())
+        )
 
     def _serialize(self) -> dict[str, Any]:
         return {
