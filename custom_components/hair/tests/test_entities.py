@@ -540,7 +540,9 @@ class TestHAIRClimateEntity:
         )
         entity._hvac_mode = HVACMode.COOL
         await entity.async_set_hvac_mode(HVACMode.OFF)
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with(
+            "dev-1", "c1", origin="entity"
+        )
         assert entity._hvac_mode == HVACMode.OFF
 
     @pytest.mark.asyncio
@@ -551,7 +553,9 @@ class TestHAIRClimateEntity:
             commands=[cool_cmd],
         )
         await entity.async_set_hvac_mode(HVACMode.COOL)
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with(
+            "dev-1", "c1", origin="entity"
+        )
         assert entity._hvac_mode == HVACMode.COOL
 
     @pytest.mark.asyncio
@@ -563,7 +567,9 @@ class TestHAIRClimateEntity:
             commands=[power_cmd],
         )
         await entity.async_set_hvac_mode(HVACMode.HEAT)
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with(
+            "dev-1", "c1", origin="entity"
+        )
         assert entity._hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
@@ -576,7 +582,9 @@ class TestHAIRClimateEntity:
         )
         await entity.async_set_temperature(temperature=73)
         # Should snap to 72 (nearest)
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c72")
+        mgr.async_send_command.assert_awaited_once_with(
+            "dev-1", "c72", origin="entity"
+        )
         assert entity._target_temperature == 72.0
 
     @pytest.mark.asyncio
@@ -597,7 +605,9 @@ class TestHAIRClimateEntity:
         assert entity.min_temp == 16.0
         assert entity.max_temp == 30.0
         await entity.async_set_temperature(temperature=23)
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c22")
+        mgr.async_send_command.assert_awaited_once_with(
+            "dev-1", "c22", origin="entity"
+        )
         assert entity._target_temperature == 22.0
 
     @pytest.mark.asyncio
@@ -615,7 +625,9 @@ class TestHAIRClimateEntity:
             fan_modes=["low", "high"],
         )
         await entity.async_set_fan_mode("low")
-        mgr.async_send_command.assert_awaited_once_with("dev-1", "c1")
+        mgr.async_send_command.assert_awaited_once_with(
+            "dev-1", "c1", origin="entity"
+        )
         assert entity._fan_mode == "low"
 
     @pytest.mark.asyncio

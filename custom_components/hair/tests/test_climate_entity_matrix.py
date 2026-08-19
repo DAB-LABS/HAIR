@@ -155,7 +155,9 @@ class TestMatrixActions:
         await entity.async_set_hvac_mode(HVACMode.COOL)
         # Seeded target 23 snaps to the branch's 22.
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool / fan: auto / 22", "P-C-A-22", 1
+            "dev-1", "cool / fan: auto / 22", "P-C-A-22", 1,
+            cell={"mode": 'cool', "fan": 'auto', "swing": None, "temp": 22.0},
+            origin="entity",
         )
         assert entity.hvac_mode == HVACMode.COOL
         assert entity.target_temperature == 22.0
@@ -168,7 +170,9 @@ class TestMatrixActions:
         entity, mgr = await _entity()
         await entity.async_set_hvac_mode(HVACMode.HEAT)
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "heat / fan: auto / 22", "P-H-A-22", 2
+            "dev-1", "heat / fan: auto / 22", "P-H-A-22", 2,
+            cell={"mode": 'heat', "fan": 'auto', "swing": None, "temp": 22.0},
+            origin="entity",
         )
 
     @pytest.mark.asyncio
@@ -178,7 +182,9 @@ class TestMatrixActions:
         await entity.async_set_temperature(temperature=27)
         # 27 snaps to 30 (nearest of 16/22/30).
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool / fan: auto / 30", "P-C-A-30", 1
+            "dev-1", "cool / fan: auto / 30", "P-C-A-30", 1,
+            cell={"mode": 'cool', "fan": 'auto', "swing": None, "temp": 30.0},
+            origin="entity",
         )
         assert entity.target_temperature == 30.0
 
@@ -192,7 +198,9 @@ class TestMatrixActions:
         # The stored state rides out on the next mode action.
         await entity.async_set_hvac_mode(HVACMode.COOL)
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool / fan: auto / 16", "P-C-A-16", 1
+            "dev-1", "cool / fan: auto / 16", "P-C-A-16", 1,
+            cell={"mode": 'cool', "fan": 'auto', "swing": None, "temp": 16.0},
+            origin="entity",
         )
 
     @pytest.mark.asyncio
@@ -201,7 +209,9 @@ class TestMatrixActions:
         entity._hvac_mode = HVACMode.COOL
         await entity.async_set_fan_mode("low")
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool / fan: low / 22", "P-C-L-22", 1
+            "dev-1", "cool / fan: low / 22", "P-C-L-22", 1,
+            cell={"mode": 'cool', "fan": 'low', "swing": None, "temp": 22.0},
+            origin="entity",
         )
         assert entity.fan_mode == "low"
 
@@ -218,7 +228,9 @@ class TestMatrixActions:
         entity._hvac_mode = HVACMode.COOL
         await entity.async_set_swing_mode("swing")
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool / fan: auto / swing: swing / 22", "P-C-A-22", 1
+            "dev-1", "cool / fan: auto / swing: swing / 22", "P-C-A-22", 1,
+            cell={"mode": 'cool', "fan": 'auto', "swing": 'swing', "temp": 22.0},
+            origin="entity",
         )
         assert entity.swing_mode == "swing"
 
@@ -228,7 +240,7 @@ class TestMatrixActions:
         entity._hvac_mode = HVACMode.COOL
         await entity.async_set_hvac_mode(HVACMode.OFF)
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "Off", P_OFF
+            "dev-1", "Off", P_OFF, power="off", origin="entity"
         )
         assert entity.hvac_mode == HVACMode.OFF
         assert entity.extra_state_attributes == {"matrix_cell": "Off"}
@@ -238,7 +250,7 @@ class TestMatrixActions:
         entity, mgr = await _entity()
         await entity.async_turn_off()
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "Off", P_OFF
+            "dev-1", "Off", P_OFF, power="off", origin="entity"
         )
 
     @pytest.mark.asyncio
@@ -246,7 +258,7 @@ class TestMatrixActions:
         entity, mgr = await _entity()
         await entity.async_turn_on()
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "On", P_ON
+            "dev-1", "On", P_ON, power="on", origin="entity"
         )
         # Displays the file's first mode as the assumed on-state.
         assert entity.hvac_mode == HVACMode.COOL
@@ -257,7 +269,9 @@ class TestMatrixActions:
         entity, mgr = await _entity(matrix=_matrix(on=None))
         await entity.async_turn_on()
         mgr.async_send_matrix_cell.assert_awaited_once_with(
-            "dev-1", "cool / fan: auto / 22", "P-C-A-22", 1
+            "dev-1", "cool / fan: auto / 22", "P-C-A-22", 1,
+            cell={"mode": 'cool', "fan": 'auto', "swing": None, "temp": 22.0},
+            origin="entity",
         )
         assert entity.hvac_mode == HVACMode.COOL
 

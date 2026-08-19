@@ -3134,6 +3134,19 @@ def _invalidate_remote_matrix(data: dict[str, Any], remote_id: str) -> None:
         listener.invalidate(remote_id)
 
 
+def _warm_remote_matrix(data: dict[str, Any], remote_id: str) -> None:
+    """Build the index for a lattice that was just written (0.10.1 item 3).
+
+    Called by the MINT doors only, never by the delete one. Setup warms
+    every lattice the store already knows about, so this is what keeps a
+    remote created mid-run from paying the first-frame miss the setup
+    warm exists to remove.
+    """
+    listener = data.get("matrix_listener")
+    if listener is not None:
+        listener.warm_index(remote_id)
+
+
 async def _remote_matrix(
     hass: HomeAssistant, data: dict[str, Any], remote: TriggerRemote
 ) -> Any | None:
@@ -3669,6 +3682,7 @@ async def ws_duplicate_trigger_remote(
         )
         if copied_matrix:
             _invalidate_remote_matrix(data, clone.id)
+            _warm_remote_matrix(data, clone.id)
         else:
             clone.climate_matrix = False
     store.add_trigger_remote(clone)
@@ -5936,6 +5950,7 @@ async def ws_wig_make_remote(
             )
             return
         _invalidate_remote_matrix(data, remote.id)
+        _warm_remote_matrix(data, remote.id)
     store.add_trigger_remote(remote)
 
     triggers: list[IRTrigger] = []
@@ -6064,6 +6079,7 @@ async def ws_device_make_remote(
         remote.climate_matrix = matrix_copied
         if matrix_copied:
             _invalidate_remote_matrix(data, remote.id)
+            _warm_remote_matrix(data, remote.id)
     store.add_trigger_remote(remote)
 
     triggers: list[IRTrigger] = []
@@ -6520,8 +6536,14 @@ class _MatrixPickError(Exception):
 
 def _matrix_pick(
     hass: HomeAssistant, matrix: Any, msg: dict[str, Any]
-) -> tuple[str, str, int]:
-    """Resolve coordinates to ``(display name, Pronto, send count)``.
+) -> tuple[str, str, int, dict[str, Any]]:
+    """Resolve coordinates to ``(name, Pronto, send count, state)``.
+
+    ``state`` (0.10.1 item 7) is the coordinates themselves, handed back
+    rather than thrown away: a STATE row minted here has to remember
+    which state it transmits, and the display name it also returns is
+    grammar, not data -- it converts units live and freezes at mint
+    time, so it can never be parsed back into coordinates later.
 
     ``power`` and ``mode`` are EXCLUSIVE here, unlike matrix-send where
     power deliberately wins over stale cell coordinates: the callers
@@ -6550,7 +6572,7 @@ def _matrix_pick(
         pronto = matrix.off if power == "off" else matrix.on
         if pronto is None:
             raise _MatrixPickError("not_found", "This matrix has no on code")
-        return state_display_name(power), pronto, 1
+        return state_display_name(power), pronto, 1, {"power": power}
     if mode is None:
         raise _MatrixPickError("invalid_format", "Provide power or mode")
     cell = exact_cell(
@@ -6564,7 +6586,10 @@ def _matrix_pick(
         display_unit=unit_letter(hass.config.units.temperature_unit),
         precision=matrix.precision,
     )
-    return name, cell.pronto, cell.send_count
+    return name, cell.pronto, cell.send_count, {
+        "mode": cell.mode, "fan": cell.fan,
+        "swing": cell.swing, "temp": cell.temp,
+    }
 
 
 @websocket_api.require_admin
@@ -6620,7 +6645,7 @@ async def ws_trigger_remote_matrix_cell(
         )
         return
     try:
-        name, pronto, _send_count = _matrix_pick(hass, matrix, msg)
+        name, pronto, _send_count, _state = _matrix_pick(hass, matrix, msg)
     except _MatrixPickError as err:
         connection.send_error(msg["id"], err.code, err.message)
         return
@@ -6700,6 +6725,7 @@ async def ws_device_matrix_send(
             return
         name = state_display_name(power)
         send_count = 1
+        cell_state: dict[str, Any] | None = None
     else:
         mode = msg.get("mode")
         if mode is None:
@@ -6727,6 +6753,13 @@ async def ws_device_matrix_send(
         )
         pronto = cell.pronto
         send_count = cell.send_count
+        # The card follows this send (0.10.1 item 7): the coordinates
+        # go with it structurally, since ``name`` above is display
+        # grammar and converts units live.
+        cell_state = {
+            "mode": cell.mode, "fan": cell.fan,
+            "swing": cell.swing, "temp": cell.temp,
+        }
     # The echo hook behind the TEST button's SENT . HEARD reading
     # (Second Fitting v3 punch list item 14): a cell send rides the
     # exact same Mirror hook a stored command's TEST does via
@@ -6743,6 +6776,8 @@ async def ws_device_matrix_send(
         await manager.async_send_matrix_cell(
             msg["device_id"], name, pronto, send_count,
             heard_future=heard_future,
+            cell=cell_state,
+            power=power,
         )
     except Exception as err:
         heard_future.cancel()
@@ -6814,7 +6849,7 @@ async def ws_device_matrix_command(
     # with the remote side's matrix-cell door, which mints a trigger
     # off the same coordinates under the same power-or-mode rule.
     try:
-        name, pronto, send_count = _matrix_pick(hass, matrix, msg)
+        name, pronto, send_count, state = _matrix_pick(hass, matrix, msg)
     except _MatrixPickError as err:
         connection.send_error(msg["id"], err.code, err.message)
         return
@@ -6845,6 +6880,13 @@ async def ws_device_matrix_command(
         dict(ident.decoded_extras) if ident.decoded_extras else None
     )
     command.send_count = max(1, send_count or 1)
+    # WHICH STATE THIS ROW IS (0.10.1 item 7). Stamped at mint from the
+    # coordinates the pick already resolved, so sending the row later
+    # moves the climate card exactly as the card's own SEND does -- and
+    # so a preset, which IS a starred STATE row, moves the dial rather
+    # than only the readout. NOT ``matrix_cell``: that field marks a
+    # porthole, and deleting a porthole deletes the lattice cell.
+    command.sent_state = dict(state)
     device.add_command(command)
     manager: DeviceManager = data["device_manager"]
     await manager.async_update_device(device)

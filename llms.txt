@@ -316,6 +316,24 @@ Key components:
   Learned commands and states saved out of the STATE MATRIX card both
   qualify; comb repair rows do not. Presets are stored per device and
   are never written into a wig.
+- Device-sent state (v0.10.1): every transmit path dispatches a
+  device-sent notification once at least one emitter has accepted the
+  send, carrying the device, the command and, for a climate device, the
+  state coordinates that were sent. The climate entity derives its state
+  from that notification, so a matrix send, a preset, a command row, a
+  button entity and a pinned Remote's retransmit all move the thermostat
+  card, while the entity's own service calls are tagged and ignored
+  because the setter has already written the state. Coordinates travel
+  structurally rather than being parsed back out of a display name:
+  commands saved out of the STATE MATRIX card carry their own
+  coordinates, stamped at mint and backfilled at setup against the
+  device's current lattice. Nothing here reads state off the air; a
+  heard state that is not a HAIR send never moves the card, and where a
+  device has power monitoring the power verdict still resolves on/off.
+- Store health (v0.10.1): HAIR watches Home Assistant's own store-write
+  error log for its two stores, since HA's store writer logs a refused
+  write rather than raising, and reports one warning and one
+  self-clearing persistent notification per store that stops saving.
 - Devices and Remotes (v0.10.0): the Devices tab carries two sections.
   DEVICES are HAIR device profiles, the things HAIR transmits to.
   REMOTES are handsets HAIR recognizes, and each Remote is a real Home

@@ -26,6 +26,77 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# ---------------------------------------------------------------------------
+# The downgrade guard (0.10.1 item 2)
+# ---------------------------------------------------------------------------
+#
+# WHAT HAPPENED. Bisecting on the live store, a build from before Track M
+# rewrote the trigger-remote store on every trigger fire and dropped
+# climate_matrix and last_heard from every remote, because its own
+# to_dict did not know them. Three matrix remotes came back as flat
+# remotes on the release build and had to be repaired from backup. HACS
+# lets a user redownload an older release in two clicks, so this is a
+# path real installs take, not a bench artifact.
+#
+# THE GUARD. Every model keeps the keys its parser did not consume in
+# ``_extra`` and writes them back LAST, so a newer field survives an
+# older build's save untouched. It cannot repair a store already
+# damaged, and it cannot help a field the older build actively rewrites
+# -- what it does is stop the older build from being the reason the
+# field disappeared.
+#
+# KNOWN KEYS ARE DECLARED, not derived. A frozenset per model, beside
+# the class, listing what the parser consumes. Derivation would have to
+# read from_dict at runtime, and the failure it would hide is exactly
+# the one that matters: a field added later and forgotten here would
+# start round-tripping through _extra as well as through its own
+# attribute, and the two copies would drift. A test asserts every key
+# to_dict writes is declared, which catches the forgetful case at the
+# moment it is introduced.
+
+
+def _carry_extra(obj: Any, data: dict[str, Any], known: frozenset[str]) -> Any:
+    """Keep the keys this parser did not consume."""
+    obj._extra = {k: v for k, v in data.items() if k not in known}
+    return obj
+
+
+def _with_extra(out: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    """Write unknown keys back, LAST and never over a known one.
+
+    ``setdefault`` is the whole rule: a known field always wins, so a
+    stale value that somehow reached _extra under a real field's name
+    can never shadow the attribute the rest of HAIR reads.
+    """
+    for key, value in extra.items():
+        out.setdefault(key, value)
+    return out
+
+
+# Each model declares its own ``_extra`` inline rather than sharing one
+# descriptor: dataclass processing MUTATES the Field object it is handed
+# (it writes name and type onto it), so a single instance reused across
+# seven classes would have them fighting over it. Every one carries
+# ``compare=False``, because two records differing only in keys neither
+# build understands are the same record and every "did anything change"
+# check in HAIR would otherwise start reporting changes it cannot
+# describe, and ``repr=False`` to keep log lines readable.
+
+
+
+# Keys IRCommand.from_dict consumes (0.10.1 item 2). A key not in here
+# rides through _extra untouched, which is exactly what an older build
+# should do with a field it has never heard of.
+_KNOWN_COMMAND = frozenset({
+    "id", "name", "category", "source", "protocol", "code", "raw_timings",
+    "frequency", "repeat_count", "send_count", "byte_hash",
+    "decoded_protocol", "decoded_address", "decoded_command",
+    "decoded_fingerprint", "decoded_extras", "tx_force_raw",
+    "plucked_command_name", "matrix_cell", "sent_state", "comb_suspect",
+    "comb_finding", "created_at",
+})
+
+
 @dataclass
 class IRCommand:
     """A single IR command (learned or imported)."""
@@ -79,6 +150,23 @@ class IRCommand:
     # is a view, not a second copy that could drift from the matrix
     # store behind it.
     matrix_cell: dict[str, Any] | None = None
+    # THE STATE THIS ROW PUTS THE UNIT IN (0.10.1 item 7). Coordinates
+    # only: {"mode", "fan", "swing", "temp"} for a lattice cell, or
+    # {"power": "off" | "on"} for one of the matrix's power codes.
+    # Stamped when a STATE row is minted from the card, and backfilled
+    # at setup for rows minted before this field existed. None on every
+    # ordinary command, and on a STATE row whose bytes no longer match
+    # any cell in the device's current lattice -- an unmatched row
+    # simply does not move the climate card.
+    #
+    # DELIBERATELY NOT ``matrix_cell`` above, which carries the same
+    # four keys and a completely different meaning: that field marks a
+    # PORTHOLE, a row that IS the lattice cell, so editing one rewrites
+    # the cell and DELETING ONE DELETES THE CELL (ws_delete_command).
+    # A saved STATE row is an ordinary stored command that happens to
+    # carry a cell's bytes; deleting it must delete a command and
+    # nothing else. Two fields because they are two facts.
+    sent_state: dict[str, Any] | None = None
     # The comb doubted this row in the wig it was adopted from (v0.9.5).
     # Carried onto the device so the comb's receipt stops being
     # closet-only knowledge: the person can see what was doubted, test
@@ -92,9 +180,14 @@ class IRCommand:
     # so the row should say (bench 2026-08-03).
     comb_finding: str | None = None
     created_at: str = field(default_factory=_now_iso)
+    # Keys this parser did not consume, written back last so a newer
+    # build's fields survive an older build's save (0.10.1 item 2).
+    _extra: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        return _with_extra({
             "id": self.id,
             "name": self.name,
             "category": str(self.category),
@@ -117,14 +210,16 @@ class IRCommand:
             "plucked_command_name": self.plucked_command_name,
             "matrix_cell": dict(self.matrix_cell)
             if self.matrix_cell else None,
+            "sent_state": dict(self.sent_state)
+            if self.sent_state else None,
             "comb_suspect": self.comb_suspect,
             "comb_finding": self.comb_finding,
             "created_at": self.created_at,
-        }
+        }, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IRCommand:
-        return cls(
+        return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             name=data.get("name", ""),
             category=CommandCategory(data.get("category", CommandCategory.CUSTOM)),
@@ -144,10 +239,11 @@ class IRCommand:
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
             matrix_cell=data.get("matrix_cell") or None,
+            sent_state=data.get("sent_state") or None,
             comb_suspect=bool(data.get("comb_suspect", False)),
             comb_finding=data.get("comb_finding") or None,
             created_at=data.get("created_at") or _now_iso(),
-        )
+        ), data, _KNOWN_COMMAND)
 
 
 @dataclass
@@ -164,6 +260,13 @@ class CommandTemplate:
             "category": str(self.category),
             "essential": self.essential,
         }
+
+
+# Keys EntityConfig.from_dict consumes (0.10.1 item 2).
+_KNOWN_ENTITY_CONFIG = frozenset({
+    "platform", "command_mapping", "starred", "temperature_presets",
+    "hvac_modes", "fan_modes", "swing_modes",
+})
 
 
 @dataclass
@@ -193,9 +296,14 @@ class EntityConfig:
     # Absent in stored JSON reads as empty; empty means the entity
     # never advertises PRESET_MODE at all.
     starred: list[str] = field(default_factory=list)
+    # Keys this parser did not consume, written back last so a newer
+    # build's fields survive an older build's save (0.10.1 item 2).
+    _extra: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        return _with_extra({
             "platform": self.platform,
             "command_mapping": dict(self.command_mapping),
             "starred": list(self.starred),
@@ -205,11 +313,11 @@ class EntityConfig:
             "hvac_modes": list(self.hvac_modes) if self.hvac_modes else None,
             "fan_modes": list(self.fan_modes) if self.fan_modes else None,
             "swing_modes": list(self.swing_modes) if self.swing_modes else None,
-        }
+        }, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EntityConfig:
-        return cls(
+        return _carry_extra(cls(
             platform=data.get("platform", "remote"),
             command_mapping=dict(data.get("command_mapping") or {}),
             starred=list(data.get("starred") or []),
@@ -217,7 +325,19 @@ class EntityConfig:
             hvac_modes=data.get("hvac_modes"),
             fan_modes=data.get("fan_modes"),
             swing_modes=data.get("swing_modes"),
-        )
+        ), data, _KNOWN_ENTITY_CONFIG)
+
+
+# Keys IRDevice.from_dict consumes (0.10.1 item 2).
+_KNOWN_DEVICE = frozenset({
+    "id", "name", "device_type", "manufacturer", "model",
+    "emitter_entity_ids", "power_sensor_entity_id", "power_off_below_w",
+    "power_on_above_w", "temperature_sensor_entity_id",
+    "humidity_sensor_entity_id", "capture_device_id",
+    "capture_provider_type", "commands", "entity_config", "database_id",
+    "climate_matrix", "source_wig_id", "source_file", "source_remote_id",
+    "origin", "created_at", "updated_at",
+})
 
 
 @dataclass
@@ -304,6 +424,11 @@ class IRDevice:
     origin: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+    # Keys this parser did not consume, written back last so a newer
+    # build's fields survive an older build's save (0.10.1 item 2).
+    _extra: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def get_command(self, command_id: str) -> IRCommand | None:
         for command in self.commands:
@@ -384,6 +509,19 @@ class IRDevice:
                 decoded_command=cmd.decoded_command,
                 decoded_fingerprint=cmd.decoded_fingerprint,
                 tx_force_raw=cmd.tx_force_raw,
+                # The duplicate gets a byte copy of the source's
+                # lattice, so a STATE row's coordinates are as true on
+                # the clone as on the original (0.10.1 item 7). The
+                # setup backfill would restamp it either way; carrying
+                # it means the clone's card follows from the first send
+                # rather than from the next restart.
+                sent_state=(
+                    dict(cmd.sent_state) if cmd.sent_state else None
+                ),
+                # A newer build's fields ride the clone too (0.10.1
+                # item 2); dropping them here would make duplicating a
+                # device the same quiet data loss the downgrade was.
+                _extra=dict(cmd._extra),
             )
             for cmd in self.commands
         ]
@@ -413,6 +551,7 @@ class IRDevice:
                 if self.entity_config.swing_modes
                 else None
             ),
+            _extra=dict(self.entity_config._extra),
         )
         return IRDevice(
             name=new_name,
@@ -436,6 +575,9 @@ class IRDevice:
             # duplicate path (device_manager/WS) via copy_matrix,
             # since a dataclass copy cannot touch disk.
             climate_matrix=self.climate_matrix,
+            # Whatever a newer build knew and this one does not
+            # (0.10.1 item 2).
+            _extra=dict(self._extra),
         )
 
     def reorder_commands(self, command_ids: list[str]) -> None:
@@ -473,7 +615,7 @@ class IRDevice:
         self.updated_at = _now_iso()
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        return _with_extra({
             "id": self.id,
             "name": self.name,
             "device_type": str(self.device_type),
@@ -497,7 +639,7 @@ class IRDevice:
             "origin": self.origin,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-        }
+        }, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IRDevice:
@@ -507,7 +649,7 @@ class IRDevice:
         if raw_type in _LEGACY_MEDIA_TYPES:
             raw_type = "media_player"
 
-        return cls(
+        return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             name=data.get("name", ""),
             device_type=DeviceType(raw_type),
@@ -551,7 +693,17 @@ class IRDevice:
             origin=data.get("origin") or None,
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
-        )
+        ), data, _KNOWN_DEVICE)
+
+
+# Keys IRTrigger.from_dict consumes (0.10.1 item 2).
+_KNOWN_TRIGGER = frozenset({
+    "id", "name", "signal_fingerprint", "protocol", "code", "min_hits",
+    "enabled", "source_device_id", "source_command_id", "created_at",
+    "updated_at", "receiver_entity_ids", "byte_hash",
+    "decoded_fingerprint", "order", "alias_history", "fire_count",
+    "last_fired_at", "trigger_remote_id", "origin",
+})
 
 
 @dataclass
@@ -655,9 +807,14 @@ class IRTrigger:
     # "manual" going forward. None for triggers created before this
     # field existed; not backfilled.
     origin: str | None = None
+    # Keys this parser did not consume, written back last so a newer
+    # build's fields survive an older build's save (0.10.1 item 2).
+    _extra: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        return _with_extra({
             "id": self.id,
             "name": self.name,
             "signal_fingerprint": self.signal_fingerprint,
@@ -678,11 +835,11 @@ class IRTrigger:
             "last_fired_at": self.last_fired_at,
             "trigger_remote_id": self.trigger_remote_id,
             "origin": self.origin,
-        }
+        }, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IRTrigger:
-        return cls(
+        return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             name=data.get("name", ""),
             signal_fingerprint=data.get("signal_fingerprint", ""),
@@ -719,7 +876,7 @@ class IRTrigger:
             # Absent on every trigger made before signpost 2; not
             # backfilled, per the provenance ruling.
             origin=data.get("origin") or None,
-        )
+        ), data, _KNOWN_TRIGGER)
 
     def rename(self, new_name: str) -> None:
         """Rename the trigger, retiring the old name into alias history.
@@ -800,6 +957,16 @@ class IRTrigger:
         if receiver_entity_id is None:
             return False
         return receiver_entity_id in self.receiver_entity_ids
+
+
+# Keys TriggerRemote.from_dict consumes (0.10.1 item 2). This is the
+# model the downgrade actually damaged: climate_matrix and last_heard
+# were the two an older build did not know and therefore dropped.
+_KNOWN_REMOTE = frozenset({
+    "id", "name", "receiver_scope", "origin", "source_wig_id",
+    "source_device_id", "pinned_device_ids", "bindings", "climate_matrix",
+    "last_heard", "created_at", "updated_at",
+})
 
 
 @dataclass
@@ -888,9 +1055,14 @@ class TriggerRemote:
     last_heard: dict[str, Any] | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+    # Keys this parser did not consume, written back last so a newer
+    # build's fields survive an older build's save (0.10.1 item 2).
+    _extra: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        return _with_extra({
             "id": self.id,
             "name": self.name,
             "receiver_scope": list(self.receiver_scope),
@@ -907,11 +1079,11 @@ class TriggerRemote:
             ),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-        }
+        }, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TriggerRemote:
-        return cls(
+        return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             name=data.get("name", ""),
             receiver_scope=list(data.get("receiver_scope") or []),
@@ -946,7 +1118,7 @@ class TriggerRemote:
             ),
             created_at=data.get("created_at") or _now_iso(),
             updated_at=data.get("updated_at") or _now_iso(),
-        )
+        ), data, _KNOWN_REMOTE)
 
     def matches_receiver(self, receiver_entity_id: str | None) -> bool:
         """Return True if this remote's scope matches the capturing receiver.
@@ -992,6 +1164,10 @@ class TriggerRemote:
             receiver_scope=list(self.receiver_scope),
             origin="manual",
             climate_matrix=self.climate_matrix,
+            # Whatever a newer build knew and this one does not
+            # (0.10.1 item 2). Same argument as climate_matrix: it is
+            # part of what this remote IS.
+            _extra=dict(self._extra),
         )
 
 
@@ -1079,6 +1255,21 @@ class CaptureSession:
 # ---------------------------------------------------------------------------
 
 
+# Keys UnknownSignal.from_dict consumes (0.10.1 item 2). "sl_pattern"
+# is declared without being parsed on purpose: to_dict DERIVES it from
+# the code on every write, so capturing it in _extra would let a stale
+# pattern outlive the code it described on a row that stops being
+# Pronto.
+_KNOWN_SIGNAL = frozenset({
+    "id", "fingerprint", "byte_hash", "decoded_protocol",
+    "decoded_address", "decoded_command", "decoded_fingerprint",
+    "decoded_extras", "protocol", "code", "raw_timings", "frequency",
+    "hit_count", "first_seen", "last_seen", "source", "alias",
+    "plucked_command_name", "repeat_count", "send_count", "tx_force_raw",
+    "observed_repeat_count", "echo_source", "heard_by", "sl_pattern",
+})
+
+
 @dataclass
 class UnknownSignal:
     """A single unidentified IR signal observed by the signal monitor."""
@@ -1151,6 +1342,11 @@ class UnknownSignal:
     # Read-only at the model layer; surfaced as a UI hint. NOT carried onto an
     # IRCommand at assign time.
     observed_repeat_count: int = 0
+    # Keys this parser did not consume, written back last so a newer
+    # build's fields survive an older build's save (0.10.1 item 2).
+    _extra: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1187,11 +1383,11 @@ class UnknownSignal:
 
             sl = EventParser._pronto_sl_pattern(self.code)
             d["sl_pattern"] = sl
-        return d
+        return _with_extra(d, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UnknownSignal:
-        return cls(
+        return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             fingerprint=data.get("fingerprint", ""),
             byte_hash=data.get("byte_hash"),
@@ -1218,7 +1414,16 @@ class UnknownSignal:
             heard_by=(
                 list(data["heard_by"]) if data.get("heard_by") is not None else None
             ),
-        )
+        ), data, _KNOWN_SIGNAL)
+
+
+# Keys UnknownDevice.from_dict consumes (0.10.1 item 2).
+_KNOWN_CATALOG_DEVICE = frozenset({
+    "id", "fingerprint", "protocol", "device_address", "label", "signals",
+    "hit_count", "first_seen", "last_seen", "dismissed", "source", "order",
+    "vendor_entity_id", "appliance", "promoted_to", "promoted_to_remote",
+    "source_wig",
+})
 
 
 @dataclass
@@ -1269,6 +1474,11 @@ class UnknownDevice:
     # cells hash over the closet's matrix wigs, so a renamed wig still
     # points home. None for every other remote.
     source_wig: dict[str, Any] | None = None
+    # Keys this parser did not consume, written back last so a newer
+    # build's fields survive an older build's save (0.10.1 item 2).
+    _extra: dict[str, Any] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def get_signal(
         self,
@@ -1364,7 +1574,7 @@ class UnknownDevice:
         self.signals = [by_id[sid] for sid in signal_ids]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        return _with_extra({
             "id": self.id,
             "fingerprint": self.fingerprint,
             "protocol": self.protocol,
@@ -1382,11 +1592,11 @@ class UnknownDevice:
             "promoted_to": self.promoted_to,
             "promoted_to_remote": self.promoted_to_remote,
             "source_wig": dict(self.source_wig) if self.source_wig else None,
-        }
+        }, self._extra)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UnknownDevice:
-        return cls(
+        return _carry_extra(cls(
             id=data.get("id") or _new_id(),
             fingerprint=data.get("fingerprint", ""),
             protocol=data.get("protocol"),
@@ -1407,4 +1617,4 @@ class UnknownDevice:
             promoted_to=data.get("promoted_to"),
             promoted_to_remote=data.get("promoted_to_remote"),
             source_wig=data.get("source_wig") or None,
-        )
+        ), data, _KNOWN_CATALOG_DEVICE)

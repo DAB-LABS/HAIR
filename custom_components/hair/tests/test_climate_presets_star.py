@@ -123,8 +123,17 @@ def _matrix() -> ClimateMatrix:
     )
 
 
-async def _matrix_entity(starred: list[str] | None = None):
-    """A matrix-mode entity carrying one saved STATE row."""
+async def _matrix_entity(
+    starred: list[str] | None = None, *, stamped: bool = True
+):
+    """A matrix-mode entity carrying one saved STATE row.
+
+    ``stamped`` is 0.10.1 item 7's coordinates. True is the normal
+    case from that release on: the row is stamped at mint, and rows
+    minted before it are stamped by the setup backfill. False is the
+    row the backfill could not match, which still moves the readout
+    and nothing else.
+    """
     device = IRDevice(
         id="dev-matrix",
         name="Living Room AC",
@@ -138,6 +147,13 @@ async def _matrix_entity(starred: list[str] | None = None):
                 source=CommandSource.MATRIX,
                 protocol="PRONTO",
                 code="P-C-A-22",
+                sent_state=(
+                    {
+                        "mode": "cool", "fan": "auto",
+                        "swing": None, "temp": 22.0,
+                    }
+                    if stamped else None
+                ),
             ),
         ],
         entity_config=EntityConfig(
@@ -350,7 +366,9 @@ class TestSetPresetMode:
         # The ordinary device send path -- the same call the row's TEST
         # button makes, which is what stamps the Mirror row via
         # record_send. A bespoke send here would go unlogged.
-        mgr.async_send_command.assert_awaited_once_with("dev-flat", "c-sleep")
+        mgr.async_send_command.assert_awaited_once_with(
+            "dev-flat", "c-sleep", origin="entity"
+        )
         assert entity.preset_mode == "Sleep"
 
     @pytest.mark.asyncio
@@ -381,21 +399,50 @@ class TestSetPresetMode:
         entity, mgr = await _matrix_entity([STATE_ROW])
         await entity.async_set_preset_mode(STATE_ROW)
         mgr.async_send_command.assert_awaited_once_with(
-            "dev-matrix", "c-state"
+            "dev-matrix", "c-state", origin="entity"
         )
         assert entity.preset_mode == STATE_ROW
         assert entity.extra_state_attributes["matrix_cell"] == STATE_ROW
 
     @pytest.mark.asyncio
-    async def test_preset_does_not_move_the_dial(self):
-        """No parsing of the display grammar back into mode/fan/temp:
-        the dial stays where it was."""
+    async def test_a_preset_moves_the_dial(self):
+        """REVERSES climate-presets-star.md 3.3 (0.10.1 item 7, GH #105).
+
+        "Leave the dial where it was" was the right call while a STATE
+        row carried only bytes, because the alternative was parsing the
+        display grammar back into coordinates. The row now CARRIES its
+        coordinates, so the state is read as data and the whole card
+        follows the preset, which is what a preset was always meant to
+        do.
+        """
         entity, _ = await _matrix_entity([STATE_ROW])
         entity._target_temperature = 26.0
-        entity._fan_mode = "auto"
+        entity._fan_mode = "low"
+        entity._hvac_mode = HVACMode.OFF
+
         await entity.async_set_preset_mode(STATE_ROW)
-        assert entity.target_temperature == 26.0
+
+        assert entity.hvac_mode == HVACMode.COOL
         assert entity.fan_mode == "auto"
+        assert entity.target_temperature == 22.0
+        assert entity.preset_mode == STATE_ROW
+
+    @pytest.mark.asyncio
+    async def test_an_unstamped_state_row_moves_only_the_readout(self):
+        """A row the setup backfill could not match against the current
+        lattice: no coordinates to move the dial with, and its name is
+        still its cell's display name, so the readout can follow. What
+        0.10.0 did, kept for the rows that cannot do better."""
+        entity, _ = await _matrix_entity([STATE_ROW], stamped=False)
+        entity._target_temperature = 26.0
+        entity._fan_mode = "low"
+
+        await entity.async_set_preset_mode(STATE_ROW)
+
+        assert entity.target_temperature == 26.0
+        assert entity.fan_mode == "low"
+        assert entity.extra_state_attributes["matrix_cell"] == STATE_ROW
+        assert entity.preset_mode == STATE_ROW
 
 
 class TestPresetModeClears:

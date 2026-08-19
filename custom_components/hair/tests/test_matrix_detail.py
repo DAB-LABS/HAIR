@@ -412,6 +412,13 @@ class TestMatrixSend:
         manager.async_send_matrix_cell.assert_awaited_once_with(
             "dev-1", "cool / fan: quiet / swing: swing / 25",
             "P-C-Q-S-25", 2, heard_future=ANY,
+            # 0.10.1 item 7: the coordinates ride with the send so the
+            # climate card follows the card's own SEND.
+            cell={
+                "mode": "cool", "fan": "quiet",
+                "swing": "swing", "temp": 25,
+            },
+            power=None,
         )
         # Second Fitting v3 punch list item 14: nothing echoed back
         # through the mocked manager, so heard is false after the
@@ -473,6 +480,12 @@ class TestMatrixSend:
         manager.async_send_matrix_cell.assert_awaited_once_with(
             "dev-1", "cool / fan: auto / 72", "P-C-A-22", 1,
             heard_future=ANY,
+            # Native file coordinates, not the converted display name.
+            cell={
+                "mode": "cool", "fan": "auto",
+                "swing": None, "temp": 22,
+            },
+            power=None,
         )
         conn.send_result.assert_called_once_with(
             1, {
@@ -505,6 +518,7 @@ class TestMatrixSend:
         })
         manager.async_send_matrix_cell.assert_awaited_once_with(
             "dev-1", "Off", "P-OFF", 1, heard_future=ANY,
+            cell=None, power="off",
         )
 
     @pytest.mark.asyncio
@@ -558,6 +572,16 @@ class TestMatrixCommand:
         assert command.send_count == 2
         # The origin marker: source "matrix" IS the STATE chip signal.
         assert command.source == CommandSource.MATRIX
+        # 0.10.1 item 7: it also remembers WHICH state it is, in the
+        # file's native coordinates, so sending it later moves the
+        # climate card.
+        assert command.sent_state == {
+            "mode": "cool", "fan": "quiet", "swing": "swing", "temp": 25,
+        }
+        # And it is NOT a porthole: a porthole IS the lattice cell, so
+        # deleting one deletes the cell. Deleting a saved STATE row must
+        # delete a command and nothing else.
+        assert command.matrix_cell is None
         payload = conn.send_result.call_args[0][1]
         assert payload["commands"][0]["source"] == "matrix"
 

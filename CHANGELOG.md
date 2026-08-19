@@ -5,6 +5,58 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-08-19 -- Split Ends
+
+### Fixed
+
+- **The first press after a restart.** An air-conditioner Remote
+  reads its lattice of states the first time it hears something, and
+  that read used to happen while the press was arriving, so the press
+  itself could be missed. Codes that send a single frame, which is
+  most codes from a file, were the ones that lost it. HAIR now loads
+  every lattice before it starts listening.
+- **Deleting a Device left the Remotes pinned to it looking pinned.**
+  The Remote kept the deleted Device on its list, so its card, its
+  settings and the Mirror all said it was driving something, while a
+  press went nowhere. Deleting a Device now unpins it everywhere, and
+  a Remote carrying a pin to a Device that is already gone is tidied
+  up on the next restart.
+- **Changing a Device's type now gives you the new entity straight
+  away.** Setting a Device adopted as Other to Fan, or to an air
+  conditioner, saved the change but grew no Home Assistant entity
+  until a restart. The old entity is now retired and the new one
+  created as soon as you save, on the same device page. Closes GH
+  #106.
+- **The Remotes add tile reads the same at every count.** On an
+  install with no named Remote yet, the dashed tile at the end of the
+  Remotes section showed a different, larger, untranslated version of
+  itself, and switched to the normal one as soon as a Remote existed.
+  It is now the one tile, in your language, always.
+- **HAIR now tells you when its catalog stops saving.** If Home
+  Assistant refuses to write one of HAIR's files, HAIR raises a
+  notification naming what stopped saving and warns in the log, once,
+  and clears the notification itself when saving works again. Before
+  this, saves could fail silently and captures were quietly not kept.
+  One cause of that is closed too: a decoded value too large to store
+  can no longer block the file, and the signal is simply kept
+  undecoded, with the raw timings that are authoritative anyway.
+- **Newer fields survive an older build's save.** Going back to an
+  earlier HAIR and returning no longer strips settings the older build
+  did not know about.
+
+### Changed
+
+- **The thermostat card follows every HAIR send.** Sending a state
+  from the STATE MATRIX card, a saved state, a preset, a command row,
+  a button entity, or a press on a pinned handset now moves the
+  thermostat card in Home Assistant to what was sent, in the same
+  breath as the send. Before, only the card's own controls moved it,
+  so the air conditioner and the card could disagree. It follows what
+  HAIR sends, not what it hears, and only when the send actually
+  reached a blaster. Where a Device has power monitoring, the power
+  sensor still has the last word on whether the unit is on or off.
+  Closes GH #105.
+
 ## [0.10.0] - 2026-08-18 -- Remotes Have Been Buffed
 
 ### Added

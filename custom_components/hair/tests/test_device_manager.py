@@ -1,6 +1,7 @@
 """Tests for the device manager."""
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import homeassistant.components.infrared as _infrared_mod
@@ -658,3 +659,133 @@ async def test_removing_temp_command_retires_preset(manager):
     await manager.async_remove_command(device.id, target.id)
     refreshed = manager.get_device(device.id)
     assert refreshed.entity_config.temperature_presets is None
+
+
+# ---------------------------------------------------------------------------
+# Deleting a Device unpins it (0.10.1 item 8)
+# ---------------------------------------------------------------------------
+
+
+def _registry_patch():
+    return patch(
+        "custom_components.hair.device_manager.dr.async_get",
+        return_value=MagicMock(
+            async_get_or_create=MagicMock(return_value=MagicMock(id="ha-1")),
+            async_get_device=MagicMock(return_value=MagicMock(id="ha-1")),
+            async_remove_device=MagicMock(),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_pinned_device_unpins_every_remote(
+    manager, caplog
+):
+    from custom_components.hair.models import TriggerRemote
+
+    device = IRDevice(name="TV", device_type=DeviceType.MEDIA_PLAYER)
+    other = IRDevice(name="Amp", device_type=DeviceType.MEDIA_PLAYER)
+    remote = TriggerRemote(
+        name="Handset",
+        pinned_device_ids=[device.id, other.id],
+        bindings={device.id: {"t1": "c1"}, other.id: {}},
+    )
+    manager._store.add_trigger_remote(remote)
+    with _registry_patch():
+        await manager.async_create_device(device)
+        await manager.async_create_device(other)
+        with caplog.at_level(
+            logging.INFO, logger="custom_components.hair.device_manager"
+        ):
+            assert await manager.async_remove_device(device.id) is True
+
+    stored = manager._store.get_trigger_remote(remote.id)
+    assert stored.pinned_device_ids == [other.id]
+    assert device.id not in stored.bindings
+    assert "Unpinned Remote 'Handset' from deleted Device" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_remote_left_with_no_valid_pin_reads_as_unpinned(manager):
+    """A non-empty pinned_device_ids is what every surface calls PINNED."""
+    from custom_components.hair.models import TriggerRemote
+
+    device = IRDevice(name="TV", device_type=DeviceType.MEDIA_PLAYER)
+    remote = TriggerRemote(name="Handset", pinned_device_ids=[device.id])
+    manager._store.add_trigger_remote(remote)
+    with _registry_patch():
+        await manager.async_create_device(device)
+        await manager.async_remove_device(device.id)
+
+    stored = manager._store.get_trigger_remote(remote.id)
+    assert stored.pinned_device_ids == []
+    assert stored.bindings == {}
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_unpinned_device_touches_no_remote(manager):
+    from custom_components.hair.models import TriggerRemote
+
+    device = IRDevice(name="TV", device_type=DeviceType.MEDIA_PLAYER)
+    keeper = IRDevice(name="Amp", device_type=DeviceType.MEDIA_PLAYER)
+    remote = TriggerRemote(name="Handset", pinned_device_ids=[keeper.id])
+    manager._store.add_trigger_remote(remote)
+    with _registry_patch():
+        await manager.async_create_device(device)
+        await manager.async_create_device(keeper)
+        before = manager._store.get_trigger_remote(remote.id).updated_at
+        await manager.async_remove_device(device.id)
+
+    stored = manager._store.get_trigger_remote(remote.id)
+    assert stored.pinned_device_ids == [keeper.id]
+    assert stored.updated_at == before
+
+
+@pytest.mark.asyncio
+async def test_the_unpin_commits_with_the_delete(manager):
+    """One save covers both halves, so a crash cannot leave a live pin
+    pointing at a device the store has already dropped."""
+    from custom_components.hair.models import TriggerRemote
+
+    device = IRDevice(name="TV", device_type=DeviceType.MEDIA_PLAYER)
+    remote = TriggerRemote(name="Handset", pinned_device_ids=[device.id])
+    manager._store.add_trigger_remote(remote)
+    with _registry_patch():
+        await manager.async_create_device(device)
+        await manager.async_remove_device(device.id)
+
+    saved = manager._store._store._data
+    assert saved["devices"] == []
+    assert saved["trigger_remotes"][0]["pinned_device_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_matrix_device_drops_the_listeners_caches(manager):
+    """A pinned matrix Device is indexed in the LISTENER's cache."""
+    from custom_components.hair.const import DOMAIN
+
+    listener = MagicMock()
+    manager._hass.data.setdefault(DOMAIN, {})["entry-1"] = {
+        "matrix_listener": listener
+    }
+    device = IRDevice(name="AC", device_type=DeviceType.AC)
+    with _registry_patch():
+        await manager.async_create_device(device)
+        await manager.async_remove_device(device.id)
+
+    listener.forget_matrix.assert_called_once_with(device.id)
+
+
+@pytest.mark.asyncio
+async def test_cache_hygiene_never_fails_a_committed_delete(manager):
+    from custom_components.hair.const import DOMAIN
+
+    listener = MagicMock()
+    listener.forget_matrix.side_effect = RuntimeError("boom")
+    manager._hass.data.setdefault(DOMAIN, {})["entry-1"] = {
+        "matrix_listener": listener
+    }
+    device = IRDevice(name="AC", device_type=DeviceType.AC)
+    with _registry_patch():
+        await manager.async_create_device(device)
+        assert await manager.async_remove_device(device.id) is True

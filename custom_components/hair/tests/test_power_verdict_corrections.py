@@ -34,6 +34,7 @@ from custom_components.hair.fan import HAIRFanEntity
 from custom_components.hair.light import HAIRLightEntity
 from custom_components.hair.media_player import HAIRMediaPlayerEntity
 from custom_components.hair.models import EntityConfig, IRDevice
+from custom_components.hair.power_monitor import SIGNAL_POWER_VERDICT
 from custom_components.hair.switch import HAIRSwitchEntity
 
 # ---------------------------------------------------------------------------
@@ -81,6 +82,10 @@ async def _wired_entity(entity_cls, module_path, device, manager=None):
     platform module's ``async_dispatcher_connect`` with a side_effect
     that stashes the callback instead of conftest's bare MagicMock, so
     the test can invoke it directly the way power_monitor.py would.
+
+    Keyed on the SIGNAL, not on call order: the climate entity also
+    subscribes to SIGNAL_DEVICE_SENT (0.10.1 item 7), so taking
+    whichever callback registered last would hand the wrong one back.
     """
     mgr = manager if manager is not None else _manager()
     entity = entity_cls(device, mgr)
@@ -89,7 +94,8 @@ async def _wired_entity(entity_cls, module_path, device, manager=None):
     captured: dict[str, object] = {}
 
     def _fake_connect(hass_arg, signal, callback_fn):
-        captured["callback"] = callback_fn
+        if signal == SIGNAL_POWER_VERDICT:
+            captured["callback"] = callback_fn
         return MagicMock()
 
     with patch(f"{module_path}.async_dispatcher_connect", side_effect=_fake_connect):

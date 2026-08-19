@@ -14,6 +14,7 @@ from .const import (
 )
 from .identity import NormFpIndex
 from .models import IRDevice, IRTrigger, TriggerRemote
+from .store_health import StoreHealth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,6 +123,14 @@ class HAIRStore:
         # and identity.NormFpIndex for why a value two different codes
         # claim is answered as no match at all.
         self._idx_norm_fp: NormFpIndex = NormFpIndex()
+        # A refused write is reported ONCE and cleared by the next good
+        # save (0.10.1 item 1). The Sniffer catalog is where the
+        # eighty-minute silence happened; this store gets the same
+        # treatment because the failure mode is the writer's, not the
+        # payload's.
+        self._health = StoreHealth(
+            hass, "devices", "device catalog", STORAGE_KEY
+        )
 
     @property
     def loaded(self) -> bool:
@@ -214,8 +223,17 @@ class HAIRStore:
             await self.async_save()
 
     async def async_save(self) -> None:
-        """Persist current in-memory state."""
-        await self._store.async_save(self._serialize())
+        """Persist current in-memory state.
+
+        Same surfacing as the Sniffer catalog (0.10.1 item 1): a refused
+        write is caught, reported ONCE, and cleared by the next good
+        save. Deliberately does not raise -- several callers are
+        fire-and-forget tasks off the capture and fire paths, so raising
+        here would be swallowed anyway and lose the report with it.
+        """
+        await self._health.guarded_save(
+            lambda: self._store.async_save(self._serialize())
+        )
 
     def _serialize(self) -> dict[str, Any]:
         return {
@@ -312,15 +330,60 @@ class HAIRStore:
         restart" rather than as a wrong retransmit that never heals.
         Returns True when anything changed, folding into async_load's
         single save like the other backfills.
+
+        IT ALSO PRUNES (0.10.1 item 8). Until 0.10.1 nothing removed a
+        deleted device's id from ``pinned_device_ids``, so existing
+        stores carry pins pointing at devices that are gone. Derivation
+        has always skipped an id it cannot resolve, which is exactly why
+        the leak stayed invisible: the remote sends nothing and cannot
+        raise, while every surface that reads "pinned" off a non-empty
+        list keeps saying it is pinned. Dropping them here means a store
+        heals on the next restart rather than needing the user to
+        re-pin, and the delete cascade in ``device_manager`` keeps new
+        ones from being made.
         """
         from .pin_bindings import rederive_remote
 
         changed = False
         for remote in self._trigger_remotes.values():
+            if remote.pinned_device_ids or remote.bindings:
+                changed = self._prune_dangling_pins(remote) or changed
             if not remote.pinned_device_ids:
                 continue
             changed = rederive_remote(self, remote) or changed
         return changed
+
+    def _prune_dangling_pins(self, remote: TriggerRemote) -> bool:
+        """Drop one remote's pins and bindings that resolve to nothing.
+
+        A bindings key with no surviving pin goes too: derivation only
+        writes keys for pinned devices, so one that is there without a
+        pin can only be residue, and leaving it would let a stale map
+        outlive the pin that justified it.
+        """
+        dangling = [
+            device_id
+            for device_id in remote.pinned_device_ids
+            if self.get_device(device_id) is None
+        ]
+        if dangling:
+            remote.pinned_device_ids = [
+                device_id
+                for device_id in remote.pinned_device_ids
+                if device_id not in dangling
+            ]
+            _LOGGER.info(
+                "Dropped %d dangling pin(s) from Remote '%s' at load",
+                len(dangling), remote.name,
+            )
+        stale = [
+            device_id
+            for device_id in remote.bindings
+            if device_id not in remote.pinned_device_ids
+        ]
+        for device_id in stale:
+            remote.bindings.pop(device_id, None)
+        return bool(dangling or stale)
 
     def _backfill_trigger_decoded(self) -> bool:
         """Decode stored trigger codes into ``decoded_fingerprint`` in place.

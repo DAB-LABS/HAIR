@@ -3396,3 +3396,82 @@ class TestHeaderPinLayout:
         assert 'class="header-left"' in drawer
         assert 'class="trh-count"' in drawer
         assert ".trh-header.rdetail-top {" in text
+
+
+class TestRemotesGhostTileIsAlwaysCompact:
+    """0.10.1 item 6, owner on production after the 0.10.0 release.
+
+    With no named Remote the Remotes ghost tile read "+ Add a Remote /
+    Drag a code-set file or click", and flipped to the compact
+    "(+) Click to add, or drop a Wig, SmartIR, Flipper, LIRC, or Girr
+    file" as soon as one Remote existed. Two causes in one line:
+    ir-device-list passed `.empty=${triggerRemotes.length === 0}`, which
+    selected a middle "fuller" layout, and that layout's copy was the
+    only user-reachable string the 08-16 redline had held back. So a
+    fresh install read held English until its first Remote.
+
+    The Remotes grid is never truly empty -- the HAIR Triggers drawer
+    always occupies a card -- so the tile always has a neighbour and the
+    compact layout is the right one at every count. The fuller layout is
+    deleted rather than re-copied: nothing else wanted it, and `spanFull`
+    went with it since Devices only ever passed the two together.
+    Devices keeps the full layout for the genuine zero-devices case.
+    """
+
+    def test_the_remotes_tile_takes_no_empty_binding(self):
+        text = _read("ir-device-list.ts")
+        remotes = text.split('kind="remote"')[1].split("</ir-ghost-tile>")[0]
+        assert ".empty=" not in remotes
+        assert ".spanFull=" not in remotes
+
+    def test_devices_keeps_its_zero_devices_layout(self):
+        text = _read("ir-device-list.ts")
+        assert ".empty=${true}" in text
+        assert 'kind="device"' in text
+
+    def test_the_fuller_layout_and_its_held_english_are_gone(self):
+        text = _read("ir-ghost-tile.ts")
+        assert "hintFuller" not in text
+        assert ".gt-tile-fuller {" not in text
+        # The retired sentence survives in the class docstring above as
+        # history, so the ban is on the code construct, not the words.
+        assert 'hintFuller: "' not in text
+
+    def test_span_full_is_retired(self):
+        """Checked as code constructs: the file header still names the
+        prop as history, by design."""
+        text = _read("ir-ghost-tile.ts")
+        assert "public spanFull" not in text
+        assert "this.spanFull" not in text
+
+    def test_remotes_carries_no_full_layout_copy(self):
+        """The remaining held English on the Remotes side was
+        unreachable rather than wrong, which is exactly how it came back
+        the first time: a string nothing renders is a string nobody
+        redlines, waiting for a consumer to reach it. Deleted, so a
+        future full-layout Remotes tile has to ask for its copy."""
+        text = _read("ir-ghost-tile.ts")
+        remote = text.split("    remote: {")[1].split("};")[0]
+        assert "title:" not in remote
+        assert "hintFull:" not in remote
+
+    def test_a_remotes_tile_handed_empty_renders_compact(self):
+        """The component decides the layout now, rather than trusting
+        the binding. Without this a future edit to ir-device-list would
+        render a Remotes tile with an undefined title."""
+        text = _read("ir-ghost-tile.ts")
+        assert 'const full = this.empty && this.kind === "device";' in text
+        assert "${full" in text
+        assert "${this.empty" not in text
+
+    def test_the_compact_hint_is_still_the_localized_one(self):
+        """The layout the user now always sees is the redlined one, and
+        it reads through t() in all ten dictionaries."""
+        text = _read("ir-ghost-tile.ts")
+        assert "${t(copy.hintCompactKey)}" in text
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            assert data["ghost.hint_compact_remote"]
+            assert data["ghost.hint_compact_device"]
