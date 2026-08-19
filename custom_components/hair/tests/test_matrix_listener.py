@@ -21,6 +21,7 @@ import csv as _csv
 import gzip as _gzip
 import io as _io
 import json as _json
+import logging as _logging
 from pathlib import Path as _Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1172,3 +1173,174 @@ async def test_a_press_whose_frames_split_by_330ms_is_still_one_event(
 def test_the_window_is_the_ruled_number():
     """Pinned, because the number is a ruling and not a taste."""
     assert MATRIX_STATE_DEDUP_WINDOW_S == 0.400
+
+
+# ---------------------------------------------------------------------------
+# Warming the index at setup (0.10.1 item 3)
+# ---------------------------------------------------------------------------
+#
+# The lazy first-frame build is 6 to 12 ms of disk read, which is small
+# enough to look safe and is not: a single-frame file-sourced code
+# pressed in the first moments after a restart falls inside it and is
+# missed outright. These pin that the warm happens before any frame can
+# arrive, and that the lazy path is still there for a remote minted
+# later in the run.
+
+
+def _warm_listener(*remotes, config_dir, devices=()):
+    """A listener whose store answers for these remotes and devices."""
+    store = _store_with(*remotes)
+    by_id = {d.id: d for d in devices}
+    store.get_device = MagicMock(side_effect=by_id.get)
+    hass = _hass(store)
+    hass.config.config_dir = str(config_dir)
+    return hass, store, MatrixListener(hass, store)
+
+
+@pytest.mark.asyncio
+async def test_a_single_frame_right_after_the_warm_matches(tmp_path):
+    """The regression itself: one frame, immediately, and it is heard."""
+    from custom_components.hair.matrix_listener import _build_and_store_index
+    from custom_components.hair.matrix_store import write_matrix
+
+    write_matrix(tmp_path, "r1", _matrix())
+    _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    hass, _store, listener = _warm_listener(remote, config_dir=tmp_path)
+
+    await listener.async_warm_indexes()
+
+    assert listener._index_cache["r1"]
+    identity = _identity(PRONTO_COOL_22)
+    heard = await listener.on_signal_captured(
+        identity.fingerprint, identity.byte_hash,
+        identity.decoded_fingerprint, None,
+    )
+    assert heard == ["r1"]
+    assert hass.bus.async_fire.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_the_warm_reads_a_stored_index_rather_than_rebuilding(tmp_path):
+    from custom_components.hair.matrix_listener import _build_and_store_index
+    from custom_components.hair.matrix_store import write_matrix
+
+    write_matrix(tmp_path, "r1", _matrix())
+    _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    _h, _s, listener = _warm_listener(remote, config_dir=tmp_path)
+
+    with patch(
+        "custom_components.hair.matrix_listener.build_cell_index"
+    ) as never:
+        await listener.async_warm_indexes()
+
+    never.assert_not_called()
+    assert listener._index_cache["r1"]
+
+
+@pytest.mark.asyncio
+async def test_the_warm_builds_and_stores_an_index_when_none_is_on_disk(
+    tmp_path,
+):
+    from custom_components.hair.matrix_store import index_path, write_matrix
+
+    write_matrix(tmp_path, "r1", _matrix())
+    assert not index_path(tmp_path, "r1").is_file()
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    _h, _s, listener = _warm_listener(remote, config_dir=tmp_path)
+
+    await listener.async_warm_indexes()
+
+    assert listener._index_cache["r1"]
+    assert index_path(tmp_path, "r1").is_file()
+
+
+@pytest.mark.asyncio
+async def test_the_warm_covers_a_pinned_matrix_device_too(tmp_path):
+    """The Track 4 fallback indexes through the same cache."""
+    from custom_components.hair.matrix_store import write_matrix
+
+    write_matrix(tmp_path, "r1", _matrix())
+    write_matrix(tmp_path, "dev-1", _device_matrix())
+    remote = TriggerRemote(
+        id="r1", name="Bedroom AC", climate_matrix=True,
+        pinned_device_ids=["dev-1", "flat-1"],
+    )
+    device = MagicMock(id="dev-1", climate_matrix=True)
+    flat = MagicMock(id="flat-1", climate_matrix=False)
+    _h, _s, listener = _warm_listener(
+        remote, config_dir=tmp_path, devices=(device, flat)
+    )
+
+    await listener.async_warm_indexes()
+
+    assert listener._index_cache["r1"]
+    assert listener._index_cache["dev-1"]
+    assert "flat-1" not in listener._index_cache
+
+
+@pytest.mark.asyncio
+async def test_the_warm_is_silent_with_no_matrix_remotes(caplog, tmp_path):
+    remote = TriggerRemote(id="r1", name="Living room TV")
+    _h, _s, listener = _warm_listener(remote, config_dir=tmp_path)
+
+    with caplog.at_level(
+        _logging.INFO, logger="custom_components.hair.matrix_listener"
+    ):
+        await listener.async_warm_indexes()
+
+    assert listener._index_cache == {}
+    assert "Warmed" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_one_unreadable_lattice_does_not_sink_the_warm(tmp_path):
+    """A failure warms one lattice less; it never fails setup."""
+    from custom_components.hair.matrix_store import write_matrix
+
+    write_matrix(tmp_path, "r2", _matrix())
+    bad = TriggerRemote(id="r1", name="Bad", climate_matrix=True)
+    good = TriggerRemote(id="r2", name="Good", climate_matrix=True)
+    _h, _s, listener = _warm_listener(bad, good, config_dir=tmp_path)
+    real = listener._async_build_index
+
+    async def _explode(matrix_id):
+        if matrix_id == "r1":
+            listener._building.discard(matrix_id)
+            raise OSError("no")
+        return await real(matrix_id)
+
+    listener._async_build_index = _explode
+
+    await listener.async_warm_indexes()
+
+    assert "r1" not in listener._index_cache
+    assert listener._index_cache["r2"]
+
+
+@pytest.mark.asyncio
+async def test_the_warm_skips_a_lattice_already_cached(tmp_path):
+    remote = TriggerRemote(id="r1", name="Bedroom AC", climate_matrix=True)
+    _h, _s, listener = _warm_listener(remote, config_dir=tmp_path)
+    listener._index_cache["r1"] = build_cell_index(_matrix())
+
+    with patch(
+        "custom_components.hair.matrix_listener._load_stored_index"
+    ) as never:
+        await listener.async_warm_indexes()
+
+    never.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_remote_minted_at_runtime_is_warmed_by_its_mint_door():
+    """The lazy path stays, but the mint doors do not wait for it."""
+    listener = MagicMock()
+    from custom_components.hair.websocket_api import _warm_remote_matrix
+
+    _warm_remote_matrix({"matrix_listener": listener}, "r9")
+
+    listener.warm_index.assert_called_once_with("r9")
+    # A caller assembled without a listener must not raise.
+    _warm_remote_matrix({}, "r9")

@@ -53,9 +53,21 @@ came from by content hash and records the display unit its names were
 built in, so a rewritten lattice or a flipped unit system rebuilds
 instead of being believed. Every door that writes, copies or deletes a
 matrix drops the index too.
+
+AND IT IS PAID AT SETUP, NOT ON THE FIRST FRAME (0.10.1 item 3). The
+lazy path above still exists, but nothing should ever need it at boot:
+``async_warm_indexes`` runs once during setup, strictly before any
+receiver is subscribed, so the first press after a restart matches.
+Reading a stored index is 6 to 12 ms, which sounds like a race nobody
+loses -- but a single-frame file-sourced code pressed in the first
+moments after boot fell inside it, and a two-frame press only matched
+because its SECOND frame arrived after the read. The lazy path stays as
+the fallback for a remote minted at runtime, and the mint doors warm
+their new lattice themselves so even that one rarely runs.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -364,6 +376,84 @@ class MatrixListener:
                 remote_id, exc_info=True,
             )
 
+    # --- Warming ------------------------------------------------------
+
+    def _matrix_ids_to_warm(self) -> list[str]:
+        """Every lattice this install can be asked about at boot.
+
+        Both sides of the pairing, because both index through this one
+        cache: a matrix Remote hears on its lattice, and a matrix Device
+        that a Remote is pinned to is asked "which of YOUR cells is this
+        frame?" through ``_cell_by_identity``. Warming only the remotes
+        would leave the Track 4 fallback cold and lose the first press
+        that needs it, which is the same defect one layer down.
+        """
+        ids: list[str] = []
+        seen: set[str] = set()
+
+        def _want(matrix_id: str) -> None:
+            if matrix_id in seen or matrix_id in self._index_cache:
+                return
+            seen.add(matrix_id)
+            ids.append(matrix_id)
+
+        for remote in self._store.get_all_trigger_remotes():
+            if not remote.climate_matrix:
+                continue
+            _want(remote.id)
+            for device_id in remote.pinned_device_ids:
+                device = self._store.get_device(device_id)
+                if device is not None and device.climate_matrix:
+                    _want(device_id)
+        return ids
+
+    async def async_warm_indexes(self) -> None:
+        """Read or build every cell index before the first frame arrives.
+
+        Called once at setup, before receivers are subscribed. Each
+        build already runs its disk read and its per-cell decode in the
+        executor, so the per-lattice work overlaps; a failure warms one
+        lattice less rather than failing setup, since the lazy path is
+        still there to try again on the first frame.
+        """
+        ids = self._matrix_ids_to_warm()
+        if not ids:
+            return
+        results = await asyncio.gather(
+            *(self._async_warm_one(matrix_id) for matrix_id in ids),
+            return_exceptions=True,
+        )
+        read = sum(1 for r in results if r == "read")
+        built = sum(1 for r in results if r == "built")
+        for matrix_id, result in zip(ids, results, strict=True):
+            if isinstance(result, BaseException):
+                _LOGGER.debug(
+                    "Could not warm the cell index for matrix %s at setup; "
+                    "it will be built on the first frame instead",
+                    matrix_id, exc_info=result,
+                )
+        _LOGGER.info(
+            "Warmed %d cell indexes at setup (%d read from disk, %d built)",
+            read + built, read, built,
+        )
+
+    async def _async_warm_one(self, matrix_id: str) -> str | None:
+        """One warm, holding the same in-flight guard the lazy path sets."""
+        if matrix_id in self._building:
+            return None
+        self._building.add(matrix_id)
+        return await self._async_build_index(matrix_id)
+
+    def warm_index(self, matrix_id: str) -> None:
+        """Build one lattice's index now, off the caller's path.
+
+        The mint doors call this the moment a matrix file lands, so a
+        remote created at runtime is ready for its first press the same
+        way a remote that existed at boot is. Safe to call twice: an
+        in-flight build is not started again.
+        """
+        self._schedule_index_build(matrix_id)
+
     # --- Hearing ------------------------------------------------------
 
     async def on_signal_captured(
@@ -453,7 +543,12 @@ class MatrixListener:
         )
         self._hass.async_create_task(self._async_build_index(remote_id))
 
-    async def _async_build_index(self, remote_id: str) -> None:
+    async def _async_build_index(self, remote_id: str) -> str | None:
+        """Populate one lattice's index; "read", "built" or None.
+
+        The return value exists for the setup warm's one INFO line. The
+        lazy path drops it, as a task's result always is.
+        """
         try:
             from .wig_climate import unit_letter
 
@@ -469,10 +564,10 @@ class MatrixListener:
                 _LOGGER.debug(
                     "Cell index for remote %s read from disk", remote_id
                 )
-                return
+                return "read"
             matrix = await self.async_get_matrix(remote_id)
             if matrix is None:
-                return
+                return None
             index = await self._hass.async_add_executor_job(
                 _build_and_store_index,
                 self._hass.config.config_dir, remote_id, matrix, display_unit,
@@ -482,6 +577,7 @@ class MatrixListener:
                 "Cell index built for matrix %s: %d decoded, %d hashed",
                 remote_id, len(index.decoded), len(index.bytehash),
             )
+            return "built"
         finally:
             self._building.discard(remote_id)
 

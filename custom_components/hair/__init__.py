@@ -149,6 +149,14 @@ async def async_setup_entry(
         entry, PLATFORMS_LIST
     )
 
+    # Cell indexes are warmed HERE, strictly before any receiver is
+    # subscribed (0.10.1 item 3). signal_monitor.async_start below is
+    # what calls async_subscribe_receiver, so a frame cannot arrive
+    # while a lattice is still being read; the first press after a
+    # restart matches. The lazy first-frame build stays as the fallback
+    # for a remote minted later in the run.
+    await matrix_listener.async_warm_indexes()
+
     await signal_monitor.async_start()
     # Started AFTER platform setup (same reason signal_monitor is): each
     # device's subscription immediately evaluates and dispatches its power

@@ -148,6 +148,38 @@ class TestAsyncSetupEntry:
             entry, PLATFORMS_LIST
         )
 
+    @pytest.mark.asyncio
+    async def test_cell_indexes_are_warmed_before_receivers_subscribe(self):
+        """0.10.1 item 3: no frame can arrive while a lattice is loading.
+
+        signal_monitor.async_start is what calls async_subscribe_receiver,
+        so the warm has to be strictly ahead of it -- being merely "at
+        setup" is what the lazy build already was.
+        """
+        hass = _fake_hass()
+        entry = _fake_entry()
+        order: list[str] = []
+
+        with patch("custom_components.hair.HAIRStore") as mock_store_cls, \
+             patch("custom_components.hair.async_register_websocket_commands"), \
+             patch("custom_components.hair.MatrixListener") as mock_listener_cls, \
+             patch("custom_components.hair.SignalMonitor") as mock_monitor_cls, \
+             patch("custom_components.hair._async_register_panel", new_callable=AsyncMock):
+            mock_store = MagicMock()
+            mock_store.async_load = AsyncMock()
+            mock_store.backfill_catalog_trigger_origins.return_value = False
+            mock_store_cls.return_value = mock_store
+            mock_listener_cls.return_value.async_warm_indexes = AsyncMock(
+                side_effect=lambda: order.append("warm")
+            )
+            mock_monitor_cls.return_value.async_start = AsyncMock(
+                side_effect=lambda: order.append("subscribe")
+            )
+
+            await async_setup_entry(hass, entry)
+
+        assert order == ["warm", "subscribe"]
+
 
 # ===========================================================================
 # async_unload_entry

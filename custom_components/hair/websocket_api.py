@@ -3134,6 +3134,19 @@ def _invalidate_remote_matrix(data: dict[str, Any], remote_id: str) -> None:
         listener.invalidate(remote_id)
 
 
+def _warm_remote_matrix(data: dict[str, Any], remote_id: str) -> None:
+    """Build the index for a lattice that was just written (0.10.1 item 3).
+
+    Called by the MINT doors only, never by the delete one. Setup warms
+    every lattice the store already knows about, so this is what keeps a
+    remote created mid-run from paying the first-frame miss the setup
+    warm exists to remove.
+    """
+    listener = data.get("matrix_listener")
+    if listener is not None:
+        listener.warm_index(remote_id)
+
+
 async def _remote_matrix(
     hass: HomeAssistant, data: dict[str, Any], remote: TriggerRemote
 ) -> Any | None:
@@ -3669,6 +3682,7 @@ async def ws_duplicate_trigger_remote(
         )
         if copied_matrix:
             _invalidate_remote_matrix(data, clone.id)
+            _warm_remote_matrix(data, clone.id)
         else:
             clone.climate_matrix = False
     store.add_trigger_remote(clone)
@@ -5936,6 +5950,7 @@ async def ws_wig_make_remote(
             )
             return
         _invalidate_remote_matrix(data, remote.id)
+        _warm_remote_matrix(data, remote.id)
     store.add_trigger_remote(remote)
 
     triggers: list[IRTrigger] = []
@@ -6064,6 +6079,7 @@ async def ws_device_make_remote(
         remote.climate_matrix = matrix_copied
         if matrix_copied:
             _invalidate_remote_matrix(data, remote.id)
+            _warm_remote_matrix(data, remote.id)
     store.add_trigger_remote(remote)
 
     triggers: list[IRTrigger] = []
