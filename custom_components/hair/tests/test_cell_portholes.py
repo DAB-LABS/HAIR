@@ -321,3 +321,59 @@ class TestTheCombMarker:
         from custom_components.hair.wig_comb import suspect_findings
 
         assert suspect_findings(wig) == {}
+
+
+class TestASavedStateRowIsNotAPorthole:
+    """0.10.1 item 7 keeps the two apart deliberately.
+
+    A saved STATE row and a porthole row both carry a lattice cell's
+    bytes and both name a cell's coordinates, so it is tempting to
+    stamp one field for both. They mean opposite things about
+    ownership: a porthole IS the cell (edit rewrites it, DELETE DELETES
+    IT), while a saved STATE row is an ordinary stored command that
+    happens to transmit those bytes. Sharing the field would have made
+    deleting a saved STATE row silently remove the state from the
+    device's matrix.
+    """
+
+    @pytest.mark.asyncio
+    async def test_deleting_a_saved_state_row_leaves_the_lattice_alone(
+        self, fake_hass
+    ):
+        from custom_components.hair.const import CommandSource
+
+        row = IRCommand(
+            id="c1", name="cool / fan: auto / 24",
+            source=CommandSource.MATRIX,
+            sent_state={"mode": "cool", "fan": "auto",
+                        "swing": None, "temp": 24.0},
+        )
+        device = IRDevice(name="AC", commands=[row], climate_matrix=True)
+        manager = MagicMock()
+        manager.get_device = MagicMock(return_value=device)
+        manager.async_delete_cell = AsyncMock(return_value=True)
+        manager.async_remove_command = AsyncMock(return_value=True)
+        fake_hass.data[DOMAIN] = {"entry-1": {"device_manager": manager}}
+        conn = MagicMock()
+        conn.send_result = MagicMock()
+        conn.send_error = MagicMock()
+
+        await ws_delete_command(fake_hass, conn, {
+            "id": 1, "type": "hair/command/delete",
+            "device_id": device.id, "command_id": "c1",
+        })
+
+        manager.async_delete_cell.assert_not_awaited()
+        manager.async_remove_command.assert_awaited_once()
+
+    def test_sent_state_is_not_read_as_a_porthole(self):
+        row = IRCommand(
+            id="c1", name="cool / fan: auto / 24",
+            sent_state={"mode": "cool", "fan": "auto",
+                        "swing": None, "temp": 24.0},
+        )
+        device = IRDevice(name="AC", commands=[row])
+        manager = MagicMock()
+        manager.get_device = MagicMock(return_value=device)
+
+        assert _porthole_cell(manager, device.id, "c1") is None

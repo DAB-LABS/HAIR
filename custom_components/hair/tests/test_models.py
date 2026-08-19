@@ -813,3 +813,51 @@ def test_trigger_remote_clone_carries_flag_not_heard_state():
     assert clone.climate_matrix is True
     assert clone.last_heard is None
     assert clone.id != source.id
+
+
+class TestSentState:
+    """0.10.1 item 7: which state a saved STATE row transmits.
+
+    A separate field from ``matrix_cell`` on purpose. The two carry the
+    same four keys and mean opposite things about ownership: a porthole
+    IS the lattice cell, a saved STATE row merely transmits its bytes.
+    """
+
+    def test_defaults_to_none(self):
+        assert IRCommand(name="Power").sent_state is None
+
+    def test_round_trips(self):
+        state = {"mode": "cool", "fan": "auto", "swing": None, "temp": 22.0}
+        command = IRCommand(name="cool / fan: auto / 22", sent_state=state)
+        assert IRCommand.from_dict(command.to_dict()).sent_state == state
+
+    def test_a_power_state_round_trips(self):
+        command = IRCommand(name="Off", sent_state={"power": "off"})
+        assert IRCommand.from_dict(command.to_dict()).sent_state == {
+            "power": "off"
+        }
+
+    def test_absent_reads_as_none(self):
+        assert IRCommand.from_dict({"name": "Power"}).sent_state is None
+
+    def test_it_is_independent_of_matrix_cell(self):
+        command = IRCommand(
+            name="cool / fan: auto / 22",
+            sent_state={"mode": "cool", "fan": "auto",
+                        "swing": None, "temp": 22.0},
+        )
+        assert command.matrix_cell is None
+        restored = IRCommand.from_dict(command.to_dict())
+        assert restored.matrix_cell is None
+        assert restored.sent_state is not None
+
+    def test_a_clone_carries_it(self):
+        """The duplicate gets a byte copy of the lattice, so the
+        coordinates are as true on the clone as on the original."""
+        state = {"mode": "cool", "fan": "auto", "swing": None, "temp": 22.0}
+        device = IRDevice(
+            name="AC",
+            commands=[IRCommand(name="cool / fan: auto / 22",
+                                sent_state=state)],
+        )
+        assert device.clone("AC copy").commands[0].sent_state == state

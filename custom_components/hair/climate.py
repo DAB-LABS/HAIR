@@ -14,6 +14,7 @@ Two operating modes since Cold Cuts (v0.8.8), selected by
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
@@ -43,6 +44,11 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .const import DOMAIN, CommandSource, DeviceType
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
+from .send_signal import (
+    ORIGIN_ENTITY,
+    SIGNAL_DEVICE_SENT,
+    DeviceSent,
+)
 from .wig_climate import (
     cell_display_name,
     ha_mode_for,
@@ -198,6 +204,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # None only until the entity has ever been on.
         self._last_active_hvac_mode: HVACMode | None = None
         self._power_verdict_unsub: CALLBACK_TYPE | None = None
+        self._device_sent_unsub: CALLBACK_TYPE | None = None
         # Climate room sensors (Device Settings, climate-sensors.md,
         # riding 0.9.8). Display-only mirror of a configured
         # thermometer/hygrometer -- no verdicts, no thresholds, and
@@ -222,12 +229,21 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._power_verdict_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_POWER_VERDICT, self._handle_power_verdict
         )
+        # The card follows what HAIR sends (0.10.1 item 7, GH #105).
+        # Same shape as the power-verdict subscription right above, and
+        # it layers UNDER it: a send is belief, the plug is evidence.
+        self._device_sent_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_DEVICE_SENT, self._handle_device_sent
+        )
         self._subscribe_sensors()
 
     async def async_will_remove_from_hass(self) -> None:
         if self._power_verdict_unsub is not None:
             self._power_verdict_unsub()
             self._power_verdict_unsub = None
+        if self._device_sent_unsub is not None:
+            self._device_sent_unsub()
+            self._device_sent_unsub = None
         self._unsubscribe_sensors()
 
     async def _async_restore_state(self) -> None:
@@ -351,6 +367,163 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if self._hvac_mode != HVACMode.OFF:
             self._last_active_hvac_mode = self._hvac_mode
 
+    # -- the card follows what HAIR sends (0.10.1 item 7, GH #105) ------
+    #
+    # Until 0.10.1 only this entity's OWN services moved state, so the
+    # STATE MATRIX card's SEND, a command row's SEND (including a saved
+    # STATE row), a pinned Remote's retransmit and a HAIR button entity
+    # all reached the air conditioner and left the thermostat card
+    # where it was. mode0192 filed #105 about the preset half; the
+    # owner's ruling in the same breath was the general one: ANY send
+    # HAIR makes to a climate Device should move the card.
+    #
+    # SENT ONLY. A matrix Remote hearing the wall handset does not
+    # touch the card unless it is PINNED, and then it is the pinned
+    # SEND that does, arriving here like any other send.
+    #
+    # UNDER THE PLUG, NOT OVER IT. The 0.9.8 power monitor's rule is
+    # unchanged: the sensor is evidence, assumed state is belief, so a
+    # threshold crossing still overrides whatever was last sent. A HAIR
+    # "on" the unit never received shows on for a moment and is
+    # corrected back to OFF by the plug's next crossing.
+
+    @callback
+    def _handle_device_sent(self, sent: DeviceSent) -> None:
+        """Follow a landed send from anywhere in HAIR."""
+        if sent.device_id != self._device.id:
+            return
+        if sent.origin == ORIGIN_ENTITY:
+            # This entity's own service call. Its setter has already
+            # written the state it intended, with the exact cell in
+            # hand; re-deriving it here would write state twice and let
+            # the derived reading overwrite the exact one.
+            return
+        if self._apply_sent(sent):
+            self.async_write_ha_state()
+
+    def _hvac_for_file_mode(self, file_mode: str | None) -> HVACMode | None:
+        """The HA mode for a file mode key: the inverse of _file_mode_for."""
+        if not file_mode:
+            return None
+        ha_value = ha_mode_for(file_mode)
+        if ha_value is None:
+            return None
+        try:
+            return HVACMode(ha_value)
+        except ValueError:
+            return None
+
+    def _reverse_command_mapping(self) -> dict[str, str]:
+        """``{command name (casefolded): feature key}``.
+
+        The inverse of ``entity_config.command_mapping``, built per call
+        rather than cached: a mapping change arrives through
+        update_device with no signal of its own, and the map is a
+        handful of entries.
+        """
+        return {
+            str(name).casefold(): key
+            for key, name in self._device.entity_config.command_mapping.items()
+            if name
+        }
+
+    def _apply_sent(self, sent: DeviceSent) -> bool:
+        """Move local state to match a send. True when anything moved.
+
+        Shared by the dispatcher handler and this entity's own preset
+        path, so a preset and a card SEND of the same cell land on
+        exactly the same state. The caller writes state; this only
+        decides.
+        """
+        before = (
+            self._hvac_mode, self._fan_mode, self._swing_mode,
+            self._target_temperature, self._matrix_cell, self._preset_mode,
+        )
+        if self._matrix_mode:
+            self._apply_sent_matrix(sent)
+        else:
+            self._apply_sent_flat(sent)
+        # A starred send IS an HA preset selection; anything else clears
+        # the attribute, exactly as every setter on this entity does, so
+        # it never claims a preset the unit has since moved off.
+        self._preset_mode = sent.command_name if sent.starred else None
+        after = (
+            self._hvac_mode, self._fan_mode, self._swing_mode,
+            self._target_temperature, self._matrix_cell, self._preset_mode,
+        )
+        return before != after
+
+    def _apply_sent_matrix(self, sent: DeviceSent) -> None:
+        if sent.power == "off":
+            self._capture_active_mode()
+            self._hvac_mode = HVACMode.OFF
+            self._matrix_cell = state_display_name("off")
+            return
+        if sent.power == "on":
+            if self._hvac_mode == HVACMode.OFF:
+                self._hvac_mode = (
+                    self._last_active_hvac_mode
+                    or self._first_matrix_hvac_mode()
+                )
+            self._matrix_cell = state_display_name("on")
+            return
+        cell = sent.matrix_cell
+        if not cell:
+            # A send with no coordinates: an extras button riding along
+            # on a matrix device. It may still be starred, which the
+            # caller handles; it moves no dimension.
+            return
+        mode = self._hvac_for_file_mode(cell.get("mode"))
+        if mode is not None:
+            self._hvac_mode = mode
+        if cell.get("fan") is not None:
+            self._fan_mode = cell["fan"]
+        if cell.get("swing") is not None:
+            self._swing_mode = cell["swing"]
+        if cell.get("temp") is not None:
+            # The cell's temp is in the FILE's unit, which is the unit
+            # this entity declares in matrix mode, so it is already
+            # native and HA converts for the card (temperature_unit's
+            # docstring). No conversion here would be one too many.
+            self._target_temperature = float(cell["temp"])
+        # The readout says what went out, in the same display grammar
+        # the Mirror row carries, which is exactly the send's name.
+        self._matrix_cell = sent.command_name
+
+    def _apply_sent_flat(self, sent: DeviceSent) -> None:
+        feature = self._reverse_command_mapping().get(
+            sent.command_name.casefold()
+        )
+        if feature is None:
+            # An unmapped command, starred or not, moves nothing. That
+            # is mode0192's own suggestion for special-function presets
+            # ("Sleep", "Turbo") and matches #105's skip-if-no-matrix-
+            # correspondence line.
+            return
+        if feature == "turn_off":
+            self._capture_active_mode()
+            self._hvac_mode = HVACMode.OFF
+            return
+        if feature in ("turn_on", "power_toggle"):
+            # Only ever an on-transition. A power_toggle sent while the
+            # entity already reads on is genuinely ambiguous -- it could
+            # be the unit going off -- and guessing would be worse than
+            # holding, since the plug corrects a real off anyway.
+            if self._hvac_mode == HVACMode.OFF:
+                self._hvac_mode = HVACMode.AUTO
+            return
+        for mode, key in HVAC_MODE_TO_FEATURE.items():
+            if key == feature:
+                self._hvac_mode = mode
+                return
+        for fan, key in FAN_MODE_TO_FEATURE.items():
+            if key == feature:
+                self._fan_mode = fan
+                return
+        if feature.startswith("temp_"):
+            with contextlib.suppress(ValueError):
+                self._target_temperature = float(feature[len("temp_"):])
+
     @callback
     def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
         """Apply a power_monitor.py verdict to assumed state.
@@ -362,12 +535,24 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         swing need no restoring -- they were never cleared), falling
         back to the same synthetic first-mode/AUTO convention
         async_turn_on already uses for a device that has never been on.
+
+        Two edits with 0.10.1 item 7, both because a send now sets more
+        than the mode. An "off" verdict clears the preset and the cell
+        readout: the unit is demonstrably no longer in that preset, and
+        leaving either would keep a stale claim on the card next to an
+        OFF state. An "on" verdict restores ``_last_active_hvac_mode``,
+        which the send handler now refreshes by construction, so "the
+        last mode" means the last one HAIR actually SENT rather than the
+        last one a service call happened to set.
         """
         if device_id != self._device.id:
             return
         if verdict == "off":
             self._capture_active_mode()
             self._hvac_mode = HVACMode.OFF
+            self._preset_mode = None
+            if self._matrix_mode:
+                self._matrix_cell = state_display_name("off")
         else:
             if self._hvac_mode == HVACMode.OFF:
                 fallback = (
@@ -805,7 +990,15 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             precision=m.precision if m is not None else 1.0,
         )
         await self._manager.async_send_matrix_cell(
-            self._device.id, name, cell.pronto, cell.send_count
+            self._device.id, name, cell.pronto, cell.send_count,
+            # Own send: the dispatcher handler ignores origin "entity"
+            # because the lines below already write the exact state
+            # this cell IS, with the cell in hand (0.10.1 item 7).
+            cell={
+                "mode": cell.mode, "fan": cell.fan,
+                "swing": cell.swing, "temp": cell.temp,
+            },
+            origin=ORIGIN_ENTITY,
         )
         self._matrix_cell = name
         # Snap the dial to what actually went out: resolve_cell picks
@@ -850,7 +1043,8 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         else:
             name = state_display_name("off")
             await self._manager.async_send_matrix_cell(
-                self._device.id, name, self._matrix.off
+                self._device.id, name, self._matrix.off,
+                power="off", origin=ORIGIN_ENTITY,
             )
             self._matrix_cell = name
         self._capture_active_mode()
@@ -958,10 +1152,23 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         A preset always transmits, including while the entity reads
         OFF: selecting a preset is an explicit "go there", unlike the
         matrix dial setters that store state and wait (plan section
-        3.3). Nothing else about the entity's local state is
-        re-derived from the name -- the display grammar is not parsed
-        back into mode/fan/temp -- so the dial stays where it was and
-        only the cell readout follows.
+        3.3).
+
+        THE DIAL NOW FOLLOWS (0.10.1 item 7, GH #105). climate-presets-
+        star.md 3.3's "leave the dial where it was" is REVERSED: a
+        preset moves mode, fan, swing and temperature like any other
+        send. What changed is not the appetite for parsing the display
+        name -- that is still refused -- but that a STATE row now
+        CARRIES its coordinates (``IRCommand.sent_state``), so the
+        state can be read as data instead of guessed from grammar.
+        A preset with no coordinates behind it still moves nothing but
+        the attribute, which is mode0192's own suggestion for
+        special-function presets.
+
+        The state effect goes through the same ``_apply_sent`` the
+        dispatcher handler uses, applied directly here because the
+        dispatch this send raises is tagged origin "entity" and the
+        handler ignores it. One derivation, two doors.
         """
         command = self._device.get_command_by_name(preset_mode)
         if command is None or preset_mode not in (self.preset_modes or []):
@@ -970,13 +1177,30 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 preset_mode, self._device.name,
             )
             return
-        await self._manager.async_send_command(self._device.id, command.id)
-        self._preset_mode = preset_mode
-        if self._matrix_mode and command.source == CommandSource.MATRIX:
-            # A STATE row's name IS its cell's display name (that is
-            # how save-state-as-command mints it), so the device
-            # page's readout and the Mirror row agree without
-            # re-resolving anything.
+        await self._manager.async_send_command(
+            self._device.id, command.id, origin=ORIGIN_ENTITY
+        )
+        state = command.sent_state or {}
+        power = state.get("power")
+        self._apply_sent(DeviceSent(
+            device_id=self._device.id,
+            command_id=command.id,
+            command_name=command.name,
+            matrix_cell=None if power else (dict(state) or None),
+            power=power,
+            starred=True,
+            origin=ORIGIN_ENTITY,
+        ))
+        if (
+            self._matrix_mode
+            and command.source == CommandSource.MATRIX
+            and not state
+        ):
+            # A STATE row minted before item 7 and never matched by the
+            # setup backfill: no coordinates to move the dial with, but
+            # its name IS its cell's display name (that is how
+            # save-state-as-command mints it), so the readout can still
+            # follow. Better than nothing, and exactly what 0.10.0 did.
             self._matrix_cell = command.name
         self.async_write_ha_state()
 
@@ -989,7 +1213,8 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 # unit resume its own last state.
                 name = state_display_name("on")
                 await self._manager.async_send_matrix_cell(
-                    self._device.id, name, m.on
+                    self._device.id, name, m.on,
+                    power="on", origin=ORIGIN_ENTITY,
                 )
                 self._matrix_cell = name
                 if self._hvac_mode == HVACMode.OFF:
@@ -1057,7 +1282,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             command = self._device.get_command_by_name(command_name)
             if command is not None:
                 await self._manager.async_send_command(
-                    self._device.id, command.id
+                    self._device.id, command.id, origin=ORIGIN_ENTITY
                 )
                 return True
         _LOGGER.warning(

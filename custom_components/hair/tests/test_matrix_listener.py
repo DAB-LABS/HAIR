@@ -472,15 +472,20 @@ class _RecordingDeviceManager:
     def __init__(self, matrix):
         self._matrix = matrix
         self.sends: list[tuple] = []
+        self.states: list[dict] = []
 
     async def async_get_matrix(self, device_id):
         return self._matrix
 
     async def async_send_matrix_cell(
         self, device_id, cell_name, pronto, send_count=1,
-        heard_future=None, pinned=False,
+        heard_future=None, pinned=False, cell=None, power=None,
+        origin=None,
     ):
         self.sends.append((device_id, cell_name, pronto, send_count, pinned))
+        # 0.10.1 item 7: a pinned retransmit carries the DEVICE's own
+        # coordinates so its climate card follows the send.
+        self.states.append({"cell": cell, "power": power})
 
 
 def _pinned(device_matrix=None, *, climate_matrix=True, device_index=None):

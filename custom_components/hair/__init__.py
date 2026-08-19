@@ -157,6 +157,12 @@ async def async_setup_entry(
     # for a remote minted later in the run.
     await matrix_listener.async_warm_indexes()
 
+    # Saved STATE rows minted before 0.10.1 carry only their cell's
+    # bytes, so a send told the climate card nothing. Matching them back
+    # against each device's CURRENT lattice needs this manager's matrix
+    # cache, which is why it runs here and not inside store.async_load.
+    await device_manager.async_backfill_sent_states()
+
     await signal_monitor.async_start()
     # Started AFTER platform setup (same reason signal_monitor is): each
     # device's subscription immediately evaluates and dispatches its power

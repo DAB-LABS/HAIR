@@ -79,6 +79,23 @@ class IRCommand:
     # is a view, not a second copy that could drift from the matrix
     # store behind it.
     matrix_cell: dict[str, Any] | None = None
+    # THE STATE THIS ROW PUTS THE UNIT IN (0.10.1 item 7). Coordinates
+    # only: {"mode", "fan", "swing", "temp"} for a lattice cell, or
+    # {"power": "off" | "on"} for one of the matrix's power codes.
+    # Stamped when a STATE row is minted from the card, and backfilled
+    # at setup for rows minted before this field existed. None on every
+    # ordinary command, and on a STATE row whose bytes no longer match
+    # any cell in the device's current lattice -- an unmatched row
+    # simply does not move the climate card.
+    #
+    # DELIBERATELY NOT ``matrix_cell`` above, which carries the same
+    # four keys and a completely different meaning: that field marks a
+    # PORTHOLE, a row that IS the lattice cell, so editing one rewrites
+    # the cell and DELETING ONE DELETES THE CELL (ws_delete_command).
+    # A saved STATE row is an ordinary stored command that happens to
+    # carry a cell's bytes; deleting it must delete a command and
+    # nothing else. Two fields because they are two facts.
+    sent_state: dict[str, Any] | None = None
     # The comb doubted this row in the wig it was adopted from (v0.9.5).
     # Carried onto the device so the comb's receipt stops being
     # closet-only knowledge: the person can see what was doubted, test
@@ -117,6 +134,8 @@ class IRCommand:
             "plucked_command_name": self.plucked_command_name,
             "matrix_cell": dict(self.matrix_cell)
             if self.matrix_cell else None,
+            "sent_state": dict(self.sent_state)
+            if self.sent_state else None,
             "comb_suspect": self.comb_suspect,
             "comb_finding": self.comb_finding,
             "created_at": self.created_at,
@@ -144,6 +163,7 @@ class IRCommand:
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
             matrix_cell=data.get("matrix_cell") or None,
+            sent_state=data.get("sent_state") or None,
             comb_suspect=bool(data.get("comb_suspect", False)),
             comb_finding=data.get("comb_finding") or None,
             created_at=data.get("created_at") or _now_iso(),
@@ -384,6 +404,15 @@ class IRDevice:
                 decoded_command=cmd.decoded_command,
                 decoded_fingerprint=cmd.decoded_fingerprint,
                 tx_force_raw=cmd.tx_force_raw,
+                # The duplicate gets a byte copy of the source's
+                # lattice, so a STATE row's coordinates are as true on
+                # the clone as on the original (0.10.1 item 7). The
+                # setup backfill would restamp it either way; carrying
+                # it means the clone's card follows from the first send
+                # rather than from the next restart.
+                sent_state=(
+                    dict(cmd.sent_state) if cmd.sent_state else None
+                ),
             )
             for cmd in self.commands
         ]

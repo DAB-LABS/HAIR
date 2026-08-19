@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
@@ -614,12 +615,40 @@ class DeviceManager:
         await self.async_write_matrix(device_id, matrix)
         return True
 
+    @staticmethod
+    def _sent_for_command(device: IRDevice, command: IRCommand, origin: str):
+        """Describe a stored-command send structurally (0.10.1 item 7).
+
+        Coordinates come off the command record, never off its name: a
+        STATE row's name is display grammar that converts units live and
+        froze at mint time, so reading state back out of it would be a
+        guess dressed as a fact.
+        """
+        from .send_signal import DeviceSent
+
+        state = command.sent_state or {}
+        power = state.get("power")
+        cell = None if power else (dict(state) or None)
+        starred = command.name.casefold() in {
+            name.casefold() for name in device.entity_config.starred
+        }
+        return DeviceSent(
+            device_id=device.id,
+            command_id=command.id,
+            command_name=command.name,
+            matrix_cell=cell,
+            power=power,
+            starred=starred,
+            origin=origin,
+        )
+
     async def async_send_command(
         self,
         device_id: str,
         command_id: str,
         heard_future: Any | None = None,
         pinned: bool = False,
+        origin: str | None = None,
     ) -> None:
         """Send a stored IR command via all configured emitters (broadcast).
 
@@ -668,6 +697,8 @@ class DeviceManager:
                 repeat_count=command.repeat_count or 0,
             )
 
+        from .send_signal import ORIGIN_MANAGER
+
         # Broadcast through the shared emitter path; raises when every
         # emitter fails, so the code below only runs on a landed send.
         await self._async_broadcast(
@@ -681,6 +712,9 @@ class DeviceManager:
             ),
             heard_future=heard_future,
             pinned=pinned,
+            sent=self._sent_for_command(
+                device, command, origin or ORIGIN_MANAGER
+            ),
         )
 
         # Per-press protocol state (v0.6.0 toggles, v0.7.1 counters):
@@ -722,6 +756,7 @@ class DeviceManager:
         decoded_fingerprint: str | None = None,
         heard_future: Any | None = None,
         pinned: bool = False,
+        sent: Any | None = None,
     ) -> set[str]:
         """The shared all-emitters transmit path (GH #65 semantics).
 
@@ -735,6 +770,13 @@ class DeviceManager:
         landed; raises RuntimeError with the honest "all unavailable"
         message otherwise. ``send_name`` is the command-name channel
         for the Mirror label and the log lines ("<device> / <name>").
+
+        ``sent`` (0.10.1 item 7) is what to tell the entities about this
+        send. Dispatched only once at least one emitter has ACCEPTED it:
+        a send that failed everywhere changed nothing on the unit, so
+        moving the climate card for it would be a lie. None means say
+        nothing, which is what a fitting send and every caller that does
+        not care pass.
         """
         # Lazy import: infrared component only available at runtime on
         # HA 2026.4+.
@@ -881,6 +923,13 @@ class DeviceManager:
         # tidies up without the user hunting for a dismiss button.
         for emitter_id in landed:
             self._dismiss_emitter_notification(emitter_id)
+        # THE CARD FOLLOWS WHAT HAIR SENDS (0.10.1 item 7, GH #105).
+        # Here and only here: every device send passes through this
+        # method, and by this line at least one emitter has accepted it.
+        if sent is not None:
+            from .send_signal import SIGNAL_DEVICE_SENT
+
+            async_dispatcher_send(self._hass, SIGNAL_DEVICE_SENT, sent)
         return landed
 
     async def async_send_matrix_cell(
@@ -891,6 +940,9 @@ class DeviceManager:
         send_count: int = 1,
         heard_future: Any | None = None,
         pinned: bool = False,
+        cell: dict[str, Any] | None = None,
+        power: str | None = None,
+        origin: str | None = None,
     ) -> None:
         """Send one climate matrix cell's raw Pronto (Cold Cuts).
 
@@ -910,6 +962,15 @@ class DeviceManager:
         content-based (decoded fingerprint / signal fingerprint), not
         a command-table lookup, so it already recognized a cell's own
         echo; the wire to report that back just never existed.
+
+        ``cell`` and ``power`` (0.10.1 item 7) are the COORDINATES of
+        what is going out, so the climate card can follow it. Every
+        caller already holds them: the STATE MATRIX card resolved them,
+        the pinned retransmit heard them, the entity's own setters
+        chose them. They travel structurally rather than being parsed
+        back out of ``cell_name``, which is display grammar that
+        converts units live. Omitting both means a send with no state
+        meaning, which moves nothing.
         """
         device = self._store.get_device(device_id)
         if device is None:
@@ -918,6 +979,7 @@ class DeviceManager:
             raise RuntimeError(f"Device {device_id} has no emitters configured")
 
         from .ir_command import build_command
+        from .send_signal import ORIGIN_MANAGER, DeviceSent
 
         ir_cmd = build_command(protocol="PRONTO", code=pronto)
         await self._async_broadcast(
@@ -928,7 +990,99 @@ class DeviceManager:
             # matrix Device rides here, and the Mirror row has to read
             # "Pinned send" like any other retransmit.
             pinned=pinned,
+            sent=DeviceSent(
+                device_id=device.id,
+                command_name=cell_name,
+                matrix_cell=dict(cell) if cell else None,
+                power=power,
+                origin=origin or ORIGIN_MANAGER,
+            ),
         )
+
+    # --- Saved STATE rows learn their coordinates (0.10.1 item 7) ------
+    #
+    # A STATE row minted before item 7 carries only its cell's BYTES, so
+    # sending one told the climate card nothing and a preset (which IS a
+    # starred STATE row) could not move the dial. The repair is to match
+    # each row's Pronto back against the device's CURRENT lattice: the
+    # file is the only thing entitled to say what a state is, and
+    # matching against today's file means a re-fit can never leave a row
+    # claiming a state the device no longer has.
+    #
+    # Runs here rather than in storage.async_load because the lattice
+    # lives in its own file behind this manager's cache, which does not
+    # exist yet when the store loads. A row that matches nothing stays
+    # unstamped and simply does not move the card.
+
+    @staticmethod
+    def _pronto_key(pronto: str | None) -> str | None:
+        """Compare Pronto by content, not by whitespace and case.
+
+        A STATE row stores the FILE's text (``wig_signal_identity``
+        returns it verbatim), so exact equality is the common case; this
+        only keeps a hand-edited file's spacing from costing a match.
+        """
+        if not pronto:
+            return None
+        return " ".join(pronto.split()).upper()
+
+    async def async_backfill_sent_states(self) -> int:
+        """Stamp saved STATE rows with the cell they transmit.
+
+        Returns how many rows were stamped, for the setup log and the
+        tests. Folds every device's changes into one save.
+        """
+        from .const import CommandSource
+
+        total = 0
+        changed = False
+        for device in self._store.get_all_devices():
+            if not device.climate_matrix:
+                continue
+            pending = [
+                command
+                for command in device.commands
+                if command.source == CommandSource.MATRIX
+                and command.sent_state is None
+                and command.matrix_cell is None
+            ]
+            if not pending:
+                continue
+            matrix = await self.async_get_matrix(device.id)
+            if matrix is None:
+                continue
+            lattice: dict[str, dict[str, Any]] = {}
+            for cell in matrix.cells:
+                key = self._pronto_key(cell.pronto)
+                if key is not None:
+                    lattice[key] = {
+                        "mode": cell.mode, "fan": cell.fan,
+                        "swing": cell.swing, "temp": cell.temp,
+                    }
+            # Power codes last: a lattice that spells a cell with the
+            # same bytes as its own off code is malformed, and reading
+            # such a row as power is the safer of the two answers.
+            for kind, pronto in (("off", matrix.off), ("on", matrix.on)):
+                key = self._pronto_key(pronto)
+                if key is not None:
+                    lattice[key] = {"power": kind}
+            stamped = 0
+            for command in pending:
+                state = lattice.get(self._pronto_key(command.code))
+                if state is not None:
+                    command.sent_state = dict(state)
+                    stamped += 1
+            if stamped:
+                total += stamped
+                changed = True
+                self._store.update_device(device)
+            _LOGGER.info(
+                "Stamped %d of %d saved STATE rows with their cell on '%s'",
+                stamped, len(pending), device.name,
+            )
+        if changed:
+            await self._store.async_save()
+        return total
 
     # --- Emitter-degrade notifications (GH #65 rider, v0.8.1) ---
     #

@@ -755,17 +755,27 @@ class MatrixListener:
         )
         if resolved is None:
             return
-        name, pronto, send_count = resolved
+        name, pronto, send_count, state = resolved
         # pinned=True is what mints the echo ticket and labels the
         # Mirror row, exactly as it does for a command retransmit.
+        #
+        # The coordinates ride along (0.10.1 item 7): a pinned
+        # retransmit is a SEND, so the pinned Device's climate card
+        # follows it. This is the one door by which a heard state
+        # reaches a card, and it reaches it as the send it caused, not
+        # as the hearing -- an unpinned Remote hearing the same handset
+        # moves nothing.
+        power = state.get("power")
         await self._device_manager.async_send_matrix_cell(
-            device_id, name, pronto, send_count, pinned=True
+            device_id, name, pronto, send_count, pinned=True,
+            cell=None if power else dict(state),
+            power=power,
         )
 
     async def _async_resolve_device_cell(
         self, device_id: str, hit: CellHit, identity: _Identity
-    ) -> tuple[str, str, int] | None:
-        """What the heard state IS on that device: (name, Pronto, count).
+    ) -> tuple[str, str, int, dict[str, Any]] | None:
+        """The heard state on that device: (name, Pronto, count, state).
 
         Coordinates first, the frame's own identity second, nothing
         third. The bytes always come from the device's CURRENT lattice
@@ -792,7 +802,10 @@ class MatrixListener:
             pronto = matrix.off if hit.power == "off" else matrix.on
             if not pronto:
                 return None
-            return (state_display_name(hit.power), pronto, 1)
+            return (
+                state_display_name(hit.power), pronto, 1,
+                {"power": hit.power},
+            )
 
         cell = None
         if hit.mode is not None:
@@ -812,6 +825,13 @@ class MatrixListener:
             ),
             cell.pronto,
             cell.send_count,
+            # The DEVICE's own coordinates, not the remote's: two wigs
+            # for one unit may spell a dimension differently, and the
+            # card belongs to the device.
+            {
+                "mode": cell.mode, "fan": cell.fan,
+                "swing": cell.swing, "temp": cell.temp,
+            },
         )
 
     def _cell_by_identity(
