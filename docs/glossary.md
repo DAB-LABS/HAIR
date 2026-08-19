@@ -229,6 +229,10 @@ on code.
 **STATE chip.** The small marker on a command or trigger that was saved out
 of the STATE MATRIX card, so you can tell it apart from a learned button.
 
+**Saved state.** A command saved out of the STATE MATRIX card with
+**+ Command**. It carries its state, so sending it, including as a preset,
+moves the thermostat card.
+
 **LAST HEARD.** On an AC Remote, the row naming the last state the handset
 sent, when it arrived, and which receiver heard it. Press the handset and the
 mode, fan, swing, and temperature it sent light up on the card and stay marked.
