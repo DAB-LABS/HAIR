@@ -143,10 +143,32 @@ def normalize(parsed: Any) -> NormalizedSignal:
     device_address = EventParser.extract_device_address(
         parsed.protocol, parsed.code
     )
-    dev_fp = EventParser.device_fingerprint(
-        parsed.protocol, device_address, parsed.raw_timings,
-        code=parsed.code,
-    )
+    # Protocol decode runs BEFORE grouping (0.10.1 fast-follow item 4).
+    # The Sniffer used to group on carrier plus a raw preamble, which for
+    # a code with no NEC-style leader mark is the carrier word plus TWO
+    # characters of S/L pattern. That is not enough to tell two remotes
+    # apart: on the bench an Arris Vip 2952 Power capture and an Amazon
+    # Candles capture both keyed on carrier 006D and preamble "SS", so
+    # the Arris codes filed under the Candles remote. The decoder can
+    # already tell them apart; it just ran too late to be used.
+    #
+    # Decoded captures now group on protocol plus address, which is what
+    # "same physical remote" actually means. Undecoded captures keep the
+    # old raw-preamble key, so nothing that used to group changes unless
+    # it decodes. Two UNDECODED codes sharing a carrier and preamble can
+    # still collide; widening the generic branch is the follow-on and is
+    # deliberately not in this change.
+    identity = try_decode_identity(parsed.raw_timings)
+    if identity is not None:
+        dev_fp = EventParser.device_fingerprint(
+            identity.protocol, str(identity.address), parsed.raw_timings,
+            code=parsed.code,
+        )
+    else:
+        dev_fp = EventParser.device_fingerprint(
+            parsed.protocol, device_address, parsed.raw_timings,
+            code=parsed.code,
+        )
     # Byte-hash tiebreaker (v0.3.4): distinguishes two distinct commands
     # that collapse to the same S/L fingerprint (Panasonic, TCL, etc.).
     # None for non-Pronto codes, whose fingerprint is already unique.
@@ -154,8 +176,7 @@ def normalize(parsed: Any) -> NormalizedSignal:
     # Protocol decode (v0.4.0 Phase A): identify NEC-family signals so the
     # matcher can key on the decoded fingerprint and the TX path can
     # re-encode canonical timings. None for undecodable signals or when the
-    # library is unavailable.
-    identity = try_decode_identity(parsed.raw_timings)
+    # library is unavailable. Computed above, before the grouping key.
     # The lowest tier's value, for the records whose bytes never came
     # through a receiver (matrix cells, wig-minted triggers and
     # commands, Clipper, Plucker). Computing it here means every
