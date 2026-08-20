@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Importing a file HAIR cannot read no longer breaks the panel.** A
+  SmartIR file whose codes are in a format HAIR does not understand
+  could produce commands with nothing in them, and one of those was
+  enough to make the Sniffer, the wig list and every device page answer
+  with an error until you restarted, at which point the commands you
+  were meant to repair had not been saved at all. A code with nothing in
+  it is now simply treated as having no identity, one unreadable command
+  is skipped with a note in the log instead of taking the page down with
+  it, and cells that cannot be converted are reported as skipped at
+  import time rather than turned into codes that transmit nothing.
+  Closes #108.
 - **The Sniffer files a new signal by what it actually is.** New captures
   used to be grouped by the shape of their radio burst, which two
   different handsets can share, so a new remote's buttons could end up

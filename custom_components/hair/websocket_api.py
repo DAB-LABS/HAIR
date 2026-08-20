@@ -1286,9 +1286,24 @@ def _assignment_index(
     entries: list[tuple[SignalIdentity, dict[str, str]]] = []
     for device in hair_devices:
         for command in device.commands:
-            fp = canonical_fingerprint(
-                command.protocol, command.code, command.raw_timings
-            )
+            # Per-command resilience (GH #108): one unreadable command
+            # used to abort this walk, and with it the Sniffer list, the
+            # wig list and every page that shows an assignment dot.
+            try:
+                fp = canonical_fingerprint(
+                    command.protocol, command.code, command.raw_timings
+                )
+            except Exception:
+                _LOGGER.warning(
+                    "Skipping command '%s' (%s) on device '%s' (%s) while "
+                    "building the assignment index: its identity could not "
+                    "be computed from its stored code",
+                    getattr(command, "name", "?"),
+                    getattr(command, "id", "?"),
+                    getattr(device, "name", "?"),
+                    getattr(device, "id", "?"),
+                )
+                continue
             if not fp:
                 continue
             entries.append((

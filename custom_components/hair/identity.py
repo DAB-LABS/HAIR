@@ -30,9 +30,12 @@ this module so the rule cannot drift between call sites.
 from __future__ import annotations
 
 import hashlib
+import logging
 import statistics
 from dataclasses import dataclass, field
 from functools import lru_cache
+
+_LOGGER = logging.getLogger(__name__)
 
 # Tier numbers, used in strongest_key() tuples and heal/diagnostic logs.
 TIER_DECODED = 1
@@ -179,6 +182,38 @@ def same_signal(
 # load-time backfill run on every boot without churn.
 
 
+@lru_cache(maxsize=512)
+def degenerate_pronto(code: str | None) -> bool:
+    """True when a code parses as Pronto but carries no burst at all.
+
+    GH #108: a SmartIR file whose codes are in a format HAIR could not
+    read was converted into structurally valid Pronto whose every burst
+    pair is zero. Such a code transmits nothing and cannot be matched
+    against anything; treating it as "no identity" is the only honest
+    answer, and it is what every identity helper below returns for it.
+
+    Cached on the code TEXT, which also makes the DEBUG line fire once
+    per distinct code rather than once per lookup: these are consulted
+    on every index build and every capture.
+    """
+    if not code:
+        return False
+    from .ir_command import ProntoCommand
+
+    try:
+        raw = ProntoCommand(code).get_raw_timings()
+    except (ValueError, IndexError, TypeError):
+        return False
+    if raw and not any(raw):
+        _LOGGER.debug(
+            "Code has no usable timings (every burst pair is zero); "
+            "treating it as carrying no identity: %.80s",
+            code,
+        )
+        return True
+    return False
+
+
 def canonical_pronto(code: str | None) -> str | None:
     """The Pronto a receiver would hand us for ``code``, or None.
 
@@ -223,6 +258,12 @@ def canonical_fingerprint(
     from .event_parser import EventParser
 
     if protocol and protocol.upper() == "PRONTO":
+        # No burst, no identity (GH #108). Hashing the text of an
+        # all-zero code would mint a fingerprint that matches nothing on
+        # the air and collides with every other empty code; the empty
+        # string is the answer callers already skip on.
+        if degenerate_pronto(code):
+            return ""
         wire = canonical_pronto(code)
         if wire is not None:
             return EventParser.signal_fingerprint("PRONTO", wire, raw_timings)
@@ -233,6 +274,8 @@ def canonical_byte_hash(code: str | None) -> str | None:
     """``EventParser.pronto_byte_hash`` on the canonical form."""
     from .event_parser import EventParser
 
+    if degenerate_pronto(code):
+        return None
     wire = canonical_pronto(code)
     return EventParser.pronto_byte_hash(wire if wire is not None else code)
 
@@ -337,10 +380,22 @@ def canonical_edges(
     out = [int(v) for v in timings]
     while out and out[-1] == 0:
         out.pop()
+    # DEGENERATE INPUT IS NO IDENTITY (GH #108). A code whose every
+    # burst pair is zero strips away to nothing here. There is no frame
+    # in it, so there is no identity to compute, and the empty list says
+    # exactly that: every caller already reads empty as "no answer".
+    # Before this, an all-zero code reached the pop below with an empty
+    # list (zero is even) and raised IndexError from inside the identity
+    # layer, which took out the whole index build and every websocket
+    # handler that touched it.
+    if not out:
+        return []
     # Even length means the list ends on a space, whatever its sign
     # convention: position, not sign, is what says mark or space.
     if len(out) % 2 == 0:
         out.pop()
+    if not out:
+        return []
     if signed:
         return [v if i % 2 == 0 else -abs(v) for i, v in enumerate(out)]
     return [abs(v) for v in out]
@@ -413,6 +468,8 @@ def norm_fingerprint(timings: list[int] | None) -> str | None:
     edges = canonical_edges(first_frame(canonical_edges(timings)))
     marks = edges[0::2]
     spaces = edges[1::2]
+    # Also the degenerate case (GH #108): an all-zero code strips to no
+    # edges at all, so there is nothing to hash and nothing to say.
     if not marks or not spaces:
         return None
     median_mark = statistics.median(marks) or 1
