@@ -192,7 +192,13 @@ def _humanize_key(key: str) -> str:
 def _smartir_code_to_pronto(
     code: str, encoding: str
 ) -> tuple[str | None, str | None]:
-    """(pronto, failure_reason) for one SmartIR code value."""
+    """(pronto, failure_reason) for one SmartIR code value.
+
+    A failure reason means the cell is SKIPPED with a receipt, never
+    invented (the 0.8.8 rule). GH #108 is what happens when something
+    unconvertible slips through as a code instead: the import looks like
+    it worked and the damage surfaces later, somewhere else entirely.
+    """
     encoding = (encoding or "").strip().lower()
     code = code.strip()
     if encoding == "base64":
@@ -212,10 +218,22 @@ def _smartir_code_to_pronto(
     if encoding == "pronto":
         return code, None
     if encoding == "raw":
+        # "Raw" in SmartIR means a decimal timing list. It does NOT mean
+        # "whatever bytes the controller happens to use", and the two
+        # look nothing alike: a Tuya / UFO-R11 MQTT file carries base64
+        # of a compressed timing stream under this same encoding name.
+        # Scraping the digits out of base64 text and calling them
+        # microseconds is how GH #108 produced 26 codes that parse as
+        # Pronto and transmit nothing. A timing list is digits,
+        # separators and signs; anything else is not one.
+        if re.search(r"[A-Za-z+/=]", code):
+            return None, "not a decimal timing list (looks encoded)"
         values = re.findall(r"-?\d+", code)
         if len(values) < 4:
             return None, "raw list too short"
         timings = [int(v) for v in values]
+        if not any(abs(t) for t in timings):
+            return None, "no usable timings"
         return raw_to_pronto(timings, frequency=38000), None
     return None, f"unsupported encoding {encoding or 'missing'!r}"
 
