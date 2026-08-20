@@ -69,6 +69,7 @@ from .const import (
 )
 from .event_parser import EventParser
 from .identity import (
+    SignalIdentity,
     canonical_byte_hash,
     canonical_fingerprint,
     norm_fingerprint,
@@ -1566,6 +1567,26 @@ class SignalMonitor:
         # the only thing the suppression was ever really for: keeping the
         # house's own transmissions out of the human-press feed.
 
+        # Step 3.5: Sticky filing (0.10.2). A signal the catalog has
+        # already seen stays on the row it already has, in the group that
+        # row already sits in. The key computed in step 1 only decides
+        # where a signal NOBODY has heard before gets filed, so no
+        # existing row, group, name or promotion is ever moved by a
+        # press. Three dict lookups against the store's index, so this
+        # costs the same on a 20-row catalog and a 20,000-row one; see
+        # SignalStore.find_filed_signal.
+        filed = self._signal_store.find_filed_signal(
+            SignalIdentity(decoded_fingerprint, byte_hash, sig_fp)
+        )
+        filed_device: UnknownDevice | None = None
+        filed_signal: UnknownSignal | None = None
+        if filed is not None:
+            filed_device, filed_signal = filed
+            # Everything downstream reads dev_fp: the dismiss gate, the
+            # event payload, the ditto anchor. Point them at the group
+            # this capture is actually going to.
+            dev_fp = filed_device.fingerprint
+
         # Step 4: Check dismiss list.
         if self._signal_store.is_dismissed(dev_fp):
             # Signal is from a dismissed remote and gets dropped from the
@@ -1577,6 +1598,18 @@ class SignalMonitor:
             # being stored. Rate-limited per-fingerprint via the dedicated
             # ``_dismiss_push_buckets`` so a held-down button does not flood
             # the WS channel.
+            # A dismissed remote is hidden, not disconnected: a row it
+            # already has goes on counting where it is until the group is
+            # deleted (0.10.2). Nothing new is minted here and nothing
+            # reaches the live feed, so dismiss still means dismiss.
+            if filed_signal is not None and filed_device is not None:
+                stamp = datetime.now(UTC).isoformat()
+                async with self._lock:
+                    filed_signal.hit_count += 1
+                    filed_signal.last_seen = stamp
+                    filed_device.hit_count += 1
+                    filed_device.last_seen = stamp
+                self._signal_store.schedule_save()
             if self._check_dismiss_push_rate(dev_fp):
                 self._hass.bus.async_fire(
                     EVENT_DISMISS_ACTIVITY,
@@ -1601,7 +1634,11 @@ class SignalMonitor:
         # Steps 7-9: Find/create device and signal (locked).
         now_iso = datetime.now(UTC).isoformat()
         async with self._lock:
-            device = self._signal_store.get_device_by_fingerprint(dev_fp)
+            # The row the sticky lookup found wins; the computed key is
+            # only consulted for a signal that is genuinely new here.
+            device = filed_device
+            if device is None:
+                device = self._signal_store.get_device_by_fingerprint(dev_fp)
             if device is None:
                 next_num = len(self._signal_store.get_all_devices()) + 1
                 device = UnknownDevice(
@@ -1615,7 +1652,14 @@ class SignalMonitor:
                 )
                 self._signal_store.add_device(device)
 
-            signal = device.get_signal(sig_fp, byte_hash, decoded_fingerprint)
+            signal = filed_signal
+            if signal is None:
+                # Second line of defence: a row on this very device that
+                # the index has not caught up with still wins over
+                # minting a duplicate beside it.
+                signal = device.get_signal(
+                    sig_fp, byte_hash, decoded_fingerprint
+                )
             if signal is None:
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
@@ -1639,6 +1683,7 @@ class SignalMonitor:
                 # just-pressed button surfaces; existing signals keep
                 # their position (only hit_count updates below).
                 device.signals.insert(0, signal)
+            self._signal_store.index_signal(device, signal)
 
             signal.hit_count += 1
             signal.last_seen = now_iso
@@ -2182,9 +2227,15 @@ class SignalMonitor:
             if unknown_device is None:
                 return {"success": False, "code": "device_not_found",
                         "error": "Unknown device not found"}
+            doomed = unknown_device.get_signal_by_id(signal_id)
             if not unknown_device.remove_signal_by_id(signal_id):
                 return {"success": False, "code": "signal_not_found",
                         "error": "Signal not found on device"}
+            # Deleted is deleted: the row leaves the sticky index too, so
+            # the next press of that button files fresh under the current
+            # rules. This is the user-controlled re-file.
+            if doomed is not None:
+                self._signal_store.forget_signal(doomed)
 
             device_emptied = not unknown_device.signals
             if device_emptied:
@@ -2498,6 +2549,10 @@ class SignalMonitor:
                 signal.tx_force_raw = bool(tx_force_raw)
             # New signal goes on top so the just-added clip surfaces.
             device.signals.insert(0, signal)
+            # Indexed but never consulted for a paste: the Clipper files
+            # where the user said. Indexing it means a later press of the
+            # same code lands on this row instead of minting a second.
+            self._signal_store.index_signal(device, signal)
             device.last_seen = now_iso
             await self._signal_store.async_save()
         return {"success": True, "signal": signal.to_dict()}
@@ -2628,6 +2683,7 @@ class SignalMonitor:
                 plucked_command_name=command_name,
             )
             device.signals.insert(0, signal)
+            self._signal_store.index_signal(device, signal)
             device.last_seen = now_iso
             await self._signal_store.async_save()
         return {"success": True, "signal": signal.to_dict()}
@@ -2893,6 +2949,7 @@ class SignalMonitor:
                     tx_force_raw=bool(bypass),
                 )
                 device.signals.append(signal)
+                self._signal_store.index_signal(device, signal)
                 imported += 1
             if created:
                 self._signal_store.add_device(device)

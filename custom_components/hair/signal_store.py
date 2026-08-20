@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    MIRROR_DEVICE_FP,
     SIGNAL_BUFFER_MAX_DEVICES,
     SIGNAL_EVICT_AGE_DAYS,
     SIGNAL_EVICT_MIN_HITS,
@@ -25,6 +26,12 @@ from .const import (
     SIGNAL_SAVE_MAX_DELAY_S,
     SIGNAL_STORAGE_KEY,
     SIGNAL_STORAGE_VERSION,
+)
+from .identity import (
+    TIER_BYTE_HASH,
+    TIER_DECODED,
+    TIER_FINGERPRINT,
+    SignalIdentity,
 )
 from .models import UnknownDevice, UnknownSignal
 from .store_health import StoreHealth
@@ -92,6 +99,13 @@ class SignalStore:
         self._health = StoreHealth(
             hass, "signals", "Sniffer catalog", SIGNAL_STORAGE_KEY
         )
+        # Sticky filing index (0.10.2): identity key -> the catalog rows
+        # filed under it. Read once per capture, so it is three dict
+        # lookups and never a scan of the catalog. See
+        # ``find_filed_signal``.
+        self._sig_index: dict[
+            tuple[int, str], list[tuple[UnknownDevice, UnknownSignal]]
+        ] = {}
 
     @property
     def loaded(self) -> bool:
@@ -116,6 +130,7 @@ class SignalStore:
         if raw is None:
             self._devices = {}
             self._dismissed = set()
+            self._sig_index = {}
             self._loaded = True
             return
 
@@ -126,6 +141,10 @@ class SignalStore:
         self._dismissed = dismissed
         if dirty:
             self._dirty = True
+        # The sticky index is in-memory only, so it is built here from
+        # what was just loaded. A restart therefore files a re-press onto
+        # the same row it landed on before the restart.
+        self.rebuild_signal_index()
         self._loaded = True
 
     async def async_save(self) -> None:
@@ -215,6 +234,113 @@ class SignalStore:
 
     def get_all_devices(self) -> list[UnknownDevice]:
         return list(self._devices.values())
+
+    # -----------------------------------------------------------------
+    # Sticky filing index (0.10.2)
+    # -----------------------------------------------------------------
+    #
+    # A capture is filed under the group of the row it already has, not
+    # under the key today's rules compute for it. The index answers
+    # "where does this signal already live?" in constant time, because
+    # it is consulted on the capture path, which runs on every press.
+    #
+    # A row is indexed under every identity layer it carries, so a
+    # capture can find it at whichever layer the two of them share. The
+    # Mirror is deliberately NOT indexed: it is HAIR's log of its own
+    # transmissions, and a human press must never be filed there.
+
+    def index_signal(
+        self, device: UnknownDevice, signal: UnknownSignal
+    ) -> None:
+        """File a row in the index. Safe to call twice for one row."""
+        if device.fingerprint == MIRROR_DEVICE_FP:
+            return
+        for key in _identity_keys(
+            signal.decoded_fingerprint, signal.byte_hash, signal.fingerprint
+        ):
+            bucket = self._sig_index.setdefault(key, [])
+            if not any(held is signal for _dev, held in bucket):
+                bucket.append((device, signal))
+
+    def forget_signal(self, signal: UnknownSignal) -> None:
+        """Drop a row from the index, for a row leaving the catalog."""
+        for key in _identity_keys(
+            signal.decoded_fingerprint, signal.byte_hash, signal.fingerprint
+        ):
+            bucket = self._sig_index.get(key)
+            if not bucket:
+                continue
+            kept = [e for e in bucket if e[1] is not signal]
+            if kept:
+                self._sig_index[key] = kept
+            else:
+                del self._sig_index[key]
+
+    def rebuild_signal_index(self) -> None:
+        """Rebuild the whole index. Load and Clear All only."""
+        self._sig_index = {}
+        for device in self._devices.values():
+            for signal in device.signals or []:
+                self.index_signal(device, signal)
+
+    def find_filed_signal(
+        self, identity: SignalIdentity
+    ) -> tuple[UnknownDevice, UnknownSignal] | None:
+        """Where this signal already lives, or None if nowhere.
+
+        At most three dict lookups, each landing on a bucket that holds
+        one row in the ordinary case, so the cost does not grow with the
+        catalog. Candidates are confirmed with the shared
+        ``match_tier`` rule rather than trusted on the key alone, so a
+        byte-hash bucket cannot hand back a row whose decoded identity
+        contradicts the capture.
+
+        Entries whose device has left the catalog are pruned on the way
+        past, which is why device removal needs no index bookkeeping.
+
+        A hit is confirmed against the owning device's row list before
+        it is handed back. Without that, a row removed by some path that
+        forgot to tell the index would go on swallowing presses of its
+        button, and "heard means shown" would quietly stop being true.
+        That confirmation is bounded by the per-device signal cap, not
+        by the size of the catalog.
+        """
+        best: tuple[UnknownDevice, UnknownSignal] | None = None
+        best_tier = 99
+        for key in _identity_keys(
+            identity.decoded_fingerprint,
+            identity.byte_hash,
+            identity.fingerprint,
+        ):
+            bucket = self._sig_index.get(key)
+            if not bucket:
+                continue
+            live = [
+                e for e in bucket
+                if e[0].id in self._devices
+                and any(row is e[1] for row in e[0].signals)
+            ]
+            if len(live) != len(bucket):
+                if live:
+                    self._sig_index[key] = live
+                else:
+                    del self._sig_index[key]
+            for device, signal in live:
+                tier = SignalIdentity(
+                    signal.decoded_fingerprint,
+                    signal.byte_hash,
+                    signal.fingerprint,
+                ).match_tier(identity)
+                if tier is not None and tier < best_tier:
+                    best = (device, signal)
+                    best_tier = tier
+            if best_tier == TIER_DECODED:
+                break
+        return best
+
+    # -----------------------------------------------------------------
+    # Device access
+    # -----------------------------------------------------------------
 
     def add_device(self, device: UnknownDevice) -> None:
         """Register a newly-discovered unknown device.
@@ -397,7 +523,8 @@ class SignalStore:
         removed = 0
         if device is not None and device.source == _EVICTABLE:
             removed = _trim_device_signals(
-                device, SIGNAL_MAX_SIGNALS_PER_DEVICE, spare=spare
+                device, SIGNAL_MAX_SIGNALS_PER_DEVICE, spare=spare,
+                forget=self.forget_signal,
             )
             if removed and device.id not in self._cap_warned:
                 self._cap_warned.add(device.id)
@@ -416,7 +543,7 @@ class SignalStore:
                     ),
                 )
         global_removed, noisiest = _enforce_global_cap(
-            self._devices, spare=spare
+            self._devices, spare=spare, forget=self.forget_signal
         )
         if global_removed and "__global__" not in self._cap_warned:
             self._cap_warned.add("__global__")
@@ -459,6 +586,7 @@ class SignalStore:
         if source is None:
             self._devices.clear()
             self._dismissed.clear()
+            self._sig_index = {}
             return
 
         for device_id in [
@@ -466,6 +594,7 @@ class SignalStore:
         ]:
             device = self._devices.pop(device_id)
             self._dismissed.discard(device.fingerprint)
+        self.rebuild_signal_index()
 
     async def async_shutdown(self) -> None:
         """Flush pending writes and cancel timers."""
@@ -784,6 +913,28 @@ def _heal_device_signals(device: UnknownDevice) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _identity_keys(
+    decoded_fingerprint: str | None,
+    byte_hash: str | None,
+    fingerprint: str | None,
+) -> list[tuple[int, str]]:
+    """Every index key a signal is reachable by, strongest first.
+
+    A row is filed under all the layers it carries rather than only its
+    strongest, because the capture that comes looking may carry fewer:
+    a row with a decoded identity still has to be findable by a capture
+    that only decoded to a byte hash.
+    """
+    keys: list[tuple[int, str]] = []
+    if decoded_fingerprint:
+        keys.append((TIER_DECODED, decoded_fingerprint))
+    if byte_hash:
+        keys.append((TIER_BYTE_HASH, byte_hash))
+    if fingerprint:
+        keys.append((TIER_FINGERPRINT, fingerprint))
+    return keys
+
+
 def _signal_evict_order(sig: UnknownSignal) -> tuple[bool, str, str]:
     """Sort key for cap eviction: least-worth-keeping first.
 
@@ -800,6 +951,7 @@ def _trim_device_signals(
     device: UnknownDevice,
     cap: int,
     spare: UnknownSignal | None = None,
+    forget: Any = None,
 ) -> int:
     """Trim one device's signal list to ``cap`` rows; return count evicted.
 
@@ -814,16 +966,21 @@ def _trim_device_signals(
         (s for s in device.signals if s is not spare),
         key=_signal_evict_order,
     )
-    victim_ids = {s.id for s in candidates[:excess]}
+    victims = candidates[:excess]
+    victim_ids = {s.id for s in victims}
     if not victim_ids:
         return 0
     device.signals = [s for s in device.signals if s.id not in victim_ids]
+    if forget is not None:
+        for sig in victims:
+            forget(sig)
     return len(victim_ids)
 
 
 def _enforce_global_cap(
     devices: dict[str, UnknownDevice],
     spare: UnknownSignal | None = None,
+    forget: Any = None,
 ) -> tuple[int, str | None]:
     """Enforce ``SIGNAL_MAX_TOTAL_SIGNALS`` across all sniffed devices.
 
@@ -846,7 +1003,7 @@ def _enforce_global_cap(
     evicted = 0
     noisiest: tuple[int, str | None] = (0, None)
     for d in sniffed:
-        removed = _trim_device_signals(d, lo, spare=spare)
+        removed = _trim_device_signals(d, lo, spare=spare, forget=forget)
         if removed:
             evicted += removed
             if removed > noisiest[0]:
