@@ -61,6 +61,28 @@ class _HAIRDeviceStore(Store):
         return old_data
 
 
+def _skip_command(device: Any, cmd: Any, where: str) -> None:
+    """One WARNING for one command that cannot produce an identity.
+
+    GH #108. Every whole-catalog walk in HAIR is per-command resilient:
+    a row whose identity cannot be computed is skipped, named, and the
+    walk finishes. The alternative is what the field reported, where one
+    bad row from an import stopped the Sniffer, the wig list and every
+    device page from answering at all.
+    """
+    _LOGGER.warning(
+        "Skipping command '%s' (%s) on device '%s' (%s) while building %s: "
+        "its identity could not be computed from its stored code. The rest "
+        "of the catalog is unaffected; edit or delete that command to clear "
+        "this",
+        getattr(cmd, "name", "?"),
+        getattr(cmd, "id", "?"),
+        getattr(device, "name", "?"),
+        getattr(device, "id", "?"),
+        where,
+    )
+
+
 class HAIRStore:
     """Manage persistent storage of IR devices and commands.
 
@@ -266,12 +288,6 @@ class HAIRStore:
         least one hash-bearing command, purely for the diagnostic log in
         ``match_command``.
         """
-        from .identity import (
-            canonical_fingerprint,
-            file_sourced_command,
-            norm_fingerprint_of_code,
-        )
-
         self._idx_decoded = {}
         self._idx_fp_bytehash = {}
         self._idx_bytehash = {}
@@ -280,38 +296,55 @@ class HAIRStore:
         self._idx_norm_fp = NormFpIndex()
         for device in self._data.values():
             for cmd in device.commands:
-                ref = (device.id, cmd.id)
-                if file_sourced_command(cmd, device):
-                    self._idx_norm_fp.add(
-                        norm_fingerprint_of_code(cmd.code),
-                        cmd.byte_hash or cmd.code,
+                try:
+                    self._index_one_command(device, cmd)
+                except Exception:
+                    _skip_command(device, cmd, "the known-command index")
+
+    def _index_one_command(self, device: Any, cmd: Any) -> None:
+        """Index one command. A raise in here costs this command only.
+
+        Split out of ``_rebuild_command_index`` for GH #108, where one
+        unreadable command aborted the whole rebuild and with it every
+        websocket handler that rebuilds or reads the index. The catalog
+        is worth more than any single row in it.
+        """
+        from .identity import (
+            canonical_fingerprint,
+            file_sourced_command,
+            norm_fingerprint_of_code,
+        )
+
+        ref = (device.id, cmd.id)
+        if file_sourced_command(cmd, device):
+            self._idx_norm_fp.add(
+                norm_fingerprint_of_code(cmd.code),
+                cmd.byte_hash or cmd.code,
+                ref,
+            )
+        if cmd.decoded_fingerprint:
+            self._idx_decoded[cmd.decoded_fingerprint] = ref
+        # Canonical (wire) form, always: a command minted from a wig
+        # carries file text, and a real press arrives as wire text. See
+        # identity.py's canonical-form block.
+        fp = canonical_fingerprint(cmd.protocol, cmd.code, cmd.raw_timings)
+        if fp:
+            self._idx_fp_bytehash[(fp, cmd.byte_hash)] = ref
+            if cmd.byte_hash is None:
+                self._idx_fp[fp] = ref
+            else:
+                prev = self._idx_bytehash.get(cmd.byte_hash)
+                if prev is not None and prev != ref:
+                    _LOGGER.debug(
+                        "byte_hash %s is shared by commands %s and "
+                        "%s (RC-6-class bin collision); the "
+                        "hash-only matcher tier keeps the latter",
+                        cmd.byte_hash,
+                        prev,
                         ref,
                     )
-                if cmd.decoded_fingerprint:
-                    self._idx_decoded[cmd.decoded_fingerprint] = ref
-                # Canonical (wire) form, always: a command minted from
-                # a wig carries file text, and a real press arrives as
-                # wire text. See identity.py's canonical-form block.
-                fp = canonical_fingerprint(
-                    cmd.protocol, cmd.code, cmd.raw_timings
-                )
-                if fp:
-                    self._idx_fp_bytehash[(fp, cmd.byte_hash)] = ref
-                    if cmd.byte_hash is None:
-                        self._idx_fp[fp] = ref
-                    else:
-                        prev = self._idx_bytehash.get(cmd.byte_hash)
-                        if prev is not None and prev != ref:
-                            _LOGGER.debug(
-                                "byte_hash %s is shared by commands %s and "
-                                "%s (RC-6-class bin collision); the "
-                                "hash-only matcher tier keeps the latter",
-                                cmd.byte_hash,
-                                prev,
-                                ref,
-                            )
-                        self._idx_bytehash[cmd.byte_hash] = ref
-                        self._fps_with_hashed.add(fp)
+                self._idx_bytehash[cmd.byte_hash] = ref
+                self._fps_with_hashed.add(fp)
 
     def _backfill_pin_bindings(self) -> bool:
         """Recompute every pinned remote's derived button map at load.
@@ -523,7 +556,11 @@ class HAIRStore:
                     continue
                 # Canonical (wire) form, like every other hash in HAIR
                 # since 2026-08-17 -- identity.py's canonical-form block.
-                bh = canonical_byte_hash(cmd.code)
+                try:
+                    bh = canonical_byte_hash(cmd.code)
+                except Exception:
+                    _skip_command(device, cmd, "the byte-hash backfill")
+                    continue
                 if bh is not None:
                     cmd.byte_hash = bh
                     changed = True
@@ -568,9 +605,15 @@ class HAIRStore:
                 # Only rows whose code is readable Pronto have a wire
                 # form at all. A legacy protocol/code pair or a
                 # hand-written record keeps exactly the identity it has.
-                if not cmd.code or canonical_pronto(cmd.code) is None:
+                try:
+                    if not cmd.code or canonical_pronto(cmd.code) is None:
+                        continue
+                    fresh = canonical_byte_hash(cmd.code)
+                except Exception:
+                    _skip_command(
+                        device, cmd, "the canonical-identity backfill"
+                    )
                     continue
-                fresh = canonical_byte_hash(cmd.code)
                 if fresh is not None and fresh != cmd.byte_hash:
                     cmd.byte_hash = fresh
                     commands += 1

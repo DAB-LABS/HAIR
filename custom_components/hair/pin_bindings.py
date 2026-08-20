@@ -103,19 +103,33 @@ def build_device_index(device: IRDevice) -> DeviceCommandIndex:
 
     index = DeviceCommandIndex()
     for cmd in device.commands:
-        if file_sourced_command(cmd, device):
-            index.norm_fp.add(
-                norm_fingerprint_of_code(cmd.code),
-                cmd.byte_hash or cmd.code,
-                cmd.id,
+        # Per-command resilience (GH #108): a row that cannot produce an
+        # identity costs itself, not the whole pin map.
+        try:
+            if file_sourced_command(cmd, device):
+                index.norm_fp.add(
+                    norm_fingerprint_of_code(cmd.code),
+                    cmd.byte_hash or cmd.code,
+                    cmd.id,
+                )
+            if cmd.decoded_fingerprint:
+                index.decoded[cmd.decoded_fingerprint] = cmd.id
+            # Canonical (wire) form, so a capture-minted trigger and a
+            # wig-adopted command meet on the same identity (identity.py).
+            fp = canonical_fingerprint(
+                cmd.protocol, cmd.code, cmd.raw_timings
             )
-        if cmd.decoded_fingerprint:
-            index.decoded[cmd.decoded_fingerprint] = cmd.id
-        # Canonical (wire) form, so a capture-minted trigger and a
-        # wig-adopted command meet on the same identity (identity.py).
-        fp = canonical_fingerprint(
-            cmd.protocol, cmd.code, cmd.raw_timings
-        )
+        except Exception:
+            _LOGGER.warning(
+                "Skipping command '%s' (%s) on device '%s' (%s) while "
+                "building its pin map: its identity could not be computed "
+                "from its stored code",
+                getattr(cmd, "name", "?"),
+                getattr(cmd, "id", "?"),
+                getattr(device, "name", "?"),
+                getattr(device, "id", "?"),
+            )
+            continue
         if not fp:
             continue
         index.fp_bytehash[(fp, cmd.byte_hash)] = cmd.id

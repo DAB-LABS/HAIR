@@ -461,8 +461,13 @@ Signal fingerprinting details:
   byte-level tiebreaker so distinct commands are not merged.
 - Patterns are rendered as two-tone diamond sequences in the UI for visual ID.
 - Covers all major consumer IR protocols: NEC, Samsung, JVC, LG, Sony, RC-5, RC-6.
-- Source-remote grouping uses carrier frequency and preamble fingerprinting, so the
-  Sniffer can identify which remote sent a signal without decoding the protocol.
+- Source-remote grouping keys a NEW capture on the decoded identity (protocol
+  plus address) whenever it decodes, and falls back to carrier frequency and
+  preamble fingerprinting when it does not, so the Sniffer still groups signals
+  it cannot read. A signal already in the catalog is filed with its existing
+  row instead, found through a constant-time identity index, so no existing
+  row, group, name or promotion is ever moved by a press; deleting a row is the
+  user-controlled re-file.
 - When a captured signal can be read as a known protocol (NEC plus the
   registry protocols above, Dyson included), HAIR also
   stores the decoded identity alongside the raw timings as a cache layer. Raw

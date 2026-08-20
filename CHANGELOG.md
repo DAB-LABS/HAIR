@@ -5,6 +5,43 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-08-20 -- Fresh Scent
+
+### Added
+
+- **HAIR reads Tuya codes.** Files for a UFO-R11 or another Tuya IR
+  blaster store their codes in Tuya's own compressed form, which HAIR
+  could not open, so importing one gave you nothing usable. HAIR now
+  reads that form and turns it into an ordinary code like any other,
+  which means it can go out of any emitter you have, not just the
+  blaster it came from. Sending through a UFO-R11 itself needs nothing
+  from HAIR: Home Assistant 2026.8 added infrared support to MQTT, so a
+  Zigbee2MQTT blaster shows up as an emitter HAIR already finds.
+
+### Fixed
+
+- **Importing a file HAIR cannot read no longer breaks the panel.** A
+  SmartIR file whose codes are in a format HAIR does not understand
+  could produce commands with nothing in them, and one of those was
+  enough to make the Sniffer, the wig list and every device page answer
+  with an error until you restarted, at which point the commands you
+  were meant to repair had not been saved at all. A code with nothing in
+  it is now simply treated as having no identity, one unreadable command
+  is skipped with a note in the log instead of taking the page down with
+  it, and cells that cannot be converted are reported as skipped at
+  import time rather than turned into codes that transmit nothing.
+  Closes #108.
+- **The Sniffer files a new signal by what it actually is.** New captures
+  used to be grouped by the shape of their radio burst, which two
+  different handsets can share, so a new remote's buttons could end up
+  spread around or land on another remote's card. A signal HAIR can read
+  is now filed by what it says it is, so a new remote's buttons group
+  together and stay off everyone else's card. Cards you already have are
+  left exactly as they are: nothing is renamed, moved or regrouped, and a
+  button you have pressed before goes on landing where it always has,
+  keeping its name and its count. If you do want a signal refiled under
+  the new rules, delete it and press the button again.
+
 ## [0.10.1] - 2026-08-19 -- Split Ends
 
 ### Fixed
