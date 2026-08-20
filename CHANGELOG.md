@@ -5,6 +5,21 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Sniffer files a new signal by what it actually is.** New captures
+  used to be grouped by the shape of their radio burst, which two
+  different handsets can share, so a new remote's buttons could end up
+  spread around or land on another remote's card. A signal HAIR can read
+  is now filed by what it says it is, so a new remote's buttons group
+  together and stay off everyone else's card. Cards you already have are
+  left exactly as they are: nothing is renamed, moved or regrouped, and a
+  button you have pressed before goes on landing where it always has,
+  keeping its name and its count. If you do want a signal refiled under
+  the new rules, delete it and press the button again.
+
 ## [0.10.1] - 2026-08-19 -- Split Ends
 
 ### Fixed
