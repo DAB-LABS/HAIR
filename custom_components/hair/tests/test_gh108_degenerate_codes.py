@@ -109,16 +109,22 @@ class TestDegenerateInputIsAnswered:
         assert canonical_fingerprint("PRONTO", HEALTHY_PRONTO, None)
         assert canonical_byte_hash(HEALTHY_PRONTO)
 
-    def test_the_real_cells_convert_to_nothing_rather_than_crash(self, cells):
-        """His actual payloads, through the door they came in by."""
+    def test_the_real_cells_now_read_instead_of_crashing(self, cells):
+        """His actual payloads, through the door they came in by.
+
+        They are Tuya containers, and HAIR reads them now
+        (test_tuya_ir.py). What this file still owns is the promise that
+        whatever comes back is answered rather than raised on.
+        """
         from custom_components.hair.wig_adapters import (
             _smartir_code_to_pronto,
         )
 
         for label, value in cells.items():
             pronto, reason = _smartir_code_to_pronto(value, "raw")
-            assert pronto is None, f"{label} was converted into a code"
-            assert reason, f"{label} was skipped with no receipt"
+            assert reason is None, f"{label}: {reason}"
+            assert pronto, f"{label} produced no code"
+            assert degenerate_pronto(pronto) is False, label
 
 
 # --------------------------------------------- 2. one row, not the walk
@@ -258,12 +264,21 @@ class TestOneBadCommandDoesNotStopTheWalk:
 
 
 class TestUnconvertibleCellsAreSkippedWithReceipts:
-    def test_base64_under_the_raw_encoding_is_refused(self, cells):
+    def test_base64_that_no_reader_understands_is_refused(self):
+        """The GH #108 rule, on input no reader claims.
+
+        His own cells are Tuya and read now; this is base64 of bytes
+        that are neither a Broadlink packet nor a Tuya container, which
+        is what "encoded as something HAIR cannot read" looks like.
+        """
+        import base64
+
         from custom_components.hair.wig_adapters import (
             _smartir_code_to_pronto,
         )
 
-        pronto, reason = _smartir_code_to_pronto(cells["off"], "raw")
+        junk = base64.b64encode(bytes(range(0x40, 0x60))).decode()
+        pronto, reason = _smartir_code_to_pronto(junk, "raw")
         assert pronto is None
         assert "not a decimal timing list" in reason
 
@@ -288,15 +303,19 @@ class TestUnconvertibleCellsAreSkippedWithReceipts:
         assert reason == "no usable timings"
 
     def test_his_whole_file_produces_no_invented_codes(self):
-        """End to end on the real file: every cell is refused, with a
-        reason, and no device is built from nothing."""
+        """End to end on the real file: nothing carries an empty burst.
+
+        The file imports now (test_tuya_ir.py owns the counts). What
+        this asserts is the invariant that survived the feature: every
+        code that reaches a device has something in it.
+        """
         from custom_components.hair import wig_adapters
 
         text = (FIXTURES / "cecotec-forceclima-12650.json").read_text()
         assert wig_adapters.sniff_format(text) == "smartir_climate"
         result = wig_adapters.convert(text, "cecotec.json")
-        # Refused as a whole, because a climate file with no usable off
-        # code is not a climate file. What matters is that nothing was
-        # invented on the way to that answer.
-        assert result.error
-        assert not any(w.climate and w.climate.cells for w in result.wigs)
+        for wig in result.wigs:
+            for cell in (wig.climate.cells if wig.climate else []):
+                assert degenerate_pronto(cell.pronto) is False
+            for signal in wig.signals or []:
+                assert degenerate_pronto(signal.pronto) is False

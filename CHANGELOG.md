@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **HAIR reads Tuya codes.** Files for a UFO-R11 or another Tuya IR
+  blaster store their codes in Tuya's own compressed form, which HAIR
+  could not open, so importing one gave you nothing usable. HAIR now
+  reads that form and turns it into an ordinary code like any other,
+  which means it can go out of any emitter you have, not just the
+  blaster it came from. Sending through a UFO-R11 itself needs nothing
+  from HAIR: Home Assistant 2026.8 added infrared support to MQTT, so a
+  Zigbee2MQTT blaster shows up as an emitter HAIR already finds.
+
 ### Fixed
 
 - **Importing a file HAIR cannot read no longer breaks the panel.** A

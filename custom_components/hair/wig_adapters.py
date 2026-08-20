@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass, field
 
 from .ir_command import raw_to_pronto
+from .tuya_ir import tuya_b64_to_pronto
 from .wig_format import Wig, WigSignal
 
 # One Broadlink tick is 2^-15 s (~30.518 us); "us * 269 / 8192" is the
@@ -198,12 +199,28 @@ def _smartir_code_to_pronto(
     invented (the 0.8.8 rule). GH #108 is what happens when something
     unconvertible slips through as a code instead: the import looks like
     it worked and the damage surfaces later, somewhere else entirely.
+
+    THE CONTAINER IS DETECTED BY CONTENT, NOT BY THE LABEL. A SmartIR
+    file for an MQTT controller declares ``commandsEncoding: "Raw"`` and
+    then carries a Tuya container, which is not a decimal timing list
+    and not a Broadlink packet. Believing the label is what produced GH
+    #108, so the Tuya reader is offered the value first: it either reads
+    as that container or it does not, and if it does not the declared
+    encoding takes over exactly as before.
     """
     encoding = (encoding or "").strip().lower()
     code = code.strip()
+    # Tuya first, on content. It is cheap (a base64 decode that fails
+    # closed, then an inflate that fails closed) and it is the only
+    # reader that can tell this container from the text around it.
+    if encoding in ("raw", "base64", "", "tuya"):
+        tuya = tuya_b64_to_pronto(code)
+        if tuya:
+            return tuya, None
     if encoding == "base64":
         pronto = _broadlink_b64_to_pronto(code)
         if pronto is None:
+            # Not Broadlink and not Tuya (tried above): out of readers.
             return None, "not an IR Broadlink packet"
         return pronto, None
     if encoding == "hex":
@@ -227,6 +244,8 @@ def _smartir_code_to_pronto(
         # Pronto and transmit nothing. A timing list is digits,
         # separators and signs; anything else is not one.
         if re.search(r"[A-Za-z+/=]", code):
+            # The Tuya reader already had its turn above, so this is
+            # encoded as something HAIR cannot read yet.
             return None, "not a decimal timing list (looks encoded)"
         values = re.findall(r"-?\d+", code)
         if len(values) < 4:
