@@ -34,8 +34,10 @@ import "./ir-promote-dialog.js";
 import "./ir-promote-remote-dialog.js";
 import "./ir-use-fork-popup.js";
 import "./ir-pin-prompt-dialog.js";
+import "./ir-protocol-chip.js";
 import "./ir-signal-alias.js";
 import "./ir-signal-editor.js";
+import "./ir-tx-knobs.js";
 import "./ir-test-emitter-dialog.js";
 import "./ir-trigger-dialog.js";
 import "./ir-count-dot.js";
@@ -457,6 +459,27 @@ export class IrPluck extends LitElement {
     }
 
     // --- Alias / rename ---
+
+    /** Pin a plucked signal to raw replay, or unpin it.
+     *
+     * The same control the Clipper carries, and it matters more here:
+     * a store pluck WASHES what it can, re-encoding a decoded code from
+     * canonical timings, and a receiver that only ever liked the
+     * original capture needs somewhere to say so. Without the pill
+     * there was no way to say it, on rows HAIR had just re-encoded.
+     */
+    private async _onToggleBypass(
+        deviceId: string,
+        signalId: string,
+        bypass: boolean,
+    ): Promise<void> {
+        try {
+            await this.api.setSignalTxForceRaw(deviceId, signalId, bypass);
+            await this._refreshExpanded();
+        } catch (err: any) {
+            this._error = err?.message ?? String(err);
+        }
+    }
 
     private _onAliasChanged(e: CustomEvent<{ id: string; alias: string }>): void {
         const { id, alias } = e.detail;
@@ -1151,7 +1174,29 @@ export class IrPluck extends LitElement {
                         .signal=${sig}
                         @alias-changed=${this._onAliasChanged}
                         @alias-error=${(e: CustomEvent) => (this._error = e.detail)}
-                    ></ir-signal-alias>
+                    >
+                        <ir-tx-knobs
+                            slot="trailing"
+                            .sendCount=${sig.send_count}
+                            .repeatCount=${sig.repeat_count}
+                            .decoded=${!!sig.decoded_protocol}
+                            .bypassed=${!!sig.tx_force_raw}
+                            .sendsKey=${"mirror.sends_times"}
+                        ></ir-tx-knobs>
+                    </ir-signal-alias>
+                </div>
+                <div class="chip-col">
+                    <ir-protocol-chip
+                        .protocol=${sig.decoded_protocol ?? null}
+                        .bypass=${!!sig.tx_force_raw}
+                        interactive
+                        @toggle-bypass=${(e: CustomEvent) =>
+                            this._onToggleBypass(
+                                deviceId,
+                                sig.id,
+                                e.detail.bypass,
+                            )}
+                    ></ir-protocol-chip>
                 </div>
                 <div class="signal-meta">
                     ${isTesting && this._testResult
@@ -1754,6 +1799,14 @@ export class IrPluck extends LitElement {
         .signal-info {
             flex: 1;
             min-width: 0;
+        }
+        /* The same fixed 96px centred column the Sniffer and the Clipper
+           use, so all three lists read alike. */
+        .chip-col {
+            flex: 0 0 96px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .signal-meta {
             display: flex;
