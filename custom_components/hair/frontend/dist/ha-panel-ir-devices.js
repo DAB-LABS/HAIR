@@ -14115,12 +14115,20 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                 </div>
 
                 <div class="dialog-actions">
+                    <!-- CLOSE, not Cancel (owner ruling 2026-08-21).
+                         Nothing here is cancelable: a card click imports
+                         immediately and the replay form has its own
+                         Create button, so this button has never undone
+                         anything. It dismisses the window, and saying
+                         Cancel implied there was something to take
+                         back. Reuses common.close, which every
+                         dictionary already carries. -->
                     <button
                         class="action-btn cancel-btn"
                         @click=${this._close}
                         ?disabled=${this._busy}
                     >
-                        ${xe("common.cancel")}
+                        ${xe("common.close")}
                     </button>
                 </div>
             </ha-dialog>
