@@ -180,6 +180,15 @@ def _broadlink_b64_to_pronto(code: str) -> str | None:
     return broadlink_packet_to_pronto(packet)
 
 
+# The public name for the shared Broadlink base64 entry point. The
+# learned-code store reader (0.10.3) holds base64 exactly as SmartIR
+# does, and both must produce one identity for one physical code, so it
+# calls THIS function rather than re-implementing the tick constant, the
+# escape handling or the trailing-gap strip. Aliased instead of renamed
+# so the existing call sites in this module stay untouched.
+broadlink_b64_to_pronto = _broadlink_b64_to_pronto
+
+
 # --- SmartIR ---
 
 
