@@ -343,3 +343,5 @@ signature.
 **Changes with new fitting.** The section of the fitting screen that lists
 commands your Device has gained or dropped since the wig was last saved, so
 you can review them before you sign.
+
+**Store pluck** -- importing the IR codes another integration has learned and persisted inside Home Assistant, by reading its storage file directly. The store decides the decoder; files are read-only. (v0.10.3)
