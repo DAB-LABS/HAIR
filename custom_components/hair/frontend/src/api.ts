@@ -24,8 +24,11 @@ import type {
     IRCommand,
     IRDevice,
     IRTrigger,
+    LearnedStore,
+    LearnedStoreImport,
     MatrixCellDetail,
     MatrixCells,
+    PluckedStoreRecord,
     PluckRunResult,
     PluckVendor,
     ProntoValidation,
@@ -1031,9 +1034,43 @@ export class HairApi {
 
     // --- Plucker (vendor code import) ---
 
-    listPluckVendors(): Promise<{ vendors: PluckVendor[] }> {
-        return this.hass.connection.sendMessagePromise<{ vendors: PluckVendor[] }>({
+    listPluckVendors(): Promise<{
+        vendors: PluckVendor[];
+        plucked_stores: PluckedStoreRecord[];
+    }> {
+        return this.hass.connection.sendMessagePromise<{
+            vendors: PluckVendor[];
+            plucked_stores: PluckedStoreRecord[];
+        }>({
             type: "hair/pluck/list-vendors",
+        });
+    }
+
+    /**
+     * Learned-code stores found under .storage (0.10.3).
+     *
+     * Cheap: counts only, no decoding, so the Add Blaster dialog can
+     * call it every time it opens.
+     */
+    listLearnedStores(): Promise<{ stores: LearnedStore[] }> {
+        return this.hass.connection.sendMessagePromise<{ stores: LearnedStore[] }>({
+            type: "hair/pluck/stores/list",
+        });
+    }
+
+    /** Import one whole store and return its landing numbers. */
+    importLearnedStore(storeId: string): Promise<LearnedStoreImport> {
+        return this.hass.connection.sendMessagePromise<LearnedStoreImport>({
+            type: "hair/pluck/stores/import",
+            store_id: storeId,
+        });
+    }
+
+    /** Forget a plucked store's row. The plucked remotes stay. */
+    forgetPluckedStore(recordId: string): Promise<{ forgotten: boolean }> {
+        return this.hass.connection.sendMessagePromise<{ forgotten: boolean }>({
+            type: "hair/pluck/stores/forget",
+            record_id: recordId,
         });
     }
 

@@ -381,6 +381,17 @@ export class IrPluck extends LitElement {
         await this._refreshExpanded();
     }
 
+    /**
+     * A learned-code store landed while the dialog is still open.
+     *
+     * The dialog stays open on purpose -- someone with three stores is
+     * likely to click the next one -- so the tab behind it refreshes in
+     * place rather than waiting for a close.
+     */
+    private async _onStoresPlucked(): Promise<void> {
+        await this._load();
+    }
+
     private _openPluckSignal(device: UnknownDevice, e: Event): void {
         e.stopPropagation();
         const integration = device.vendor_entity_id
@@ -1226,6 +1237,7 @@ export class IrPluck extends LitElement {
                       .api=${this.api}
                       .pendingEntity=${this.pendingEntity}
                       @blaster-created=${this._onBlasterCreated}
+                      @stores-plucked=${this._onStoresPlucked}
                       @closed=${() => {
                           this._createRemoteOpen = false;
                           this.pendingEntity = "";
