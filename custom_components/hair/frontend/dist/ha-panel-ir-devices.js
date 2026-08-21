@@ -14095,6 +14095,13 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                 scrimClickAction=""
                 @closed=${this._close}
             >
+                <!-- BOTH, deliberately. HA's ha-dialog moved to wa-dialog
+                     and now takes its title from this slot, leaving the
+                     heading attribute inert; an older ha-dialog reads the
+                     attribute and drops the unmatched slot. Neither shows
+                     two titles, and the header reads "Add Blaster" either
+                     way, which is the owner ruling. -->
+                <span slot="headerTitle">${xe("pluckdlg.add_heading")}</span>
                 ${this._error?V`<ha-alert alert-type="error">${this._error}</ha-alert>`:""}
 
                 <div class="dlg-body">

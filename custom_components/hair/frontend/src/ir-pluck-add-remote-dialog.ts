@@ -517,6 +517,13 @@ export class IrPluckAddRemoteDialog extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
+                <!-- BOTH, deliberately. HA's ha-dialog moved to wa-dialog
+                     and now takes its title from this slot, leaving the
+                     heading attribute inert; an older ha-dialog reads the
+                     attribute and drops the unmatched slot. Neither shows
+                     two titles, and the header reads "Add Blaster" either
+                     way, which is the owner ruling. -->
+                <span slot="headerTitle">${t("pluckdlg.add_heading")}</span>
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
