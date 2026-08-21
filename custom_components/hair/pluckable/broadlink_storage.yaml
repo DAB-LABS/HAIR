@@ -1,0 +1,17 @@
+# Pluckable registry entry: Broadlink learned codes, read at rest.
+#
+# The first STORAGE-mechanism pluckable. Broadlink cannot be plucked by
+# replay: remote.send_command transmits through the blaster's own
+# hardware and cannot be pointed at the HAIR Tweezer. What it can do is
+# write every code the user ever learned to
+# .storage/broadlink_remote_<mac>_codes, and HAIR runs inside Home
+# Assistant, so it reads them there instead.
+#
+# READ-ONLY. HAIR never writes to another integration's store.
+schema_version: 2
+name: Broadlink
+integration: broadlink
+docs_url: https://www.home-assistant.io/integrations/broadlink/
+
+mechanism: storage
+store_provider: broadlink

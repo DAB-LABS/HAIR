@@ -11,6 +11,7 @@ import logging
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -106,6 +107,9 @@ class SignalStore:
         self._sig_index: dict[
             tuple[int, str], list[tuple[UnknownDevice, UnknownSignal]]
         ] = {}
+        # Learned-code stores this install has plucked (0.10.3). Plain
+        # records, no transform, no heal: see the section below.
+        self._plucked_stores: list[dict[str, Any]] = []
 
     @property
     def loaded(self) -> bool:
@@ -131,6 +135,7 @@ class SignalStore:
             self._devices = {}
             self._dismissed = set()
             self._sig_index = {}
+            self._plucked_stores = []
             self._loaded = True
             return
 
@@ -139,6 +144,15 @@ class SignalStore:
         )
         self._devices = devices
         self._dismissed = dismissed
+        # Read on the loop rather than in the executor job above: it is
+        # a handful of flat records with nothing to parse, heal or
+        # index, and threading it through _transform_loaded would buy
+        # nothing but a wider signature.
+        self._plucked_stores = [
+            dict(record)
+            for record in (raw.get("plucked_stores") or [])
+            if isinstance(record, dict)
+        ]
         if dirty:
             self._dirty = True
         # The sticky index is in-memory only, so it is built here from
@@ -215,6 +229,7 @@ class SignalStore:
         return {
             "devices": [d.to_dict() for d in self._devices.values()],
             "dismissed": list(self._dismissed),
+            "plucked_stores": [dict(r) for r in self._plucked_stores],
         }
 
     # -----------------------------------------------------------------
@@ -441,6 +456,62 @@ class SignalStore:
     # -----------------------------------------------------------------
     # Eviction
     # -----------------------------------------------------------------
+
+    # -----------------------------------------------------------------
+    # Plucked learned-code stores (0.10.3)
+    #
+    # The record of WHERE a set of plucked remotes came from. It is not
+    # the remotes and it is not hardware: a Broadlink store is a file,
+    # and the row it earns on the Devices tab is informational plus a
+    # delete. Deleting the record forgets the provenance and leaves
+    # every plucked remote exactly where it is, which is the existing
+    # blaster-delete semantics applied to a source that has no entity
+    # behind it.
+    #
+    # Persisted as its own top-level key rather than folded into the
+    # devices list, because it outlives any individual remote: delete
+    # every remote from a store and HAIR should still be able to say the
+    # store was plucked.
+    # -----------------------------------------------------------------
+
+    def get_plucked_stores(self) -> list[dict[str, Any]]:
+        """Every recorded plucked store, newest record last."""
+        return [dict(record) for record in self._plucked_stores]
+
+    def record_plucked_store(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Record a store as plucked, or refresh the one already there.
+
+        Keyed on (integration, store id), so re-plucking updates the
+        record's timestamp instead of minting a second row. The first
+        pluck's date is kept: it is the only thing here that cannot be
+        recovered by plucking again.
+        """
+        integration = str(record.get("integration") or "")
+        store_id = str(record.get("store_id") or "")
+        for existing in self._plucked_stores:
+            if (
+                existing.get("integration") == integration
+                and existing.get("store_id") == store_id
+            ):
+                existing.update(record)
+                existing.setdefault("first_plucked", record.get("last_plucked"))
+                self._dirty = True
+                return dict(existing)
+        new_record = dict(record)
+        new_record.setdefault("id", uuid4().hex)
+        new_record.setdefault("first_plucked", record.get("last_plucked"))
+        self._plucked_stores.append(new_record)
+        self._dirty = True
+        return dict(new_record)
+
+    def remove_plucked_store(self, record_id: str) -> bool:
+        """Forget one plucked-store record. Remotes are untouched."""
+        for index, record in enumerate(self._plucked_stores):
+            if record.get("id") == record_id:
+                del self._plucked_stores[index]
+                self._dirty = True
+                return True
+        return False
 
     def evict(self) -> int:
         """Apply eviction rules. Returns count of devices removed.

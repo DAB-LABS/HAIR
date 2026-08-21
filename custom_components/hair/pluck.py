@@ -15,9 +15,16 @@ from typing import Any
 from uuid import uuid4
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .const import PLUCK_TIMEOUT_S
+from .learned_code_stores import (
+    PROVIDERS_BY_INTEGRATION,
+    StoreInfo,
+    discover_stores,
+    read_store,
+)
 from .signal_monitor import NormalizedSignal, normalize_command
 
 _LOGGER = logging.getLogger(__name__)
@@ -177,6 +184,11 @@ def list_vendors(
     ent_reg = er.async_get(hass)
     vendors: list[dict[str, Any]] = []
     for entry in registry:
+        # Replay only. A store-read pluckable has no vendor service and
+        # no blaster entity to list; it is offered by list_stores from
+        # what is actually on disk.
+        if entry.get("mechanism", "replay") != "replay":
+            continue
         integration = entry["integration"]
         service = entry["service"]
         if not hass.services.has_service(integration, service["name"]):
@@ -211,3 +223,171 @@ def list_vendors(
             }
         )
     return vendors
+
+
+# ---------------------------------------------------------------------
+# MECHANISM TWO: STORE READ (0.10.3)
+#
+# Replay plucking asks a vendor integration to send a code and catches
+# it at the Tweezer. That covers appliance codebooks and cannot cover a
+# Broadlink at all, because its remote.send_command transmits through
+# its own hardware and will not aim at anything else. The codes are
+# still there though, at rest, in the file the integration writes under
+# .storage. So the second mechanism reads them.
+#
+# Everything below is orchestration. The reading itself lives in
+# learned_code_stores.py, which is pure and knows nothing about hass,
+# and the placing lives in SignalMonitor.import_learned_store, which
+# owns the catalog lock. Both file reads run in an executor: they are
+# blocking disk I/O and the event loop does not do that (GH #72 is the
+# expensive version of forgetting).
+# ---------------------------------------------------------------------
+
+
+def storage_integrations(registry: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Registered store-read pluckables, keyed by integration.
+
+    The registry is what makes a provider offerable: the provider table
+    in learned_code_stores knows HOW to read a Broadlink store, and the
+    YAML entry is what says HAIR should offer to. A future integration
+    that writes its codes the same way is a table row plus a YAML file.
+    """
+    return {
+        entry["integration"]: entry
+        for entry in registry
+        if entry.get("mechanism") == "storage"
+        and entry.get("integration") in PROVIDERS_BY_INTEGRATION
+    }
+
+
+def _mac_with_colons(store_id: str) -> str | None:
+    """``a4cf12880e2f`` -> ``a4:cf:12:88:0e:2f``, or None if it is not one.
+
+    Broadlink's config entry unique_id is the device MAC as bare hex
+    (broadlink/config_flow.py sets ``device.mac.hex()``), and the device
+    registry stores it with colons. This is the join between them, and
+    it is also why the MAC never reaches the UI: it is a lookup key, and
+    what the user sees is the name they gave the device.
+    """
+    text = (store_id or "").strip().lower()
+    if len(text) != 12 or any(c not in "0123456789abcdef" for c in text):
+        return None
+    return ":".join(text[i:i + 2] for i in range(0, 12, 2))
+
+
+def resolve_store_names(hass: HomeAssistant, infos: list[StoreInfo]) -> None:
+    """Fill in each store's friendly name, in place.
+
+    Two sources, cheapest first: the config entry whose unique_id is the
+    store id (true for both integrations -- Broadlink's is the MAC hex,
+    Tuya Local's is the entry unique_id the filename carries), then, for
+    Broadlink, the device registry entry reached through that MAC, which
+    is where a user-assigned name lives.
+
+    Defensive throughout: a store whose integration has since been
+    removed still has codes worth plucking, and it simply keeps its id
+    as its name rather than disappearing from the list.
+    """
+    dev_reg = None
+    try:
+        dev_reg = dr.async_get(hass)
+    except Exception:  # a registry-less test double is not a failure
+        dev_reg = None
+
+    for info in infos:
+        name = ""
+        try:
+            for entry in hass.config_entries.async_entries(info.integration):
+                if (getattr(entry, "unique_id", None) or "") == info.store_id:
+                    name = (getattr(entry, "title", "") or "").strip()
+                    break
+        except Exception:
+            name = ""
+        mac = _mac_with_colons(info.store_id)
+        if dev_reg is not None and info.integration == "broadlink" and mac:
+            try:
+                device = dev_reg.async_get_device(
+                    connections={(dr.CONNECTION_NETWORK_MAC, mac)}
+                )
+            except Exception:
+                device = None
+            if device is not None:
+                registry_name = (
+                    getattr(device, "name_by_user", None)
+                    or getattr(device, "name", None)
+                    or ""
+                )
+                if isinstance(registry_name, str) and registry_name.strip():
+                    name = registry_name.strip()
+        info.friendly_name = name or info.store_id
+
+
+async def _discover(
+    hass: HomeAssistant, registry: list[dict[str, Any]]
+) -> list[StoreInfo]:
+    offered = storage_integrations(registry)
+    if not offered:
+        return []
+    infos = await hass.async_add_executor_job(
+        discover_stores, hass.config.config_dir
+    )
+    infos = [info for info in infos if info.integration in offered]
+    resolve_store_names(hass, infos)
+    return infos
+
+
+async def list_stores(
+    hass: HomeAssistant, registry: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Every discovered learned-code store, counted but not decoded.
+
+    Cheap by construction: one file read and a first-byte peek per code,
+    no decoding. A store that will not parse comes back carrying its
+    receipt instead of vanishing, and never takes its siblings with it.
+    """
+    infos = await _discover(hass, registry)
+    return [info.to_dict() for info in infos]
+
+
+async def run_store_pluck(
+    hass: HomeAssistant,
+    *,
+    entry_data: dict[str, Any],
+    registry: list[dict[str, Any]],
+    store_id: str,
+) -> dict[str, Any]:
+    """Import one whole store: every subdevice, every code.
+
+    Import-all by owner ruling -- there is no subdevice picker, and
+    pruning is a delete afterwards, which users already know how to do.
+    Returns the import summary, or ``{"error": code, "message": text}``
+    for the WS layer to turn into an error result.
+    """
+    monitor = entry_data.get("signal_monitor")
+    if monitor is None:
+        return {"error": "not_configured", "message": "HAIR is not ready yet"}
+
+    infos = await _discover(hass, registry)
+    info = next((i for i in infos if i.store_id == store_id), None)
+    if info is None:
+        return {
+            "error": "unknown_store",
+            "message": "That learned-code store is no longer there",
+        }
+    if info.parse_error:
+        return {"error": "unreadable_store", "message": info.parse_error}
+
+    provider = PROVIDERS_BY_INTEGRATION[info.integration]
+    codes = await hass.async_add_executor_job(read_store, info)
+    if not codes:
+        return {
+            "error": "empty_store",
+            "message": "That store has no codes in it",
+        }
+    return await monitor.import_learned_store(
+        integration=info.integration,
+        store_id=info.store_id,
+        friendly_name=info.friendly_name,
+        kind=provider.kind,
+        codes=codes,
+    )

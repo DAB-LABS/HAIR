@@ -59,8 +59,12 @@ def test_missing_schema_version_invalid():
 
 
 def test_unknown_schema_version_invalid():
+    # 99, not 2: schema_version 2 became real in 0.10.3 (the mechanism
+    # field). This test is about a file from a FUTURE HAIR, so it needs
+    # a version no HAIR knows, and it will need moving again the next
+    # time the schema is bumped.
     with pytest.raises(vol.Invalid):
-        validate_pluckable(_copy(schema_version=2))
+        validate_pluckable(_copy(schema_version=99))
 
 
 def test_extra_key_invalid_prevent_extra():

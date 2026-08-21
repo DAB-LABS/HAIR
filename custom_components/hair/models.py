@@ -1422,7 +1422,7 @@ _KNOWN_CATALOG_DEVICE = frozenset({
     "id", "fingerprint", "protocol", "device_address", "label", "signals",
     "hit_count", "first_seen", "last_seen", "dismissed", "source", "order",
     "vendor_entity_id", "appliance", "promoted_to", "promoted_to_remote",
-    "source_wig",
+    "source_wig", "store_integration", "store_id", "store_subdevice",
 })
 
 
@@ -1474,6 +1474,14 @@ class UnknownDevice:
     # cells hash over the closet's matrix wigs, so a renamed wig still
     # points home. None for every other remote.
     source_wig: dict[str, Any] | None = None
+    # Learned-code store provenance (0.10.3). Set when this remote is
+    # one subdevice inside another integration's code store, and
+    # immutable afterwards: the three together are how a RE-pluck finds
+    # the row it already made instead of minting a second one, so they
+    # are identity and not decoration. None on every other remote.
+    store_integration: str | None = None
+    store_id: str | None = None
+    store_subdevice: str | None = None
     # Keys this parser did not consume, written back last so a newer
     # build's fields survive an older build's save (0.10.1 item 2).
     _extra: dict[str, Any] = field(
@@ -1592,6 +1600,9 @@ class UnknownDevice:
             "promoted_to": self.promoted_to,
             "promoted_to_remote": self.promoted_to_remote,
             "source_wig": dict(self.source_wig) if self.source_wig else None,
+            "store_integration": self.store_integration,
+            "store_id": self.store_id,
+            "store_subdevice": self.store_subdevice,
         }, self._extra)
 
     @classmethod
@@ -1617,4 +1628,7 @@ class UnknownDevice:
             promoted_to=data.get("promoted_to"),
             promoted_to_remote=data.get("promoted_to_remote"),
             source_wig=data.get("source_wig") or None,
+            store_integration=data.get("store_integration"),
+            store_id=data.get("store_id"),
+            store_subdevice=data.get("store_subdevice"),
         ), data, _KNOWN_CATALOG_DEVICE)

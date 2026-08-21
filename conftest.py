@@ -473,6 +473,10 @@ _stub("homeassistant.helpers.device_registry", {
     "async_get": MagicMock(return_value=_mock_registry),
     "async_entries_for_config_entry": MagicMock(return_value=[]),
     "DeviceEntry": MagicMock,
+    # Learned-code store pluck (0.10.3): a Broadlink store is named
+    # after its device, reached through the MAC connection.
+    "CONNECTION_NETWORK_MAC": "mac",
+    "format_mac": lambda mac: str(mac).lower(),
 })
 
 _mock_entity_registry = MagicMock()
