@@ -1,0 +1,23 @@
+# Pluckable registry entry: Tuya Local learned codes, read at rest.
+#
+# The sibling of tuya_local.yaml, not a replacement for it. Tuya Local
+# supports BOTH mechanisms and they cover different things: the replay
+# entry plucks appliance codes out of the vendor codebook by asking the
+# integration to send them, and this entry reads the codes the user
+# learned themselves, which live in
+# .storage/tuya_local_remote_<entry unique_id>_codes.
+#
+# The payload there is base64 of a PLAIN little-endian microsecond
+# array, uncompressed: the same plaintext that sits inside the FastLZ
+# container the 0.10.2 reader handles. It is decoded by the Tuya
+# plaintext reader and never by the Broadlink one, because the store it
+# came from decides that and the bytes never do.
+#
+# READ-ONLY. HAIR never writes to another integration's store.
+schema_version: 2
+name: Tuya Local
+integration: tuya_local
+docs_url: https://github.com/make-all/tuya-local
+
+mechanism: storage
+store_provider: tuya_local

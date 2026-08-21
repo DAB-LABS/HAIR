@@ -5,6 +5,18 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-08-21 -- Broad Sweep
+
+### Added
+- Learned-code store pluck: the Plucker reads the IR codes other integrations have stored inside Home Assistant. Broadlink (broadlink_remote_* stores) and Tuya Local (tuya_local_remote_* stores) ship as the first two providers. One card per discovered store in the Add Blaster dialog; one click imports every subdevice as a named plucked remote. Decoded codes re-encode canonically on transmit. Toggle commands import as named pairs. RF codes are counted and set aside with a receipt; failed learns receipt instead of importing; re-plucking a store is idempotent. Store files are opened read-only, always.
+- Pluckable registry schema v2: a mechanism field (replay or storage); existing replay YAML is unchanged.
+
+### Fixed
+- The Plucker tab now shows when storage-pluck sources exist even with no replay vendor installed.
+- Plucked command names now seed the signal alias, so store imports arrive named instead of as bare diamonds.
+- The Add Blaster dialog renders its title again on current Home Assistant (headerTitle slot); other dialogs follow in a later pass.
+- Plucker signal rows show the protocol pill and TX knob indicators (send times, ditto) like the Sniffer and Clipper.
+
 ## [0.10.2] - 2026-08-20 -- Fresh Scent
 
 ### Added

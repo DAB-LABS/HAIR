@@ -56,6 +56,7 @@ import type {
     IRTrigger,
     LastHeard,
     MatrixCellDetail,
+    PluckedStoreRecord,
     ReceiverInfo,
     TriggerDrawerInfo,
     TriggerFiredEvent,
@@ -205,6 +206,12 @@ export class IrDeviceList extends LitElement {
         name: string;
         vendorName: string;
     }[] = [];
+    // Learned-code stores this install has plucked (0.10.3). They sit
+    // in the same section as the replay-capable hardware above, because
+    // to a user both answer "where did these codes come from", but they
+    // are records rather than devices: there is no entity behind one,
+    // so the row is informational plus a delete.
+    @state() private _pluckedStores: PluckedStoreRecord[] = [];
     @state() private _expandedDevice: IRDevice | null = null;
     @state() private _triggers: IRTrigger[] = [];
     @state() private _glowTriggerIds = new Set<string>();
@@ -544,7 +551,9 @@ export class IrDeviceList extends LitElement {
         // Pluckable blasters (vendor IR blasters HAIR can pull codes from).
         if (this.api) {
             try {
-                const { vendors } = await this.api.listPluckVendors();
+                const { vendors, plucked_stores } =
+                    await this.api.listPluckVendors();
+                this._pluckedStores = plucked_stores ?? [];
                 const blasters: {
                     integration: string;
                     entity_id: string;
@@ -564,7 +573,28 @@ export class IrDeviceList extends LitElement {
                 this._pluckBlasters = blasters;
             } catch {
                 this._pluckBlasters = [];
+                this._pluckedStores = [];
             }
+        }
+    }
+
+    /**
+     * Forget a plucked store's row.
+     *
+     * The record only. Every remote that came out of that store stays
+     * exactly where it is, which is the same semantics a blaster delete
+     * has always had; re-plucking brings the row back and, thanks to
+     * the tiered duplicate guard, adds no signals.
+     */
+    private async _forgetStore(store: PluckedStoreRecord): Promise<void> {
+        if (!this.api) return;
+        try {
+            await this.api.forgetPluckedStore(store.id);
+            this._pluckedStores = this._pluckedStores.filter(
+                (s) => s.id !== store.id,
+            );
+        } catch {
+            // Non-fatal: the row stays and the next load settles it.
         }
     }
 
@@ -2078,16 +2108,47 @@ export class IrDeviceList extends LitElement {
                 ></ir-ghost-tile>
             </div>
 
-            <!-- Blasters (Pluckable) -- vendor IR blasters HAIR can pull from -->
-            ${this._pluckBlasters.length > 0
+            <!-- Blasters (Pluckable) -- vendor IR blasters HAIR can pull
+                 from, plus the learned-code stores it has plucked -->
+            ${this._pluckBlasters.length + this._pluckedStores.length > 0
                 ? html`
                       <div class="section-header">
                           <h2>${t("devlist.blasters")}</h2>
                           <span class="section-count"
-                              >${this._pluckBlasters.length}</span
+                              >${this._pluckBlasters.length +
+                              this._pluckedStores.length}</span
                           >
                       </div>
                       <div class="grid">
+                          ${this._pluckedStores.map(
+                              (s) => html`
+                                  <div class="card hw-card">
+                                      <div class="card-header">
+                                          <ha-svg-icon
+                                              .path=${ICON_BLASTER}
+                                          ></ha-svg-icon>
+                                          <div class="card-name">
+                                              ${s.friendly_name}
+                                          </div>
+                                      </div>
+                                      <div class="card-meta">
+                                          ${s.kind} &middot; ${s.store_id}
+                                      </div>
+                                      <div class="card-footer">
+                                          <button
+                                              class="badge forget-badge"
+                                              title=${t(
+                                                  "devlist.forget_store_title",
+                                              )}
+                                              @click=${() =>
+                                                  void this._forgetStore(s)}
+                                          >
+                                              ${t("devlist.forget_store")}
+                                          </button>
+                                      </div>
+                                  </div>
+                              `,
+                          )}
                           ${this._pluckBlasters.map(
                               (b) => html`
                                   <div
@@ -2767,6 +2828,22 @@ export class IrDeviceList extends LitElement {
             background: var(--secondary-background-color);
             color: #78909c;
             text-transform: uppercase;
+        }
+        /* Same form, but this one is a real button: forgetting a
+           plucked store's row is the only action it carries. */
+        .forget-badge {
+            background: var(--secondary-background-color);
+            color: var(--secondary-text-color);
+            text-transform: uppercase;
+            border: none;
+            font: inherit;
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+        }
+        .forget-badge:hover {
+            color: var(--primary-text-color);
         }
 
         /* --- Remotes: single HAIR Triggers drawer card --- */

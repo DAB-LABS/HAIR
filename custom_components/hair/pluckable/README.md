@@ -15,10 +15,34 @@ through a chosen emitter, and pointing that emitter at HAIR's own observer
 emitter (the HAIR Tweezer). HAIR captures the code before it becomes physical
 IR. No IR is broadcast during a pluck.
 
-A vendor qualifies as a pluckable only if it exposes a service that replays a
-stored code by name through a target emitter entity. An integration that only
-fires through its own hardware, or that addresses codes by a raw blob instead
-of a stored name, does not fit and cannot be added as a YAML file alone.
+A vendor qualifies for the REPLAY mechanism only if it exposes a service that
+replays a stored code by name through a target emitter entity. An integration
+that only fires through its own hardware, or that addresses codes by a raw blob
+instead of a stored name, does not fit that mechanism.
+
+## Two mechanisms
+
+`mechanism` says how HAIR gets the codes. It is optional and defaults to
+`replay`, so every file written before this existed keeps working unchanged.
+
+`replay` is the mechanism above: ask the integration to send a stored code and
+catch it at the Tweezer before it becomes light. It needs a `service` block.
+
+`storage` reads codes the user has already learned, at rest, out of the file
+the integration keeps under `.storage`. It needs a `store_provider` naming a
+reader HAIR ships, and it must NOT carry a `service` block, since it calls no
+service at all. HAIR only ever READS those files.
+
+Storage is what makes Broadlink pluckable: its `remote.send_command` transmits
+through its own hardware and cannot be aimed at the Tweezer, so replay can
+never work for it, while every code it ever learned is sitting in
+`.storage/broadlink_remote_<mac>_codes`. Tuya Local ships BOTH files, because
+the two mechanisms reach different things: replay reaches the vendor codebook,
+storage reaches the codes you learned yourself.
+
+A store reader is Python, not YAML. Adding a `storage` entry for an
+integration HAIR has no reader for will load and then offer nothing, so a new
+provider is a conversation with the maintainer, not a single-file PR.
 
 ## The schema
 
@@ -26,12 +50,14 @@ Every field, with `tuya_local.yaml` as the worked example:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `schema_version` | yes | Schema version this file targets. Keep at 1 unless told otherwise. |
+| `schema_version` | yes | Schema version this file targets. Use 1 for a replay pluckable; `mechanism` needs 2. |
+| `mechanism` | no | `replay` (default) or `storage`. See "Two mechanisms" above. |
+| `store_provider` | storage only | Names the store reader HAIR should use. Refused on a replay entry. |
 | `name` | yes | Vendor name shown in the UI and used as the error-message prefix. |
 | `integration` | yes | HA integration domain that owns the blaster entities and the service. |
 | `docs_url` | no | Link to the vendor integration's docs. |
 | `remote_feature_filter` | no | A `RemoteEntityFeature` name. Only matching `remote.*` entities are offered. Usually `LEARN_COMMAND`. |
-| `service.domain` | yes | The send service's integration domain. |
+| `service.domain` | replay only | The send service's integration domain. |
 | `service.name` | yes | The send service's name. |
 | `service.target_param` | yes | The target parameter that receives the vendor blaster entity id (usually `entity_id`). |
 | `service.data` | yes | The service-call data. Values are templates (see below). |
@@ -109,5 +135,5 @@ message.
 - Every `service.data` value uses only allowed placeholders.
 - `error_map` keys are genuine exception substrings.
 - `docs_url` resolves.
-- `name` and `integration` are unique across this directory.
+- `integration` plus `mechanism` is unique across this directory (one integration may ship one of each).
 - No `.py` sibling file (not supported in this version).

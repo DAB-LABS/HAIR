@@ -934,6 +934,54 @@ export interface PluckVendor {
     blasters: PluckBlaster[];
 }
 
+/**
+ * One discovered learned-code store (hair/pluck/stores/list).
+ *
+ * ``friendly_name`` is already resolved server-side from the config
+ * entry and, for Broadlink, the device registry, so the panel never has
+ * to show a MAC. ``error`` is null, or the receipt for a store that
+ * would not parse: such a store still renders a card, it just cannot be
+ * plucked.
+ */
+export interface LearnedStore {
+    store_id: string;
+    integration: string;
+    friendly_name: string;
+    subdevices: number;
+    codes: number;
+    ir_codes: number;
+    rf_codes: number;
+    error: string | null;
+}
+
+/**
+ * The landing numbers (hair/pluck/stores/import).
+ *
+ * Every clause the landing sentence can print has a counter here, and
+ * every zero-count clause is omitted when it is rendered.
+ */
+export interface LearnedStoreImport {
+    remotes: number;
+    signals: number;
+    washed: number;
+    kept_raw: number;
+    toggle_pairs: number;
+    rf_receipted: number;
+    no_timings: number;
+    already_present: number;
+}
+
+/** The record behind a plucked store's row on the Devices tab. */
+export interface PluckedStoreRecord {
+    id: string;
+    integration: string;
+    store_id: string;
+    friendly_name: string;
+    kind: string;
+    first_plucked?: string | null;
+    last_plucked?: string | null;
+}
+
 export interface PluckedSignalPreview {
     code: string | null;
     protocol: string | null;

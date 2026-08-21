@@ -39,6 +39,21 @@ ALLOWED_PLACEHOLDERS = frozenset({"command_name", "appliance", "tweezer"})
 # RemoteEntityFeature member names accepted by remote_feature_filter.
 _REMOTE_FEATURES = ("LEARN_COMMAND", "DELETE_COMMAND", "LEARN_RF")
 
+# How HAIR gets codes out of a vendor integration (0.10.3).
+#
+#   replay  -- ask the integration to SEND a stored code and catch it at
+#              the HAIR Tweezer before it becomes light. The v0.5.0
+#              mechanism, and the only one until now.
+#   storage -- read the codes the user already learned, at rest, out of
+#              the file the integration keeps under .storage. Read-only,
+#              always.
+#
+# A v1 file has no mechanism field and is normalized to "replay", so
+# every existing pluckable keeps loading forever with nothing to
+# migrate.
+MECHANISMS = ("replay", "storage")
+DEFAULT_MECHANISM = "replay"
+
 
 def _template_value(value: Any) -> str:
     """Validate that a service.data template uses only allowed placeholders."""
@@ -83,11 +98,53 @@ SCHEMA_V1 = vol.Schema(
     extra=vol.PREVENT_EXTRA,
 )
 
+SCHEMA_V2 = vol.Schema(
+    {
+        vol.Required("schema_version"): vol.All(int, vol.Range(min=1)),
+        vol.Required("name"): str,
+        vol.Required("integration"): str,
+        vol.Optional("docs_url"): str,
+        vol.Optional("mechanism", default=DEFAULT_MECHANISM): vol.In(MECHANISMS),
+        vol.Optional("remote_feature_filter"): vol.In(_REMOTE_FEATURES),
+        # Conditional, and THAT is why this is a version bump rather
+        # than a new Optional field on v1 (the loader's own rule, and
+        # the probe called it): a store-read entry has nothing to put in
+        # a service block, so "service" stops being Required and its
+        # requirement moves into _validate_v2 below.
+        vol.Optional("service"): _SERVICE_SCHEMA,
+        vol.Optional("store_provider"): str,
+        vol.Optional("appliance_label"): str,
+        vol.Optional("appliance_help"): str,
+        vol.Optional("error_map", default=dict): {str: str},
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
+
+def _validate_v2(data: Any) -> dict[str, Any]:
+    """Schema v2 plus the rules a declarative schema cannot express."""
+    entry = dict(SCHEMA_V2(data))
+    mechanism = entry.get("mechanism", DEFAULT_MECHANISM)
+    if mechanism == "replay":
+        if not entry.get("service"):
+            raise vol.Invalid("a replay pluckable needs a service block")
+        if entry.get("store_provider"):
+            raise vol.Invalid("store_provider belongs to mechanism: storage")
+    else:
+        if entry.get("service"):
+            raise vol.Invalid(
+                "a storage pluckable reads files and calls no vendor service"
+            )
+        if not entry.get("store_provider"):
+            raise vol.Invalid("a storage pluckable needs a store_provider")
+    return entry
+
+
 # Version-keyed schemas. A file is validated against the schema matching its
 # declared schema_version, so a v1 file keeps loading forever with no
 # migration. Adding a new Optional field needs no bump; a new Required field
 # or changed semantics bumps the version and adds a SCHEMA_V2 entry here.
-_SCHEMAS: dict[int, vol.Schema] = {1: SCHEMA_V1}
+_SCHEMAS: dict[int, Any] = {1: SCHEMA_V1, 2: _validate_v2}
 
 
 def validate_pluckable(data: Any) -> dict[str, Any]:
@@ -107,7 +164,11 @@ def validate_pluckable(data: Any) -> dict[str, Any]:
             f"schema_version {version} needs a newer HAIR "
             f"(known: {sorted(_SCHEMAS)})"
         )
-    return dict(_SCHEMAS[version](data))
+    entry = dict(_SCHEMAS[version](data))
+    # Normalized so every consumer can read entry["mechanism"] without
+    # caring which schema version the file declared.
+    entry.setdefault("mechanism", DEFAULT_MECHANISM)
+    return entry
 
 
 def load_pluckables(directory: Path) -> list[dict[str, Any]]:
@@ -119,7 +180,7 @@ def load_pluckables(directory: Path) -> list[dict[str, Any]]:
     logged and skipped. Files starting with ``_`` are excluded.
     """
     registry: list[dict[str, Any]] = []
-    seen: dict[str, str] = {}
+    seen: dict[tuple[str, str], str] = {}
     if not directory.is_dir():
         return registry
     for path in sorted(directory.glob("*.yaml")):
@@ -135,16 +196,21 @@ def load_pluckables(directory: Path) -> list[dict[str, Any]]:
         except vol.Invalid as err:
             _LOGGER.warning("Pluckable %s skipped: %s", path.name, err)
             continue
-        integration = entry["integration"]
-        if integration in seen:
+        # One entry per (integration, mechanism), not per integration:
+        # Tuya Local legitimately ships both, and they cover different
+        # things (replay reaches the vendor codebook, storage reaches
+        # the codes the user learned themselves).
+        key = (entry["integration"], entry["mechanism"])
+        if key in seen:
             _LOGGER.warning(
-                "Pluckable %s skipped: integration '%s' already defined by %s",
+                "Pluckable %s skipped: %s/%s already defined by %s",
                 path.name,
-                integration,
-                seen[integration],
+                key[0],
+                key[1],
+                seen[key],
             )
             continue
-        seen[integration] = path.name
+        seen[key] = path.name
         entry["_source_file"] = path.name
         registry.append(entry)
     return registry

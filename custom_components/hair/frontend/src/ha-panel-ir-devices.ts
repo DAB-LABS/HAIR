@@ -23,7 +23,7 @@ import type { WigPickRow } from "./ir-wig-picker.js";
 // Bump alongside manifest.json on every release. Surfaced as a quiet
 // footer line at the bottom of the panel so users (and bug reporters)
 // can identify the installed HAIR version without opening Settings.
-const HAIR_VERSION = "0.10.2";
+const HAIR_VERSION = "0.10.3";
 
 type PanelTab = "devices" | "sniffer" | "clips" | "plucker" | "mirror" | "wigs";
 
@@ -97,13 +97,31 @@ export class HaPanelIrDevices extends LitElement {
         void this._checkPluckers();
     }
 
-    /** Gate the Plucker tab on at least one compatible blaster being
-     *  configured. Default false + render-only-when-true means no flash. */
+    /** Gate the Plucker tab on there being anything to pluck.
+     *
+     *  EITHER mechanism counts (0.10.3). Gating on replay vendors alone
+     *  was right while replay was the only mechanism, and wrong the
+     *  moment a store read arrived: a Broadlink user has no replay
+     *  vendor by definition, since remote.send_command transmits
+     *  through its own hardware and cannot be aimed at the Tweezer. On
+     *  the bench that hid the tab entirely on a box with a real
+     *  Broadlink store sitting in .storage, which made the headline
+     *  feature of this release unreachable on exactly the install it
+     *  was built for.
+     *
+     *  Default false + render-only-when-true means no flash. */
     private async _checkPluckers(): Promise<void> {
         if (!this._api) return;
         try {
-            const { vendors } = await this._api.listPluckVendors();
-            this._pluckersAvailable = vendors.length > 0;
+            const [vendors, stores] = await Promise.allSettled([
+                this._api.listPluckVendors(),
+                this._api.listLearnedStores(),
+            ]);
+            const haveVendors =
+                vendors.status === "fulfilled" && vendors.value.vendors.length > 0;
+            const haveStores =
+                stores.status === "fulfilled" && stores.value.stores.length > 0;
+            this._pluckersAvailable = haveVendors || haveStores;
         } catch {
             this._pluckersAvailable = false;
         }

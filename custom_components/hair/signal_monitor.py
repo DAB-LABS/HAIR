@@ -311,6 +311,64 @@ def _apply_signal_provenance(
         command.source = CommandSource.IMPORTED
 
 
+def _mint_plucked_signal(
+    code: str,
+    frequency: int,
+    command_name: str,
+    alias: str,
+    now_iso: str,
+) -> UnknownSignal:
+    """Build one plucked signal from an already-validated Pronto code.
+
+    Shared by the two doors a plucked code can arrive through: the
+    single-signal replay path (``create_plucked_signal``) and the bulk
+    store read (``import_learned_store``). One function rather than two
+    copies, because a replay pluck and a store pluck of the same
+    physical button have to land on the same row, and two copies of an
+    identity block eventually disagree about how.
+
+    Identity is on the CANONICAL (wire) form, matching the Clipper paste
+    and the capture pipeline, so a file-sourced code and the same code
+    heard off the air share a fingerprint. The stored ``code`` stays
+    exactly as given.
+
+    Decode-on-place runs HERE rather than in the caller so the caller's
+    duplicate guard always sees the full tiered identity (decoded first,
+    then byte hash, then S/L). A code the registry cannot name stays
+    Pronto-only, which is ordinary: raw is still authoritative.
+    """
+    from .ir_command import ProntoCommand
+
+    sig_fp = canonical_fingerprint("PRONTO", code, [])
+    byte_hash = canonical_byte_hash(code)
+    try:
+        decode_raw = ProntoCommand(code).get_raw_timings()
+    except Exception:
+        decode_raw = None
+    identity = try_decode_identity(decode_raw)
+    return UnknownSignal(
+        fingerprint=sig_fp,
+        byte_hash=byte_hash,
+        decoded_protocol=identity.protocol if identity else None,
+        decoded_address=identity.address if identity else None,
+        decoded_command=identity.command if identity else None,
+        decoded_fingerprint=identity.fingerprint if identity else None,
+        decoded_extras=(
+            dict(identity.extras) if identity and identity.extras else None
+        ),
+        protocol="PRONTO",
+        code=code,
+        raw_timings=[],
+        frequency=frequency,
+        hit_count=1,
+        first_seen=now_iso,
+        last_seen=now_iso,
+        source="plucked",
+        alias=(alias or "").strip(),
+        plucked_command_name=command_name,
+    )
+
+
 class SignalMonitor:
     """Core always-on IR signal listener.
 
@@ -2596,9 +2654,13 @@ class SignalMonitor:
         Mirrors ``create_manual_signal`` but is guarded to plucked blasters,
         records the user-typed ``command_name`` as ``plucked_command_name``,
         and tags the signal ``source="plucked"``. Validates the Pronto and
-        rejects a true duplicate (same fingerprint AND byte_hash) already on
-        the blaster. Placement is by ``device_id``; nothing is fingerprint-
-        grouped and nothing reaches the Sniffer feed.
+        rejects a duplicate already on the blaster. Placement is by
+        ``device_id``; nothing is fingerprint-grouped and nothing reaches
+        the Sniffer feed.
+
+        The signal itself is built by ``_mint_plucked_signal``, which the
+        bulk store-read path uses too, so both doors compute identity
+        identically.
         """
         result = validate_pronto(pronto)
         if not result.valid:
@@ -2620,73 +2682,207 @@ class SignalMonitor:
                         "error": "Can only add plucked signals to a plucked blaster"}
 
             now_iso = datetime.now(UTC).isoformat()
-            code = result.normalized
-            # Identity on the CANONICAL (wire) form -- a pasted file
-            # Pronto and the same code off the air must land on one
-            # identity (identity.py's canonical-form block). The stored
-            # ``code`` stays exactly as pasted.
-            sig_fp = canonical_fingerprint("PRONTO", code, [])
-            byte_hash = canonical_byte_hash(code)
-            from .ir_command import ProntoCommand
-
-            # Decode-on-place: mirror the Sniffer/clip path so a plucked NEC
-            # code transmits canonical re-encoded timings. Guarded; a non-NEC
-            # or unreadable code stays Pronto-only. Runs BEFORE the duplicate
-            # guard so the guard sees the full tiered identity.
-            try:
-                decode_raw = ProntoCommand(code).get_raw_timings()
-            except Exception:
-                decode_raw = None
-            identity = try_decode_identity(decode_raw)
-            decoded_protocol = identity.protocol if identity else None
-            decoded_address = identity.address if identity else None
-            decoded_command = identity.command if identity else None
-            decoded_fingerprint = identity.fingerprint if identity else None
-            decoded_extras = (
-                dict(identity.extras) if identity and identity.extras else None
-            )
-
-            # Tiered duplicate guard (matches the paste/edit/capture paths):
-            # a re-encoding of an already-plucked command is refused even
-            # when it bins or classifies differently, so the load-time heal
-            # never has to merge (and thereby delete) a plucked row later.
-            if device.get_signal(sig_fp, byte_hash, decoded_fingerprint) is not None:
-                return {
-                    "success": False,
-                    "code": "duplicate_signal",
-                    "error": "This signal is already on this blaster",
-                }
             frequency = (
                 round(result.frequency_khz * 1000)
                 if result.frequency_khz
                 else DEFAULT_CARRIER_FREQUENCY
             )
-            signal = UnknownSignal(
-                fingerprint=sig_fp,
-                byte_hash=byte_hash,
-                decoded_protocol=decoded_protocol,
-                decoded_address=decoded_address,
-                decoded_command=decoded_command,
-                decoded_fingerprint=decoded_fingerprint,
-                decoded_extras=(
-                    dict(decoded_extras) if decoded_extras else None
-                ),
-                protocol="PRONTO",
-                code=code,
-                raw_timings=[],
-                frequency=frequency,
-                hit_count=1,
-                first_seen=now_iso,
-                last_seen=now_iso,
-                source="plucked",
-                alias=(alias or "").strip(),
-                plucked_command_name=command_name,
+            signal = _mint_plucked_signal(
+                result.normalized, frequency, command_name, alias, now_iso
             )
+            # Tiered duplicate guard (matches the paste/edit/capture paths):
+            # a re-encoding of an already-plucked command is refused even
+            # when it bins or classifies differently, so the load-time heal
+            # never has to merge (and thereby delete) a plucked row later.
+            if device.get_signal(
+                signal.fingerprint, signal.byte_hash, signal.decoded_fingerprint
+            ) is not None:
+                return {
+                    "success": False,
+                    "code": "duplicate_signal",
+                    "error": "This signal is already on this blaster",
+                }
             device.signals.insert(0, signal)
             self._signal_store.index_signal(device, signal)
             device.last_seen = now_iso
             await self._signal_store.async_save()
         return {"success": True, "signal": signal.to_dict()}
+
+    async def import_learned_store(
+        self,
+        *,
+        integration: str,
+        store_id: str,
+        friendly_name: str,
+        kind: str,
+        codes: list[Any],
+    ) -> dict[str, int]:
+        """Place one whole learned-code store onto plucked remotes.
+
+        One subdevice becomes one plucked remote, one command becomes one
+        named signal, and the store itself gets a record so the Devices
+        tab can show where these came from. It all happens under one lock
+        and ends in one save: a store with hundreds of codes is one write,
+        not hundreds.
+
+        RE-PLUCK IS THE SAME CALL, and that is the whole design. Remotes
+        are found by (integration, store id, subdevice) rather than minted
+        blind, and every code goes through the same tiered duplicate guard
+        the single-signal path uses, so a second import adds nothing,
+        renames nothing, loses no alias, and reports what it found instead
+        (``already_present``). There is no separate refresh path to keep
+        in step with this one.
+
+        Receipts are counted, never swallowed: an RF code, a code with no
+        usable timings, and a code that will not validate each land in
+        their own counter so the landing summary can say what happened to
+        them. Nothing unconvertible is ever invented into a code.
+        """
+        from .learned_code_stores import RECEIPT_RF
+
+        summary = {
+            "remotes": 0,
+            "signals": 0,
+            "washed": 0,
+            "kept_raw": 0,
+            "toggle_pairs": 0,
+            "rf_receipted": 0,
+            "no_timings": 0,
+            "already_present": 0,
+        }
+        now_iso = datetime.now(UTC).isoformat()
+        touched: set[str] = set()
+
+        async with self._lock:
+            # Existing remotes for THIS store, by subdevice. Built once
+            # rather than searched per code: a big Broadlink store is
+            # hundreds of codes across a handful of subdevices.
+            by_subdevice: dict[str, UnknownDevice] = {}
+            for device in self._signal_store.get_all_devices():
+                if (
+                    device.source == "plucked"
+                    and device.store_integration == integration
+                    and device.store_id == store_id
+                ):
+                    by_subdevice[device.store_subdevice or ""] = device
+
+            for code in codes:
+                if code.receipt_kind == RECEIPT_RF:
+                    summary["rf_receipted"] += 1
+                    continue
+                if code.receipt_kind is not None or not code.pronto:
+                    summary["no_timings"] += 1
+                    continue
+                result = validate_pronto(code.pronto)
+                if not result.valid:
+                    # Defense in depth. The reader built this Pronto, so
+                    # this should not fire; if it ever does, it is a
+                    # receipt and not a silent drop.
+                    summary["no_timings"] += 1
+                    _LOGGER.debug(
+                        "Learned-code store %s: %s/%s did not validate (%s)",
+                        store_id, code.subdevice, code.command_name,
+                        result.errors[0] if result.errors else "invalid",
+                    )
+                    continue
+
+                device = by_subdevice.get(code.subdevice)
+                if device is None:
+                    label = (
+                        f"{friendly_name}: {code.subdevice}"
+                        if friendly_name
+                        else code.subdevice
+                    )
+                    device = UnknownDevice(
+                        label=label,
+                        source="plucked",
+                        store_integration=integration,
+                        store_id=store_id,
+                        store_subdevice=code.subdevice,
+                        first_seen=now_iso,
+                        last_seen=now_iso,
+                        hit_count=0,
+                    )
+                    # Synthetic fingerprint, same as every other plucked
+                    # or clipped remote: live sniffed signals must never
+                    # group into a remote that was never heard.
+                    device.fingerprint = f"plucked:{device.id}"
+                    self._signal_store.add_device(device)
+                    by_subdevice[code.subdevice] = device
+                touched.add(code.subdevice)
+
+                frequency = (
+                    round(result.frequency_khz * 1000)
+                    if result.frequency_khz
+                    else DEFAULT_CARRIER_FREQUENCY
+                )
+                # The alias is seeded from the command name, and that
+                # is not decoration: the catalog row renders the ALIAS,
+                # falling back to S/L diamonds, so without this a store
+                # import is a wall of anonymous rows even though every
+                # name arrived intact. The replay path gets the same
+                # effect from its dialog, which seeds suggested_alias
+                # from the name the user types; a store read has no
+                # dialog, so it seeds here. The user can rename freely
+                # afterwards and a re-pluck will not undo it.
+                signal = _mint_plucked_signal(
+                    result.normalized,
+                    frequency,
+                    code.command_name,
+                    code.command_name,
+                    now_iso,
+                )
+                summary["signals"] += 1
+                # THE WASH: a code the decoder can name transmits from
+                # canonical timings, so it goes out cleaner than it was
+                # learned. One that stays raw is not a failure, it is
+                # just a code nothing in the registry speaks.
+                if signal.decoded_fingerprint:
+                    summary["washed"] += 1
+                else:
+                    summary["kept_raw"] += 1
+                if code.is_toggle_alt:
+                    summary["toggle_pairs"] += 1
+
+                if device.get_signal(
+                    signal.fingerprint,
+                    signal.byte_hash,
+                    signal.decoded_fingerprint,
+                ) is not None:
+                    summary["already_present"] += 1
+                    continue
+                device.signals.insert(0, signal)
+                self._signal_store.index_signal(device, signal)
+                device.last_seen = now_iso
+
+            summary["remotes"] = len(touched)
+            self._signal_store.record_plucked_store(
+                {
+                    "integration": integration,
+                    "store_id": store_id,
+                    "friendly_name": friendly_name,
+                    "kind": kind,
+                    "last_plucked": now_iso,
+                }
+            )
+            await self._signal_store.async_save()
+
+        _LOGGER.info(
+            "Plucked %s (%s): %d remotes, %d signals, %d washed, %d kept raw, "
+            "%d toggle pairs, %d RF set aside, %d with no usable timings, "
+            "%d already in the catalog",
+            friendly_name or store_id,
+            integration,
+            summary["remotes"],
+            summary["signals"],
+            summary["washed"],
+            summary["kept_raw"],
+            summary["toggle_pairs"],
+            summary["rf_receipted"],
+            summary["no_timings"],
+            summary["already_present"],
+        )
+        return summary
 
     async def edit_signal_pronto(
         self,

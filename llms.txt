@@ -605,3 +605,4 @@ Receiver architecture:
 - [DAB-LABS](https://github.com/DAB-LABS): Other open-source Home Assistant and
   homelab projects by the same author, including SMART Sniffer (disk health
   monitoring) and esphome-ld2411s (mmWave presence sensor component).
+The Plucker also reads learned-code stores other integrations persist in Home Assistant storage (Broadlink, Tuya Local; pluckable mechanism: storage), importing named commands read-only, with canonical re-encode where codes decode.

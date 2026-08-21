@@ -112,6 +112,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_pluck_create_blaster)
     websocket_api.async_register_command(hass, ws_pluck_create_signal)
     websocket_api.async_register_command(hass, ws_pluck_delete_blaster)
+    websocket_api.async_register_command(hass, ws_pluck_stores_list)
+    websocket_api.async_register_command(hass, ws_pluck_stores_import)
+    websocket_api.async_register_command(hass, ws_pluck_stores_forget)
     websocket_api.async_register_command(hass, ws_clip_create_signal)
     websocket_api.async_register_command(hass, ws_signal_set_tx_force_raw)
     websocket_api.async_register_command(hass, ws_unknown_signal_edit_pronto)
@@ -2030,7 +2033,19 @@ async def ws_pluck_list_vendors(
         return
     registry = data.get("pluckable_registry", [])
     vendors = pluck.list_vendors(hass, registry)
-    connection.send_result(msg["id"], {"vendors": vendors})
+    # The Devices tab's Blasters section shows both kinds of source: the
+    # replay-capable hardware discovered above, and the learned-code
+    # stores this install has actually plucked. The second half is a
+    # record, not a device, so it comes from the catalog store rather
+    # than from discovery.
+    signal_store: SignalStore = data["signal_store"]
+    connection.send_result(
+        msg["id"],
+        {
+            "vendors": vendors,
+            "plucked_stores": signal_store.get_plucked_stores(),
+        },
+    )
 
 
 @websocket_api.require_admin
@@ -2175,6 +2190,117 @@ async def ws_pluck_delete_blaster(
         )
         return
     connection.send_result(msg["id"], {"deleted": True})
+
+
+# --- Plucker: learned-code stores (0.10.3, mechanism two) ---
+#
+# Two commands, and they are deliberately lopsided. Listing is CHEAP and
+# happens every time the dialog opens: counts only, no decoding, one
+# file read per store. Importing is the expensive one and only happens
+# when someone clicks a card.
+#
+# Per-item resilience throughout (the 0.10.2 rule): one unreadable store
+# comes back carrying its receipt and never removes its siblings from
+# the list, because a dialog that blanks tells the user nothing about
+# what it could not read.
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/stores/list",
+})
+@websocket_api.async_response
+async def ws_pluck_stores_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Discovered learned-code stores, counted but not decoded.
+
+    Each entry carries store_id, integration, friendly_name (resolved
+    from the config entry and, for Broadlink, the device registry, so a
+    MAC is a lookup key and never something the user reads), the
+    subdevice and code counts, the IR/RF split, and ``error``: null, or
+    the receipt for a store that would not parse.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    registry = data.get("pluckable_registry", [])
+    stores = await pluck.list_stores(hass, registry)
+    connection.send_result(msg["id"], {"stores": stores})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/stores/import",
+    vol.Required("store_id"): str,
+})
+@websocket_api.async_response
+async def ws_pluck_stores_import(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Import one whole store and return the landing numbers.
+
+    Import-all by owner ruling: no subdevice picker, and pruning is a
+    delete afterwards. The result is the summary the dialog renders as
+    its landing sentence, so every clause it can print has a counter
+    here (remotes, signals, washed, kept_raw, toggle_pairs,
+    rf_receipted, no_timings, already_present).
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    registry = data.get("pluckable_registry", [])
+    result = await pluck.run_store_pluck(
+        hass,
+        entry_data=data,
+        registry=registry,
+        store_id=msg["store_id"].strip(),
+    )
+    if "error" in result:
+        connection.send_error(
+            msg["id"], result["error"], result.get("message", "Pluck failed")
+        )
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/pluck/stores/forget",
+    vol.Required("record_id"): str,
+})
+@websocket_api.async_response
+async def ws_pluck_stores_forget(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove a plucked store's Devices-tab row. The remotes stay.
+
+    Deleting the record forgets where a set of remotes came from and
+    nothing else, which is the existing blaster-delete semantics applied
+    to a source that has no entity behind it. Re-plucking the same store
+    brings the row back and, thanks to the tiered duplicate guard, adds
+    no signals.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    signal_store: SignalStore = data["signal_store"]
+    if not signal_store.remove_plucked_store(msg["record_id"]):
+        connection.send_error(
+            msg["id"], "not_found", "That plucked store record is already gone"
+        )
+        return
+    await signal_store.async_save()
+    connection.send_result(msg["id"], {"forgotten": True})
 
 
 # --- Clips (manual remotes / signals) ---

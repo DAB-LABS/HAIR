@@ -133,6 +133,25 @@ def _durations(blob: bytes):
     return list(struct.unpack("<" + "H" * count, blob))
 
 
+def _timings_from_blob(blob: bytes):
+    """Signed HAIR timings for a plain uint16 duration array, or None.
+
+    The shared tail of both Tuya readers: parse the array, sanity-check
+    it, drop a trailing space, and apply HAIR's mark-positive /
+    space-negative sign convention. None means "this blob is not a
+    readable IR burst", which on an import path is an ordinary answer
+    and never an exception.
+    """
+    values = _durations(blob)
+    if values is None or not _plausible(values):
+        return None
+    if len(values) % 2 == 0:
+        values = values[:-1]
+    if len(values) < MIN_DURATIONS - 1:
+        return None
+    return [v if index % 2 == 0 else -v for index, v in enumerate(values)]
+
+
 def _plausible(values) -> bool:
     """Does this read as an IR burst rather than as noise?
 
@@ -181,20 +200,57 @@ def tuya_b64_to_timings(code: str | None):
     blob = fastlz_decompress(packet)
     if blob is None:
         return None
-    values = _durations(blob)
-    if values is None or not _plausible(values):
-        return None
-    if len(values) % 2 == 0:
-        values = values[:-1]
-    if len(values) < MIN_DURATIONS - 1:
+    timings = _timings_from_blob(blob)
+    if timings is None:
         return None
     _LOGGER.debug(
         "Read a Tuya IR container: %d durations, %d us of air time",
-        len(values), sum(values),
+        len(timings), sum(abs(v) for v in timings),
     )
-    return [
-        v if index % 2 == 0 else -v for index, v in enumerate(values)
-    ]
+    return timings
+
+
+def plain_b64_to_timings(code: str | None):
+    """Signed HAIR timings for an UNCOMPRESSED Tuya plaintext code.
+
+    What Tuya Local writes into its own learned-code store
+    (``.storage/tuya_local_remote_<entry unique_id>_codes``) is base64 of
+    the SAME little-endian uint16 array that sits inside the FastLZ
+    container above, with no container around it. So this is the
+    compressed reader minus the inflate step.
+
+    TWO DELIBERATE DIFFERENCES from :func:`tuya_b64_to_timings`, both
+    because this function is only ever called on a payload whose origin
+    is already known from the filename it was read out of:
+
+    - No Broadlink type-byte guard. That guard exists on the sniffing
+      path to hand an ambiguous base64 blob to the right reader. Here
+      there is nothing ambiguous: a plaintext array beginning 806 us
+      encodes as bytes ``26 03``, and refusing it because 0x26 is also
+      the Broadlink IR type byte would refuse a perfectly good code.
+      The reverse mistake -- letting the Broadlink parser have it -- is
+      the misroute hazard the store reader's rule zero exists to
+      prevent.
+    - Base64 padding is repaired rather than validated, matching the
+      Broadlink store path and HA core's own ``data_packet`` helper.
+
+    The trailing capture-timeout gap that ends every stored Tuya code
+    (0xFBD0, 64464 us) needs no special threshold: the array ends on a
+    SPACE, and a terminating silence is dropped here exactly as the
+    Broadlink reader drops its own ~102 ms learning-timeout tail.
+    """
+    if not code or not isinstance(code, str):
+        return None
+    cleaned = code.strip()
+    if len(cleaned) < 8:
+        return None
+    if len(cleaned) % 4:
+        cleaned += "=" * (-len(cleaned) % 4)
+    try:
+        blob = base64.b64decode(cleaned, validate=False)
+    except (binascii.Error, ValueError):
+        return None
+    return _timings_from_blob(blob)
 
 
 def tuya_b64_to_pronto(code: str | None):
