@@ -2816,8 +2816,21 @@ class SignalMonitor:
                     if result.frequency_khz
                     else DEFAULT_CARRIER_FREQUENCY
                 )
+                # The alias is seeded from the command name, and that
+                # is not decoration: the catalog row renders the ALIAS,
+                # falling back to S/L diamonds, so without this a store
+                # import is a wall of anonymous rows even though every
+                # name arrived intact. The replay path gets the same
+                # effect from its dialog, which seeds suggested_alias
+                # from the name the user types; a store read has no
+                # dialog, so it seeds here. The user can rename freely
+                # afterwards and a re-pluck will not undo it.
                 signal = _mint_plucked_signal(
-                    result.normalized, frequency, code.command_name, "", now_iso
+                    result.normalized,
+                    frequency,
+                    code.command_name,
+                    code.command_name,
+                    now_iso,
                 )
                 summary["signals"] += 1
                 # THE WASH: a code the decoder can name transmits from

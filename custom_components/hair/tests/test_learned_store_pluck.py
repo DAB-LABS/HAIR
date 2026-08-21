@@ -312,6 +312,21 @@ class TestImportPlacement:
         names = {s.plucked_command_name for s in store.get_all_devices()[0].signals}
         assert names == {"power", "mute", "mute (alt)"}
 
+    async def test_the_name_is_also_the_alias_so_the_row_shows_it(
+        self, fake_hass, store_dir
+    ):
+        """Bench find. The catalog row renders the alias and falls back
+        to S/L diamonds, so a store import with no alias is a wall of
+        anonymous rows even though every name arrived. The replay path
+        seeds the alias from the name its dialog collects; a store read
+        has no dialog, so it seeds at import."""
+        monitor, store = _monitor(fake_hass)
+        await _import(monitor, store_dir, "broadlink", "Living Room RM4")
+
+        for signal in store.get_all_devices()[0].signals:
+            assert signal.alias == signal.plucked_command_name
+            assert signal.alias
+
     async def test_rf_and_failed_learns_are_counted_not_imported(
         self, fake_hass, store_dir
     ):
