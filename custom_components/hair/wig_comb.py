@@ -361,11 +361,24 @@ _MIN_CLUSTER_FRAMES = 3
 # would leave the two intact frames agreeing with each other and report
 # nothing.
 #
-# Two timings, and no more. The slack is for noise inside one frame, not
-# for telling two different frames apart, and a wider bar merges the
-# parts of a multi-frame air conditioner press into one class where they
-# are compared against each other and always disagree.
-_LENGTH_CLASS_SLACK = 2
+# The slack is measured from the class's SHORTEST member, not from the
+# previous length, and that distinction is the whole guard. Chaining a
+# tolerance from member to member lets a class walk: nineteen timings
+# joins twenty-one joins twenty-three, all the way to thirty-three, and
+# a spray of unrelated fragment lengths collapses into one "class" that
+# looks like a set of repeats. Anchored at the shortest member, a class
+# is what it says it is -- frames of one length, give or take a pair.
+_LENGTH_CLASS_SLACK = 4
+
+# A press is one frame, or a handful of parts sent together: the test
+# box's 8,407 codes produce splits of one class (plain repeats), two (a
+# two-part air conditioner press) or three (Daikin's leader plus two
+# blocks plus a tail), and never more. More than three classes, or more
+# frames than any remote sends in one capture, means the separator was
+# not a separator and the split is fragments rather than repeats.
+_MAX_FRAME_CLASSES = 3
+_MAX_FRAME_LENGTHS = 4
+_MAX_PLAUSIBLE_FRAMES = 12
 
 # Two timings read the same when they are within the byte-hash bin's
 # half-width, which is the tolerance HAIR already trusts to tell one
@@ -385,6 +398,11 @@ _MAX_NAMED_POSITIONS = 8
 # and are localized in the reader's language like everything else.
 DECLINE_UNPARSEABLE = "unparseable"
 DECLINE_SINGLE_FRAME = "single-frame"
+# Something in the code was shaped like a repeat boundary and could not
+# be trusted as one. Distinct from single-frame on purpose: "this is one
+# frame" is a claim, and where the timings will not say, the receipt has
+# to say THAT instead of guessing (Mitsubishi Heavy, R1 follow-up).
+DECLINE_SEPARATOR_UNCLEAR = "separator-unclear"
 DECLINE_TOO_FEW_FRAMES = "too-few-frames"
 DECLINE_PINNED_TO_RAW = "pinned-to-raw"
 DECLINE_TOO_FEW_CODES = "too-few-codes"
@@ -417,32 +435,8 @@ class FrameVote:
         }
 
 
-def _repeat_gap(pairs: list[tuple[int, int]]) -> float | None:
-    """The space value that separates this code's repeats, or None.
-
-    The final space is excluded before anything is measured. It is the
-    trailer by construction, it is always the longest space in the code,
-    and leaving it in makes it the only step the search can find -- which
-    is how a code with eight visible repeats reports one frame.
-    """
-    spaces = [space for _mark, space in pairs[:-1] if space > 0]
-    if len(spaces) < 4:
-        return None
-    ladder = sorted(set(spaces))
-    limit = len(spaces) * _REPEAT_GAP_SHARE
-    for lower, upper in reversed(list(pairwise(ladder))):
-        if upper < _REPEAT_GAP_FLOOR:
-            break
-        if upper / lower < _REPEAT_GAP_RATIO:
-            continue
-        if sum(1 for space in spaces if space >= upper) > limit:
-            continue
-        return (lower * upper) ** 0.5
-    return None
-
-
-def _repeat_frames(pairs: list[tuple[int, int]]) -> list[list[int]]:
-    """This code's repeats as signed timing lists, leaders dropped.
+def _frames_at(pairs: list[tuple[int, int]], cut: float) -> list[list[int]]:
+    """Split at ``cut`` and keep the frames long enough to be readings.
 
     Frames are compared mark to last mark. Every frame but the last one
     ends where its gap was removed; the last one keeps whatever trailer
@@ -451,20 +445,100 @@ def _repeat_frames(pairs: list[tuple[int, int]]) -> list[list[int]]:
     reading, and leaving it on made a clean RC-5 remote's last repeat a
     frame of its own (bench 2026-08-22, four plucked candle codes).
     """
-    gap = _repeat_gap(pairs)
-    if gap is None:
-        return []
     timings: list[int] = []
     for mark, space in pairs:
         timings.append(mark)
         timings.append(-space)
     frames: list[list[int]] = []
-    for frame in split_frames(timings, int(gap)):
+    for frame in split_frames(timings, int(cut)):
         while frame and frame[-1] <= 0:
             frame = frame[:-1]
         if len(frame) >= _MIN_JUDGED_FRAME:
             frames.append(frame)
     return frames
+
+
+def _reads_as_repeats(frames: list[list[int]]) -> bool:
+    """Does this split look like a press, rather than like debris?
+
+    The question a ratio cannot answer. A real separator cuts a capture
+    into a press or a few presses: one length class, or two or three when
+    the press itself has parts. A bit space mistaken for a separator cuts
+    the SAME frame at every one-bit, and the giveaway is the shape of
+    what comes out -- a spray of lengths in four classes or more, or more
+    frames than any remote sends in one capture.
+
+    Measured, not guessed: across 8,407 codes on the test box, every
+    genuine split lands on one, two or three classes and at most ten
+    frames (fitting integrity R1 bench, 2026-08-22).
+    """
+    if not frames or len(frames) > _MAX_PLAUSIBLE_FRAMES:
+        return False
+    classes = _length_classes(frames)
+    if len(classes) > _MAX_FRAME_CLASSES:
+        return False
+    # And the classes have to be BALANCED, which is the part a ratio can
+    # never see. Every part of a press arrives once per repeat, so two
+    # presses of a two-part code give two classes of two, and Daikin's
+    # leader, two blocks and tail give one, two and one. Debris does not
+    # balance: cutting a frame at its one-bits gives six short pieces,
+    # four middling and two long, and no amount of looking at the spaces
+    # would have told you that.
+    sizes = [len(members) for members in classes]
+    if max(sizes) - min(sizes) > 1:
+        return False
+    # Last bar, and the one that catches what balance alone lets through:
+    # a press has a FEW lengths in it, not a spectrum. Every genuine
+    # split measured on the test box carries three distinct frame lengths
+    # or fewer, jitter included; the fragments left by cutting a frame at
+    # its one-bits run seven and up.
+    return len({len(frame) for frame in frames}) <= _MAX_FRAME_LENGTHS
+
+
+def _split_repeats(
+    pairs: list[tuple[int, int]]
+) -> tuple[list[list[int]], bool]:
+    """This code's repeats, and whether a separator was doubted.
+
+    The final space is excluded before anything is measured. It is the
+    trailer by construction, it is always the longest space in the code,
+    and leaving it in makes it the only step the search can find -- which
+    is how a code with eight visible repeats reports one frame.
+
+    The second return value is what stops the coverage line from lying.
+    A code where nothing even looks like a separator is a single frame
+    and says so. A code where something DOES look like one and cannot be
+    trusted -- long spaces too common to be boundaries, or a split whose
+    pieces are not repeats -- is a different fact, and reporting it as
+    "one frame" would claim knowledge the check does not have.
+    """
+    spaces = [space for _mark, space in pairs[:-1] if space > 0]
+    if len(spaces) < 4:
+        return [], False
+    ladder = sorted(set(spaces))
+    limit = len(spaces) * _REPEAT_GAP_SHARE
+    doubted = False
+    for lower, upper in reversed(list(pairwise(ladder))):
+        if upper < _REPEAT_GAP_FLOOR:
+            break
+        if upper / lower < _REPEAT_GAP_RATIO:
+            # Long enough to be a boundary, not distinct enough from the
+            # spaces below it to tell. Ambiguous with data rather than
+            # gap-shaped, so it does not raise the doubt flag: an NEC
+            # leader looks exactly like this on every single-frame code
+            # in the corpus.
+            continue
+        if sum(1 for space in spaces if space >= upper) > limit:
+            # Gap-shaped, but there are too many of them to be
+            # separators. Mitsubishi Heavy's one-bit is this case: a 3.6
+            # ms space that clears every bar except being common.
+            doubted = True
+            continue
+        frames = _frames_at(pairs, (lower * upper) ** 0.5)
+        if _reads_as_repeats(frames):
+            return frames, doubted
+        doubted = True
+    return [], doubted
 
 
 def _length_classes(frames: list[list[int]]) -> list[list[list[int]]]:
@@ -481,8 +555,8 @@ def _length_classes(frames: list[list[int]]) -> list[list[list[int]]]:
     """
     lengths = sorted({len(frame) for frame in frames})
     classes: list[list[int]] = [[lengths[0]]]
-    for previous, length in pairwise(lengths):
-        if length - previous <= _LENGTH_CLASS_SLACK:
+    for length in lengths[1:]:
+        if length - classes[-1][0] <= _LENGTH_CLASS_SLACK:
             classes[-1].append(length)
         else:
             classes.append([length])
@@ -570,8 +644,10 @@ def _repeat_reading(pronto: str) -> tuple[str, FrameVote | None]:
     pairs = _pairs(pronto)
     if not pairs:
         return DECLINE_UNPARSEABLE, None
-    frames = _repeat_frames(pairs)
+    frames, doubted = _split_repeats(pairs)
     if not frames:
+        if doubted:
+            return DECLINE_SEPARATOR_UNCLEAR, None
         return DECLINE_SINGLE_FRAME, None
     if len(frames) < _MIN_CLUSTER_FRAMES:
         return DECLINE_TOO_FEW_FRAMES, None
