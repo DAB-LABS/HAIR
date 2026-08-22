@@ -685,6 +685,7 @@
     "comb.what.frame-disagreement": "ein Tastendruck, mehr als ein Code",
     "comb.frame_disagreement": "{frames} Wiederholungen dieses Tastendrucks, {readings} verschiedene Lesarten. Die Positionen {positions} weichen ab.",
     "comb.frame_disagreement_many": "{frames} Wiederholungen dieses Tastendrucks, {readings} verschiedene Lesarten. {count} Positionen weichen ab, beginnend bei {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} Wiederholungen dieses Tastendrucks, {readings} verschiedene Lesarten: die Wiederholungen sind nicht einmal gleich lang.",
     "comb.capture_repeats": "Die Wiederholungen dieser Aufnahme widersprechen sich: {frames} Rahmen, {readings} Lesarten. Am besten die Taste noch einmal drücken.",
     "comb.coverage_label": "{checked} von {codes} Codes geprüft.",
     "comb.tip_partial": "Gekämmt: nichts zu berichten bei {checked} von {codes} Codes. Klicken, um zu sehen, was ungeprüft blieb.",

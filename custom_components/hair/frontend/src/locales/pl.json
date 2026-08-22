@@ -727,6 +727,7 @@
     "comb.what.frame-disagreement": "jedno naciśnięcie, więcej niż jeden kod",
     "comb.frame_disagreement": "{frames} powtórzeń tego naciśnięcia, {readings} różnych odczytów. Pozycje {positions} są niezgodne.",
     "comb.frame_disagreement_many": "{frames} powtórzeń tego naciśnięcia, {readings} różnych odczytów. Niezgodnych pozycji: {count}, począwszy od {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} powtórzeń tego naciśnięcia, {readings} różnych odczytów: powtórzenia nie mają nawet tej samej długości.",
     "comb.capture_repeats": "Powtórzenia w tym nagraniu są niezgodne: ramek {frames}, odczytów {readings}. Warto nacisnąć przycisk jeszcze raz.",
     "comb.coverage_label": "Sprawdzono {checked} z {codes} kodów.",
     "comb.tip_partial": "Przeczesano: nic do zgłoszenia w {checked} z {codes} kodów. Kliknij, aby zobaczyć, czego nie sprawdzono.",

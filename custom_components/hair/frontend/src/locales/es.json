@@ -685,6 +685,7 @@
     "comb.what.frame-disagreement": "una pulsación, más de un código",
     "comb.frame_disagreement": "{frames} repeticiones de esta pulsación, {readings} lecturas distintas. Las posiciones {positions} no coinciden.",
     "comb.frame_disagreement_many": "{frames} repeticiones de esta pulsación, {readings} lecturas distintas. {count} posiciones no coinciden, empezando por {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} repeticiones de esta pulsación, {readings} lecturas distintas: las repeticiones ni siquiera duran lo mismo.",
     "comb.capture_repeats": "Las repeticiones de esta captura no coinciden: {frames} tramas, {readings} lecturas. Merece la pena pulsar el botón otra vez.",
     "comb.coverage_label": "Comprobados {checked} de {codes} códigos.",
     "comb.tip_partial": "Peinado: nada que informar en {checked} de {codes} códigos. Pulsa para ver qué quedó sin comprobar.",

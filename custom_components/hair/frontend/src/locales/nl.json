@@ -685,6 +685,7 @@
     "comb.what.frame-disagreement": "één druk, meer dan één code",
     "comb.frame_disagreement": "{frames} herhalingen van deze druk, {readings} verschillende lezingen. Posities {positions} wijken af.",
     "comb.frame_disagreement_many": "{frames} herhalingen van deze druk, {readings} verschillende lezingen. {count} posities wijken af, te beginnen bij {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} herhalingen van deze druk, {readings} verschillende lezingen: de herhalingen zijn niet eens even lang.",
     "comb.capture_repeats": "De herhalingen in deze opname spreken elkaar tegen: {frames} frames, {readings} lezingen. Druk de knop liever nog eens in.",
     "comb.coverage_label": "{checked} van {codes} codes gecontroleerd.",
     "comb.tip_partial": "Gekamd: niets te melden over {checked} van {codes} codes. Klik om te zien wat niet is gecontroleerd.",

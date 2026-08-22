@@ -337,12 +337,17 @@ _MIN_JUDGED_FRAME = 8
 _MIN_CLUSTER_FRAMES = 3
 
 # Frames cluster by length class before anything is compared, with slack
-# so that a repeat carrying two spurious edges stays in the class it
-# belongs to instead of escaping into a cluster of its own. The Dreo's
-# Speed Down is exactly that case: 14, 12, 12 and 13 pairs, where strict
-# equality would leave the two intact frames agreeing with each other and
-# report nothing.
-_LENGTH_CLASS_SLACK = 0.2
+# so that a repeat carrying a spurious pair stays in the class it belongs
+# to instead of escaping into a cluster of its own. The Dreo's Speed Down
+# is exactly that case: 14, 12, 12 and 13 pairs, where strict equality
+# would leave the two intact frames agreeing with each other and report
+# nothing.
+#
+# Two timings, and no more. The slack is for noise inside one frame, not
+# for telling two different frames apart, and a wider bar merges the
+# parts of a multi-frame air conditioner press into one class where they
+# are compared against each other and always disagree.
+_LENGTH_CLASS_SLACK = 2
 
 # Two timings read the same when they are within the byte-hash bin's
 # half-width, which is the tolerance HAIR already trusts to tell one
@@ -417,7 +422,15 @@ def _repeat_gap(pairs: list[tuple[int, int]]) -> float | None:
 
 
 def _repeat_frames(pairs: list[tuple[int, int]]) -> list[list[int]]:
-    """This code's repeats as signed timing lists, leaders dropped."""
+    """This code's repeats as signed timing lists, leaders dropped.
+
+    Frames are compared mark to last mark. Every frame but the last one
+    ends where its gap was removed; the last one keeps whatever trailer
+    the capture happened to carry, which is a zero as often as not. That
+    single element is an artefact of where the code stopped, never a
+    reading, and leaving it on made a clean RC-5 remote's last repeat a
+    frame of its own (bench 2026-08-22, four plucked candle codes).
+    """
     gap = _repeat_gap(pairs)
     if gap is None:
         return []
@@ -425,18 +438,31 @@ def _repeat_frames(pairs: list[tuple[int, int]]) -> list[list[int]]:
     for mark, space in pairs:
         timings.append(mark)
         timings.append(-space)
-    return [
-        frame for frame in split_frames(timings, int(gap))
-        if len(frame) >= _MIN_JUDGED_FRAME
-    ]
+    frames: list[list[int]] = []
+    for frame in split_frames(timings, int(gap)):
+        while frame and frame[-1] <= 0:
+            frame = frame[:-1]
+        if len(frame) >= _MIN_JUDGED_FRAME:
+            frames.append(frame)
+    return frames
 
 
 def _length_classes(frames: list[list[int]]) -> list[list[list[int]]]:
-    """Frames grouped by length class, longest class last."""
+    """Frames grouped by length class, shortest class first.
+
+    The class is what makes the comparison like with like, and that
+    matters for more than jitter: several air conditioners send one press
+    as two frames of DIFFERENT lengths with a pause between them, so a
+    capture of two presses splits four ways as A B A B. Class the parts
+    apart and each part is compared against its own kind, which is
+    correct; class them together and every one of those codes reads as
+    four frames that disagree (bench 2026-08-22, nine Mirror rows on the
+    test box, all of them fine).
+    """
     lengths = sorted({len(frame) for frame in frames})
     classes: list[list[int]] = [[lengths[0]]]
     for previous, length in pairwise(lengths):
-        if length - previous <= max(1.0, previous * _LENGTH_CLASS_SLACK):
+        if length - previous <= _LENGTH_CLASS_SLACK:
             classes[-1].append(length)
         else:
             classes.append([length])
@@ -574,7 +600,13 @@ def _repeat_findings(
             "positions": ", ".join(str(p) for p in named),
         }
         message = "comb.frame_disagreement"
-        if len(vote.positions) > len(named):
+        if not vote.positions:
+            # Every timing they share reads the same and they are still
+            # different lengths, so the repeats lost or gained edges at
+            # the ends. Naming positions here would name none of them.
+            message = "comb.frame_disagreement_lengths"
+            params.pop("positions")
+        elif len(vote.positions) > len(named):
             message = "comb.frame_disagreement_many"
             params["count"] = str(len(vote.positions))
         findings.append(Finding(

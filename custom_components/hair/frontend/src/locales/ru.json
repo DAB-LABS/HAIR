@@ -727,6 +727,7 @@
     "comb.what.frame-disagreement": "одно нажатие, больше одного кода",
     "comb.frame_disagreement": "{frames} повторов этого нажатия, {readings} разных прочтения. Позиции {positions} расходятся.",
     "comb.frame_disagreement_many": "{frames} повторов этого нажатия, {readings} разных прочтения. Расходятся позиций: {count}, начиная с {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} повторов этого нажатия, {readings} разных прочтения: повторы даже не одинаковой длины.",
     "comb.capture_repeats": "Повторы в этой записи расходятся: кадров {frames}, прочтений {readings}. Лучше нажать кнопку ещё раз.",
     "comb.coverage_label": "Проверено {checked} из {codes} кодов.",
     "comb.tip_partial": "Прочёсано: сообщать не о чем по {checked} из {codes} кодов. Нажмите, чтобы увидеть, что осталось непроверенным.",

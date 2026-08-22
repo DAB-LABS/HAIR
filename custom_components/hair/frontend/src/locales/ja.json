@@ -685,6 +685,7 @@
     "comb.what.frame-disagreement": "1 回の押下に対して複数のコード",
     "comb.frame_disagreement": "この押下の繰り返しは {frames} 個、読み取りは {readings} 通り。位置 {positions} が一致しません。",
     "comb.frame_disagreement_many": "この押下の繰り返しは {frames} 個、読み取りは {readings} 通り。{positions} から始まる {count} か所が一致しません。",
+    "comb.frame_disagreement_lengths": "この押下の繰り返しは {frames} 個、読み取りは {readings} 通り：繰り返しの長さすらそろっていません。",
     "comb.capture_repeats": "この取り込みは繰り返しが一致しません：フレーム {frames} 個、読み取り {readings} 通り。もう一度押し直すことをおすすめします。",
     "comb.coverage_label": "{codes} 件中 {checked} 件のコードをチェックしました。",
     "comb.tip_partial": "とかしました：{codes} 件中 {checked} 件のコードで報告事項なし。未チェックの内容はクリックで確認できます。",

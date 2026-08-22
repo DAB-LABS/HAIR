@@ -685,6 +685,7 @@
     "comb.what.frame-disagreement": "una pressione, più di un codice",
     "comb.frame_disagreement": "{frames} ripetizioni di questa pressione, {readings} letture diverse. Le posizioni {positions} non concordano.",
     "comb.frame_disagreement_many": "{frames} ripetizioni di questa pressione, {readings} letture diverse. {count} posizioni non concordano, a partire da {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} ripetizioni di questa pressione, {readings} letture diverse: le ripetizioni non hanno nemmeno la stessa lunghezza.",
     "comb.capture_repeats": "Le ripetizioni di questa acquisizione non concordano: {frames} trame, {readings} letture. Conviene premere di nuovo il tasto.",
     "comb.coverage_label": "Controllati {checked} codici su {codes}.",
     "comb.tip_partial": "Pettinato: nulla da segnalare su {checked} codici su {codes}. Clicca per vedere che cosa non è stato controllato.",

@@ -148,6 +148,35 @@ class TestItStaysSilentWhereItShould:
         code = _pronto([main, ditto, ditto, ditto])
         assert frame_disagreement(code) is None
 
+    def test_a_two_part_press_compares_part_against_part(self):
+        """Several air conditioners send one press as two frames of
+        different lengths with a pause between them, so a capture of two
+        presses splits four ways as A B A B. The length class is what
+        keeps the parts apart; without it every code of that shape reads
+        as four frames that disagree. Nine Mirror rows on the test box
+        did exactly that before the class narrowed (bench 2026-08-22)."""
+        head = _frame("101100101011001010110010101100101")
+        tail = _frame("11001010110010101100101011001")
+        code = _pronto([head, tail, head, tail])
+        assert frame_disagreement(code) is None
+
+    def test_a_trailing_zero_is_not_a_reading(self):
+        """The last frame keeps whatever trailer the capture carried,
+        which is a zero as often as not. Four plucked RC-5 candle codes
+        on the test box read as three frames plus a fourth of its own
+        length until that element was trimmed."""
+        frame = _frame("10110010101")
+        pairs: list[tuple[int, int]] = []
+        for index in range(4):
+            for position, (mark, space) in enumerate(frame):
+                last = position == len(frame) - 1
+                closer = (0 if index == 3 else GAP) if last else space
+                pairs.append((mark, closer))
+        words = [0x0000, 0x006D, len(pairs), 0x0000]
+        for mark, space in pairs:
+            words += [mark, space]
+        assert frame_disagreement(" ".join(f"{w:04X}" for w in words)) is None
+
     def test_a_single_frame_code_cannot_disagree_with_itself(self):
         assert frame_disagreement(_pronto([_frame("110110010000")])) is None
 
@@ -190,6 +219,21 @@ class TestItShowsTheVote:
         assert finding.params["frames"] == "3"
         assert finding.params["readings"] == "2"
         assert finding.params["positions"] == "16"
+
+    def test_repeats_of_different_lengths_name_no_positions(self):
+        """Everything they share reads the same and they are still
+        different lengths, so the repeats lost or gained edges at the
+        ends. The message says that instead of naming positions it does
+        not have."""
+        bits = "10110010101"
+        code = _pronto([
+            _frame(bits), _frame(bits + "0"), _frame(bits + "00"),
+        ])
+        report = comb_wig(_wig({"Speed": code}))
+        finding = report.findings[0]
+        assert finding.message == "comb.frame_disagreement_lengths"
+        assert "positions" not in finding.params
+        assert finding.params["frames"] == "3"
 
     def test_a_wall_of_positions_switches_to_the_counted_message(self):
         noisy = [

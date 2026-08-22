@@ -685,6 +685,7 @@
     "comb.what.frame-disagreement": "one press, more than one code",
     "comb.frame_disagreement": "{frames} repeats of this press, {readings} different readings. Positions {positions} disagree.",
     "comb.frame_disagreement_many": "{frames} repeats of this press, {readings} different readings. {count} positions disagree, starting at {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} repeats of this press, {readings} different readings: the repeats are not even the same length.",
     "comb.capture_repeats": "The repeats in this capture disagree: {frames} frames, {readings} readings. Worth pressing the button again.",
     "comb.coverage_label": "Checked {checked} of {codes} codes.",
     "comb.tip_partial": "Combed: nothing to report across {checked} of {codes} codes. Click to see what was not checked.",

@@ -685,6 +685,7 @@
     "comb.what.frame-disagreement": "un appui, plusieurs codes",
     "comb.frame_disagreement": "{frames} répétitions de cet appui, {readings} lectures différentes. Les positions {positions} divergent.",
     "comb.frame_disagreement_many": "{frames} répétitions de cet appui, {readings} lectures différentes. {count} positions divergent, à partir de {positions}.",
+    "comb.frame_disagreement_lengths": "{frames} répétitions de cet appui, {readings} lectures différentes : les répétitions n'ont même pas la même longueur.",
     "comb.capture_repeats": "Les répétitions de cette capture divergent : {frames} trames, {readings} lectures. Mieux vaut réappuyer sur la touche.",
     "comb.coverage_label": "{checked} codes vérifiés sur {codes}.",
     "comb.tip_partial": "Peigné : rien à signaler sur {checked} codes sur {codes}. Cliquez pour voir ce qui n'a pas été vérifié.",
