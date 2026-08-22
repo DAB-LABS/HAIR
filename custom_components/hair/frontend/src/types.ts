@@ -205,6 +205,17 @@ export interface WigInfo {
     comb?: CombSummary | null;
 }
 
+// The vote behind a repeat disagreement (fitting integrity R1). Repeats
+// of one press should be identical; when they are not, this says how many
+// were compared, how many distinct things they said, and where inside the
+// frame they parted company. Shown, never summarized: the person fitting
+// and the shop reviewing both have to be able to judge the judgment.
+export interface RepeatVote {
+    frames: number;
+    readings: number;
+    positions: number[];
+}
+
 // Combing (Smart Perm phase 2): the closet's code check.
 export interface CombFinding {
     check: string;
@@ -226,6 +237,24 @@ export interface CombSummary {
     // answers while setting the wrong state. Drives red over yellow.
     dangerous: boolean;
     counts: Record<string, number>;
+    // What the comb looked at and what it declined to look at (receipt
+    // version 2). null on an older receipt, and that absence is the
+    // honest answer: a receipt written before coverage existed cannot
+    // say what it did not check, so the closet draws it as unknown
+    // rather than as a clean bill.
+    coverage?: CombCoverage | null;
+}
+
+// Per check id: how many codes it judged, and a tally of the ones it
+// declined, by reason. Release two adds per-protocol readable counts to
+// the same shape.
+export interface CombCoverage {
+    codes: number;
+    checked: number;
+    checks: Record<
+        string,
+        { checked: number; declined: Record<string, number> }
+    >;
 }
 
 export interface CombReport extends CombSummary {
@@ -331,6 +360,9 @@ export type CommandListenEvent =
           decoded: boolean;
           protocol: string | null;
           receiver: string | null;
+          // Present only when this capture's own repeats disagree with
+          // each other. A notice, never a gate: the capture lands.
+          repeats_disagree?: RepeatVote;
       }
     | { type: "command_listen_timeout" };
 
@@ -844,6 +876,10 @@ export interface UnknownSignal {
     // export. A user decision that survives re-capture.
     tx_force_raw?: boolean;
     observed_repeat_count?: number;
+    // Derived at serialization, never stored, and present ONLY when this
+    // capture's repeat frames disagree with each other (fitting
+    // integrity R1). The assign dialog says so inline.
+    repeats_disagree?: RepeatVote;
     // Assignment provenance (dots polish, v0.5.7; structured payloads for
     // the assigned popover, v0.6.6). Number of HAIR device commands whose
     // identity matches this signal, plus one structured entry per match:

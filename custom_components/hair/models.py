@@ -1383,6 +1383,17 @@ class UnknownSignal:
 
             sl = EventParser._pronto_sl_pattern(self.code)
             d["sl_pattern"] = sl
+            # Repeats of one press should be identical. Derived, never
+            # stored, and present ONLY when they disagree: this is the
+            # capture-time half of the comb's frame check (fitting
+            # integrity R1), and the assign dialog says so inline while
+            # the person is still holding the remote. It is a notice, not
+            # a gate -- nothing here refuses a capture or drops one.
+            from .wig_comb import frame_disagreement
+
+            vote = frame_disagreement(self.code)
+            if vote is not None:
+                d["repeats_disagree"] = vote.as_dict()
         return _with_extra(d, self._extra)
 
     @classmethod

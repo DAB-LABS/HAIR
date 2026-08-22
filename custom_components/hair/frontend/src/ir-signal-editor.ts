@@ -16,7 +16,7 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { ProntoValidation, UnknownSignal } from "./types.js";
+import type { ProntoValidation, RepeatVote, UnknownSignal } from "./types.js";
 import { isDittoable } from "./ir-tx-knobs.js";
 
 // Mirrors PRONTO_SL_THRESHOLD / PRONTO_GAP_THRESHOLD in const.py. Used only
@@ -87,6 +87,7 @@ export class IrSignalEditor extends LitElement {
         decoded: boolean;
         protocol: string | null;
         receiver: string | null;
+        repeats?: RepeatVote;
     } | null = null;
 
     private _debounce: ReturnType<typeof setTimeout> | null = null;
@@ -448,6 +449,7 @@ export class IrSignalEditor extends LitElement {
         decoded: boolean;
         protocol: string | null;
         receiver: string | null;
+        repeats_disagree?: RepeatVote;
     }): void {
         this._pronto = event.pronto;
         this._syncPinToPronto();
@@ -455,6 +457,7 @@ export class IrSignalEditor extends LitElement {
             decoded: event.decoded,
             protocol: event.protocol,
             receiver: event.receiver,
+            repeats: event.repeats_disagree,
         };
         // Dittos reset to the new decode's default on a swap; send times
         // keep the person's setting (RULED). A ditto count describes THIS
@@ -507,6 +510,29 @@ export class IrSignalEditor extends LitElement {
                                 : t("editor.replace_hint")}
                     </span>
                 </div>
+                ${this._renderRepeatNotice()}
+            </div>
+        `;
+    }
+
+    /**
+     * This capture's repeats do not agree with each other.
+     *
+     * The one thing HAIR can say at capture time that nobody can say
+     * later: press it again, it is free. NEVER A BLOCK and never an
+     * auto-drop -- the code lands in the box like any other and the
+     * person decides. Same check, same words as the comb's report; only
+     * the moment is different.
+     */
+    private _renderRepeatNotice() {
+        const vote = this._captured?.repeats;
+        if (!vote) return "";
+        return html`
+            <div class="repeat-notice">
+                ${t("comb.capture_repeats", {
+                    frames: String(vote.frames),
+                    readings: String(vote.readings),
+                })}
             </div>
         `;
     }
@@ -942,6 +968,14 @@ export class IrSignalEditor extends LitElement {
         }
         .listen-btn {
             flex: 0 0 auto;
+        }
+        /* Amber, not red: this is a notice about the capture, not a
+           refusal of it. The code is already in the box. */
+        .repeat-notice {
+            margin-top: 8px;
+            font-size: 0.78rem;
+            line-height: 1.35;
+            color: #ffc107;
         }
         /* Listening is a state, not an action in progress, so it holds
            rather than pulses: the button stays pressed-looking until a
