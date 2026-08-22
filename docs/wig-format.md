@@ -1,14 +1,14 @@
-# The wig format (hair-wig/1, hair-wig/2, hair-wig/3)
+# The wig format (hair-wig/3)
 
 A wig is a portable IR code set: one JSON file describing one remote. HAIR reads wigs from `/config/hair/wigs/`, and any tool can emit them. This page is the format contract; if you build something that writes wigs, this is everything you need.
 
-There are three versions, and the version follows the content. A wig of plain button signals is `hair-wig/1`, unchanged since 0.7.0, and every install that ever read wigs keeps reading it. A wig that carries a climate state matrix (added in HAIR 0.8.8) is `hair-wig/2`: everything in v1 plus the optional `climate` block documented below. An exporter must only write v2 when the wig actually has a climate block, so files never demand a newer reader than they need. `hair-wig/3` (HAIR 0.9.5) is a capability gate rather than a statement about content, and current HAIR writes it for both kinds: it marks the canonical break described under Rules, and the claims model that replaced whole-file fittings.
+The current version is `hair-wig/3`, and it is the only version to write: HAIR emits it for every wig, plain button sets and climate matrices alike, and new files -- including anything submitted to the WigShop -- must declare it. It supersedes `hair-wig/1` and `hair-wig/2`; the short history of those majors, and how existing old files are handled, lives in the collapsed section near the bottom.
 
 ## A complete example
 
 ```json
 {
-    "format": "hair-wig/1",
+    "format": "hair-wig/3",
     "name": "Foxtel IQ",
     "brand": "Foxtel",
     "model": "IQ3",
@@ -34,9 +34,7 @@ There are three versions, and the version follows the content. A wig of plain bu
 
 **Required fields:** `format`, `name`, and a non-empty `signals` list. Each signal requires `alias` and `pronto`. Everything else is optional. One exception: a wig with a `climate` block may have an empty or absent `signals` list -- matrix-only wigs are legal, because the matrix is the payload and flat signals are the optional extras riding alongside it.
 
-**`format`** must be `"hair-wig/1"`, `"hair-wig/2"`, or `"hair-wig/3"`. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing.
-
-`hair-wig/3` (HAIR "Highlights") is a capability gate rather than a statement about the wig's kind, and current HAIR writes it for **both** kinds. It marks the one canonical break: `ditto_count` entered the signal hash, `bypass_protocol` became always-explicit, and `send_count` left the hash entirely -- flat signals and matrix cells alike. Older majors still read; readers below 3 refuse a v3 file with a version message. That refusal is the whole point of the bump. Without it an older reader would compute the previous canonical form, see a mismatch, and report what looks like tampering on a perfectly good file, which is the worst possible thing to tell someone about a file they trust.
+**`format`** must be `"hair-wig/3"` for any file written today. The major version gates parsing: a reader that sees a higher major version than it knows refuses the file and asks the user to update, rather than guessing. Readers below 3 refuse a v3 file with a version message, and that refusal is the point: without it an older reader would compute the previous canonical form, see a mismatch, and report what looks like tampering on a perfectly good file, which is the worst possible thing to tell someone about a file they trust. (For what v3 changed and how the superseded majors are handled, see the collapsed section near the bottom.)
 
 **`pronto`** carries the raw Pronto hex code, and it is the entire payload. Deliberately, there are no decoded-protocol fields in the file: the importing HAIR install decodes every signal fresh through its own decoders, so a wig can never carry a stale or wrong identity, and it benefits from decoders that shipped after the wig was written. Codes must be valid learned-format Pronto (`0000` header, correct burst-pair length math); HAIR validates each one and rejects the file with a per-signal reason if any code is malformed.
 
@@ -86,7 +84,7 @@ Two rules ride with it:
 
 **File naming:** `<slug>.wig.json`, lowercase, hyphen-separated (for example `foxtel-iq.wig.json`). HAIR only scans files ending in `.wig.json`.
 
-## The climate block (hair-wig/2)
+## The climate block
 
 Added in HAIR 0.8.8 for stateful devices, air conditioners above all. An AC remote does not send buttons: every press transmits the complete state the unit should be in, so the code set is a matrix -- one complete Pronto code per mode / fan / swing / temperature combination -- rather than a list of signals. The optional top-level `climate` object carries that matrix.
 
@@ -126,7 +124,7 @@ A wig may carry a matrix, flat `signals`, or both. The flat signals alongside a 
 
 ## Canonical signals form
 
-A canonical form for the `signals` array, defined from v1 so every install computes identical hashes. As of 0.9.5 a flat wig's claims bind per-row digests instead (see Row digests below) and nothing in HAIR writes a wig-level signals hash any more, but the form stays specified: it is what tools built against v1 and v2 computed, and dropping the definition would leave those files undecipherable.
+A canonical form for the `signals` array, so every install computes identical hashes. As of 0.9.5 a flat wig's claims bind per-row digests instead (see Row digests below) and nothing in HAIR writes a wig-level signals hash any more, but the form stays specified: it is what tools built against the superseded majors computed, and dropping the definition would leave those files undecipherable.
 
 The rule that decides what belongs here: **the hash covers what the fitting proves.** A fitting's signature certifies that this content drove the device when a named person pressed the buttons, so it covers exactly the waveform that left the blaster -- the bytes, the repeat frames appended to them, and whether the encoder was bypassed -- and nothing else. Delivery decisions such as how many times to press live outside it.
 
@@ -137,11 +135,11 @@ The form is a portability contract. Any tool that computes or verifies one must 
 - Keys sorted alphabetically, compact separators (no whitespace).
 - `pronto` whitespace-normalized (single spaces between 4-digit words) and lowercased.
 
-The hash form is `sha256:<hex digest>` over the UTF-8 encoding of that string. Nothing in `hair-wig/1` requires you to compute it; it is documented so files and tools written today stay compatible with what comes next.
+The hash form is `sha256:<hex digest>` over the UTF-8 encoding of that string. Nothing requires a writer to compute it; it is documented so files and tools written today stay compatible with what comes next.
 
 ## Canonical cells form
 
-Matrix fittings bind to the matrix, so `hair-wig/2` defines a canonical form for the climate block, with the same posture as the signals form:
+Matrix fittings bind to the matrix, so the format defines a canonical form for the climate block, with the same posture as the signals form:
 
 - A JSON object carrying exactly `unit`, `off`, `on`, and `cells`.
 - `cells` is an array of objects in the wig's cell order; each object carries exactly `mode`, `fan`, `swing`, `temp`, and `pronto`, with absent dimensions as explicit `null`. Unknown keys are excluded. `send_count` left this object in the same break that removed it from signals, for the same reason: the dimension checklist never transmitted it. Cells carry no `ditto_count` at all, because dittos are an NEC-family frame construct and an air-conditioner state blob is one long frame.
@@ -212,7 +210,7 @@ The closet's check has three tiers, computed the same way:
 | scoped | At least one signed attestation, none of them complete. |
 | perfect | **One person's** claims cover every row. |
 
-**Downloads carry the tier in the filename.** The closet names a downloaded file for the tier its check shows: `name.wig.json` with no attestations, `name.fitted.wig.json` with signed but incomplete attestations, `name.perfect-fit.wig.json` when at least one person's claims cover every row. The name is presentation only -- the file contents are identical across tiers, an importing install never reads the name, and renaming the file changes nothing.
+**Downloads carry the tier in the filename.** Since v0.9.8 there are two names: `name.wig.json` for anything short of a complete fitting, and `name.perfect-fit.wig.json` when at least one person's claims cover every row. (Earlier versions also emitted `name.fitted.wig.json` for signed-but-incomplete attestations; those files still parse everywhere and their claims list as Incomplete.) The name is presentation only -- the file contents are identical across tiers, an importing install never reads the name, and renaming the file changes nothing.
 
 **Green is keyed to one person's complete coverage.** Union coverage across fitters never inflates it: three people who each proved a different third have not, between them, produced anybody who can say the whole wig works on their hardware. That union is real and worth knowing, and it is tooltip material rather than a colour.
 
@@ -250,6 +248,24 @@ The result is stored on `wig.extra["comb"]`, an optional extra-key convention **
 - `findings` is capped at 200 entries with a `truncated` count of the remainder; `counts` and `suspects` always describe the full result.
 - **An absent `comb` key means nobody has combed the wig**, which is deliberately not the same as clean. A wig that was combed and came back empty carries a receipt with `suspects: 0`.
 - A receipt describes the codes as they were when it was written. A REPLACE changes codes without touching the receipt, so a stale receipt is expected and combing again is what refreshes it.
+
+## Superseded versions
+
+<details>
+<summary><code>hair-wig/1</code> and <code>hair-wig/2</code> -- superseded; click for the history and the compatibility rules</summary>
+
+<br>
+
+`hair-wig/1` (HAIR 0.7.0) was the original: a plain list of button signals, a wig-level canonical signals hash, and `bypass_protocol` emitted only when true. `hair-wig/2` (HAIR 0.8.8) added the optional `climate` block for state-matrix devices; exporters wrote v2 only when a matrix was present. `hair-wig/3` (HAIR 0.9.5) is the current major and marks the one canonical break: `ditto_count` entered the signal hash, `bypass_protocol` became always-explicit, `send_count` left the hash entirely, and per-row claims replaced whole-file fittings. Since then HAIR writes v3 for every wig regardless of content.
+
+Compatibility rules for old files:
+
+- HAIR still reads `hair-wig/1` and `hair-wig/2` files, and re-saving one through HAIR (Save to Closet) upgrades it to v3. That is the migration path; nothing else is needed.
+- New files must be v3. Tools should not emit the superseded majors, and the WigShop accepts v3 or better only.
+- Pre-0.9.5 whole-file fittings on old files are dropped on import with a notice (see Pre-0.9.5 fittings above); the codes themselves import fine.
+- Download filenames from pre-0.9.8 installs may end `.fitted.wig.json`; the name is presentation only and such files parse normally.
+
+</details>
 
 ## For adapter authors
 
