@@ -173,6 +173,32 @@ def _construct_rc5(cls: type, label: str, address: int, command: int,
     return cls(address=address, command=command, toggle=toggle & 1)
 
 
+def _extract_rc6(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # Mode and customer/OEM are IDENTITY -- two remotes can share an
+    # address and command and be told apart only by them -- so they ride
+    # the fingerprint suffix. Toggle is press state: in mode 0 it is the
+    # trailer bit, in mode 6 it is the first payload bit (the trailer is
+    # spent on the submode flag there), but either way it flips per press
+    # and stays out of the fingerprint.
+    extras: dict[str, int] = {"mode": int(cmd.mode), "toggle": int(cmd.toggle)}
+    if cmd.customer is not None:
+        extras["customer"] = int(cmd.customer)
+    return ("RC6", int(cmd.address), int(cmd.command), extras)
+
+
+def _construct_rc6(cls: type, label: str, address: int, command: int,
+                   extras: Any) -> Any:
+    bag = extras or {}
+    customer = bag.get("customer")
+    return cls(
+        address=address,
+        command=command,
+        toggle=int(bag.get("toggle", 0)) & 1,
+        mode=int(bag.get("mode", 0)),
+        customer=None if customer is None else int(customer),
+    )
+
+
 def _extract_sharp(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
     extension = int(cmd.extension)
     return ("SHARP", int(cmd.address), int(cmd.command),
@@ -311,6 +337,16 @@ def _identity_suffix(protocol: str, extras: Mapping[str, int] | None) -> str:
     if protocol == "NOKIA32":
         # X (system/OEM) separates Foxtel/Sky/Mediamaster on one protocol.
         return f":x{int(extras.get('extension', 0)):02x}"
+    if protocol == "RC6":
+        # Mode picks the frame shape; the customer/OEM field separates
+        # Media Center from a VU+ box from any other mode 6 vendor that
+        # happens to reuse an address and command. Mode 0 has no
+        # customer field and gets the mode alone.
+        suffix = f":m{int(extras.get('mode', 0)):x}"
+        customer = extras.get("customer")
+        if customer is not None:
+            suffix += f":c{int(customer):04x}"
+        return suffix
     return ""
 
 
@@ -352,6 +388,16 @@ _REGISTRATIONS: tuple[tuple, ...] = (
      "MarantzExtendedCommand",
      "custom_components.hair.decoders.marantz_extended", True,
      _extract_marantz, _construct_marantz, ("MARANTZ",)),
+    # RC-6 probes AHEAD of RC-5: it carries a 6t/2t leader and a
+    # structured header where RC-5 has neither, so it is the more
+    # specific match of the two Manchester formats -- the same
+    # specific-before-generic reasoning that puts Marantz ahead of RC-5.
+    # Upstream ships no rc6 module today, so this resolves local; if the
+    # library ever adds RC6Command with from_raw_timings, HAIR defers to
+    # it automatically.
+    ("rc6", "infrared_protocols.commands.rc6", "RC6Command",
+     "custom_components.hair.decoders.rc6", True,
+     _extract_rc6, _construct_rc6, ("RC6",)),
     ("rc5", "infrared_protocols.commands.rc5", "RC5Command",
      "custom_components.hair.decoders.rc5", True,
      _extract_rc5, _construct_rc5, ("RC5",)),
