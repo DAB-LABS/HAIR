@@ -226,20 +226,29 @@ A file written by 0.9.1 may still carry them. They were always outside every can
 
 ## The comb receipt
 
-Added in HAIR 0.9.1. **Combing** checks that a wig's codes agree with each other: frame-shape uniformity, partial row collapse, gaps in a captured temperature run, coordinate uniqueness, and duplicate-label groups. It runs at import on every wig and on demand from the closet, and it **never changes a code** -- it reports.
+Added in HAIR 0.9.1. **Combing** checks that a wig's codes agree with each other: frame-shape uniformity, partial row collapse, gaps in a captured temperature run, coordinate uniqueness, duplicate-label groups, and, from receipt version 2, whether a code's own repeat frames agree with each other. It runs at import on every wig and on demand from the closet, and it **never changes a code** -- it reports.
 
 The result is stored on `wig.extra["comb"]`, an optional extra-key convention **outside every canonical hash**, so recording a result can never move a wig's identity or invalidate a fitting:
 
 ```json
 "comb": {
-    "version": 1,
+    "version": 2,
     "date": "2026-07-31",
     "suspects": 48,
     "counts": {"duplicated-neighbour": 1, "malformed": 34, "stray-burst": 13},
     "findings": [
         {"check": "malformed", "keys": ["heat/low/19"], "message": "comb.frame_short",
          "params": {"frame": "0", "timings": "2"}}
-    ]
+    ],
+    "coverage": {
+        "codes": 1157,
+        "checked": 1157,
+        "checks": {
+            "frame-shape": {"checked": 1157, "declined": {}},
+            "duplicated-neighbour": {"checked": 1156, "declined": {}},
+            "frame-disagreement": {"checked": 0, "declined": {"too-few-frames": 1157}}
+        }
+    }
 }
 ```
 
@@ -247,6 +256,9 @@ The result is stored on `wig.extra["comb"]`, an optional extra-key convention **
 - `message` is a localization key and `params` its substitutions. Findings never carry prebaked English, so a diagnosis renders in the reader's language.
 - `findings` is capped at 200 entries with a `truncated` count of the remainder; `counts` and `suspects` always describe the full result.
 - **An absent `comb` key means nobody has combed the wig**, which is deliberately not the same as clean. A wig that was combed and came back empty carries a receipt with `suspects: 0`.
+- `coverage` (receipt version 2) records **what the comb looked at and what it declined to look at**, per check id: `checked` counts the codes a check judged, and `declined` tallies the ones it could not, by reason. `codes` is every code in the wig and the top-level `checked` is how many of them at least one check judged. Reasons are stable identifiers, localized for display: `pinned-to-raw`, `unparseable`, `single-frame`, `too-few-frames`, `too-few-codes`, `no-lattice`, `row-too-short`, `no-temperature`.
+- **Coverage is why a clean receipt is readable at all.** A check that quietly says nothing about a code it could not read is indistinguishable from a check that read it and approved, and the second claim is much stronger than the first. A reader that shows `suspects: 0` without showing coverage is overstating the receipt.
+- **A version 1 receipt has no `coverage` key and that absence is the honest answer**, not an empty one: a receipt written before coverage existed cannot say what it did not check. Version 1 receipts still parse and still display; combing again writes a version 2 receipt in place.
 - A receipt describes the codes as they were when it was written. A REPLACE changes codes without touching the receipt, so a stale receipt is expected and combing again is what refreshes it.
 
 ## Superseded versions
