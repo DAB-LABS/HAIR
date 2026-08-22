@@ -41,15 +41,23 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
-from .const import PRONTO_GAP_THRESHOLD
+from .const import PRONTO_BYTE_HASH_BIN, PRONTO_GAP_THRESHOLD
+from .decoders import split_frames
 from .wig_fitting import normalized_pronto
 from .wig_format import ClimateMatrix, Wig, cell_key
 
 # Bumped when a check changes what it reports, so a stored receipt can be
 # read as "checked by a version that did not know about X".
-COMB_VERSION = 1
+#
+# 2 (fitting integrity, release one): CHECK_FRAME_DISAGREEMENT joins the
+# taxonomy and every receipt carries a ``coverage`` section. A version 1
+# receipt still parses and still displays; it simply cannot say what it
+# did not look at, which is exactly the distinction coverage exists to
+# draw.
+COMB_VERSION = 2
 
 # Findings are capped in the stored receipt (brief 5.2): a 2,689-cell
 # Mitsubishi with 91 duplicate groups should not write a novel into the
@@ -58,6 +66,7 @@ MAX_STORED_FINDINGS = 200
 
 # --- check ids ------------------------------------------------------------
 CHECK_MALFORMED = "malformed"
+CHECK_FRAME_DISAGREEMENT = "frame-disagreement"
 CHECK_STRAY_BURST = "stray-burst"
 CHECK_FRAME_SHAPE = "frame-shape"
 CHECK_DUPLICATED_NEIGHBOUR = "duplicated-neighbour"
@@ -75,6 +84,11 @@ CHECK_RAMP_DITTOS = "ramp-dittos"
 # it means the capture was not clean.
 SEVERITY_ORDER = (
     CHECK_DUPLICATED_NEIGHBOUR,
+    # A capture whose own repeats disagree ranks second because at least
+    # one of those frames is wrong and nothing in the file says which. A
+    # receiver that acts on the first frame it likes can act on the bad
+    # one, and the person holding the remote never sees why.
+    CHECK_FRAME_DISAGREEMENT,
     CHECK_MALFORMED,
     CHECK_FRAME_SHAPE,
     CHECK_MISSING_CELL,
@@ -138,6 +152,57 @@ class Finding:
 
 
 @dataclass
+class Coverage:
+    """What the comb looked at, and what it declined to look at and why.
+
+    The brief's fourth ask, and the one that costs the least to get
+    wrong until the day it costs everything: "a silent pass on an
+    unreadable protocol is worse than no check at all, because it would
+    have told us case two was fine". A receipt that says CLEAN has to be
+    distinguishable from a receipt that says NOBODY LOOKED, and the only
+    way to do that is to write down what ran.
+
+    Per check id: how many codes it judged, and a tally of the codes it
+    declined by reason. Release two adds per-protocol readable counts to
+    the same structure, which is why the shape is a dict of dicts rather
+    than two flat numbers.
+    """
+
+    codes: int = 0
+    checks: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Keys any check managed to judge. A code nothing could judge is the
+    # unverified case the closet has to draw differently.
+    seen: set[str] = field(default_factory=set)
+
+    def _slot(self, check: str) -> dict[str, Any]:
+        return self.checks.setdefault(check, {"checked": 0, "declined": {}})
+
+    def judged(self, check: str, key: str | None = None) -> None:
+        self._slot(check)["checked"] += 1
+        if key is not None:
+            self.seen.add(key)
+
+    def declined(self, check: str, reason: str, count: int = 1) -> None:
+        if count <= 0:
+            return
+        declined = self._slot(check)["declined"]
+        declined[reason] = declined.get(reason, 0) + count
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "codes": self.codes,
+            "checked": len(self.seen),
+            "checks": {
+                check: {
+                    "checked": slot["checked"],
+                    "declined": dict(slot["declined"]),
+                }
+                for check, slot in self.checks.items()
+            },
+        }
+
+
+@dataclass
 class CombReport:
     """What a check found, ready for a receipt or a dialog."""
 
@@ -148,6 +213,7 @@ class CombReport:
     # distinction the receipt itself draws between clean and absent.
     skipped: list[str] = field(default_factory=list)
     version: int = COMB_VERSION
+    coverage: Coverage | None = None
 
     @property
     def suspects(self) -> int:
@@ -173,6 +239,8 @@ class CombReport:
             "counts": self.counts(),
             "findings": [f.to_dict() for f in stored],
         }
+        if self.coverage is not None:
+            receipt["coverage"] = self.coverage.to_dict()
         if self.skipped:
             receipt["skipped"] = list(self.skipped)
         if len(self.findings) > len(stored):
@@ -226,6 +294,296 @@ def _frame_lengths(pairs: list[tuple[int, int]]) -> tuple[int, ...]:
     return tuple(lengths)
 
 
+# ---------------------------------------------------------------------------
+# Repeat frames: does one press agree with itself?
+# ---------------------------------------------------------------------------
+#
+# Every other check in this module compares a code to the OTHER codes in
+# the wig. This one compares a code to ITSELF, which is why it works on a
+# seven-button fan nobody has written a decoder for, and why it is the
+# only check that needs no population at all: repeats of one press should
+# be identical, and six repeats yielding five readings is noise whatever
+# the protocol.
+
+# A repeat gap is a space that stands well clear of the code's own bit
+# spaces. PRONTO_GAP_THRESHOLD cannot do this job: it is tuned to end a
+# SIGNAL, and plenty of remotes separate their repeats by far less. The
+# Dreo fan of the WigShop brief puts about 8 ms between frames (roughly
+# 310 Pronto units against a threshold of 1024), so a fixed cut reads its
+# eight repeats as one frame and the check has nothing to compare.
+#
+# So the gap is derived from the code's own space distribution: the
+# HIGHEST multiplicative step in the sorted spaces that is at least this
+# wide and leaves few enough spaces above it to be separators rather than
+# data. Highest rather than widest, deliberately -- a frame separator is
+# always the longest space class in a code, while the widest ratio can
+# sit between a protocol's short and long bit spaces and would cut frames
+# in half. A code with no such step is a single frame and says so, which
+# is a coverage line, not a finding.
+_REPEAT_GAP_RATIO = 3.0
+_REPEAT_GAP_SHARE = 0.25
+
+# Frames below this are leaders, trailing bursts and NEC dittos: real
+# enough, but not a reading. Judging them would put a lattice's one-pair
+# lead-in burst next to its trailing burst and call the pair a
+# disagreement on every cell of the file.
+_MIN_JUDGED_FRAME = 8
+
+# Two frames that disagree tell you nothing about which one is wrong --
+# the same reason `_shape_findings` wants three codes and
+# `_branch_findings` wants three temperatures. It is also what keeps a
+# Sharp data/inverted pair silent: two frames, deliberately different,
+# nothing to vote on.
+_MIN_CLUSTER_FRAMES = 3
+
+# Frames cluster by length class before anything is compared, with slack
+# so that a repeat carrying two spurious edges stays in the class it
+# belongs to instead of escaping into a cluster of its own. The Dreo's
+# Speed Down is exactly that case: 14, 12, 12 and 13 pairs, where strict
+# equality would leave the two intact frames agreeing with each other and
+# report nothing.
+_LENGTH_CLASS_SLACK = 0.2
+
+# Two timings read the same when they are within the byte-hash bin's
+# half-width, which is the tolerance HAIR already trusts to tell one
+# button from another (const.py: N=20 collapses same-button captures at
+# typical receiver jitter). The relative term is a floor-raiser for long
+# timings only: a 4.5 ms NEC leader jitters by more than half a bin
+# without meaning anything, and an absolute tolerance would invent a
+# disagreement there.
+_READING_SLACK = 0.2
+_READING_FLOOR = PRONTO_BYTE_HASH_BIN // 2
+
+# Beyond this many disagreeing positions the list stops being evidence
+# and starts being a wall, so the message switches to a counted form.
+_MAX_NAMED_POSITIONS = 8
+
+# Why a code was not judged. These ride the receipt's coverage section
+# and are localized in the reader's language like everything else.
+DECLINE_UNPARSEABLE = "unparseable"
+DECLINE_SINGLE_FRAME = "single-frame"
+DECLINE_TOO_FEW_FRAMES = "too-few-frames"
+DECLINE_PINNED_TO_RAW = "pinned-to-raw"
+DECLINE_TOO_FEW_CODES = "too-few-codes"
+DECLINE_NO_LATTICE = "no-lattice"
+DECLINE_ROW_TOO_SHORT = "row-too-short"
+DECLINE_NO_TEMPERATURE = "no-temperature"
+JUDGED = "judged"
+
+
+@dataclass(frozen=True)
+class FrameVote:
+    """The vote behind a repeat disagreement, shown rather than summarized.
+
+    ``frames`` is how many repeats were compared, ``readings`` how many
+    distinct things they said, and ``positions`` where inside the frame
+    they parted company. Showing all three is the brief's own constraint:
+    the person fitting and the shop reviewing both have to be able to
+    judge the judgment.
+    """
+
+    frames: int
+    readings: int
+    positions: tuple[int, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "frames": self.frames,
+            "readings": self.readings,
+            "positions": list(self.positions),
+        }
+
+
+def _repeat_gap(pairs: list[tuple[int, int]]) -> float | None:
+    """The space value that separates this code's repeats, or None.
+
+    The final space is excluded before anything is measured. It is the
+    trailer by construction, it is always the longest space in the code,
+    and leaving it in makes it the only step the search can find -- which
+    is how a code with eight visible repeats reports one frame.
+    """
+    spaces = [space for _mark, space in pairs[:-1] if space > 0]
+    if len(spaces) < 4:
+        return None
+    ladder = sorted(set(spaces))
+    limit = len(spaces) * _REPEAT_GAP_SHARE
+    for lower, upper in reversed(list(pairwise(ladder))):
+        if upper / lower < _REPEAT_GAP_RATIO:
+            continue
+        if sum(1 for space in spaces if space >= upper) > limit:
+            continue
+        return (lower * upper) ** 0.5
+    return None
+
+
+def _repeat_frames(pairs: list[tuple[int, int]]) -> list[list[int]]:
+    """This code's repeats as signed timing lists, leaders dropped."""
+    gap = _repeat_gap(pairs)
+    if gap is None:
+        return []
+    timings: list[int] = []
+    for mark, space in pairs:
+        timings.append(mark)
+        timings.append(-space)
+    return [
+        frame for frame in split_frames(timings, int(gap))
+        if len(frame) >= _MIN_JUDGED_FRAME
+    ]
+
+
+def _length_classes(frames: list[list[int]]) -> list[list[list[int]]]:
+    """Frames grouped by length class, longest class last."""
+    lengths = sorted({len(frame) for frame in frames})
+    classes: list[list[int]] = [[lengths[0]]]
+    for previous, length in pairwise(lengths):
+        if length - previous <= max(1.0, previous * _LENGTH_CLASS_SLACK):
+            classes[-1].append(length)
+        else:
+            classes.append([length])
+    return [
+        [frame for frame in frames if len(frame) in set(sizes)]
+        for sizes in classes
+    ]
+
+
+def _slack(*values: int) -> float:
+    return max(_READING_FLOOR, max(abs(v) for v in values) * _READING_SLACK)
+
+
+def _same_reading(left: list[int], right: list[int]) -> bool:
+    if len(left) != len(right):
+        return False
+    for a, b in zip(left, right, strict=True):
+        if (a < 0) != (b < 0):
+            return False
+        if abs(abs(a) - abs(b)) > _slack(a, b):
+            return False
+    return True
+
+
+def _readings(frames: list[list[int]]) -> tuple[int, list[int]]:
+    """How many distinct things the frames said, and which said which."""
+    first_of: list[list[int]] = []
+    sequence: list[int] = []
+    for frame in frames:
+        for index, known in enumerate(first_of):
+            if _same_reading(frame, known):
+                sequence.append(index)
+                break
+        else:
+            first_of.append(frame)
+            sequence.append(len(first_of) - 1)
+    return len(first_of), sequence
+
+
+def _alternating(sequence: list[int]) -> bool:
+    """True when the readings run on a fixed cycle rather than at random.
+
+    Some protocols alternate on purpose. Sharp sends a data frame and its
+    inverse; a capture holding two of each is four frames and two
+    readings, and it is correct. Noise does not repeat itself on a period,
+    so a sequence that does is structure, and the comb abstains: reporting
+    it would train people to ignore this check on exactly the families it
+    is safest on.
+    """
+    total = len(sequence)
+    if len(set(sequence)) < 2:
+        return False
+    for period in range(2, total // 2 + 1):
+        if total % period:
+            continue
+        if len(set(sequence[:period])) != period:
+            continue
+        if all(sequence[i] == sequence[i % period] for i in range(total)):
+            return True
+    return False
+
+
+def _disagreeing_positions(frames: list[list[int]]) -> tuple[int, ...]:
+    """Timing offsets where the frames do not read the same."""
+    span = min(len(frame) for frame in frames)
+    positions: list[int] = []
+    for index in range(span):
+        column = [frame[index] for frame in frames]
+        if len({value < 0 for value in column}) > 1:
+            positions.append(index)
+            continue
+        widths = [abs(value) for value in column]
+        if max(widths) - min(widths) > _slack(*column):
+            positions.append(index)
+    return tuple(positions)
+
+
+def _repeat_reading(pronto: str) -> tuple[str, FrameVote | None]:
+    """Judge one code's repeats: (outcome, vote when they disagree).
+
+    The outcome is what coverage records. "Nobody looked" and "looked and
+    found nothing" are different facts about a code, and the whole point
+    of the coverage section is that a reader can tell them apart.
+    """
+    pairs = _pairs(pronto)
+    if not pairs:
+        return DECLINE_UNPARSEABLE, None
+    frames = _repeat_frames(pairs)
+    if not frames:
+        return DECLINE_SINGLE_FRAME, None
+    if len(frames) < _MIN_CLUSTER_FRAMES:
+        return DECLINE_TOO_FEW_FRAMES, None
+    judged = False
+    for members in _length_classes(frames):
+        if len(members) < _MIN_CLUSTER_FRAMES:
+            continue
+        judged = True
+        readings, sequence = _readings(members)
+        if readings < 2 or _alternating(sequence):
+            continue
+        return JUDGED, FrameVote(
+            frames=len(members),
+            readings=readings,
+            positions=_disagreeing_positions(members),
+        )
+    return (JUDGED if judged else DECLINE_TOO_FEW_FRAMES), None
+
+
+def frame_disagreement(pronto: str) -> FrameVote | None:
+    """The vote when a code's own repeats disagree, else None.
+
+    Public because the check runs at capture time too, while the person
+    is still holding the remote and can simply press the button again
+    (design plan 1a). Same code, same answer, one implementation.
+    """
+    return _repeat_reading(pronto)[1]
+
+
+def _repeat_findings(
+    rows: list[tuple[str, str]], coverage: Coverage
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for key, pronto in rows:
+        outcome, vote = _repeat_reading(pronto)
+        if outcome != JUDGED:
+            coverage.declined(CHECK_FRAME_DISAGREEMENT, outcome)
+            continue
+        coverage.judged(CHECK_FRAME_DISAGREEMENT, key)
+        if vote is None:
+            continue
+        named = vote.positions[:_MAX_NAMED_POSITIONS]
+        params = {
+            "frames": str(vote.frames),
+            "readings": str(vote.readings),
+            "positions": ", ".join(str(p) for p in named),
+        }
+        message = "comb.frame_disagreement"
+        if len(vote.positions) > len(named):
+            message = "comb.frame_disagreement_many"
+            params["count"] = str(len(vote.positions))
+        findings.append(Finding(
+            check=CHECK_FRAME_DISAGREEMENT, keys=[key],
+            message=message, params=params,
+        ))
+    return findings
+
+
 def _outlier_findings(shapes: dict[str, tuple[int, ...]]) -> list[Finding]:
     """Frame shape on a FLAT remote: gross outliers only.
 
@@ -275,7 +633,7 @@ def _outlier_findings(shapes: dict[str, tuple[int, ...]]) -> list[Finding]:
 
 
 def _shape_findings(
-    rows: list[tuple[str, str]], strict: bool
+    rows: list[tuple[str, str]], strict: bool, coverage: Coverage | None = None
 ) -> list[Finding]:
     """Frame-shape uniformity across every code in one wig.
 
@@ -295,10 +653,18 @@ def _shape_findings(
         pairs = _pairs(pronto)
         if pairs:
             shapes[key] = _frame_lengths(pairs)
+        elif coverage is not None:
+            coverage.declined(CHECK_FRAME_SHAPE, DECLINE_UNPARSEABLE)
     if len(shapes) < 3:
         # Too few codes to have a "normal". Two signals that disagree tell
         # you nothing about which one is wrong.
+        if coverage is not None:
+            coverage.declined(
+                CHECK_FRAME_SHAPE, DECLINE_TOO_FEW_CODES, len(shapes))
         return []
+    if coverage is not None:
+        for key in shapes:
+            coverage.judged(CHECK_FRAME_SHAPE, key)
 
     if not strict:
         return _outlier_findings(shapes)
@@ -359,7 +725,9 @@ def _temp_str(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else str(value)
 
 
-def _branch_findings(matrix: ClimateMatrix) -> list[Finding]:
+def _branch_findings(
+    matrix: ClimateMatrix, coverage: Coverage | None = None
+) -> list[Finding]:
     """Partial row collapse: the check that finds the dangerous class.
 
     Within one (mode, fan, swing) branch, sorted by temperature: if EVERY
@@ -374,6 +742,9 @@ def _branch_findings(matrix: ClimateMatrix) -> list[Finding]:
     ] = {}
     for cell in matrix.cells:
         if cell.temp is None:
+            if coverage is not None:
+                coverage.declined(
+                    CHECK_DUPLICATED_NEIGHBOUR, DECLINE_NO_TEMPERATURE)
             continue
         branches.setdefault((cell.mode, cell.fan, cell.swing), []).append(
             (cell.temp, normalized_pronto(cell.pronto), cell_key(cell))
@@ -384,7 +755,14 @@ def _branch_findings(matrix: ClimateMatrix) -> list[Finding]:
         if len(cells) < 3:
             # Two temperatures sharing a code is as likely to be a
             # two-step device as a defect. Not enough row to judge.
+            if coverage is not None:
+                coverage.declined(
+                    CHECK_DUPLICATED_NEIGHBOUR, DECLINE_ROW_TOO_SHORT,
+                    len(cells))
             continue
+        if coverage is not None:
+            for _t, _code, key in cells:
+                coverage.judged(CHECK_DUPLICATED_NEIGHBOUR, key)
         cells.sort(key=lambda c: c[0])
         codes = {code for _t, code, _k in cells}
         if len(codes) == 1:
@@ -582,6 +960,7 @@ def comb_wig(wig: Wig) -> CombReport:
     free diagnostic that something else is wrong.
     """
     findings: list[Finding] = []
+    coverage = Coverage()
     # A bypassed signal is a deliberate repeat-train (Highlights, GH #78),
     # so it is excluded from the shape checks entirely -- and that means
     # BOTH halves: it is not judged, and it does not vote on what normal
@@ -600,6 +979,10 @@ def comb_wig(wig: Wig) -> CombReport:
         for sig in wig.signals
         if not sig.bypass_protocol
     ]
+    coverage.declined(
+        CHECK_FRAME_DISAGREEMENT, DECLINE_PINNED_TO_RAW, len(skipped))
+    coverage.declined(
+        CHECK_FRAME_SHAPE, DECLINE_PINNED_TO_RAW, len(skipped))
     if wig.climate is not None:
         # The matrix and its flat extras are different populations: a
         # 2,689-cell lattice plus three depth-0 buttons should not have
@@ -609,13 +992,21 @@ def comb_wig(wig: Wig) -> CombReport:
         cells.append(("off", wig.climate.off))
         if wig.climate.on is not None:
             cells.append(("on", wig.climate.on))
-        findings += _shape_findings(cells, strict=True)
-        findings += _branch_findings(wig.climate)
+        findings += _shape_findings(cells, strict=True, coverage=coverage)
+        findings += _branch_findings(wig.climate, coverage)
         findings += _completeness_findings(wig.climate)
         findings += _coordinate_findings(wig.climate)
+        # The repeat check needs no population, so it runs on the flat
+        # extras too: a matrix wig's depth-0 buttons are captures like
+        # any other and can be just as noisy.
+        coverage.codes = len(cells) + len(rows) + len(skipped)
+        findings += _repeat_findings(cells + rows, coverage)
     else:
-        findings += _shape_findings(rows, strict=False)
+        findings += _shape_findings(rows, strict=False, coverage=coverage)
         findings += _duplicate_label_findings(wig)
+        coverage.codes = len(rows) + len(skipped)
+        findings += _repeat_findings(rows, coverage)
+        coverage.declined(CHECK_DUPLICATED_NEIGHBOUR, DECLINE_NO_LATTICE)
     # Recipe advisories run on BOTH kinds' flat signal lists: a matrix
     # wig's flat extras are ordinary signals and can carry either knob.
     findings += _bypass_ditto_findings(wig)
@@ -623,7 +1014,7 @@ def comb_wig(wig: Wig) -> CombReport:
 
     order = {check: i for i, check in enumerate(SEVERITY_ORDER)}
     findings.sort(key=lambda f: (order.get(f.check, 99), f.keys[:1]))
-    return CombReport(findings=findings, skipped=skipped)
+    return CombReport(findings=findings, skipped=skipped, coverage=coverage)
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +1049,13 @@ def receipt_summary(wig: Wig) -> dict[str, Any] | None:
     counts = raw.get("counts")
     counts = counts if isinstance(counts, dict) else {}
     suspects = raw.get("suspects")
+    coverage = raw.get("coverage")
     return {
+        # Absent on a version 1 receipt, and that absence is the honest
+        # answer: a receipt written before coverage existed cannot say
+        # what it did not look at, so the closet draws it as unknown
+        # rather than inventing a clean bill.
+        "coverage": coverage if isinstance(coverage, dict) else None,
         "suspects": suspects if isinstance(suspects, int) else 0,
         "date": raw.get("date"),
         "version": raw.get("version"),
