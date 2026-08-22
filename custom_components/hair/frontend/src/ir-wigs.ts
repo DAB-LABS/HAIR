@@ -61,6 +61,7 @@ import "./ir-pin-prompt-dialog.js";
 import type {
     CodeBrand,
     CodeCodebook,
+    CombSummary,
     FittingSummary,
     IRDevice,
     LinkedEntry,
@@ -1669,15 +1670,33 @@ export class IrWigs extends LitElement {
 
     private _combState(wig: WigInfo): string {
         const comb = wig.comb;
-        if (!comb || comb.suspects === 0) return "";
-        return comb.dangerous ? "bad" : "warn";
+        if (!comb) return "";
+        if (comb.suspects > 0) return comb.dangerous ? "bad" : "warn";
+        // Clean, but only across what the comb could actually judge.
+        // A receipt that checked six of seven codes is not the same
+        // claim as a receipt that checked all seven, and the shop's
+        // fourth ask was precisely that the two must not look alike
+        // (fitting integrity R1). Colourless on purpose: this is not a
+        // verdict about the wig, so it gets neither green nor amber.
+        return this._partlyChecked(comb) ? "partial" : "";
+    }
+
+    private _partlyChecked(comb: CombSummary): boolean {
+        const coverage = comb.coverage;
+        if (!coverage) return false;
+        return coverage.checked < coverage.codes;
     }
 
     private _combTitle(wig: WigInfo): string {
         const comb = wig.comb;
         if (!comb) return t("comb.action");
         if (comb.suspects === 0)
-            return t("comb.tip_clean", { date: comb.date ?? "" });
+            return this._partlyChecked(comb)
+                ? t("comb.tip_partial", {
+                      checked: String(comb.coverage?.checked ?? 0),
+                      codes: String(comb.coverage?.codes ?? 0),
+                  })
+                : t("comb.tip_clean", { date: comb.date ?? "" });
         return tp("comb.tip_suspects", comb.suspects);
     }
 
@@ -2686,6 +2705,13 @@ export class IrWigs extends LitElement {
         .comb-glyph.bad {
             filter: drop-shadow(0 0 2px rgba(255, 82, 82, 0.55))
                 drop-shadow(0 0 5px rgba(255, 82, 82, 0.4));
+        }
+        /* Combed, nothing found, but not everything was looked at. A
+           neutral halo in the glyph's own grey: visible enough to ask a
+           question, colourless enough not to answer one. */
+        .comb-glyph.partial {
+            filter: drop-shadow(0 0 2px rgba(150, 160, 170, 0.75))
+                drop-shadow(0 0 4px rgba(150, 160, 170, 0.45));
         }
         .spacer {
             flex: 1;

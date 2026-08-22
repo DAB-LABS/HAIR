@@ -42,6 +42,7 @@ export const COMB_PATH = "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-8
  * so that ordering is still doing work. */
 const SEVERITY_ORDER = [
     "duplicated-neighbour",
+    "frame-disagreement",
     "malformed",
     "frame-shape",
     "missing-cell",
@@ -69,6 +70,13 @@ const SEVERITY_ORDER = [
  */
 const CONSEQUENCE: Record<string, string> = {
     "duplicated-neighbour": "wrong",
+    // Repeats that disagree put more than one code on the wire under one
+    // label, and nothing in the file says which one the device took.
+    // "Ignored" would be the comfortable call and it is not the honest
+    // one: a receiver that acts on the frame it likes can act on the bad
+    // frame, and the person pressing the button sees a device that
+    // mostly works.
+    "frame-disagreement": "wrong",
     malformed: "ignored",
     "frame-shape": "ignored",
     "missing-cell": "ignored",
@@ -242,7 +250,7 @@ export class IrCombReport extends LitElement {
                         ${t("comb.heading", { name: this.wig.name })}
                     </h3>
                     ${this._renderExplainer()} ${this._renderBody()}
-                    ${this._renderSkipped()}
+                    ${this._renderSkipped()} ${this._renderCoverage()}
                     <div class="foot-note">${t("comb.footer")}</div>
                     ${this._renderHandoff()}
                     <div class="dialog-actions comb-actions">
@@ -612,6 +620,50 @@ export class IrCombReport extends LitElement {
         return html`<div class="skipline">
             <span>${t("comb.skipped_label")}</span>
             <span class="skipkeys">${keys.join(", ")}</span>
+        </div>`;
+    }
+
+    /**
+     * What ran, and what did not run and why (receipt version 2).
+     *
+     * The shop's fourth ask, and the one that would have mattered most:
+     * "a silent pass on an unreadable protocol is worse than no check at
+     * all". A clean report has to be distinguishable from a report that
+     * checked nothing, so this renders in the SAME place whether the
+     * comb found something or not, and it is neutral -- no green, no
+     * amber. It is not a verdict about the wig. It is a statement about
+     * the comb.
+     *
+     * Absent on an older receipt, which is its own honest answer: that
+     * receipt cannot say what it did not look at. Combing again fixes
+     * that, which is exactly what the button below does.
+     */
+    private _renderCoverage() {
+        const coverage = this._report?.coverage;
+        if (!coverage) return nothing;
+        const rows = Object.entries(coverage.checks)
+            .map(([check, slot]) => {
+                const why = Object.entries(slot.declined).map(
+                    ([reason, count]) =>
+                        t(`comb.declined.${reason}`, {
+                            count: String(count),
+                        }),
+                );
+                if (!why.length) return nothing;
+                return html`<div class="coverrow">
+                    <span class="covercheck">${t(`comb.class.${check}`)}</span>
+                    <span class="coverwhy">${why.join(" · ")}</span>
+                </div>`;
+            })
+            .filter((row) => row !== nothing);
+        return html`<div class="coverline">
+            <div class="coverhead">
+                ${t("comb.coverage_label", {
+                    checked: String(coverage.checked),
+                    codes: String(coverage.codes),
+                })}
+            </div>
+            ${rows}
         </div>`;
     }
 
@@ -988,6 +1040,31 @@ export class IrCombReport extends LitElement {
                 border-top: 1px solid var(--divider-color);
                 font-size: 12px;
                 color: var(--secondary-text-color);
+            }
+            /* Deliberately colourless. Coverage is not a verdict, and a
+               green or amber treatment here would read as one. */
+            .coverline {
+                margin-top: 12px;
+                padding-top: 10px;
+                border-top: 1px solid var(--divider-color);
+                font-size: 12px;
+                color: var(--secondary-text-color);
+            }
+            .coverhead {
+                margin-bottom: 4px;
+            }
+            .coverrow {
+                display: flex;
+                gap: 10px;
+                align-items: baseline;
+                line-height: 1.5;
+            }
+            .covercheck {
+                flex: 0 0 auto;
+                color: var(--primary-text-color);
+            }
+            .coverwhy {
+                flex: 1 1 auto;
             }
             .skipkeys {
                 color: var(--primary-text-color);
