@@ -387,6 +387,22 @@ class TestTheAssignPath:
         clean = _repeats("110110010000", 4)
         assert "repeats_disagree" not in self._signal(clean).to_dict()
 
+    def test_a_stale_verdict_from_the_store_does_not_come_back(self):
+        """The signal store writes what to_dict returns, so a derived
+        key reaches the file. That is harmless while it is recomputed on
+        the way back out and fatal if it is not: the fresh answer for a
+        clean code is silence, and silence cannot overwrite anything.
+        Nine air conditioner rows on the test box kept a verdict the
+        check had already stopped making (bench 2026-08-22)."""
+        from custom_components.hair.models import UnknownSignal
+
+        stored = self._signal(_repeats("110110010000", 4)).to_dict()
+        stored["repeats_disagree"] = {
+            "frames": 9, "readings": 9, "positions": [1, 2, 3],
+        }
+        again = UnknownSignal.from_dict(stored).to_dict()
+        assert "repeats_disagree" not in again
+
     def test_a_non_pronto_signal_is_left_alone(self):
         signal = self._signal("whatever")
         signal.protocol = "NEC"
