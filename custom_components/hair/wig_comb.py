@@ -320,8 +320,26 @@ def _frame_lengths(pairs: list[tuple[int, int]]) -> tuple[int, ...]:
 # sit between a protocol's short and long bit spaces and would cut frames
 # in half. A code with no such step is a single frame and says so, which
 # is a coverage line, not a finding.
+#
+# A ratio alone cannot do it, and the reason is worth writing down. The
+# step between a protocol's long and short BIT space is already about
+# three: NEC spends 1690 us on a one against 560 on a zero, and a
+# Fujitsu lattice on the test box reads 44 against 14. In a code that
+# carries no repeat gap at all, that bit step is the biggest step there
+# is, so the search found it, cut every cell into bit-sized fragments
+# and reported that the fragments disagreed. 716 findings across the
+# test box's closet, all of them nonsense (bench 2026-08-22).
+#
+# So the separator must also be a separator in absolute terms. Below
+# roughly 2.6 ms nothing is a frame gap; it is a bit. Every real
+# separator measured here clears that by a wide margin (the Dreo fan
+# 304, a two-part air conditioner press 310, a plucked RC-5 candle 456)
+# and every bit space measured falls under it (64 at the widest). The
+# bar is deliberately one-directional: a missed separator costs a
+# coverage line, an invented one costs a wig full of findings.
 _REPEAT_GAP_RATIO = 3.0
 _REPEAT_GAP_SHARE = 0.25
+_REPEAT_GAP_FLOOR = 100
 
 # Frames below this are leaders, trailing bursts and NEC dittos: real
 # enough, but not a reading. Judging them would put a lattice's one-pair
@@ -413,6 +431,8 @@ def _repeat_gap(pairs: list[tuple[int, int]]) -> float | None:
     ladder = sorted(set(spaces))
     limit = len(spaces) * _REPEAT_GAP_SHARE
     for lower, upper in reversed(list(pairwise(ladder))):
+        if upper < _REPEAT_GAP_FLOOR:
+            break
         if upper / lower < _REPEAT_GAP_RATIO:
             continue
         if sum(1 for space in spaces if space >= upper) > limit:

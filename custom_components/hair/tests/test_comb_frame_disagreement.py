@@ -148,6 +148,29 @@ class TestItStaysSilentWhereItShould:
         code = _pronto([main, ditto, ditto, ditto])
         assert frame_disagreement(code) is None
 
+    def test_a_bit_space_is_never_mistaken_for_a_frame_gap(self):
+        """The step between a protocol's long and short BIT space is
+        already about three: NEC spends 1690 us on a one against 560 on
+        a zero, a Fujitsu lattice 44 against 14. In a code carrying no
+        repeat gap at all, that step is the biggest one there is, and a
+        search that took it cut every cell into bit-sized fragments and
+        reported that the fragments disagreed. 716 of those across the
+        test box's closet (bench 2026-08-22), which is why a separator
+        has to be a separator in absolute terms as well."""
+        bits = "0010110010100010110010101000101100101010001011001"
+        pairs = [(17, 44 if bit == "1" else 13) for bit in bits]
+        pairs.append((17, 0x09C4))
+        words = [0x0000, 0x006D, len(pairs), 0x0000]
+        for mark, space in pairs:
+            words += [mark, space]
+        code = " ".join(f"{w:04X}" for w in words)
+        assert frame_disagreement(code) is None
+        report = comb_wig(_wig({"Cool 24": code}))
+        assert report.findings == []
+        declined = report.coverage.to_dict()["checks"][
+            CHECK_FRAME_DISAGREEMENT]["declined"]
+        assert declined == {DECLINE_SINGLE_FRAME: 1}
+
     def test_a_two_part_press_compares_part_against_part(self):
         """Several air conditioners send one press as two frames of
         different lengths with a pause between them, so a capture of two
