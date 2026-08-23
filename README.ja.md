@@ -46,4 +46,4 @@ Home Assistant 2026.4以降が必要。ネイティブIRレシーバーには202
 
 ---
 
-*英語版READMEからの翻訳、v0.10.3時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
+*英語版READMEからの翻訳、v0.11.0時点。このファイルはプログラミングアシスタントが下書きし、リリースごとに更新されます。ネイティブスピーカーによる引き継ぎを歓迎します。[Adding a language](CONTRIBUTING.md#adding-a-language)をご覧ください。*
