@@ -245,6 +245,10 @@ _stub("homeassistant.components.media_player", {
     "MediaPlayerEntity": _MediaPlayerEntity,
     "MediaPlayerEntityFeature": _MediaPlayerEntityFeature,
     "MediaPlayerState": _MediaPlayerState,
+    # Attribute keys, needed since media_player.py restores volume and
+    # mute from a stored state (restore completeness, 2026-08-23).
+    "ATTR_MEDIA_VOLUME_LEVEL": "volume_level",
+    "ATTR_MEDIA_VOLUME_MUTED": "is_volume_muted",
 })
 
 class _ClimateEntityFeature:

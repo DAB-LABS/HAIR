@@ -33,7 +33,11 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.components.fan import ATTR_OSCILLATING, ATTR_PERCENTAGE
-from homeassistant.components.media_player import MediaPlayerState
+from homeassistant.components.media_player import (
+    ATTR_MEDIA_VOLUME_LEVEL,
+    ATTR_MEDIA_VOLUME_MUTED,
+    MediaPlayerState,
+)
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
@@ -624,3 +628,75 @@ async def test_fan_off_still_carries_its_speed_back():
     assert entity.is_on is False
     assert entity.percentage == 40
     assert entity.oscillating is True
+
+
+# ---------------------------------------------------------------------------
+# media_player: volume and mute (restore completeness, 2026-08-23).
+# Dropped by the same 0.9.8 rule as fan's percentage, with no comment here
+# naming it. Playback state stays clamped, which is a different argument.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("volume,muted", [(0.55, True), (0.2, False)])
+async def test_media_restores_volume_and_mute(volume, muted):
+    last = State(
+        "media_player.x", "on",
+        {ATTR_MEDIA_VOLUME_LEVEL: volume, ATTR_MEDIA_VOLUME_MUTED: muted},
+    )
+    entity, mgr = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.state == MediaPlayerState.ON
+    assert entity.volume_level == pytest.approx(volume)
+    assert entity.is_volume_muted is muted
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_media_playing_still_clamps_to_on_while_volume_restores():
+    """The two rules coexist. Playback is not knowable after a reboot
+    and stays clamped; the volume the user last set is knowable and
+    comes back. A stored PLAYING must still land on ON."""
+    last = State(
+        "media_player.x", "playing",
+        {ATTR_MEDIA_VOLUME_LEVEL: 0.7, ATTR_MEDIA_VOLUME_MUTED: True},
+    )
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.state == MediaPlayerState.OFF
+    assert entity.volume_level == pytest.approx(0.7)
+    assert entity.is_volume_muted is True
+
+
+@pytest.mark.asyncio
+async def test_media_legacy_stored_state_behaves_exactly_as_today():
+    last = State("media_player.x", "on", {})
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.state == MediaPlayerState.ON
+    assert entity.volume_level == pytest.approx(0.5)
+    assert entity.is_volume_muted is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["loud", [], {}])
+async def test_media_malformed_volume_falls_back(bad):
+    last = State("media_player.x", "on", {ATTR_MEDIA_VOLUME_LEVEL: bad})
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.volume_level == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored,expected", [(-1.0, 0.0), (4.2, 1.0)])
+async def test_media_out_of_range_volume_clamps(stored, expected):
+    """volume_level is a 0..1 contract with HA."""
+    last = State("media_player.x", "on", {ATTR_MEDIA_VOLUME_LEVEL: stored})
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.volume_level == pytest.approx(expected)

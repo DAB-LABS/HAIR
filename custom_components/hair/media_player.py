@@ -1,10 +1,13 @@
 """Media player entity platform for HAIR."""
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
 from homeassistant.components.media_player import (
+    ATTR_MEDIA_VOLUME_LEVEL,
+    ATTR_MEDIA_VOLUME_MUTED,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
@@ -148,17 +151,47 @@ class HAIRMediaPlayerEntity(RestoreEntity, MediaPlayerEntity):
         state from the entity's state before this restart -- the power
         monitor's STARTUP SEED (power_monitor.py, commit 2) corrects it
         immediately after if a sensor is configured, so restore only
-        has to get close. Clamped to plain ON/OFF like the verdict
+        has to get close.
+
+        PLAYBACK STATE STAYS CLAMPED to plain ON/OFF, like the verdict
         handler: HAIR has no way to know whether a restored PLAYING/
-        PAUSED/IDLE state still holds, so it isn't restored.
+        PAUSED/IDLE state still holds, so it isn't restored. That part
+        is deliberate and correct and is not what changed here.
+
+        VOLUME AND MUTE ADDED 2026-08-23 (state-restore-audit.md, GH
+        #115). They were dropped by the same 0.9.8 scoping rule that
+        caught fan's percentage -- "on/off platforms restore is_on" --
+        without a comment naming it here.
+
+        The reasoning is not the same as playback's, which is why they
+        move and playback does not. A stepped IR volume is a guess
+        either way, but 0.5 is a WORSE guess than the last value this
+        entity actually held: the default is a number nobody chose,
+        while the stored one is at least where the user left it. Mute
+        is worse still -- flipping silently to false across a restart
+        is the kind of thing that gets blamed on the TV.
+
+        Same type tolerance as fan: a missing, None or unconvertible
+        value falls back to __init__'s default rather than raising, so
+        a pre-fix stored state behaves exactly as it does today.
         """
         last_state = await self.async_get_last_state()
-        if last_state is not None:
-            self._state = (
-                MediaPlayerState.ON
-                if last_state.state == STATE_ON
-                else MediaPlayerState.OFF
-            )
+        if last_state is None:
+            return
+        self._state = (
+            MediaPlayerState.ON
+            if last_state.state == STATE_ON
+            else MediaPlayerState.OFF
+        )
+
+        volume = last_state.attributes.get(ATTR_MEDIA_VOLUME_LEVEL)
+        if volume is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                self._volume_level = max(0.0, min(1.0, float(volume)))
+
+        muted = last_state.attributes.get(ATTR_MEDIA_VOLUME_MUTED)
+        if muted is not None:
+            self._is_muted = bool(muted)
 
     @callback
     def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:
