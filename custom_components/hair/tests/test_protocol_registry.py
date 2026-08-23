@@ -63,11 +63,11 @@ class TestRegistryContents:
     def test_expected_protocols_registered(self):
         listing = {row["protocol"]: row for row in registered_protocols()}
 
-        # The eight decoder protocols are always present: upstream when
+        # The local decoder protocols are always present: upstream when
         # the bundled library decodes them (none as of 7.5.0), local
         # polyfill otherwise -- including on the no-library CI leg.
         for key in ("samsung32", "sony", "sharp", "rca", "marantz", "rc5",
-                    "kaseikyo", "symphony"):
+                    "rc6", "kaseikyo", "symphony"):
             assert key in listing, f"{key} missing from registry"
             assert listing[key]["source"] == "local"
             assert listing[key]["tx_rebuild"] is True
@@ -90,16 +90,22 @@ class TestRegistryContents:
         # The checksum-free tail: Dyson (15 strict-timed bits) then
         # Symphony (the loosest match in the registry) dead last.
         assert keys[-2:] == ["dyson", "symphony"]
-        # Marantz (specific) probes before RC-5 (its generic parent).
+        # Marantz (specific) probes before RC-5 (its generic parent), and
+        # RC-6 does too: it carries a leader and a structured header
+        # where RC-5 has neither.
         assert keys.index("marantz") < keys.index("rc5")
         # RCA carries a strict whole-payload complement, so it sits in
         # the strict tier -- after Sharp, ahead of the checksum-free
-        # tail and ahead of every checksum-free protocol in it.
+        # tail and ahead of every checksum-free protocol in it. RC-6 is
+        # in that tail: it has no checksum at all, so RCA must probe
+        # ahead of it too.
         assert keys.index("sharp") < keys.index("rca")
-        for checksum_free in ("rc5", "nokia32", "marantz", "dyson", "symphony"):
+        for checksum_free in ("rc5", "rc6", "nokia32", "marantz", "dyson",
+                              "symphony"):
             assert keys.index("rca") < keys.index(checksum_free), (
                 f"RCA must probe before {checksum_free}"
             )
+        assert keys.index("rc6") < keys.index("rc5")
 
     def test_get_spec_resolves_variant_labels(self):
         assert get_spec("SONY15") is not None
@@ -108,6 +114,7 @@ class TestRegistryContents:
         assert get_spec("SYMPHONY12").key == "symphony"
         assert get_spec("RC5").key == "rc5"
         assert get_spec("RCA").key == "rca"
+        assert get_spec("RC6").key == "rc6"
         assert get_spec("UNKNOWN99") is None
         assert get_spec(None) is None
 

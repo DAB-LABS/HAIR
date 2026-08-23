@@ -29,6 +29,7 @@ from custom_components.hair.decoders.kaseikyo import KaseikyoCommand
 from custom_components.hair.decoders.marantz_extended import MarantzExtendedCommand
 from custom_components.hair.decoders.nokia32 import Nokia32Command
 from custom_components.hair.decoders.rc5 import RC5Command
+from custom_components.hair.decoders.rc6 import RC6Command
 from custom_components.hair.decoders.rca import RCACommand
 from custom_components.hair.decoders.samsung import Samsung32Command
 from custom_components.hair.decoders.sharp import SharpCommand
@@ -686,6 +687,7 @@ _DECODERS = {
     "dyson": DysonCommand,
     "sony": SonyCommand,
     "rc5": RC5Command,
+    "rc6": RC6Command,
     "rca": RCACommand,
     "samsung": Samsung32Command,
     "sharp": SharpCommand,
@@ -702,6 +704,13 @@ def _samples() -> dict[str, list[int]]:
             address=0xA5, address_bits=8, command=0x69, repeat_count=2
         ).get_raw_timings(),
         "rc5": RC5Command(address=5, command=0x35, repeat_count=2).get_raw_timings(),
+        # Mode 6A/LCC is the shape both documented RC-6 variants use
+        # (Media Center 0x800F, VU+ 0x8052) and the widest frame the
+        # decoder accepts, so it is the strongest cross-rejection sample.
+        "rc6": RC6Command(
+            address=0x10, command=0x59, toggle=1, mode=6, customer=0x8052,
+            repeat_count=2,
+        ).get_raw_timings(),
         "samsung": Samsung32Command(
             address=0x07, command=0x02, repeat_count=2
         ).get_raw_timings(),
