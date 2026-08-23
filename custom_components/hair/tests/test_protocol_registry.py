@@ -63,10 +63,10 @@ class TestRegistryContents:
     def test_expected_protocols_registered(self):
         listing = {row["protocol"]: row for row in registered_protocols()}
 
-        # The seven decoder protocols are always present: upstream when
+        # The eight decoder protocols are always present: upstream when
         # the bundled library decodes them (none as of 7.5.0), local
         # polyfill otherwise -- including on the no-library CI leg.
-        for key in ("samsung32", "sony", "sharp", "marantz", "rc5",
+        for key in ("samsung32", "sony", "sharp", "rca", "marantz", "rc5",
                     "kaseikyo", "symphony"):
             assert key in listing, f"{key} missing from registry"
             assert listing[key]["source"] == "local"
@@ -92,6 +92,14 @@ class TestRegistryContents:
         assert keys[-2:] == ["dyson", "symphony"]
         # Marantz (specific) probes before RC-5 (its generic parent).
         assert keys.index("marantz") < keys.index("rc5")
+        # RCA carries a strict whole-payload complement, so it sits in
+        # the strict tier -- after Sharp, ahead of the checksum-free
+        # tail and ahead of every checksum-free protocol in it.
+        assert keys.index("sharp") < keys.index("rca")
+        for checksum_free in ("rc5", "nokia32", "marantz", "dyson", "symphony"):
+            assert keys.index("rca") < keys.index(checksum_free), (
+                f"RCA must probe before {checksum_free}"
+            )
 
     def test_get_spec_resolves_variant_labels(self):
         assert get_spec("SONY15") is not None
@@ -99,6 +107,7 @@ class TestRegistryContents:
         assert get_spec("KASEIKYO48").key == "kaseikyo"
         assert get_spec("SYMPHONY12").key == "symphony"
         assert get_spec("RC5").key == "rc5"
+        assert get_spec("RCA").key == "rca"
         assert get_spec("UNKNOWN99") is None
         assert get_spec(None) is None
 
@@ -226,6 +235,7 @@ class TestTxRebuild:
             ("MARANTZ", 0x10, 0x0C, {"extension": 0x20, "toggle": 0}),
             ("KASEIKYO48", 0x2002, 0x40040100, None),
             ("SYMPHONY12", 0, 0xC00, None),
+            ("RCA", 0xF, 0x2A, None),
         ],
     )
     def test_rebuild_round_trips_identity(self, protocol, address, command, extras):
