@@ -766,11 +766,37 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
            .top-line is a wrapping flex row -- when .name-line grows
            tall enough to need its own line, .actions still lands
            flush right on whichever line it ends up on. */
+        /* flex-wrap here is the missing half of the ruling above. .top-line
+           wraps, so .actions can drop onto a line of its own -- but the
+           cluster itself was an unbreakable 263px, so on a narrow row it
+           overflowed .row's right edge whether it wrapped or not, and the
+           trash can ended up sitting outside the card.
+
+           It read as a 320px-only problem in Chrome, where the cluster
+           fit a 393px row with 10px to spare. It is not: 10px of slack is
+           inside the margin by which font metrics vary between engines.
+           iOS Safari does not have Roboto and falls back to a wider face,
+           which spent that slack and put the trash outside the card on a
+           real iPhone at a width Chrome rendered as clean. Reported from
+           a phone screenshot, 2026-08-23.
+
+           Wrapping removes the fixed-width assumption instead of buying
+           back a few pixels, so it holds for any face at any width -- it
+           survives a 0.25em letter-spacing stress at 320px, far past any
+           real font difference. It costs nothing until it is needed:
+           the row is 87px tall at 393px before and after, and only grows
+           when the cluster genuinely has to take a second line.
+
+           justify-content: flex-end keeps the wrapped line hard right,
+           matching the band the owner approved on .signal-actions rather
+           than inventing a second convention. */
         .actions {
             display: flex;
             gap: 4px;
             align-items: center;
             margin-left: auto;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
         .action-btn {
             background: none;
