@@ -825,38 +825,87 @@ def _matrix_codes(matrix: ClimateMatrix) -> list[_Code]:
     return codes
 
 
+# A family has to CARRY the wig, not merely appear in it. The bench
+# found a 547-code Fujitsu remote in which exactly one code satisfied
+# GREE's bit count and identity bytes -- a coincidence, at that width,
+# is close to inevitable -- and on a first-code-wins rule that one
+# accident named the family for the whole file and then filed findings
+# from it. A real family reads most of its own wig: on the test box the
+# genuine ones sit between half and all of their codes, and the
+# coincidence sat at one in five hundred. Anything under a quarter is
+# treated as noise and the wig reports as unidentified, which is the
+# honest answer and the one that files nothing.
+_FAMILY_SHARE = 0.25
+_FAMILY_MINIMUM = 2
+
+
 def _read_family(
     codes: list[_Code], coverage: Coverage
 ) -> tuple[Any, dict[str, Any]]:
-    """Identify the family once, then read every code with that map.
+    """Identify the family by vote, then read every code with its map.
 
-    A lattice is one family, so the map that read the last cell reads
-    the next one; ``prefer`` turns twelve candidate maps per cell into
-    one. A cell that stops identifying is still declined on its own
-    merits rather than assumed.
+    Two passes, and the first one only votes. Every code is offered to
+    the whole library, the winner is the family most of them claim, and
+    a candidate that cannot clear ``_FAMILY_SHARE`` of the wig is
+    rejected outright rather than promoted by being first.
+
+    The second pass re-reads under the winner via ``prefer``, so a code
+    that could be read two ways is read the way the rest of the wig is.
+    A cell that stops identifying there is declined on its own merits
+    rather than assumed.
     """
     maps = field_readers.library()
-    readings: dict[str, Any] = {}
-    protocol: str | None = None
-    declined: Counter[str] = Counter()
+    first: dict[str, Any] = {}
+    votes: Counter[str] = Counter()
     for code in codes:
-        reading = field_readers.read_code(code.pronto, maps, prefer=protocol)
-        if reading.identified:
-            protocol = reading.protocol_id
-            readings[code.key] = reading
+        reading = field_readers.read_code(code.pronto, maps)
+        first[code.key] = reading
+        if reading.identified and reading.protocol_id:
+            votes[reading.protocol_id] += 1
+
+    protocol: str | None = None
+    rejected: dict[str, int] = {}
+    if votes:
+        leader, count = votes.most_common(1)[0]
+        if count >= _FAMILY_MINIMUM \
+                and count >= len(codes) * _FAMILY_SHARE:
+            protocol = leader
         else:
-            declined[reading.declined or field_readers.NO_MAP] += 1
+            rejected = dict(votes)
+
     chosen = None
     for candidate in maps:
         if candidate.protocol_id == protocol:
             chosen = candidate
             break
+
+    readings: dict[str, Any] = {}
+    declined: Counter[str] = Counter()
+    for code in codes:
+        reading = first[code.key]
+        if protocol is None:
+            declined[field_readers.NO_MAP] += 1
+            continue
+        if reading.protocol_id != protocol:
+            reading = field_readers.read_code(
+                code.pronto, maps, prefer=protocol)
+        if reading.identified and reading.protocol_id == protocol:
+            readings[code.key] = reading
+        else:
+            declined[reading.declined or field_readers.NO_MAP] += 1
+
     coverage.protocol = {
         "id": protocol,
         "codes": len(codes),
         "readable": len(readings),
         "declined": dict(declined),
     }
+    if rejected:
+        # Named rather than dropped: "one code in this remote looked
+        # like GREE" is worth a reader's second of attention, and
+        # silence about it would leave the unmapped line looking like
+        # nothing was ever a candidate.
+        coverage.protocol["rejected"] = rejected
     return chosen, readings
 
 

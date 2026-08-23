@@ -730,6 +730,7 @@
     "comb.protocol_label": "Protocollo",
     "comb.protocol_read": "{protocol}, letto su {readable} codici su {codes}.",
     "comb.protocol_unmapped": "Nessuna mappa di campi copre questo protocollo: è stato verificato il contenuto di 0 codici su {codes}.",
+    "comb.protocol_rejected": "{count} sembravano {protocol}, troppo pochi per nominare la famiglia",
     "comb.field_checked": "{checked} confrontati",
     "comb.tip_unmapped": "Pettinato: nessuna mappa di campi copre questo protocollo, quindi è stato verificato il contenuto di 0 codici su {codes}. Fai clic per il rapporto.",
     "comb.tip_unverified": "Pettinato: {protocol} è stato letto, ma nessuno dei {codes} codici aveva un campo verificabile dalla mappa. Fai clic per il rapporto.",

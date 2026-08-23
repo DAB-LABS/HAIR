@@ -730,6 +730,7 @@
     "comb.protocol_label": "Protocole",
     "comb.protocol_read": "{protocol}, lu sur {readable} des {codes} codes.",
     "comb.protocol_unmapped": "Aucune carte de champs ne couvre ce protocole : le contenu de 0 code sur {codes} a été vérifié.",
+    "comb.protocol_rejected": "{count} ressemblaient à {protocol}, trop peu pour nommer la famille",
     "comb.field_checked": "{checked} comparés",
     "comb.tip_unmapped": "Peigné : aucune carte de champs ne couvre ce protocole, donc le contenu de 0 code sur {codes} a été vérifié. Cliquez pour le rapport.",
     "comb.tip_unverified": "Peigné : {protocol} a été lu, mais aucun des {codes} codes n'avait de champ vérifiable par la carte. Cliquez pour le rapport.",

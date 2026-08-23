@@ -723,6 +723,13 @@ export class IrCombReport extends LitElement {
             ([reason, count]) =>
                 t(`comb.declined.${reason}`, { count: String(count) }),
         );
+        const nearMisses = Object.entries(protocol.rejected || {}).map(
+            ([name, count]) =>
+                t("comb.protocol_rejected", {
+                    protocol: name,
+                    count: String(count),
+                }),
+        );
         return html`<div
             class="coverrow protorow ${protocol.id ? "" : "unmapped"}"
         >
@@ -738,6 +745,7 @@ export class IrCombReport extends LitElement {
                           codes: String(protocol.codes),
                       })}
                 ${why.length ? ` · ${why.join(" · ")}` : ""}
+                ${nearMisses.length ? ` · ${nearMisses.join(" · ")}` : ""}
             </span>
         </div>`;
     }

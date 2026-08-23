@@ -730,6 +730,7 @@
     "comb.protocol_label": "Protokoll",
     "comb.protocol_read": "{protocol}, gelesen bei {readable} von {codes} Codes.",
     "comb.protocol_unmapped": "Keine Feldkarte deckt dieses Protokoll ab: bei 0 von {codes} Codes wurde der Inhalt geprüft.",
+    "comb.protocol_rejected": "{count} sahen nach {protocol} aus, zu wenige, um die Familie zu benennen",
     "comb.field_checked": "{checked} verglichen",
     "comb.tip_unmapped": "Gekämmt: keine Feldkarte deckt dieses Protokoll ab, daher wurde bei 0 von {codes} Codes der Inhalt geprüft. Für den Bericht klicken.",
     "comb.tip_unverified": "Gekämmt: {protocol} wurde gelesen, aber keiner der {codes} Codes hatte ein Feld, das die Karte prüfen konnte. Für den Bericht klicken.",

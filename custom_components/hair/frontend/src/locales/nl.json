@@ -730,6 +730,7 @@
     "comb.protocol_label": "Protocol",
     "comb.protocol_read": "{protocol}, gelezen op {readable} van {codes} codes.",
     "comb.protocol_unmapped": "Geen enkele veldkaart dekt dit protocol: van 0 van de {codes} codes is de inhoud gecontroleerd.",
+    "comb.protocol_rejected": "{count} leken op {protocol}, te weinig om de familie te benoemen",
     "comb.field_checked": "{checked} vergeleken",
     "comb.tip_unmapped": "Gekamd: geen veldkaart dekt dit protocol, dus van 0 van de {codes} codes is de inhoud gecontroleerd. Klik voor het rapport.",
     "comb.tip_unverified": "Gekamd: {protocol} is gelezen, maar geen van de {codes} codes had een veld dat de kaart kon controleren. Klik voor het rapport.",

@@ -730,6 +730,7 @@
     "comb.protocol_label": "プロトコル",
     "comb.protocol_read": "{protocol}、{codes} 件中 {readable} 件を読み取り。",
     "comb.protocol_unmapped": "このプロトコルを扱うフィールドマップがありません。{codes} 件中 0 件しか内容を検査していません。",
+    "comb.protocol_rejected": "{count} 件が {protocol} に似ていますが、系列を決めるには少なすぎます",
     "comb.field_checked": "{checked} 件を照合",
     "comb.tip_unmapped": "コーム済み: このプロトコルを扱うフィールドマップがないため、{codes} 件中 0 件しか内容を検査していません。クリックでレポート。",
     "comb.tip_unverified": "コーム済み: {protocol} は読めましたが、{codes} 件のいずれにもマップが検査できるフィールドがありません。クリックでレポート。",

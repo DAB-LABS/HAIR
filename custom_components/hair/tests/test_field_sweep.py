@@ -296,6 +296,80 @@ class TestCoverageIsHonest:
         assert report.coverage.to_dict()["protocol"]["id"] is None
 
 
+class TestOneCodeIsNotAFamily:
+    """Found on the test box, and it is the whole reason for the vote.
+
+    A 547-code Fujitsu remote contains exactly one code that satisfies
+    GREE's bit count and identity bytes. At that width a coincidence is
+    close to inevitable, and on a first-code-wins rule that one accident
+    named the family for the file and then filed findings against a
+    remote no map in this library has ever seen.
+    """
+
+    def _fujitsu_shaped(self, borrowed: int) -> Wig:
+        """A lattice of unreadable codes with `borrowed` real GREE ones.
+
+        Stands in for the shape the bench found: a large remote in an
+        unmapped protocol that happens to contain a handful of codes a
+        mapped family will claim.
+        """
+        gree = _pack_wig("GREE.json").climate.cells
+        cells: list[ClimateCell] = []
+        for index, temp in enumerate(range(16, 31)):
+            pairs = [(0x0154, 0x00AA)]
+            for bit in f"{index:016b}":
+                pairs.append((0x0015, 0x003F if bit == "1" else 0x0015))
+            pairs.append((0x0015, 0x09C4))
+            words = [0x0000, 0x006D, len(pairs), 0x0000]
+            for mark, space in pairs:
+                words += [mark, space]
+            cells.append(ClimateCell(
+                mode="cool", fan="auto", temp=float(temp),
+                pronto=" ".join(f"{w:04X}" for w in words)))
+        for offset in range(borrowed):
+            cells.append(ClimateCell(
+                mode="heat", fan="auto", temp=float(16 + offset),
+                pronto=gree[offset].pronto))
+        return Wig(name="Coincidence", signals=[], climate=ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=cells[0].pronto, cells=cells))
+
+    def test_a_lone_coincidence_does_not_name_the_family(self):
+        coverage = _coverage(self._fujitsu_shaped(borrowed=1))
+        assert coverage["protocol"]["id"] is None
+        assert coverage["protocol"]["readable"] == 0
+
+    def test_and_files_nothing_from_it(self):
+        """The consequence that matters. One accidental match used to be
+        worth two findings against a remote nobody had mapped."""
+        wig = self._fujitsu_shaped(borrowed=1)
+        assert _findings(wig, CHECK_FIELD_MISMATCH) == []
+        assert _findings(wig, CHECK_FRAME_INTEGRITY) == []
+
+    def test_but_the_near_miss_is_named_rather_than_dropped(self):
+        """Coverage says a candidate was seen and rejected. Silence here
+        would make the unmapped line read as though nothing had ever
+        looked like anything."""
+        coverage = _coverage(self._fujitsu_shaped(borrowed=1))
+        assert coverage["protocol"]["rejected"] == {"GREE": 1}
+
+    def test_a_family_that_carries_the_wig_is_still_identified(self):
+        """The bar has to let real families through. Sixteen GREE codes
+        against fifteen unreadable ones is a GREE remote with a mess in
+        it, not a coincidence."""
+        coverage = _coverage(self._fujitsu_shaped(borrowed=16))
+        assert coverage["protocol"]["id"] == "GREE"
+        assert coverage["protocol"]["readable"] == 16
+        assert "rejected" not in coverage["protocol"]
+
+    def test_a_clean_pack_is_never_within_reach_of_the_bar(self):
+        """Every family reads its own wig whole, so no pack is anywhere
+        near the quarter-share bar the coincidence failed."""
+        for name in PACK_NAMES:
+            protocol = _coverage(_pack_wig(f"{name}.json"))["protocol"]
+            assert protocol["id"] is not None, name
+            assert protocol["readable"] > protocol["codes"] * 0.5, name
+
+
 # ---------------------------------------------------------------------------
 # Twelve families, clean and planted
 # ---------------------------------------------------------------------------

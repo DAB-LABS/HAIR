@@ -265,6 +265,11 @@ export interface CombCoverage {
         codes: number;
         readable: number;
         declined: Record<string, number>;
+        // Families that were seen but did not carry enough of the wig
+        // to be named. Present only when one was rejected, and worth
+        // showing: "one code in this remote looked like GREE" is a
+        // near miss a reader should hear about rather than a silence.
+        rejected?: Record<string, number>;
     } | null;
     // Per field name: how many codes the sweep compared, and what it
     // declined. A partial map is legal and useful; this is where a

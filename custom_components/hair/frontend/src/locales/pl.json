@@ -772,6 +772,7 @@
     "comb.protocol_label": "Protokół",
     "comb.protocol_read": "{protocol}, odczytano w {readable} z {codes} kodów.",
     "comb.protocol_unmapped": "Żadna mapa pól nie obejmuje tego protokołu: sprawdzono zawartość 0 z {codes} kodów.",
+    "comb.protocol_rejected": "{count} przypominały {protocol}, za mało, by wskazać rodzinę",
     "comb.field_checked": "porównano {checked}",
     "comb.tip_unmapped": "Przeczesano: żadna mapa pól nie obejmuje tego protokołu, więc sprawdzono zawartość 0 z {codes} kodów. Kliknij, aby zobaczyć raport.",
     "comb.tip_unverified": "Przeczesano: odczytano {protocol}, ale żaden z {codes} kodów nie miał pola możliwego do sprawdzenia przez mapę. Kliknij, aby zobaczyć raport.",
