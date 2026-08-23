@@ -1678,7 +1678,30 @@ export class IrWigs extends LitElement {
         // fourth ask was precisely that the two must not look alike
         // (fitting integrity R1). Colourless on purpose: this is not a
         // verdict about the wig, so it gets neither green nor amber.
+        //
+        // R2 widens it, answering R1's own open call. A structurally
+        // spotless wig that no field map claims passed every check HAIR
+        // owns and had not one byte of its payload read: the structural
+        // tier's "checked" is a full count of a narrower question. That
+        // wig gets its own state rather than sharing the partial halo,
+        // because "we looked at some of it" and "we could not read any
+        // of it" are different sentences and the second one is the one
+        // the shop's case two was.
+        if (this._unread(comb)) return "unread";
         return this._partlyChecked(comb) ? "partial" : "";
+    }
+
+    /** Combed, but the field tier verified nothing: no map claims the
+     * protocol, or one does and every field declined. "0 of N cells
+     * verified" -- which is not a clean bill and must not look like
+     * one. Null coverage or a release-one receipt is not this: an old
+     * receipt cannot be asked a question that did not exist. */
+    private _unread(comb: CombSummary): boolean {
+        const protocol = comb.coverage?.protocol;
+        if (!protocol) return false;
+        if (!protocol.id) return true;
+        const fields = Object.values(comb.coverage?.fields || {});
+        return fields.every((slot) => slot.checked === 0);
     }
 
     private _partlyChecked(comb: CombSummary): boolean {
@@ -1690,13 +1713,23 @@ export class IrWigs extends LitElement {
     private _combTitle(wig: WigInfo): string {
         const comb = wig.comb;
         if (!comb) return t("comb.action");
-        if (comb.suspects === 0)
+        if (comb.suspects === 0) {
+            if (this._unread(comb))
+                return comb.coverage?.protocol?.id
+                    ? t("comb.tip_unverified", {
+                          protocol: comb.coverage.protocol.id,
+                          codes: String(comb.coverage?.codes ?? 0),
+                      })
+                    : t("comb.tip_unmapped", {
+                          codes: String(comb.coverage?.codes ?? 0),
+                      });
             return this._partlyChecked(comb)
                 ? t("comb.tip_partial", {
                       checked: String(comb.coverage?.checked ?? 0),
                       codes: String(comb.coverage?.codes ?? 0),
                   })
                 : t("comb.tip_clean", { date: comb.date ?? "" });
+        }
         return tp("comb.tip_suspects", comb.suspects);
     }
 
@@ -2712,6 +2745,18 @@ export class IrWigs extends LitElement {
         .comb-glyph.partial {
             filter: drop-shadow(0 0 2px rgba(150, 160, 170, 0.75))
                 drop-shadow(0 0 4px rgba(150, 160, 170, 0.45));
+        }
+        /* Nothing was read. Not a glow but a HOLLOW comb: the fill
+           drops out and only the outline remains, so the difference
+           from clean survives a glance, a greyscale screen and a
+           colour-blind reader. Still colourless, still not a verdict --
+           the shape says "this is an outline of a check", which is
+           exactly what a wig no map claims received. */
+        .comb-glyph.unread {
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 14;
+            opacity: 0.75;
         }
         .spacer {
             flex: 1;

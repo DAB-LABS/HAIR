@@ -255,6 +255,24 @@ export interface CombCoverage {
         string,
         { checked: number; declined: Record<string, number> }
     >;
+    // Which field map read this wig, and how much of it the field tier
+    // could actually read. `id` is null when no map claims the codes --
+    // the "protocol unmapped, 0 of N verified" line, which has to look
+    // structurally unlike a clean report rather than merely say less.
+    // Absent on a release-one receipt, which never ran a field tier.
+    protocol?: {
+        id: string | null;
+        codes: number;
+        readable: number;
+        declined: Record<string, number>;
+    } | null;
+    // Per field name: how many codes the sweep compared, and what it
+    // declined. A partial map is legal and useful; this is where a
+    // reader sees exactly how partial.
+    fields?: Record<
+        string,
+        { checked: number; declined: Record<string, number> }
+    >;
 }
 
 export interface CombReport extends CombSummary {
