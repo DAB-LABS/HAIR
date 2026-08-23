@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
     ATTR_FAN_MODE,
+    ATTR_PRESET_MODE,
     ATTR_SWING_MODE,
     ATTR_TEMPERATURE,
     ClimateEntity,
@@ -56,6 +57,7 @@ from .wig_climate import (
     state_display_name,
     unit_letter,
 )
+from .wig_format import cell_key
 
 if TYPE_CHECKING:
     from .wig_format import ClimateCell, ClimateMatrix
@@ -191,11 +193,36 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._matrix_cell: str | None = None
         # Climate presets: the star (climate-presets-star.md). The
         # starred command last sent through async_set_preset_mode, or
-        # None. Deliberately NOT restored across restarts: this is an
-        # assumed-state entity, nothing tells us the unit is still in
-        # that state after a reboot, and None is the honest answer.
-        # Every other setter clears it (see the actions below) so the
-        # attribute never claims a preset the unit has since moved off.
+        # None. Every other setter clears it (see the actions below) so
+        # the attribute never claims a preset the unit has since moved
+        # off.
+        #
+        # SUPERSEDED 2026-08-23. The original reasoning, kept because it
+        # is the argument the new rule has to answer:
+        #
+        #   Deliberately NOT restored across restarts: this is an
+        #   assumed-state entity, nothing tells us the unit is still in
+        #   that state after a reboot, and None is the honest answer.
+        #
+        # That is sound in isolation and inconsistent in place. The
+        # audit (state-restore-audit.md, section 2c) put it plainly:
+        # the same argument applies verbatim to hvac_mode, temperature,
+        # fan_mode and swing_mode, which this file HAS always restored.
+        # HAIR was willing to say "this AC is in cool at 73 with the fan
+        # high" on no evidence and unwilling to say "and that
+        # combination is the preset you named" -- and on the audit's own
+        # device the preset was a NAME for exactly that restored triple.
+        # The card was already claiming the state and only declining to
+        # name it.
+        #
+        # RULED (owner, 2026-08-23, GH #115): restore it, WITH A MATCH
+        # CHECK. The preset comes back only when the restored
+        # mode/fan/temp still resolve to that starred command's own
+        # cell. Any miss leaves it None. That answers the honesty
+        # concern on its own terms rather than by ignoring it: the
+        # attribute can never claim a preset the restored state
+        # contradicts, which is a stronger guarantee than never
+        # claiming anything. See _async_restore_state.
         self._preset_mode: str | None = None
         # Power monitoring (Device Settings, 0.9.8). The mode this
         # entity was in the last time it went off (by any means -- a
@@ -287,6 +314,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                     max(restored_temp, self._matrix.min_temp),
                     self._matrix.max_temp,
                 )
+            cell = None
             if restored_mode != HVACMode.OFF:
                 file_mode = self._file_mode_for(restored_mode)
                 cell = (
@@ -304,6 +332,32 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             self._swing_mode = restored_swing
             if restored_temp is not None:
                 self._target_temperature = restored_temp
+            if cell is not None:
+                # matrix_cell, RE-DERIVED rather than read back
+                # (restore completeness, 2026-08-23). It was never
+                # scoped out; the readout simply postdates the 0.9.8
+                # restore list (it arrived with 0.10.1 item 7 / GH
+                # #105) and nobody added it when the feature landed, so
+                # the device page's current-cell line went blank after
+                # every restart.
+                #
+                # Re-derived from the cell the restored combination
+                # just resolved to, rather than read from the stored
+                # attribute, because re-derivation CANNOT disagree with
+                # the restored values. A stored string could: the
+                # lattice may have changed under it, or the display
+                # unit may have (the name carries a converted
+                # temperature), and then the readout would name a cell
+                # the entity is not in. Same derivation the live
+                # setters use, so the two doors cannot drift.
+                self._matrix_cell = self._cell_display_name(cell)
+                self._restore_preset(last_state, cell)
+            else:
+                # Restored OFF. The live async_turn_off writes exactly
+                # this, so the readout agrees with itself whichever way
+                # the entity got here. The preset stays None because
+                # turning off clears it.
+                self._matrix_cell = state_display_name("off")
         else:
             self._hvac_mode = restored_mode
             if restored_temp is not None:
@@ -970,25 +1024,79 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
                 return raw
         return None
 
-    async def _async_send_cell(self, cell: ClimateCell) -> None:
-        # The display grammar names the send (owner ruling 2026-07-29,
-        # mockup CC4): the Mirror row and the matrix_cell attribute
-        # both read "cool / fan: auto / 22", never the compact
-        # fittings key. The temperature part converts to the INSTALL's
-        # unit at send time (unit ruling 2026-07-29: live surfaces
-        # convert dynamically), so a C-file cell on an imperial
-        # install reads "cool / fan: auto / 72".
+    def _cell_display_name(self, cell: ClimateCell) -> str:
+        """This cell's readout name, in the install's display unit.
+
+        The display grammar names the send (owner ruling 2026-07-29,
+        mockup CC4): the Mirror row and the matrix_cell attribute both
+        read "cool / fan: auto / 22", never the compact fittings key.
+        The temperature part converts to the INSTALL's unit (unit
+        ruling 2026-07-29: live surfaces convert dynamically), so a
+        C-file cell on an imperial install reads
+        "cool / fan: auto / 72".
+
+        Factored out of ``_async_send_cell`` 2026-08-23 so restore can
+        re-derive the readout through the same derivation the live
+        setters use. Two doors, one answer; if this ever changes, it
+        changes for both at once.
+        """
         m = self._matrix
         display_unit = (
             unit_letter(self.hass.config.units.temperature_unit)
             if self.hass is not None else None
         )
-        name = cell_display_name(
+        return cell_display_name(
             cell,
             unit=m.unit if m is not None else "C",
             display_unit=display_unit,
             precision=m.precision if m is not None else 1.0,
         )
+
+    def _restore_preset(self, last_state: State, cell: ClimateCell) -> None:
+        """Restore the starred preset, but only if it still fits.
+
+        The ruled middle path (owner, 2026-08-23, GH #115; see the
+        superseded reasoning in ``__init__``). The stored preset name
+        comes back ONLY when the restored mode/fan/temp resolve to the
+        same cell that starred command itself resolves to. Any miss --
+        the name is not starred any more, the command was deleted, it
+        carries no coordinates, or the lattice moved under it -- leaves
+        the preset None and touches nothing else.
+
+        That is what keeps the attribute from ever claiming a preset
+        the restored state contradicts, which was the whole force of
+        the original refusal.
+
+        A STATE row carries its own coordinates on ``sent_state``
+        (0.10.1 item 7). A row minted before that and never matched by
+        the setup backfill has none, and there is no re-validating a
+        preset whose cell cannot be named: the live setter treats such
+        a row as readout-only and refuses to parse display grammar, and
+        so does this. Refusing here costs a preset name after a
+        restart; guessing would cost the guarantee above.
+        """
+        name = last_state.attributes.get(ATTR_PRESET_MODE)
+        if not name or name not in (self.preset_modes or []):
+            return
+        command = self._device.get_command_by_name(name)
+        if command is None:
+            return
+        state = command.sent_state or {}
+        if not state:
+            return
+        starred_cell = resolve_cell(
+            self._matrix,
+            state.get("mode"),
+            state.get("fan"),
+            state.get("swing"),
+            state.get("temp"),
+        ) if self._matrix is not None else None
+        if starred_cell is None or cell_key(starred_cell) != cell_key(cell):
+            return
+        self._preset_mode = name
+
+    async def _async_send_cell(self, cell: ClimateCell) -> None:
+        name = self._cell_display_name(cell)
         await self._manager.async_send_matrix_cell(
             self._device.id, name, cell.pronto, cell.send_count,
             # Own send: the dispatcher handler ignores origin "entity"

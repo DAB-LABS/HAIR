@@ -28,6 +28,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.components.climate import (
     ATTR_FAN_MODE,
+    ATTR_PRESET_MODE,
     ATTR_SWING_MODE,
     ATTR_TEMPERATURE,
     HVACMode,
@@ -42,12 +43,12 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 
 from custom_components.hair.climate import HAIRClimateEntity, _ClimateExtraStoredData
-from custom_components.hair.const import DeviceType
+from custom_components.hair.const import CommandSource, DeviceType
 from custom_components.hair.cover import HAIRCoverEntity
 from custom_components.hair.fan import HAIRFanEntity
 from custom_components.hair.light import HAIRLightEntity
 from custom_components.hair.media_player import HAIRMediaPlayerEntity
-from custom_components.hair.models import EntityConfig, IRDevice
+from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
 from custom_components.hair.switch import HAIRSwitchEntity
 from custom_components.hair.wig_format import ClimateCell, ClimateMatrix
 
@@ -700,3 +701,201 @@ async def test_media_out_of_range_volume_clamps(stored, expected):
         HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
     )
     assert entity.volume_level == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# climate: matrix_cell and the ruled preset match check (restore
+# completeness, 2026-08-23). The preset reversal is the one item in this
+# ticket that overturns a documented decision rather than closing a gap.
+# ---------------------------------------------------------------------------
+
+PRESET_NAME = "cool / fan: auto / swing: swing / 22"
+
+
+def _starred_matrix_device(
+    sent_state: dict | None = None,
+    starred: tuple[str, ...] = (PRESET_NAME,),
+    command_name: str = PRESET_NAME,
+) -> IRDevice:
+    """A matrix AC carrying one starred STATE row.
+
+    The default row's coordinates are exactly _matrix()'s only cell, so
+    a restored cool/auto/22/swing lands on the same cell the star does
+    -- the match the ruling requires.
+    """
+    command = IRCommand(
+        id="cmd-preset",
+        name=command_name,
+        source=CommandSource.MATRIX,
+        protocol="PRONTO",
+        code="P-C-A-22-S",
+        sent_state=(
+            {"mode": "cool", "fan": "auto", "swing": "swing", "temp": 22.0}
+            if sent_state is None else (sent_state or None)
+        ),
+    )
+    return _device(
+        DeviceType.AC,
+        climate_matrix=True,
+        commands=[command],
+        entity_config=EntityConfig(starred=list(starred)),
+    )
+
+
+async def _restored_starred_entity(last_state, device=None, matrix=None):
+    mgr = _manager()
+    entity = HAIRClimateEntity(device or _starred_matrix_device(), mgr)
+    entity.async_write_ha_state = MagicMock()
+    entity.hass = MagicMock()
+    entity.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    entity._matrix = matrix if matrix is not None else _matrix()
+    entity.async_get_last_state = AsyncMock(return_value=last_state)
+    entity.async_get_last_extra_data = AsyncMock(return_value=None)
+    await entity._async_restore_state()
+    return entity, mgr
+
+
+def _stored(preset: str | None = PRESET_NAME, **overrides) -> State:
+    attrs = {
+        ATTR_TEMPERATURE: 22.0,
+        ATTR_FAN_MODE: "auto",
+        ATTR_SWING_MODE: "swing",
+    }
+    if preset is not None:
+        attrs[ATTR_PRESET_MODE] = preset
+    attrs.update(overrides)
+    return State("climate.x", HVACMode.COOL, attrs)
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_is_rederived_after_restore():
+    """The device page's current-cell readout went blank after every
+    restart. It was never scoped out -- the readout postdates the 0.9.8
+    restore list and nobody added it when the feature landed."""
+    entity, mgr = await _restored_starred_entity(_stored())
+    assert entity.extra_state_attributes["matrix_cell"] == PRESET_NAME
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_matches_what_the_live_setter_produces():
+    """Re-derived rather than read back, so the two doors cannot drift.
+    Whatever the live send path would name this cell, restore names it
+    the same way -- including the display-unit conversion."""
+    entity, _ = await _restored_starred_entity(_stored())
+    live = entity._cell_display_name(entity._matrix.cells[0])
+    assert entity.extra_state_attributes["matrix_cell"] == live
+
+
+@pytest.mark.asyncio
+async def test_restored_off_names_the_off_cell():
+    """The live async_turn_off writes exactly this, so the readout
+    agrees with itself whichever way the entity got here."""
+    entity, _ = await _restored_starred_entity(
+        State("climate.x", HVACMode.OFF, {})
+    )
+    assert entity.extra_state_attributes["matrix_cell"] == "Off"
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_survives_when_the_triple_resolves_to_its_cell():
+    """The ruling, in its intended case. The restored mode/fan/temp
+    resolve to the same cell the starred command does, so naming it
+    claims nothing the restored state does not already claim."""
+    entity, mgr = await _restored_starred_entity(_stored())
+    assert entity.preset_mode == PRESET_NAME
+    assert entity.hvac_mode == HVACMode.COOL
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_command_was_deleted():
+    device = _device(
+        DeviceType.AC, climate_matrix=True, commands=[],
+        entity_config=EntityConfig(starred=[PRESET_NAME]),
+    )
+    entity, _ = await _restored_starred_entity(_stored(), device=device)
+    assert entity.preset_mode is None
+    assert entity.hvac_mode == HVACMode.COOL  # everything else still restores
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_command_is_no_longer_starred():
+    entity, _ = await _restored_starred_entity(
+        _stored(), device=_starred_matrix_device(starred=())
+    )
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_stored_triple_resolves_elsewhere():
+    """The honesty case the original refusal was protecting. The stored
+    preset names one cell; the restored attributes land on another; the
+    attribute must not claim the first."""
+    matrix = _matrix()
+    matrix.cells.append(
+        ClimateCell(mode="heat", fan="low", temp=28.0, swing="fixed",
+                    pronto="P-H-L-28-F")
+    )
+    stored = State("climate.x", HVACMode.HEAT, {
+        ATTR_TEMPERATURE: 28.0,
+        ATTR_FAN_MODE: "low",
+        ATTR_SWING_MODE: "fixed",
+        ATTR_PRESET_MODE: PRESET_NAME,
+    })
+    entity, _ = await _restored_starred_entity(stored, matrix=matrix)
+    assert entity.hvac_mode == HVACMode.HEAT
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_lattice_changed_under_it():
+    """The starred row still exists and is still starred, but its
+    coordinates no longer resolve in the current matrix -- a re-fit or
+    a re-adopt moved the lattice."""
+    entity, _ = await _restored_starred_entity(
+        _stored(),
+        device=_starred_matrix_device(
+            sent_state={"mode": "dry", "fan": "turbo", "swing": "none",
+                        "temp": 99.0}
+        ),
+    )
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_for_a_row_with_no_coordinates():
+    """A STATE row minted before 0.10.1 item 7 and never matched by the
+    setup backfill carries no coordinates. The live setter refuses to
+    parse display grammar to recover them and so does restore: there is
+    no re-validating a preset whose cell cannot be named."""
+    entity, _ = await _restored_starred_entity(
+        _stored(), device=_starred_matrix_device(sent_state={})
+    )
+    assert entity.preset_mode is None
+    assert entity.extra_state_attributes["matrix_cell"] == PRESET_NAME
+
+
+@pytest.mark.asyncio
+async def test_legacy_stored_state_with_no_preset_attribute():
+    """A state written before this fix carries no preset_mode key at
+    all. Nothing to restore, nothing to raise about."""
+    entity, _ = await _restored_starred_entity(_stored(preset=None))
+    assert entity.preset_mode is None
+    assert entity.hvac_mode == HVACMode.COOL
+
+
+@pytest.mark.asyncio
+async def test_preset_mode_climate_is_untouched_by_all_of_this():
+    """Non-matrix climate has no cells to match against, so it keeps
+    the original refusal by construction: the whole block is inside the
+    matrix branch."""
+    last = State("climate.x", HVACMode.COOL, {
+        ATTR_TEMPERATURE: 22.0, ATTR_PRESET_MODE: "whatever",
+    })
+    entity, _ = await _restored_entity(
+        HAIRClimateEntity, _preset_climate_device(), last
+    )
+    assert entity.hvac_mode == HVACMode.COOL
+    assert entity.preset_mode is None
