@@ -1,0 +1,42 @@
+{
+ "protocol": "MHI48",
+ "how_to_read": "Each entry names one coordinate of the .defects.json lattice that was deliberately corrupted. Every other coordinate is byte-identical to the clean pack.",
+ "defects": [
+  {
+   "defect": "temperature_off_by_one",
+   "field": "temperature",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": null,
+   "temp": 18,
+   "note": "temperature field forced to 0x0F (map says 0x0E); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "temperature_wrong_column",
+   "field": "temperature",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": null,
+   "temp": 22,
+   "note": "temperature field forced to 0x05 (map says 0x0A); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "mode_swapped",
+   "field": "mode",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": null,
+   "temp": 26,
+   "note": "mode field forced to 0x07 (map says 0x06); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "broken_integrity",
+   "field": null,
+   "mode": "cool",
+   "fan": "auto",
+   "swing": null,
+   "temp": 30,
+   "note": "complement_pairs target frame 0 byte 1 xor 0x55, left unrepaired"
+  }
+ ]
+}
