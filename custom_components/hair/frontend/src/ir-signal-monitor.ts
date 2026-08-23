@@ -2206,26 +2206,32 @@ export class IrSignalMonitor extends LitElement {
             gap: 8px;
             flex-wrap: wrap;
         }
-        /* Mobile layout fix.
+        /* Mobile layout.
            On narrow viewports the diamond pattern inside .signal-info
            wraps internally into a tall column, and flex/align-center
            floats the action buttons (Assign / Test / Trigger / Delete)
            into the vertical middle of the row with huge whitespace
-           above and below. Switching to a 2-row grid keeps the
-           diamonds + meta on the first row and stacks the action
-           buttons below in their own band. Mirrors the bounded row
-           height that the device-detail command rows already get via
-           their fixed-column grid on every viewport. */
+           above and below. Giving .signal-actions a full flex line of
+           its own settles them into their own band underneath, which is
+           what that whitespace needed.
+
+           This was a 2-column grid until 2026-08-22, and the grid is
+           what put a wide empty gap next to the drag handle: auto-
+           placement dropped the tiny grip into the 1fr column and pushed
+           the real content (alias or diamonds) into the narrow auto
+           column beside it. Only .signal-actions carried an explicit
+           placement, so it was the one thing that landed where intended.
+           flex-basis fixes the button band the grid was added for
+           without rearranging everything above it.
+
+           Right-aligned by owner ruling 2026-08-23: the button line then
+           ends on exactly the same x as the chip / frequency line above
+           it, so the two share a right edge instead of the buttons
+           hanging under the drag handle. */
         @media (max-width: 768px) {
-            .signal-row {
-                display: grid;
-                grid-template-columns: 1fr auto;
-                align-items: start;
-                gap: 6px 8px;
-            }
             .signal-actions {
-                grid-column: 1 / -1;
-                justify-content: flex-start;
+                flex-basis: 100%;
+                justify-content: flex-end;
                 flex-wrap: wrap;
             }
         }
