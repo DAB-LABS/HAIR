@@ -1,0 +1,203 @@
+schema_version: "0.2"
+protocol_id: MHI152
+aliases:
+  - "Mitsubishi Heavy Industries 152-bit / 19-byte single frame, prefix 52 AE C3 1A E5"
+  - "SRK / DXK / SRC series"
+  - "the family the round-three brief promoted, and the largest Mitsubishi Heavy cluster"
+status: draft
+
+frame:
+  total_bits: 152
+  frames_per_command: 1
+  frame_layout: [152]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3143, 1556]
+  bit0_us: {mark: 397, space: 397}
+  bit1_us: {mark: 427, space: 1160}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  identity_bytes: [[0, 0, 0x52], [0, 1, 0xAE], [0, 2, 0xC3], [0, 3, 0x1A], [0, 4, 0xE5]]
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 397, min: 171, max: 998}
+    space_zero_us:   {nominal: 397, min: 165, max: 689}
+    space_one_us:    {nominal: 1160, min: 690, max: 1860}
+    header_mark_us:  {nominal: 3143, min: 2002, max: 5437}
+    header_space_us: {nominal: 1556, min: 970, max: 2624}
+    frame_gap_us:    {min: 2000}
+
+integrity:
+  - type: complement_pairs
+    description: >
+      Bytes 5 to 18 are seven payload/complement pairs: byte[2i+1] == (~byte[2i]) & 0xFF
+      for i = 2..8. Bytes 0 to 4 are the constant family prefix and are not paired.
+    params: {frame: 0, start: 5, count: 7}
+    verified_on: "31591/31591 pair checks across 9 files (every file 100%)"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 7
+    bits: low_nibble
+    encoding: "32 - T."
+    encoding_ref:
+      name: offset_linear
+      params: {scale: -1, offset: 32, round: floor}
+    confidence: ratified
+    domain: "T in 17..32 C; the corpus files declare 18..30"
+    vocabulary: {}
+    agreement:
+      pass: 3540
+      checked: 3542
+      rate: "99.94%"
+      files_at_100: "7/9"
+      disagreeing_files:
+        - "1123.json (badged Mitsubishi Electric, model SRK25ZSX): 1 cool cell at 25 C"
+        - "1691.json (SRK71ZRA-W): 1 dry cell at 18 C"
+
+  - name: mode
+    frame: 0
+    byte: 5
+    bits: "mask:0x07"
+    encoding: "3-bit enum in the low bits of the first payload byte."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {heat: 0x3, fan_only: 0x4, dry: 0x5, cool: 0x6, heat_cool: 0x7, auto: 0x7}
+    confidence: ratified
+    vocabulary: {heat: 0x3, fan_only: 0x4, dry: 0x5, cool: 0x6, heat_cool: 0x7, auto: 0x7}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: varies, fan: forced}
+      heat_cool: {temp: varies, fan: free}
+      auto: {temp: varies, fan: free}
+      fan_only: {temp: invariant, fan: free}
+    agreement:
+      pass: 4504
+      checked: 4504
+      rate: "100.00%"
+      files_at_100: "9/9"
+      disagreeing_files: []
+    vocabulary_notes:
+      - "The same three values (heat 3, dry 5, cool 6) appear in MHI48, the 48-bit
+         family at a completely different frame length and timing alphabet. Two
+         Mitsubishi Heavy protocols sharing a mode enumeration is a reasonable reason
+         to treat them as one vendor's two frame formats."
+
+  - name: fan_speed
+    frame: 0
+    byte: 9
+    bits: "mask:0x07"
+    encoding: >
+      A 3-bit LADDER, not a free enum: 7 is auto and 6, 5, 4, 3 run slowest to
+      fastest. Which LABEL sits on which rung differs between remotes.
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x7, ultralow: 0x6, level1: 0x6, low: 0x6, level2: 0x5,
+                     mid: 0x5, level3: 0x4, medium: 0x4, high: 0x4, level4: 0x3,
+                     highest: 0x3}
+    applies_when:
+      not_in: {mode: [dry]}
+    confidence: unratified
+    vocabulary: {auto: 0x7, ultralow: 0x6, level1: 0x6, low: 0x6, level2: 0x5, mid: 0x5,
+                 level3: 0x4, medium: 0x4, high: 0x4, level4: 0x3, highest: 0x3}
+    vocabulary_notes:
+      - "Two naming schemes are present and they genuinely disagree. 1689.json and
+         1683.json place low at 6, mid at 5, high at 4, highest at 3. 1685.json and
+         1691.json place ultralow at 6, low at 5, mid/medium at 4, high at 3. So 'low'
+         is rung 6 in one group and rung 5 in the other, and 'high' is rung 4 in one
+         and rung 3 in the other. The ladder is ratified; the labels are not, and no
+         amount of corpus data settles which remote's legend is right."
+      - "dry mode pins the field to 7 (auto) regardless of the labelled speed."
+    agreement:
+      pass: 3440
+      checked: 3906
+      rate: "88.07% against the majority label mapping, dry excluded as forced"
+      files_at_100: "7/9"
+      disagreeing_files:
+        - "1685.json 103/259 and 1691.json 468/779: the second naming scheme"
+        - "1684.json 27/116: half of this file's cells carry a 64-bit preamble frame and
+           do not follow the family's field layout at all (see notes)"
+
+  - name: swing
+    frame: 0
+    byte: 13
+    bits: full_byte
+    encoding: "Vane/louvre position as a whole byte."
+    encoding_ref:
+      name: enum_byte
+      params:
+        vocabulary: {off: 0x7D, low: 0x7F, high: 0xDF, center: 0xBC, 3dauto: 0xBC,
+                     "left-swing": 0xFA, "right-swing": 0xFE, both: 0xFF, swing: 0xFF}
+    confidence: unratified
+    vocabulary: {off: 0x7D, low: 0x7F, high: 0xDF, center: 0xBC, 3dauto: 0xBC,
+                 "left-swing": 0xFA, "right-swing": 0xFE, both: 0xFF, swing: 0xFF}
+    agreement:
+      pass: 2193
+      checked: 2336
+      rate: "93.88%"
+      files_at_100: "1/2"
+      disagreeing_files:
+        - "1691.json 831/974: '3dauto' splits between 0xBC and 0xD8"
+        - "1683.json (litinoveweedle copy) 1557/1635: 'off' splits between 0x7D and 0x37"
+    vocabulary_notes:
+      - "Only two files declare a swing dimension and neither is internally consistent,
+         so byte 13 is carrying something else alongside the vane position."
+
+  - name: power
+    frame: 0
+    byte: 5
+    bits: "bit:3"
+    encoding: "1 = the command switches the unit off; 0 = a normal state command."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: ["off"]}
+    confidence: ratified
+    vocabulary: {on: 0x0, off: 0x1}
+    agreement:
+      pass: 4503
+      checked: 4504
+      rate: "99.98%"
+      files_at_100: "8/9"
+      disagreeing_files:
+        - "1684.json: the 60 preamble-carrying cells have the bit set"
+        - "1691.json: 1 state cell of 974 has the bit set"
+
+synthesis:
+  template: [[0x52, 0xAE, 0xC3, 0x1A, 0xE5, 0xF6, 0x09, 0xF2, 0x0D, 0xFB, 0x04,
+              0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x7F, 0x80]]
+  fixture_coordinates:
+    mode: [cool, heat, dry, fan_only]
+    fan: [auto, low, mid, high]
+    temp: [18, 22, 25, 28, 30]
+
+derivation:
+  files_used:
+    - {repo: smartHomeHub, file: "1123, 1683, 1684, 1685, 1686, 1689, 1691", manufacturer: "Mitsubishi Heavy (1123 is badged Mitsubishi Electric but its model, SRK25ZSX, is an MHI part number)", models: ["SRK", "DXK", "SRC series"]}
+    - {repo: litinoveweedle, file: "1683, 1689", manufacturer: Mitsubishi Heavy, models: [DXK12ZMA-S, DXK12ZSA-W]}
+  external_sources:
+    - "None. Corpus-derived only."
+  open_questions:
+    - "Bytes 11, 15 and 17 move with mode and swing in ways this pass did not separate."
+    - "1684.json (DXK24ZRA) sends two different message shapes: 57 cells are a plain
+       152-bit frame and 60 prepend a 64-bit frame. The prefixed ones do not follow the
+       field layout. Whether that is a timer or a sensor-report message is not derived."
+    - "The fan label ladder cannot be settled from the corpus. It needs a physical remote."
+  notes:
+    - "The census family at this frame signature (25 rows / 13 distinct files) holds
+       THREE protocols, not one. 8 distinct files carry the 52 AE C3 1A E5 prefix and
+       are this map. 4 are Daikin (prefix 11 DA 27) and belong with the Daikin family.
+       1 is Sanyo (prefix 40 00 14 80) and is neither. Splitting them is what turns a
+       muddy family into a 100.00% integrity rule and a 100.00% mode field."
+    - "This map exists because HAIR's frame-consistency check has consumers waiting on a
+       Mitsubishi Heavy frame spec. Note, honestly, that the timing hazard described in
+       the round-three brief (a one at ~3600us against a frame gap of only ~7600us) is
+       NOT this family's: MHI152 encodes a one as a ~1160us space and is easy to split.
+       The hazard belongs to MHI48 and MHI160, which are mapped alongside this one for
+       exactly that reason."

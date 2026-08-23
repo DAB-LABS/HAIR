@@ -1,0 +1,198 @@
+schema_version: "0.2"
+protocol_id: OEM112
+aliases:
+  - "112-bit / 14-byte single frame, prefix 23 CB 26 01"
+  - Hitachi, Sintech, Akai, Beko, Erisson, Hualing, Simbio, Dimplex, DeLonghi, Yamatsu,
+    Galanz, Bora, Black + Decker, Mitsubishi Electric
+status: draft
+
+frame:
+  total_bits: 112
+  frames_per_command: 1
+  frame_layout: [112]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3448, 1648]
+  bit0_us: {mark: 488, space: 397}
+  bit1_us: {mark: 488, space: 1221}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  identity_bytes: [[0, 0, 0x23], [0, 1, 0xCB], [0, 2, 0x26], [0, 3, 0x01]]
+  timing:
+    classify: space
+    unit_mark_us:    {nominal: 488, min: 171, max: 1312}
+    space_zero_us:   {nominal: 397, min: 149, max: 760}
+    space_one_us:    {nominal: 1221, min: 761, max: 1872}
+    header_mark_us:  {nominal: 3448, min: 1942, max: 5718}
+    header_space_us: {nominal: 1648, min: 970, max: 2718}
+    frame_gap_us:    {min: 2013}
+
+integrity:
+  - type: checksum_sum
+    description: "Byte 13 is the sum of bytes 0..12, mod 256."
+    params: {frame: 0, range: [0, 12], target_byte: 13, mod: 256, offset: 0}
+    verified_on: "5903/5906 cells across 19 files (99.95%); 16 files at 100%"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 7
+    bits: low_nibble
+    encoding: "31 - T."
+    encoding_ref:
+      name: offset_linear
+      params: {scale: -1, offset: 31, round: floor}
+    confidence: provisional
+    domain: "T in 16..31 C"
+    vocabulary: {}
+    agreement:
+      pass: 2644
+      checked: 2949
+      rate: "89.66%"
+      files_at_100: "6/18"
+      disagreeing_files:
+        - "2060.json (Dimplex, both forks) 60/128: the heat column is shifted several
+           degrees, the cool column by one at the low end"
+        - "1126.json (Mitsubishi Electric) 111/128: the fan_only column is frozen"
+        - "1860.json (Simbio) 108/126, 2520.json (Galanz, both forks) 114/128,
+           5140.json (Mitsubishi Electric) 870/896: one-degree shifts over part of the
+           range, the shop's case-two shape"
+        - "1085.json (Hitachi) 31/37, 1420.json (Sintech) 124/128, 2243.json (DeLonghi)
+           124/128, 1441.json 127/128, 1840.json 123/124, 2880.json 103/104: isolated
+           single cells"
+
+  - name: mode
+    frame: 0
+    byte: 6
+    bits: low_nibble
+    encoding: "4-bit enum at byte 6."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {heat: 0x1, dry: 0x2, cool: 0x3, fan: 0x7, fan_only: 0x7,
+                     heat_cool: 0x8, auto: 0x8, feel: 0x8}
+    confidence: ratified
+    vocabulary: {heat: 0x1, dry: 0x2, cool: 0x3, fan: 0x7, fan_only: 0x7,
+                 heat_cool: 0x8, auto: 0x8, feel: 0x8}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: invariant, fan: forced}
+      fan: {temp: invariant, fan: free}
+      fan_only: {temp: file_dependent, fan: free}
+      heat_cool: {temp: invariant, fan: free}
+      auto: {temp: invariant, fan: free}
+      feel: {temp: invariant, fan: free}
+    agreement:
+      pass: 5842
+      checked: 5887
+      rate: "99.24%"
+      files_at_100: "18/19"
+      disagreeing_files:
+        - "1126.json (Mitsubishi Electric): 45 fan_only cells read 0x3 (cool)"
+        - "1840.json (Hualing), 5140.json (Mitsubishi Electric): one cell each"
+
+  - name: fan_speed
+    frame: 0
+    byte: 8
+    bits: "mask:0x07"
+    encoding: "3-bit enum at byte 8 bits 0-2."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, low: 0x2, level1: 0x2, mid: 0x3, medium: 0x3,
+                     level2: 0x3, high: 0x5, level3: 0x5}
+    applies_when:
+      not_in: {mode: [dry, fan_only, fan, feel, auto, heat_cool]}
+    confidence: provisional
+    vocabulary: {auto: 0x0, low: 0x2, level1: 0x2, mid: 0x3, medium: 0x3, level2: 0x3,
+                 high: 0x5, level3: 0x5}
+    vocabulary_notes:
+      - "dry pins the field to 0 (auto) regardless of the labelled speed, and so do the
+         other temperature-invariant modes in most files."
+    agreement:
+      pass: 2954
+      checked: 3099
+      rate: "95.32% with the forced-fan modes excluded"
+      files_at_100: "15/19"
+      disagreeing_files:
+        - "1085.json (Hitachi) 13/37: low and mid are swapped relative to the rest"
+        - "2060.json (Dimplex, both forks) 100/160: a quarter of the file reads 0"
+        - "1840.json, 5140.json: one or two cells"
+
+  - name: swing
+    frame: 0
+    byte: 8
+    bits: "mask:0x38"
+    encoding: "3-bit vane position at byte 8 bits 3-5."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, off: 0x0, top: 0x1, high: 0x2, mid: 0x3, low: 0x4,
+                     bottom: 0x5, swing: 0x7, on: 0x7}
+    confidence: provisional
+    vocabulary: {auto: 0x0, off: 0x0, top: 0x1, high: 0x2, mid: 0x3, low: 0x4,
+                 bottom: 0x5, swing: 0x7, on: 0x7}
+    agreement:
+      pass: 1327
+      checked: 1327
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+    vocabulary_notes:
+      - "Only 2880.json (Bora) declares a swing dimension in a way the sweep can check,
+         and it agrees exactly. 5140.json and 3400.json also carry swing labels but sit
+         outside the checkable set; a single perfect file is not cross-file ratification."
+
+  - name: power
+    frame: 0
+    byte: 5
+    bits: "bit:2"
+    encoding: "1 = a normal state command, 0 = the off command."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: ["on"]}
+    confidence: ratified
+    vocabulary: {on: 0x1, off: 0x0}
+    agreement:
+      pass: 5874
+      checked: 5887
+      rate: "99.78%"
+      files_at_100: "18/19"
+      disagreeing_files:
+        - "1840.json (1 cell), 5140.json (1 cell), 2880.json (13 cells)"
+
+synthesis:
+  template: [[0x23, 0xCB, 0x26, 0x01, 0x00, 0x24, 0x03, 0x07, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat, dry]
+    fan: [auto, low, mid, high]
+    swing: [auto, top, mid, swing]
+    temp: [16, 20, 24, 28, 31]
+
+derivation:
+  files_used:
+    - {repo: both, file: "19 distinct files carrying the 23 CB 26 01 prefix", manufacturer: "Hitachi, Mitsubishi Electric x3, Sintech, Akai, Beko, Erisson, Hualing, Simbio, Dimplex, DeLonghi, Yamatsu, Galanz, Bora, Black + Decker", models: [many]}
+  external_sources:
+    - "None. Corpus-derived only."
+  open_questions:
+    - "Bytes 9 to 12 are constant in every file and are not derived."
+    - "The temperature field is the weakest thing in this map at 89.66%. Every miss is a
+       shifted or frozen COLUMN in a named file rather than scatter, which is what the
+       library is for, but it does mean this field will produce a lot of findings on
+       import and the first few should be read as real defects rather than map error."
+  notes:
+    - "Round two's report asked for this family to be treated as its own OEM family
+       rather than as a Mitsubishi variant, because only 5 of its 31 rows are badged
+       Mitsubishi. That instruction is followed here, and the derivation adds a reason
+       it was the right call in one direction and the wrong one in another: the frame
+       prefix 23 CB 26 01 is EXACTLY the prefix MITSUBISHI144 carries, and 23 CB 26 02
+       is TCL112's. Three families in this directory share the first three bytes. So
+       the manufacturer badge is not the family (round two was right) but neither is the
+       badge irrelevant: these are one chipset vendor's frames at three lengths."
+    - "1 file was split off: 2260.json (Profio) carries the prefix 4C 34 6A and is a
+       different protocol sharing the frame signature."

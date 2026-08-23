@@ -1,0 +1,127 @@
+schema_version: "0.2"
+protocol_id: MHI48
+aliases:
+  - "Mitsubishi Heavy Industries 48-bit / 6-byte single frame"
+  - "SRKM25H, SRK40HBE, RKS502A502, RKS502A503"
+  - "one of the two families whose timing alphabet defeats a heuristic splitter"
+status: draft
+
+frame:
+  total_bits: 48
+  frames_per_command: 1
+  frame_layout: [48]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [5829, 7629]
+  bit0_us: {mark: 549, space: 1556}
+  bit1_us: {mark: 549, space: 3601}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  identity_bytes: [[0, 4, 0x2A], [0, 5, 0xD5]]
+  timing:                      # THIS is the block the frame-consistency check needs
+    classify: space
+    unit_mark_us:    {nominal: 549, min: 228, max: 1248}
+    space_zero_us:   {nominal: 1556, min: 833, max: 2415}
+    space_one_us:    {nominal: 3601, min: 2416, max: 4882}
+    header_mark_us:  {nominal: 5829, min: 3825, max: 9046}
+    header_space_us: {nominal: 7629, min: 5017, max: 11854}
+    frame_gap_us:    {min: 5250}
+
+integrity:
+  - type: complement_pairs
+    description: "Three payload/complement pairs: bytes 0/1, 2/3, 4/5."
+    params: {frame: 0, start: 0, count: 3}
+    verified_on: "471/471 pair checks across the one distinct file (100%)"
+    confidence: provisional
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 2
+    bits: high_nibble
+    encoding: "32 - T, the same formula MHI152 uses one byte over."
+    encoding_ref:
+      name: offset_linear
+      params: {scale: -1, offset: 32, round: floor}
+    confidence: provisional
+    domain: "T in 18..30 C as declared by the file"
+    vocabulary: {}
+    agreement:
+      pass: 156
+      checked: 156
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: mode
+    frame: 0
+    byte: 2
+    bits: "mask:0x07"
+    encoding: "3-bit enum, the same values MHI152 uses."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {heat: 0x3, dry: 0x5, cool: 0x6}}
+    confidence: provisional
+    vocabulary: {heat: 0x3, dry: 0x5, cool: 0x6}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: varies, fan: free}
+    agreement:
+      pass: 156
+      checked: 156
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+  - name: fan_speed
+    frame: 0
+    byte: 0
+    bits: "mask:0x60"
+    encoding: "2-bit enum at byte 0 bits 5-6."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {low: 0x0, med: 0x1, high: 0x2, auto: 0x3}}
+    confidence: provisional
+    vocabulary: {low: 0x0, med: 0x1, high: 0x2, auto: 0x3}
+    agreement:
+      pass: 156
+      checked: 156
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+synthesis:
+  template: [[0x8F, 0x70, 0xE6, 0x19, 0x2A, 0xD5]]
+  fixture_coordinates:
+    mode: [cool, heat, dry]
+    fan: [auto, low, med, high]
+    temp: [18, 22, 26, 30]
+
+derivation:
+  files_used:
+    - {repo: both, file: 1682.json, manufacturer: Mitsubishi Heavy, models: ["SRKM25H", "SRK40HBE", "RKS502A502", "RKS502A503"]}
+  external_sources:
+    - "None. Corpus-derived only."
+  open_questions:
+    - "One distinct file. Every rate above is 100% across 471 integrity checks and 156
+       field checks, which is encouraging and is NOT cross-vendor ratification. Nothing
+       here should be called ratified until a second capture of this frame shape arrives."
+    - "Swing and power are not derived: the file declares no swing dimension, and its
+       off code differs from a state code in bytes 0, 2 and 4 at once."
+  notes:
+    - "THIS is the family the round-three brief describes. A one is a 3601us space and
+       the frame-closing gap is 7629us, a ratio of 2.1. Round two's heuristic threshold
+       (2.5x the 80th percentile of the spaces) lands at about 8800us and never sees the
+       gap; a fixed 3500us floor lands below the one-bit and shatters the frame into
+       two dozen fragments. Neither is recoverable by tuning a constant, which is the
+       whole argument for stating the alphabet in the map."
+    - "The window the map states puts the boundary at 5250us: 1.46x the long bit and
+       0.69x the gap. That is the widest margin available and it is stated rather than
+       inferred, so an engine gets the same answer on every capture."
+    - "Mode values and the temperature formula match MHI152 exactly, at a completely
+       different frame length and timing alphabet. That is corroboration in both
+       directions: two independent frame formats from one vendor agreeing on the field
+       semantics is stronger evidence than either file alone."

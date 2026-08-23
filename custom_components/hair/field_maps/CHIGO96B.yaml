@@ -1,0 +1,126 @@
+schema_version: "0.1"
+protocol_id: CHIGO96B
+aliases:
+  - "ZH/TT-14 class"
+  - "Tornado Inverter VRF BOX"
+  - "96-bit Chigo-family layout WITHOUT complement pairs -- not ZHLT01"
+status: draft
+
+frame:
+  total_bits: 96
+  frames_per_command: 1
+  frame_layout: [96]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: msb_first
+  header_us: [6073, 7385]
+  bit0_us: {mark: 549, space: 519}
+  bit1_us: {mark: 549, space: 1617}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 580, min: 228, max: 1248}
+    space_zero_us:   {nominal: 549, min: 266, max: 996}
+    space_one_us:    {nominal: 1587, min: 997, max: 2197}
+    header_mark_us:  {nominal: 6104, min: 4005, max: 9469}
+    header_space_us: {nominal: 7355, min: 4855, max: 11390}
+    frame_gap_us:    {min: 2363}
+  identity_bytes: [[0, 3, 0x04], [0, 10, 0xA5]]
+
+integrity: []
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 9
+    bits: high_nibble
+    encoding: "reverse_bits4(T - 16)."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {16: 0x0, 17: 0x8, 18: 0x4, 19: 0xC, 20: 0x2, 21: 0xA, 22: 0x6,
+                     23: 0xE, 24: 0x1, 25: 0x9, 26: 0x5, 27: 0xD, 28: 0x3, 29: 0xB,
+                     30: 0x7, 31: 0xF}
+    applies_when:
+      not_in: {mode: [dry, fan_only]}
+    confidence: ratified
+    domain: "T in 16..31 C"
+    vocabulary: {}
+    agreement:
+      pass: 218
+      checked: 218
+      rate: "100.00%"
+      files_at_100: "2/2"
+      disagreeing_files: []
+
+  - name: mode
+    frame: 0
+    byte: 9
+    bits: "mask:0x07"
+    encoding: "3-bit enum in the low bits of byte 9."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {heat: 0x1, dry: 0x2, cool: 0x4, fan_only: 0x6}}
+    confidence: ratified
+    vocabulary: {heat: 0x1, dry: 0x2, cool: 0x4, fan_only: 0x6}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: invariant, fan: free}
+      fan_only: {temp: invariant, fan: free}
+    agreement:
+      pass: 311
+      checked: 311
+      rate: "100.00%"
+      files_at_100: "2/2"
+      disagreeing_files: []
+
+  - name: fan_speed
+    frame: 0
+    byte: 7
+    bits: "mask:0x06"
+    encoding: "2-bit enum at byte 7 bits 1-2."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {auto: 0x0, medium: 0x1, mid: 0x1, high: 0x2, low: 0x3}}
+    confidence: ratified
+    vocabulary: {auto: 0x0, medium: 0x1, mid: 0x1, high: 0x2, low: 0x3}
+    agreement:
+      pass: 311
+      checked: 311
+      rate: "100.00%"
+      files_at_100: "2/2"
+      disagreeing_files: []
+
+synthesis:
+  template: [[0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x58, 0x01, 0x00, 0xA5, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat, dry]
+    fan: [auto, low, medium, high]
+    temp: [16, 20, 24, 28, 31]
+
+derivation:
+  files_used:
+    - {repo: smartHomeHub, file: 1582.json, manufacturer: Chigo, models: ["ZH/TT-14"]}
+    - {repo: smartHomeHub, file: 1625.json, manufacturer: Tornado, models: ["Inverter VRF BOX"]}
+  external_sources: []
+  open_questions:
+    - "Byte 11 is checksum-shaped but a plain sum of the preceding bytes does not
+       reproduce it under any offset. Not derived; the family is only two files wide,
+       which is too little to brute-force safely."
+    - "Power: the off command differs from a state command at byte 7 (0x1E and 0x12
+       versus 0x58 and 0x56) and at byte 9. Not reduced to a single bit on two files."
+    - "Two files is a thin family. Every rate above is 100% across 529 cells, which is
+       encouraging but is not the same as cross-vendor ratification."
+  notes:
+    - "This map exists because the first pass flagged these two files as 'resisting
+       decode' inside the ZHLT01 family: complement checks at 0%, temperature reading a
+       near-constant nibble. They were not resisting. They are a different protocol that
+       happens to share the 96-bit / 6100-7400us frame signature: no complement pairs,
+       temperature at byte 9's high nibble as reverse_bits4(T - 16) rather than at byte
+       8's as reverse_bits4(31 - T), and mode in the same byte's low bits."
+    - "This is the round-two pass's clearest illustration of the split-do-not-average
+       rule: averaged into ZHLT01 these two files drag every field's agreement down and
+       look like bad data; split out they are a clean 100%."

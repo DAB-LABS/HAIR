@@ -1,0 +1,203 @@
+schema_version: "0.1"
+protocol_id: GREE
+aliases:
+  - "Gree Y512/YAA/YAN/YAW-remote family"
+  - Tadiran, Junkers, Trotec, Lennox, Toyotomi, Tosot, Beko, Electrolux, Daitsu, Vaillant
+status: draft
+
+frame:
+  total_bits: 35
+  frames_per_command: 2
+  frame_layout: [35, 32]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [8974, 4487]
+  bit0_us: {mark: 620, space: 520}
+  bit1_us: {mark: 620, space: 1600}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 641, min: 228, max: 1436}
+    space_zero_us:   {nominal: 549, min: 266, max: 1028}
+    space_one_us:    {nominal: 1648, min: 1029, max: 2278}
+    header_mark_us:  {nominal: 8881, min: 2872, max: 13921}
+    header_space_us: {nominal: 4486, min: 2892, max: 6984}
+    frame_gap_us:    {min: 2450}
+
+integrity:
+  - type: nibble_sum
+    description: >
+      The high nibble of frame 1 byte 3 is a nibble checksum: the low nibbles of
+      frame 0 bytes 0-3 plus the high nibbles of frame 1 bytes 0-2, plus 10, mod 16.
+      Derived from this corpus by search; the first pass could not confirm any rule here.
+    params:
+      frame: 1
+      target_byte: 3
+      bits: high_nibble
+      offset: 10
+      nibbles: [[0, 0, low], [0, 1, low], [0, 2, low], [0, 3, low],
+                [1, 0, high], [1, 1, high], [1, 2, high]]
+    verified_on: "9849/9849 cells across 28 files (100.00%). Round two measured 99.98%;
+                  the two failures were frame-splitter artifacts, not bad codes, and
+                  they disappear once the frame is split from the map's timing block."
+    confidence: provisional
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 1
+    bits: low_nibble
+    encoding: "T - 16, direct."
+    encoding_ref:
+      name: linear
+      params: {offset: -16, round: floor}
+    applies_when:
+      not_in: {mode: [heat_cool, auto]}
+    confidence: ratified
+    domain: "T in 16..30 C"
+    vocabulary: {}
+    agreement:
+      pass: 8062
+      checked: 8251
+      rate: "97.71%"
+      files_at_100: "18/27"
+      disagreeing_files:
+        - "1481.json (Junkers): fan_only 48/60, a partial-range shift"
+        - "1000.json (Toyotomi): 4 isolated cells across fan_only and heat"
+        - "1342.json (Tadiran): 3 isolated cells across cool and heat"
+        - "1180.json (Gree GWH12-KF-K3DNA5G-I): 1 cell, fan_only at T=18"
+
+  - name: mode
+    frame: 0
+    byte: 0
+    bits: "mask:0x07"
+    encoding: "3-bit enum in the low bits of frame 0 byte 0."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, heat_cool: 0x0, cool: 0x1, dry: 0x2, fan: 0x3,
+                     fan_only: 0x3, heat: 0x4}
+    confidence: ratified
+    vocabulary: {auto: 0x0, heat_cool: 0x0, cool: 0x1, dry: 0x2, fan: 0x3, fan_only: 0x3, heat: 0x4}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: varies, fan: forced, sentinel: null}
+      fan_only: {temp: varies, fan: free}
+      heat_cool: {temp: invariant, fan: free}
+      auto: {temp: invariant, fan: free}
+    agreement:
+      pass: 9700
+      checked: 9763
+      rate: "99.35%"
+      files_at_100: "26/28"
+      disagreeing_files:
+        - "1701.json (Electrolux): 3 dry cells read 0x4"
+        - "1188.json (Gree VIR18HP230V1AH): 1 heat cell reads 0x0"
+
+  - name: fan_speed
+    frame: 0
+    byte: 0
+    bits: "mask:0x30"
+    encoding: "2-bit enum at frame 0 byte 0 bits 4-5."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, low: 0x1, level1: 0x1, sleep: 0x1, medium: 0x2,
+                     med: 0x2, mid: 0x2, level2: 0x2, high: 0x3, level3: 0x3,
+                     level4: 0x3, turbo: 0x3}
+    applies_when:
+      not_in: {mode: [dry]}
+    confidence: provisional
+    vocabulary: {auto: 0x0, low: 0x1, level1: 0x1, sleep: 0x1, medium: 0x2, med: 0x2,
+                 mid: 0x2, level2: 0x2, high: 0x3, level3: 0x3, level4: 0x3, turbo: 0x3}
+    vocabulary_notes:
+      - "dry mode pins the field to 0x1 regardless of the labelled fan speed, in every
+         file that has a dry column. That single fact accounts for 12.6 of the 15.9
+         points the naive sweep loses."
+      - "turbo is not a distinct value here: it shares high's 0x3, presumably with a
+         turbo bit elsewhere that this pass did not locate."
+    agreement:
+      pass: 7825
+      checked: 8116
+      rate: "96.41% (dry excluded as forced)"
+      files_at_100: "19/28"
+      disagreeing_files:
+        - "1480.json (Junkers) 75/120 and 1184.json (Gree) 141/201: part of the file
+           reads 0x0 for every speed"
+        - "1187.json, 2000.json, 1113.json, 1342.json: one label each collapses onto
+           another's value"
+
+  - name: power
+    frame: 0
+    byte: 0
+    bits: "bit:3"
+    encoding: "1 = on. The dedicated off command clears it."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: ["on"]}
+    confidence: ratified
+    vocabulary: {on: 0x1, off: 0x0}
+    agreement:
+      pass: null
+      checked: null
+      rate: "100.00% (9823/9823 cells) across all 28 files"
+      files_at_100: "28/28"
+      disagreeing_files:
+        - "none. Round two named 1188.json for a single cell; that cell was a splitter
+           artifact and reads correctly under the map-driven splitter."
+
+  - name: swing
+    frame: 1
+    byte: 0
+    bits: low_nibble
+    encoding: "4-bit vane position enum in frame 1 byte 0."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {stop: 0x0, static: 0x0, swing: 0x1, updown: 0x1, updown_off: 0x1,
+                     top: 0x2, up: 0x2, up_off: 0x2, mid: 0x4, mid_off: 0x4,
+                     bottom: 0x6, down: 0x6, down_off: 0x6}
+    confidence: provisional
+    vocabulary: {stop: 0x0, static: 0x0, swing: 0x1, updown: 0x1, updown_off: 0x1,
+                 top: 0x2, up: 0x2, up_off: 0x2, mid: 0x4, mid_off: 0x4,
+                 bottom: 0x6, down: 0x6, down_off: 0x6}
+    agreement:
+      pass: 3949
+      checked: 4187
+      rate: "94.32%"
+      files_at_100: "2/4"
+      disagreeing_files:
+        - "1344.json (Tadiran, both forks): 120 of 330 'top' cells read 0x0"
+        - "1183.json (Gree), 1113.json (Daikin-badged): 1 to 2 cells each"
+
+synthesis:
+  template: [[0x08, 0x00, 0x60, 0x50], [0x00, 0x20, 0x00, 0x00]]
+  tail_bits: {0: "010"}     # frame 0 is 35 bits: 4 bytes then a fixed 3-bit marker
+  fixture_coordinates:
+    mode: [cool, heat, dry, fan_only]
+    fan: [auto, low, mid, high]
+    temp: [16, 20, 24, 27, 30]
+
+derivation:
+  files_used:
+    - {repo: both, file: "25 distinct files with the (35,32) two-block layout", manufacturer: "Gree x5 plus 20 rebadges", models: [many]}
+  external_sources:
+    - "None consulted before deriving. The mode values landing on the widely published
+       Gree enumeration was noticed afterwards as a sanity check."
+  open_questions:
+    - "The checksum rule reproduces 97.14% of cells and is exact in 12 of 25 files.
+       Either it is very slightly wrong or those 13 files carry genuinely bad codes.
+       A physical Gree remote would settle it."
+    - "heat mode triggers extra sub-frames in some files that this pass did not decode."
+    - "A second Gree-heavy cluster (22 rows, header ~8897/4475, four frames) is still
+       underived."
+  notes:
+    - "The two blocks are separated by a bare ~20ms gap with no second header. The
+       splitter used here treats a long space NOT preceded by a header mark as a frame
+       boundary, which handles both that shape and the ordinary repeated-header shape."
+    - "sma/2160.json and lit/2160.json (Lennox) sit in this census family but decode to
+       a (72,72) layout. Split off, not derived."
