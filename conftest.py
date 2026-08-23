@@ -314,6 +314,11 @@ class _FanEntity:
 _stub("homeassistant.components.fan", {
     "FanEntity": _FanEntity,
     "FanEntityFeature": _FanEntityFeature,
+    # Attribute keys, needed since fan.py restores percentage and
+    # oscillating from a stored state (restore completeness,
+    # 2026-08-23). Same strings real HA uses.
+    "ATTR_PERCENTAGE": "percentage",
+    "ATTR_OSCILLATING": "oscillating",
 })
 
 # --- homeassistant.util.percentage ---

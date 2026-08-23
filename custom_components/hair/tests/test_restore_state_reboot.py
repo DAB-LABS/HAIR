@@ -32,6 +32,7 @@ from homeassistant.components.climate import (
     ATTR_TEMPERATURE,
     HVACMode,
 )
+from homeassistant.components.fan import ATTR_OSCILLATING, ATTR_PERCENTAGE
 from homeassistant.components.media_player import MediaPlayerState
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
@@ -554,3 +555,72 @@ async def test_cover_has_no_power_verdict_subscription():
     entity.async_get_last_state = AsyncMock(return_value=None)
     await entity.async_added_to_hass()
     assert not hasattr(entity, "_power_verdict_unsub")
+
+
+# ---------------------------------------------------------------------------
+# fan: percentage and oscillating (restore completeness, 2026-08-23).
+# GH #115's actual report. The 0.9.8 scope was a real decision; it is stale.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("percentage,oscillating", [(60, True), (80, False)])
+async def test_fan_restores_percentage_and_oscillating(percentage, oscillating):
+    """Two distinct values, the way the audit ran it: a result that
+    only holds for one particular value is an artefact, not a fix."""
+    last = State(
+        "fan.x", "on",
+        {ATTR_PERCENTAGE: percentage, ATTR_OSCILLATING: oscillating},
+    )
+    entity, mgr = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.is_on is True
+    assert entity.percentage == percentage
+    assert entity.oscillating is oscillating
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fan_legacy_stored_state_behaves_exactly_as_today():
+    """A state written before this fix carries neither attribute. It
+    must restore is_on and leave the other two at __init__'s defaults,
+    which is precisely what today's code does -- no crash, no guess."""
+    last = State("fan.x", "on", {})
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.is_on is True
+    assert entity.percentage is None
+    assert entity.oscillating is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["not-a-number", None, [], {}])
+async def test_fan_malformed_percentage_falls_back(bad):
+    """A restore block that raises on a stale snapshot takes the whole
+    entity down with it. Anything unconvertible is treated as absent."""
+    last = State("fan.x", "on", {ATTR_PERCENTAGE: bad})
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.percentage is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored,expected", [(-20, 0), (250, 100)])
+async def test_fan_out_of_range_percentage_clamps(stored, expected):
+    """Percentage is a 0..100 contract with HA. A corrupted snapshot
+    self-heals to a legal value rather than resurrecting forever, the
+    same reasoning 098-final-review applied to the climate setpoint."""
+    last = State("fan.x", "on", {ATTR_PERCENTAGE: stored})
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.percentage == expected
+
+
+@pytest.mark.asyncio
+async def test_fan_off_still_carries_its_speed_back():
+    """The power-verdict handler says an "on" verdict restores speed
+    and oscillation for free, because neither is cleared on off. That
+    is only true if a stored OFF state keeps them, so it does."""
+    last = State(
+        "fan.x", "off", {ATTR_PERCENTAGE: 40, ATTR_OSCILLATING: True}
+    )
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.is_on is False
+    assert entity.percentage == 40
+    assert entity.oscillating is True
