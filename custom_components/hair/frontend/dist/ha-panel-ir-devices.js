@@ -2180,7 +2180,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
         `}_renderSkipped(){const e=this._report?.skipped??[];return e.length?V`<div class="skipline">
             <span>${xe("comb.skipped_label")}</span>
             <span class="skipkeys">${e.join(", ")}</span>
-        </div>`:W}_renderCoverage(){const e=this._report?.coverage;if(!e)return W;const t=Object.entries(e.checks).map(([e,t])=>{const i=Object.entries(t.declined).map(([e,t])=>xe(`comb.declined.${e}`,{count:String(t)}));return i.length?V`<div class="coverrow">
+        </div>`:W}_renderCoverage(){const e=this._report?.coverage;if(!e)return W;const t=Object.entries(e.checks).map(([e,t])=>{if(1===Object.keys(t.declined).length&&void 0!==t.declined["protocol-unmapped"])return W;const i=Object.entries(t.declined).map(([e,t])=>xe(`comb.declined.${e}`,{count:String(t)}));return i.length?V`<div class="coverrow">
                     <span class="covercheck">${xe(`comb.class.${e}`)}</span>
                     <span class="coverwhy">${i.join(" · ")}</span>
                 </div>`:W}).filter(e=>e!==W);return V`<div class="coverline">
@@ -2189,7 +2189,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             </div>
             ${t} ${this._renderProtocol(e)}
             ${this._renderFields(e)}
-        </div>`}_renderProtocol(e){const t=e.protocol;if(!t)return W;const i=Object.entries(t.declined||{}).map(([e,t])=>xe(`comb.declined.${e}`,{count:String(t)})),o=Object.entries(t.rejected||{}).map(([e,t])=>xe("comb.protocol_rejected",{protocol:e,count:String(t)}));return V`<div
+        </div>`}_renderProtocol(e){const t=e.protocol;if(!t)return W;const i=t.id?Object.entries(t.declined||{}).map(([e,t])=>xe(`comb.declined.${e}`,{count:String(t)})):[],o=Object.entries(t.rejected||{}).map(([e,t])=>xe("comb.protocol_rejected",{protocol:e,count:String(t)}));return V`<div
             class="coverrow protorow ${t.id?"":"unmapped"}"
         >
             <span class="covercheck">${xe("comb.protocol_label")}</span>

@@ -676,6 +676,16 @@ export class IrCombReport extends LitElement {
         if (!coverage) return nothing;
         const rows = Object.entries(coverage.checks)
             .map(([check, slot]) => {
+                // The two field-tier checks decline every code when no
+                // map covers the protocol, and the protocol line below
+                // already says that in a full sentence. Printing it
+                // three times does not make it three facts.
+                if (
+                    Object.keys(slot.declined).length === 1 &&
+                    slot.declined["protocol-unmapped"] !== undefined
+                ) {
+                    return nothing;
+                }
                 const why = Object.entries(slot.declined).map(
                     ([reason, count]) =>
                         t(`comb.declined.${reason}`, {
@@ -719,10 +729,15 @@ export class IrCombReport extends LitElement {
     private _renderProtocol(coverage: CombCoverage) {
         const protocol = coverage.protocol;
         if (!protocol) return nothing;
-        const why = Object.entries(protocol.declined || {}).map(
-            ([reason, count]) =>
-                t(`comb.declined.${reason}`, { count: String(count) }),
-        );
+        // With no map, every code declines for the one reason the
+        // sentence itself gives, so the tally is repetition. With a
+        // map, it is the useful half: which codes it could not read.
+        const why = protocol.id
+            ? Object.entries(protocol.declined || {}).map(
+                  ([reason, count]) =>
+                      t(`comb.declined.${reason}`, { count: String(count) }),
+              )
+            : [];
         const nearMisses = Object.entries(protocol.rejected || {}).map(
             ([name, count]) =>
                 t("comb.protocol_rejected", {
