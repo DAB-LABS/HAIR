@@ -38,6 +38,7 @@ from homeassistant.core import State
 
 from custom_components.hair.climate import HAIRClimateEntity, _ClimateExtraStoredData
 from custom_components.hair.const import DeviceType
+from custom_components.hair.cover import HAIRCoverEntity
 from custom_components.hair.fan import HAIRFanEntity
 from custom_components.hair.light import HAIRLightEntity
 from custom_components.hair.media_player import HAIRMediaPlayerEntity
@@ -481,3 +482,75 @@ async def test_added_to_hass_restores_before_dispatcher_connects(monkeypatch):
 
     assert calls == ["restore", "dispatcher_connect"]
     assert entity.is_on is True
+
+
+# ---------------------------------------------------------------------------
+# cover: the platform the 0.9.8 scoping rule missed (restore completeness,
+# 2026-08-23). Not "on/off" and not climate, so the rule's sentence read as
+# though it covered the field while nothing actually did.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cover_no_last_state_stays_unknown():
+    """No stored state is the ONLY case that may still read unknown.
+
+    A fresh install has no evidence about the screen and should say so.
+    The bug was that a restart also produced this, which is a different
+    thing wearing the same face.
+    """
+    entity, mgr = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), None
+    )
+    assert entity.is_closed is None
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cover_restores_closed():
+    last = State("cover.x", "closed", {})
+    entity, mgr = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), last
+    )
+    assert entity.is_closed is True
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cover_restores_open():
+    """Both directions, because the audit set closed before restart A
+    and OPEN before restart B and got `unknown` back from both -- which
+    is what proved the attribute was being dropped rather than one
+    particular value being mishandled."""
+    last = State("cover.x", "open", {})
+    entity, _ = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), last
+    )
+    assert entity.is_closed is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["unknown", "unavailable", "opening", "garbage"])
+async def test_cover_unusable_state_stays_unknown(state):
+    """Anything that is not one of this platform's two real states is
+    no evidence, and no evidence stays None rather than guessing a
+    direction."""
+    entity, _ = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), State("cover.x", state, {})
+    )
+    assert entity.is_closed is None
+
+
+@pytest.mark.asyncio
+async def test_cover_has_no_power_verdict_subscription():
+    """Ruled 2026-08-23: cover deliberately does not subscribe, so the
+    asymmetry against the other five platforms is a decision rather
+    than the same oversight repeating. Pinned so a later sweep adding
+    it has to change this test and read the ruling.
+    """
+    entity = HAIRCoverEntity(_device(DeviceType.SCREEN), _manager())
+    entity.async_write_ha_state = MagicMock()
+    entity.hass = MagicMock()
+    entity.async_get_last_state = AsyncMock(return_value=None)
+    await entity.async_added_to_hass()
+    assert not hasattr(entity, "_power_verdict_unsub")

@@ -112,6 +112,12 @@ _stub("homeassistant.const", {
     "STATE_UNKNOWN": "unknown",
     "STATE_ON": "on",
     "STATE_OFF": "off",
+    # Cover's two real states (restore completeness, 2026-08-23). Real
+    # HA has carried both since forever; the stub only ever needed the
+    # on/off pair because no HAIR platform read a cover's state back
+    # until cover.py gained RestoreEntity.
+    "STATE_CLOSED": "closed",
+    "STATE_OPEN": "open",
     "ATTR_UNIT_OF_MEASUREMENT": "unit_of_measurement",
     "__version__": "2026.7.0",
 })
