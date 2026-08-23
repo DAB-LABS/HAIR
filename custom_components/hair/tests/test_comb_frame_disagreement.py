@@ -29,7 +29,9 @@ from pathlib import Path
 
 from custom_components.hair.wig_comb import (
     ADVISORY_CHECKS,
+    CHECK_FIELD_MISMATCH,
     CHECK_FRAME_DISAGREEMENT,
+    CHECK_FRAME_INTEGRITY,
     COMB_VERSION,
     DECLINE_PINNED_TO_RAW,
     DECLINE_SINGLE_FRAME,
@@ -355,14 +357,17 @@ class TestTheDreoFan:
 
 class TestTheKomecoLattice:
     """WigShop PR #19. 1,156 cells, frame shape (1, 97, 1) on every one of
-    them, zero structural variance. Release one must stay completely
-    silent here: the defect in this file is semantic, and release two is
-    what reads fields."""
+    them, zero structural variance. The defect in this file is semantic,
+    so every STRUCTURAL check must stay silent on it -- that was release
+    one's whole claim about this fixture, and release two's field sweep
+    (which does find the 52 shifted cells, pinned in
+    ``test_field_sweep.py``) does not change it."""
 
     def test_no_structural_check_fires(self):
-        report = comb_wig(_load(KOMECO))
-        assert report.suspects == 0
-        assert report.findings == []
+        structural = {
+            finding.check for finding in comb_wig(_load(KOMECO)).findings
+        } - {CHECK_FIELD_MISMATCH, CHECK_FRAME_INTEGRITY}
+        assert structural == set()
 
     def test_its_cells_are_reported_as_unjudged_by_the_repeat_check(self):
         """One frame per cell that is long enough to read, so there is

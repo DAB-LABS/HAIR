@@ -1,0 +1,42 @@
+{
+ "protocol": "TCL112",
+ "how_to_read": "Each entry names one coordinate of the .defects.json lattice that was deliberately corrupted. Every other coordinate is byte-identical to the clean pack.",
+ "defects": [
+  {
+   "defect": "temperature_off_by_one",
+   "field": "temperature",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "static",
+   "temp": 16,
+   "note": "temperature field forced to 0x00 (map says 0x0F); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "temperature_wrong_column",
+   "field": "temperature",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "static",
+   "temp": 20,
+   "note": "temperature field forced to 0x04 (map says 0x0B); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "mode_swapped",
+   "field": "mode",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "static",
+   "temp": 24,
+   "note": "mode field forced to 0x02 (map says 0x03); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "broken_integrity",
+   "field": null,
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "static",
+   "temp": 28,
+   "note": "checksum_sum target frame 1 byte 13 xor 0x55, left unrepaired"
+  }
+ ]
+}

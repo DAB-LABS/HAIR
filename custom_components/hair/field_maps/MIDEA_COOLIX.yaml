@@ -1,0 +1,203 @@
+schema_version: "0.1"
+protocol_id: MIDEA_COOLIX
+aliases:
+  - "Coolix (Midea/Comfee OEM chipset shared across many brands)"
+  - Midea, Carrier, Electrolux, Electra, Actron, Sungold, Springer, Komeco, Bosch, Senville
+status: draft
+
+frame:
+  total_bits: 48
+  frames_per_command: 2      # CORRECTED from the first pass's 3, see notes
+  frame_layout: [48, 48]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: msb_first       # CORRECTED from the first pass's lsb_first, see notes
+  header_us: [4350, 4380]
+  bit0_us: {mark: 550, space: 520}
+  bit1_us: {mark: 550, space: 1590}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 549, min: 214, max: 1561}
+    space_zero_us:   {nominal: 519, min: 199, max: 969}
+    space_one_us:    {nominal: 1617, min: 970, max: 2278}
+    header_mark_us:  {nominal: 4395, min: 2751, max: 7077}
+    header_space_us: {nominal: 4395, min: 2669, max: 6937}
+    frame_gap_us:    {min: 2450}
+  identity_bytes: [[0, 0, 0xB2]]
+
+integrity:
+  - type: complement_pairs
+    description: >
+      All three byte pairs are complements: byte1 == ~byte0, byte3 == ~byte2,
+      byte5 == ~byte4. The payload is therefore 3 bytes, classically written
+      0xB2xxxx, and byte0 is always 0xB2.
+    params: {frame: 0, start: 0, count: 3}
+    verified_on: "31203/31203 pair checks across 48 files (every file 100%)"
+    confidence: ratified
+  - type: frame_repeat
+    description: "Frame 1 is byte-identical to frame 0 on every cell examined."
+    params: {frame: 1, equals: 0}
+    verified_on: "10399/10401 cells across 48 files (99.98%); the two exceptions are in
+                  the recovered Xiaomi file 4380.json"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 4
+    bits: high_nibble
+    encoding: >
+      A lookup table, not arithmetic: a Gray-code-shaped sequence read directly from
+      byte 4's high nibble. 0xE is the no-temperature sentinel used by fan and
+      fan_only.
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {17: 0x0, 18: 0x1, 19: 0x3, 20: 0x2, 21: 0x6, 22: 0x7, 23: 0x5,
+                     24: 0x4, 25: 0xC, 26: 0xD, 27: 0x9, 28: 0x8, 29: 0xA, 30: 0xB}
+    applies_when:
+      not_in: {mode: [fan, fan_only]}
+    confidence: ratified
+    domain: "T in 17..30 C"
+    vocabulary: {}
+    agreement:
+      pass: 7652
+      checked: 7760
+      rate: "98.61%"
+      files_at_100: "32/45"
+      disagreeing_files:
+        - "2740.json (Fisher): auto 14/70 and dry 18/70, both whole columns shifted one
+           degree (a cell labelled T reads the value for T-1)."
+        - "1383.json (Midea): heat_cool 17/56, same one-degree column shift."
+        - "1801.json (Ballu): cool 32/56 and heat 43/56, partial-range shift."
+        - "1360.json, 1160.json, 1164.json, 1391.json, 1704.json, 1944.json, 2020.json,
+           2840.json, 2680.json: one to four isolated single-cell misses each, the
+           off-by-a-few-degrees authoring-slip class."
+
+  - name: mode
+    frame: 0
+    byte: 4
+    bits: "mask:0x0C"
+    encoding: "2-bit enum at byte 4 bits 2-3. This is the field the first pass could not separate."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {cool: 0x0, dry: 0x1, fan: 0x1, fan_only: 0x1, heat_cool: 0x2,
+                     auto: 0x2, heat: 0x3}
+    confidence: ratified
+    vocabulary: {cool: 0x0, dry: 0x1, fan: 0x1, fan_only: 0x1, heat_cool: 0x2, auto: 0x2, heat: 0x3}
+    vocabulary_notes:
+      - "dry and fan_only share the value 0x1 and are told apart ONLY by the temperature
+         nibble: fan_only carries the 0xE sentinel, dry carries a real temperature.
+         A sweep must not treat that collision as a mismatch."
+      - "The first pass reported mode as entangled across byte2 and byte4 and shipped
+         no mode field. The entanglement was byte2 carrying FAN, not mode, plus the
+         fan field being pinned to 0 inside dry/heat_cool/auto."
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: varies, fan: forced}
+      heat_cool: {temp: varies, fan: forced}
+      auto: {temp: varies, fan: forced}
+      fan: {temp: invariant, fan: free, sentinel: 0xE}
+      fan_only: {temp: invariant, fan: free, sentinel: 0xE}
+    agreement:
+      pass: 10214
+      checked: 10353
+      rate: "98.66%"
+      files_at_100: "38/48"
+      disagreeing_files:
+        - "1360.json (Springer): fan_only coded 0x2 (56 cells)"
+        - "2161.json (Rotenso): fan_only coded 0x0 (56 cells)"
+        - "2740.json (Fisher): auto coded 0x1 (60 cells)"
+        - "2801.json (HTW): heat coded 0x0 (14 cells)"
+        - "1660.json, 1941.json, 1943.json, 1388.json, 1385.json, 1391.json: 1 to 14
+           cells each"
+
+  - name: fan_speed
+    frame: 0
+    byte: 2
+    bits: "mask:0xE0"
+    encoding: "3-bit enum at byte 2 bits 5-7."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x5, lowest: 0x5, silent: 0x5, quiet: 0x5, low: 0x4,
+                     level1: 0x4, medium: 0x2, med: 0x2, mid: 0x2, level2: 0x2,
+                     high: 0x1, turbo: 0x1, level3: 0x1, level4: 0x1}
+    applies_when:
+      not_in: {mode: [dry, heat_cool, auto]}
+    confidence: provisional
+    vocabulary: {auto: 0x5, lowest: 0x5, silent: 0x5, quiet: 0x5, low: 0x4, level1: 0x4,
+                 medium: 0x2, med: 0x2, mid: 0x2, level2: 0x2, high: 0x1, turbo: 0x1,
+                 level3: 0x1, level4: 0x1}
+    vocabulary_notes:
+      - "The field is pinned to 0x0 inside dry, heat_cool and auto in 37 of the files
+         that carry those modes, so those coordinates are excluded rather than counted
+         as failures."
+      - "Files that expose 4 named speeds map level1..level4 onto low/mid/high
+         inconsistently; level3 in particular is 0x1 in some files and 0x2 in others."
+    agreement:
+      pass: 6108
+      checked: 6743
+      rate: "90.58% (forced-fan modes excluded)"
+      files_at_100: "32/48"
+      disagreeing_files:
+        - "2801.json (HTW) 0/28, 1360.json (Springer) 27/164, 2740.json (Fisher) 75/210,
+           1386.json (Midea) 56/140: whole-vocabulary disagreements, each file uses a
+           different level->speed assignment"
+        - "1620.json, 1380.json, 1382.json, 1389.json: 'low' reads 0x5 (the auto slot)
+           in part of the file"
+
+  - name: power
+    frame: 0
+    byte: 0
+    bits: full_byte
+    encoding: >
+      Coolix does not carry a power bit. Switching off is a single fixed command,
+      B2 4D 7B 84 E0 1F, byte-identical in all 45 files that ship one.
+    confidence: ratified
+    vocabulary: {}
+    agreement:
+      pass: 45
+      checked: 45
+      rate: "100.00% (whole-frame equality, not a bit test)"
+      files_at_100: "45/45"
+      disagreeing_files: []
+
+synthesis:
+  template: [[0xB2, 0x4D, 0xBF, 0x40, 0xE0, 0x1F], [0xB2, 0x4D, 0xBF, 0x40, 0xE0, 0x1F]]
+  fixture_coordinates:
+    mode: [cool, heat, dry]
+    fan: [auto, low, medium, high]
+    temp: [17, 20, 24, 27, 30]
+
+derivation:
+  files_used:
+    - {repo: both, file: "47 distinct files the map identifies (payload prefix 0xB2)", manufacturer: "Midea and 30-odd rebadges", models: [many]}
+  external_sources:
+    - "The temperature table's Gray-code shape was recognised as resembling the widely
+       published Coolix table AFTER it came out of the corpus, and every entry was then
+       verified against the corpus. No code from any project was read or copied."
+  open_questions:
+    - "byte 2 bits 0-4 and byte 4 bits 0-1 are still unassigned; they are constant in
+       most files and move in a few, which is where sleep/turbo/led/swing most likely live."
+    - "level1..level4 fan vocabularies disagree across files. Either the corpus files
+       label their speeds differently or several remote generations share the frame."
+  notes:
+    - "TWO CORRECTIONS TO THE FIRST PASS, both mechanical rather than interpretive.
+       (a) The frame is transmitted MSB-first: reading it that way gives the payload
+       0xB2 0x7B 0xE0 for the off code directly, and makes temperature a plain high
+       nibble instead of an lsb read plus a reverse_bits4. The two descriptions are
+       arithmetically identical; the msb one is what the wire does.
+       (b) A command is TWO frames, not three. The first pass's frame splitter started
+       a new frame at a long header MARK and then again at the header SPACE two pulses
+       later, which turned each repeat into a 2-pulse fragment plus a body."
+    - "The census family at this frame signature holds 62 distinct files, of which 48
+       are Coolix (payload prefix 0xB2). The other 14 have prefix 0xA1 or 0xA2, no
+       complement structure, a trailing checksum byte and Fahrenheit labels. They are a
+       different protocol and are excluded here rather than averaged in; that exclusion
+       is most of the difference between this map's agreement rates and the first pass's."

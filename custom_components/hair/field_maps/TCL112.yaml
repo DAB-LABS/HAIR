@@ -1,0 +1,194 @@
+schema_version: "0.1"
+protocol_id: TCL112
+aliases:
+  - "TCL Split AC family (GH #16)"
+  - "Cecotec ForceClima class (GH #108) -- same corpus cluster, not a separate protocol"
+  - Daitsu, ROYAL, Pioneer, Hyundai, Best, Agratto, Klasse, HappyTree, Devanti
+status: draft
+
+frame:
+  total_bits: 112
+  frames_per_command: 2
+  frame_layout: [112, 112]
+  payload_frame: 1
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3022, 1582]
+  bit0_us: {mark: 490, space: 340}
+  bit1_us: {mark: 490, space: 1050}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 488, min: 199, max: 1248}
+    space_zero_us:   {nominal: 336, min: 116, max: 646}
+    space_one_us:    {nominal: 1099, min: 647, max: 1860}
+    header_mark_us:  {nominal: 3082, min: 1901, max: 4874}
+    header_space_us: {nominal: 1587, min: 1011, max: 2530}
+    frame_gap_us:    {min: 2000}
+  identity_bytes: [[0, 0, 0x23], [0, 1, 0xCB], [0, 2, 0x26]]
+
+integrity:
+  - type: checksum_sum
+    description: >
+      Frame 1 byte 13 is the sum of frame 1 bytes 0..12, mod 256. The first pass
+      reported no confirmable rule here; a plain sum does reproduce it, once the
+      frame is split correctly and the bytes read lsb-first.
+    params: {frame: 1, range: [0, 12], target_byte: 13, mod: 256, offset: 0}
+    verified_on: "4847/4849 cells across 15 files (99.96%); both failures are in the
+                  recovered Tuya file 1902.json"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 1
+    byte: 7
+    bits: low_nibble
+    encoding: "31 - T, direct."
+    encoding_ref:
+      name: offset_linear
+      params: {scale: -1, offset: 31, round: floor}
+    confidence: ratified
+    domain: "T in 16..31 C"
+    vocabulary: {}
+    agreement:
+      pass: 2416
+      checked: 2631
+      rate: "91.83%"
+      files_at_100: "7/14"
+      disagreeing_files:
+        - "3100.json (Cecotec EnergySilence 12000 AirClima): fan_only 5/80, the column
+           is frozen at one value in a file that declares fan_only as temperature-bearing"
+        - "3060.json (HappyTree) 150/160 and 1900.json (TCL TAC-12CHSD/XA21I) 30/32:
+           isolated single-cell misses in cool and heat"
+        - "7741.json (Family 12WIFI) 371/380 and 2661.json (Hyundai HY6INV) 282/285:
+           small runs in dry, feal and heat"
+
+  - name: mode
+    frame: 1
+    byte: 6
+    bits: "mask:0x07"
+    encoding: "3-bit enum at frame 1 byte 6."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, heat_cool: 0x0, ifeel: 0x0, feal: 0x0, heat: 0x1,
+                     dry: 0x2, cool: 0x3, fan_only: 0x7}
+    confidence: ratified
+    vocabulary: {auto: 0x0, heat_cool: 0x0, ifeel: 0x0, feal: 0x0, heat: 0x1, dry: 0x2,
+                 cool: 0x3, fan_only: 0x7}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: file_dependent, fan: forced}
+      fan_only: {temp: file_dependent, fan: free}
+      auto: {temp: varies, fan: free}
+      ifeel: {temp: varies, fan: free}
+      feal: {temp: varies, fan: free}
+    agreement:
+      pass: 4786
+      checked: 4853
+      rate: "98.62%"
+      files_at_100: "13/15"
+      disagreeing_files:
+        - "2661.json (Hyundai HY6INV): 47 heat cells read 0x0 instead of 0x1"
+
+  - name: fan_speed
+    frame: 1
+    byte: 8
+    bits: "mask:0x07"
+    encoding: "3-bit enum at frame 1 byte 8."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, low: 0x2, level1: 0x2, quiet: 0x2, silent: 0x2,
+                     mid: 0x3, med: 0x3, medium: 0x3, level2: 0x3, level3: 0x3,
+                     high: 0x5, level4: 0x5, level5: 0x5, turbo: 0x5}
+    applies_when:
+      not_in: {mode: [dry]}
+    confidence: provisional
+    vocabulary: {auto: 0x0, low: 0x2, level1: 0x2, quiet: 0x2, silent: 0x2, mid: 0x3,
+                 med: 0x3, medium: 0x3, level2: 0x3, level3: 0x3, high: 0x5,
+                 level4: 0x5, level5: 0x5, turbo: 0x5}
+    vocabulary_notes:
+      - "dry pins the field to 0x2 regardless of the labelled speed."
+      - "turbo shares high's 0x5; the first pass's note that turbo is high plus a bit
+         in byte 6 is consistent with this and was not re-tested."
+    agreement:
+      pass: 3629
+      checked: 3809
+      rate: "95.27% (dry excluded as forced)"
+      files_at_100: "6/14"
+      disagreeing_files:
+        - "3020.json (Klasse): auto and quiet each split between two values"
+        - "1761.json (Daitsu), 3180.json (Devanti), 1762.json (Daitsu), 2920.json (Best),
+           3100.json (Cecotec): 16 to 48 cells each"
+
+  - name: swing
+    frame: 1
+    byte: 8
+    bits: "mask:0x38"
+    encoding: "3-bit enum at frame 1 byte 8 bits 3-5."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {static: 0x0, swing: 0x7}}
+    confidence: provisional
+    vocabulary: {static: 0x0, swing: 0x7}
+    agreement:
+      pass: 255
+      checked: 255
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+    vocabulary_notes:
+      - "Only 3180.json (Devanti WAC-05C-WH) declares a swing dimension, so this is a
+         single-file finding at 100%, not a cross-file ratification."
+
+  - name: power
+    frame: 1
+    byte: 5
+    bits: "bit:2"
+    encoding: "1 = a normal state command, 0 = the off command."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: ["on"]}
+    confidence: ratified
+    vocabulary: {on: 0x1, off: 0x0}
+    agreement:
+      pass: 4834
+      checked: 4853
+      rate: "99.61%"
+      files_at_100: "13/15"
+      disagreeing_files:
+        - "2661.json (Hyundai HY6INV): 18 state cells have the bit clear"
+
+synthesis:
+  template: [[0x23, 0xCB, 0x26, 0x02, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+             [0x23, 0xCB, 0x26, 0x01, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat, dry, fan_only]
+    fan: [auto, low, mid, high]
+    swing: [static, swing]
+    temp: [16, 20, 24, 28, 31]
+
+derivation:
+  files_used:
+    - {repo: smartHomeHub, file: "1661, 1761, 1762, 1900, 1901, 2041, 2661, 2920, 2980, 3020, 3060, 3100, 3180, 7741", manufacturer: "TCL, Daitsu, ROYAL, Pioneer, Hyundai, Best, Agratto, Klasse, HappyTree, Cecotec, Devanti, Family", models: [many]}
+  external_sources:
+    - "None. Corpus-derived only, including the checksum."
+  open_questions:
+    - "The first pass's correction stands: the corpus's only Cecotec file clusters with
+       TCL, not with a 56-bit NEC-shaped frame. HAIR's own GH #108 fixture is still the
+       tie-breaker and was not available to either pass."
+    - "2041.json (Pioneer) declares no temperature dimension at all, which is why the
+       first pass saw zero checkable cells there. It is not a decode failure."
+    - "Frame 0 is a preamble that varies across up to 14 distinct values within a single
+       file (2041.json). It does NOT satisfy frame 1's checksum rule -- an earlier draft
+       of this map asserted that it did and the validator caught it at 49.90%, which is
+       the give-away shape of a rule that holds on exactly half the frames. What frame 0
+       carries beyond the 23 CB 26 signature is not derived."
+  notes:
+    - "The checksum result is the most useful thing in this map for release two: a
+       protocol-identified TCL112 wig can be integrity-checked cell by cell even where
+       no field is readable."

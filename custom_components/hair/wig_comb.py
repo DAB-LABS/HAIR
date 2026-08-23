@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any
 
+from . import field_readers
 from .const import PRONTO_BYTE_HASH_BIN, PRONTO_GAP_THRESHOLD
 from .decoders import split_frames
 from .wig_fitting import normalized_pronto
@@ -67,6 +68,10 @@ MAX_STORED_FINDINGS = 200
 # --- check ids ------------------------------------------------------------
 CHECK_MALFORMED = "malformed"
 CHECK_FRAME_DISAGREEMENT = "frame-disagreement"
+# Release two: what the frame SAYS against what the cell CLAIMS, and
+# whether the frame satisfies its own protocol's structural rules.
+CHECK_FIELD_MISMATCH = "field-mismatch"
+CHECK_FRAME_INTEGRITY = "frame-integrity"
 CHECK_STRAY_BURST = "stray-burst"
 CHECK_FRAME_SHAPE = "frame-shape"
 CHECK_DUPLICATED_NEIGHBOUR = "duplicated-neighbour"
@@ -84,12 +89,21 @@ CHECK_RAMP_DITTOS = "ramp-dittos"
 # it means the capture was not clean.
 SEVERITY_ORDER = (
     CHECK_DUPLICATED_NEIGHBOUR,
-    # A capture whose own repeats disagree ranks second because at least
+    # A cell whose frame says a different temperature than its label is
+    # the Komeco class, and it belongs at the top with the duplicated
+    # neighbour for the same reason: the device answers, the UI looks
+    # right, and the room sits a degree off.
+    CHECK_FIELD_MISMATCH,
+    # A capture whose own repeats disagree ranks next because at least
     # one of those frames is wrong and nothing in the file says which. A
     # receiver that acts on the first frame it likes can act on the bad
     # one, and the person holding the remote never sees why.
     CHECK_FRAME_DISAGREEMENT,
     CHECK_MALFORMED,
+    # A frame that fails its own checksum or complement rule is a frame
+    # most receivers throw away, so it ranks with the malformed rather
+    # than with the wrong.
+    CHECK_FRAME_INTEGRITY,
     CHECK_FRAME_SHAPE,
     CHECK_MISSING_CELL,
     CHECK_COORDINATE_COLLISION,
@@ -173,9 +187,21 @@ class Coverage:
     # Keys any check managed to judge. A code nothing could judge is the
     # unverified case the closet has to draw differently.
     seen: set[str] = field(default_factory=set)
+    # Release two: which protocol read this wig, and how much of it the
+    # field tier could actually read. ``id`` is None when no map claims
+    # the codes, which is the "protocol unmapped, 0 of N verified" line
+    # the brief asked for by name.
+    protocol: dict[str, Any] | None = None
+    # Per field name, how many codes the sweep compared and what it
+    # declined. A partial map is legal and useful, and this is where a
+    # reader sees exactly how partial.
+    fields: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def _slot(self, check: str) -> dict[str, Any]:
         return self.checks.setdefault(check, {"checked": 0, "declined": {}})
+
+    def _field_slot(self, name: str) -> dict[str, Any]:
+        return self.fields.setdefault(name, {"checked": 0, "declined": {}})
 
     def judged(self, check: str, key: str | None = None) -> None:
         self._slot(check)["checked"] += 1
@@ -188,8 +214,17 @@ class Coverage:
         declined = self._slot(check)["declined"]
         declined[reason] = declined.get(reason, 0) + count
 
+    def field_judged(self, name: str) -> None:
+        self._field_slot(name)["checked"] += 1
+
+    def field_declined(self, name: str, reason: str, count: int = 1) -> None:
+        if count <= 0:
+            return
+        declined = self._field_slot(name)["declined"]
+        declined[reason] = declined.get(reason, 0) + count
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "codes": self.codes,
             "checked": len(self.seen),
             "checks": {
@@ -200,6 +235,17 @@ class Coverage:
                 for check, slot in self.checks.items()
             },
         }
+        if self.protocol is not None:
+            out["protocol"] = dict(self.protocol)
+        if self.fields:
+            out["fields"] = {
+                name: {
+                    "checked": slot["checked"],
+                    "declined": dict(slot["declined"]),
+                }
+                for name, slot in self.fields.items()
+            }
+        return out
 
 
 @dataclass
@@ -712,6 +758,325 @@ def _repeat_findings(
     return findings
 
 
+# ---------------------------------------------------------------------------
+# The field tier: what the frame SAYS against what the cell CLAIMS
+# ---------------------------------------------------------------------------
+#
+# Release two, and the answer to the WigShop's second case. Every other
+# check in this module is protocol-blind on purpose; this one is the
+# exception that earns itself, because a lattice can be structurally
+# flawless and still send T+1 down one whole column, and no amount of
+# comparing codes to each other sees that.
+#
+# The rules the tier holds itself to, all four load bearing:
+#
+# - Only fields the map marks RATIFIED are checked. Provisional and
+#   unratified fields are coverage. ZHLT01's mode vocabulary is the
+#   worked example: the Komeco lattice follows the minority reading, so
+#   sweeping a provisional vocabulary would bury 52 real findings under
+#   hundreds of false ones.
+# - Temperature invariance is decided per mode AND, where the map says
+#   `file_dependent`, per WIG: if the temperature field moves across
+#   that mode's own cells here, check it; if it is frozen, count the
+#   cells as coverage. Skipping outright misses whole shifted columns;
+#   checking outright invents them.
+# - A coordinate the map cannot express -- a label outside its
+#   vocabulary, a temperature outside its domain -- is coverage. The
+#   sweep never guesses at what a cell "probably" means.
+# - Nothing here transmits, re-encodes or repairs. It reads.
+
+# Which cell coordinate answers which map field.
+_FIELD_COORDINATE = {
+    "temperature": "temp",
+    "mode": "mode",
+    "fan_speed": "fan",
+    "swing": "swing",
+}
+
+_POWER_FIELD = "power"
+
+
+@dataclass(frozen=True)
+class _Code:
+    """One code of a wig, with whatever the file claims about it."""
+
+    key: str
+    pronto: str
+    coordinates: dict[str, Any] = field(default_factory=dict)
+
+
+def _matrix_codes(matrix: ClimateMatrix) -> list[_Code]:
+    codes = [
+        _Code(
+            key=cell_key(cell),
+            pronto=cell.pronto,
+            coordinates={
+                "mode": cell.mode, "fan": cell.fan, "swing": cell.swing,
+                "temp": cell.temp, _POWER_FIELD: "on",
+            },
+        )
+        for cell in matrix.cells
+    ]
+    codes.append(_Code(key="off", pronto=matrix.off,
+                       coordinates={_POWER_FIELD: "off"}))
+    if matrix.on is not None:
+        codes.append(_Code(key="on", pronto=matrix.on,
+                           coordinates={_POWER_FIELD: "on"}))
+    return codes
+
+
+# A family has to CARRY the wig, not merely appear in it. The bench
+# found a 547-code Fujitsu remote in which exactly one code satisfied
+# GREE's bit count and identity bytes -- a coincidence, at that width,
+# is close to inevitable -- and on a first-code-wins rule that one
+# accident named the family for the whole file and then filed findings
+# from it. A real family reads most of its own wig: on the test box the
+# genuine ones sit between half and all of their codes, and the
+# coincidence sat at one in five hundred. Anything under a quarter is
+# treated as noise and the wig reports as unidentified, which is the
+# honest answer and the one that files nothing.
+_FAMILY_SHARE = 0.25
+_FAMILY_MINIMUM = 2
+
+
+def _read_family(
+    codes: list[_Code], coverage: Coverage
+) -> tuple[Any, dict[str, Any]]:
+    """Identify the family by vote, then read every code with its map.
+
+    Two passes, and the first one only votes. Every code is offered to
+    the whole library, the winner is the family most of them claim, and
+    a candidate that cannot clear ``_FAMILY_SHARE`` of the wig is
+    rejected outright rather than promoted by being first.
+
+    The second pass re-reads under the winner via ``prefer``, so a code
+    that could be read two ways is read the way the rest of the wig is.
+    A cell that stops identifying there is declined on its own merits
+    rather than assumed.
+    """
+    maps = field_readers.library()
+    first: dict[str, Any] = {}
+    votes: Counter[str] = Counter()
+    for code in codes:
+        reading = field_readers.read_code(code.pronto, maps)
+        first[code.key] = reading
+        if reading.identified and reading.protocol_id:
+            votes[reading.protocol_id] += 1
+
+    protocol: str | None = None
+    rejected: dict[str, int] = {}
+    if votes:
+        leader, count = votes.most_common(1)[0]
+        if count >= _FAMILY_MINIMUM \
+                and count >= len(codes) * _FAMILY_SHARE:
+            protocol = leader
+        else:
+            rejected = dict(votes)
+
+    chosen = None
+    for candidate in maps:
+        if candidate.protocol_id == protocol:
+            chosen = candidate
+            break
+
+    readings: dict[str, Any] = {}
+    declined: Counter[str] = Counter()
+    for code in codes:
+        reading = first[code.key]
+        if protocol is None:
+            declined[field_readers.NO_MAP] += 1
+            continue
+        if reading.protocol_id != protocol:
+            reading = field_readers.read_code(
+                code.pronto, maps, prefer=protocol)
+        if reading.identified and reading.protocol_id == protocol:
+            readings[code.key] = reading
+        else:
+            declined[reading.declined or field_readers.NO_MAP] += 1
+
+    coverage.protocol = {
+        "id": protocol,
+        "codes": len(codes),
+        "readable": len(readings),
+        "declined": dict(declined),
+    }
+    if rejected:
+        # Named rather than dropped: "one code in this remote looked
+        # like GREE" is worth a reader's second of attention, and
+        # silence about it would leave the unmapped line looking like
+        # nothing was ever a candidate.
+        coverage.protocol["rejected"] = rejected
+    return chosen, readings
+
+
+def _temperature_moves(
+    field_map: Any, readings: dict[str, Any], codes: list[_Code]
+) -> dict[str, bool]:
+    """Per mode: does the temperature FIELD actually move in this wig?
+
+    The third state of ``mode_traits`` (schema v0.2), and the reason it
+    exists. ZHLT01's `fan_only` is frozen in two files of its family and
+    carries a real setpoint in two others, so the map cannot say and the
+    wig can. Frozen means the cells are coverage; moving means they are
+    checked.
+    """
+    spec = field_map.field_named("temperature")
+    if spec is None:
+        return {}
+    seen: dict[str, set[int]] = {}
+    for code in codes:
+        reading = readings.get(code.key)
+        mode = code.coordinates.get("mode")
+        if reading is None or mode is None \
+                or code.coordinates.get("temp") is None:
+            continue
+        value = field_readers.read_field(reading, spec)
+        if value is not None:
+            seen.setdefault(mode, set()).add(value)
+    return {mode: len(values) > 1 for mode, values in seen.items()}
+
+
+def _skip_reason(
+    spec: Any, mode_spec: Any, code: _Code, moves: dict[str, bool]
+) -> str | None:
+    """Why this field is not comparable on this code, or None."""
+    if not spec.ratified:
+        return field_readers.NOT_RATIFIED
+    if not field_readers.applies(spec, code.coordinates):
+        return field_readers.NOT_APPLICABLE
+    mode = code.coordinates.get("mode")
+    if spec.name == "temperature" and mode_spec is not None:
+        trait = field_readers.mode_trait(mode_spec, mode, "temp")
+        if trait == "invariant":
+            return field_readers.TEMP_INVARIANT
+        # A mode the map never named is treated as file_dependent: the
+        # map cannot vouch for it, so the wig's own behaviour decides.
+        if trait != "varies" and not moves.get(mode or "", False):
+            return field_readers.TEMP_FROZEN
+    if spec.name == "fan_speed" and mode_spec is not None \
+            and field_readers.mode_trait(mode_spec, mode, "fan") == "forced":
+        return field_readers.FAN_FORCED
+    return None
+
+
+def _field_findings(
+    codes: list[_Code], coverage: Coverage, labelled: bool
+) -> list[Finding]:
+    """Compare every readable code's fields to what its label claims.
+
+    A CODE THE STRUCTURAL TIER ALREADY FLAGGED IS STILL READ (owner
+    ruling, 2026-08-23). The sweep does not consult the structural
+    verdict and does not skip a code because `malformed` or
+    `frame-shape` reached it first. Deliberate, on three grounds.
+
+    Findings never block, so a structural finding is not a disposal --
+    the code is still in the file, the device will still send it, and
+    what it says is still worth knowing. The two tiers also answer
+    different questions: `malformed` says a capture is the wrong SHAPE
+    for its neighbours, which on a multi-frame family can be true of a
+    trailing frame while the payload frame reads perfectly, and that is
+    exactly where a shifted setpoint hides. And the receipt carries
+    every finding on a key side by side, so a reader sees a cell that
+    is both short AND lying rather than only the first thing that hit
+    it -- which is the whole picture, and the more useful one.
+
+    The tier still declines the code it genuinely cannot read: a frame
+    whose pulses fall outside the map's own windows fails
+    identification and lands in coverage as `unreadable-frame`. That is
+    a different judgement from "somebody else already complained".
+    """
+    field_map, readings = _read_family(codes, coverage)
+    if field_map is None:
+        coverage.declined(
+            CHECK_FIELD_MISMATCH, field_readers.NO_MAP, len(codes))
+        coverage.declined(
+            CHECK_FRAME_INTEGRITY, field_readers.NO_MAP, len(codes))
+        return []
+
+    findings: list[Finding] = []
+    mode_spec = field_map.field_named("mode")
+    moves = _temperature_moves(field_map, readings, codes)
+    protocol = field_map.protocol_id
+
+    for code in codes:
+        reading = readings.get(code.key)
+        if reading is None:
+            coverage.declined(CHECK_FIELD_MISMATCH, field_readers.UNREADABLE)
+            coverage.declined(CHECK_FRAME_INTEGRITY, field_readers.UNREADABLE)
+            continue
+
+        # Integrity first: it needs no labels at all, which is why it
+        # runs on flat wigs too where the sweep below cannot.
+        judged_rule = False
+        for rule in field_map.integrity:
+            if not rule.ratified:
+                coverage.declined(CHECK_FRAME_INTEGRITY,
+                                  field_readers.NOT_RATIFIED)
+                continue
+            holds = field_readers.check_integrity(reading, rule)
+            if holds is None:
+                coverage.declined(CHECK_FRAME_INTEGRITY,
+                                  field_readers.RULE_UNEVALUATED)
+                continue
+            judged_rule = True
+            if not holds:
+                findings.append(Finding(
+                    check=CHECK_FRAME_INTEGRITY, keys=[code.key],
+                    message="comb.frame_integrity",
+                    params={"protocol": protocol,
+                            "rule": f"comb.rule.{rule.type}"},
+                ))
+        if judged_rule:
+            coverage.judged(CHECK_FRAME_INTEGRITY, code.key)
+
+        if not labelled:
+            coverage.declined(CHECK_FIELD_MISMATCH, field_readers.NO_LABELS)
+            continue
+
+        judged_field = False
+        for spec in field_map.fields:
+            coordinate_name = _FIELD_COORDINATE.get(spec.name)
+            if spec.name == _POWER_FIELD:
+                coordinate = code.coordinates.get(_POWER_FIELD)
+            elif coordinate_name is None:
+                coverage.field_declined(spec.name, field_readers.NO_COORDINATE)
+                continue
+            else:
+                coordinate = code.coordinates.get(coordinate_name)
+            if coordinate is None:
+                coverage.field_declined(spec.name, field_readers.NO_COORDINATE)
+                continue
+            reason = _skip_reason(spec, mode_spec, code, moves)
+            if reason is not None:
+                coverage.field_declined(spec.name, reason)
+                continue
+            expected = field_readers.expected_value(spec, coordinate)
+            if expected is None:
+                coverage.field_declined(spec.name, field_readers.UNKNOWN_LABEL)
+                continue
+            value = field_readers.read_field(reading, spec)
+            if value is None:
+                coverage.field_declined(spec.name, field_readers.FIELD_ABSENT)
+                continue
+            coverage.field_judged(spec.name)
+            judged_field = True
+            if value != expected:
+                findings.append(Finding(
+                    check=CHECK_FIELD_MISMATCH, keys=[code.key],
+                    message="comb.field_mismatch",
+                    params={
+                        "field": f"comb.field.{spec.name}",
+                        "protocol": protocol,
+                        "expected": f"0x{expected:02X}",
+                        "read": f"0x{value:02X}",
+                    },
+                ))
+        if judged_field:
+            coverage.judged(CHECK_FIELD_MISMATCH, code.key)
+
+    return findings
+
+
 def _outlier_findings(shapes: dict[str, tuple[int, ...]]) -> list[Finding]:
     """Frame shape on a FLAT remote: gross outliers only.
 
@@ -1129,12 +1494,23 @@ def comb_wig(wig: Wig) -> CombReport:
         # any other and can be just as noisy.
         coverage.codes = len(cells) + len(rows) + len(skipped)
         findings += _repeat_findings(cells + rows, coverage)
+        # The field tier, on the lattice only: a flat row carries a
+        # free-form name, not a coordinate, so there is nothing to check
+        # its bytes against (design plan section 4).
+        findings += _field_findings(
+            _matrix_codes(wig.climate), coverage, labelled=True)
     else:
         findings += _shape_findings(rows, strict=False, coverage=coverage)
         findings += _duplicate_label_findings(wig)
         coverage.codes = len(rows) + len(skipped)
         findings += _repeat_findings(rows, coverage)
         coverage.declined(CHECK_DUPLICATED_NEIGHBOUR, DECLINE_NO_LATTICE)
+        # Integrity rules need no labels, so a flat wig whose codes
+        # identify under a map gets them anyway. The field-versus-label
+        # sweep stays matrix-only and says so in coverage.
+        findings += _field_findings(
+            [_Code(key=alias, pronto=pronto) for alias, pronto in rows],
+            coverage, labelled=False)
     # Recipe advisories run on BOTH kinds' flat signal lists: a matrix
     # wig's flat extras are ordinary signals and can carry either knob.
     findings += _bypass_ditto_findings(wig)

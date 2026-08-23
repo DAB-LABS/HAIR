@@ -1,0 +1,42 @@
+{
+ "protocol": "MITSUBISHI144",
+ "how_to_read": "Each entry names one coordinate of the .defects.json lattice that was deliberately corrupted. Every other coordinate is byte-identical to the clean pack.",
+ "defects": [
+  {
+   "defect": "temperature_off_by_one",
+   "field": "temperature",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "auto",
+   "temp": 16,
+   "note": "temperature field forced to 0x01 (map says 0x00); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "temperature_wrong_column",
+   "field": "temperature",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "auto",
+   "temp": 20,
+   "note": "temperature field forced to 0x0B (map says 0x04); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "mode_swapped",
+   "field": "mode",
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "auto",
+   "temp": 24,
+   "note": "mode field forced to 0x19 (map says 0x18); integrity recomputed so only the field check can catch it"
+  },
+  {
+   "defect": "broken_integrity",
+   "field": null,
+   "mode": "cool",
+   "fan": "auto",
+   "swing": "auto",
+   "temp": 28,
+   "note": "checksum_sum target frame 0 byte 17 xor 0x55, left unrepaired"
+  }
+ ]
+}

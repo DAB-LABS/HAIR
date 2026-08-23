@@ -228,6 +228,8 @@ A file written by 0.9.1 may still carry them. They were always outside every can
 
 Added in HAIR 0.9.1. **Combing** checks that a wig's codes agree with each other: frame-shape uniformity, partial row collapse, gaps in a captured temperature run, coordinate uniqueness, duplicate-label groups, and, from receipt version 2, whether a code's own repeat frames agree with each other. It runs at import on every wig and on demand from the closet, and it **never changes a code** -- it reports.
 
+Those checks are all **protocol-blind**: they compare codes to their neighbours without reading a single byte of what a code says. A second tier, added alongside them, reads the payload against a **field map** and compares it to what the cell's own coordinates claim -- the check that catches a lattice whose 24-degree cell sends 25. It is strictly additive: it files its own two check classes, it declines loudly wherever it cannot read, and a wig no map covers combs exactly as it did before.
+
 The result is stored on `wig.extra["comb"]`, an optional extra-key convention **outside every canonical hash**, so recording a result can never move a wig's identity or invalidate a fitting:
 
 ```json
@@ -246,7 +248,17 @@ The result is stored on `wig.extra["comb"]`, an optional extra-key convention **
         "checks": {
             "frame-shape": {"checked": 1157, "declined": {}},
             "duplicated-neighbour": {"checked": 1156, "declined": {}},
-            "frame-disagreement": {"checked": 0, "declined": {"too-few-frames": 1157}}
+            "frame-disagreement": {"checked": 0, "declined": {"too-few-frames": 1157}},
+            "field-mismatch": {"checked": 1156, "declined": {"no-coordinate": 1}},
+            "frame-integrity": {"checked": 1157, "declined": {}}
+        },
+        "protocol": {"id": "ZHLT01", "codes": 1157, "readable": 1157, "declined": {}},
+        "fields": {
+            "power": {"checked": 1157, "declined": {}},
+            "temperature": {"checked": 816,
+                            "declined": {"mode-temp-frozen": 340, "no-coordinate": 1}},
+            "mode": {"checked": 0, "declined": {"field-provisional": 1156,
+                                                "no-coordinate": 1}}
         }
     }
 }
@@ -258,6 +270,14 @@ The result is stored on `wig.extra["comb"]`, an optional extra-key convention **
 - **An absent `comb` key means nobody has combed the wig**, which is deliberately not the same as clean. A wig that was combed and came back empty carries a receipt with `suspects: 0`.
 - `coverage` (receipt version 2) records **what the comb looked at and what it declined to look at**, per check id: `checked` counts the codes a check judged, and `declined` tallies the ones it could not, by reason. `codes` is every code in the wig and the top-level `checked` is how many of them at least one check judged. Reasons are stable identifiers, localized for display: `pinned-to-raw`, `unparseable`, `single-frame`, `separator-unclear`, `too-few-frames`, `too-few-codes`, `no-lattice`, `row-too-short`, `no-temperature`.
 - `single-frame` and `separator-unclear` are both "nothing was compared", and the difference between them is worth keeping. `single-frame` means no repeat boundary was found in the timings. `separator-unclear` means something in the code was shaped like one and could not be trusted as one -- a space long enough to be a boundary that is too common to be anything but data, or a split whose pieces turned out to be fragments rather than repeats. Some families make that ambiguity unavoidable: Mitsubishi Heavy writes a one-bit as roughly 3600 us and separates two presses by roughly 7600 us, so depending on how many one-bits a code carries, either the bits look like boundaries or the boundary looks like a bit. Neither is reported as checked.
+- `protocol` and `fields` are the **field tier's** half of coverage, written whenever that tier ran. `protocol` names the map that identified the codes (`id: null` when none did), how many codes there were, and how many of them the map could actually read; `fields` reports, per field the map declares, how many codes the sweep compared and what it declined. Both are absent from a receipt written before the tier existed, which is the same honest absence a version 1 receipt has for `coverage` itself.
+- **A family has to carry the wig.** Identification is a vote across all of a wig's codes, not a first match: the winning map must be claimed by at least a quarter of them, and by at least two. At a few hundred bits a lone coincidence is close to inevitable, and one accidental match naming the family for a whole remote is how a reader ends up with findings about a protocol nobody mapped. A candidate that appears and does not clear the bar is recorded in `protocol.rejected` as `{map id: codes}` rather than dropped, because a near miss is worth a reader's attention.
+- **`id: null` is the loud case, not the quiet one.** A wig no map covers passes every protocol-blind check and has not one byte of its payload read, so its structural `checked` is a full count of a much narrower question. The closet draws that state differently from clean, and the report says it in words: *no field map covers this protocol: 0 of N codes had their contents checked*.
+- Field-tier decline reasons are stable identifiers alongside the structural ones: `protocol-unmapped`, `unreadable-frame`, `field-provisional`, `no-coordinate`, `not-applicable`, `mode-temp-invariant`, `mode-temp-frozen`, `mode-fan-forced`, `unknown-label`, `out-of-domain`, `field-absent`, `rule-unevaluable`, `no-labels`.
+- **`unreadable-frame` is never a skip and never a guess.** A map carries the timing alphabet its family uses, and a pulse that falls outside every window it declares means the frame was not understood -- so identification fails and the code lands in coverage. Nothing downstream is inferred from a frame that could not be split, because a wrong split reads as a wrong byte, and a wrong byte reads as a finding about a file that was fine.
+- **`field-provisional` is the confidence gate.** A field map records how sure each field and each integrity rule is, derived across a whole family of files; only fields marked ratified join the sweep. A provisional field is real information and it is not evidence: ZHLT01's own family disagrees about two of its mode values, so sweeping mode on a wig that follows the minority reading would file a thousand findings that say nothing about that wig.
+- **`mode-temp-frozen` is decided per wig, not per map.** Some families hold one setpoint in dry or fan-only and carry a real one in others, and the map says exactly that (`file_dependent`) rather than picking. Whether a given wig's column moves is then read off that wig's own cells. Skipping a column that moves would miss a shifted setpoint; checking one that does not would invent thirty findings about a mode that never had a temperature.
+- **`frame-integrity` needs no labels.** Where a flat wig's codes identify under a map, the map's checksum and complement rules run on them too and report in coverage; only the field-versus-label comparison needs a lattice, and on a flat wig it declines with `no-labels`.
 - **Coverage is why a clean receipt is readable at all.** A check that quietly says nothing about a code it could not read is indistinguishable from a check that read it and approved, and the second claim is much stronger than the first. A reader that shows `suspects: 0` without showing coverage is overstating the receipt.
 - **A version 1 receipt has no `coverage` key and that absence is the honest answer**, not an empty one: a receipt written before coverage existed cannot say what it did not check. Version 1 receipts still parse and still display; combing again writes a version 2 receipt in place.
 - A receipt describes the codes as they were when it was written. A REPLACE changes codes without touching the receipt, so a stale receipt is expected and combing again is what refreshes it.

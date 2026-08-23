@@ -1,0 +1,138 @@
+schema_version: "0.2"
+protocol_id: MHI160
+aliases:
+  - "Mitsubishi Heavy Industries 160-bit / 20-byte single frame"
+  - "FDUM VF2 ducted series"
+  - "the second family whose timing alphabet defeats a heuristic splitter"
+status: draft
+
+frame:
+  total_bits: 160
+  frames_per_command: 1
+  frame_layout: [160]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [5951, 7538]
+  bit0_us: {mark: 458, space: 1526}
+  bit1_us: {mark: 458, space: 3540}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  identity_bytes: [[0, 0, 0x0D], [0, 4, 0xF2], [0, 18, 0x00], [0, 19, 0x00]]
+  timing:
+    classify: space
+    unit_mark_us:    {nominal: 458, min: 199, max: 1123}
+    space_zero_us:   {nominal: 1526, min: 782, max: 2340}
+    space_one_us:    {nominal: 3540, min: 2341, max: 4760}
+    header_mark_us:  {nominal: 5951, min: 3924, max: 9279}
+    header_space_us: {nominal: 7538, min: 4957, max: 11624}
+    frame_gap_us:    {min: 5119}
+
+integrity:
+  - type: complement_pairs
+    description: >
+      Block-wise rather than byte-wise: bytes 4..7 are the complement of bytes 0..3,
+      bytes 12..15 the complement of bytes 8..11, and byte 17 the complement of
+      byte 16. Bytes 18 and 19 are a constant tail.
+    params:
+      frame: 0
+      pairs: [[0, 4], [1, 5], [2, 6], [3, 7], [8, 12], [9, 13], [10, 14], [11, 15], [16, 17]]
+    verified_on: "2934/2934 checks across the one distinct file (100%)"
+    confidence: provisional
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 2
+    bits: low_nibble
+    encoding: "T - 16."
+    encoding_ref:
+      name: linear
+      params: {offset: -16, round: floor}
+    confidence: provisional
+    domain: "T in 18..30 C as declared by the file"
+    vocabulary: {}
+    agreement:
+      pass: 323
+      checked: 325
+      rate: "99.38%"
+      files_at_100: "0/1"
+      disagreeing_files:
+        - "1690.json: 2 cells of 325, one at 20 C and one at 28 C, each reading the
+           value for one degree lower"
+
+  - name: mode
+    frame: 0
+    byte: 2
+    bits: "mask:0x70"
+    encoding: "3-bit enum at byte 2 bits 4-6."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {heat_cool: 0x0, dry: 0x1, cool: 0x2, fan_only: 0x3, heat: 0x4}}
+    confidence: provisional
+    vocabulary: {heat_cool: 0x0, dry: 0x1, cool: 0x2, fan_only: 0x3, heat: 0x4}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: varies, fan: free}
+      heat_cool: {temp: varies, fan: free}
+      fan_only: {temp: varies, fan: free}
+    agreement:
+      pass: 325
+      checked: 325
+      rate: "100.00%"
+      files_at_100: "1/1"
+      disagreeing_files: []
+    vocabulary_notes:
+      - "These values do NOT match MHI48 and MHI152, which agree with each other. A
+         third Mitsubishi Heavy frame format with its own mode enumeration is the
+         honest reading; it is not evidence that either derivation is wrong."
+
+  - name: fan_speed
+    frame: 0
+    byte: 8
+    bits: "mask:0x06"
+    encoding: "2-bit enum at byte 8 bits 1-2, coarser than the label set."
+    encoding_ref:
+      name: enum_nibble
+      params: {vocabulary: {low: 0x0, ultralow: 0x0, mid: 0x1, high: 0x1, auto: 0x2}}
+    confidence: unratified
+    vocabulary: {low: 0x0, ultralow: 0x0, mid: 0x1, high: 0x1, auto: 0x2}
+    vocabulary_notes:
+      - "The file declares five fan speeds and the field has room for four values, of
+         which three are used. low and ultralow share 0, mid and high share 1. Either a
+         second bit lives elsewhere or this remote's five legend positions map onto
+         three real speeds."
+    agreement:
+      pass: 325
+      checked: 325
+      rate: "100.00% against the collapsed vocabulary above"
+      files_at_100: "1/1"
+      disagreeing_files: []
+
+synthesis:
+  template: [[0x0D, 0x00, 0xA2, 0x00, 0xF2, 0xFF, 0x5D, 0xFF, 0x02, 0x01, 0x14, 0x00,
+              0xFD, 0xFE, 0xEB, 0xFF, 0x02, 0xFD, 0x00, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat, dry, fan_only]
+    fan: [auto, low, mid]
+    temp: [18, 22, 26, 30]
+
+derivation:
+  files_used:
+    - {repo: both, file: 1690.json, manufacturer: Mitsubishi Heavy, models: ["FDUM VF2"]}
+  external_sources:
+    - "None. Corpus-derived only."
+  open_questions:
+    - "One distinct file, same caveat as MHI48: strong internal consistency is not
+       cross-vendor ratification."
+    - "Bytes 8 to 11 carry fan plus something else; bytes 16 to 19 are not derived."
+    - "Swing and power are not derived."
+  notes:
+    - "Second of the two families with the hazardous alphabet: a one is a 3540us space
+       and the frame gap is 7538us, a ratio of 2.1. The stated boundary is 5119us."
+    - "The block-wise complement structure (a whole 4-byte block repeated inverted) is
+       worth flagging to release one's frame-consistency check: a naive 'all frames of a
+       command should agree' rule would be fine here because there is one frame, but a
+       naive 'repeated blocks should agree' rule would fire on every single cell."

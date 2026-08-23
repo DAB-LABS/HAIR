@@ -1,0 +1,187 @@
+schema_version: "0.1"
+protocol_id: DAIKIN152
+aliases:
+  - "Daikin ARC-series, 5-bit leader plus two 64-bit frames plus a 152-bit frame"
+  - "the largest single-signature Daikin cluster in the corpus"
+status: draft
+
+frame:
+  total_bits: 152
+  frames_per_command: 3      # plus a 5-bit leader block that carries no bytes
+  frame_layout: [64, 64, 152]
+  payload_frame: 2
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3448, 1740]
+  bit0_us: {mark: 427, space: 458}
+  bit1_us: {mark: 427, space: 1312}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 427, min: 171, max: 998}
+    space_zero_us:   {nominal: 458, min: 199, max: 819}
+    space_one_us:    {nominal: 1312, min: 820, max: 1860}
+    header_mark_us:  {nominal: 3448, min: 2244, max: 5390}
+    header_space_us: {nominal: 1740, min: 1111, max: 2766}
+    frame_gap_us:    {min: 2000}
+  identity_bytes: [[2, 0, 0x11], [2, 1, 0xDA], [2, 2, 0x27]]
+
+integrity:
+  - type: checksum_sum
+    description: "Frame 2's last byte (18) is the sum of bytes 0..17, mod 256."
+    params: {frame: 2, range: [0, 17], target_byte: 18, mod: 256, offset: 0}
+    verified_on: "9153/9153 checks across 8 files, all three rules together (every file 100%)"
+    confidence: ratified
+  - type: checksum_sum
+    description: "The same rule holds on frame 0 (byte 7 = sum of bytes 0..6)."
+    params: {frame: 0, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
+    verified_on: "3051/3051 cells across 8 files"
+    confidence: ratified
+  - type: checksum_sum
+    description: "And on frame 1 (byte 7 = sum of bytes 0..6)."
+    params: {frame: 1, range: [0, 6], target_byte: 7, mod: 256, offset: 0}
+    verified_on: "3051/3051 cells across 8 files"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 2
+    byte: 6
+    bits: full_byte
+    encoding: "T * 2, so the field carries half-degree resolution even where labels do not."
+    encoding_ref:
+      name: offset_linear
+      params: {scale: 2, offset: 0, round: nearest}
+    applies_when:
+      not_in: {mode: [dry, fan_only]}
+    confidence: provisional
+    domain: "T in 18..32 C; the unit clamps below 18 C (see disagreeing files)"
+    vocabulary: {}
+    agreement:
+      pass: 1691
+      checked: 1828
+      rate: "92.51%"
+      files_at_100: "4/8"
+      disagreeing_files:
+        - "3101.json (Daikin, litinoveweedle only): cool 91/147. Cells labelled 10-17 C
+           all transmit 0x24 (18 C), which reads as the unit clamping at its minimum
+           rather than as a decode failure. Real, and exactly the class of thing the
+           sweep should surface."
+        - "1101.json: cool 92/104, heat 91/104, heat_cool 92/104, a thin run of cells
+           at 18-21 C transmitting 25 C or 30 C"
+        - "1108.json: auto and heat lose 8 cells each at 31-32 C"
+        - "1114.json: 9 cells spread across heat and heat_cool"
+
+  - name: mode
+    frame: 2
+    byte: 5
+    bits: "mask:0x70"
+    encoding: "3-bit enum at frame 2 byte 5 bits 4-6."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, heat_cool: 0x0, dry: 0x2, cool: 0x3, heat: 0x4, fan_only: 0x6}
+    confidence: ratified
+    vocabulary: {auto: 0x0, heat_cool: 0x0, dry: 0x2, cool: 0x3, heat: 0x4, fan_only: 0x6}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      heat_cool: {temp: varies, fan: free}
+      auto: {temp: varies, fan: free}
+      dry: {temp: invariant, fan: forced, sentinel: 0xC0}
+      fan_only: {temp: invariant, fan: forced, sentinel: 0x32}
+    agreement:
+      pass: 3029
+      checked: 3043
+      rate: "99.54%"
+      files_at_100: "7/8"
+      disagreeing_files:
+        - "1108.json: 15 heat cells read 0x3 (cool)"
+
+  - name: fan_speed
+    frame: 2
+    byte: 8
+    bits: high_nibble
+    encoding: "4-bit enum at frame 2 byte 8 bits 4-7."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {low: 0x3, level1: 0x3, "1": 0x3,
+                     lowMedium: 0x4, level2: 0x4, "2": 0x4,
+                     medium: 0x5, level3: 0x5, "3": 0x5,
+                     mediumHigh: 0x6, level4: 0x6, "4": 0x6,
+                     high: 0x7, level5: 0x7, "5": 0x7,
+                     auto: 0xA, powerful: 0xA,
+                     breeze: 0xB, nature: 0xB, night: 0xB}
+    applies_when:
+      not_in: {mode: [dry, fan_only]}
+    confidence: ratified
+    vocabulary: {low: 0x3, level1: 0x3, "1": 0x3, lowMedium: 0x4, level2: 0x4, "2": 0x4,
+                 medium: 0x5, level3: 0x5, "3": 0x5, mediumHigh: 0x6, level4: 0x6,
+                 "4": 0x6, high: 0x7, level5: 0x7, "5": 0x7, auto: 0xA, powerful: 0xA,
+                 breeze: 0xB, nature: 0xB, night: 0xB}
+    vocabulary_notes:
+      - "dry and fan_only pin the field to 0xA regardless of the labelled speed."
+    agreement:
+      pass: 1789
+      checked: 1828
+      rate: "97.87% (dry and fan_only excluded as forced)"
+      files_at_100: "7/8"
+      disagreeing_files:
+        - "1114.json: 39 'powerful' cells read 0x7 (high) instead of 0xA"
+
+  - name: power
+    frame: 2
+    byte: 5
+    bits: "bit:0"
+    encoding: "1 = on. The off command clears it."
+    encoding_ref:
+      name: bitflag
+      params: {true_values: ["on"]}
+    confidence: provisional
+    vocabulary: {on: 0x1, off: 0x0}
+    agreement:
+      pass: null
+      checked: null
+      pass: 2724
+      checked: 3043
+      rate: "89.52% -- every off code has the bit clear, but state cells are not
+             uniformly 1, so the bit is not purely a power flag"
+      files_at_100: "4/8"
+      disagreeing_files:
+        - "1104.json (210 state cells), 1106.json (4), 1108.json (1)"
+
+synthesis:
+  template: [[0x11, 0xDA, 0x27, 0x00, 0xC5, 0x00, 0x00, 0x00],
+             [0x11, 0xDA, 0x27, 0x00, 0x42, 0x00, 0x10, 0x00],
+             [0x11, 0xDA, 0x27, 0x00, 0x00, 0x01, 0x32, 0x00, 0xA0, 0x00, 0x00, 0x06,
+              0x60, 0x00, 0x00, 0xC1, 0x00, 0x00, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat, heat_cool]
+    fan: [auto, low, medium, high]
+    temp: [18, 22, 25, 28, 30]
+
+derivation:
+  files_used:
+    - {repo: smartHomeHub, file: "1101, 1104, 1106, 1108, 1114, 1118", manufacturer: Daikin, models: [many FTXS/FTXM series]}
+    - {repo: litinoveweedle, file: "1118, 3101", manufacturer: Daikin, models: [many]}
+  external_sources:
+    - "None. The blafois write-up named in the first brief was not fetched by either
+       pass; nothing here needs it."
+  open_questions:
+    - "The 5-bit leader block that precedes the three frames carries no whole byte and
+       is not decoded. It is stable across every cell."
+    - "Frames 0 and 1 are constant per file and satisfy their own checksums; what they
+       carry is not derived."
+    - "Swing/vane was not located. No file in this sub-cluster declares a swing dimension."
+    - "The power bit at frame 2 byte 5 bit 0 is not clean (see the field). It is more
+       likely a combined power-plus-something flag."
+  notes:
+    - "The first pass reported Daikin as spread across at least 6 frame signatures and
+       reached none of them. That spread is real and is tabulated in the round-two
+       report; this is the largest single one, 13 rows / 8 distinct files, and it is
+       pure Daikin with no rebadges."
+    - "The three-way checksum result makes this family fully integrity-checkable even
+       where a field is unreadable, which is worth as much to release two as the fields are."

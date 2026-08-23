@@ -1,0 +1,181 @@
+schema_version: "0.1"
+protocol_id: AUX104
+aliases:
+  - "104-bit NEC-header AC frame, the corpus's second-largest cluster"
+  - AUX, Tornado, Electrolux, General Electric, Beko, Ballu, Aokesi, Sendo, DeLonghi,
+    BAXI, KOREL, AEG, ELGIN, Mundoclima, Casper, PARKAIR, Zephir
+status: draft
+
+frame:
+  total_bits: 104
+  frames_per_command: 1
+  frame_layout: [104]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [8967, 4498]
+  bit0_us: {mark: 620, space: 520}
+  bit1_us: {mark: 620, space: 1600}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 549, min: 228, max: 1312}
+    space_zero_us:   {nominal: 580, min: 266, max: 1059}
+    space_one_us:    {nominal: 1709, min: 1060, max: 2359}
+    header_mark_us:  {nominal: 8972, min: 5807, max: 13968}
+    header_space_us: {nominal: 4517, min: 2872, max: 7077}
+    frame_gap_us:    {min: 2537}
+  identity_bytes: [[0, 0, 0xC3]]
+
+integrity:
+  - type: checksum_sum
+    description: "Byte 12 is the sum of bytes 0..11, mod 256."
+    params: {frame: 0, range: [0, 11], target_byte: 12, mod: 256, offset: 0}
+    verified_on: "12731/12737 cells across 33 files (99.95%); all six failures are in
+                  the recovered Tuya file 1705.json"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 1
+    bits: "mask:0xF8"
+    encoding: "floor(T) - 8, in the top five bits of byte 1."
+    encoding_ref:
+      name: linear
+      params: {offset: -8, round: floor}
+    confidence: ratified
+    domain: "T in 16..32 C. Half-degree labels share the integer value (see open questions)."
+    vocabulary: {}
+    agreement:
+      pass: 8607
+      checked: 8637
+      rate: "99.65%"
+      files_at_100: "26/33"
+      disagreeing_files:
+        - "1961.json (AUX, both forks): cool 189/198"
+        - "3220.json (Casper, both forks): dry 65/68"
+        - "1703.json (Electrolux), 1942.json (Electra), 2460.json (Mundoclima),
+           3240.json (PARKAIR): one to three isolated cells each"
+
+  - name: mode
+    frame: 0
+    byte: 6
+    bits: "mask:0xE0"
+    encoding: "3-bit enum at byte 6 bits 5-7."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, heat_cool: 0x0, cool: 0x1, dry: 0x2, heat: 0x4,
+                     fan: 0x6, fan_only: 0x6}
+    confidence: ratified
+    vocabulary: {auto: 0x0, heat_cool: 0x0, cool: 0x1, dry: 0x2, heat: 0x4, fan: 0x6, fan_only: 0x6}
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: file_dependent, fan: free}
+      fan: {temp: invariant, fan: free}
+      fan_only: {temp: file_dependent, fan: free}
+      heat_cool: {temp: file_dependent, fan: free}
+      auto: {temp: file_dependent, fan: free}
+    agreement:
+      pass: 12585
+      checked: 12716
+      rate: "98.97%"
+      files_at_100: "24/33"
+      disagreeing_files:
+        - "1942.json (Electra): 68 fan_only cells read 0x0"
+        - "1920.json (Aokesi): heat_cool split between 0x1 and 0x4 (39 cells)"
+        - "2800.json (AEG): 17 heat cells read 0x1"
+        - "1706.json (Electrolux, litinoveweedle only): 1 cell"
+
+  - name: fan_speed
+    frame: 0
+    byte: 4
+    bits: "mask:0xE0"
+    encoding: "3-bit enum at byte 4 bits 5-7."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x5, silent: 0x5, silence: 0x5, highest: 0x5, level4: 0x5,
+                     low: 0x3, level1: 0x3, medium: 0x2, mid: 0x2, level2: 0x2,
+                     high: 0x1, turbo: 0x1, level3: 0x1}
+    confidence: provisional
+    vocabulary: {auto: 0x5, silent: 0x5, silence: 0x5, highest: 0x5, level4: 0x5,
+                 low: 0x3, level1: 0x3, medium: 0x2, mid: 0x2, level2: 0x2,
+                 high: 0x1, turbo: 0x1, level3: 0x1}
+    vocabulary_notes:
+      - "Several files fold silence/turbo onto auto/high rather than giving them their
+         own value, and a per-file block of cells reads a single constant, which is the
+         same forced-fan shape seen in the other families but not yet pinned to a mode."
+    agreement:
+      pass: 11195
+      checked: 12595
+      rate: "88.88%"
+      files_at_100: "10/33"
+      disagreeing_files:
+        - "1920.json (Aokesi) 0/117 and 2800.json (AEG) 0/34: whole-file disagreement"
+        - "2720.json (both forks) 153/272, 2241.json (Sendo) 120/180, 2662.json (Hyndai)
+           272/340: roughly a fifth of each file reads a constant"
+
+  - name: swing
+    frame: 0
+    byte: 1
+    bits: "mask:0x07"
+    encoding: "3-bit enum in the low bits of byte 1, below the temperature field."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {stop: 0x7, static: 0x7, off: 0x7, horizontal: 0x7, hSwing: 0x7,
+                     on: 0x0, swing: 0x0, vertical: 0x0, vSwing: 0x0, both: 0x0}
+    confidence: ratified
+    vocabulary: {stop: 0x7, static: 0x7, off: 0x7, horizontal: 0x7, hSwing: 0x7,
+                 on: 0x0, swing: 0x0, vertical: 0x0, vSwing: 0x0, both: 0x0}
+    agreement:
+      pass: 1649
+      checked: 1649
+      rate: "100.00%"
+      files_at_100: "3/3"
+      disagreeing_files: []
+    vocabulary_notes:
+      - "Only five files declare a swing dimension, but all five agree exactly. Byte 2
+         bits 5-7 move with swing too and agree at 94.55%, so the horizontal and
+         vertical axes are probably split across the two; only byte 1 is ratified here."
+
+  - name: power
+    frame: 0
+    byte: null
+    bits: null
+    encoding: "NOT DERIVED. See open questions."
+    confidence: unratified
+    vocabulary: {}
+    agreement: {pass: null, checked: null, rate: "not derived", files_at_100: "0/31", disagreeing_files: []}
+
+synthesis:
+  template: [[0xC3, 0x07, 0xE0, 0x00, 0x20, 0x00, 0x20, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat, dry]
+    fan: [auto, low, mid, high]
+    swing: [stop, swing]
+    temp: [16, 20, 24, 28, 32]
+
+derivation:
+  files_used:
+    - {repo: both, file: "31 distinct files at this frame signature", manufacturer: "AUX x4 plus 20 rebadges", models: [many]}
+  external_sources:
+    - "None. Corpus-derived only."
+  open_questions:
+    - "POWER is not derived. The off command differs from a state command in bytes 1, 4,
+       6, 9, 11 and 12 depending on the file, and no single bit is consistent across the
+       31 files. Byte 11 bit 2 was the best candidate and holds in only 5 of 31.
+       Reported as resisting rather than guessed."
+    - "Half-degree labels (16.0 and 16.5) produce the same value in the temperature
+       field, so a half-degree bit exists somewhere. It is not in byte 1 bits 0-2, which
+       carry swing. Not located."
+    - "This is the census's SECOND-largest cluster, 49 rows / 31 distinct files, and it
+       did not appear in the first pass's priority list under any name."
+  notes:
+    - "Byte 0 is a constant 0xC3 across every file in the family, which makes a cheap
+       secondary identity check alongside the frame signature."

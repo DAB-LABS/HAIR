@@ -33,7 +33,13 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { CombFinding, CombReport, LinkedEntry, WigInfo } from "./types.js";
+import type {
+    CombCoverage,
+    CombFinding,
+    CombReport,
+    LinkedEntry,
+    WigInfo,
+} from "./types.js";
 
 export const COMB_PATH = "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-80.512c0-23.019,5.568-37.077,10.944-50.667 c5.099-12.885,10.389-26.24,10.389-45.333c0-43.669-23.723-64-74.667-64s-74.667,20.331-74.667,64 c0,19.093,5.291,32.448,10.389,45.355c5.376,13.589,10.944,27.648,10.944,50.667c0,19.925-21.312,49.259-58.475,80.512 c-17.067,14.357-26.859,35.264-26.859,57.344v203.456c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667 v-160H160v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160 c0,5.888,4.779,10.667,10.667,10.667S224,507.221,224,501.333v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667 s10.667-4.779,10.667-10.667v-160H288v160c0,5.888,4.779,10.667,10.667,10.667s10.667-4.779,10.667-10.667v-160h21.333v160 c0,5.888,4.779,10.667,10.667,10.667c5.888,0,10.667-4.779,10.667-10.667v-160h21.333v160c0,5.888,4.779,10.667,10.667,10.667 c5.888,0,10.667-4.779,10.667-10.667V297.856C394.667,275.776,384.875,254.891,367.808,240.512z M373.333,320H138.667v-22.123 c0-15.765,7.019-30.741,19.264-41.024C188.075,231.509,224,194.133,224,160c0-27.093-6.613-43.797-12.437-58.517 c-4.779-12.075-8.896-22.464-8.896-37.483c0-27.669,8.491-42.667,53.333-42.667S309.333,36.331,309.333,64 c0,15.019-4.117,25.408-8.896,37.483C294.613,116.203,288,132.885,288,160c0,34.133,35.925,71.509,66.069,96.853 c12.245,10.304,19.264,25.259,19.264,41.024V320z";
 
@@ -42,8 +48,10 @@ export const COMB_PATH = "M367.808,240.512c-37.163-31.232-58.475-60.565-58.475-8
  * so that ordering is still doing work. */
 const SEVERITY_ORDER = [
     "duplicated-neighbour",
+    "field-mismatch",
     "frame-disagreement",
     "malformed",
+    "frame-integrity",
     "frame-shape",
     "missing-cell",
     "coordinate-collision",
@@ -70,6 +78,11 @@ const SEVERITY_ORDER = [
  */
 const CONSEQUENCE: Record<string, string> = {
     "duplicated-neighbour": "wrong",
+    // The Komeco class. The cell answers, the card shows the setpoint
+    // that was asked for, and the room sits a degree off it. Nothing
+    // about it looks broken from the outside, which is exactly why it
+    // is the worst thing the comb can find rather than the loudest.
+    "field-mismatch": "wrong",
     // Repeats that disagree put more than one code on the wire under one
     // label, and nothing in the file says which one the device took.
     // "Ignored" would be the comfortable call and it is not the honest
@@ -78,6 +91,10 @@ const CONSEQUENCE: Record<string, string> = {
     // mostly works.
     "frame-disagreement": "wrong",
     malformed: "ignored",
+    // A frame that fails its own checksum or complement rule is a frame
+    // most receivers drop on the floor. The press does nothing, which
+    // is annoying and visible -- not the silent wrong action above.
+    "frame-integrity": "ignored",
     "frame-shape": "ignored",
     "missing-cell": "ignored",
     "coordinate-collision": "ignored",
@@ -197,9 +214,25 @@ export class IrCombReport extends LitElement {
     }
 
     /** A finding's diagnosis, from its localization key and params.
-     * The backend never ships prebaked English. */
+     * The backend never ships prebaked English.
+     *
+     * A param may itself be a key rather than a value: the field sweep
+     * names the field and the integrity rule it applied, and those are
+     * vocabulary, not data. Release two resolves them here, by the same
+     * rule the backend writes them under -- a param whose value starts
+     * with "comb." is a key. Numbers, coordinates, protocol ids and
+     * byte values never do, so nothing else is touched, and grouping
+     * still compares the RAW params so two findings that differ only in
+     * translation are still one fact. */
     private _diagnosis(f: CombFinding): string {
-        return t(f.message, f.params ?? {});
+        const params: Record<string, string | number> = {};
+        for (const [key, value] of Object.entries(f.params ?? {})) {
+            params[key] =
+                typeof value === "string" && value.startsWith("comb.")
+                    ? t(value)
+                    : value;
+        }
+        return t(f.message, params);
     }
 
     /**
@@ -643,6 +676,16 @@ export class IrCombReport extends LitElement {
         if (!coverage) return nothing;
         const rows = Object.entries(coverage.checks)
             .map(([check, slot]) => {
+                // The two field-tier checks decline every code when no
+                // map covers the protocol, and the protocol line below
+                // already says that in a full sentence. Printing it
+                // three times does not make it three facts.
+                if (
+                    Object.keys(slot.declined).length === 1 &&
+                    slot.declined["protocol-unmapped"] !== undefined
+                ) {
+                    return nothing;
+                }
                 const why = Object.entries(slot.declined).map(
                     ([reason, count]) =>
                         t(`comb.declined.${reason}`, {
@@ -663,8 +706,91 @@ export class IrCombReport extends LitElement {
                     codes: String(coverage.codes),
                 })}
             </div>
-            ${rows}
+            ${rows} ${this._renderProtocol(coverage)}
+            ${this._renderFields(coverage)}
         </div>`;
+    }
+
+    /**
+     * Which map read the wig, and how much of it (release two).
+     *
+     * Two sentences, and which one renders is the whole point. A wig no
+     * map claims says so IN THOSE WORDS -- "protocol unmapped, 0 of
+     * 1,156 cells verified" -- because the alternative is a coverage
+     * block that lists the structural checks, says nothing about
+     * fields, and reads to a hurried person as a clean bill on a wig
+     * nobody could read a single byte of.
+     *
+     * The declined tally rides along when part of a mapped wig would
+     * not read: a lattice that identifies on 1,100 cells and fails on
+     * 56 is a different thing from one that reads whole, and the 56 are
+     * where a person should look first.
+     */
+    private _renderProtocol(coverage: CombCoverage) {
+        const protocol = coverage.protocol;
+        if (!protocol) return nothing;
+        // With no map, every code declines for the one reason the
+        // sentence itself gives, so the tally is repetition. With a
+        // map, it is the useful half: which codes it could not read.
+        const why = protocol.id
+            ? Object.entries(protocol.declined || {}).map(
+                  ([reason, count]) =>
+                      t(`comb.declined.${reason}`, { count: String(count) }),
+              )
+            : [];
+        const nearMisses = Object.entries(protocol.rejected || {}).map(
+            ([name, count]) =>
+                t("comb.protocol_rejected", {
+                    protocol: name,
+                    count: String(count),
+                }),
+        );
+        return html`<div
+            class="coverrow protorow ${protocol.id ? "" : "unmapped"}"
+        >
+            <span class="covercheck">${t("comb.protocol_label")}</span>
+            <span class="coverwhy">
+                ${protocol.id
+                    ? t("comb.protocol_read", {
+                          protocol: protocol.id,
+                          readable: String(protocol.readable),
+                          codes: String(protocol.codes),
+                      })
+                    : t("comb.protocol_unmapped", {
+                          codes: String(protocol.codes),
+                      })}
+                ${why.length ? ` · ${why.join(" · ")}` : ""}
+                ${nearMisses.length ? ` · ${nearMisses.join(" · ")}` : ""}
+            </span>
+        </div>`;
+    }
+
+    /**
+     * One row per field the sweep knows about.
+     *
+     * A field the map declares but this wig never let it check is the
+     * quiet failure mode of the whole tier: the sweep runs, finds
+     * nothing, and the silence reads as agreement. So every field
+     * reports its own number, including the ones that checked zero, and
+     * the reasons are named rather than summed into "skipped".
+     */
+    private _renderFields(coverage: CombCoverage) {
+        const fields = Object.entries(coverage.fields || {});
+        if (!fields.length) return nothing;
+        return fields.map(([name, slot]) => {
+            const why = Object.entries(slot.declined).map(
+                ([reason, count]) =>
+                    t(`comb.declined.${reason}`, { count: String(count) }),
+            );
+            return html`<div class="coverrow fieldrow">
+                <span class="covercheck">${t(`comb.field.${name}`)}</span>
+                <span class="coverwhy">
+                    ${t("comb.field_checked", {
+                        checked: String(slot.checked),
+                    })}${why.length ? ` · ${why.join(" · ")}` : ""}
+                </span>
+            </div>`;
+        });
     }
 
     static styles = [
@@ -1065,6 +1191,34 @@ export class IrCombReport extends LitElement {
             }
             .coverwhy {
                 flex: 1 1 auto;
+            }
+            /* The protocol line sits above the per-field rows and
+               carries the answer they all depend on, so it gets the
+               weight and they get the indent. */
+            .protorow {
+                margin-top: 6px;
+            }
+            .protorow .covercheck {
+                font-weight: 500;
+            }
+            /* UNMAPPED IS NOT QUIET. A wig no map claims must not read
+               as a wig that passed: the line keeps the coverage block's
+               neutral colour -- it is still not a verdict -- but takes
+               a rule and a full-width own line so the eye cannot slide
+               over it on the way to the tally. */
+            .protorow.unmapped {
+                display: block;
+                margin-top: 8px;
+                padding: 6px 8px;
+                border: 1px dashed var(--divider-color);
+                border-radius: 4px;
+                color: var(--primary-text-color);
+            }
+            .protorow.unmapped .covercheck::after {
+                content: " ";
+            }
+            .fieldrow {
+                padding-left: 12px;
             }
             .skipkeys {
                 color: var(--primary-text-color);

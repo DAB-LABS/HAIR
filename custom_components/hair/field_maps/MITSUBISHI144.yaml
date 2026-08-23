@@ -1,0 +1,200 @@
+schema_version: "0.1"
+protocol_id: MITSUBISHI144
+aliases:
+  - "Mitsubishi Electric 144-bit / 18-byte frame, sent twice"
+  - "the largest Mitsubishi sub-cluster in the corpus"
+  - Mitsubishi Electric Starmex
+status: draft
+
+frame:
+  total_bits: 144
+  frames_per_command: 2
+  frame_layout: [144, 144]
+  payload_frame: 0
+  modulation: pulse_distance
+  bit_order: lsb_first
+  header_us: [3387, 1678]
+  bit0_us: {mark: 427, space: 427}
+  bit1_us: {mark: 427, space: 1251}
+  carrier_hz: null
+  bits_tolerance: 1
+  header_tolerance_us: 700
+  timing:                      # measured across every cell of every file in the family
+    classify: space            # the space of each mark/space pair carries the bit
+    unit_mark_us:    {nominal: 427, min: 171, max: 1062}
+    space_zero_us:   {nominal: 397, min: 165, max: 764}
+    space_one_us:    {nominal: 1251, min: 765, max: 1860}
+    header_mark_us:  {nominal: 3387, min: 2103, max: 5484}
+    header_space_us: {nominal: 1709, min: 1051, max: 2718}
+    frame_gap_us:    {min: 2000}
+  identity_bytes: [[0, 0, 0x23], [0, 1, 0xCB], [0, 2, 0x26], [0, 3, 0x01]]
+
+integrity:
+  - type: checksum_sum
+    description: "Byte 17 is the sum of bytes 0..16, mod 256."
+    params: {frame: 0, range: [0, 16], target_byte: 17, mod: 256, offset: 0}
+    verified_on: "13501/13501 cells across 19 files (every file 100%)"
+    confidence: ratified
+  - type: frame_repeat
+    description: "Frame 1 is byte-identical to frame 0."
+    params: {frame: 1, equals: 0}
+    verified_on: "13464/13529 cells across 19 files (99.52%)"
+    confidence: ratified
+
+fields:
+  - name: temperature
+    frame: 0
+    byte: 7
+    bits: low_nibble
+    encoding: "T - 16, direct."
+    encoding_ref:
+      name: linear
+      params: {offset: -16, round: floor}
+    applies_when:
+      not_in: {mode: [dry, fan_only]}
+    confidence: ratified
+    domain: "T in 16..31 C"
+    vocabulary: {}
+    agreement:
+      pass: 7232
+      checked: 7395
+      rate: "97.80%"
+      files_at_100: "10/18"
+      disagreeing_files:
+        - "6668.json (Mitsubishi Electric, litinoveweedle only): 24/32"
+        - "1129.json (Mitsubishi Electric): 1977/2016, spread thinly across a 2689-cell file"
+        - "1120.json, 1124.json, 1136.json: one cell each"
+
+  - name: mode
+    frame: 0
+    byte: 6
+    bits: "mask:0x1F"
+    encoding: "5-bit enum at byte 6. Values are spaced 8 apart, so bits 3-4 carry it in practice."
+    encoding_ref:
+      name: enum_byte
+      params:
+        vocabulary: {auto: 0x00, heat_cool: 0x00, ifeel: 0x00, heat: 0x08, dry: 0x10,
+                     cool: 0x18, fan_only: 0x18}
+    confidence: ratified
+    vocabulary: {auto: 0x00, heat_cool: 0x00, ifeel: 0x00, heat: 0x08, dry: 0x10,
+                 cool: 0x18, fan_only: 0x18}
+    vocabulary_notes:
+      - "fan_only shares cool's 0x18 in the files that ship it, distinguished elsewhere
+         in the frame; that collision is a fact about the data, not a merge."
+    mode_traits:
+      cool: {temp: varies, fan: free}
+      heat: {temp: varies, fan: free}
+      dry: {temp: invariant, fan: free}
+      fan_only: {temp: invariant, fan: free}
+      auto: {temp: varies, fan: free}
+      ifeel: {temp: varies, fan: free}
+    agreement:
+      pass: 13427
+      checked: 13510
+      rate: "99.39%"
+      files_at_100: "17/19"
+      disagreeing_files:
+        - "1138.json (Mitsubishi Electric): 80 fan_only cells read 0x00"
+
+  - name: fan_speed
+    frame: 0
+    byte: 9
+    bits: "mask:0x07"
+    encoding: "3-bit enum in the low bits of byte 9, sharing the byte with the vane position."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, Auto: 0x0, low: 0x1, Low: 0x1, level1: 0x1,
+                     mid: 0x2, med: 0x2, Mid: 0x2, normal: 0x2, level2: 0x2,
+                     high: 0x3, High: 0x3, level3: 0x3,
+                     highest: 0x4, Superhigh: 0x4, "super high": 0x4, level4: 0x4,
+                     quiet: 0x5, Quiet: 0x5}
+    confidence: ratified
+    vocabulary: {auto: 0x0, Auto: 0x0, low: 0x1, Low: 0x1, level1: 0x1, mid: 0x2,
+                 med: 0x2, Mid: 0x2, normal: 0x2, level2: 0x2, high: 0x3, High: 0x3,
+                 level3: 0x3, highest: 0x4, Superhigh: 0x4, "super high": 0x4,
+                 level4: 0x4, quiet: 0x5, Quiet: 0x5}
+    agreement:
+      pass: 13194
+      checked: 13389
+      rate: "98.54%"
+      files_at_100: "13/19"
+      disagreeing_files:
+        - "1103.json (Daikin-badged): 16 'low' cells read 0x5"
+        - "1125.json (Mitsubishi Electric): 64 'highest' cells read 0x0"
+        - "1133.json, 1129.json: 16 to 17 cells each"
+
+  - name: swing
+    frame: 0
+    byte: 9
+    bits: "mask:0x38"
+    encoding: "3-bit vane position enum at byte 9 bits 3-5."
+    encoding_ref:
+      name: enum_nibble
+      params:
+        vocabulary: {auto: 0x0, Auto: 0x0, top: 0x1, Top: 0x1, "position 1": 0x1,
+                     high: 0x2, High: 0x2, mid_high: 0x2, "position 2": 0x2,
+                     mid: 0x3, Mid: 0x3, middle: 0x3, "position 3": 0x3,
+                     low: 0x4, Low: 0x4, mid_low: 0x4, "position 4": 0x4,
+                     bottom: 0x5, Bottom: 0x5, "position 5": 0x5,
+                     swing: 0x7, Swing: 0x7}
+    confidence: provisional
+    vocabulary: {auto: 0x0, Auto: 0x0, top: 0x1, Top: 0x1, "position 1": 0x1,
+                 high: 0x2, High: 0x2, mid_high: 0x2, "position 2": 0x2, mid: 0x3,
+                 Mid: 0x3, middle: 0x3, "position 3": 0x3, low: 0x4, Low: 0x4,
+                 mid_low: 0x4, "position 4": 0x4, bottom: 0x5, Bottom: 0x5,
+                 "position 5": 0x5, swing: 0x7, Swing: 0x7}
+    agreement:
+      pass: 10212
+      checked: 10378
+      rate: "98.40%"
+      files_at_100: "3/6"
+      disagreeing_files:
+        - "1142.json (litinoveweedle only): 112 cells, 'high' and 'low' each one step off"
+        - "1129.json: 49 cells, three vane positions each one step off in part of the file"
+
+  - name: power
+    frame: 0
+    byte: 5
+    bits: full_byte
+    encoding: "0x20 for every state command, 0x00 for the off command."
+    encoding_ref:
+      name: enum_byte
+      params: {vocabulary: {on: 0x20, off: 0x00}}
+    confidence: ratified
+    vocabulary: {on: 0x20, off: 0x00}
+    agreement:
+      pass: null
+      checked: null
+      rate: "100.00% per-file consistency across all 19 identified files"
+      files_at_100: "19/19"
+      disagreeing_files: []
+
+synthesis:
+  template: [[0x23, 0xCB, 0x26, 0x01, 0x00, 0x20, 0x18, 0x00, 0x30, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+             [0x23, 0xCB, 0x26, 0x01, 0x00, 0x20, 0x18, 0x00, 0x30, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00]]
+  fixture_coordinates:
+    mode: [cool, heat, dry]
+    fan: [auto, low, mid, high]
+    swing: [auto, top, mid, swing]
+    temp: [16, 20, 24, 28, 31]
+
+derivation:
+  files_used:
+    - {repo: both, file: "18 distinct files with the (144,144) layout", manufacturer: "Mitsubishi Electric x12, Mitsubishi x4, Daikin-badged x1, Starmex x1", models: [many]}
+  external_sources:
+    - "None. Corpus-derived only."
+  open_questions:
+    - "Bytes 0-4 are the constant preamble 23 CB 26 01 00 in every cell of every file.
+       Bytes 8, 10-16 are unassigned; byte 8 moves with mode in a few files."
+    - "1122.json decodes to a (40,144) layout and is excluded from this map."
+  notes:
+    - "This is the largest Mitsubishi sub-cluster the census names (34 rows / 20 distinct
+       files, of which 18 share the dominant layout). The corpus puts 2 Daikin-badged
+       files in it, which is a real fact about the rebadging rather than a clustering error."
+    - "The other Mitsubishi sub-clusters are named in the round-two report and are NOT
+       derived: 112-bit single-frame (31 rows, mostly Hitachi and rebadges with 5
+       Mitsubishi), 152-bit single-frame (24 rows, Mitsubishi Heavy plus Daikin and
+       Sanyo), 88-bit (12 rows, Mitsubishi Heavy plus Panasonic)."
