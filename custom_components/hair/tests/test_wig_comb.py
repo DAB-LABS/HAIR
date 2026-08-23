@@ -435,7 +435,7 @@ class TestReport:
             for t, s in shapes.items()
         ]
         receipt = comb_wig(_matrix_wig(cells)).to_receipt("2026-07-31")
-        assert receipt["version"] == 1
+        assert receipt["version"] == 2
         assert receipt["date"] == "2026-07-31"
         assert receipt["suspects"] == 1
         assert receipt["counts"] == {CHECK_MALFORMED: 1}

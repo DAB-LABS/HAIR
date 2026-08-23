@@ -276,6 +276,27 @@ export class IrAssignSignalDialog extends LitElement {
         }
     }
 
+    /**
+     * This capture's repeats do not agree with each other.
+     *
+     * Derived by the backend at serialization and present only when it
+     * fires, so the dialog needs no round trip of its own. It is a
+     * notice: the assign proceeds, nothing is dropped, and the person
+     * can go press the button again if they want a cleaner code.
+     */
+    private _renderRepeatNotice() {
+        const vote = this.signal?.repeats_disagree;
+        if (!vote) return "";
+        return html`
+            <div class="repeat-notice">
+                ${t("comb.capture_repeats", {
+                    frames: String(vote.frames),
+                    readings: String(vote.readings),
+                })}
+            </div>
+        `;
+    }
+
     render() {
         const freqKhz = this.signal.frequency
             ? `${Math.round(this.signal.frequency / 1000)}kHz`
@@ -309,6 +330,7 @@ export class IrAssignSignalDialog extends LitElement {
                         ${freqKhz ? html`<span>${freqKhz}</span>` : ""}
                         <span>${this._fmtTime(this.signal.last_seen)}</span>
                     </div>
+                    ${this._renderRepeatNotice()}
                 </div>
 
                 <!-- Mode tabs -->
@@ -595,6 +617,14 @@ export class IrAssignSignalDialog extends LitElement {
             font-size: 0.78rem;
             color: var(--secondary-text-color);
             margin-top: 4px;
+        }
+
+        /* Amber, not red: the assign goes through either way. */
+        .repeat-notice {
+            margin-top: 6px;
+            font-size: 0.78rem;
+            line-height: 1.35;
+            color: #ffc107;
         }
 
         .mode-tabs {

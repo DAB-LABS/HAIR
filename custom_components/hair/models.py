@@ -1267,6 +1267,16 @@ _KNOWN_SIGNAL = frozenset({
     "hit_count", "first_seen", "last_seen", "source", "alias",
     "plucked_command_name", "repeat_count", "send_count", "tx_force_raw",
     "observed_repeat_count", "echo_source", "heard_by", "sl_pattern",
+    # DERIVED KEYS, listed here so from_dict drops them rather than
+    # carrying them as unknown keys. They are computed in to_dict from
+    # the code itself, and to_dict is what the signal store writes, so a
+    # derived value does reach the file -- which is harmless while the
+    # value is recomputed on the way back out and fatal if it is not. A
+    # stale one survived exactly that way on the bench (2026-08-22): the
+    # repeat check stopped firing on nine air conditioner rows, and the
+    # store handed the old verdict back anyway because the fresh answer
+    # was "nothing to say" and said it by omission.
+    "repeats_disagree",
 })
 
 
@@ -1383,6 +1393,19 @@ class UnknownSignal:
 
             sl = EventParser._pronto_sl_pattern(self.code)
             d["sl_pattern"] = sl
+            # Repeats of one press should be identical. Derived from the
+            # code every time, present ONLY when they disagree, and
+            # listed in _KNOWN_SIGNAL so a copy that reached the store
+            # can never come back as an unknown key: this is the
+            # capture-time half of the comb's frame check (fitting
+            # integrity R1), and the assign dialog says so inline while
+            # the person is still holding the remote. It is a notice, not
+            # a gate -- nothing here refuses a capture or drops one.
+            from .wig_comb import frame_disagreement
+
+            vote = frame_disagreement(self.code)
+            if vote is not None:
+                d["repeats_disagree"] = vote.as_dict()
         return _with_extra(d, self._extra)
 
     @classmethod

@@ -5396,13 +5396,24 @@ def _arm_listen(
             return
         heard = getattr(signal, "heard_by", None) or []
         _finish()
-        connection.send_event(msg_id, {
+        # Repeats of one press should be identical, and the moment to say
+        # otherwise is now, while the remote is still in somebody's hand
+        # and pressing the button again costs nothing (fitting integrity
+        # R1, design plan 1a). WARN AND ALLOW: the capture lands either
+        # way, exactly like the rough-capture line beside it.
+        from .wig_comb import frame_disagreement
+
+        vote = frame_disagreement(pronto)
+        payload = {
             "type": capture_event,
             "pronto": pronto,
             "decoded": bool(getattr(signal, "decoded_fingerprint", None)),
             "protocol": getattr(signal, "decoded_protocol", None),
             "receiver": heard[-1] if heard else None,
-        })
+        }
+        if vote is not None:
+            payload["repeats_disagree"] = vote.as_dict()
+        connection.send_event(msg_id, payload)
 
     @callback
     def _on_timeout() -> None:

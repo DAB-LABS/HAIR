@@ -17,6 +17,32 @@ from custom_components.hair.websocket_api import ws_command_listen
 PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
 
 
+def _repeated(*frames: str) -> str:
+    """A Pronto carrying one frame per argument, gapped between them.
+
+    Bit width rides in the mark, as it does on the Dreo fan of the
+    WigShop brief: a pulse-width remote whose repeats are separated by
+    about 8 ms, which is nowhere near an end-of-signal gap.
+    """
+    pairs: list[tuple[int, int]] = []
+    for index, bits in enumerate(frames):
+        closer = 0x09C4 if index == len(frames) - 1 else 0x0140
+        for position, bit in enumerate(bits):
+            mark = 0x002E if bit == "1" else 0x0010
+            space = closer if position == len(bits) - 1 else 0x0010
+            pairs.append((mark, space))
+    words = [0x0000, 0x006D, len(pairs), 0x0000]
+    for mark, space in pairs:
+        words += [mark, space]
+    return " ".join(f"{w:04X}" for w in words)
+
+
+CLEAN_REPEATS = _repeated(*(["110110010000"] * 4))
+NOISY_REPEATS = _repeated(
+    "110110010000", "110110010000", "110110011000", "110110010000"
+)
+
+
 class _Monitor:
     def __init__(self) -> None:
         self.subscribers: list = []
@@ -118,6 +144,41 @@ def test_a_rough_capture_still_lands_in_the_box(fake_hass):
     event = conn.send_event.call_args.args[1]
     assert event["type"] == "command_capture"
     assert event["decoded"] is False
+
+
+def test_a_capture_whose_repeats_disagree_says_so(fake_hass):
+    """The capture-time half of the comb's frame check (fitting
+    integrity R1). This is the one moment HAIR can say it while the
+    remote is still in somebody's hand, and pressing again is free."""
+    monitor = _Monitor()
+    conn = _arm(fake_hass, monitor, _signal(code=NOISY_REPEATS))
+    monitor.emit(_summary())
+    event = conn.send_event.call_args.args[1]
+    assert event["type"] == "command_capture"
+    assert event["pronto"] == NOISY_REPEATS
+    assert event["repeats_disagree"] == {
+        "frames": 4, "readings": 2, "positions": [16],
+    }
+
+
+def test_a_noisy_capture_still_lands(fake_hass):
+    """NEVER A BLOCK and never an auto-drop. The notice rides alongside
+    the code, which arrives exactly as it always did."""
+    monitor = _Monitor()
+    conn = _arm(fake_hass, monitor, _signal(code=NOISY_REPEATS))
+    monitor.emit(_summary())
+    event = conn.send_event.call_args.args[1]
+    assert event["pronto"] == NOISY_REPEATS
+    assert event["decoded"] is True
+
+
+def test_clean_repeats_carry_no_notice_at_all(fake_hass):
+    """Absent rather than false: a capture that agrees with itself
+    should not spend a line of the payload saying so."""
+    monitor = _Monitor()
+    conn = _arm(fake_hass, monitor, _signal(code=CLEAN_REPEATS))
+    monitor.emit(_summary())
+    assert "repeats_disagree" not in conn.send_event.call_args.args[1]
 
 
 def test_a_capture_with_no_pronto_keeps_listening(fake_hass):
