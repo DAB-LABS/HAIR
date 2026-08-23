@@ -1783,22 +1783,44 @@ export class IrPluck extends LitElement {
             gap: 8px;
             flex-wrap: wrap;
         }
+        /* Mobile layout. The row keeps the flex layout it uses at every
+           other width; only the action buttons get a rule, claiming a
+           full flex line so they land in their own band underneath.
+
+           It used to switch to a 2-column grid here, which is what put a
+           wide empty gap next to the drag handle: grid auto-placement
+           dropped the tiny grip into the 1fr column and pushed the real
+           content (alias or diamonds) into the narrow auto column beside
+           it. Only .signal-actions had an explicit placement, so it was
+           the one thing that landed where intended. flex-basis reaches
+           the same end without disturbing how anything else flows.
+
+           Right-aligned by owner ruling 2026-08-23: the button line then
+           ends on exactly the same x as the chip / frequency line above
+           it, so the two share a right edge instead of the buttons
+           hanging under the drag handle. */
         @media (max-width: 768px) {
-            .signal-row {
-                display: grid;
-                grid-template-columns: 1fr auto;
-                align-items: start;
-                gap: 6px 8px;
-            }
             .signal-actions {
-                grid-column: 1 / -1;
-                justify-content: flex-start;
+                flex-basis: 100%;
+                justify-content: flex-end;
                 flex-wrap: wrap;
             }
         }
+        /* The floor matters more than it looks. .signal-info is the only
+           shrinkable item on the row's first line -- chip-col and
+           signal-actions are fixed and signal-meta is nowrap -- so as the
+           window narrows it absorbs the entire deficit. With min-width 0
+           it was squeezed to 4px before the line finally overflowed
+           enough to wrap the actions, and the diamonds inside it stacked
+           into a 2-wide column 367px tall. Ten pixels of window width
+           then swung the row between 384px and 80px. A floor makes the
+           line run out of room while this still has usable width, so the
+           actions wrap early and that cliff never forms. Measured
+           2026-08-23: worst-case row height 416px -> 101px, worst
+           width-to-height jump 304px -> 22px. */
         .signal-info {
             flex: 1;
-            min-width: 0;
+            min-width: 180px;
         }
         /* The same fixed 96px centred column the Sniffer and the Clipper
            use, so all three lists read alike. */

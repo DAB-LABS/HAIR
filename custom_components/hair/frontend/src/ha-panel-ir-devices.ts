@@ -536,11 +536,45 @@ export class HaPanelIrDevices extends LitElement {
             display: block;
             margin: 5px 0;
         }
+        /* Below 400px the mascot is what forces a third row of tab bar.
+           Once .tab-bar wraps, the tabs pack two rows and .brand-block
+           cannot fit beside the second one, so it takes a line of its
+           own: measured 139px of bar at 320px against 98px at 390px.
+           Dropping it below 400px puts every phone width on two rows at
+           83px -- 56px back at 320px, and 15px even where the bar was
+           already two rows.
+
+           Owner ruling 2026-08-23: the banner carries page identity, so
+           the mark is redundant on a phone and 83px beats 139px. Scoped
+           to phones only; the mark is untouched from 400px up, where it
+           costs nothing. */
+        @media (max-width: 400px) {
+            .brand-block {
+                display: none;
+            }
+        }
         /* .brand-name removed with the wordmark, punch list item 5
            (2026-08-17) -- the character-only image is .brand-mark's
            sole child now. */
+        /* flex-wrap is deliberately unconditional rather than parked in
+           the 768px query below. Six tabs plus the brand block need
+           625px; a phone gives the bar 379px at 390px viewport, so the
+           last two tabs (Closet, Mirror) rendered entirely off-screen
+           with no scroll affordance to hint they were there -- measured
+           246px of overflow on a real 390px viewport.
+
+           Wrap is a no-op at every width where the tabs already fit, so
+           it costs the desktop layout nothing and needs no breakpoint of
+           its own; it also keeps working if a seventh tab is ever added,
+           which a hard-coded query would not. The alternative,
+           overflow-x: auto, keeps one line but leaves those two tabs
+           reachable only by a horizontal swipe that nothing advertises
+           -- discoverability beat the 41px of extra bar height (57px ->
+           98px at 390px, a 3+3 grid with the brand riding the second
+           row). Switching to scrolling later is a one-line change. */
         .tab-bar {
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-end;
             border-bottom: 1px solid var(--divider-color);
             padding: 0 16px;

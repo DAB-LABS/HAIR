@@ -3023,6 +3023,47 @@ export class IrDeviceList extends LitElement {
             align-items: center;
             justify-content: center;
         }
+        /* The Remote header is a twin of ir-device-detail.ts's Device
+           header, but it never got that file's narrow-width query, and
+           the omission is what put the chips outside the card on a
+           phone. .rtitle-block is flex-shrink: 0 and .hdr-rows is
+           flex: 1 (basis 0), so once the name plus the 32px actions
+           column exceed the header, .hdr-rows is the only item that can
+           give and it gives everything: measured 0px wide inside a
+           313px header at a 390px viewport, with the emitter chip
+           spilling 129px past the card edge. At 320px the actions
+           column went out with it.
+
+           Mirrors ir-device-detail.ts's 700px block rule for rule, on
+           purpose -- same layout, same content, same breakpoint, so the
+           two headers keep behaving identically. Restoring the title
+           block's ability to shrink is what lets the top line fit; the
+           chips then take a full-width line of their own below it.
+
+           Same-specificity selectors as the rules above, winning on
+           source order (not raised specificity), matching how the twin
+           file does it. Above 700px nothing here applies and the
+           desktop layout is untouched, divider included. */
+        @media (max-width: 700px) {
+            .trh-header.rdetail-top {
+                flex-wrap: wrap;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            .rdetail-top .rtitle-block {
+                flex: 1;
+            }
+            .rdetail-top .rdetail-divider {
+                display: none;
+            }
+            .rdetail-top .hdr-rows {
+                flex-basis: 100%;
+                order: 3;
+            }
+            .rdetail-top .rdetail-actions {
+                align-self: flex-start;
+            }
+        }
         /* Owner ruling 2026-08-15: was align-items: center, so when
            the Receivers chip group (inside this same row) wraps to
            two lines it centered the name/count/exit-to-HA button

@@ -766,11 +766,37 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
            .top-line is a wrapping flex row -- when .name-line grows
            tall enough to need its own line, .actions still lands
            flush right on whichever line it ends up on. */
+        /* flex-wrap here is the missing half of the ruling above. .top-line
+           wraps, so .actions can drop onto a line of its own -- but the
+           cluster itself was an unbreakable 263px, so on a narrow row it
+           overflowed .row's right edge whether it wrapped or not, and the
+           trash can ended up sitting outside the card.
+
+           It read as a 320px-only problem in Chrome, where the cluster
+           fit a 393px row with 10px to spare. It is not: 10px of slack is
+           inside the margin by which font metrics vary between engines.
+           iOS Safari does not have Roboto and falls back to a wider face,
+           which spent that slack and put the trash outside the card on a
+           real iPhone at a width Chrome rendered as clean. Reported from
+           a phone screenshot, 2026-08-23.
+
+           Wrapping removes the fixed-width assumption instead of buying
+           back a few pixels, so it holds for any face at any width -- it
+           survives a 0.25em letter-spacing stress at 320px, far past any
+           real font difference. It costs nothing until it is needed:
+           the row is 87px tall at 393px before and after, and only grows
+           when the cluster genuinely has to take a second line.
+
+           justify-content: flex-end keeps the wrapped line hard right,
+           matching the band the owner approved on .signal-actions rather
+           than inventing a second convention. */
         .actions {
             display: flex;
             gap: 4px;
             align-items: center;
             margin-left: auto;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
         .action-btn {
             background: none;
@@ -10951,6 +10977,47 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             align-items: center;
             justify-content: center;
         }
+        /* The Remote header is a twin of ir-device-detail.ts's Device
+           header, but it never got that file's narrow-width query, and
+           the omission is what put the chips outside the card on a
+           phone. .rtitle-block is flex-shrink: 0 and .hdr-rows is
+           flex: 1 (basis 0), so once the name plus the 32px actions
+           column exceed the header, .hdr-rows is the only item that can
+           give and it gives everything: measured 0px wide inside a
+           313px header at a 390px viewport, with the emitter chip
+           spilling 129px past the card edge. At 320px the actions
+           column went out with it.
+
+           Mirrors ir-device-detail.ts's 700px block rule for rule, on
+           purpose -- same layout, same content, same breakpoint, so the
+           two headers keep behaving identically. Restoring the title
+           block's ability to shrink is what lets the top line fit; the
+           chips then take a full-width line of their own below it.
+
+           Same-specificity selectors as the rules above, winning on
+           source order (not raised specificity), matching how the twin
+           file does it. Above 700px nothing here applies and the
+           desktop layout is untouched, divider included. */
+        @media (max-width: 700px) {
+            .trh-header.rdetail-top {
+                flex-wrap: wrap;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            .rdetail-top .rtitle-block {
+                flex: 1;
+            }
+            .rdetail-top .rdetail-divider {
+                display: none;
+            }
+            .rdetail-top .hdr-rows {
+                flex-basis: 100%;
+                order: 3;
+            }
+            .rdetail-top .rdetail-actions {
+                align-self: flex-start;
+            }
+        }
         /* Owner ruling 2026-08-15: was align-items: center, so when
            the Receivers chip group (inside this same row) wraps to
            two lines it centered the name/count/exit-to-HA button
@@ -12817,26 +12884,32 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             gap: 8px;
             flex-wrap: wrap;
         }
-        /* Mobile layout fix.
+        /* Mobile layout.
            On narrow viewports the diamond pattern inside .signal-info
            wraps internally into a tall column, and flex/align-center
            floats the action buttons (Assign / Test / Trigger / Delete)
            into the vertical middle of the row with huge whitespace
-           above and below. Switching to a 2-row grid keeps the
-           diamonds + meta on the first row and stacks the action
-           buttons below in their own band. Mirrors the bounded row
-           height that the device-detail command rows already get via
-           their fixed-column grid on every viewport. */
+           above and below. Giving .signal-actions a full flex line of
+           its own settles them into their own band underneath, which is
+           what that whitespace needed.
+
+           This was a 2-column grid until 2026-08-22, and the grid is
+           what put a wide empty gap next to the drag handle: auto-
+           placement dropped the tiny grip into the 1fr column and pushed
+           the real content (alias or diamonds) into the narrow auto
+           column beside it. Only .signal-actions carried an explicit
+           placement, so it was the one thing that landed where intended.
+           flex-basis fixes the button band the grid was added for
+           without rearranging everything above it.
+
+           Right-aligned by owner ruling 2026-08-23: the button line then
+           ends on exactly the same x as the chip / frequency line above
+           it, so the two share a right edge instead of the buttons
+           hanging under the drag handle. */
         @media (max-width: 768px) {
-            .signal-row {
-                display: grid;
-                grid-template-columns: 1fr auto;
-                align-items: start;
-                gap: 6px 8px;
-            }
             .signal-actions {
-                grid-column: 1 / -1;
-                justify-content: flex-start;
+                flex-basis: 100%;
+                justify-content: flex-end;
                 flex-wrap: wrap;
             }
         }
@@ -12867,9 +12940,21 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             color: var(--secondary-text-color);
             white-space: nowrap;
         }
+        /* The floor matters more than it looks. .signal-info is the only
+           shrinkable item on the row's first line -- chip-col, hits-col
+           and signal-actions are all fixed, and signal-meta is nowrap --
+           so as the window narrows it absorbs the entire deficit. With
+           min-width 0 it was squeezed to 4px before the line finally
+           overflowed enough to wrap the actions, and the diamonds inside
+           it stacked into a 2-wide column 367px tall. Ten pixels of
+           window width then swung the row between 384px and 80px.
+           A floor makes the line run out of room while this still has
+           usable width, so the actions wrap early and that cliff never
+           forms. Measured 2026-08-23: worst-case row height 416px -> 101px,
+           worst width-to-height jump 304px -> 22px. */
         .signal-info {
             flex: 1;
-            min-width: 0;
+            min-width: 180px;
         }
         .signal-code {
             font-size: 0.82rem;
@@ -13999,22 +14084,44 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             gap: 8px;
             flex-wrap: wrap;
         }
+        /* Mobile layout. The row keeps the flex layout it uses at every
+           other width; only the action buttons get a rule, claiming a
+           full flex line so they land in their own band underneath.
+
+           It used to switch to a 2-column grid here, which is what put a
+           wide empty gap next to the drag handle: grid auto-placement
+           dropped the tiny grip into the 1fr column and pushed the real
+           content (alias or diamonds) into the narrow auto column beside
+           it. Only .signal-actions had an explicit placement, so it was
+           the one thing that landed where intended. flex-basis reaches
+           the same end without disturbing how anything else flows.
+
+           Right-aligned by owner ruling 2026-08-23: the button line then
+           ends on exactly the same x as the chip / frequency line above
+           it, so the two share a right edge instead of the buttons
+           hanging under the drag handle. */
         @media (max-width: 768px) {
-            .signal-row {
-                display: grid;
-                grid-template-columns: 1fr auto;
-                align-items: start;
-                gap: 6px 8px;
-            }
             .signal-actions {
-                grid-column: 1 / -1;
-                justify-content: flex-start;
+                flex-basis: 100%;
+                justify-content: flex-end;
                 flex-wrap: wrap;
             }
         }
+        /* The floor matters more than it looks. .signal-info is the only
+           shrinkable item on the row's first line -- chip-col and
+           signal-actions are fixed and signal-meta is nowrap -- so as the
+           window narrows it absorbs the entire deficit. With min-width 0
+           it was squeezed to 4px before the line finally overflowed
+           enough to wrap the actions, and the diamonds inside it stacked
+           into a 2-wide column 367px tall. Ten pixels of window width
+           then swung the row between 384px and 80px. A floor makes the
+           line run out of room while this still has usable width, so the
+           actions wrap early and that cliff never forms. Measured
+           2026-08-23: worst-case row height 416px -> 101px, worst
+           width-to-height jump 304px -> 22px. */
         .signal-info {
             flex: 1;
-            min-width: 0;
+            min-width: 180px;
         }
         /* The same fixed 96px centred column the Sniffer uses, so the two
            lists read alike. No hits column here: a clipped remote never
@@ -15326,22 +15433,44 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             gap: 8px;
             flex-wrap: wrap;
         }
+        /* Mobile layout. The row keeps the flex layout it uses at every
+           other width; only the action buttons get a rule, claiming a
+           full flex line so they land in their own band underneath.
+
+           It used to switch to a 2-column grid here, which is what put a
+           wide empty gap next to the drag handle: grid auto-placement
+           dropped the tiny grip into the 1fr column and pushed the real
+           content (alias or diamonds) into the narrow auto column beside
+           it. Only .signal-actions had an explicit placement, so it was
+           the one thing that landed where intended. flex-basis reaches
+           the same end without disturbing how anything else flows.
+
+           Right-aligned by owner ruling 2026-08-23: the button line then
+           ends on exactly the same x as the chip / frequency line above
+           it, so the two share a right edge instead of the buttons
+           hanging under the drag handle. */
         @media (max-width: 768px) {
-            .signal-row {
-                display: grid;
-                grid-template-columns: 1fr auto;
-                align-items: start;
-                gap: 6px 8px;
-            }
             .signal-actions {
-                grid-column: 1 / -1;
-                justify-content: flex-start;
+                flex-basis: 100%;
+                justify-content: flex-end;
                 flex-wrap: wrap;
             }
         }
+        /* The floor matters more than it looks. .signal-info is the only
+           shrinkable item on the row's first line -- chip-col and
+           signal-actions are fixed and signal-meta is nowrap -- so as the
+           window narrows it absorbs the entire deficit. With min-width 0
+           it was squeezed to 4px before the line finally overflowed
+           enough to wrap the actions, and the diamonds inside it stacked
+           into a 2-wide column 367px tall. Ten pixels of window width
+           then swung the row between 384px and 80px. A floor makes the
+           line run out of room while this still has usable width, so the
+           actions wrap early and that cliff never forms. Measured
+           2026-08-23: worst-case row height 416px -> 101px, worst
+           width-to-height jump 304px -> 22px. */
         .signal-info {
             flex: 1;
-            min-width: 0;
+            min-width: 180px;
         }
         /* The same fixed 96px centred column the Sniffer and the Clipper
            use, so all three lists read alike. */
@@ -16355,11 +16484,45 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             display: block;
             margin: 5px 0;
         }
+        /* Below 400px the mascot is what forces a third row of tab bar.
+           Once .tab-bar wraps, the tabs pack two rows and .brand-block
+           cannot fit beside the second one, so it takes a line of its
+           own: measured 139px of bar at 320px against 98px at 390px.
+           Dropping it below 400px puts every phone width on two rows at
+           83px -- 56px back at 320px, and 15px even where the bar was
+           already two rows.
+
+           Owner ruling 2026-08-23: the banner carries page identity, so
+           the mark is redundant on a phone and 83px beats 139px. Scoped
+           to phones only; the mark is untouched from 400px up, where it
+           costs nothing. */
+        @media (max-width: 400px) {
+            .brand-block {
+                display: none;
+            }
+        }
         /* .brand-name removed with the wordmark, punch list item 5
            (2026-08-17) -- the character-only image is .brand-mark's
            sole child now. */
+        /* flex-wrap is deliberately unconditional rather than parked in
+           the 768px query below. Six tabs plus the brand block need
+           625px; a phone gives the bar 379px at 390px viewport, so the
+           last two tabs (Closet, Mirror) rendered entirely off-screen
+           with no scroll affordance to hint they were there -- measured
+           246px of overflow on a real 390px viewport.
+
+           Wrap is a no-op at every width where the tabs already fit, so
+           it costs the desktop layout nothing and needs no breakpoint of
+           its own; it also keeps working if a seventh tab is ever added,
+           which a hard-coded query would not. The alternative,
+           overflow-x: auto, keeps one line but leaves those two tabs
+           reachable only by a horizontal swipe that nothing advertises
+           -- discoverability beat the 41px of extra bar height (57px ->
+           98px at 390px, a 3+3 grid with the brand riding the second
+           row). Switching to scrolling later is a one-line change. */
         .tab-bar {
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-end;
             border-bottom: 1px solid var(--divider-color);
             padding: 0 16px;
