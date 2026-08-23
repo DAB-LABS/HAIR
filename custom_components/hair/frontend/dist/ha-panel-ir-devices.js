@@ -9217,6 +9217,26 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
             .pin-chip.unmapped {
                 color: var(--secondary-text-color);
             }
+            /* The chip may wrap inside itself. Found on the bench, not
+               in the width arithmetic that drove the wrap above: a
+               receiver named "Home Theater Equipment Rack Infrared
+               Receiver Number Five" makes a single chip about 388px
+               wide, which is wider than the whole row on a phone. One
+               unbreakable chip longer than its container overflows no
+               matter how the container wraps, so the cluster wrapping
+               alone still left it 128px outside the card at 320px.
+
+               white-space: normal PERMITS wrapping rather than forcing
+               it -- a chip with room still renders on one line, so wide
+               rows are unaffected and this needs no breakpoint.
+               overflow-wrap covers the other end of the same problem, a
+               single token longer than the line, which is what an
+               entity_id shown as its own fallback name would be.
+
+               Wrapping and not an ellipsis on purpose: which receiver a
+               trigger is scoped to is the fact this chip exists to
+               state, so it re-lays out and keeps the whole name rather
+               than trimming it to fit. */
             .scope-chip {
                 font-size: 10px;
                 text-transform: uppercase;
@@ -9225,7 +9245,8 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                 border-radius: 4px;
                 padding: 2px 7px;
                 color: var(--secondary-text-color);
-                white-space: nowrap;
+                white-space: normal;
+                overflow-wrap: anywhere;
             }
             /* STATE: this trigger was minted off a lattice cell rather
                than off a captured button (origin "matrix"). Cold blue,
