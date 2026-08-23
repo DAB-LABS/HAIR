@@ -5,6 +5,15 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-08-23 -- More Protocols
+
+### Added
+- RCA decoder (TCL Google TV remotes and classic RCA handsets): 24-bit frames carrying a built-in complement checksum, repeated whole while a button is held. Captures collapse to one identity at any repeat count, triggers fire on every press, and existing duplicate rows merge on the next restart. Transmit keeps the captured carrier (a 38.7 kHz RCA variant is documented).
+- RC-6 decoder (Philips gear, Windows Media Center remotes, Sky and VU+ set top boxes): modes 0 and 6A, with the press-to-press toggle decoded out of signal identity so alternating codes land on one row and sends flip the toggle like the original remote. Requested with captures by @MaxRower (#33).
+
+### Fixed
+- Trigger rows with several emitter chips, or one very long receiver name, no longer escape the card; chips wrap inside the row at any width.
+
 ## [0.11.0] - 2026-08-23 -- Frizz Control
 
 ### Added

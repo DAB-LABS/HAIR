@@ -402,8 +402,9 @@ Key components:
   precondition the trigger then randomly misses its own button. The dedup window
   slides and is keyed per trigger, so protocols that transmit several full frames
   per press (Sony sends 4-5) count as one press even when frames flip fingerprints.
-  Local-first decoders (v0.6.0): HAIR ships its own decoders for eight
-  protocols -- Sony SIRC 12/15/20, Symphony (8/12/16-bit rc_switch family),
+  Local-first decoders (v0.6.0): HAIR ships its own decoders for ten
+  protocols -- Sony SIRC 12/15/20, RCA (v0.11.1, TCL Google TV and classic
+  RCA handsets), Philips RC-6 modes 0 and 6A (v0.11.1, MCE and VU+ family), Symphony (8/12/16-bit rc_switch family),
   Philips RC-5 (incl. RC5X), Samsung32, Sharp, Kaseikyo (Panasonic family),
   Marantz Extended, and Nokia32 (Philips RC-MM, the Foxtel/Sky/Mediamaster
   set-top box family) -- in custom_components/hair/decoders/, each shaped
