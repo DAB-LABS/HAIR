@@ -29,6 +29,7 @@ from custom_components.hair.decoders.kaseikyo import KaseikyoCommand
 from custom_components.hair.decoders.marantz_extended import MarantzExtendedCommand
 from custom_components.hair.decoders.nokia32 import Nokia32Command
 from custom_components.hair.decoders.rc5 import RC5Command
+from custom_components.hair.decoders.rca import RCACommand
 from custom_components.hair.decoders.samsung import Samsung32Command
 from custom_components.hair.decoders.sharp import SharpCommand
 from custom_components.hair.decoders.sony import SonyCommand
@@ -685,6 +686,7 @@ _DECODERS = {
     "dyson": DysonCommand,
     "sony": SonyCommand,
     "rc5": RC5Command,
+    "rca": RCACommand,
     "samsung": Samsung32Command,
     "sharp": SharpCommand,
     "nokia32": Nokia32Command,
@@ -720,6 +722,11 @@ def _samples() -> dict[str, list[int]]:
         ).get_raw_timings(),
         "dyson": DysonCommand(
             device=9, function=0, counter=1
+        ).get_raw_timings(),
+        # The TCL/RCA button from the forum report, held for four
+        # frames -- the shape whose frame count used to be identity.
+        "rca": RCACommand(
+            device=0xF, function=0x2A, repeat_count=3
         ).get_raw_timings(),
     }
 

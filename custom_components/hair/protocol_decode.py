@@ -185,6 +185,19 @@ def _construct_sharp(cls: type, label: str, address: int, command: int,
     return cls(address=address, command=command, extension=extension & 1)
 
 
+def _extract_rca(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
+    # Identity = device + function. RCA has no toggle, no counter and no
+    # repeat code, so there are no extras at all: the frame count of a
+    # held button is press length, and folding it into identity is
+    # precisely the bug this decoder exists to cure.
+    return ("RCA", int(cmd.device), int(cmd.function), None)
+
+
+def _construct_rca(cls: type, label: str, address: int, command: int,
+                   extras: Any) -> Any:
+    return cls(device=address, function=command)
+
+
 def _extract_nokia32(cmd: Any) -> tuple[str, int, int, dict[str, int] | None]:
     # device/subdevice pack into the 16-bit box address; function is the
     # command; X (system/OEM) is identity and rides in the suffix; toggle
@@ -321,6 +334,14 @@ _REGISTRATIONS: tuple[tuple, ...] = (
     ("sharp", "infrared_protocols.commands.sharp", "SharpCommand",
      "custom_components.hair.decoders.sharp", True,
      _extract_sharp, _construct_sharp, ("SHARP",)),
+    # RCA carries a strict whole-payload checksum (the second twelve bits
+    # are the exact complement of the first), so it belongs in the strict
+    # tier rather than the checksum-free tail. Upstream ships no rca
+    # module today; the path is registered so a future library gains it
+    # automatically by feature detection, never by a version pin.
+    ("rca", "infrared_protocols.commands.rca", "RCACommand",
+     "custom_components.hair.decoders.rca", True,
+     _extract_rca, _construct_rca, ("RCA",)),
     # Upstream ships no Nokia32 yet, so this resolves to the local decoder;
     # if the library ever adds Nokia32Command with from_raw_timings, HAIR
     # defers to it automatically (rohrsh's branch, discussion #70).
