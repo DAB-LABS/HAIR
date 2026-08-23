@@ -38,13 +38,17 @@ from custom_components.hair.wig_adapters import _broadlink_b64_to_pronto
 from custom_components.hair.wig_comb import (
     CHECK_FIELD_MISMATCH,
     CHECK_FRAME_INTEGRITY,
+    CHECK_MALFORMED,
     comb_wig,
+    stamp_receipt,
+    suspect_findings,
 )
 from custom_components.hair.wig_format import (
     ClimateCell,
     ClimateMatrix,
     Wig,
     WigSignal,
+    cell_key,
     parse_wig,
 )
 
@@ -294,6 +298,93 @@ class TestCoverageIsHonest:
         assert [f for f in report.findings
                 if f.check == CHECK_FIELD_MISMATCH] == []
         assert report.coverage.to_dict()["protocol"]["id"] is None
+
+
+class TestAFlaggedCodeIsStillRead:
+    """A structural finding is not a disposal (owner ruling 2026-08-23).
+
+    R2 shipped this behaviour by omission -- the sweep simply never
+    consulted the structural verdict -- and the bench found six MHI152
+    cells that were both `malformed` and carrying a shifted setpoint.
+    The ruling makes it deliberate, and this class is where it lives:
+    remove the reading and these tests fail rather than quietly
+    approving a code somebody already complained about.
+    """
+
+    def _short_and_lying(self) -> tuple[Wig, str]:
+        """One cell that is short AND says the wrong temperature.
+
+        MITSUBISHI144 sends two 144-bit frames and carries the fields in
+        the FIRST, which is the shape that makes this ruling matter: a
+        trailing frame can be clipped -- by a capture cut short, by an
+        exporter trimming a trailer -- while the payload frame reads
+        perfectly. The cell borrows its neighbour's contents, so it also
+        sends four degrees off its own label.
+        """
+        wig = _pack_wig("MITSUBISHI144.json")
+        first = wig.climate.cells[0]
+        column = sorted(
+            (c for c in wig.climate.cells
+             if (c.mode, c.fan, c.swing) == (first.mode, first.fan,
+                                             first.swing)),
+            key=lambda c: c.temp)
+        victim, neighbour = column[0], column[1]
+        victim.pronto = neighbour.pronto
+        words = [int(w, 16) for w in victim.pronto.split()]
+        words = words[:-4]                      # two burst pairs off the end
+        words[2] = (len(words) - 4) // 2        # honest burst-pair count
+        victim.pronto = " ".join(f"{w:04X}" for w in words)
+        return wig, cell_key(victim)
+
+    def test_the_structural_finding_still_fires(self):
+        wig, key = self._short_and_lying()
+        checks = {f.check for f in comb_wig(wig).findings if key in f.keys}
+        assert CHECK_MALFORMED in checks
+
+    def test_and_the_sweep_reads_it_anyway(self):
+        """The point of the ruling. The payload frame is intact, so what
+        it says is knowable, and a cell that answers with the wrong
+        setpoint is worth saying out loud whatever else is wrong with
+        it."""
+        wig, key = self._short_and_lying()
+        field = [f for f in comb_wig(wig).findings
+                 if f.check == CHECK_FIELD_MISMATCH and key in f.keys]
+        assert len(field) == 1
+        assert field[0].params["field"] == "comb.field.temperature"
+        assert field[0].params["expected"] != field[0].params["read"]
+
+    def test_the_receipt_carries_both_flags_on_the_one_cell(self):
+        """Side by side, not worst-only. A reader who sees `malformed`
+        and nothing else would repair the shape and ship the lie."""
+        wig, key = self._short_and_lying()
+        stamp_receipt(wig, comb_wig(wig), "2026-08-23")
+        receipt = wig.extra["comb"]
+        classes = {entry["check"] for entry in receipt["findings"]
+                   if key in entry["keys"]}
+        assert {CHECK_MALFORMED, CHECK_FIELD_MISMATCH} <= classes
+
+    def test_the_row_leads_with_the_worse_of_them(self):
+        """One row, one lead class, and it is the one that matters: a
+        wrong setting outranks a wrong shape, because the shape is
+        visible and the setting is not."""
+        wig, key = self._short_and_lying()
+        stamp_receipt(wig, comb_wig(wig), "2026-08-23")
+        assert suspect_findings(wig)[key] == CHECK_FIELD_MISMATCH
+
+    def test_an_unreadable_frame_is_still_declined(self):
+        """The ruling is not "read everything". A frame whose pulses
+        fall outside the map's own windows fails identification and goes
+        to coverage -- a different judgement from "somebody else already
+        complained about this code"."""
+        wig = _pack_wig("MITSUBISHI144.json")
+        victim = wig.climate.cells[0]
+        words = [int(w, 16) for w in victim.pronto.split()]
+        words = words[:-40]
+        words[2] = (len(words) - 4) // 2
+        victim.pronto = " ".join(f"{w:04X}" for w in words)
+        protocol = _coverage(wig)["protocol"]
+        assert protocol["id"] == "MITSUBISHI144"
+        assert protocol["declined"][fr.UNREADABLE] == 1
 
 
 class TestOneCodeIsNotAFamily:

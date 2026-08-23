@@ -962,7 +962,29 @@ def _skip_reason(
 def _field_findings(
     codes: list[_Code], coverage: Coverage, labelled: bool
 ) -> list[Finding]:
-    """Compare every readable code's fields to what its label claims."""
+    """Compare every readable code's fields to what its label claims.
+
+    A CODE THE STRUCTURAL TIER ALREADY FLAGGED IS STILL READ (owner
+    ruling, 2026-08-23). The sweep does not consult the structural
+    verdict and does not skip a code because `malformed` or
+    `frame-shape` reached it first. Deliberate, on three grounds.
+
+    Findings never block, so a structural finding is not a disposal --
+    the code is still in the file, the device will still send it, and
+    what it says is still worth knowing. The two tiers also answer
+    different questions: `malformed` says a capture is the wrong SHAPE
+    for its neighbours, which on a multi-frame family can be true of a
+    trailing frame while the payload frame reads perfectly, and that is
+    exactly where a shifted setpoint hides. And the receipt carries
+    every finding on a key side by side, so a reader sees a cell that
+    is both short AND lying rather than only the first thing that hit
+    it -- which is the whole picture, and the more useful one.
+
+    The tier still declines the code it genuinely cannot read: a frame
+    whose pulses fall outside the map's own windows fails
+    identification and lands in coverage as `unreadable-frame`. That is
+    a different judgement from "somebody else already complained".
+    """
     field_map, readings = _read_family(codes, coverage)
     if field_map is None:
         coverage.declined(
