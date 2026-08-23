@@ -1806,9 +1806,21 @@ export class IrPluck extends LitElement {
                 flex-wrap: wrap;
             }
         }
+        /* The floor matters more than it looks. .signal-info is the only
+           shrinkable item on the row's first line -- chip-col and
+           signal-actions are fixed and signal-meta is nowrap -- so as the
+           window narrows it absorbs the entire deficit. With min-width 0
+           it was squeezed to 4px before the line finally overflowed
+           enough to wrap the actions, and the diamonds inside it stacked
+           into a 2-wide column 367px tall. Ten pixels of window width
+           then swung the row between 384px and 80px. A floor makes the
+           line run out of room while this still has usable width, so the
+           actions wrap early and that cliff never forms. Measured
+           2026-08-23: worst-case row height 416px -> 101px, worst
+           width-to-height jump 304px -> 22px. */
         .signal-info {
             flex: 1;
-            min-width: 0;
+            min-width: 180px;
         }
         /* The same fixed 96px centred column the Sniffer and the Clipper
            use, so all three lists read alike. */
