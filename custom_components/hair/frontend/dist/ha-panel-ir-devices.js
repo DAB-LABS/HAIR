@@ -16354,8 +16354,25 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
         /* .brand-name removed with the wordmark, punch list item 5
            (2026-08-17) -- the character-only image is .brand-mark's
            sole child now. */
+        /* flex-wrap is deliberately unconditional rather than parked in
+           the 768px query below. Six tabs plus the brand block need
+           625px; a phone gives the bar 379px at 390px viewport, so the
+           last two tabs (Closet, Mirror) rendered entirely off-screen
+           with no scroll affordance to hint they were there -- measured
+           246px of overflow on a real 390px viewport.
+
+           Wrap is a no-op at every width where the tabs already fit, so
+           it costs the desktop layout nothing and needs no breakpoint of
+           its own; it also keeps working if a seventh tab is ever added,
+           which a hard-coded query would not. The alternative,
+           overflow-x: auto, keeps one line but leaves those two tabs
+           reachable only by a horizontal swipe that nothing advertises
+           -- discoverability beat the 41px of extra bar height (57px ->
+           98px at 390px, a 3+3 grid with the brand riding the second
+           row). Switching to scrolling later is a one-line change. */
         .tab-bar {
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-end;
             border-bottom: 1px solid var(--divider-color);
             padding: 0 16px;
