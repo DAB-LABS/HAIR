@@ -245,7 +245,7 @@ Key components:
   list: _getActionLabel falls back to the raw mapping key when a device
   carries a mapping from a type it no longer is.
 - Combing (Smart Perm, v0.9.1): protocol-agnostic checks that a wig's codes
-  agree with each other, in wig_comb.py -- frame-shape uniformity, partial row
+  agree with each other, in wig_comb.py -- repeat-frame self-consistency with the vote shown and a coverage block in the receipt (v0.11.0), frame-shape uniformity, partial row
   collapse, gaps in a captured temperature run, coordinate uniqueness, and
   duplicate-label groups (advisory only, never counted, never merged). Runs at
   import on every wig and on demand via wigs/comb (executor; 2,689-cell

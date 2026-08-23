@@ -5,6 +5,17 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-23 -- Frizz Control
+
+### Added
+- Frame self-consistency comb check: a code is compared against its own repeat frames, clustered by length class; disagreement is flagged with the vote shown (frames, readings, disagreeing positions). Findings feed the existing comb gate on matrix cells. Where a repeat boundary cannot be trusted the check declines with a coverage reason instead of guessing.
+- Capture-time notice: the same check runs on a fresh capture in the Sniffer assign dialog and the command editor, warning while the remote is still in hand. It never blocks a save or an assign.
+- Comb receipt version 2 with a coverage block: which checks ran, which declined and why. Version 1 receipts still parse; combing again upgrades in place. The Closet renders a partly checked wig distinctly from a clean one.
+- The Dreo and Komeco WigShop files (CC0) join the test suite as permanent regression fixtures.
+
+### Fixed
+- Mobile layout pass: the tab bar wraps instead of overflowing so all six tabs are reachable at phone widths, with the brand mark hidden below 400px; remote headers keep emitter chips and actions inside the card; command row action buttons wrap instead of leaving the card; signal lists drop a grid override that left a wide dead band and gain a width floor that stops rows collapsing at narrow widths.
+
 ## [0.10.3] - 2026-08-21 -- Broad Sweep
 
 ### Added
