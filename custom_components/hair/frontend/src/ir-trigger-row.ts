@@ -220,12 +220,20 @@ export class IrTriggerRow extends LitElement {
         )}`;
     }
 
+    /** The chips are wrapped rather than emitted as bare siblings so
+     *  that narrow widths have something to give a line of its own --
+     *  see .trow-scope below. The wrapper is display: contents until
+     *  the breakpoint, so on a full-width row the chips still lay out
+     *  as the direct flex children of .trow-controls they always were
+     *  and nothing about the wide layout moves. */
     private _renderScope() {
         const ids = this.trigger.receiver_entity_ids ?? [];
         if (ids.length === 0) return nothing;
-        return html`${ids.map(
-            (id) => html`<span class="scope-chip">${this._friendly(id)}</span>`,
-        )}`;
+        return html`<div class="trow-scope">
+            ${ids.map(
+                (id) => html`<span class="scope-chip">${this._friendly(id)}</span>`,
+            )}
+        </div>`;
     }
 
     // ---------------------------------------------------------------
@@ -422,11 +430,59 @@ export class IrTriggerRow extends LitElement {
             .min-hits-knob ha-svg-icon {
                 --mdc-icon-size: 12px;
             }
+            /* flex-wrap is what stops a scoped row escaping the card.
+               This cluster holds the emitter chips, each nowrap, and
+               .alive-text's reserved 144px, so its width is set by how
+               many receivers a trigger is scoped to and how long their
+               friendly names are. Measured intrinsic demand against the
+               ~330px a 390px phone gives the row: 252px unscoped, 325px
+               with one short chip, 473px with the owner's two
+               ("HAIR ONE" + "ATHOM RF IR REMOTE 2"), 608px with three.
+               .trow-top already wraps, so the cluster could drop to a
+               line of its own -- but with nothing breakable inside it,
+               it then ran off the card and made the whole drawer
+               scroll sideways.
+
+               Deliberately NOT inside the media query below. Wrapping
+               is a no-op at any width where the cluster already fits,
+               and this drawer renders inside a dashboard card that can
+               be narrow on a wide screen, where a viewport query would
+               never fire -- the same width-driven-not-viewport-driven
+               reasoning the .signal-info floor was built on. */
             .trow-controls {
                 display: flex;
                 align-items: center;
                 gap: 6px;
                 margin-left: auto;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+            /* Transparent to layout until the breakpoint: the chips
+               remain direct flex children of .trow-controls exactly as
+               before, so the wide row is unchanged down to the gap. */
+            .trow-scope {
+                display: contents;
+            }
+            /* Below this the emitter chips read as their own band
+               rather than as a prefix to the readout (owner ruling
+               2026-08-23, taken together with the wrap above). Becoming
+               a real box with flex-basis: 100% claims a full line of
+               the wrapped cluster, so a trigger scoped to several
+               receivers lists them cleanly instead of pushing the
+               toggle and the trash can off the row.
+
+               700px matches the narrow-width breakpoint the Device and
+               Remote headers already use; a second number here would
+               mean two answers to the same question. */
+            @media (max-width: 700px) {
+                .trow-scope {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    justify-content: flex-end;
+                    gap: 6px;
+                    flex-basis: 100%;
+                }
             }
             /* Pin readout (signpost 4, Track 4). Shares the scope
                action idiom (mobile-polish ruling 2026-08-04): arrow
@@ -510,17 +566,36 @@ export class IrTriggerRow extends LitElement {
                the number, and right-justify inside it -- the toggle's
                own left edge is what needs to be gated. 144px is the
                mockup's bench starting point ("999 hits · 59 min ago"
-               with room to spare); tune against real copy on the bench. */
+               with room to spare); tune against real copy on the bench.
+
+               The basis is now shrinkable (0 1 rather than 0 0). The
+               reservation is an alignment device for a LIST of rows
+               read against each other, and it was buying that alignment
+               at the cost of 144px a cramped row could not refuse.
+               Shrinking is a last resort -- the cluster wraps first --
+               so any row with room still reserves the full width and
+               the wide layout is unchanged.
+
+               Below the breakpoint the reservation is dropped outright:
+               the cluster is on its own line there, so there is nothing
+               beside it to align against, and 144px was close to half
+               of the width a phone gives the entire row. */
             .alive-text {
                 display: inline-block;
                 width: 144px;
-                flex: 0 0 144px;
+                flex: 0 1 144px;
                 font-size: 0.74rem;
                 color: var(--secondary-text-color);
                 white-space: nowrap;
                 text-align: right;
                 overflow: hidden;
                 text-overflow: ellipsis;
+            }
+            @media (max-width: 700px) {
+                .alive-text {
+                    width: auto;
+                    flex: 0 1 auto;
+                }
             }
             .alive-text .hit-n {
                 color: var(--primary-text-color);
