@@ -536,6 +536,23 @@ export class HaPanelIrDevices extends LitElement {
             display: block;
             margin: 5px 0;
         }
+        /* Below 400px the mascot is what forces a third row of tab bar.
+           Once .tab-bar wraps, the tabs pack two rows and .brand-block
+           cannot fit beside the second one, so it takes a line of its
+           own: measured 139px of bar at 320px against 98px at 390px.
+           Dropping it below 400px puts every phone width on two rows at
+           83px -- 56px back at 320px, and 15px even where the bar was
+           already two rows.
+
+           Owner ruling 2026-08-23: the banner carries page identity, so
+           the mark is redundant on a phone and 83px beats 139px. Scoped
+           to phones only; the mark is untouched from 400px up, where it
+           costs nothing. */
+        @media (max-width: 400px) {
+            .brand-block {
+                display: none;
+            }
+        }
         /* .brand-name removed with the wordmark, punch list item 5
            (2026-08-17) -- the character-only image is .brand-mark's
            sole child now. */
