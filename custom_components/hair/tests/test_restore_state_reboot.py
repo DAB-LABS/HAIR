@@ -41,6 +41,7 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from custom_components.hair.climate import HAIRClimateEntity, _ClimateExtraStoredData
 from custom_components.hair.const import CommandSource, DeviceType
@@ -49,6 +50,7 @@ from custom_components.hair.fan import HAIRFanEntity
 from custom_components.hair.light import HAIRLightEntity
 from custom_components.hair.media_player import HAIRMediaPlayerEntity
 from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
+from custom_components.hair.remote import HAIRRemoteEntity
 from custom_components.hair.switch import HAIRSwitchEntity
 from custom_components.hair.wig_format import ClimateCell, ClimateMatrix
 
@@ -899,3 +901,41 @@ async def test_preset_mode_climate_is_untouched_by_all_of_this():
     )
     assert entity.hvac_mode == HVACMode.COOL
     assert entity.preset_mode is None
+
+
+# ---------------------------------------------------------------------------
+# remote: always on, by ruling (restore completeness, 2026-08-23)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_remote_is_always_on_after_a_restart():
+    """Ruled 2026-08-23: a remote's is_on is a claim about the SENDER,
+    not the appliance. It comes back on because it IS on -- HAIR can
+    always send through it.
+
+    Pinned so a future RestoreEntity sweep has to argue with the
+    decision rather than quietly reversing it: a fresh entity is on,
+    a stored OFF does not change that, and no restore hook exists to
+    make it change.
+    """
+    entity = HAIRRemoteEntity(_device(DeviceType.MEDIA_PLAYER), _manager())
+    assert entity.is_on is True
+    assert not hasattr(entity, "_async_restore_state")
+    assert not isinstance(entity, RestoreEntity)
+
+
+@pytest.mark.asyncio
+async def test_remote_off_then_simulated_restart_comes_back_on():
+    """The audit set it off before both restarts and got on back both
+    times. That is now the specified behaviour, so the test asserts it
+    on purpose rather than the audit reporting it as a gap."""
+    device = _device(DeviceType.MEDIA_PLAYER)
+    entity = HAIRRemoteEntity(device, _manager())
+    entity.async_write_ha_state = MagicMock()
+    entity.hass = MagicMock()
+    entity._is_on = False
+    assert entity.is_on is False
+    # A restart is a fresh construction from the same stored device.
+    reborn = HAIRRemoteEntity(device, _manager())
+    assert reborn.is_on is True
