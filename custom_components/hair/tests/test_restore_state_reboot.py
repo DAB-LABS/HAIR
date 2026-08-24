@@ -28,20 +28,29 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.components.climate import (
     ATTR_FAN_MODE,
+    ATTR_PRESET_MODE,
     ATTR_SWING_MODE,
     ATTR_TEMPERATURE,
     HVACMode,
 )
-from homeassistant.components.media_player import MediaPlayerState
+from homeassistant.components.fan import ATTR_OSCILLATING, ATTR_PERCENTAGE
+from homeassistant.components.media_player import (
+    ATTR_MEDIA_VOLUME_LEVEL,
+    ATTR_MEDIA_VOLUME_MUTED,
+    MediaPlayerState,
+)
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from custom_components.hair.climate import HAIRClimateEntity, _ClimateExtraStoredData
-from custom_components.hair.const import DeviceType
+from custom_components.hair.const import CommandSource, DeviceType
+from custom_components.hair.cover import HAIRCoverEntity
 from custom_components.hair.fan import HAIRFanEntity
 from custom_components.hair.light import HAIRLightEntity
 from custom_components.hair.media_player import HAIRMediaPlayerEntity
-from custom_components.hair.models import EntityConfig, IRDevice
+from custom_components.hair.models import EntityConfig, IRCommand, IRDevice
+from custom_components.hair.remote import HAIRRemoteEntity
 from custom_components.hair.switch import HAIRSwitchEntity
 from custom_components.hair.wig_format import ClimateCell, ClimateMatrix
 
@@ -481,3 +490,452 @@ async def test_added_to_hass_restores_before_dispatcher_connects(monkeypatch):
 
     assert calls == ["restore", "dispatcher_connect"]
     assert entity.is_on is True
+
+
+# ---------------------------------------------------------------------------
+# cover: the platform the 0.9.8 scoping rule missed (restore completeness,
+# 2026-08-23). Not "on/off" and not climate, so the rule's sentence read as
+# though it covered the field while nothing actually did.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cover_no_last_state_stays_unknown():
+    """No stored state is the ONLY case that may still read unknown.
+
+    A fresh install has no evidence about the screen and should say so.
+    The bug was that a restart also produced this, which is a different
+    thing wearing the same face.
+    """
+    entity, mgr = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), None
+    )
+    assert entity.is_closed is None
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cover_restores_closed():
+    last = State("cover.x", "closed", {})
+    entity, mgr = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), last
+    )
+    assert entity.is_closed is True
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cover_restores_open():
+    """Both directions, because the audit set closed before restart A
+    and OPEN before restart B and got `unknown` back from both -- which
+    is what proved the attribute was being dropped rather than one
+    particular value being mishandled."""
+    last = State("cover.x", "open", {})
+    entity, _ = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), last
+    )
+    assert entity.is_closed is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["unknown", "unavailable", "opening", "garbage"])
+async def test_cover_unusable_state_stays_unknown(state):
+    """Anything that is not one of this platform's two real states is
+    no evidence, and no evidence stays None rather than guessing a
+    direction."""
+    entity, _ = await _restored_entity(
+        HAIRCoverEntity, _device(DeviceType.SCREEN), State("cover.x", state, {})
+    )
+    assert entity.is_closed is None
+
+
+@pytest.mark.asyncio
+async def test_cover_has_no_power_verdict_subscription():
+    """Ruled 2026-08-23: cover deliberately does not subscribe, so the
+    asymmetry against the other five platforms is a decision rather
+    than the same oversight repeating. Pinned so a later sweep adding
+    it has to change this test and read the ruling.
+    """
+    entity = HAIRCoverEntity(_device(DeviceType.SCREEN), _manager())
+    entity.async_write_ha_state = MagicMock()
+    entity.hass = MagicMock()
+    entity.async_get_last_state = AsyncMock(return_value=None)
+    await entity.async_added_to_hass()
+    assert not hasattr(entity, "_power_verdict_unsub")
+
+
+# ---------------------------------------------------------------------------
+# fan: percentage and oscillating (restore completeness, 2026-08-23).
+# GH #115's actual report. The 0.9.8 scope was a real decision; it is stale.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("percentage,oscillating", [(60, True), (80, False)])
+async def test_fan_restores_percentage_and_oscillating(percentage, oscillating):
+    """Two distinct values, the way the audit ran it: a result that
+    only holds for one particular value is an artefact, not a fix."""
+    last = State(
+        "fan.x", "on",
+        {ATTR_PERCENTAGE: percentage, ATTR_OSCILLATING: oscillating},
+    )
+    entity, mgr = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.is_on is True
+    assert entity.percentage == percentage
+    assert entity.oscillating is oscillating
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fan_legacy_stored_state_behaves_exactly_as_today():
+    """A state written before this fix carries neither attribute. It
+    must restore is_on and leave the other two at __init__'s defaults,
+    which is precisely what today's code does -- no crash, no guess."""
+    last = State("fan.x", "on", {})
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.is_on is True
+    assert entity.percentage is None
+    assert entity.oscillating is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["not-a-number", None, [], {}])
+async def test_fan_malformed_percentage_falls_back(bad):
+    """A restore block that raises on a stale snapshot takes the whole
+    entity down with it. Anything unconvertible is treated as absent."""
+    last = State("fan.x", "on", {ATTR_PERCENTAGE: bad})
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.percentage is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored,expected", [(-20, 0), (250, 100)])
+async def test_fan_out_of_range_percentage_clamps(stored, expected):
+    """Percentage is a 0..100 contract with HA. A corrupted snapshot
+    self-heals to a legal value rather than resurrecting forever, the
+    same reasoning 098-final-review applied to the climate setpoint."""
+    last = State("fan.x", "on", {ATTR_PERCENTAGE: stored})
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.percentage == expected
+
+
+@pytest.mark.asyncio
+async def test_fan_off_still_carries_its_speed_back():
+    """The power-verdict handler says an "on" verdict restores speed
+    and oscillation for free, because neither is cleared on off. That
+    is only true if a stored OFF state keeps them, so it does."""
+    last = State(
+        "fan.x", "off", {ATTR_PERCENTAGE: 40, ATTR_OSCILLATING: True}
+    )
+    entity, _ = await _restored_entity(HAIRFanEntity, _device(DeviceType.FAN), last)
+    assert entity.is_on is False
+    assert entity.percentage == 40
+    assert entity.oscillating is True
+
+
+# ---------------------------------------------------------------------------
+# media_player: volume and mute (restore completeness, 2026-08-23).
+# Dropped by the same 0.9.8 rule as fan's percentage, with no comment here
+# naming it. Playback state stays clamped, which is a different argument.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("volume,muted", [(0.55, True), (0.2, False)])
+async def test_media_restores_volume_and_mute(volume, muted):
+    last = State(
+        "media_player.x", "on",
+        {ATTR_MEDIA_VOLUME_LEVEL: volume, ATTR_MEDIA_VOLUME_MUTED: muted},
+    )
+    entity, mgr = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.state == MediaPlayerState.ON
+    assert entity.volume_level == pytest.approx(volume)
+    assert entity.is_volume_muted is muted
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_media_playing_still_clamps_to_on_while_volume_restores():
+    """The two rules coexist. Playback is not knowable after a reboot
+    and stays clamped; the volume the user last set is knowable and
+    comes back. A stored PLAYING must still land on ON."""
+    last = State(
+        "media_player.x", "playing",
+        {ATTR_MEDIA_VOLUME_LEVEL: 0.7, ATTR_MEDIA_VOLUME_MUTED: True},
+    )
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.state == MediaPlayerState.OFF
+    assert entity.volume_level == pytest.approx(0.7)
+    assert entity.is_volume_muted is True
+
+
+@pytest.mark.asyncio
+async def test_media_legacy_stored_state_behaves_exactly_as_today():
+    last = State("media_player.x", "on", {})
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.state == MediaPlayerState.ON
+    assert entity.volume_level == pytest.approx(0.5)
+    assert entity.is_volume_muted is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["loud", [], {}])
+async def test_media_malformed_volume_falls_back(bad):
+    last = State("media_player.x", "on", {ATTR_MEDIA_VOLUME_LEVEL: bad})
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.volume_level == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored,expected", [(-1.0, 0.0), (4.2, 1.0)])
+async def test_media_out_of_range_volume_clamps(stored, expected):
+    """volume_level is a 0..1 contract with HA."""
+    last = State("media_player.x", "on", {ATTR_MEDIA_VOLUME_LEVEL: stored})
+    entity, _ = await _restored_entity(
+        HAIRMediaPlayerEntity, _device(DeviceType.MEDIA_PLAYER), last
+    )
+    assert entity.volume_level == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# climate: matrix_cell and the ruled preset match check (restore
+# completeness, 2026-08-23). The preset reversal is the one item in this
+# ticket that overturns a documented decision rather than closing a gap.
+# ---------------------------------------------------------------------------
+
+PRESET_NAME = "cool / fan: auto / swing: swing / 22"
+
+
+def _starred_matrix_device(
+    sent_state: dict | None = None,
+    starred: tuple[str, ...] = (PRESET_NAME,),
+    command_name: str = PRESET_NAME,
+) -> IRDevice:
+    """A matrix AC carrying one starred STATE row.
+
+    The default row's coordinates are exactly _matrix()'s only cell, so
+    a restored cool/auto/22/swing lands on the same cell the star does
+    -- the match the ruling requires.
+    """
+    command = IRCommand(
+        id="cmd-preset",
+        name=command_name,
+        source=CommandSource.MATRIX,
+        protocol="PRONTO",
+        code="P-C-A-22-S",
+        sent_state=(
+            {"mode": "cool", "fan": "auto", "swing": "swing", "temp": 22.0}
+            if sent_state is None else (sent_state or None)
+        ),
+    )
+    return _device(
+        DeviceType.AC,
+        climate_matrix=True,
+        commands=[command],
+        entity_config=EntityConfig(starred=list(starred)),
+    )
+
+
+async def _restored_starred_entity(last_state, device=None, matrix=None):
+    mgr = _manager()
+    entity = HAIRClimateEntity(device or _starred_matrix_device(), mgr)
+    entity.async_write_ha_state = MagicMock()
+    entity.hass = MagicMock()
+    entity.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    entity._matrix = matrix if matrix is not None else _matrix()
+    entity.async_get_last_state = AsyncMock(return_value=last_state)
+    entity.async_get_last_extra_data = AsyncMock(return_value=None)
+    await entity._async_restore_state()
+    return entity, mgr
+
+
+def _stored(preset: str | None = PRESET_NAME, **overrides) -> State:
+    attrs = {
+        ATTR_TEMPERATURE: 22.0,
+        ATTR_FAN_MODE: "auto",
+        ATTR_SWING_MODE: "swing",
+    }
+    if preset is not None:
+        attrs[ATTR_PRESET_MODE] = preset
+    attrs.update(overrides)
+    return State("climate.x", HVACMode.COOL, attrs)
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_is_rederived_after_restore():
+    """The device page's current-cell readout went blank after every
+    restart. It was never scoped out -- the readout postdates the 0.9.8
+    restore list and nobody added it when the feature landed."""
+    entity, mgr = await _restored_starred_entity(_stored())
+    assert entity.extra_state_attributes["matrix_cell"] == PRESET_NAME
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_matrix_cell_matches_what_the_live_setter_produces():
+    """Re-derived rather than read back, so the two doors cannot drift.
+    Whatever the live send path would name this cell, restore names it
+    the same way -- including the display-unit conversion."""
+    entity, _ = await _restored_starred_entity(_stored())
+    live = entity._cell_display_name(entity._matrix.cells[0])
+    assert entity.extra_state_attributes["matrix_cell"] == live
+
+
+@pytest.mark.asyncio
+async def test_restored_off_names_the_off_cell():
+    """The live async_turn_off writes exactly this, so the readout
+    agrees with itself whichever way the entity got here."""
+    entity, _ = await _restored_starred_entity(
+        State("climate.x", HVACMode.OFF, {})
+    )
+    assert entity.extra_state_attributes["matrix_cell"] == "Off"
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_survives_when_the_triple_resolves_to_its_cell():
+    """The ruling, in its intended case. The restored mode/fan/temp
+    resolve to the same cell the starred command does, so naming it
+    claims nothing the restored state does not already claim."""
+    entity, mgr = await _restored_starred_entity(_stored())
+    assert entity.preset_mode == PRESET_NAME
+    assert entity.hvac_mode == HVACMode.COOL
+    mgr.async_send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_command_was_deleted():
+    device = _device(
+        DeviceType.AC, climate_matrix=True, commands=[],
+        entity_config=EntityConfig(starred=[PRESET_NAME]),
+    )
+    entity, _ = await _restored_starred_entity(_stored(), device=device)
+    assert entity.preset_mode is None
+    assert entity.hvac_mode == HVACMode.COOL  # everything else still restores
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_command_is_no_longer_starred():
+    entity, _ = await _restored_starred_entity(
+        _stored(), device=_starred_matrix_device(starred=())
+    )
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_stored_triple_resolves_elsewhere():
+    """The honesty case the original refusal was protecting. The stored
+    preset names one cell; the restored attributes land on another; the
+    attribute must not claim the first."""
+    matrix = _matrix()
+    matrix.cells.append(
+        ClimateCell(mode="heat", fan="low", temp=28.0, swing="fixed",
+                    pronto="P-H-L-28-F")
+    )
+    stored = State("climate.x", HVACMode.HEAT, {
+        ATTR_TEMPERATURE: 28.0,
+        ATTR_FAN_MODE: "low",
+        ATTR_SWING_MODE: "fixed",
+        ATTR_PRESET_MODE: PRESET_NAME,
+    })
+    entity, _ = await _restored_starred_entity(stored, matrix=matrix)
+    assert entity.hvac_mode == HVACMode.HEAT
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_when_the_lattice_changed_under_it():
+    """The starred row still exists and is still starred, but its
+    coordinates no longer resolve in the current matrix -- a re-fit or
+    a re-adopt moved the lattice."""
+    entity, _ = await _restored_starred_entity(
+        _stored(),
+        device=_starred_matrix_device(
+            sent_state={"mode": "dry", "fan": "turbo", "swing": "none",
+                        "temp": 99.0}
+        ),
+    )
+    assert entity.preset_mode is None
+
+
+@pytest.mark.asyncio
+async def test_preset_stays_none_for_a_row_with_no_coordinates():
+    """A STATE row minted before 0.10.1 item 7 and never matched by the
+    setup backfill carries no coordinates. The live setter refuses to
+    parse display grammar to recover them and so does restore: there is
+    no re-validating a preset whose cell cannot be named."""
+    entity, _ = await _restored_starred_entity(
+        _stored(), device=_starred_matrix_device(sent_state={})
+    )
+    assert entity.preset_mode is None
+    assert entity.extra_state_attributes["matrix_cell"] == PRESET_NAME
+
+
+@pytest.mark.asyncio
+async def test_legacy_stored_state_with_no_preset_attribute():
+    """A state written before this fix carries no preset_mode key at
+    all. Nothing to restore, nothing to raise about."""
+    entity, _ = await _restored_starred_entity(_stored(preset=None))
+    assert entity.preset_mode is None
+    assert entity.hvac_mode == HVACMode.COOL
+
+
+@pytest.mark.asyncio
+async def test_preset_mode_climate_is_untouched_by_all_of_this():
+    """Non-matrix climate has no cells to match against, so it keeps
+    the original refusal by construction: the whole block is inside the
+    matrix branch."""
+    last = State("climate.x", HVACMode.COOL, {
+        ATTR_TEMPERATURE: 22.0, ATTR_PRESET_MODE: "whatever",
+    })
+    entity, _ = await _restored_entity(
+        HAIRClimateEntity, _preset_climate_device(), last
+    )
+    assert entity.hvac_mode == HVACMode.COOL
+    assert entity.preset_mode is None
+
+
+# ---------------------------------------------------------------------------
+# remote: always on, by ruling (restore completeness, 2026-08-23)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_remote_is_always_on_after_a_restart():
+    """Ruled 2026-08-23: a remote's is_on is a claim about the SENDER,
+    not the appliance. It comes back on because it IS on -- HAIR can
+    always send through it.
+
+    Pinned so a future RestoreEntity sweep has to argue with the
+    decision rather than quietly reversing it: a fresh entity is on,
+    a stored OFF does not change that, and no restore hook exists to
+    make it change.
+    """
+    entity = HAIRRemoteEntity(_device(DeviceType.MEDIA_PLAYER), _manager())
+    assert entity.is_on is True
+    assert not hasattr(entity, "_async_restore_state")
+    assert not isinstance(entity, RestoreEntity)
+
+
+@pytest.mark.asyncio
+async def test_remote_off_then_simulated_restart_comes_back_on():
+    """The audit set it off before both restarts and got on back both
+    times. That is now the specified behaviour, so the test asserts it
+    on purpose rather than the audit reporting it as a gap."""
+    device = _device(DeviceType.MEDIA_PLAYER)
+    entity = HAIRRemoteEntity(device, _manager())
+    entity.async_write_ha_state = MagicMock()
+    entity.hass = MagicMock()
+    entity._is_on = False
+    assert entity.is_on is False
+    # A restart is a fresh construction from the same stored device.
+    reborn = HAIRRemoteEntity(device, _manager())
+    assert reborn.is_on is True

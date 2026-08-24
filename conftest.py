@@ -112,6 +112,12 @@ _stub("homeassistant.const", {
     "STATE_UNKNOWN": "unknown",
     "STATE_ON": "on",
     "STATE_OFF": "off",
+    # Cover's two real states (restore completeness, 2026-08-23). Real
+    # HA has carried both since forever; the stub only ever needed the
+    # on/off pair because no HAIR platform read a cover's state back
+    # until cover.py gained RestoreEntity.
+    "STATE_CLOSED": "closed",
+    "STATE_OPEN": "open",
     "ATTR_UNIT_OF_MEASUREMENT": "unit_of_measurement",
     "__version__": "2026.7.0",
 })
@@ -239,6 +245,10 @@ _stub("homeassistant.components.media_player", {
     "MediaPlayerEntity": _MediaPlayerEntity,
     "MediaPlayerEntityFeature": _MediaPlayerEntityFeature,
     "MediaPlayerState": _MediaPlayerState,
+    # Attribute keys, needed since media_player.py restores volume and
+    # mute from a stored state (restore completeness, 2026-08-23).
+    "ATTR_MEDIA_VOLUME_LEVEL": "volume_level",
+    "ATTR_MEDIA_VOLUME_MUTED": "is_volume_muted",
 })
 
 class _ClimateEntityFeature:
@@ -279,6 +289,9 @@ _stub("homeassistant.components.climate", {
     "ATTR_TEMPERATURE": "temperature",
     "ATTR_FAN_MODE": "fan_mode",
     "ATTR_SWING_MODE": "swing_mode",
+    # Needed since climate.py restores the starred preset with a match
+    # check (restore completeness, 2026-08-23).
+    "ATTR_PRESET_MODE": "preset_mode",
     "ClimateEntity": _ClimateEntity,
     "ClimateEntityFeature": _ClimateEntityFeature,
     "HVACMode": _HVACMode,
@@ -308,6 +321,11 @@ class _FanEntity:
 _stub("homeassistant.components.fan", {
     "FanEntity": _FanEntity,
     "FanEntityFeature": _FanEntityFeature,
+    # Attribute keys, needed since fan.py restores percentage and
+    # oscillating from a stored state (restore completeness,
+    # 2026-08-23). Same strings real HA uses.
+    "ATTR_PERCENTAGE": "percentage",
+    "ATTR_OSCILLATING": "oscillating",
 })
 
 # --- homeassistant.util.percentage ---

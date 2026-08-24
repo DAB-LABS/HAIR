@@ -10,8 +10,10 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_CLOSED, STATE_OPEN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, DeviceType
 from .models import IRDevice
@@ -61,7 +63,7 @@ async def async_setup_entry(
         _on_add(device)
 
 
-class HAIRCoverEntity(CoverEntity):
+class HAIRCoverEntity(RestoreEntity, CoverEntity):
     """IR-controlled cover (projector screen, shade, etc.)."""
 
     _attr_has_entity_name = True
@@ -100,6 +102,46 @@ class HAIRCoverEntity(CoverEntity):
     @property
     def is_closed(self) -> bool | None:
         return self._is_closed
+
+    async def async_added_to_hass(self) -> None:
+        await self._async_restore_state()
+
+    async def _async_restore_state(self) -> None:
+        """Reboot survival (restore completeness, 2026-08-23).
+
+        Cover was the one platform the 0.9.8 scoping rule missed
+        outright. That rule said "on/off platforms restore is_on", which
+        reads as though it covers the field; a cover has `is_closed`
+        rather than `is_on` and is not climate, so it fell through and
+        never got `RestoreEntity` at all. The audit
+        (`state-restore-audit.md`, section 2a) found the hole from both
+        ends: the entity came back `unknown` from both closed AND open,
+        and `core.restore_state` held no entry for it, because a
+        non-RestoreEntity never writes one.
+
+        Unknown is worse than stale here. A stale cover still draws on a
+        dashboard and still templates; an unknown one shows nothing and
+        breaks any automation reading `is_closed`.
+
+        Only the two states this platform can actually be in are
+        restored. Anything else -- `unknown`, `unavailable`, a state
+        from some other integration's history -- leaves `_is_closed`
+        None, which is the honest reading of "no evidence".
+
+        NO POWER-VERDICT SUBSCRIPTION, deliberately (owner ruling
+        2026-08-23). The other five platforms subscribe to
+        SIGNAL_POWER_VERDICT so a configured sensor can correct their
+        assumed state; cover does not, because a screen wired to a power
+        sensor is a corner case not worth the wiring. The asymmetry is a
+        decision, not the same oversight repeating.
+        """
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        if last_state.state == STATE_CLOSED:
+            self._is_closed = True
+        elif last_state.state == STATE_OPEN:
+            self._is_closed = False
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         await self._send("open_cover")

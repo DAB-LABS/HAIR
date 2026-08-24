@@ -1,10 +1,16 @@
 """Fan entity platform for HAIR."""
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
-from homeassistant.components.fan import FanEntity, FanEntityFeature
+from homeassistant.components.fan import (
+    ATTR_OSCILLATING,
+    ATTR_PERCENTAGE,
+    FanEntity,
+    FanEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -143,13 +149,44 @@ class HAIRFanEntity(RestoreEntity, FanEntity):
         state from the entity's state before this restart -- the power
         monitor's STARTUP SEED (power_monitor.py, commit 2) corrects it
         immediately after if a sensor is configured, so restore only
-        has to get close. Percentage and oscillation are scoped out
-        (the coding plan's "on/off platforms restore is_on"); they
-        reset to __init__'s defaults like any other restart today.
+        has to get close.
+
+        SCOPE WIDENED 2026-08-23 (state-restore-audit.md, GH #115).
+        Percentage and oscillation used to be scoped out here, citing
+        the 0.9.8 coding plan's "on/off platforms restore is_on". That
+        was a real decision for a release whose only job was making
+        power survive, and it is stale: a fan that comes back on at no
+        speed and not oscillating looks broken in a way "off" does not,
+        which is exactly what #115 reported.
+
+        Two things settle it beyond the user report. Both values are
+        already sitting in ``last_state.attributes`` -- this is a read,
+        not new bookkeeping, and it is the same shape climate.py has
+        always used for fan and swing. And the power-verdict handler
+        below already assumes they survive, in as many words: it says
+        an "on" verdict restores speed and oscillation for free. That
+        was only ever true mid-session; now it is true after a restart
+        too, and the file agrees with itself.
+
+        Type-tolerant on purpose. A missing attribute, a None, or
+        anything that will not convert falls back to __init__'s default
+        rather than raising: a pre-fix stored state carries neither
+        attribute, and a restore block that raises on a stale snapshot
+        takes the whole entity down with it.
         """
         last_state = await self.async_get_last_state()
-        if last_state is not None:
-            self._is_on = last_state.state == STATE_ON
+        if last_state is None:
+            return
+        self._is_on = last_state.state == STATE_ON
+
+        percentage = last_state.attributes.get(ATTR_PERCENTAGE)
+        if percentage is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                self._percentage = max(0, min(100, int(percentage)))
+
+        oscillating = last_state.attributes.get(ATTR_OSCILLATING)
+        if oscillating is not None:
+            self._oscillating = bool(oscillating)
 
     @callback
     def _handle_power_verdict(self, device_id: str, verdict: PowerVerdict) -> None:

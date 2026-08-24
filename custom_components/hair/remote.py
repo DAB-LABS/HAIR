@@ -75,6 +75,22 @@ class HAIRRemoteEntity(RemoteEntity):
         self._manager = device_manager
         self._attr_unique_id = f"hair_{device.id}_remote"
         self._attr_name = "Remote"
+        # ALWAYS ON, and that is a decision (owner ruling 2026-08-23,
+        # state-restore-audit.md section 2e / GH #115).
+        #
+        # The audit found this platform has no restore path at all and
+        # asked the question the code could not answer: is a HAIR
+        # remote's is_on a claim about the APPLIANCE, which should
+        # survive a restart, or about the SENDER, which is always
+        # available? Ruled: the sender. The toggle says this remote is
+        # ready to use, not that the thing it points at is powered.
+        #
+        # So there is deliberately no RestoreEntity here and nothing to
+        # restore. A remote comes back on after every restart because
+        # it IS on -- HAIR can always send through it. Read as an
+        # omission before the ruling; recorded now so a future
+        # RestoreEntity sweep has to argue with the decision instead of
+        # quietly reversing it.
         self._is_on = True
 
     @property
