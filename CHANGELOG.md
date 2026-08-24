@@ -5,6 +5,12 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-24 -- Read the Label
+
+### Added
+- Field readers: a read-only tier that decodes AC state frames against twelve vendored field maps (data files with confidence markings). Two new comb checks: field-mismatch (a cell claims one thing, its bytes send another) and frame-integrity (each family checksum and complement rule, which also runs on flat wigs). Findings join the comb gate on the Perfect Fit checklist. Identification is a whole-wig vote, frame splitting is map-driven, and an unreadable frame is never guessed at. The Combing Report gains protocol and field coverage, and a wig no map covers draws a hollow comb so an unchecked wig never looks like a clean one.
+- State restore completeness: covers remember whether the screen is closed, fans restore speed and oscillation, media players restore volume and mute, climate restores its cell readout and restores a preset only when the restored settings still match it, and remote entities stay deliberately always on. Restoration never transmits. Thanks @mode0192 for the report and the audit push (#115).
+
 ## [0.11.1] - 2026-08-23 -- More Protocols
 
 ### Added
