@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, replace
+from datetime import UTC
 from typing import Any
 
 from . import field_readers
@@ -705,6 +706,164 @@ def pre_read(
     if comparable:
         verdict.matches = not verdict.mismatches
     return verdict
+
+
+# ---------------------------------------------------------------------------
+# P4: the one door through the no-cell-editing wall
+# ---------------------------------------------------------------------------
+
+#: Where a repair's record lives, on the cell or on the command. Inside
+#: the object's own extras, so it rides the matrix file and the exported
+#: wig by the unknown-keys contract without a format change.
+PROVENANCE_KEY = "hair_repair"
+
+#: The write is honest about how much of it was proven on air.
+TIER_AIR_TESTED = "air-tested"
+TIER_RULE_DERIVED = "rule-derived"
+
+APPLY_NO_FINDING = "no_finding"
+APPLY_NOT_TESTED = "not_tested"
+APPLY_BAD_CANDIDATE = "bad_candidate"
+APPLY_DISAGREEMENT_UNDECLARED = "reading_disagreed_required"
+APPLY_NOTHING_TO_REVERT = "nothing_to_revert"
+
+
+def _now() -> str:
+    from datetime import datetime
+
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def build_provenance(
+    *,
+    source: str,
+    prior_pronto: str,
+    lattice: LatticeReading,
+    row: TangleRow,
+    tested: bool,
+    tier: str = TIER_AIR_TESTED,
+    run: str | None = None,
+    tested_keys: list[str] | None = None,
+    detail: dict[str, Any] | None = None,
+    disagreed: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The record a repair leaves behind, and the undo it leaves with it.
+
+    ``prior`` is the whole point: one step back lives in the record
+    rather than in a history, so a revert needs nothing but the thing it
+    is reverting.
+
+    ``tested`` is RECORDED, never verified. The server cannot see
+    somebody's air conditioner respond and must not pretend to; what it
+    can do is write down that the assertion was made, and let the
+    receipt carry it where anybody can read it.
+    """
+    record: dict[str, Any] = {
+        "origin": "fix",
+        "source": source,
+        "applied": _now(),
+        "tested": bool(tested),
+        "tier": tier,
+        "prior": {
+            "pronto": prior_pronto,
+            "digest": _cell_digest(prior_pronto),
+        },
+        "finding": {
+            "key": row.target.key,
+            "classes": list(row.classes),
+        },
+    }
+    if lattice.readable:
+        record["map"] = {
+            "id": lattice.field_map.protocol_id,
+            "version": lattice.field_map.version,
+        }
+    if run is not None:
+        record["run"] = run
+    if tested_keys:
+        record["tested_cells"] = list(tested_keys)
+    if detail:
+        record["detail"] = dict(detail)
+    if disagreed is not None:
+        # The escalation ladder's third rung. A consistent mismatch is
+        # evidence about OUR READING, not about the person pressing the
+        # button -- a remote sends what its display shows. So the write
+        # is allowed, and what it records is that a human overrode a
+        # reading and exactly what the reading said. Repeated
+        # same-family off-by-ones are how a field gets re-ratified, and
+        # they can only accumulate if they are written down.
+        record["reading_disagreed"] = {
+            "user_attested": True,
+            "reads_as": dict(disagreed.get("reads_as") or {}),
+            "claims": dict(disagreed.get("claims") or {}),
+            "mismatches": list(disagreed.get("mismatches") or []),
+        }
+    return record
+
+
+def _extras_of(holder: Any) -> dict[str, Any]:
+    if isinstance(holder, IRCommand):
+        return holder._extra
+    return holder.extra
+
+
+def write_repair(
+    holder: Any, pronto: str, provenance: dict[str, Any]
+) -> None:
+    """Put the bytes in and the record beside them."""
+    if isinstance(holder, IRCommand):
+        holder.code = pronto
+        holder.protocol = "PRONTO"
+        # The repaired bytes ARE the code. A stale raw_timings beside
+        # them would win at transmit on the raw path and quietly undo
+        # the repair.
+        holder.raw_timings = None
+    else:
+        holder.pronto = pronto
+    _extras_of(holder)[PROVENANCE_KEY] = provenance
+
+
+def read_repair(holder: Any) -> dict[str, Any] | None:
+    record = _extras_of(holder).get(PROVENANCE_KEY)
+    return record if isinstance(record, dict) else None
+
+
+def revert_repair(holder: Any) -> dict[str, Any] | None:
+    """One step back, then forget it happened.
+
+    Not a history. The record carries the bytes that were there before
+    this repair and nothing older, so reverting twice is not a thing
+    that can happen and does not need a guard that pretends otherwise.
+    """
+    record = read_repair(holder)
+    if record is None:
+        return None
+    prior = (record.get("prior") or {}).get("pronto")
+    if not isinstance(prior, str) or not prior:
+        return None
+    if isinstance(holder, IRCommand):
+        holder.code = prior
+        holder.protocol = "PRONTO"
+        holder.raw_timings = None
+    else:
+        holder.pronto = prior
+    _extras_of(holder).pop(PROVENANCE_KEY, None)
+    return record
+
+
+def portholes_for(device: IRDevice, coordinates: dict[str, Any]) -> list:
+    """Every porthole command standing for one lattice cell.
+
+    A repair has to reach these too. The porthole holds a COPY of the
+    cell's bytes taken at adopt, and it is what TEST sends and what the
+    command editor shows, so leaving it behind would give somebody a
+    button that still transmits the code they just repaired.
+    """
+    anchor = _coord_key(coordinates)
+    return [
+        command for command in device.commands
+        if is_porthole(command) and _coord_key(command.matrix_cell) == anchor
+    ]
 
 
 # ---------------------------------------------------------------------------

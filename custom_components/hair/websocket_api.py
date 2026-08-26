@@ -9,6 +9,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from . import pluck
 from .capture import (
@@ -48,6 +49,7 @@ from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .trigger_manager import TriggerManager
 from .wig_format import VERDICTS
+from .wig_format import cell_key as _cell_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -157,6 +159,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_tangle_pre_read)
     websocket_api.async_register_command(hass, ws_tangle_test_send)
     websocket_api.async_register_command(hass, ws_tangle_listen)
+    websocket_api.async_register_command(hass, ws_tangle_apply)
+    websocket_api.async_register_command(hass, ws_tangle_revert)
 
     # Triggers
     websocket_api.async_register_command(hass, ws_get_triggers)
@@ -7261,3 +7265,251 @@ async def ws_tangle_listen(
         hass, connection, msg, "tangle_capture", "tangle_listen_timeout",
         decorate=_decorate,
     )
+
+
+def _apply_source(msg: dict[str, Any]) -> str:
+    from .tangles import ORIGIN_CAPTURE, ORIGIN_DONOR, ORIGIN_PASTE
+
+    source = msg.get("source") or ORIGIN_PASTE
+    return source if source in {
+        ORIGIN_DONOR, ORIGIN_CAPTURE, ORIGIN_PASTE, "synthesized",
+    } else ORIGIN_PASTE
+
+
+async def _write_matrix_and_signal(
+    hass: HomeAssistant, device: IRDevice, matrix: Any
+) -> str | None:
+    """Persist a repaired lattice and tell everything that holds one.
+
+    The dispatch is not optional. A climate entity loads its matrix once
+    and, before the fix flow, was right to: matrix files only changed
+    when a device was created. A repair changes one under a live entity,
+    and without the signal the unit would go on receiving the bytes the
+    repair replaced.
+    """
+    from .matrix_store import SIGNAL_MATRIX_CHANGED, write_matrix
+
+    try:
+        await hass.async_add_executor_job(
+            write_matrix, hass.config.config_dir, device.id, matrix
+        )
+    except (OSError, ValueError) as err:
+        return str(err)
+
+    data = _get_first_entry_data(hass)
+    listener = data.get("matrix_listener") if data else None
+    if listener is not None:
+        # The lattice CHANGED, so every cached index and reading built
+        # from it is answering about a file that no longer exists.
+        listener.invalidate(device.id)
+    async_dispatcher_send(hass, SIGNAL_MATRIX_CHANGED, device.id)
+    return None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/apply",
+    vol.Required("device_id"): str,
+    vol.Required("target"): str,
+    vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
+    vol.Required("tested"): bool,
+    vol.Optional("source"): str,
+    vol.Optional("detail"): dict,
+    vol.Optional("reading_disagreed"): bool,
+})
+@websocket_api.async_response
+async def ws_tangle_apply(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Write one repair, with its record and its undo.
+
+    THE ONLY DOOR through the no-cell-editing wall, and it is narrow on
+    purpose: it takes a finding reference, refuses a target that carries
+    no current finding, and is not reachable as a general cell editor.
+
+    ``tested`` is required and is RECORDED, never verified. The server
+    cannot watch somebody's air conditioner respond; what it can do is
+    write down that the claim was made and let the receipt carry it.
+
+    ``reading_disagreed`` is the escalation ladder's third rung. A
+    consistent mismatch is evidence about OUR reading rather than about
+    the person pressing the button, so the write is allowed -- but only
+    when it is declared, and the record then carries what the reading
+    said so repeated off-by-ones in one family can accumulate into the
+    map-defect report they are.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .pronto_validator import validate_pronto
+    from .tangles import (
+        APPLY_BAD_CANDIDATE,
+        APPLY_DISAGREEMENT_UNDECLARED,
+        APPLY_NO_FINDING,
+        APPLY_NOT_TESTED,
+        build_provenance,
+        list_tangles,
+        portholes_for,
+        pre_read,
+        project_device,
+        read_lattice,
+        write_repair,
+    )
+
+    if not msg["tested"]:
+        connection.send_error(
+            msg["id"], APPLY_NOT_TESTED,
+            "A repair is committed after a press, not before one",
+        )
+        return
+    if not validate_pronto(msg["pronto"]).valid:
+        connection.send_error(
+            msg["id"], APPLY_BAD_CANDIDATE, "That is not a usable code")
+        return
+
+    def _prepare() -> Any:
+        listing = list_tangles(device, matrix)
+        row = _resolve_target(listing, msg["target"])
+        if row is None:
+            return APPLY_NO_FINDING
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        verdict = pre_read(lattice, msg["pronto"], row.target.coordinates)
+        return row, lattice, verdict
+
+    prepared = await hass.async_add_executor_job(_prepare)
+    if isinstance(prepared, str):
+        connection.send_error(
+            msg["id"], prepared,
+            "That target carries no current finding",
+        )
+        return
+    row, lattice, verdict = prepared
+
+    declared = bool(msg.get("reading_disagreed"))
+    if verdict.matches is False and not declared:
+        connection.send_error(
+            msg["id"], APPLY_DISAGREEMENT_UNDECLARED,
+            "These bytes read as something else; say so to apply anyway",
+        )
+        return
+
+    provenance = build_provenance(
+        source=_apply_source(msg),
+        prior_pronto=row.pronto,
+        lattice=lattice,
+        row=row,
+        tested=True,
+        detail=msg.get("detail"),
+        disagreed=verdict.as_dict() if declared else None,
+    )
+
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    if row.target.kind == "cell":
+        cell = next(
+            (c for c in matrix.cells if _cell_key(c) == row.target.key), None
+        )
+        if cell is None:
+            connection.send_error(
+                msg["id"], APPLY_NO_FINDING, "That cell is gone")
+            return
+        write_repair(cell, msg["pronto"], provenance)
+        # The porthole is a copy of the cell taken at adopt, and it is
+        # what TEST sends. Leaving it behind would hand somebody a
+        # button that still transmits the code they just repaired.
+        for porthole in portholes_for(device, row.target.coordinates):
+            write_repair(porthole, msg["pronto"], provenance)
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+        await manager.async_update_device(device)
+    else:
+        command = device.get_command(row.target.command_id or "")
+        if command is None:
+            connection.send_error(
+                msg["id"], APPLY_NO_FINDING, "That command is gone")
+            return
+        write_repair(command, msg["pronto"], provenance)
+        # Through async_update_device, so the known-command index
+        # rebuilds on the new bytes and the entity hooks fire (gotcha 6).
+        await manager.async_update_device(device)
+
+    connection.send_result(msg["id"], {
+        "applied": True,
+        "target": row.id,
+        "provenance": provenance,
+        "verdict": verdict.as_dict(),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/revert",
+    vol.Required("device_id"): str,
+    vol.Required("target"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_revert(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Put back what a repair replaced. One step, not a history."""
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        APPLY_NOTHING_TO_REVERT,
+        TARGET_CELL,
+        portholes_for,
+        read_repair,
+        revert_repair,
+    )
+
+    kind, _, key = msg["target"].partition(":")
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+
+    if kind == TARGET_CELL:
+        cell = next(
+            (c for c in (matrix.cells if matrix else []) if _cell_key(c) == key),
+            None,
+        )
+        if cell is None or read_repair(cell) is None:
+            connection.send_error(
+                msg["id"], APPLY_NOTHING_TO_REVERT,
+                "Nothing was repaired here",
+            )
+            return
+        coordinates = {
+            "mode": cell.mode, "fan": cell.fan,
+            "swing": cell.swing, "temp": cell.temp,
+        }
+        record = revert_repair(cell)
+        for porthole in portholes_for(device, coordinates):
+            revert_repair(porthole)
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+        await manager.async_update_device(device)
+    else:
+        command = device.get_command(key)
+        if command is None or read_repair(command) is None:
+            connection.send_error(
+                msg["id"], APPLY_NOTHING_TO_REVERT,
+                "Nothing was repaired here",
+            )
+            return
+        record = revert_repair(command)
+        await manager.async_update_device(device)
+
+    connection.send_result(
+        msg["id"], {"reverted": True, "target": msg["target"],
+                    "was": record})

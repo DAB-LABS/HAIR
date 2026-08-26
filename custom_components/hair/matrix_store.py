@@ -37,6 +37,17 @@ from .wig_format import (
 
 _LOGGER = logging.getLogger(__name__)
 
+#: One device's lattice changed underneath a live entity.
+#:
+#: Until the fix flow, matrix files only changed when a device was
+#: created, so ``climate.py`` says in as many words that a loaded matrix
+#: is never re-read. A repair breaks that assumption: it writes one cell
+#: of a device that is running, and without this the entity would go on
+#: transmitting the bytes it loaded at startup -- the broken ones, which
+#: is the entire thing the repair was for. Dispatched with the owner id
+#: after any write that is not a creation.
+SIGNAL_MATRIX_CHANGED = "hair_matrix_changed"
+
 MATRICES_DIRNAME = "hair/matrices"
 MATRIX_SUFFIX = ".matrix.json"
 

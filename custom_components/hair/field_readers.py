@@ -176,6 +176,12 @@ class FieldMap:
     """One protocol family: how to read its frames and what they mean."""
 
     protocol_id: str
+    #: A content tag for the map itself, so anything that recorded
+    #: "this map justified that write" can tell later whether the map
+    #: it trusted is still the map on disk. Derived from the document
+    #: rather than declared in it, because a hand-maintained version
+    #: number is exactly the field that does not get bumped.
+    version: str
     frame_layout: list[int]
     payload_frame: int
     bit_order: str
@@ -295,6 +301,19 @@ def _rule(raw: dict[str, Any]) -> IntegrityRule | None:
     )
 
 
+def _map_version(raw: dict[str, Any]) -> str:
+    """A short content digest of one map document."""
+    import hashlib
+    import json
+
+    # Document order, not sorted keys: a map's vocabulary legitimately
+    # mixes key types (YAML reads `on:` as the boolean True beside
+    # `"cool"`), and sorting those against each other raises. Order is
+    # stable for a given file, which is all a content tag needs.
+    canonical = json.dumps(raw, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
 def parse_map(raw: dict[str, Any]) -> FieldMap | None:
     """One YAML document as a map, or None when it cannot be executed."""
     if not isinstance(raw, dict):
@@ -327,6 +346,7 @@ def parse_map(raw: dict[str, Any]) -> FieldMap | None:
     ]
     return FieldMap(
         protocol_id=protocol_id,
+        version=_map_version(raw),
         frame_layout=[int(bits) for bits in layout],
         payload_frame=int(frame.get("payload_frame", 0) or 0),
         bit_order=str(frame.get("bit_order", "msb_first")),
