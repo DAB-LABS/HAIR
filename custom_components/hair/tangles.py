@@ -801,10 +801,37 @@ def build_provenance(
     return record
 
 
-def _extras_of(holder: Any) -> dict[str, Any]:
+def repair_extras(holder: Any) -> dict[str, Any]:
+    """The unknown-keys bag a repair record lives in.
+
+    A cell and a command keep theirs under different names, and asking
+    with ``or`` rather than by type is how a cell with an EMPTY extras
+    dict falls through to the attribute it does not have.
+    """
     if isinstance(holder, IRCommand):
         return holder._extra
     return holder.extra
+
+
+def repair_bytes(holder: Any) -> str:
+    """Whatever this holder currently transmits."""
+    return holder.code if isinstance(holder, IRCommand) else holder.pronto
+
+
+def restore_holder(
+    holder: Any, pronto: str, extras: dict[str, Any]
+) -> None:
+    """Put a holder back exactly as it was, bytes and record together."""
+    if isinstance(holder, IRCommand):
+        holder.code = pronto
+    else:
+        holder.pronto = pronto
+    bag = repair_extras(holder)
+    bag.clear()
+    bag.update(extras)
+
+
+_extras_of = repair_extras
 
 
 def write_repair(
@@ -864,6 +891,154 @@ def portholes_for(device: IRDevice, coordinates: dict[str, Any]) -> list:
         command for command in device.commands
         if is_porthole(command) and _coord_key(command.matrix_cell) == anchor
     ]
+
+
+# ---------------------------------------------------------------------------
+# P8: one cause, one run
+# ---------------------------------------------------------------------------
+
+BATCH_EMPTY = "nothing_to_apply"
+BATCH_SAMPLE_SHORT = "sample_incomplete"
+BATCH_NO_CANDIDATE = "no_candidate"
+
+#: How many cells a run proves on air before writing the rest. Two,
+#: chosen to span the card's modes -- the same philosophy as a dimension
+#: check, which attests axes rather than walking 600 cells.
+DEFAULT_SAMPLE = 2
+
+
+def choose_sample(
+    rows: dict[str, TangleRow], members: list[str], size: int = DEFAULT_SAMPLE
+) -> list[str]:
+    """Which members of a card get pressed at, in a stable order.
+
+    Modes first: a card that spans heating and cooling proves one of
+    each before it writes either, because a rule that holds in one mode
+    is exactly the kind of thing that does not hold in the other. Once
+    every mode is represented the remaining picks spread across the
+    card, and a single-member card tests that member.
+
+    Deterministic, so the sample a person was asked to press is the
+    sample the write then records.
+    """
+    ordered = sorted(m for m in members if m in rows)
+    if not ordered:
+        return []
+    by_mode: dict[Any, list[str]] = {}
+    for member in ordered:
+        mode = (rows[member].target.coordinates or {}).get("mode")
+        by_mode.setdefault(mode, []).append(member)
+
+    picked: list[str] = [group[0] for group in by_mode.values()]
+    if len(picked) < size:
+        spare = [m for m in ordered if m not in picked]
+        # From the far end first, so a shifted column is proved at both
+        # ends rather than twice at the same corner.
+        while spare and len(picked) < size:
+            picked.append(spare.pop(-1))
+    return sorted(picked[:max(1, size)] if len(picked) > size else picked)
+
+
+def sample_covers_modes(
+    rows: dict[str, TangleRow], members: list[str], tested: list[str]
+) -> bool:
+    """Every mode this card touches was proved on air by something."""
+    def _modes(ids: list[str]) -> set:
+        return {
+            (rows[i].target.coordinates or {}).get("mode")
+            for i in ids if i in rows
+        }
+
+    return _modes(members) <= _modes(tested)
+
+
+@dataclass
+class BatchPlan:
+    """What one run is about to do, before anybody presses anything."""
+
+    cluster: str
+    candidates: dict[str, dict[str, Any]] = field(default_factory=dict)
+    sample: list[str] = field(default_factory=list)
+    declined: dict[str, str] = field(default_factory=dict)
+    refused: str | None = None
+    witness: dict[str, Any] | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "cluster": self.cluster,
+            "candidates": {k: dict(v) for k, v in self.candidates.items()},
+            "sample": list(self.sample),
+            "declined": dict(self.declined),
+            "refused": self.refused,
+            "witness": dict(self.witness) if self.witness else None,
+        }
+
+
+def plan_batch(
+    listing: TangleListing,
+    lattice: LatticeReading,
+    cluster_id: str,
+    *,
+    witness: str | None = None,
+    witness_target: str | None = None,
+    supplied: dict[str, str] | None = None,
+    sample_size: int = DEFAULT_SAMPLE,
+) -> BatchPlan:
+    """Resolve every member's candidate, then choose what to prove.
+
+    THE WHOLE CARD IS RESOLVED BEFORE ANYTHING IS WRITTEN. On a shifted
+    column the correct bytes for one cell are the bytes the cell below
+    it is carrying right now, so resolving as you write would walk the
+    shift down the column and hand back codes it had just replaced.
+    """
+    rows = {row.id: row for row in listing.rows}
+    cluster = next(
+        (c for c in listing.clusters if c.id == cluster_id), None)
+    if cluster is None:
+        return BatchPlan(cluster=cluster_id, refused=BATCH_EMPTY)
+    plan = BatchPlan(cluster=cluster_id)
+    members = [m for m in cluster.members if m in rows]
+
+    if witness is not None:
+        result = synthesize(
+            lattice, [rows[m] for m in members], witness,
+            cluster.field or "temperature", witness_target=witness_target,
+        )
+        if result.refused:
+            plan.refused = result.refused
+            return plan
+        plan.witness = result.witness
+        plan.declined.update(result.declined)
+        for member, candidate in result.candidates.items():
+            plan.candidates[member] = candidate
+    for member in members:
+        if member in plan.candidates:
+            continue
+        pronto = (supplied or {}).get(member)
+        source = ORIGIN_PASTE
+        detail: dict[str, Any] = {}
+        if pronto is None and rows[member].has_donor:
+            pronto = rows[member].donor["pronto"]
+            source = ORIGIN_DONOR
+            detail = {"donor": rows[member].donor["key"]}
+        if pronto is None:
+            plan.declined[member] = BATCH_NO_CANDIDATE
+            continue
+        plan.candidates[member] = {
+            "pronto": pronto,
+            "digest": _cell_digest(pronto),
+            "origin": source,
+            "verdict": pre_read(
+                lattice, pronto, rows[member].target.coordinates
+            ).as_dict(),
+            **detail,
+        }
+    if not plan.candidates:
+        plan.refused = BATCH_EMPTY
+        return plan
+    plan.sample = choose_sample(
+        rows, list(plan.candidates), size=sample_size)
+    return plan
 
 
 # ---------------------------------------------------------------------------
@@ -1411,6 +1586,65 @@ def _axis_domain(lattice: LatticeReading, field_name: str) -> list[Any]:
     return sorted(seen, key=lambda v: (isinstance(v, str), v))
 
 
+def _ring_domain(lattice: LatticeReading, field_name: str) -> list[Any]:
+    """The domain a step is counted around: one label per byte value.
+
+    ``_axis_domain`` answers "what values does this file use", which is
+    the right question for reading a byte back as a label. It is the
+    wrong one for measuring a shift, because a lattice can carry two
+    labels that encode to the SAME byte -- the Komeco file has both 16
+    and 32, and ZHLT01's special case sends them identically. Counting
+    positions around a domain with a duplicate in it puts the wrap one
+    step out and splits one cause into two.
+
+    So the ring keeps the first label that claims each byte and drops
+    the rest. What is left is the field's own cycle.
+    """
+    spec = lattice.spec_for(field_name)
+    if spec is None:
+        return []
+    seen: set[int] = set()
+    domain: list[Any] = []
+    for label in _axis_domain(lattice, field_name):
+        value = field_readers.expected_value(spec, label)
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        domain.append(label)
+    return domain
+
+
+def _ring_step(domain: list[Any], claimed: Any, actual: Any) -> int | None:
+    """How far a reading sits from its label, in positions on the ring.
+
+    Counted the shorter way around, because a field is a fixed number of
+    bits and its top wraps to its bottom: a column that sends one step
+    high sends 20 for 19 AND 16 for 31, and those are the same mistake
+    arriving at the end of the domain.
+
+    This is not a tidier way to say it. Split into two causes, the cells
+    at the top of the range draw their donor from a cell the other cause
+    owns -- and whichever runs first destroys the only copy of the bytes
+    the other needed, or leaves a byte-identical twin at the seam that
+    reclassifies the cell out of its own card. The chain is one cause
+    and has to be repaired in one run.
+
+    The shorter way around also keeps a genuine long shift honest: a
+    reading seven positions down stays -7 rather than folding into +9.
+    """
+    if claimed is None or actual is None:
+        return None
+    try:
+        here, there = domain.index(claimed), domain.index(actual)
+    except ValueError:
+        return None
+    size = len(domain)
+    if size < 2:
+        return None
+    step = (there - here) % size
+    return step - size if step > size // 2 else step
+
+
 def _label_for(spec: Any, domain: list[Any], value: int) -> Any:
     """Which label encodes to this byte, or None.
 
@@ -1425,6 +1659,42 @@ def _label_for(spec: Any, domain: list[Any], value: int) -> Any:
     return None
 
 
+def _donor_debts(
+    rows: dict[str, TangleRow], clusters: list[TangleCluster]
+) -> dict[str, set[str]]:
+    """Which cards hand donors to which other cards.
+
+    Cards are not always independent, and the Komeco lattice shows why.
+    The cells at the TOP of its range draw their donor from the cell one
+    step below them -- which belongs to the big card. Apply the big card
+    first and that donor is overwritten, destroying the only copy of the
+    bytes the top cells needed; the top card then has nothing to copy
+    from and degrades to asking for a press.
+
+    Nothing is corrupted either way, which is why this is an ordering
+    and not a guard. But a card that quietly turns into a chore because
+    of the order somebody happened to click in is a bad surprise, and
+    the dependency is knowable, so it is written down.
+    """
+    owner = {}
+    for cluster in clusters:
+        for member in cluster.members:
+            owner[member] = cluster.id
+    key_to_row = {
+        rows[m].target.key: m for m in rows
+    }
+    debts: dict[str, set[str]] = {c.id: set() for c in clusters}
+    for cluster in clusters:
+        for member in cluster.members:
+            donor = rows[member].donor if member in rows else None
+            if not donor:
+                continue
+            supplier = owner.get(key_to_row.get(donor["key"], ""))
+            if supplier is not None and supplier != cluster.id:
+                debts[supplier].add(cluster.id)
+    return debts
+
+
 def _cause_of(
     row: TangleRow, lattice: LatticeReading
 ) -> tuple[str, tuple, str | None, dict[str, Any]]:
@@ -1437,19 +1707,41 @@ def _cause_of(
     """
     leading = row.classes[0] if row.classes else CLUSTER_SINGLETON
 
+    # A row that is BOTH a twin and a lie is a lie first, even though
+    # the comb ranks the twin higher. The severity order is about which
+    # finding a person should read first, and it is right; this is about
+    # which finding is the CAUSE, and a duplicate whose own bytes also
+    # disagree with its own label is a symptom of that disagreement.
+    #
+    # It is what a half-repaired shift looks like from the inside. Copy
+    # a donor into a cell and it matches the still-broken neighbour it
+    # copied from until that neighbour is repaired too, so ranking the
+    # twin first would pull cells out of the very card that is about to
+    # fix them. The same rule makes a four-cell copy-paste drift land as
+    # one card rather than as three plus a pair.
+    if CHECK_FIELD_MISMATCH in row.classes:
+        leading = CHECK_FIELD_MISMATCH
+
     if leading == CHECK_FIELD_MISMATCH:
         fields = _mismatched_fields(row.findings)
         name = fields[0] if fields else None
-        params = row.findings[0].get("params", {})
+        # The FIELD-MISMATCH finding's params, not the row's first: a
+        # row that is also a twin leads with the twin, whose params say
+        # which neighbour it matches rather than what it reads as.
+        params = next(
+            (dict(f.get("params") or {}) for f in row.findings
+             if f.get("check") == CHECK_FIELD_MISMATCH),
+            {},
+        )
         expected, read = params.get("expected"), params.get("read")
         spec = lattice.spec_for(name) if name else None
         if spec is not None and expected is not None and read is not None:
             domain = _axis_domain(lattice, name)
             claimed = _label_for(spec, domain, int(str(expected), 16))
             actual = _label_for(spec, domain, int(str(read), 16))
-            if isinstance(claimed, int | float) and isinstance(
-                    actual, int | float):
-                step = float(actual) - float(claimed)
+            step = _ring_step(
+                _ring_domain(lattice, name), claimed, actual)
+            if step is not None:
                 return CLUSTER_SHIFT, (CLUSTER_SHIFT, name, step), name, {
                     "field": name, "step": step,
                 }
@@ -1548,7 +1840,14 @@ def cluster_rows(
             members=[row.id for row in members],
             detail={**detail, "spans": {k: v for k, v in spans.items() if v}},
         ))
+    debts = _donor_debts({row.id: row for row in rows}, clusters)
+    for cluster in clusters:
+        if debts.get(cluster.id):
+            # Worked top down, this card would take the donors another
+            # card is waiting on, so it sorts after the cards it feeds.
+            cluster.detail["feeds"] = sorted(debts[cluster.id])
     clusters.sort(key=lambda c: (
+        len(debts.get(c.id, ())),
         _CLUSTER_ORDER.index(c.rule) if c.rule in _CLUSTER_ORDER
         else len(_CLUSTER_ORDER),
         -c.size,

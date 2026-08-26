@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import voluptuous as vol
@@ -161,6 +162,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_tangle_listen)
     websocket_api.async_register_command(hass, ws_tangle_apply)
     websocket_api.async_register_command(hass, ws_tangle_revert)
+    websocket_api.async_register_command(hass, ws_tangle_plan)
+    websocket_api.async_register_command(hass, ws_tangle_apply_batch)
+    websocket_api.async_register_command(hass, ws_tangle_revert_run)
 
     # Triggers
     websocket_api.async_register_command(hass, ws_get_triggers)
@@ -7513,3 +7517,266 @@ async def ws_tangle_revert(
     connection.send_result(
         msg["id"], {"reverted": True, "target": msg["target"],
                     "was": record})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/plan",
+    vol.Required("device_id"): str,
+    vol.Required("cluster"): str,
+    vol.Optional("witness"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("witness_target"): str,
+    vol.Optional("candidates"): dict,
+})
+@websocket_api.async_response
+async def ws_tangle_plan(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """What a run would do, and which cells it wants pressed at.
+
+    Pure. Nothing is written and nothing is armed; this exists so the
+    surface can say "we will send 2 test signals" and know which two,
+    and so the sample a person is asked to prove is the sample the write
+    then records.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles, plan_batch, project_device, read_lattice
+
+    def _plan() -> dict[str, Any]:
+        listing = list_tangles(device, matrix)
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        return plan_batch(
+            listing, lattice, msg["cluster"],
+            witness=msg.get("witness"),
+            witness_target=msg.get("witness_target"),
+            supplied=msg.get("candidates"),
+        ).as_dict()
+
+    connection.send_result(
+        msg["id"], await hass.async_add_executor_job(_plan))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/apply-batch",
+    vol.Required("device_id"): str,
+    vol.Required("cluster"): str,
+    vol.Required("tested"): bool,
+    vol.Required("tested_targets"): [str],
+    vol.Optional("witness"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("witness_target"): str,
+    vol.Optional("candidates"): dict,
+    vol.Optional("reading_disagreed"): bool,
+})
+@websocket_api.async_response
+async def ws_tangle_apply_batch(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """One cause, one run: prove a sample on air, then write all of it.
+
+    The precedent is the dimension check, which attests axes rather than
+    walking six hundred cells. A run presses at a representative sample
+    spanning the card's modes and, on a pass, writes every member in one
+    batch -- with each cell's record honest about which tier it got:
+    air-tested, or rule-derived by a rule that was air-tested on named
+    cells.
+
+    NO PARTIAL BATCHES, EVER. Everything is resolved and read before
+    anything moves, and a failure anywhere leaves the lattice
+    byte-identical to what it was. That is not only failure handling: on
+    a shifted column, applying one cell of a cause at a time leaves the
+    repaired cell byte-identical to its still-broken neighbour, so the
+    batch is the correct unit of work as well as the safe one.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        APPLY_DISAGREEMENT_UNDECLARED,
+        APPLY_NOT_TESTED,
+        BATCH_EMPTY,
+        BATCH_SAMPLE_SHORT,
+        TARGET_CELL,
+        TIER_AIR_TESTED,
+        TIER_RULE_DERIVED,
+        build_provenance,
+        list_tangles,
+        plan_batch,
+        portholes_for,
+        project_device,
+        read_lattice,
+        repair_bytes,
+        repair_extras,
+        restore_holder,
+        sample_covers_modes,
+        write_repair,
+    )
+
+    if not msg["tested"]:
+        connection.send_error(
+            msg["id"], APPLY_NOT_TESTED,
+            "A run is committed after a press, not before one",
+        )
+        return
+
+    def _prepare() -> Any:
+        listing = list_tangles(device, matrix)
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        plan = plan_batch(
+            listing, lattice, msg["cluster"],
+            witness=msg.get("witness"),
+            witness_target=msg.get("witness_target"),
+            supplied=msg.get("candidates"),
+        )
+        return listing, lattice, plan
+
+    listing, lattice, plan = await hass.async_add_executor_job(_prepare)
+    if plan.refused:
+        connection.send_error(
+            msg["id"], plan.refused, "There is nothing to apply here")
+        return
+
+    rows = {row.id: row for row in listing.rows}
+    members = list(plan.candidates)
+    tested_targets = [t for t in msg["tested_targets"] if t in plan.candidates]
+    if not tested_targets or not sample_covers_modes(
+            rows, members, tested_targets):
+        connection.send_error(
+            msg["id"], BATCH_SAMPLE_SHORT,
+            "Every mode this covers has to be proved on air",
+        )
+        return
+
+    declared = bool(msg.get("reading_disagreed"))
+    disagreeing = [
+        member for member, candidate in plan.candidates.items()
+        if candidate["verdict"]["matches"] is False
+    ]
+    if disagreeing and not declared:
+        connection.send_error(
+            msg["id"], APPLY_DISAGREEMENT_UNDECLARED,
+            "Some of these read as something else; say so to apply anyway",
+        )
+        return
+
+    run = uuid.uuid4().hex
+    cells = {_cell_key(c): c for c in (matrix.cells if matrix else [])}
+    snapshot: list[tuple[Any, str, dict[str, Any]]] = []
+    writes: list[tuple[Any, str, dict[str, Any]]] = []
+    for member in members:
+        row = rows[member]
+        candidate = plan.candidates[member]
+        provenance = build_provenance(
+            source=candidate["origin"],
+            prior_pronto=row.pronto,
+            lattice=lattice,
+            row=row,
+            tested=True,
+            tier=(TIER_AIR_TESTED if member in tested_targets
+                  else TIER_RULE_DERIVED),
+            run=run,
+            tested_keys=[rows[t].target.key for t in tested_targets],
+            detail={k: v for k, v in candidate.items()
+                    if k in ("donor", "sibling", "witness_digest")},
+            disagreed=(candidate["verdict"] if declared
+                       and member in disagreeing else None),
+        )
+        if row.target.kind == TARGET_CELL:
+            holder = cells.get(row.target.key)
+            if holder is None:
+                connection.send_error(
+                    msg["id"], BATCH_EMPTY, "A cell in this run is gone")
+                return
+            holders = [holder, *portholes_for(device, row.target.coordinates)]
+        else:
+            holder = device.get_command(row.target.command_id or "")
+            if holder is None:
+                connection.send_error(
+                    msg["id"], BATCH_EMPTY, "A command in this run is gone")
+                return
+            holders = [holder]
+        for each in holders:
+            snapshot.append(
+                (each, repair_bytes(each), dict(repair_extras(each))))
+            writes.append((each, candidate["pronto"], provenance))
+
+    # Resolved, read and validated. Only now does anything move.
+    for holder, pronto, provenance in writes:
+        write_repair(holder, pronto, provenance)
+
+    if matrix is not None:
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            for holder, pronto, extras in snapshot:
+                restore_holder(holder, pronto, extras)
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    await manager.async_update_device(device)
+    connection.send_result(msg["id"], {
+        "applied": len(members),
+        "run": run,
+        "cluster": msg["cluster"],
+        "air_tested": sorted(tested_targets),
+        "declined": plan.declined,
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/revert-run",
+    vol.Required("device_id"): str,
+    vol.Required("run"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_revert_run(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Undo a whole run. One APPLY is one undo."""
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        APPLY_NOTHING_TO_REVERT,
+        read_repair,
+        revert_repair,
+    )
+
+    holders = [
+        holder for holder in
+        [*(matrix.cells if matrix else []), *device.commands]
+        if (read_repair(holder) or {}).get("run") == msg["run"]
+    ]
+    if not holders:
+        connection.send_error(
+            msg["id"], APPLY_NOTHING_TO_REVERT, "No such run on this device")
+        return
+    for holder in holders:
+        revert_repair(holder)
+
+    if matrix is not None:
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    await manager.async_update_device(device)
+    connection.send_result(
+        msg["id"], {"reverted": len(holders), "run": msg["run"]})
