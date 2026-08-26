@@ -142,7 +142,7 @@ def build_wig_from_device(
         sources.append(command.id)
     if not signals and matrix is None:
         return WigBuild(None, skipped, sources, notes)
-    return WigBuild(
+    build = WigBuild(
         Wig(
             name=(device.name or "Exported Device").strip()
             or "Exported Device",
@@ -170,3 +170,10 @@ def build_wig_from_device(
         sources,
         notes,
     )
+    # The KEEP outcomes ride out with the codes. Parked on the wig
+    # rather than stamped, because the comb receipt they belong inside
+    # is written later, by the re-comb on the way to the closet.
+    from .tangles import carry_attestations
+
+    carry_attestations(build.wig, device)
+    return build

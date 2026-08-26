@@ -165,6 +165,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_tangle_plan)
     websocket_api.async_register_command(hass, ws_tangle_apply_batch)
     websocket_api.async_register_command(hass, ws_tangle_revert_run)
+    websocket_api.async_register_command(hass, ws_tangle_keep)
 
     # Triggers
     websocket_api.async_register_command(hass, ws_get_triggers)
@@ -7780,3 +7781,79 @@ async def ws_tangle_revert_run(
     await manager.async_update_device(device)
     connection.send_result(
         msg["id"], {"reverted": len(holders), "run": msg["run"]})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/keep",
+    vol.Required("device_id"): str,
+    vol.Required("target"): str,
+    vol.Required("tested"): bool,
+    vol.Optional("note"): vol.All(str, vol.Length(max=500)),
+})
+@websocket_api.async_response
+async def ws_tangle_keep(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The other outcome: looked at it, it works, keep it.
+
+    A finding is a doubt about bytes, and a person with the hardware in
+    front of them can answer it. This records that answer -- the target,
+    the exact bytes it is about, the classes it answers, the map version
+    that raised them, and the same tested assertion the write requires.
+
+    Nothing is deleted. The finding stands in the receipt and the wig
+    carries both the math and the human's answer, because attested is a
+    different thing from clean and has to keep reading as one. What
+    changes is that the row leaves the work list, and re-combing stays
+    quiet about it for exactly as long as the bytes and the map hold
+    still.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        KEEP_NO_FINDING,
+        KEEP_NOT_TESTED,
+        build_attestation,
+        list_tangles,
+        project_device,
+        read_lattice,
+    )
+
+    if not msg["tested"]:
+        connection.send_error(
+            msg["id"], KEEP_NOT_TESTED,
+            "Keeping a code means having tried it",
+        )
+        return
+
+    def _prepare() -> Any:
+        listing = list_tangles(device, matrix)
+        row = _resolve_target(listing, msg["target"])
+        if row is None:
+            return KEEP_NO_FINDING
+        wig, _sources = project_device(device, matrix)
+        return row, read_lattice(matrix, wig)
+
+    prepared = await hass.async_add_executor_job(_prepare)
+    if isinstance(prepared, str):
+        connection.send_error(
+            msg["id"], prepared, "That target carries no current finding")
+        return
+    row, lattice = prepared
+
+    record = build_attestation(row, lattice, note=msg.get("note"))
+    device.tangle_attestations = [
+        existing for existing in device.tangle_attestations
+        if existing.get("key") != record["key"]
+    ]
+    device.tangle_attestations.append(record)
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    await manager.async_update_device(device)
+    connection.send_result(
+        msg["id"], {"attested": True, "target": row.id, "record": record})

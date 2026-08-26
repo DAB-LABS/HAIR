@@ -152,6 +152,9 @@ class TangleListing:
     #: the rows so a surface that asks a person to decide has something
     #: to show, without any of it counting as something wrong.
     advisories: list[dict[str, Any]] = field(default_factory=list)
+    #: Rows a person has already answered with KEEP. Off the work list,
+    #: still on the record.
+    attested: list[dict[str, Any]] = field(default_factory=list)
     matrix: bool = False
     #: The comb's coverage block for this projection, verbatim.
     coverage: dict[str, Any] | None = None
@@ -168,6 +171,7 @@ class TangleListing:
             "rows": [row.as_dict() for row in self.rows],
             "clusters": [c.as_dict() for c in self.clusters],
             "advisories": [dict(a) for a in self.advisories],
+            "attested": [dict(a) for a in self.attested],
             "matrix": self.matrix,
             "coverage": self.coverage,
             "protocol": self.protocol,
@@ -355,8 +359,25 @@ def list_tangles(
                 signal.alias, device.id,
             )
 
-    listing.rows = rows
-    listing.clusters = cluster_rows(rows, lattice)
+    # An attested row has been ANSWERED: somebody looked at it, tested
+    # it on their own hardware and vouched for it. It leaves the work
+    # list and is reported separately, because a card offering to repair
+    # something a person already settled is the surface nagging.
+    #
+    # The finding itself is untouched. Keep never deletes a finding, and
+    # the receipt still carries it -- attested is a different thing from
+    # clean and has to read as one.
+    answered = []
+    open_rows = []
+    for row in rows:
+        record = standing_attestation(device, row, lattice)
+        if record is None:
+            open_rows.append(row)
+            continue
+        answered.append(replace(row, attested=record))
+    listing.rows = open_rows
+    listing.attested = [row.as_dict() for row in answered]
+    listing.clusters = cluster_rows(open_rows, lattice)
     return listing
 
 
@@ -891,6 +912,84 @@ def portholes_for(device: IRDevice, coordinates: dict[str, Any]) -> list:
         command for command in device.commands
         if is_porthole(command) and _coord_key(command.matrix_cell) == anchor
     ]
+
+
+# ---------------------------------------------------------------------------
+# P5: the KEEP outcome
+# ---------------------------------------------------------------------------
+
+KEEP_NO_FINDING = "no_finding"
+KEEP_NOT_TESTED = "not_tested"
+
+#: Where a carried attestation waits between the exporter and the comb
+#: receipt it belongs in. Removed as soon as the receipt is stamped.
+ATTESTED_PENDING = "comb_attested_pending"
+#: The block inside the receipt.
+ATTESTED_KEY = "attested"
+
+
+def attestation_key(
+    target_key: str, digest: str, map_version: str | None
+) -> str:
+    """What an attestation is ABOUT, expressed so it can expire itself.
+
+    The bytes and the map that doubted them. Change either and this key
+    stops matching, the attestation stops applying, and the finding is
+    open again -- which is the whole expiry mechanism. Nothing is
+    scheduled, nothing is swept, and there is no state that can be
+    wrong: an attestation that does not apply simply does not match.
+    """
+    return f"{target_key}|{digest}|{map_version or '-'}"
+
+
+def build_attestation(
+    row: TangleRow, lattice: LatticeReading, *, note: str | None = None
+) -> dict[str, Any]:
+    """A person's answer to a finding: looked at it, it works, keep it."""
+    version = lattice.field_map.version if lattice.readable else None
+    record: dict[str, Any] = {
+        "key": attestation_key(row.target.key, row.digest, version),
+        "target": row.target.key,
+        "kind": row.target.kind,
+        "digest": row.digest,
+        "classes": list(row.classes),
+        "tested": True,
+        "attested": _now(),
+    }
+    if lattice.readable:
+        record["map"] = {
+            "id": lattice.field_map.protocol_id, "version": version,
+        }
+    if note:
+        record["note"] = note
+    return record
+
+
+def standing_attestation(
+    device: IRDevice, row: TangleRow, lattice: LatticeReading
+) -> dict[str, Any] | None:
+    """The attestation covering this row's CURRENT bytes, if any."""
+    version = lattice.field_map.version if lattice.readable else None
+    wanted = attestation_key(row.target.key, row.digest, version)
+    for record in device.tangle_attestations:
+        if record.get("key") == wanted:
+            return record
+    return None
+
+
+def carry_attestations(wig: Any, device: IRDevice) -> None:
+    """Park the device's attestations where the re-comb will find them.
+
+    A wig leaving for the closet gets a fresh receipt, and the receipt
+    is where an attestation belongs: the file then carries both the
+    math and the human's answer, and the shop's own re-derive sees
+    both. Parked rather than stamped because the receipt does not exist
+    yet at export time -- ``recomb`` writes it, and folds this in.
+    """
+    if device.tangle_attestations:
+        wig.extra[ATTESTED_PENDING] = [
+            dict(record) for record in device.tangle_attestations
+        ]
 
 
 # ---------------------------------------------------------------------------

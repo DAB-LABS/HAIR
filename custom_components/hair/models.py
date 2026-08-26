@@ -336,7 +336,7 @@ _KNOWN_DEVICE = frozenset({
     "humidity_sensor_entity_id", "capture_device_id",
     "capture_provider_type", "commands", "entity_config", "database_id",
     "climate_matrix", "source_wig_id", "source_file", "source_remote_id",
-    "origin", "created_at", "updated_at",
+    "origin", "created_at", "updated_at", "tangle_attestations",
 })
 
 
@@ -372,6 +372,16 @@ class IRDevice:
     temperature_sensor_entity_id: str | None = None
     humidity_sensor_entity_id: str | None = None
     capture_device_id: str | None = None
+    #: The KEEP outcome of the fix flow: findings a person looked at,
+    #: tested on their own hardware, and vouched for as working anyway.
+    #:
+    #: Device-side rather than in the wig, because it is a statement
+    #: about THIS installation's hardware and not about the file. Each
+    #: record is keyed by the target's bytes and the map version that
+    #: doubted them, so it expires STRUCTURALLY: change either and the
+    #: key stops matching, the attestation stops applying, and the
+    #: finding is open again. Nothing schedules that and nothing has to.
+    tangle_attestations: list[dict[str, Any]] = field(default_factory=list)
     capture_provider_type: CaptureProviderType = CaptureProviderType.ESPHOME
     commands: list[IRCommand] = field(default_factory=list)
     entity_config: EntityConfig = field(default_factory=EntityConfig)
@@ -628,6 +638,7 @@ class IRDevice:
             "temperature_sensor_entity_id": self.temperature_sensor_entity_id,
             "humidity_sensor_entity_id": self.humidity_sensor_entity_id,
             "capture_device_id": self.capture_device_id,
+            "tangle_attestations": [dict(a) for a in self.tangle_attestations],
             "capture_provider_type": str(self.capture_provider_type),
             "commands": [c.to_dict() for c in self.commands],
             "entity_config": self.entity_config.to_dict(),
@@ -671,6 +682,12 @@ class IRDevice:
                 data.get("humidity_sensor_entity_id") or None
             ),
             capture_device_id=data.get("capture_device_id"),
+            # Absent on every device made before the fix flow existed,
+            # which reads correctly as "nobody has vouched for anything".
+            tangle_attestations=[
+                a for a in (data.get("tangle_attestations") or [])
+                if isinstance(a, dict)
+            ],
             capture_provider_type=CaptureProviderType(
                 data.get("capture_provider_type", CaptureProviderType.ESPHOME)
             ),
