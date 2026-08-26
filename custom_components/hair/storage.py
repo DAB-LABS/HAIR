@@ -593,20 +593,29 @@ class HAIRStore:
         no-op from the second boot on and folds into the one load-time
         save when it does change something.
         """
-        from .identity import (
-            canonical_byte_hash,
-            canonical_fingerprint,
-            canonical_pronto,
-        )
+        from .identity import canonical_byte_hash, canonical_fingerprint
 
         changed = commands = triggers = 0
         for device in self._data.values():
             for cmd in device.commands:
-                # Only rows whose code is readable Pronto have a wire
-                # form at all. A legacy protocol/code pair or a
-                # hand-written record keeps exactly the identity it has.
+                # HASHABLE IS THE BAR, NOT CANONICALIZABLE (GH #125).
+                # This used to skip any row whose code did not
+                # canonicalize, which sounds conservative and is not: a
+                # code can hash perfectly well without canonicalizing.
+                # An IRDB or Girr NEC entry whose burst-2 repeat
+                # sequence was truncated declares more pairs than its
+                # body carries, so ProntoCommand refuses it and
+                # canonical_pronto answers None, while pronto_byte_hash
+                # reads it happily. Those are exactly the rows whose
+                # hash the unified strip moves, so skipping them left
+                # the stored identity behind and the trigger silent.
+                #
+                # Dropping the precondition is safe because both helpers
+                # already degrade: canonical_byte_hash returns None for
+                # anything the word parser cannot read at all, and the
+                # "is not None" test below leaves such a row alone.
                 try:
-                    if not cmd.code or canonical_pronto(cmd.code) is None:
+                    if not cmd.code:
                         continue
                     fresh = canonical_byte_hash(cmd.code)
                 except Exception:
@@ -619,7 +628,11 @@ class HAIRStore:
                     commands += 1
                     changed += 1
         for trigger in self._triggers.values():
-            if not trigger.code or canonical_pronto(trigger.code) is None:
+            # Same widening as the command loop above, and the reason it
+            # matters more here: a skipped command is a button that does
+            # not light up, a skipped trigger is an automation that
+            # stops running.
+            if not trigger.code:
                 continue
             moved = False
             # REPOINT an existing hash; never ADD one. A trigger that

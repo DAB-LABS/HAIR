@@ -31,6 +31,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -438,3 +439,318 @@ def test_the_walk_ends_on_a_mark(code: str):
     timings = EventParser._pronto_identity_timings(code)
     assert timings is not None
     assert len(timings) % 2 == 1
+
+
+# ---------------------------------------------------------------------------
+# The migration: every holder of an identity re-keys on the same load
+# ---------------------------------------------------------------------------
+
+
+FILE_FORM = "0000 006D 0002 0000 0020 0040 0020 0000"
+"""How a file writes it: raw_to_pronto padded the final space with zero."""
+
+AIR_FORM = "0000 006D 0002 0000 0020 0040 0020 017C"
+"""How philippegu56's receiver writes it: its own measure of the silence.
+
+Sub-threshold, so the gap break never saw it and the old walk hashed it
+as a timing. 380 carrier cycles is about 10 ms; the gap threshold is
+1024 cycles, about 27 ms, which is why a real trailing silence can sit
+either side of the cliff depending on the receiver.
+"""
+
+CLASS_E = (
+    "0000 006C 0022 0002 015B 00AD 0016 0016 0016 0041 0016 0016 "
+    "0016 0041 0016 0041"
+)
+"""A code that hashes but does not canonicalize.
+
+The header declares 34 intro pairs plus 2 repeat pairs, so 72 timing
+words, while the body carries 12: the burst-2 repeat sequence was
+truncated somewhere upstream, as a copy out of an IRDB or Girr entry
+easily does. ``ProntoCommand`` refuses it and ``canonical_pronto``
+answers None, while both hash walks read it without complaint. This is
+the class the migration used to skip, and its hash moves like any
+other, so skipping it left the row behind.
+"""
+
+
+def _capture(code: str):
+    """One capture of ``code``, normalized as the Sniffer normalizes it.
+
+    Rebuilt from raw timings, which is what every receive path does, so
+    the identity is the wire form rather than the text.
+    """
+    from custom_components.hair.models import CaptureResult
+    from custom_components.hair.signal_monitor import normalize
+
+    command = ProntoCommand(code)
+    raw = command.get_raw_timings()
+    return normalize(
+        CaptureResult(
+            protocol="PRONTO",
+            code=raw_to_pronto(raw, frequency=command.modulation),
+            raw_timings=raw,
+            frequency=command.modulation,
+        )
+    )
+
+
+@pytest.fixture
+def store():
+    from custom_components.hair.storage import HAIRStore
+
+    hass = MagicMock()
+    hass.async_add_executor_job = AsyncMock(
+        side_effect=lambda func, *args: func(*args)
+    )
+    built = HAIRStore(hass)
+    built._data = {}
+    built._triggers = {}
+    built._trigger_remotes = {}
+    return built
+
+
+def test_the_two_tails_were_two_identities_and_are_now_one():
+    """The premise of every test below, stated once."""
+    assert _legacy_byte_hash(FILE_FORM) != _legacy_byte_hash(AIR_FORM)
+    assert _legacy_fingerprint(FILE_FORM) != _legacy_fingerprint(AIR_FORM)
+    assert EventParser.pronto_byte_hash(FILE_FORM) == (
+        EventParser.pronto_byte_hash(AIR_FORM)
+    )
+    assert EventParser.signal_fingerprint("PRONTO", FILE_FORM, None) == (
+        EventParser.signal_fingerprint("PRONTO", AIR_FORM, None)
+    )
+
+
+def test_trigger_rekeys_and_fires_on_the_surviving_row(store):
+    """The mandatory acceptance surface: the fragment pair collapses and
+    the trigger lands on what is left.
+
+    A remote holding a pasted row and its own capture of the same
+    button. Two rows, because the tails gave them two identities. One
+    load collapses them, re-keys the trigger, and a fresh press of the
+    same button matches the row that survived.
+    """
+    from custom_components.hair.models import (
+        IRTrigger,
+        UnknownDevice,
+        UnknownSignal,
+    )
+    from custom_components.hair.signal_store import _transform_loaded
+
+    device = UnknownDevice(label="Arris")
+    device.signals = [
+        UnknownSignal(
+            id="pasted", protocol="PRONTO", code=FILE_FORM, hit_count=3,
+            fingerprint=_legacy_fingerprint(FILE_FORM),
+            byte_hash=_legacy_byte_hash(FILE_FORM),
+            alias="Power", first_seen="2026-08-01T00:00:00+00:00",
+        ),
+        UnknownSignal(
+            id="heard", protocol="PRONTO", code=AIR_FORM, hit_count=5,
+            fingerprint=_legacy_fingerprint(AIR_FORM),
+            byte_hash=_legacy_byte_hash(AIR_FORM),
+            first_seen="2026-08-02T00:00:00+00:00",
+        ),
+    ]
+
+    devices, _dismissed, dirty = _transform_loaded(
+        {"devices": [device.to_dict()], "dismissed": []}
+    )
+
+    rows = next(iter(devices.values())).signals
+    assert dirty is True
+    assert len(rows) == 1
+    survivor = rows[0]
+    assert survivor.id == "pasted"
+    assert survivor.hit_count == 8
+    assert survivor.alias == "Power"
+
+    store._triggers = {
+        "t1": IRTrigger(
+            id="t1", name="Power", protocol="PRONTO", code=FILE_FORM,
+            signal_fingerprint=_legacy_fingerprint(FILE_FORM),
+            byte_hash=_legacy_byte_hash(FILE_FORM),
+        )
+    }
+    assert store._backfill_canonical_identity() is True
+    trigger = store._triggers["t1"]
+    assert trigger.signal_fingerprint == survivor.fingerprint
+    assert trigger.byte_hash == survivor.byte_hash
+
+    heard = _capture(AIR_FORM)
+    assert trigger.matches_signal(
+        heard.sig_fp, heard.byte_hash, heard.decoded_fingerprint
+    )
+
+
+def test_the_healed_row_still_carries_its_trigger_badge(store):
+    """The v0.6.1 orphan class, guarded.
+
+    Firing and the yellow badge are different questions: in v0.6.1 a
+    heal-merged row kept firing while the badge went dark, because the
+    survivor carried a different fingerprint from the trigger. Under
+    this migration both sides converge on the same load, so the badge
+    sits on the survivor.
+    """
+    from custom_components.hair.models import (
+        IRTrigger,
+        UnknownDevice,
+        UnknownSignal,
+    )
+    from custom_components.hair.signal_store import _transform_loaded
+
+    device = UnknownDevice(label="Arris")
+    device.signals = [
+        UnknownSignal(
+            id="pasted", protocol="PRONTO", code=FILE_FORM,
+            fingerprint=_legacy_fingerprint(FILE_FORM),
+            byte_hash=_legacy_byte_hash(FILE_FORM),
+        ),
+        UnknownSignal(
+            id="heard", protocol="PRONTO", code=AIR_FORM,
+            fingerprint=_legacy_fingerprint(AIR_FORM),
+            byte_hash=_legacy_byte_hash(AIR_FORM),
+        ),
+    ]
+    devices, _dismissed, _dirty = _transform_loaded(
+        {"devices": [device.to_dict()], "dismissed": []}
+    )
+    survivor = next(iter(devices.values())).signals[0]
+
+    store._triggers = {
+        "t1": IRTrigger(
+            id="t1", name="Power", protocol="PRONTO", code=AIR_FORM,
+            signal_fingerprint=_legacy_fingerprint(AIR_FORM),
+            byte_hash=_legacy_byte_hash(AIR_FORM),
+        )
+    }
+    store._backfill_canonical_identity()
+
+    assert store._triggers["t1"].matches_signal(
+        survivor.fingerprint, survivor.byte_hash, survivor.decoded_fingerprint
+    )
+
+
+def test_a_trigger_whose_code_does_not_canonicalize_is_still_rekeyed(store):
+    """The skip hole, closed.
+
+    The migration used to require ``canonical_pronto`` to succeed before
+    it would touch a row. A class-E code hashes and does not
+    canonicalize, so the guard skipped exactly the rows whose hash this
+    release moves, and the trigger would have gone quiet with no way to
+    tell why.
+    """
+    from custom_components.hair.models import IRTrigger
+
+    assert canonical_pronto(CLASS_E) is None
+    assert EventParser.pronto_byte_hash(CLASS_E) is not None
+    stale = _legacy_byte_hash(CLASS_E)
+    fresh = EventParser.pronto_byte_hash(CLASS_E)
+    assert stale != fresh
+
+    store._triggers = {
+        "t1": IRTrigger(
+            id="t1", name="Power", protocol="PRONTO", code=CLASS_E,
+            signal_fingerprint=_legacy_fingerprint(CLASS_E),
+            byte_hash=stale,
+        )
+    }
+
+    assert store._backfill_canonical_identity() is True
+    trigger = store._triggers["t1"]
+    assert trigger.byte_hash == fresh
+    assert trigger.signal_fingerprint == (
+        EventParser.signal_fingerprint("PRONTO", CLASS_E, None)
+    )
+
+
+def test_a_command_whose_code_does_not_canonicalize_is_still_rekeyed(store):
+    """The same hole on the command loop, which the matcher indexes."""
+    from custom_components.hair.models import IRCommand, IRDevice
+
+    device = IRDevice(id="dev-1", name="Adopted")
+    device.commands = [
+        IRCommand(
+            id="c1", name="Power", protocol="PRONTO", code=CLASS_E,
+            byte_hash=_legacy_byte_hash(CLASS_E),
+        )
+    ]
+    store._data = {"dev-1": device}
+
+    assert store._backfill_canonical_identity() is True
+    assert device.commands[0].byte_hash == (
+        EventParser.pronto_byte_hash(CLASS_E)
+    )
+
+
+def test_a_legacy_trigger_keeps_its_hashless_broad_match(store):
+    """The v0.5.8 rule, unchanged: repoint a hash, never add one.
+
+    A pre-0.5.8 trigger matches broadly on its fingerprint. Narrowing it
+    at load could mismatch a live capture and silence it, and a tier-2
+    miss is fatal, so the migration leaves the hash absent.
+    """
+    from custom_components.hair.models import IRTrigger
+
+    store._triggers = {
+        "t1": IRTrigger(
+            id="t1", name="Power", protocol="PRONTO", code=FILE_FORM,
+            signal_fingerprint=_legacy_fingerprint(FILE_FORM),
+            byte_hash=None,
+        )
+    }
+
+    store._backfill_canonical_identity()
+    trigger = store._triggers["t1"]
+    assert trigger.byte_hash is None
+    # The fingerprint still moves: that half was always recomputed.
+    assert trigger.signal_fingerprint == (
+        EventParser.signal_fingerprint("PRONTO", FILE_FORM, None)
+    )
+
+
+def test_pin_bindings_rederive_across_the_move(store):
+    """A pinned Remote drives the same command after the identities move.
+
+    Bindings hold ids, not identity values, and are rederived at every
+    load from whatever the identities currently are. This proves the
+    order holds: the identity backfill runs before the rederive, so the
+    map is built on the new values and not the old.
+    """
+    from custom_components.hair.models import (
+        IRCommand,
+        IRDevice,
+        IRTrigger,
+        TriggerRemote,
+    )
+    from custom_components.hair.pin_bindings import derive_bindings
+
+    device = IRDevice(id="dev-1", name="Adopted")
+    device.commands = [
+        IRCommand(
+            id="c1", name="Power", protocol="PRONTO", code=FILE_FORM,
+            byte_hash=_legacy_byte_hash(FILE_FORM),
+        )
+    ]
+    store._data = {"dev-1": device}
+
+    remote = TriggerRemote(
+        name="Arris", origin="closet", pinned_device_ids=["dev-1"]
+    )
+    store._trigger_remotes[remote.id] = remote
+    trigger = IRTrigger(
+        id="t1", name="Power", protocol="PRONTO", code=AIR_FORM,
+        signal_fingerprint=_legacy_fingerprint(AIR_FORM),
+        byte_hash=_legacy_byte_hash(AIR_FORM),
+        trigger_remote_id=remote.id, origin="closet",
+    )
+    store._triggers = {"t1": trigger}
+
+    # Before: the two tails gave the pair two identities and no binding.
+    assert derive_bindings(store, remote) == {"dev-1": {}}
+
+    store._backfill_canonical_identity()
+    store._rebuild_command_index()
+
+    assert derive_bindings(store, remote) == {"dev-1": {"t1": "c1"}}
