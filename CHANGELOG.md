@@ -5,6 +5,15 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-08-26 -- Undercut
+
+### Fixed
+
+- Raw PRONTO signals were re-minted as new Sniffer rows on every reload, restart, or update, and triggers bound to the old rows went quiet. Identity hashing now ends at the last real pulse, so a stored code, its capture, and a padded render share one identity. Stored raw identities recompute once at first load; duplicate rows collapse with hit counts combined; triggers re-key on the same load. Reported by @philippegu56 (GH #125).
+- The Sniffer catalog load-time migration now persists to disk instead of silently re-running on every boot, and a row that can never be repaired no longer keeps the store marked dirty.
+- Pronto rows with no protocol stamp no longer collapse onto one shared fingerprint at load; a malformed stored code costs one row rather than the whole catalog; manual codebook imports mint the same canonical identity as every other path.
+- The climate cell index is versioned to hair-cell-index/3 and rebuilds once, so stored indexes cannot answer with pre-migration identities.
+
 ## [0.12.0] - 2026-08-24 -- Read the Label
 
 ### Added
