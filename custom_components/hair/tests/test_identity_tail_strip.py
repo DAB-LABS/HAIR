@@ -32,7 +32,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1000,3 +1000,78 @@ def test_comb_receipt_holds_no_identity():
     assert "fingerprint" not in text
     # And no bare 16-hex identity value rode along under another name.
     assert not re.search(r'"[0-9a-f]{16}"', text), text[:400]
+
+
+@pytest.mark.asyncio
+async def test_a_migrating_load_saves_once_and_a_clean_one_never_saves():
+    """The load-time catalog migration has to reach disk.
+
+    Setting the dirty flag arms nothing -- schedule_save is what starts
+    the debounce -- so before this the migration lived in memory until
+    some unrelated write flushed it, and every boot re-ran it. Measured
+    on the bench box before the fix: 495 of 552 rows moved in memory, 0
+    reached the file, and the file's mtime never changed across the
+    restart.
+
+    Both halves are asserted, because a save at every boot would be its
+    own defect on a flooded store: a stale catalog saves exactly once,
+    and the payload it wrote loads back clean with no save at all.
+    """
+    from custom_components.hair.models import UnknownDevice, UnknownSignal
+    from custom_components.hair.signal_store import SignalStore
+
+    def _hass():
+        hass = MagicMock()
+        hass.loop = MagicMock()
+        hass.loop.call_later = MagicMock(return_value=MagicMock())
+        hass.async_create_task = MagicMock()
+        hass.async_add_executor_job = AsyncMock(
+            side_effect=lambda func, *args: func(*args)
+        )
+        return hass
+
+    device = UnknownDevice(label="Clipped")
+    device.signals = [
+        UnknownSignal(
+            id="s1", protocol="PRONTO", code=FILE_FORM,
+            fingerprint=_legacy_fingerprint(FILE_FORM),
+            byte_hash=_legacy_byte_hash(FILE_FORM),
+        )
+    ]
+    stale = {
+        "devices": [device.to_dict()],
+        "dismissed": [],
+        "plucked_stores": [{"integration": "broadlink", "store_id": "x"}],
+    }
+
+    written: dict = {}
+    store = SignalStore(_hass())
+    with patch.object(store, "_store") as mock_store:
+        mock_store.async_load = AsyncMock(return_value=stale)
+        mock_store.async_save = AsyncMock(
+            side_effect=lambda payload: written.update(payload)
+        )
+        await store.async_load()
+
+    assert mock_store.async_save.await_count == 1, "a stale catalog must persist"
+    row = written["devices"][0]["signals"][0]
+    assert row["byte_hash"] == EventParser.pronto_byte_hash(FILE_FORM)
+    assert row["fingerprint"] == (
+        EventParser.signal_fingerprint("PRONTO", FILE_FORM, None)
+    )
+    assert row["code"] == FILE_FORM, "the stored code text is never rewritten"
+    # The Plucker's records survive the save: _serialize reads them, so a
+    # save placed any earlier in async_load would have dropped them.
+    assert written["plucked_stores"] == stale["plucked_stores"]
+
+    # Second boot, on exactly what the first one wrote.
+    again = SignalStore(_hass())
+    with patch.object(again, "_store") as mock_again:
+        mock_again.async_load = AsyncMock(
+            return_value=json.loads(json.dumps(written))
+        )
+        mock_again.async_save = AsyncMock()
+        await again.async_load()
+
+    assert mock_again.async_save.await_count == 0, "a clean boot writes nothing"
+    assert again._dirty is False

@@ -153,13 +153,34 @@ class SignalStore:
             for record in (raw.get("plucked_stores") or [])
             if isinstance(record, dict)
         ]
-        if dirty:
-            self._dirty = True
         # The sticky index is in-memory only, so it is built here from
         # what was just loaded. A restart therefore files a re-press onto
         # the same row it landed on before the restart.
         self.rebuild_signal_index()
         self._loaded = True
+        if dirty:
+            # PERSIST THE MIGRATION (GH #125), the way
+            # ``HAIRStore.async_load`` already does for the device side.
+            #
+            # This used to set the dirty FLAG and stop there, which arms
+            # nothing: ``schedule_save`` is what starts the debounce and
+            # the ceiling, and nothing called it. So the catalog's
+            # load-time migration has never reached disk under its own
+            # power. It waited for the next unrelated write -- a
+            # capture, an alias, a delete, a reorder -- and until one
+            # came, every boot re-ran and re-reported the whole thing.
+            #
+            # That was invisible while the canonical block had almost
+            # nothing to move on a captured-row store. It stops being
+            # invisible here: on the bench store this release moves 495
+            # of 552 catalog rows.
+            #
+            # Last, deliberately. ``_serialize`` reads
+            # ``_plucked_stores``, which is populated above, so a save
+            # from any earlier point would write a half-built payload
+            # and drop the Plucker's records. A clean boot leaves
+            # ``dirty`` False and writes nothing at all.
+            await self.async_save()
 
     async def async_save(self) -> None:
         """Persist current state to disk immediately.
