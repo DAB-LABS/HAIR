@@ -421,6 +421,29 @@ def read_frames(
     the header space is longer than the frame gap, so testing the gap
     first would end the frame before it began.
     """
+    frames, _positions, unreadable = read_frames_positioned(timing, timings)
+    return frames, unreadable
+
+
+def read_frames_positioned(
+    timing: FrameTiming, timings: list[int]
+) -> tuple[list[list[int]], list[list[int]], bool]:
+    """The same walk, also reporting WHERE each bit came from.
+
+    ``positions[f][i]`` is the index of the pulse pair, in the
+    trailing-zero-stripped train, that carried bit ``i`` of frame ``f``.
+
+    This exists so a caller that has to change one field can change the
+    pulses that field actually occupies, in the code's own timings,
+    instead of rendering a fresh waveform from the map's nominal
+    windows. Reporting where a bit came from is still READING: this
+    module has no encoder, imports no transmit path, and both are
+    asserted by test. Whoever builds something with these positions
+    does it somewhere else.
+
+    ``read_frames`` is this function with the positions dropped, so
+    there is one walk and it cannot drift from itself.
+    """
     # A zero at the end of the train is Pronto saying "nothing more", not
     # a pulse of no length. Leaving it in makes the last pair of every
     # code that carries one fall outside every window, which would fail
@@ -431,9 +454,11 @@ def read_frames(
     while train and train[-1] == 0:
         train.pop()
     frames: list[list[int]] = []
+    places: list[list[int]] = []
     bits: list[int] = []
+    where: list[int] = []
     pairs = zip(train[0::2], train[1::2], strict=False)
-    for mark, space in pairs:
+    for index, (mark, space) in enumerate(pairs):
         mark_us = abs(mark)
         space_us = abs(space)
         carrier = space_us if timing.classify == "space" else mark_us
@@ -443,22 +468,32 @@ def read_frames(
             continue  # the header carries no bit
         if space_us >= timing.gap_min:
             frames.append(bits)
+            places.append(where)
             bits = []
+            where = []
             continue
         if not timing.unit.holds(other):
-            return [], True
+            return [], [], True
         if timing.zero.holds(carrier):
             bits.append(0)
+            where.append(index)
         elif timing.one.holds(carrier):
             bits.append(1)
+            where.append(index)
         else:
             # Outside every window the map states. Guessing here would
             # be a reading nobody can check, and skipping would shift
             # every bit after it.
-            return [], True
+            return [], [], True
     if bits:
         frames.append(bits)
-    return [frame for frame in frames if frame], False
+        places.append(where)
+    kept = [i for i, frame in enumerate(frames) if frame]
+    return (
+        [frames[i] for i in kept],
+        [places[i] for i in kept],
+        False,
+    )
 
 
 def bits_to_bytes(bits: list[int], bit_order: str) -> tuple[int, ...]:
@@ -575,6 +610,12 @@ def _bit_selector(bits: str) -> tuple[int, int]:
         mask = ((1 << length) - 1) << start
         return mask, start
     raise ValueError(f"unknown bit selector {bits!r}")
+
+
+#: Public name for the selector, so a caller that has to WRITE a field
+#: addresses exactly the bits this module READS it from. Two selectors
+#: would be two answers to one question.
+bit_selector = _bit_selector
 
 
 def read_field(reading: Reading, spec: FieldSpec) -> int | None:

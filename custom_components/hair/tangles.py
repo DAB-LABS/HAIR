@@ -708,6 +708,448 @@ def pre_read(
 
 
 # ---------------------------------------------------------------------------
+# P7: witnessed-field synthesis
+# ---------------------------------------------------------------------------
+
+#: The map does not vouch for the field being rewritten.
+SYNTH_FIELD_PROVISIONAL = "field-not-ratified"
+#: The map declares an integrity rule it does not vouch for, so a
+#: recomputed frame could not be trusted even if the field could.
+SYNTH_RULE_PROVISIONAL = "integrity-rule-not-ratified"
+#: The capture does not read as the value the cluster needs. Nothing is
+#: witnessed, so nothing is synthesized.
+SYNTH_NO_WITNESS = "capture-does-not-read-as-needed"
+#: This cell has no healthy relative to build from.
+SYNTH_NO_SIBLING = "no-healthy-sibling"
+#: Nothing read the lattice, or the sibling's own bytes will not parse.
+SYNTH_UNREADABLE = "unreadable"
+
+#: Where a candidate came from, recorded in provenance and never
+#: guessed at afterwards.
+ORIGIN_DONOR = "donor"
+ORIGIN_SYNTHESIZED = "synthesized"
+ORIGIN_CAPTURE = "capture"
+ORIGIN_PASTE = "paste"
+
+
+class SynthesisBug(RuntimeError):
+    """A synthesized candidate did not read back as its own cell.
+
+    Raised, never returned. Every candidate this module builds is
+    checked against the same reader that judged the cell in the first
+    place, and a candidate that fails that check is a defect in the
+    synthesis, not a result to hand somebody.
+    """
+
+
+@dataclass
+class Synthesis:
+    """What one witnessed value could and could not build."""
+
+    candidates: dict[str, dict[str, Any]] = field(default_factory=dict)
+    declined: dict[str, str] = field(default_factory=dict)
+    #: Set when the whole run is refused before any cell is attempted.
+    refused: str | None = None
+    witness: dict[str, Any] | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "candidates": {k: dict(v) for k, v in self.candidates.items()},
+            "declined": dict(self.declined),
+            "refused": self.refused,
+            "witness": dict(self.witness) if self.witness else None,
+        }
+
+
+def _pronto_words(pronto: str) -> list[int] | None:
+    try:
+        words = [int(token, 16) for token in pronto.split()]
+    except ValueError:
+        return None
+    return words if len(words) >= 6 and words[1] > 0 else None
+
+
+def _words_to_pronto(words: list[int]) -> str:
+    return " ".join(f"{word:04X}" for word in words)
+
+
+def _carrier_index(field_map: Any, pair: int) -> int:
+    """Which word of a pulse pair carries the bit, per the map."""
+    return 5 + 2 * pair if field_map.timing.classify == "space" \
+        else 4 + 2 * pair
+
+
+def _byte_bits(value: int, bit_order: str) -> list[int]:
+    """One byte as eight bits in TRANSMISSION order.
+
+    The exact inverse of ``bits_to_bytes``'s packing, so a byte written
+    here reads back as the byte that was written.
+    """
+    if bit_order == "lsb_first":
+        return [(value >> index) & 1 for index in range(8)]
+    return [(value >> (7 - index)) & 1 for index in range(8)]
+
+
+def _exemplars(
+    field_map: Any, words: list[int], frames: list[list[int]],
+    positions: list[list[int]],
+) -> dict[int, int]:
+    """This code's OWN pulse widths for a zero and for a one.
+
+    Synthesis rewrites bits inside a real capture rather than rendering
+    a fresh waveform from the map's nominal windows, so the bits it
+    changes have to look like the bits it did not: same device, same
+    receiver, same jitter. The exemplar is the code's own median for
+    that bit value.
+
+    A code with no bit of one value falls back to the map's stated
+    window, because a value that never occurs has no exemplar to copy.
+    """
+    seen: dict[int, list[int]] = {0: [], 1: []}
+    for frame, place in zip(frames, positions, strict=True):
+        for bit, pair in zip(frame, place, strict=True):
+            index = _carrier_index(field_map, pair)
+            if index < len(words):
+                seen[bit].append(words[index])
+    out: dict[int, int] = {}
+    for bit, window in ((0, field_map.timing.zero), (1, field_map.timing.one)):
+        values = sorted(seen[bit])
+        if values:
+            out[bit] = values[len(values) // 2]
+        else:
+            nominal = window.nominal or (window.minimum + window.maximum) / 2
+            out[bit] = max(1, round(nominal / 0.241246 / words[1]))
+    return out
+
+
+def _repair_integrity(
+    field_map: Any, frames: list[list[int]]
+) -> list[list[int]]:
+    """Recompute every ratified rule the map declares, in place.
+
+    The arithmetic mirrors ``field_readers.check_integrity`` rather than
+    importing it, because that function ASKS and this one ANSWERS. The
+    coupling is pinned instead of assumed: a test recomputes and then
+    puts the result back through ``check_integrity``, so the day the two
+    drift, the suite says so.
+    """
+    out = [list(frame) for frame in frames]
+    for rule in field_map.integrity:
+        if not rule.ratified:
+            continue
+        params = rule.params
+        index = int(params.get("frame", 0) or 0)
+        if index >= len(out):
+            continue
+        frame = out[index]
+        if rule.type == "complement_pairs":
+            pairs = params.get("pairs")
+            if not pairs:
+                start = int(params.get("start", 0) or 0)
+                count = int(params.get("count", 0) or 0)
+                pairs = [
+                    [start + 2 * i, start + 2 * i + 1] for i in range(count)
+                ]
+            for low, high in pairs:
+                if max(low, high) < len(frame):
+                    frame[high] = (~frame[low]) & 0xFF
+        elif rule.type in ("checksum_sum", "nibble_sum"):
+            target = params.get("target_byte")
+            if not isinstance(target, int) or target >= len(frame):
+                continue
+            if rule.type == "checksum_sum":
+                span = params.get("range")
+                if not isinstance(span, list | tuple) or len(span) != 2:
+                    continue
+                first, last = int(span[0]), int(span[1])
+                if last >= len(frame):
+                    continue
+                modulus = int(params.get("mod", 256) or 256)
+                total = (
+                    sum(frame[first:last + 1])
+                    + int(params.get("offset", 0) or 0)
+                ) % modulus % 256
+            else:
+                nibbles = params.get("nibbles")
+                if not isinstance(nibbles, list):
+                    continue
+                total = 0
+                broken = False
+                for entry in nibbles:
+                    if not isinstance(entry, list | tuple) or len(entry) != 2:
+                        broken = True
+                        break
+                    byte_index, half = int(entry[0]), str(entry[1])
+                    if byte_index >= len(frame):
+                        broken = True
+                        break
+                    byte = frame[byte_index]
+                    total += (byte >> 4) if half in ("high", "hi") \
+                        else (byte & 0x0F)
+                if broken:
+                    continue
+                modulus = int(params.get("mod", 16) or 16)
+                total = (total + int(params.get("offset", 0) or 0)) % modulus
+            bits = params.get("bits")
+            if bits is None:
+                frame[target] = total & 0xFF
+            else:
+                try:
+                    mask, shift = field_readers.bit_selector(str(bits))
+                except ValueError:
+                    continue
+                frame[target] = (frame[target] & ~mask & 0xFF) | (
+                    (total << shift) & mask)
+        elif rule.type == "frame_repeat":
+            other = int(params.get("equals", 0) or 0)
+            if other < len(out):
+                out[index] = list(out[other])
+    return out
+
+
+def rewrite_field(
+    field_map: Any, pronto: str, spec: Any, value: int
+) -> str | None:
+    """One field rewritten inside a real capture's own timings.
+
+    NOT a rendering. The pulses this does not change are the bytes that
+    arrived from the device, untouched down to the Pronto word, and the
+    ones it does change take their width from this same code's own
+    median zero and one. That is what keeps a synthesized frame a
+    member of the family it came from rather than an idealised drawing
+    of one.
+
+    Returns None when the capture will not parse under the map.
+    """
+    words = _pronto_words(pronto)
+    if words is None:
+        return None
+    timings = field_readers.pronto_microseconds(pronto)
+    if timings is None:
+        return None
+    frames, positions, unreadable = field_readers.read_frames_positioned(
+        field_map.timing, timings
+    )
+    if unreadable or spec.frame >= len(frames):
+        return None
+    try:
+        mask, shift = field_readers.bit_selector(spec.bits)
+    except ValueError:
+        return None
+
+    before = [
+        list(field_readers.bits_to_bytes(frame, field_map.bit_order))
+        for frame in frames
+    ]
+    after = [list(frame) for frame in before]
+    if spec.byte >= len(after[spec.frame]):
+        return None
+    current = after[spec.frame][spec.byte]
+    after[spec.frame][spec.byte] = (current & ~mask & 0xFF) | (
+        (value << shift) & mask)
+    after = _repair_integrity(field_map, after)
+
+    exemplar = _exemplars(field_map, words, frames, positions)
+    for frame_index, (old_bytes, new_bytes) in enumerate(
+            zip(before, after, strict=False)):
+        place = positions[frame_index]
+        for byte_index, (old, new) in enumerate(
+                zip(old_bytes, new_bytes, strict=False)):
+            if old == new:
+                continue
+            old_bits = _byte_bits(old, field_map.bit_order)
+            new_bits = _byte_bits(new, field_map.bit_order)
+            for offset in range(8):
+                if old_bits[offset] == new_bits[offset]:
+                    continue
+                bit_index = byte_index * 8 + offset
+                if bit_index >= len(place):
+                    return None
+                word = _carrier_index(field_map, place[bit_index])
+                if word >= len(words):
+                    return None
+                words[word] = exemplar[new_bits[offset]]
+    return _words_to_pronto(words)
+
+
+def _healthy_siblings(
+    lattice: LatticeReading, target: ClimateCell, field_name: str
+) -> list[ClimateCell]:
+    """Cells identical to the target except on the rewritten axis, whose
+    own bytes agree with their own label.
+
+    A sibling that is itself lying would carry its lie into every cell
+    built from it, so the check is not "same coordinates" but "same
+    coordinates AND telling the truth".
+    """
+    axis = FIELD_COORDINATE.get(field_name)
+    if axis is None:
+        return []
+    anchor = _elsewhere(target, {field_name})
+    out = []
+    for key, candidate in lattice.cells.items():
+        if candidate is target or _elsewhere(candidate, {field_name}) != anchor:
+            continue
+        healthy = True
+        for spec in lattice.field_map.fields:
+            if not spec.ratified:
+                continue
+            claimed = _coordinate_of(candidate, spec.name)
+            if claimed is None:
+                continue
+            expected = field_readers.expected_value(spec, claimed)
+            read = lattice.reads(key, spec)
+            if expected is None or read is None:
+                continue
+            if expected != read:
+                healthy = False
+                break
+        if healthy:
+            out.append(candidate)
+    # Nearest on the rewritten axis first, then by key, so the choice is
+    # deterministic and a card built twice is built the same way.
+    target_value = _coordinate_of(target, field_name)
+
+    def _distance(cell: ClimateCell) -> tuple:
+        value = _coordinate_of(cell, field_name)
+        if isinstance(value, int | float) and isinstance(
+                target_value, int | float):
+            return (abs(float(value) - float(target_value)), cell_key(cell))
+        return (0.0, cell_key(cell))
+
+    return sorted(out, key=_distance)
+
+
+def synthesize(
+    lattice: LatticeReading,
+    rows: list[TangleRow],
+    witness_pronto: str,
+    field_name: str,
+    witness_target: str | None = None,
+) -> Synthesis:
+    """Build candidates for a cluster from ONE witnessed value.
+
+    The witness is a capture from the user's own hardware that reads as
+    the value the cluster needs. That press is what makes this legal:
+    the map could compute the same byte on its own, and deliberately is
+    not allowed to. A value nobody demonstrated is a value nobody
+    checked, and unreadable-never-guessed does not bend because the
+    arithmetic happens to be easy.
+
+    Each remaining cell is then built from its OWN healthy sibling --
+    same mode, fan and swing, a different value of the rewritten field
+    -- with only that field changed and the map's ratified rules
+    recomputed over the result.
+
+    ``witness_target`` is the row the capture was AIMED at, and only
+    that row receives the captured bytes verbatim. Matching on the
+    witnessed value alone is not enough and the first build got it
+    wrong: four cells needing 19 differ by swing, ZHLT01 marks swing
+    provisional, and handing all four the same frame produced four
+    candidates that passed their own read-back while three of them
+    carried the wrong swing. The read-back can only check what the map
+    ratifies, so the rule is structural instead -- every cell nobody
+    aimed at is built from its own sibling, which is right on every
+    axis by construction.
+    """
+    result = Synthesis()
+    if not lattice.readable:
+        result.refused = SYNTH_UNREADABLE
+        return result
+    field_map = lattice.field_map
+    spec = lattice.spec_for(field_name)
+    if spec is None or not spec.ratified:
+        result.refused = SYNTH_FIELD_PROVISIONAL
+        return result
+    if any(not rule.ratified for rule in field_map.integrity):
+        # A frame carries its own proof. If the map will not vouch for
+        # the rule that proves it, a recomputed frame is a guess wearing
+        # a checksum, and the Galanz class stays untouchable.
+        result.refused = SYNTH_RULE_PROVISIONAL
+        return result
+
+    reading = field_readers.read_code(
+        witness_pronto, [field_map], prefer=field_map.protocol_id
+    )
+    if not reading.identified:
+        result.refused = SYNTH_NO_WITNESS
+        return result
+    witnessed = field_readers.read_field(reading, spec)
+    if witnessed is None:
+        result.refused = SYNTH_NO_WITNESS
+        return result
+
+    needed = {
+        field_readers.expected_value(
+            spec, _coordinate_of(lattice.cells[row.target.key], field_name)
+        )
+        for row in rows
+        if row.target.key in lattice.cells
+    }
+    if witnessed not in needed:
+        result.refused = SYNTH_NO_WITNESS
+        return result
+
+    witness_digest = _cell_digest(witness_pronto)
+    result.witness = {
+        "digest": witness_digest,
+        "field": field_name,
+        "value": witnessed,
+        "reads_as": _label_for(
+            spec, _axis_domain(lattice, field_name), witnessed),
+    }
+
+    for row in rows:
+        cell = lattice.cells.get(row.target.key)
+        if cell is None:
+            result.declined[row.id] = SYNTH_UNREADABLE
+            continue
+        wanted = field_readers.expected_value(
+            spec, _coordinate_of(cell, field_name))
+        if wanted is None:
+            result.declined[row.id] = SYNTH_FIELD_PROVISIONAL
+            continue
+
+        if witness_target is not None and row.id == witness_target:
+            # The press was aimed here. The capture IS the candidate: a
+            # frame the user actually produced beats one derived from a
+            # sibling, and their aim is the attestation for the axes
+            # this map does not ratify and cannot check.
+            built = witness_pronto
+            origin = ORIGIN_CAPTURE
+            sibling_key = None
+        else:
+            siblings = _healthy_siblings(lattice, cell, field_name)
+            if not siblings:
+                result.declined[row.id] = SYNTH_NO_SIBLING
+                continue
+            sibling = siblings[0]  # sorted; nearest on the rewritten axis
+            sibling_key = cell_key(sibling)
+            built = rewrite_field(field_map, sibling.pronto, spec, wanted)
+            origin = ORIGIN_SYNTHESIZED
+            if built is None:
+                result.declined[row.id] = SYNTH_UNREADABLE
+                continue
+
+        verdict = pre_read(lattice, built, row.target.coordinates)
+        if verdict.matches is not True:
+            raise SynthesisBug(
+                f"synthesized candidate for {row.target.key} reads as "
+                f"{verdict.reads_as} against {verdict.claims}"
+            )
+        result.candidates[row.id] = {
+            "pronto": built,
+            "digest": _cell_digest(built),
+            "origin": origin,
+            "witness_digest": witness_digest,
+            "witness_field": field_name,
+            "sibling": sibling_key,
+            "verdict": verdict.as_dict(),
+        }
+    return result
+
+
+# ---------------------------------------------------------------------------
 # P6: causes, not findings
 # ---------------------------------------------------------------------------
 
