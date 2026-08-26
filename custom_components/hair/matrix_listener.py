@@ -869,10 +869,20 @@ class MatrixListener:
 # module level, beside the builder they wrap, so the on-disk shape and
 # the in-memory one cannot drift apart in a refactor.
 
-# Bumped to /2 for the receiver-tolerant tier (2026-08-18). A stored /1
-# index is simply not read, so every lattice rebuilds once and gains the
-# new map; the rebuild is the same seconds-of-work the first build was.
-INDEX_FORMAT = "hair-cell-index/2"
+# Bumped to /2 for the receiver-tolerant tier (2026-08-18) and to /3 for
+# the unified strip (GH #125). A stored index of an older format is
+# simply not read, so every lattice rebuilds once and gains the new map;
+# the rebuild is the same seconds-of-work the first build was.
+#
+# WHY THE VERSION IS THE ONLY LEVER HERE. ``_load_stored_index`` checks
+# three things: this string, the matrix file's content hash, and the
+# display unit. A change to the identity ALGORITHM moves none of them --
+# the migration never touches the matrix file, so its content hash is
+# unchanged -- and the stored index would go on answering with
+# pre-migration hashes while captures arrived carrying post-migration
+# ones. Every climate lattice would silently stop recognizing its own
+# cells, with nothing in any log to say so.
+INDEX_FORMAT = "hair-cell-index/3"
 
 
 def _hit_to_row(hit: CellHit) -> list:

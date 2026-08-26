@@ -106,14 +106,22 @@ def test_a_wig_minted_trigger_fires_on_a_real_press(store):
     byte hash is not what a receiver hands back: every capture below
     misses the trigger on the tiers above, and lands on it through the
     normalized one.
+
+    The captures moved from F1 to C1 with GH #125. F1's divergence was
+    partly the trailing gap word, which the unified strip removed from
+    identity, so one of its four captures is now answered at tier 2 and
+    the premise no longer holds for it. C1's is receiver distortion --
+    marks short, spaces long, on every transmitter -- which no identity
+    rule can strip, so it remains the honest case for this tier. The
+    promotion itself is pinned at the bottom of this file.
     """
-    remote = TriggerRemote(name="ACER", origin="closet")
+    remote = TriggerRemote(name="Bench Handset", origin="closet")
     store._trigger_remotes[remote.id] = remote
-    trigger = wig_trigger(air_code("F1"), "Power", remote.id)
+    trigger = wig_trigger(air_code("C1"), "Cool 23", remote.id)
     store._triggers[trigger.id] = trigger
 
-    rows = air_captures("F1")
-    assert len(rows) == 4
+    rows = air_captures("C1")
+    assert len(rows) == 16
     for row in rows:
         signal = heard(row)
         if row["transmitter"] != "inject":
@@ -133,12 +141,12 @@ def test_the_tier_is_not_reached_without_it(store):
     The tier is opt-in per call site, so a caller that has not been
     threaded through cannot start matching by accident.
     """
-    remote = TriggerRemote(name="ACER", origin="closet")
+    remote = TriggerRemote(name="Bench Handset", origin="closet")
     store._trigger_remotes[remote.id] = remote
-    trigger = wig_trigger(air_code("F1"), "Power", remote.id)
+    trigger = wig_trigger(air_code("C1"), "Cool 23", remote.id)
     store._triggers[trigger.id] = trigger
 
-    signal = heard(air_captures("F1", "esphome")[0])
+    signal = heard(air_captures("C1", "esphome")[0])
     assert store.get_triggers_for_signal(
         "PRONTO", signal.code, signal.sig_fp, signal.byte_hash,
         signal.decoded_fingerprint,
@@ -147,17 +155,19 @@ def test_the_tier_is_not_reached_without_it(store):
 
 def test_two_file_sourced_triggers_of_one_shape_fire_neither(store):
     """One press must not run two buttons' automations."""
-    remote = TriggerRemote(name="ACER", origin="closet")
+    remote = TriggerRemote(name="Bench Handset", origin="closet")
     store._trigger_remotes[remote.id] = remote
-    first = wig_trigger(air_code("F1"), "Power", remote.id)
-    second = wig_trigger(stretched(air_code("F1")), "Power (twin)", remote.id)
+    first = wig_trigger(air_code("C1"), "Cool 23", remote.id)
+    second = wig_trigger(
+        stretched(air_code("C1")), "Cool 23 (twin)", remote.id
+    )
     store._triggers[first.id] = first
     store._triggers[second.id] = second
     assert norm_fingerprint_of_code(first.code) == norm_fingerprint_of_code(
         second.code
     )
 
-    signal = heard(air_captures("F1", "esphome")[0])
+    signal = heard(air_captures("C1", "esphome")[0])
     assert store.get_triggers_for_signal(
         "PRONTO", signal.code, signal.sig_fp, signal.byte_hash,
         signal.decoded_fingerprint, signal.norm_fp,
@@ -165,12 +175,12 @@ def test_two_file_sourced_triggers_of_one_shape_fire_neither(store):
 
 
 def test_a_capture_that_decoded_never_reaches_the_trigger_tier(store):
-    remote = TriggerRemote(name="ACER", origin="closet")
+    remote = TriggerRemote(name="Bench Handset", origin="closet")
     store._trigger_remotes[remote.id] = remote
-    trigger = wig_trigger(air_code("F1"), "Power", remote.id)
+    trigger = wig_trigger(air_code("C1"), "Cool 23", remote.id)
     store._triggers[trigger.id] = trigger
 
-    signal = heard(air_captures("F1", "esphome")[0])
+    signal = heard(air_captures("C1", "esphome")[0])
     assert store.get_triggers_for_signal(
         "PRONTO", signal.code, signal.sig_fp, signal.byte_hash,
         "NEC:0x0007:0x02", signal.norm_fp,
@@ -322,12 +332,12 @@ def adopted_device(code: str, name: str = "Power") -> IRDevice:
 
 def test_a_wig_adopted_command_is_recognized_on_a_real_press(store):
     """A device adopted from a wig, and the real remote in someone's hand."""
-    device = adopted_device(air_code("F1"))
+    device = adopted_device(air_code("C1"), name="Cool 23")
     store._data[device.id] = device
     store._rebuild_command_index()
     ref = (device.id, device.commands[0].id)
 
-    for row in air_captures("F1", "esphome") + air_captures("F1", "broadlink"):
+    for row in air_captures("C1", "esphome") + air_captures("C1", "broadlink"):
         signal = heard(row)
         assert store.match_command(
             signal.decoded_fingerprint, signal.sig_fp, signal.byte_hash
@@ -340,13 +350,13 @@ def test_a_wig_adopted_command_is_recognized_on_a_real_press(store):
 
 def test_a_learned_command_is_not_offered_the_tier(store):
     """The same code on a device nobody adopted from a file."""
-    device = adopted_device(air_code("F1"))
+    device = adopted_device(air_code("C1"), name="Cool 23")
     device.source_wig_id = None
     device.commands[0].source = CommandSource.CAPTURED
     store._data[device.id] = device
     store._rebuild_command_index()
 
-    signal = heard(air_captures("F1", "esphome")[0])
+    signal = heard(air_captures("C1", "esphome")[0])
     assert store.match_command(
         signal.decoded_fingerprint, signal.sig_fp, signal.byte_hash,
         signal.norm_fp,
@@ -354,13 +364,13 @@ def test_a_learned_command_is_not_offered_the_tier(store):
 
 
 def test_two_file_commands_of_one_shape_match_neither(store):
-    device = adopted_device(air_code("F1"))
-    twin = adopted_device(stretched(air_code("F1")), name="Power (twin)")
+    device = adopted_device(air_code("C1"), name="Cool 23")
+    twin = adopted_device(stretched(air_code("C1")), name="Cool 23 (twin)")
     device.commands.append(twin.commands[0])
     store._data[device.id] = device
     store._rebuild_command_index()
 
-    signal = heard(air_captures("F1", "esphome")[0])
+    signal = heard(air_captures("C1", "esphome")[0])
     assert store.match_command(
         signal.decoded_fingerprint, signal.sig_fp, signal.byte_hash,
         signal.norm_fp,
@@ -423,18 +433,18 @@ def test_a_receiver_learned_trigger_never_matches_on_the_tier_alone(store):
     """
     remote = TriggerRemote(name="Sniffed remote", origin="remote")
     store._trigger_remotes[remote.id] = remote
-    trigger = wig_trigger(air_code("F1"), "Power", remote.id, origin="remote")
+    trigger = wig_trigger(
+        air_code("C1"), "Cool 23", remote.id, origin="remote"
+    )
     store._triggers[trigger.id] = trigger
 
-    for row in air_captures("F1", "esphome"):
+    for row in air_captures("C1", "esphome"):
         signal = heard(row)
         assert signal.norm_fp == norm_fingerprint_of_code(trigger.code)
         assert store.get_triggers_for_signal(
             "PRONTO", signal.code, signal.sig_fp, signal.byte_hash,
             signal.decoded_fingerprint, signal.norm_fp,
         ) == []
-
-
 def test_two_sony_buttons_still_separate_through_the_decoded_tier(store):
     """The collision the tier would cause if it were ever reached.
 
@@ -586,3 +596,65 @@ def test_a_single_frame_file_row_keeps_the_tighter_window(store):
 
     assert not is_multi_frame_code(trigger.code)
     assert not manager._is_multi_frame_file_row(trigger)
+
+
+# --- what GH #125 took off this tier ---------------------------------------
+
+
+def test_the_tail_class_was_promoted_out_of_the_tier(store):
+    """The unified strip answers one class here, and only one.
+
+    F1 is a short single-frame code whose file form and its ESPHome
+    capture differed by the trailing gap word alone. GH #125 made
+    identity end at the last real pulse, so that capture is now settled
+    at tier 2 and never consults this one -- a precision gain, since the
+    tolerant tier refuses ambiguous shapes and the byte hash does not.
+
+    Recorded rather than celebrated: it is ONE capture of fifty-one. The
+    same remote's Broadlink captures of the same button still arrive with
+    a different byte hash, because that difference is receiver
+    distortion and not a tail, and forty-five of the fifty-one air-path
+    captures still reach their file row through the normalized tier
+    alone. This tier is not on its way out.
+    """
+    remote = TriggerRemote(name="ACER", origin="closet")
+    store._trigger_remotes[remote.id] = remote
+    trigger = wig_trigger(air_code("F1"), "Power", remote.id)
+    store._triggers[trigger.id] = trigger
+
+    promoted = [
+        row for row in air_captures("F1")
+        if trigger.matches_signal(
+            heard(row).sig_fp,
+            heard(row).byte_hash,
+            heard(row).decoded_fingerprint,
+        )
+    ]
+    still_tolerant = [
+        row for row in air_captures("F1") if row not in promoted
+    ]
+
+    assert {r["transmitter"] for r in promoted} == {"esphome", "inject"}
+    assert {r["transmitter"] for r in still_tolerant} == {"broadlink"}
+
+    # The promoted capture is answered WITHOUT being handed the tier.
+    esphome = next(r for r in promoted if r["transmitter"] == "esphome")
+    signal = heard(esphome)
+    matched = store.get_triggers_for_signal(
+        "PRONTO", signal.code, signal.sig_fp, signal.byte_hash,
+        signal.decoded_fingerprint,
+    )
+    assert [t.id for t in matched] == [trigger.id]
+
+    # The others are unchanged, and still need it.
+    for row in still_tolerant:
+        signal = heard(row)
+        assert store.get_triggers_for_signal(
+            "PRONTO", signal.code, signal.sig_fp, signal.byte_hash,
+            signal.decoded_fingerprint,
+        ) == []
+        matched = store.get_triggers_for_signal(
+            "PRONTO", signal.code, signal.sig_fp, signal.byte_hash,
+            signal.decoded_fingerprint, signal.norm_fp,
+        )
+        assert [t.id for t in matched] == [trigger.id]

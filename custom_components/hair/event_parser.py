@@ -357,14 +357,27 @@ class EventParser:
 
         Returns ``None`` if the string is malformed or too short
         (needs at least 4 header words + 1 timing word). Accepts ``None``
-        so the ``str | None`` callers (``_pronto_sl_pattern``,
-        ``pronto_byte_hash``) pass through without a separate guard.
+        so the ``str | None`` callers (``_pronto_identity_timings``,
+        ``device_fingerprint``) pass through without a separate guard.
+
+        The WHOLE word list, header included, and no strip:
+        ``device_fingerprint`` reads ``words[1]`` and ``words[4:]`` from
+        here directly and needs to see all of it. The identity strip
+        lives in ``_pronto_identity_timings`` instead.
         """
         if not code:
             return None
         try:
             words = [int(w, 16) for w in code.strip().split()]
-        except (ValueError, TypeError):
+        except (AttributeError, TypeError, ValueError):
+            # AttributeError: a .storage row whose ``code`` is not a
+            # string at all reaches ``code.strip()``. This function is
+            # the bottom of the identity layer and every walk above it
+            # is documented as answering None for a code it cannot
+            # read, so it answers None here rather than raising up
+            # through six callers -- one of which is the legacy
+            # byte-hash backfill inside the executor job that loads the
+            # whole Sniffer catalog.
             return None
         # Pronto header is 4 words: type, freq, burst1_count, burst2_count.
         if len(words) < 5:
@@ -372,39 +385,74 @@ class EventParser:
         return words
 
     @staticmethod
-    def _pronto_sl_pattern(code: str | None) -> str | None:
-        """Convert a Pronto hex code to an S/L pulse-duration pattern.
+    def _pronto_identity_timings(code: str | None) -> list[int] | None:
+        """The timing words identity hashes: everything up to the last pulse.
 
-        Parses the timing words (after the 4-word header) and classifies
-        each as S(hort), L(ong), or ignores gaps (end-of-signal markers).
+        THE TAIL RULE, expressed over Pronto words. ``identity.canonical_edges``
+        is the definition of that rule (identity.py); the two pops below are
+        that function's strip written against a word list instead of signed
+        microseconds, so the two layers cannot drift apart again.
 
-        This mirrors how real IR receiver ICs decode signals: they apply
-        a threshold to distinguish short from long pulses, ignoring exact
-        microsecond timing.  The resulting pattern string (e.g. "SSLLSSSS")
-        is deterministic for a given button regardless of timing jitter.
+        WHY A STRIP AT ALL (GH #125). One waveform reaches HAIR wearing three
+        different tails. A file writes the inter-frame gap it was authored
+        with; a receiver writes its own measure of the trailing silence;
+        ``raw_to_pronto`` pads the missing final space with a zero. Hashing
+        the rendered text gave the same button up to three identities, and
+        the load-time migration kept moving stored rows onto a form the air
+        could never reproduce. Identity must not depend on which tail the
+        path produced, so the walk ends at the last real pulse and no tail
+        is hashed at all.
 
-        Returns ``None`` if the code is malformed.
+        Returns ``None`` for a code that cannot be read, and for one with
+        nothing left after the strip -- an all-zero code carries no identity
+        (GH #108), which is the answer ``identity.canonical_byte_hash``
+        already gives for it.
         """
         words = EventParser._parse_pronto_words(code)
         if words is None:
             return None
 
-        # Skip 4-word header; classify timing words.
-        timings = words[4:]
-        pattern = []
-        for t in timings:
+        # Skip the 4-word header; stop at the first end-of-signal gap.
+        timings: list[int] = []
+        for t in words[4:]:
             if t >= PRONTO_GAP_THRESHOLD:
-                # End-of-signal gap -- stop here.
                 break
-            if t < PRONTO_SL_THRESHOLD:
-                pattern.append("S")
-            else:
-                pattern.append("L")
+            timings.append(t)
 
-        if not pattern:
+        # Drop a padded tail, then leave the list ending on a MARK. Position,
+        # not sign, is what says mark or space in a Pronto word list, so an
+        # even length means it ends on a space.
+        while timings and timings[-1] == 0:
+            timings.pop()
+        if timings and len(timings) % 2 == 0:
+            timings.pop()
+
+        return timings or None
+
+    @staticmethod
+    def _pronto_sl_pattern(code: str | None) -> str | None:
+        """Convert a Pronto hex code to an S/L pulse-duration pattern.
+
+        Classifies each identity timing word (``_pronto_identity_timings``,
+        which skips the header, stops at the end-of-signal gap and strips
+        the tail) as S(hort) or L(ong).
+
+        This mirrors how real IR receiver ICs decode signals: they apply
+        a threshold to distinguish short from long pulses, ignoring exact
+        microsecond timing.  The resulting pattern string (e.g. "SSLLSSSS")
+        is deterministic for a given button regardless of timing jitter,
+        and since GH #125 regardless of which tail the code was written
+        with.
+
+        Returns ``None`` if the code is malformed or carries no pulse.
+        """
+        timings = EventParser._pronto_identity_timings(code)
+        if timings is None:
             return None
 
-        return "".join(pattern)
+        return "".join(
+            "S" if t < PRONTO_SL_THRESHOLD else "L" for t in timings
+        )
 
     @staticmethod
     def pronto_byte_hash(code: str | None) -> str | None:
@@ -418,7 +466,7 @@ class EventParser:
         classifies short and all buttons on the remote share one S/L
         pattern). This hash preserves the distinction without
         over-fragmenting jittered captures of the same physical button:
-        each pre-gap timing word is rounded to the nearest
+        each identity timing word is rounded to the nearest
         ``PRONTO_BYTE_HASH_BIN`` carrier cycles, and the comma-joined
         sequence is SHA-256 hashed (first 16 hex).
 
@@ -426,27 +474,17 @@ class EventParser:
         triggers, the known-command matcher, and repeat suppression all key
         on ``(signal_fingerprint, byte_hash)``.
 
-        Uses the same parse and gap-break point as ``_pronto_sl_pattern``
-        so the two layers of the composite key stay consistent. Returns
-        ``None`` if the code is malformed.
+        Reads ``_pronto_identity_timings``, the same source as
+        ``_pronto_sl_pattern``, so the two layers of the composite key see
+        exactly the same pulses. Returns ``None`` if the code is malformed
+        or carries no pulse.
         """
-        words = EventParser._parse_pronto_words(code)
-        if words is None:
+        timings = EventParser._pronto_identity_timings(code)
+        if timings is None:
             return None
 
         n = PRONTO_BYTE_HASH_BIN
-        # Skip the 4-word header; quantize timing words, break at the
-        # first end-of-signal gap (same truncation as the S/L pattern).
-        quantized: list[str] = []
-        for t in words[4:]:
-            if t >= PRONTO_GAP_THRESHOLD:
-                break
-            quantized.append(str(round(t / n) * n))
-
-        if not quantized:
-            return None
-
-        payload = ",".join(quantized)
+        payload = ",".join(str(round(t / n) * n) for t in timings)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     # -----------------------------------------------------------------

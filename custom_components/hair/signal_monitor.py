@@ -3096,8 +3096,17 @@ class SignalMonitor:
                     skipped += 1
                     continue
                 code = result.normalized
-                sig_fp = EventParser.signal_fingerprint("PRONTO", code, [])
-                byte_hash = EventParser.pronto_byte_hash(code)
+                # THE LAST DOOR ON THE RAW WALK (GH #125). Every sibling
+                # mint door -- the Clipper paste, the Plucker place, the
+                # capture path, every websocket create -- goes through
+                # the canonical pair; this one still called the raw
+                # EventParser one. After the unified strip the two agree
+                # for every code, which is exactly why this is the
+                # moment to route it: the repair is provably a no-op
+                # today, and the door stops being the one place a second
+                # identity form could come back in later.
+                sig_fp = canonical_fingerprint("PRONTO", code, [])
+                byte_hash = canonical_byte_hash(code)
                 # Tiered in-batch duplicate guard: codebook entries carry a
                 # decoded identity, so two encodings of the same command
                 # dedupe here instead of surviving until the load-time heal.

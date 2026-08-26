@@ -153,13 +153,34 @@ class SignalStore:
             for record in (raw.get("plucked_stores") or [])
             if isinstance(record, dict)
         ]
-        if dirty:
-            self._dirty = True
         # The sticky index is in-memory only, so it is built here from
         # what was just loaded. A restart therefore files a re-press onto
         # the same row it landed on before the restart.
         self.rebuild_signal_index()
         self._loaded = True
+        if dirty:
+            # PERSIST THE MIGRATION (GH #125), the way
+            # ``HAIRStore.async_load`` already does for the device side.
+            #
+            # This used to set the dirty FLAG and stop there, which arms
+            # nothing: ``schedule_save`` is what starts the debounce and
+            # the ceiling, and nothing called it. So the catalog's
+            # load-time migration has never reached disk under its own
+            # power. It waited for the next unrelated write -- a
+            # capture, an alias, a delete, a reorder -- and until one
+            # came, every boot re-ran and re-reported the whole thing.
+            #
+            # That was invisible while the canonical block had almost
+            # nothing to move on a captured-row store. It stops being
+            # invisible here: on the bench store this release moves 495
+            # of 552 catalog rows.
+            #
+            # Last, deliberately. ``_serialize`` reads
+            # ``_plucked_stores``, which is populated above, so a save
+            # from any earlier point would write a half-built payload
+            # and drop the Plucker's records. A clean boot leaves
+            # ``dirty`` False and writes nothing at all.
+            await self.async_save()
 
     async def async_save(self) -> None:
         """Persist current state to disk immediately.
@@ -734,11 +755,39 @@ def _transform_loaded(
     # of v0.3.4 keys on the composite (fingerprint, byte_hash).
     from .event_parser import EventParser
 
-    legacy_signals = any(
-        not s.get("id") or s.get("byte_hash") is None
-        for d in (raw.get("devices") or [])
-        for s in (d.get("signals") or [])
-    )
+    # DIRTY MEANS "MEMORY DIFFERS FROM DISK", NEVER "WORK REMAINS"
+    # (GH #125). A row whose code cannot be read can never gain a
+    # byte_hash. It is FOUND on every load and CHANGED by none, so
+    # counting it as pending legacy work kept the store permanently
+    # dirty -- harmless while nothing acted on the flag, and a rewrite
+    # of the entire catalog on every boot once the load-time save
+    # landed. Measured on the bench: ONE Mirror row with a code of None
+    # did that to a 1.4 MB store, with byte-identical content each time.
+    #
+    # Classified here at load and never branded onto the row. A future
+    # version that CAN read such a code simply repairs it then, with no
+    # stale marker to unlearn first.
+    unrepairable: list[str] = []
+    legacy_signals = False
+    for _d in raw.get("devices") or []:
+        for _s in _d.get("signals") or []:
+            if not _s.get("id"):
+                legacy_signals = True  # an id is always mintable
+                continue
+            if _s.get("byte_hash") is not None:
+                continue
+            if EventParser.pronto_byte_hash(_s.get("code")) is not None:
+                legacy_signals = True  # a hash this load can fill in
+            else:
+                unrepairable.append(_s.get("id"))
+    if unrepairable:
+        _LOGGER.debug(
+            "%d catalog row(s) carry a code no hash can be computed "
+            "from. They are re-read on every load and changed by none, "
+            "so they do not mark the store dirty: %s",
+            len(unrepairable),
+            ", ".join(unrepairable[:20]),
+        )
     for device in devices.values():
         for sig in device.signals:
             if sig.byte_hash is None and sig.code:
@@ -795,25 +844,53 @@ def _transform_loaded(
     # reads and copies (and what a wig's claim digest hashes once the
     # row is saved to the closet). Runs BEFORE the duplicate heal below,
     # which keys on exactly these values.
-    from .identity import (
-        canonical_byte_hash,
-        canonical_fingerprint,
-        canonical_pronto,
-    )
+    from .identity import canonical_byte_hash, canonical_fingerprint
 
     canon_moved = 0
     for device in devices.values():
         for sig in device.signals:
-            # Only rows whose code is readable Pronto have a wire form.
-            # Manual and legacy rows keep the identity they have.
-            if not sig.code or canonical_pronto(sig.code) is None:
+            # HASHABLE IS THE BAR, NOT CANONICALIZABLE (GH #125). Same
+            # widening as storage._backfill_canonical_identity: a code
+            # can hash without canonicalizing (the over-declared-header
+            # class), and those are exactly the rows whose hash the
+            # unified strip moves.
+            if not sig.code:
+                continue
+            # A .storage row can lie about its own type. Named here so
+            # the one bad row is visible in the log rather than just
+            # quietly identity-less, and skipped so the walks below are
+            # only ever handed a string.
+            if not isinstance(sig.code, str):
+                _LOGGER.warning(
+                    "Signal %s on remote %s stores a non-string code "
+                    "(%s); leaving its identity alone",
+                    sig.id,
+                    device.label or device.id,
+                    type(sig.code).__name__,
+                )
+                continue
+            # ONE BAD ROW COSTS ITSELF, NOT THE CATALOG (GH #108's
+            # lesson, applied here). This runs inside the single
+            # executor job that loads every remote the user has, and
+            # canonical_pronto on a non-string code raises
+            # AttributeError out of pronto_hex.split() rather than the
+            # ValueError family the helpers catch. Unguarded, one such
+            # row in .storage took the whole Sniffer catalog with it.
+            try:
+                fresh_hash = canonical_byte_hash(sig.code)
+                fresh_fp = canonical_fingerprint(sig.protocol, sig.code, None)
+            except Exception:
+                _LOGGER.warning(
+                    "Skipped signal %s on remote %s in the canonical "
+                    "identity backfill: its code could not be read",
+                    sig.id,
+                    device.label or device.id,
+                )
                 continue
             moved = False
-            fresh_hash = canonical_byte_hash(sig.code)
             if fresh_hash is not None and fresh_hash != sig.byte_hash:
                 sig.byte_hash = fresh_hash
                 moved = True
-            fresh_fp = canonical_fingerprint(sig.protocol, sig.code, None)
             if fresh_fp and fresh_fp != sig.fingerprint:
                 sig.fingerprint = fresh_fp
                 moved = True

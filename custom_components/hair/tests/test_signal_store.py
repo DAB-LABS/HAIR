@@ -185,6 +185,7 @@ class TestLoadSave:
         }
         with patch.object(store, "_store") as mock_store:
             mock_store.async_load = AsyncMock(return_value=raw)
+            mock_store.async_save = AsyncMock()
             await store.async_load()
 
         # Live fingerprint stays dismissed.
@@ -192,9 +193,12 @@ class TestLoadSave:
         # Orphan was pruned.
         assert not store.is_dismissed("orphan_fp")
         assert store.dismissed_count == 1
-        # Self-heal flags the store as dirty so the cleanup persists on
-        # next save.
-        assert store._dirty
+        # The self-heal PERSISTS. This used to assert the dirty flag,
+        # which armed nothing: a load-time repair sat in memory until an
+        # unrelated write flushed it (GH #125). The save is the real
+        # contract, and the flag is clear afterwards because of it.
+        assert mock_store.async_save.await_count == 1
+        assert store._dirty is False
 
     @pytest.mark.asyncio
     async def test_load_with_no_orphans_does_not_mark_dirty(self):
@@ -703,11 +707,14 @@ class TestManualOrder:
         }
         with patch.object(store, "_store") as mock_store:
             mock_store.async_load = AsyncMock(return_value=raw)
+            mock_store.async_save = AsyncMock()
             await store.async_load()
         sigs = store.get_device("m1").signals
         assert [s.fingerprint for s in sigs] == ["dup", "uniq"]
-        # A change was made, so the cleaned list will be persisted.
-        assert store._dirty is True
+        # A change was made, so the cleaned list IS persisted, not merely
+        # flagged for a later write (GH #125).
+        assert mock_store.async_save.await_count == 1
+        assert store._dirty is False
 
     @pytest.mark.asyncio
     async def test_load_v0_3_4_assigns_ids_and_keeps_distinct_byte_hash(self):
@@ -732,15 +739,18 @@ class TestManualOrder:
         }
         with patch.object(store, "_store") as mock_store:
             mock_store.async_load = AsyncMock(return_value=raw)
+            mock_store.async_save = AsyncMock()
             await store.async_load()
         sigs = store.get_device("B").signals
         # Distinct codes sharing a fingerprint stay as two separate signals.
         assert len(sigs) == 2
         assert sigs[0].fingerprint == sigs[1].fingerprint
         assert sigs[0].byte_hash != sigs[1].byte_hash
-        # Each legacy signal received a stable id and a computed byte_hash,
-        # and the store is dirty so those persist on the next save.
+        # Each legacy signal received a stable id and a computed
+        # byte_hash, and the load PERSISTED them rather than flagging
+        # them for a write that might never come (GH #125).
         for sig in sigs:
             assert sig.id
             assert sig.byte_hash is not None
-        assert store._dirty is True
+        assert mock_store.async_save.await_count == 1
+        assert store._dirty is False

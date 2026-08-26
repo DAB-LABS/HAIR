@@ -1066,7 +1066,10 @@ def test_the_stored_index_carries_the_lowest_tier(tmp_path):
 
     index = build_cell_index(_air_matrix(), display_unit="C")
     payload = _index_to_payload(index, "h1", "C")
-    assert payload["format"] == "hair-cell-index/2"
+    # The literal lives in test_a_stale_cell_index_is_refused, which is
+    # what pins the version. Here it only has to be the current one, so
+    # a bump does not need this test edited to stay honest.
+    assert payload["format"] == _ml.INDEX_FORMAT
     restored = _payload_to_index(payload)
     assert restored is not None
     heard = _heard(_air_captures("C1", "esphome")[0])
@@ -1349,3 +1352,76 @@ async def test_a_remote_minted_at_runtime_is_warmed_by_its_mint_door():
     listener.warm_index.assert_called_once_with("r9")
     # A caller assembled without a listener must not raise.
     _warm_remote_matrix({}, "r9")
+
+
+def test_a_stale_cell_index_is_refused(tmp_path):
+    """The INDEX_FORMAT bump, pinned against being reverted as noise.
+
+    GH #125 moved the identity algorithm and nothing else. The matrix
+    file is untouched, so its content hash is unchanged, and the display
+    unit is unchanged, so an index written under the old hashes passes
+    both of the other freshness checks. The format version is the only
+    thing that can refuse it.
+    """
+    from custom_components.hair.matrix_listener import (
+        INDEX_FORMAT,
+        _build_and_store_index,
+        _load_stored_index,
+    )
+    from custom_components.hair.matrix_store import index_path, write_matrix
+
+    write_matrix(tmp_path, "r1", _matrix())
+    _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
+    assert INDEX_FORMAT == "hair-cell-index/3"
+    assert _load_stored_index(str(tmp_path), "r1", "C") is not None
+
+    path = index_path(tmp_path, "r1")
+    payload = _json.loads(path.read_text())
+    # The other two freshness keys are intact: only the format is old.
+    assert payload["unit"] == "C"
+    assert payload["matrix"]
+    payload["format"] = "hair-cell-index/2"
+    path.write_text(_json.dumps(payload))
+
+    assert _load_stored_index(str(tmp_path), "r1", "C") is None
+
+
+def test_a_rebuilt_index_matches_a_capture_after_the_identity_move(tmp_path):
+    """The other half of the bump: once rebuilt, the index answers a
+    real capture of the cell it indexes.
+
+    The capture is reconstructed from raw timings the way every receive
+    path reconstructs one, so this is the wire form and not the file
+    text. Since GH #125 the two hash alike, which is what lets a lattice
+    recognize its own cell off the air.
+    """
+    from custom_components.hair.ir_command import ProntoCommand, raw_to_pronto
+    from custom_components.hair.matrix_listener import (
+        _build_and_store_index,
+        _load_stored_index,
+    )
+    from custom_components.hair.matrix_store import write_matrix
+    from custom_components.hair.models import CaptureResult
+    from custom_components.hair.signal_monitor import normalize
+
+    write_matrix(tmp_path, "r1", _matrix())
+    _build_and_store_index(str(tmp_path), "r1", _matrix(), "C")
+    index = _load_stored_index(str(tmp_path), "r1", "C")
+    assert index is not None
+
+    command = ProntoCommand(PRONTO_COOL_23)
+    raw = command.get_raw_timings()
+    heard = normalize(
+        CaptureResult(
+            protocol="PRONTO",
+            code=raw_to_pronto(raw, frequency=command.modulation),
+            raw_timings=raw,
+            frequency=command.modulation,
+        )
+    )
+
+    hit, tier = index.match(
+        heard.decoded_fingerprint, heard.sig_fp, heard.byte_hash
+    )
+    assert hit.cell_key == "cool/auto/23"
+    assert tier == TIER_BYTE_HASH
