@@ -153,6 +153,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_action_options)
     websocket_api.async_register_command(hass, ws_update_mapping)
     websocket_api.async_register_command(hass, ws_device_star)
+    websocket_api.async_register_command(hass, ws_device_tangles)
 
     # Triggers
     websocket_api.async_register_command(hass, ws_get_triggers)
@@ -7043,3 +7044,60 @@ async def ws_device_matrix_command(
     manager: DeviceManager = data["device_manager"]
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))
+
+
+# --- Tangles: the fix flow (device-scoped findings) ---
+
+
+async def _device_and_matrix(
+    hass: HomeAssistant, device_id: str
+) -> tuple[IRDevice | None, Any]:
+    """Resolve a device and its lattice, or (None, None).
+
+    One helper for every tangle handler so the listing, the pre-read
+    and the guarded write can never disagree about what a device id
+    resolves to.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        return None, None
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(device_id)
+    if device is None:
+        return None, None
+    matrix = (
+        await manager.async_get_matrix(device.id)
+        if device.climate_matrix else None
+    )
+    return device, matrix
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangles",
+    vol.Required("device_id"): str,
+})
+@websocket_api.async_response
+async def ws_device_tangles(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Every open finding on one device, derived from its live state.
+
+    Derived per call and never stored: combing what is on the device
+    now is the only reading that survives a repair (tangles.py module
+    docstring). The lattice work runs in the executor -- a 1,156-cell
+    comb is real arithmetic and the event loop is not the place for it.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles
+
+    listing = await hass.async_add_executor_job(
+        list_tangles, device, matrix
+    )
+    connection.send_result(msg["id"], listing.as_dict())
