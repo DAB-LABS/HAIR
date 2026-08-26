@@ -461,10 +461,15 @@ class TestProntoHelpers:
         assert sl == "LLL"
 
     def test_pronto_sl_pattern_threshold_boundary(self):
-        """Value exactly at threshold (0x30) is classified as L."""
-        code = "0000 006D 0002 0000 002F 0030"
+        """Value exactly at threshold (0x30) is classified as L.
+
+        The boundary word sits in a MARK slot. Since GH #125 the walk
+        ends on a mark, so a code whose LAST word is the one under test
+        would have it stripped before classification and prove nothing.
+        """
+        code = "0000 006D 0002 0000 0030 002F 0030 0010"
         sl = EventParser._pronto_sl_pattern(code)
-        assert sl == "SL"
+        assert sl == "LSL"
 
     def test_pronto_sl_pattern_malformed(self):
         assert EventParser._pronto_sl_pattern("0000 006D") is None

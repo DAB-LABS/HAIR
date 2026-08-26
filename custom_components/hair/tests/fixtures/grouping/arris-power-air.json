@@ -1,7 +1,7 @@
 {
  "id": "ea2fcfb3-0b0e-4635-af51-26b9ae5adcd6",
- "fingerprint": "4c4a0ad5ad41a5b2",
- "byte_hash": "bdd7fe8d947a2289",
+ "fingerprint": "34972b8f876e2593",
+ "byte_hash": "97b78dd1f60b2172",
  "protocol": "PRONTO",
  "code": "0000 006D 0012 0000 000D 0017 001A 0017 000C 000D 001A 0017 0018 0018 000C 000D 000D 000B 000C 000D 000E 000B 000D 000B 000C 000D 000D 000B 000C 000D 000D 000C 0018 001A 0018 000C 000D 0018 000C 017C",
  "raw_timings": [
@@ -43,7 +43,7 @@
   -10000
  ],
  "frequency": 38000,
- "sl_pattern": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSL",
+ "sl_pattern": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
  "alias": "",
  "first_seen": "2026-08-18T02:03:58.258554+00:00",
  "last_seen": "2026-08-18T02:04:08.555330+00:00",

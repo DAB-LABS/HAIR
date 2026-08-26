@@ -2,8 +2,8 @@
  "note": "Arris Vip 2952 V2 (1) Power, the regression bench 1.2 failure of 2026-08-17. The file side is the trigger as the Clipper pasted it; the air side is what infrared.athom_rx actually handed back when the same Pronto was transmitted three times through an ESPHome blaster (19:03:58.257, 19:04:02.398, 19:04:08.554). Zero triggers fired: the byte hash moved, the bare-fingerprint tier is withheld from hash-bearing rows since v0.5.8, and the normalized tier that did match was never offered because the row was stamped origin=remote.",
  "file": {
   "pronto": "0000 004A 0012 0000 0012 0024 0024 0024 0012 0012 0024 0024 0024 0024 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0012 0024 0024 0024 0012 0012 0024 0012 0000",
-  "signal_fingerprint": "49b80b5e33c2cec8",
-  "byte_hash": "4457e79c2bdf1eca",
+  "signal_fingerprint": "34972b8f876e2593",
+  "byte_hash": "f1f2a27ac764219f",
   "decoded_fingerprint": null,
   "origin_as_shipped": "remote",
   "catalog_source": "manual"
