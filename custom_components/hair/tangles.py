@@ -39,6 +39,7 @@ from . import field_readers
 from .models import IRCommand, IRDevice
 from .wig_comb import (
     ADVISORY_CHECKS,
+    CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FIELD_MISMATCH,
     FIELD_COORDINATE,
     POWER_FIELD,
@@ -136,6 +137,7 @@ class TangleListing:
     """Every open finding on one device, plus what was looked at."""
 
     rows: list[TangleRow] = field(default_factory=list)
+    clusters: list[TangleCluster] = field(default_factory=list)
     matrix: bool = False
     #: The comb's coverage block for this projection, verbatim.
     coverage: dict[str, Any] | None = None
@@ -150,6 +152,7 @@ class TangleListing:
     def as_dict(self) -> dict[str, Any]:
         return {
             "rows": [row.as_dict() for row in self.rows],
+            "clusters": [c.as_dict() for c in self.clusters],
             "matrix": self.matrix,
             "coverage": self.coverage,
             "protocol": self.protocol,
@@ -251,8 +254,8 @@ def list_tangles(
         listing.candidate_sources = ["donor", "capture", "paste"]
 
     rows: list[TangleRow] = []
+    lattice = read_lattice(matrix)
     if matrix is not None:
-        lattice = read_lattice(matrix)
         portholes = {
             _coord_key(command.matrix_cell): command.id
             for command in device.commands
@@ -330,6 +333,7 @@ def list_tangles(
             )
 
     listing.rows = rows
+    listing.clusters = cluster_rows(rows, lattice)
     return listing
 
 
@@ -501,6 +505,250 @@ def find_donor(
             },
         }, None
     return None, ABSTAIN_NO_READING
+
+
+# ---------------------------------------------------------------------------
+# P6: causes, not findings
+# ---------------------------------------------------------------------------
+
+#: The same field wrong by the same STEP across many cells. A shifted
+#: column is one mistake, not one mistake per cell, and this is the rule
+#: that says so.
+CLUSTER_SHIFT = "same-shift"
+#: The same field reading the same wrong value, where the step between
+#: label and reading cannot be expressed (a non-numeric axis, or a
+#: reading whose label this lattice does not contain).
+CLUSTER_READING = "same-reading"
+#: Codes that are byte-identical where the lattice says they should
+#: differ. The copy-paste class.
+CLUSTER_IDENTICAL = "identical-bytes"
+#: Same class, same field, nothing else in common.
+CLUSTER_FIELD = "same-field"
+#: Whatever refuses to cluster. Never invented structure.
+CLUSTER_SINGLETON = "singleton"
+
+_CLUSTER_ORDER = (
+    CLUSTER_SHIFT,
+    CLUSTER_READING,
+    CLUSTER_IDENTICAL,
+    CLUSTER_FIELD,
+    CLUSTER_SINGLETON,
+)
+
+#: Every member already has a correct copy of its bytes elsewhere in
+#: the lattice: the card can offer a repair outright.
+MECHANIC_DONOR = "donor"
+#: No donor, but the field is one the map vouches for, so one capture
+#: that reads as the missing value can seed the rest (P7).
+MECHANIC_WITNESS = "witness"
+#: Nothing can be derived. Press the button again, or paste.
+MECHANIC_RECAPTURE = "recapture"
+
+
+@dataclass(frozen=True)
+class TangleCluster:
+    """One CAUSE, and the one action that answers it.
+
+    Two axes decide a card. The cause says why these targets are wrong
+    together; the mechanic says what can be done about them. They are
+    both needed because a single cause can straddle two roads -- the
+    Komeco column is one shift, but the cells at the bottom of its range
+    have nothing to copy from and have to be witnessed instead, and a
+    card has one primary action or it is not a card.
+    """
+
+    id: str
+    rule: str
+    #: The cause this card belongs to. Cards that share it are the same
+    #: mistake reached by different roads.
+    cause: str
+    mechanic: str
+    #: The finding class every member leads with.
+    check: str
+    field: str | None
+    members: list[str]
+    detail: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def size(self) -> int:
+        return len(self.members)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "rule": self.rule,
+            "cause": self.cause,
+            "mechanic": self.mechanic,
+            "check": self.check,
+            "field": self.field,
+            "members": list(self.members),
+            "size": self.size,
+            "detail": dict(self.detail),
+        }
+
+
+def _axis_domain(lattice: LatticeReading, field_name: str) -> list[Any]:
+    """Every value this lattice actually uses on one field's axis.
+
+    The domain comes from the wig, never from the map's vocabulary: a
+    label this file does not contain is not a label this file can be
+    said to read as.
+    """
+    axis = FIELD_COORDINATE.get(field_name)
+    if axis is None:
+        return []
+    seen = []
+    for cell in lattice.cells.values():
+        value = getattr(cell, axis, None)
+        if value is not None and value not in seen:
+            seen.append(value)
+    return sorted(seen, key=lambda v: (isinstance(v, str), v))
+
+
+def _label_for(spec: Any, domain: list[Any], value: int) -> Any:
+    """Which label encodes to this byte, or None.
+
+    The inverse of ``expected_value``, done by asking the map to encode
+    each label this lattice uses and seeing which one lands. No
+    arithmetic is inverted, so an encoding as awkward as ZHLT01's
+    reversed nibble costs nothing.
+    """
+    for label in domain:
+        if field_readers.expected_value(spec, label) == value:
+            return label
+    return None
+
+
+def _cause_of(
+    row: TangleRow, lattice: LatticeReading
+) -> tuple[str, tuple, str | None, dict[str, Any]]:
+    """The rule that claims this row, its cause key, field and detail.
+
+    Rules are tried in the brief's order and the row's LEADING class
+    decides which are eligible: a cell that is both a duplicate and a
+    mismatch is a duplicate first, because that is the finding the comb
+    ranks higher and the one whose repair is different in kind.
+    """
+    leading = row.classes[0] if row.classes else CLUSTER_SINGLETON
+
+    if leading == CHECK_FIELD_MISMATCH:
+        fields = _mismatched_fields(row.findings)
+        name = fields[0] if fields else None
+        params = row.findings[0].get("params", {})
+        expected, read = params.get("expected"), params.get("read")
+        spec = lattice.spec_for(name) if name else None
+        if spec is not None and expected is not None and read is not None:
+            domain = _axis_domain(lattice, name)
+            claimed = _label_for(spec, domain, int(str(expected), 16))
+            actual = _label_for(spec, domain, int(str(read), 16))
+            if isinstance(claimed, int | float) and isinstance(
+                    actual, int | float):
+                step = float(actual) - float(claimed)
+                return CLUSTER_SHIFT, (CLUSTER_SHIFT, name, step), name, {
+                    "field": name, "step": step,
+                }
+            if claimed is not None and actual is not None:
+                return CLUSTER_READING, (
+                    CLUSTER_READING, name, str(claimed), str(actual),
+                ), name, {"field": name, "claimed": claimed,
+                          "reads_as": actual}
+        if name is not None and expected is not None and read is not None:
+            return CLUSTER_READING, (
+                CLUSTER_READING, name, str(expected), str(read),
+            ), name, {"field": name, "expected": expected, "read": read}
+        if name is not None:
+            return CLUSTER_FIELD, (CLUSTER_FIELD, name), name, {
+                "field": name}
+
+    if leading == CHECK_DUPLICATED_NEIGHBOUR:
+        return CLUSTER_IDENTICAL, (
+            CLUSTER_IDENTICAL, row.digest,
+        ), None, {"digest": row.digest}
+
+    return CLUSTER_SINGLETON, (
+        CLUSTER_SINGLETON, row.id,
+    ), None, {}
+
+
+def _mechanic(row: TangleRow, lattice: LatticeReading) -> str:
+    if row.has_donor:
+        return MECHANIC_DONOR
+    if (
+        row.target.kind == TARGET_CELL
+        and row.donor_abstain == ABSTAIN_NO_READING
+        and lattice.readable
+    ):
+        # The search reached the end of a readable lattice on a field
+        # the map vouches for and found nothing. That is exactly the
+        # case a witnessed capture answers.
+        return MECHANIC_WITNESS
+    return MECHANIC_RECAPTURE
+
+
+def _best_mechanic(found: list[str]) -> str:
+    """The strongest road any member of a card can take."""
+    for mechanic in (MECHANIC_DONOR, MECHANIC_WITNESS, MECHANIC_RECAPTURE):
+        if mechanic in found:
+            return mechanic
+    return MECHANIC_RECAPTURE
+
+
+def cluster_rows(
+    rows: list[TangleRow], lattice: LatticeReading
+) -> list[TangleCluster]:
+    """Group a listing's rows into causes, deterministically.
+
+    Pure, and stable for unchanged inputs: every id is built from the
+    cause itself rather than from a counter, so the same lattice yields
+    the same cards in the same order on any install and after any
+    restart.
+    """
+    buckets: dict[tuple, list[TangleRow]] = {}
+    meta: dict[tuple, tuple[str, str | None, dict[str, Any]]] = {}
+    mechanics: dict[tuple, list[str]] = {}
+    for row in rows:
+        rule, cause, field_name, detail = _cause_of(row, lattice)
+        mechanic = _mechanic(row, lattice)
+        # A cause whose repair is per-target splits by road, because a
+        # card has ONE primary action: the Komeco column is one shift,
+        # but its bottom four have nothing to copy from and have to be
+        # witnessed instead. A byte-identical group does NOT split --
+        # its whole point is to list every location that carries the
+        # same code, and the answer is about the group, not the member.
+        key = cause if rule == CLUSTER_IDENTICAL else (*cause, mechanic)
+        buckets.setdefault(key, []).append(row)
+        meta.setdefault(key, (rule, field_name, detail))
+        mechanics.setdefault(key, []).append(mechanic)
+
+    clusters: list[TangleCluster] = []
+    for key, members in buckets.items():
+        rule, field_name, detail = meta[key]
+        mechanic = _best_mechanic(mechanics[key])
+        spans = {
+            axis: sorted({
+                str((row.target.coordinates or {}).get(axis))
+                for row in members
+                if (row.target.coordinates or {}).get(axis) is not None
+            })
+            for axis in ("mode", "fan", "swing")
+        }
+        clusters.append(TangleCluster(
+            id=":".join(str(part) for part in key),
+            rule=rule,
+            cause=":".join(str(part) for part in key[:-1]),
+            mechanic=mechanic,
+            check=members[0].classes[0] if members[0].classes else "",
+            field=field_name,
+            members=[row.id for row in members],
+            detail={**detail, "spans": {k: v for k, v in spans.items() if v}},
+        ))
+    clusters.sort(key=lambda c: (
+        _CLUSTER_ORDER.index(c.rule) if c.rule in _CLUSTER_ORDER
+        else len(_CLUSTER_ORDER),
+        -c.size,
+        c.id,
+    ))
+    return clusters
 
 
 def _coord_key(coordinates: Any) -> tuple:
