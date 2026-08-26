@@ -754,3 +754,54 @@ def test_pin_bindings_rederive_across_the_move(store):
     store._rebuild_command_index()
 
     assert derive_bindings(store, remote) == {"dev-1": {"t1": "c1"}}
+
+
+def test_protocolless_pronto_rows_do_not_collapse():
+    """Two different unstamped codes must get two fingerprints.
+
+    ``protocol`` defaults to None on UnknownSignal, IRCommand and
+    IRTrigger, and both load-time migrations call canonical_fingerprint
+    with raw_timings=None. Before the widening, such a row fell through
+    to the fingerprint of an EMPTY raw timing list: one constant, shared
+    by every protocol-less row in the store, written in at load.
+    """
+    a = "0000 006D 0002 0000 0020 0040 0020 0000"
+    b = "0000 006D 0002 0000 0040 0020 0040 0000"
+    empty_raw = EventParser.signal_fingerprint(None, None, None)
+
+    fp_a = canonical_fingerprint(None, a, None)
+    fp_b = canonical_fingerprint(None, b, None)
+
+    assert fp_a != fp_b
+    assert fp_a != empty_raw
+    assert fp_b != empty_raw
+    # And an unstamped row now agrees with the stamped answer, which is
+    # the whole point: one code, one identity, whichever door minted it.
+    assert fp_a == canonical_fingerprint("PRONTO", a, None)
+    assert fp_b == canonical_fingerprint("PRONTO", b, None)
+
+
+def test_an_unstamped_class_e_row_is_still_hashed_as_pronto():
+    """Hashable but not canonicalizable, and unstamped: the case that
+    would otherwise slip past the widening and onto the constant."""
+    empty_raw = EventParser.signal_fingerprint(None, None, None)
+
+    assert canonical_pronto(CLASS_E) is None
+    assert canonical_fingerprint(None, CLASS_E, None) != empty_raw
+    assert canonical_fingerprint(None, CLASS_E, None) == (
+        EventParser.signal_fingerprint("PRONTO", CLASS_E, None)
+    )
+
+
+def test_a_protocolless_row_that_is_not_pronto_is_untouched():
+    """The widening only catches what actually parses as Pronto words."""
+    for code in ("not a pronto code", "0000 006D", ""):
+        assert canonical_fingerprint(None, code, None) == (
+            EventParser.signal_fingerprint(None, code, None)
+        )
+
+
+def test_a_stamped_non_pronto_protocol_still_passes_through():
+    assert canonical_fingerprint("NEC", "0x20DF10EF", None) == (
+        EventParser.signal_fingerprint("NEC", "0x20DF10EF", None)
+    )

@@ -13,7 +13,7 @@ import logging
 
 import pytest
 
-from custom_components.hair.event_parser import EventParser
+from custom_components.hair.identity import canonical_fingerprint
 from custom_components.hair.models import (
     IRCommand,
     IRDevice,
@@ -42,7 +42,18 @@ _OTHER_PRONTO = (
 
 
 def _fp(code: str) -> str:
-    return EventParser.signal_fingerprint(None, code, None)
+    """The fingerprint a stored row actually carries for this code.
+
+    NOT ``signal_fingerprint(None, code, None)``, which is what this
+    helper used to be. With no protocol stamp that hashes an EMPTY raw
+    timing list and hands back one constant for every code, so both
+    sides of the bare-fingerprint tests below met on a shared constant
+    rather than on the code's own identity. GH #125 closed that in
+    ``canonical_fingerprint``, which now reads an unstamped Pronto code
+    as Pronto; this mirrors it, and is what the load-time backfill
+    writes onto a legacy row.
+    """
+    return canonical_fingerprint(None, code, None)
 
 
 class _FakeStore:

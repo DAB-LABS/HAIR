@@ -257,7 +257,21 @@ def canonical_fingerprint(
     """
     from .event_parser import EventParser
 
-    if protocol and protocol.upper() == "PRONTO":
+    # A CODE THAT PARSES AS PRONTO WORDS IS PRONTO, stamp or no stamp
+    # (GH #125). ``protocol`` defaults to None on UnknownSignal,
+    # IRCommand and IRTrigger, and both load-time migrations call this
+    # with raw_timings=None. Without this widening such a row fell to
+    # ``signal_fingerprint(None, code, None)``, which hashes an EMPTY
+    # raw timing list and hands back one constant for every caller --
+    # so every protocol-less Pronto row in a store was rewritten onto a
+    # single shared fingerprint at load, and they all matched each
+    # other. Pre-existing since the 2026-08-17 backfill rather than new
+    # here; in scope because that same migration is its vehicle.
+    is_pronto = bool(protocol and protocol.upper() == "PRONTO")
+    if not protocol and code:
+        is_pronto = EventParser._parse_pronto_words(code) is not None
+
+    if is_pronto:
         # No burst, no identity (GH #108). Hashing the text of an
         # all-zero code would mint a fingerprint that matches nothing on
         # the air and collides with every other empty code; the empty
@@ -267,6 +281,10 @@ def canonical_fingerprint(
         wire = canonical_pronto(code)
         if wire is not None:
             return EventParser.signal_fingerprint("PRONTO", wire, raw_timings)
+        # Hashable but not canonicalizable (the over-declared-header
+        # class). Hash it AS PRONTO rather than falling through, or an
+        # unstamped one lands on the empty-raw constant after all.
+        return EventParser.signal_fingerprint("PRONTO", code, raw_timings)
     return EventParser.signal_fingerprint(protocol, code, raw_timings)
 
 
