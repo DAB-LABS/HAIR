@@ -872,3 +872,131 @@ def test_a_non_string_code_costs_one_row_not_the_catalog(caplog):
     assert any(
         "bad" in record.getMessage() for record in caplog.records
     ), [r.getMessage() for r in caplog.records]
+
+
+# ---------------------------------------------------------------------------
+# Nothing that leaves the install carries an identity
+# ---------------------------------------------------------------------------
+#
+# The RM4 Pro question, asked of this fix. The 0.9.8 trailing-pause trim
+# broke a Broadlink RM4 Pro because something downstream consumed the
+# thing that was removed. The hashed tail is a constant and carries no
+# information, so the equivalent blind spot here is not a CONSUMER but a
+# HOLDER: an artifact that leaves the install carrying an old identity
+# value and is later read back against a new one. These prove there is
+# no such holder, rather than asserting it in a comment.
+
+
+WIGS = FIXTURES / "wigs"
+
+
+def test_claim_digests_do_not_move():
+    """A wig's claims bind the code TEXT, over the whole corpus.
+
+    row_digest is what every signed fitting is signed over, so if it
+    moved with identity, this release would invalidate every signature
+    ever written. It hashes normalized_pronto plus the ditto count and
+    the bypass flag, and identity is not in it. Asserted here across the
+    fixture tree rather than on the single code test_canonical_identity
+    uses, and asserted as a property: computing every identity a code
+    has leaves its digest byte-identical.
+    """
+    from custom_components.hair.wig_format import row_digest
+
+    before = {code: row_digest(code, 0, False) for code in UNION_CORPUS}
+    for code in UNION_CORPUS:
+        canonical_byte_hash(code)
+        canonical_fingerprint("PRONTO", code, None)
+        EventParser.pronto_byte_hash(code)
+        EventParser.signal_fingerprint("PRONTO", code, None)
+    after = {code: row_digest(code, 0, False) for code in UNION_CORPUS}
+
+    assert before == after
+    # And the digest does move when the TEXT moves, so the assertion
+    # above is not passing because row_digest ignores its argument.
+    a, b = UNION_CORPUS[0], UNION_CORPUS[1]
+    assert row_digest(a, 0, False) != row_digest(b, 0, False)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "dreo-fan-dr-haf004s-perfect-fit.wig.json",
+        "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json",
+    ],
+)
+def test_an_existing_signed_fitting_still_verifies(name: str):
+    """No ed25519 signature covers an identity value.
+
+    Both certified fixtures were signed before this release. If any
+    signature bound a byte_hash or a fingerprint, moving 841 of them
+    would show up right here.
+    """
+    pytest.importorskip("cryptography")
+    from custom_components.hair.fitting_signing import verify_fitting
+
+    wig = json.loads((WIGS / name).read_text())
+    fittings = wig.get("fittings") or []
+    assert fittings, "the fixture is supposed to be a signed one"
+    for entry in fittings:
+        assert verify_fitting(entry) == "valid"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "dreo-fan-dr-haf004s-perfect-fit.wig.json",
+        "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json",
+    ],
+)
+def test_no_wig_format_field_carries_an_identity(name: str):
+    """A structural guard, so a future field cannot quietly re-couple
+    the file format to identity.
+
+    The wig format cannot carry this defect because it cannot carry an
+    identity at all. The only ``fingerprint`` anywhere in the wig layer
+    is a signing key digest, which is a property of the signer and not
+    of any signal.
+    """
+    from custom_components.hair.wig_format import parse_wig, serialize_wig
+
+    parsed = parse_wig((WIGS / name).read_text())
+    assert parsed.wig is not None, parsed.errors
+    out = json.loads(serialize_wig(parsed.wig))
+
+    found: list[str] = []
+
+    def walk(node, path=""):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                here = f"{path}.{key}"
+                if key == "byte_hash" or key.endswith("fingerprint"):
+                    found.append(here)
+                walk(value, here)
+        elif isinstance(node, list):
+            for index, item in enumerate(node):
+                walk(item, f"{path}[{index}]")
+
+    walk(out)
+    assert found == [], found
+
+
+def test_comb_receipt_holds_no_identity():
+    """The comb's receipt keys on cell and row keys, deliberately
+    outside every canonical hash. Nothing in it moves with identity."""
+    from custom_components.hair.wig_format import parse_wig, serialize_wig
+
+    parsed = parse_wig(
+        (WIGS / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json")
+        .read_text()
+    )
+    assert parsed.wig is not None, parsed.errors
+    out = json.loads(serialize_wig(parsed.wig))
+    receipt = out.get("comb")
+    assert receipt is not None, "the fixture is supposed to carry a comb"
+
+    text = json.dumps(receipt)
+    assert "byte_hash" not in text
+    assert "fingerprint" not in text
+    # And no bare 16-hex identity value rode along under another name.
+    assert not re.search(r'"[0-9a-f]{16}"', text), text[:400]
