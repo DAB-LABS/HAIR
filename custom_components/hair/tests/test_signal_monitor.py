@@ -2201,3 +2201,59 @@ async def test_copy_signals_to_trigger_remote_names_order_and_provenance():
     )
     assert no_target["success"] is False
     assert no_target["code"] == "target_not_found"
+
+
+@pytest.mark.asyncio
+async def test_import_manual_remote_mints_canonical_identity():
+    """A codebook import is heard by the Sniffer when the button is hit.
+
+    import_manual_remote was the last mint door still calling the raw
+    EventParser pair while every sibling used the canonical one (GH
+    #125). Two things are pinned: the door mints the canonical values,
+    which is the routing contract; and those values are what a real
+    capture of the same code produces, which is what the user actually
+    experiences. The code below is gap-tailed the way a codebook entry
+    is, while a capture arrives zero-tailed, so before the unified strip
+    the two hashed differently and an imported row could never hear
+    itself.
+    """
+    from custom_components.hair.identity import (
+        canonical_byte_hash,
+        canonical_fingerprint,
+    )
+    from custom_components.hair.ir_command import ProntoCommand, raw_to_pronto
+    from custom_components.hair.models import CaptureResult
+    from custom_components.hair.signal_monitor import normalize
+
+    hass = _make_hass()
+    store = _make_signal_store(hass)
+    monitor = SignalMonitor(hass, store, _make_hair_store())
+    code = (
+        "0000 006D 0006 0000 00E0 0070 0014 000D 0014 002E "
+        "0014 000D 0014 000D 0014 0400"
+    )
+
+    result = await monitor.import_manual_remote(
+        "Codebook TV", [{"name": "Power", "code": code}]
+    )
+    assert result["imported"] == 1
+    sig = store.get_all_devices()[0].signals[0]
+
+    # The routing contract.
+    assert sig.fingerprint == canonical_fingerprint("PRONTO", sig.code, [])
+    assert sig.byte_hash == canonical_byte_hash(sig.code)
+
+    # And what it buys: the same button, off the air, lands here.
+    command = ProntoCommand(sig.code)
+    raw = command.get_raw_timings()
+    heard = normalize(
+        CaptureResult(
+            protocol="PRONTO",
+            code=raw_to_pronto(raw, frequency=command.modulation),
+            raw_timings=raw,
+            frequency=command.modulation,
+        )
+    )
+    assert heard.code != sig.code, "the tails should still differ"
+    assert heard.sig_fp == sig.fingerprint
+    assert heard.byte_hash == sig.byte_hash
