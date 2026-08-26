@@ -154,6 +154,9 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_mapping)
     websocket_api.async_register_command(hass, ws_device_star)
     websocket_api.async_register_command(hass, ws_device_tangles)
+    websocket_api.async_register_command(hass, ws_tangle_pre_read)
+    websocket_api.async_register_command(hass, ws_tangle_test_send)
+    websocket_api.async_register_command(hass, ws_tangle_listen)
 
     # Triggers
     websocket_api.async_register_command(hass, ws_get_triggers)
@@ -5333,6 +5336,7 @@ def _arm_listen(
     msg: dict[str, Any],
     capture_event: str,
     timeout_event: str,
+    decorate: Any = None,
 ) -> None:
     """Arm the Sniffer for one capture into a Replace box.
 
@@ -5414,6 +5418,13 @@ def _arm_listen(
         }
         if vote is not None:
             payload["repeats_disagree"] = vote.as_dict()
+        if decorate is not None:
+            # The fix flow adds what the capture READS AS against the
+            # target it was aimed at, so the surface can answer in the
+            # device's own words without a second round trip. Everything
+            # above stays identical -- one listen path, one capture
+            # notice, one set of semantics.
+            decorate(payload)
         connection.send_event(msg_id, payload)
 
     @callback
@@ -7101,3 +7112,152 @@ async def ws_device_tangles(
         list_tangles, device, matrix
     )
     connection.send_result(msg["id"], listing.as_dict())
+
+
+def _resolve_target(listing: Any, target_id: str) -> Any:
+    """The row a fix names, or None. One place, so every handler agrees."""
+    for row in listing.rows:
+        if row.id == target_id:
+            return row
+    return None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/pre-read",
+    vol.Required("device_id"): str,
+    vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("target"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_pre_read(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """What a candidate reads as, before anything is written.
+
+    Pure read: no store is touched and nothing is armed. ``target`` is
+    the row this candidate is proposed for; without it the bytes are
+    still read and reported, there is simply no claim to check them
+    against and the verdict says so rather than inventing a failure.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles, pre_read, project_device, read_lattice
+
+    def _read() -> dict[str, Any] | str:
+        coordinates = None
+        if msg.get("target"):
+            row = _resolve_target(list_tangles(device, matrix), msg["target"])
+            if row is None:
+                return "unknown_target"
+            coordinates = row.target.coordinates
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        return pre_read(lattice, msg["pronto"], coordinates).as_dict()
+
+    result = await hass.async_add_executor_job(_read)
+    if isinstance(result, str):
+        connection.send_error(
+            msg["id"], result, "That target carries no current finding")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/test-send",
+    vol.Required("device_id"): str,
+    vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("send_count", default=1): vol.All(int, vol.Range(min=1, max=10)),
+})
+@websocket_api.async_response
+async def ws_tangle_test_send(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Send candidate bytes at the real unit. Nothing is saved.
+
+    This is the press the guarded write is gated on, and it has to
+    happen before the write or it proves nothing.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    try:
+        landed = await manager.async_test_send(
+            msg["device_id"], msg["pronto"],
+            send_count=msg.get("send_count", 1),
+        )
+    except KeyError:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+    except RuntimeError as err:
+        connection.send_error(msg["id"], "send_failed", str(err))
+        return
+    connection.send_result(
+        msg["id"], {"sent": True, "emitters": sorted(landed)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/listen",
+    vol.Required("device_id"): str,
+    vol.Optional("target"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_listen(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Arm the Sniffer for one capture aimed at a target.
+
+    Rides the same listen path the command editor uses, so a capture
+    arrives here exactly as it arrives there, R1 capture notice and
+    all. What this adds is CONTEXT: the capture is pre-read against the
+    target's own label before the event leaves, so the surface can say
+    what it heard in the device's own words without a second round trip.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles, pre_read, project_device, read_lattice
+
+    def _context() -> tuple[Any, Any] | str:
+        coordinates = None
+        if msg.get("target"):
+            row = _resolve_target(list_tangles(device, matrix), msg["target"])
+            if row is None:
+                return "unknown_target"
+            coordinates = row.target.coordinates
+        wig, _sources = project_device(device, matrix)
+        return read_lattice(matrix, wig), coordinates
+
+    prepared = await hass.async_add_executor_job(_context)
+    if isinstance(prepared, str):
+        connection.send_error(
+            msg["id"], prepared, "That target carries no current finding")
+        return
+    lattice, coordinates = prepared
+
+    def _decorate(payload: dict[str, Any]) -> None:
+        payload["verdict"] = pre_read(
+            lattice, payload["pronto"], coordinates
+        ).as_dict()
+        if msg.get("target"):
+            payload["target"] = msg["target"]
+
+    _arm_listen(
+        hass, connection, msg, "tangle_capture", "tangle_listen_timeout",
+        decorate=_decorate,
+    )

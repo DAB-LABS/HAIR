@@ -44,6 +44,7 @@ from .wig_comb import (
     FIELD_COORDINATE,
     POWER_FIELD,
     SEVERITY_ORDER,
+    Code,
     Coverage,
     Finding,
     comb_wig,
@@ -114,6 +115,10 @@ class TangleRow:
     #: Why the donor search came back empty, when it did. An abstention
     #: with a reason is a result; a silent None reads as "not looked at".
     donor_abstain: str | None = None
+    #: What this row's CURRENT bytes read as, against its own label.
+    #: The details view says "says Heat 18, will say Heat 19" from this
+    #: and the candidate's verdict side by side.
+    verdict: dict[str, Any] | None = None
     #: P5 fills this in: a standing attestation covering these bytes.
     attested: dict[str, Any] | None = None
 
@@ -128,6 +133,7 @@ class TangleRow:
             "has_donor": self.has_donor,
             "donor": dict(self.donor) if self.donor else None,
             "donor_abstain": self.donor_abstain,
+            "verdict": self.verdict,
             "attested": dict(self.attested) if self.attested else None,
         }
 
@@ -138,6 +144,13 @@ class TangleListing:
 
     rows: list[TangleRow] = field(default_factory=list)
     clusters: list[TangleCluster] = field(default_factory=list)
+    #: Findings the comb files as ADVISORY -- same code under two
+    #: names, and the two ditto advisories. They are not suspects and
+    #: never become rows or cards, because "these two buttons share a
+    #: code" is legitimate on a toggle remote. They are served beside
+    #: the rows so a surface that asks a person to decide has something
+    #: to show, without any of it counting as something wrong.
+    advisories: list[dict[str, Any]] = field(default_factory=list)
     matrix: bool = False
     #: The comb's coverage block for this projection, verbatim.
     coverage: dict[str, Any] | None = None
@@ -153,6 +166,7 @@ class TangleListing:
         return {
             "rows": [row.as_dict() for row in self.rows],
             "clusters": [c.as_dict() for c in self.clusters],
+            "advisories": [dict(a) for a in self.advisories],
             "matrix": self.matrix,
             "coverage": self.coverage,
             "protocol": self.protocol,
@@ -254,7 +268,11 @@ def list_tangles(
         listing.candidate_sources = ["donor", "capture", "paste"]
 
     rows: list[TangleRow] = []
-    lattice = read_lattice(matrix)
+    lattice = read_lattice(matrix, wig)
+    listing.advisories = [
+        finding.to_dict() for finding in report.findings
+        if finding.check in ADVISORY_CHECKS
+    ]
     if matrix is not None:
         portholes = {
             _coord_key(command.matrix_cell): command.id
@@ -286,6 +304,9 @@ def list_tangles(
                 has_donor=donor is not None,
                 donor=donor,
                 donor_abstain=abstain,
+                verdict=pre_read(
+                    lattice, cell.pronto, coordinates
+                ).as_dict(),
             ))
         for key in ("off", "on"):
             findings = grouped.pop(key, None)
@@ -325,6 +346,7 @@ def list_tangles(
                 signal.ditto_count,
                 signal.bypass_protocol,
             ),
+            verdict=pre_read(lattice, signal.pronto).as_dict(),
         ))
         if command is None:
             _LOGGER.debug(
@@ -385,16 +407,32 @@ class LatticeReading:
         return field_readers.read_field(reading, spec)
 
 
-def read_lattice(matrix: ClimateMatrix | None) -> LatticeReading:
-    """Decode every cell of a lattice once, under one family vote."""
-    if matrix is None:
+def read_lattice(
+    matrix: ClimateMatrix | None, wig: Any = None
+) -> LatticeReading:
+    """Decode a device's codes once, under one family vote.
+
+    A flat device is read too, and by the same vote. R2's rule five
+    stands -- integrity rules need no labels, so a flat wig whose codes
+    identify under a map gets them -- and the vote is what keeps a
+    single coincidental match from naming a family for a remote that
+    has nothing to do with it. Only the label comparison is
+    matrix-only, because a flat row carries a name, not a coordinate.
+    """
+    if matrix is not None:
+        codes = matrix_codes(matrix)
+        cells = {cell_key(cell): cell for cell in matrix.cells}
+    elif wig is not None and wig.signals:
+        codes = [
+            Code(key=signal.alias, pronto=signal.pronto)
+            for signal in wig.signals
+        ]
+        cells = {}
+    else:
         return LatticeReading()
-    codes = matrix_codes(matrix)
     field_map, readings = read_family(codes, Coverage())
     return LatticeReading(
-        field_map=field_map,
-        readings=readings,
-        cells={cell_key(cell): cell for cell in matrix.cells},
+        field_map=field_map, readings=readings, cells=cells,
     )
 
 
@@ -508,6 +546,168 @@ def find_donor(
 
 
 # ---------------------------------------------------------------------------
+# P3: reading a candidate before anything is written
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CandidateVerdict:
+    """What a candidate turns out to be, read against a target's label.
+
+    Pure. Nothing here sends, saves or decides -- it is the sentence a
+    surface shows before a person commits, and the same sentence the
+    guarded write records when they commit anyway.
+    """
+
+    #: Field name -> the label these bytes read as, in the wig's own
+    #: words. This is what "reads as: Heat / Fan High / 19" is built
+    #: from; a byte value is not something to show anybody.
+    reads_as: dict[str, Any] = field(default_factory=dict)
+    #: Field name -> the label the target CLAIMS.
+    claims: dict[str, Any] = field(default_factory=dict)
+    #: The same two, unrendered, for the record.
+    raw_read: dict[str, int] = field(default_factory=dict)
+    raw_expected: dict[str, int] = field(default_factory=dict)
+    #: Fields where the two disagree. Empty is a match.
+    mismatches: list[str] = field(default_factory=list)
+    #: None when there is no label to compare against (a flat command,
+    #: an unmapped lattice). NOT the same as False.
+    matches: bool | None = None
+    protocol: str | None = None
+    declined: str | None = None
+    #: Rule type -> True, False, or None for a rule that could not be
+    #: evaluated. A rule that cannot be evaluated is never a pass.
+    integrity: dict[str, bool | None] = field(default_factory=dict)
+    #: R1's frame check on the candidate itself, when it disagrees.
+    frame_vote: dict[str, Any] | None = None
+    #: Decoded identity, where a TX decoder recognises the capture. The
+    #: only read-back a flat command has.
+    decoded: dict[str, Any] | None = None
+
+    @property
+    def readable(self) -> bool:
+        return self.protocol is not None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "reads_as": dict(self.reads_as),
+            "claims": dict(self.claims),
+            "raw_read": dict(self.raw_read),
+            "raw_expected": dict(self.raw_expected),
+            "mismatches": list(self.mismatches),
+            "matches": self.matches,
+            "protocol": self.protocol,
+            "declined": self.declined,
+            "integrity": dict(self.integrity),
+            "frame_vote": self.frame_vote,
+            "decoded": dict(self.decoded) if self.decoded else None,
+        }
+
+
+def _frame_vote(pronto: str) -> dict[str, Any] | None:
+    """R1's own check, on the candidate itself.
+
+    A capture whose repeats disagree is a bad capture whatever it reads
+    as, and saying so while the remote is still in somebody's hand is
+    the whole point of the check.
+    """
+    from .wig_comb import frame_disagreement
+
+    vote = frame_disagreement(pronto)
+    return None if vote is None else vote.as_dict()
+
+
+def _decoded_identity(pronto: str) -> dict[str, Any] | None:
+    from .ir_command import ProntoCommand
+    from .protocol_decode import try_decode_identity
+
+    try:
+        timings = ProntoCommand(pronto).get_raw_timings()
+    except Exception:
+        return None
+    identity = try_decode_identity(timings)
+    if identity is None:
+        return None
+    return {
+        "protocol": identity.protocol,
+        "address": identity.address,
+        "command": identity.command,
+        "fingerprint": identity.fingerprint,
+    }
+
+
+def pre_read(
+    lattice: LatticeReading,
+    pronto: str,
+    coordinates: dict[str, Any] | None = None,
+) -> CandidateVerdict:
+    """Read a candidate's fields and compare them to a target's label.
+
+    ``coordinates`` is the cell this candidate is proposed FOR. Without
+    them (a flat command, or a listen that is not yet aimed anywhere)
+    the read still happens and still reports what the bytes say -- there
+    is simply no claim to check it against, and ``matches`` stays None
+    rather than becoming a False nobody can justify.
+    """
+    verdict = CandidateVerdict(
+        frame_vote=_frame_vote(pronto),
+        decoded=_decoded_identity(pronto),
+    )
+    if not lattice.readable:
+        verdict.declined = field_readers.NO_MAP
+        return verdict
+
+    field_map = lattice.field_map
+    reading = field_readers.read_code(
+        pronto, [field_map], prefer=field_map.protocol_id
+    )
+    if not reading.identified:
+        verdict.declined = reading.declined or field_readers.NO_MAP
+        return verdict
+    verdict.protocol = reading.protocol_id
+
+    for rule in field_map.integrity:
+        if not rule.ratified:
+            continue
+        verdict.integrity[rule.type] = field_readers.check_integrity(
+            reading, rule
+        )
+
+    comparable = []
+    for spec in field_map.fields:
+        if not spec.ratified:
+            continue
+        value = field_readers.read_field(reading, spec)
+        if value is None:
+            continue
+        verdict.raw_read[spec.name] = value
+        domain = _axis_domain(lattice, spec.name)
+        label = _label_for(spec, domain, value)
+        if label is not None:
+            verdict.reads_as[spec.name] = label
+        if coordinates is None:
+            continue
+        axis = FIELD_COORDINATE.get(spec.name)
+        claimed = (
+            coordinates.get(POWER_FIELD, "on") if spec.name == POWER_FIELD
+            else (None if axis is None else coordinates.get(axis))
+        )
+        if claimed is None:
+            continue
+        expected = field_readers.expected_value(spec, claimed)
+        if expected is None:
+            continue
+        verdict.claims[spec.name] = claimed
+        verdict.raw_expected[spec.name] = expected
+        comparable.append(spec.name)
+        if expected != value:
+            verdict.mismatches.append(spec.name)
+    if comparable:
+        verdict.matches = not verdict.mismatches
+    return verdict
+
+
+# ---------------------------------------------------------------------------
 # P6: causes, not findings
 # ---------------------------------------------------------------------------
 
@@ -594,6 +794,11 @@ def _axis_domain(lattice: LatticeReading, field_name: str) -> list[Any]:
     label this file does not contain is not a label this file can be
     said to read as.
     """
+    if field_name == POWER_FIELD:
+        # Power has no lattice axis -- it is the difference between the
+        # cells and the off code -- so its domain is stated rather than
+        # gathered, and the read-back can name it like any other field.
+        return ["on", "off"]
     axis = FIELD_COORDINATE.get(field_name)
     if axis is None:
         return []
