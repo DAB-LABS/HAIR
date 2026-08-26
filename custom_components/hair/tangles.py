@@ -35,15 +35,22 @@ import logging
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from . import field_readers
 from .models import IRCommand, IRDevice
 from .wig_comb import (
     ADVISORY_CHECKS,
+    CHECK_FIELD_MISMATCH,
+    FIELD_COORDINATE,
+    POWER_FIELD,
     SEVERITY_ORDER,
+    Coverage,
     Finding,
     comb_wig,
+    matrix_codes,
+    read_family,
 )
 from .wig_export import build_wig_from_device
-from .wig_format import ClimateMatrix, cell_key, row_digest
+from .wig_format import ClimateCell, ClimateMatrix, cell_key, row_digest
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -101,10 +108,11 @@ class TangleRow:
     findings: list[dict[str, Any]]
     pronto: str
     digest: str
-    #: P2 fills these in. False here means "not searched yet"; the
-    #: listing says which sources a row does have.
     has_donor: bool = False
     donor: dict[str, Any] | None = None
+    #: Why the donor search came back empty, when it did. An abstention
+    #: with a reason is a result; a silent None reads as "not looked at".
+    donor_abstain: str | None = None
     #: P5 fills this in: a standing attestation covering these bytes.
     attested: dict[str, Any] | None = None
 
@@ -118,6 +126,7 @@ class TangleRow:
             "digest": self.digest,
             "has_donor": self.has_donor,
             "donor": dict(self.donor) if self.donor else None,
+            "donor_abstain": self.donor_abstain,
             "attested": dict(self.attested) if self.attested else None,
         }
 
@@ -243,6 +252,7 @@ def list_tangles(
 
     rows: list[TangleRow] = []
     if matrix is not None:
+        lattice = read_lattice(matrix)
         portholes = {
             _coord_key(command.matrix_cell): command.id
             for command in device.commands
@@ -257,6 +267,8 @@ def list_tangles(
                 "mode": cell.mode, "fan": cell.fan,
                 "swing": cell.swing, "temp": cell.temp,
             }
+            payload = [f.to_dict() for f in findings]
+            donor, abstain = find_donor(lattice, key, payload)
             rows.append(TangleRow(
                 id=row_id(TARGET_CELL, key),
                 target=TangleTarget(
@@ -265,9 +277,12 @@ def list_tangles(
                     coordinates=coordinates,
                 ),
                 classes=[f.check for f in findings],
-                findings=[f.to_dict() for f in findings],
+                findings=payload,
                 pronto=cell.pronto,
                 digest=_cell_digest(cell.pronto),
+                has_donor=donor is not None,
+                donor=donor,
+                donor_abstain=abstain,
             ))
         for key in ("off", "on"):
             findings = grouped.pop(key, None)
@@ -316,6 +331,176 @@ def list_tangles(
 
     listing.rows = rows
     return listing
+
+
+# ---------------------------------------------------------------------------
+# P2: the donor search
+# ---------------------------------------------------------------------------
+
+#: No cell anywhere in this lattice reads as the value this one claims.
+#: The honest end of the search, and a loud one: the abstention is what
+#: sends a card to the witnessed-capture road instead of inventing bytes.
+ABSTAIN_NO_READING = "no-cell-reads-this"
+#: The field the cell disagrees on is not one this map vouches for, so
+#: there is nothing to search against.
+ABSTAIN_NOT_RATIFIED = "field-not-ratified"
+#: Nothing read the lattice at all.
+ABSTAIN_UNREADABLE = "unreadable"
+#: The finding is not a field mismatch, so a donor is the wrong idea:
+#: a damaged capture is not repaired by another cell's bytes.
+ABSTAIN_NOT_A_FIELD = "not-a-field-finding"
+
+
+@dataclass
+class LatticeReading:
+    """Every cell of one lattice, read once, with its map.
+
+    Built ONCE per listing and never re-read mid-run. A donor is chosen
+    against the lattice as it stands before any write; re-reading after
+    each write would let a repair chase its own tail through a column
+    that is one long shift.
+    """
+
+    field_map: Any = None
+    readings: dict[str, Any] = field(default_factory=dict)
+    cells: dict[str, ClimateCell] = field(default_factory=dict)
+
+    @property
+    def readable(self) -> bool:
+        return self.field_map is not None
+
+    def spec_for(self, field_name: str) -> Any:
+        if self.field_map is None:
+            return None
+        return self.field_map.field_named(field_name)
+
+    def reads(self, key: str, spec: Any) -> int | None:
+        reading = self.readings.get(key)
+        if reading is None or spec is None:
+            return None
+        return field_readers.read_field(reading, spec)
+
+
+def read_lattice(matrix: ClimateMatrix | None) -> LatticeReading:
+    """Decode every cell of a lattice once, under one family vote."""
+    if matrix is None:
+        return LatticeReading()
+    codes = matrix_codes(matrix)
+    field_map, readings = read_family(codes, Coverage())
+    return LatticeReading(
+        field_map=field_map,
+        readings=readings,
+        cells={cell_key(cell): cell for cell in matrix.cells},
+    )
+
+
+def _mismatched_fields(findings: list[dict[str, Any]]) -> list[str]:
+    """Which field names a row's field-mismatch findings name.
+
+    The comb writes the field as a locale key so the diagnosis renders
+    in the reader's language; the name is the tail of it.
+    """
+    names = []
+    for finding in findings:
+        if finding.get("check") != CHECK_FIELD_MISMATCH:
+            continue
+        raw = str(finding.get("params", {}).get("field", ""))
+        name = raw.rsplit(".", 1)[-1]
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _coordinate_of(cell: ClimateCell, field_name: str) -> Any:
+    if field_name == POWER_FIELD:
+        return "on"
+    axis = FIELD_COORDINATE.get(field_name)
+    return None if axis is None else getattr(cell, axis, None)
+
+
+def _elsewhere(cell: ClimateCell, exclude: set[str]) -> tuple:
+    """The cell's coordinates on every axis the search is NOT varying.
+
+    A donor has to be the same cell in every respect except the thing
+    that is wrong with the target. Without this the search would happily
+    offer a cooling frame to repair a heating one, because the only
+    field it can compare is the one they agree on.
+    """
+    axes = [
+        axis for name, axis in FIELD_COORDINATE.items()
+        if name not in exclude
+    ]
+    return tuple(getattr(cell, axis, None) for axis in sorted(axes))
+
+
+def find_donor(
+    lattice: LatticeReading,
+    key: str,
+    findings: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """A cell whose READ is what this cell's LABEL claims, or a reason.
+
+    Never constructs and never guesses. The search is a lookup over
+    codes that already exist in this lattice: if one of them already
+    sends what this cell is supposed to send, that frame is the repair.
+    If none does, the search says so and stops -- which is the whole
+    reason the witnessed-capture road exists.
+    """
+    if not lattice.readable:
+        return None, ABSTAIN_UNREADABLE
+    target = lattice.cells.get(key)
+    if target is None:
+        return None, ABSTAIN_UNREADABLE
+    fields = _mismatched_fields(findings)
+    if not fields:
+        return None, ABSTAIN_NOT_A_FIELD
+
+    wanted: dict[str, int] = {}
+    for name in fields:
+        spec = lattice.spec_for(name)
+        if spec is None or not spec.ratified:
+            return None, ABSTAIN_NOT_RATIFIED
+        expected = field_readers.expected_value(
+            spec, _coordinate_of(target, name)
+        )
+        if expected is None:
+            return None, ABSTAIN_NOT_RATIFIED
+        wanted[name] = expected
+
+    varying = set(fields)
+    anchor = _elsewhere(target, varying)
+    for candidate_key, candidate in lattice.cells.items():
+        if candidate_key == key:
+            continue
+        if _elsewhere(candidate, varying) != anchor:
+            continue
+        if any(
+            lattice.reads(candidate_key, lattice.spec_for(name)) != value
+            for name, value in wanted.items()
+        ):
+            continue
+        return {
+            "key": candidate_key,
+            "coordinates": {
+                "mode": candidate.mode, "fan": candidate.fan,
+                "swing": candidate.swing, "temp": candidate.temp,
+            },
+            "pronto": candidate.pronto,
+            "digest": _cell_digest(candidate.pronto),
+            # STRUCTURED, not a sentence. This branch writes no
+            # user-facing text; the surface renders "the frame at
+            # heat_cool/medium/21 reads as 22" from these three facts.
+            "reasoning": {
+                "fields": list(fields),
+                "labelled": {
+                    name: _coordinate_of(candidate, name) for name in fields
+                },
+                "reads_as": {
+                    name: _coordinate_of(target, name) for name in fields
+                },
+            },
+        }, None
+    return None, ABSTAIN_NO_READING
 
 
 def _coord_key(coordinates: Any) -> tuple:
