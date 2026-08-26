@@ -29,6 +29,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -793,15 +794,81 @@ def test_an_unstamped_class_e_row_is_still_hashed_as_pronto():
     )
 
 
-def test_a_protocolless_row_that_is_not_pronto_is_untouched():
-    """The widening only catches what actually parses as Pronto words."""
-    for code in ("not a pronto code", "0000 006D", ""):
-        assert canonical_fingerprint(None, code, None) == (
-            EventParser.signal_fingerprint(None, code, None)
-        )
+def test_an_unreadable_code_with_no_timings_gets_no_fingerprint():
+    """The collapse, one step further out than the Pronto widening.
+
+    A row with no protocol stamp, a code that is not Pronto at all, and
+    no raw timings has nothing to hash. signal_fingerprint would hand
+    back the empty-raw constant and the migration would write it onto
+    every such row in the store, which is how three junk rows collapse
+    into one. The empty string is the honest answer and every caller
+    already skips it.
+    """
+    empty_raw = EventParser.signal_fingerprint(None, None, None)
+    for code in ("not a pronto code", "0000 006D", "AAAA"):
+        assert canonical_fingerprint(None, code, None) == ""
+        assert canonical_fingerprint(None, code, None) != empty_raw
+    # An empty code was never the problem: there is no row to collapse.
+    assert canonical_fingerprint(None, "", None) == (
+        EventParser.signal_fingerprint(None, "", None)
+    )
+
+
+def test_an_unreadable_code_with_timings_still_hashes_them():
+    """Only the nothing-to-hash case answers empty. Real timings are
+    real identity, whatever the code field says."""
+    raw = [500, -500, 1000, -1000]
+    assert canonical_fingerprint(None, "AAAA", raw) == (
+        EventParser.signal_fingerprint(None, "AAAA", raw)
+    )
+    assert canonical_fingerprint(None, "AAAA", raw) != ""
 
 
 def test_a_stamped_non_pronto_protocol_still_passes_through():
     assert canonical_fingerprint("NEC", "0x20DF10EF", None) == (
         EventParser.signal_fingerprint("NEC", "0x20DF10EF", None)
     )
+
+
+def test_a_non_string_code_costs_one_row_not_the_catalog(caplog):
+    """One unreadable row must not take the whole Sniffer catalog.
+
+    The canonical block runs inside the single executor job that loads
+    every remote the user has, and canonical_pronto on a non-string code
+    raises AttributeError out of pronto_hex.split(), which is not in the
+    ValueError family the identity helpers catch. GH #108's lesson,
+    applied to the row that GH #125's widening now lets through.
+    """
+    from custom_components.hair.models import UnknownDevice, UnknownSignal
+    from custom_components.hair.signal_store import _transform_loaded
+
+    device = UnknownDevice(label="Clipped")
+    device.signals = [
+        UnknownSignal(
+            id="ok", protocol="PRONTO", code=FILE_FORM,
+            fingerprint=_legacy_fingerprint(FILE_FORM),
+            byte_hash=_legacy_byte_hash(FILE_FORM),
+        )
+    ]
+    raw = {"devices": [device.to_dict()], "dismissed": []}
+    rows = raw["devices"][0]["signals"]
+    rows.append(
+        {**rows[0], "id": "bad", "code": 123, "fingerprint": "",
+         "byte_hash": None}
+    )
+
+    with caplog.at_level(logging.WARNING):
+        devices, _dismissed, _dirty = _transform_loaded(raw)
+
+    loaded = {s.id: s for s in next(iter(devices.values())).signals}
+    # The catalog came back, and the good row was repointed as normal.
+    assert "ok" in loaded
+    assert loaded["ok"].byte_hash == EventParser.pronto_byte_hash(FILE_FORM)
+    assert loaded["ok"].fingerprint == (
+        EventParser.signal_fingerprint("PRONTO", FILE_FORM, None)
+    )
+    # The bad row survives untouched, and says so once.
+    assert "bad" in loaded
+    assert any(
+        "bad" in record.getMessage() for record in caplog.records
+    ), [r.getMessage() for r in caplog.records]

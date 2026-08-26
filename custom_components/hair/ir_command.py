@@ -112,6 +112,13 @@ class ProntoCommand(Command):
         *,
         repeat_count: int = 0,
     ) -> None:
+        if not isinstance(pronto_hex, str):
+            # The signature says str and a .storage row can still hand
+            # us an int. Raising the family every caller already catches
+            # keeps a corrupt row costing itself rather than raising an
+            # AttributeError out of split() and through the identity
+            # layer into the catalog load.
+            raise ValueError("Pronto hex must be a string")
         words = [int(w, 16) for w in pronto_hex.split()]
         if len(words) < 4:
             raise ValueError("Pronto hex too short (need at least 4 words)")

@@ -285,6 +285,17 @@ def canonical_fingerprint(
         # class). Hash it AS PRONTO rather than falling through, or an
         # unstamped one lands on the empty-raw constant after all.
         return EventParser.signal_fingerprint("PRONTO", code, raw_timings)
+
+    # THE SAME COLLAPSE, ONE STEP FURTHER OUT. A row with no protocol
+    # stamp, a code that is not Pronto at all, and no raw timings to
+    # fall back on has nothing to hash: signal_fingerprint would hand
+    # back the fingerprint of an EMPTY timing list, one constant shared
+    # by every such row, and the load-time migration would write it in.
+    # No identity is the honest answer and every caller already skips
+    # the empty string (GH #108 set that convention). A row that HAS
+    # timings still gets their fingerprint, which is real.
+    if not protocol and code and not raw_timings:
+        return ""
     return EventParser.signal_fingerprint(protocol, code, raw_timings)
 
 

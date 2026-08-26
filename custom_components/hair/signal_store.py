@@ -795,25 +795,53 @@ def _transform_loaded(
     # reads and copies (and what a wig's claim digest hashes once the
     # row is saved to the closet). Runs BEFORE the duplicate heal below,
     # which keys on exactly these values.
-    from .identity import (
-        canonical_byte_hash,
-        canonical_fingerprint,
-        canonical_pronto,
-    )
+    from .identity import canonical_byte_hash, canonical_fingerprint
 
     canon_moved = 0
     for device in devices.values():
         for sig in device.signals:
-            # Only rows whose code is readable Pronto have a wire form.
-            # Manual and legacy rows keep the identity they have.
-            if not sig.code or canonical_pronto(sig.code) is None:
+            # HASHABLE IS THE BAR, NOT CANONICALIZABLE (GH #125). Same
+            # widening as storage._backfill_canonical_identity: a code
+            # can hash without canonicalizing (the over-declared-header
+            # class), and those are exactly the rows whose hash the
+            # unified strip moves.
+            if not sig.code:
+                continue
+            # A .storage row can lie about its own type. Named here so
+            # the one bad row is visible in the log rather than just
+            # quietly identity-less, and skipped so the walks below are
+            # only ever handed a string.
+            if not isinstance(sig.code, str):
+                _LOGGER.warning(
+                    "Signal %s on remote %s stores a non-string code "
+                    "(%s); leaving its identity alone",
+                    sig.id,
+                    device.label or device.id,
+                    type(sig.code).__name__,
+                )
+                continue
+            # ONE BAD ROW COSTS ITSELF, NOT THE CATALOG (GH #108's
+            # lesson, applied here). This runs inside the single
+            # executor job that loads every remote the user has, and
+            # canonical_pronto on a non-string code raises
+            # AttributeError out of pronto_hex.split() rather than the
+            # ValueError family the helpers catch. Unguarded, one such
+            # row in .storage took the whole Sniffer catalog with it.
+            try:
+                fresh_hash = canonical_byte_hash(sig.code)
+                fresh_fp = canonical_fingerprint(sig.protocol, sig.code, None)
+            except Exception:
+                _LOGGER.warning(
+                    "Skipped signal %s on remote %s in the canonical "
+                    "identity backfill: its code could not be read",
+                    sig.id,
+                    device.label or device.id,
+                )
                 continue
             moved = False
-            fresh_hash = canonical_byte_hash(sig.code)
             if fresh_hash is not None and fresh_hash != sig.byte_hash:
                 sig.byte_hash = fresh_hash
                 moved = True
-            fresh_fp = canonical_fingerprint(sig.protocol, sig.code, None)
             if fresh_fp and fresh_fp != sig.fingerprint:
                 sig.fingerprint = fresh_fp
                 moved = True

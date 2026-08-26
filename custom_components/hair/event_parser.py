@@ -369,7 +369,15 @@ class EventParser:
             return None
         try:
             words = [int(w, 16) for w in code.strip().split()]
-        except (ValueError, TypeError):
+        except (AttributeError, TypeError, ValueError):
+            # AttributeError: a .storage row whose ``code`` is not a
+            # string at all reaches ``code.strip()``. This function is
+            # the bottom of the identity layer and every walk above it
+            # is documented as answering None for a code it cannot
+            # read, so it answers None here rather than raising up
+            # through six callers -- one of which is the legacy
+            # byte-hash backfill inside the executor job that loads the
+            # whole Sniffer catalog.
             return None
         # Pronto header is 4 words: type, freq, burst1_count, burst2_count.
         if len(words) < 5:
