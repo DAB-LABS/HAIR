@@ -1036,7 +1036,16 @@ async def test_a_migrating_load_saves_once_and_a_clean_one_never_saves():
             id="s1", protocol="PRONTO", code=FILE_FORM,
             fingerprint=_legacy_fingerprint(FILE_FORM),
             byte_hash=_legacy_byte_hash(FILE_FORM),
-        )
+        ),
+        # A row no load can ever repair, beside the ones this load
+        # moves. Found on every boot, changed by none. It must not keep
+        # the store dirty, or the second boot rewrites the whole catalog
+        # to say nothing -- which is what one such row did to the bench
+        # store, at 1.4 MB a time.
+        UnknownSignal(
+            id="unrepairable", protocol="PRONTO", code=None,
+            fingerprint="", byte_hash=None,
+        ),
     ]
     stale = {
         "devices": [device.to_dict()],
@@ -1054,7 +1063,8 @@ async def test_a_migrating_load_saves_once_and_a_clean_one_never_saves():
         await store.async_load()
 
     assert mock_store.async_save.await_count == 1, "a stale catalog must persist"
-    row = written["devices"][0]["signals"][0]
+    rows = {s["id"]: s for s in written["devices"][0]["signals"]}
+    row = rows["s1"]
     assert row["byte_hash"] == EventParser.pronto_byte_hash(FILE_FORM)
     assert row["fingerprint"] == (
         EventParser.signal_fingerprint("PRONTO", FILE_FORM, None)
@@ -1075,3 +1085,10 @@ async def test_a_migrating_load_saves_once_and_a_clean_one_never_saves():
 
     assert mock_again.async_save.await_count == 0, "a clean boot writes nothing"
     assert again._dirty is False
+    # The unrepairable row is still there on the second boot. Its
+    # silence is the acceptance: present, re-read, and not a reason to
+    # write.
+    kept = {s.id: s for s in next(iter(again._devices.values())).signals}
+    assert "unrepairable" in kept
+    assert kept["unrepairable"].byte_hash is None
+    assert "s1" in kept

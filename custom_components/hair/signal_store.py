@@ -755,11 +755,39 @@ def _transform_loaded(
     # of v0.3.4 keys on the composite (fingerprint, byte_hash).
     from .event_parser import EventParser
 
-    legacy_signals = any(
-        not s.get("id") or s.get("byte_hash") is None
-        for d in (raw.get("devices") or [])
-        for s in (d.get("signals") or [])
-    )
+    # DIRTY MEANS "MEMORY DIFFERS FROM DISK", NEVER "WORK REMAINS"
+    # (GH #125). A row whose code cannot be read can never gain a
+    # byte_hash. It is FOUND on every load and CHANGED by none, so
+    # counting it as pending legacy work kept the store permanently
+    # dirty -- harmless while nothing acted on the flag, and a rewrite
+    # of the entire catalog on every boot once the load-time save
+    # landed. Measured on the bench: ONE Mirror row with a code of None
+    # did that to a 1.4 MB store, with byte-identical content each time.
+    #
+    # Classified here at load and never branded onto the row. A future
+    # version that CAN read such a code simply repairs it then, with no
+    # stale marker to unlearn first.
+    unrepairable: list[str] = []
+    legacy_signals = False
+    for _d in raw.get("devices") or []:
+        for _s in _d.get("signals") or []:
+            if not _s.get("id"):
+                legacy_signals = True  # an id is always mintable
+                continue
+            if _s.get("byte_hash") is not None:
+                continue
+            if EventParser.pronto_byte_hash(_s.get("code")) is not None:
+                legacy_signals = True  # a hash this load can fill in
+            else:
+                unrepairable.append(_s.get("id"))
+    if unrepairable:
+        _LOGGER.debug(
+            "%d catalog row(s) carry a code no hash can be computed "
+            "from. They are re-read on every load and changed by none, "
+            "so they do not mark the store dirty: %s",
+            len(unrepairable),
+            ", ".join(unrepairable[:20]),
+        )
     for device in devices.values():
         for sig in device.signals:
             if sig.byte_hash is None and sig.code:
