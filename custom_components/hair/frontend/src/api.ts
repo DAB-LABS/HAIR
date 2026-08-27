@@ -1477,40 +1477,79 @@ export function anyPluckReadyNow(sources: PluckSource[] | null | undefined): boo
 }
 
 /**
- * The empty Plucker card's per-source lines, in render order.
+ * One source's block on an empty Plucker card.
  *
- * One line per SOURCE, never per mechanism: Tuya Local is registered
+ * ``name`` renders as a small centered label above ``body`` (owner
+ * layout ruling, 2026-08-27, from the live screenshots). It comes from
+ * the sources payload and is NEVER baked into the translated string,
+ * which is why every body sentence starts clean with no brand prefix
+ * and no colon: the name is already on screen, one line up, in every
+ * language at once.
+ */
+export interface PluckEmptyBlock {
+    integration: string;
+    name: string;
+    body: string;
+}
+
+/**
+ * The empty Plucker card's source blocks, in render order.
+ *
+ * One block per SOURCE, never per mechanism: Tuya Local is registered
  * under both and is still one thing a person has. The rule, from the
  * plan's section 3:
  *
- *   ready anywhere  -> no line at all (there is something to pluck
+ *   ready anywhere  -> no block at all (there is something to pluck
  *                      from this source, so the card is not the place
  *                      to talk about it)
- *   loaded, nothing ready -> that source's own line, which names its
- *                      own routes -- which is why these are keyed per
- *                      provider rather than written generically
- *   not loaded      -> the generic not-installed line, with the name
+ *   loaded, nothing ready -> that source's own body
+ *   not loaded      -> that source's own not-installed body, or the
+ *                      generic one when it has none
  *
- * A source whose key is missing from the dictionary contributes
- * nothing rather than printing its own key at the user: `t()` falls
- * back to en and then to the key itself, and a raw `pluck.empty.
- * source.foo` on screen is worse than silence. A provider added later
- * needs its own key added with it.
+ * Key resolution, most specific first, because round two gave one
+ * source a dialog-only wording and another its own not-installed
+ * sentence:
+ *
+ *   loaded      pluck.empty.source.<id>_dialog (dialog only)
+ *               pluck.empty.source.<id>
+ *   not loaded  pluck.empty.source.<id>.not_installed
+ *               pluck.empty.not_installed
+ *
+ * A source that resolves to nothing contributes no block rather than
+ * printing its own key at the user: `t()` falls back to en and then to
+ * the key itself, and a raw `pluck.empty.source.foo` on screen is
+ * worse than silence. A provider added later needs its own key added
+ * with it, or it inherits the generic not-installed line.
  */
-export function pluckEmptyLines(
+export function pluckEmptyBlocks(
     sources: PluckSource[] | null | undefined,
     translate: (key: string, subs?: Record<string, string | number>) => string,
-): string[] {
-    const lines: string[] = [];
+    where: "tab" | "dialog" = "tab",
+): PluckEmptyBlock[] {
+    const resolve = (keys: string[]): string | null => {
+        for (const key of keys) {
+            const line = translate(key);
+            if (line !== key) return line;
+        }
+        return null;
+    };
+    const blocks: PluckEmptyBlock[] = [];
     for (const source of sources ?? []) {
         if (Object.values(source.ready).includes(true)) continue;
-        if (!source.loaded) {
-            lines.push(translate("pluck.empty.not_installed", { vendor: source.name }));
-            continue;
-        }
-        const key = `pluck.empty.source.${source.integration}`;
-        const line = translate(key);
-        if (line !== key) lines.push(line);
+        const base = `pluck.empty.source.${source.integration}`;
+        const body = source.loaded
+            ? resolve(
+                  where === "dialog"
+                      ? [`${base}_dialog`, base]
+                      : [base],
+              )
+            : resolve([`${base}.not_installed`, "pluck.empty.not_installed"]);
+        if (body === null) continue;
+        blocks.push({
+            integration: source.integration,
+            name: source.name,
+            body,
+        });
     }
-    return lines;
+    return blocks;
 }

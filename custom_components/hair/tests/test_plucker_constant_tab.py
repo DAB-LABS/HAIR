@@ -33,36 +33,51 @@ LOCALES = SRC / "locales"
 LOCALE_NAMES = ("en", "de", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru")
 
 #: The owner walked section 4 of plucker-constant-tab-plan.md line by
-#: line and edited it; the Tuya Local line and the footer are their own
-#: wording. Copied here so a well-meaning later edit to en.json has to
-#: argue with a test rather than sail through review.
+#: line and edited it, twice: round one, then round two after reviewing
+#: the deployed branch live. Copied here so a well-meaning later edit
+#: to en.json has to argue with a test rather than sail through review.
+#:
+#: The brand prefixes and colons are NOT in these strings by design.
+#: The layout ruling puts the provider's display name in a small label
+#: above the body, rendered from the sources payload, so a prefix would
+#: say the name twice and in the wrong language.
 OWNER_COPY = {
     "pluck.empty.headline": (
         "Plucker copies IR codes out of integrations you already have, "
         "so remotes you taught other systems work here too."
     ),
     "pluck.empty.source.broadlink": (
-        "Broadlink: codes you learned with remote.learn_command are "
-        "stored on disk, and HAIR reads them from there. If you have "
-        "only ever used your blaster to send, nothing is stored yet -- "
-        "that is normal."
+        "HAIR reads codes learned with remote.learn_command."
+    ),
+    "pluck.empty.source.broadlink_dialog": (
+        "HAIR reads codes that this blaster learned with the "
+        "remote.learn_command."
     ),
     "pluck.empty.source.tuya_local": (
-        "Tuya Local: plucks codes already learned in the integration, "
-        "and/or can copy codes by replaying them into a silent "
-        "listener. Nothing is set up in it yet; add your IR device "
-        "there first, and it will show up here."
+        "HAIR can pluck codes your Tuya hub captured from your remotes, "
+        "or copy them by replaying into a silent listener. No IR "
+        "devices are set up in it yet."
+    ),
+    "pluck.empty.source.tuya_local.not_installed": (
+        "Not installed here. If you add it, HAIR can pluck the IR codes "
+        "your Tuya hub already captured from your remotes."
     ),
     "pluck.empty.not_installed": (
-        "{vendor}: not set up in this Home Assistant. If you use it, "
-        "HAIR can pluck the codes it already knows."
+        "Not set up in this Home Assistant. If you use it, HAIR can "
+        "pluck the codes it already knows."
     ),
     "pluck.empty.footer": (
         "Codes captured from a real remote live in the Sniffer; Plucker "
         "is only for codes stored inside other integrations or their "
         "devices."
     ),
+    "pluckstore.empty_reason": "No learned codes found yet.",
 }
+
+#: Retired by round two. The old three-line empty card is gone and so
+#: are its strings; leaving them would be thirty dead values across ten
+#: files, which is how a dictionary rots.
+DEAD_KEYS = ("pluck.empty_title", "pluck.empty_body", "pluck.empty_hint")
 
 
 def _read(name: str) -> str:
@@ -155,7 +170,15 @@ class TestTheEmptyCard:
 
     def test_the_card_is_source_driven(self):
         body = _read("ir-pluck.ts")
-        assert "pluckEmptyLines(this._pluckSources, t)" in body
+        assert 'pluckEmptyBlocks(this._pluckSources, t, "tab")' in body
+
+    def test_each_source_renders_its_name_as_a_label_above_its_body(self):
+        """The layout ruling. The name comes from the payload, so the
+        strings stay clean sentences in every language."""
+        body = _read("ir-pluck.ts")
+        card = body.split("private _renderEmpty()")[1].split("render()")[0]
+        assert 'class="empty-source-name">${block.name}' in card
+        assert 'class="empty-source-body">${block.body}' in card
 
     def test_the_card_carries_headline_and_footer(self):
         body = _read("ir-pluck.ts")
@@ -172,25 +195,28 @@ class TestTheEmptyCard:
 
     def test_the_add_remote_dialog_says_the_same_thing(self):
         """Same question, same answer, same helper -- answering 'nothing
-        found' two ways would be two chances to drift."""
+        found' two ways would be two chances to drift. The dialog asks
+        for its own variant, which is the only difference."""
         dialog = _read("ir-pluck-add-remote-dialog.ts")
-        assert "pluckEmptyLines(this._pluckSources, t)" in dialog
+        assert 'pluckEmptyBlocks(this._pluckSources, t, "dialog")' in dialog
+        assert 'class="empty-source-name"' in dialog
 
-    def test_the_lines_follow_the_plans_rule(self):
-        """ready anywhere -> silent; loaded -> its own key; not loaded
-        -> the generic line with the vendor's name."""
+    def test_the_blocks_follow_the_plans_rule(self):
+        """ready anywhere -> silent; loaded -> its own body; not loaded
+        -> its own not-installed body, else the generic one."""
         api = _read("api.ts")
-        helper = api.split("export function pluckEmptyLines")[1]
+        helper = api.split("export function pluckEmptyBlocks")[1]
         assert "Object.values(source.ready).includes(true)) continue" in helper
-        assert '"pluck.empty.not_installed", { vendor: source.name }' in helper
-        assert "`pluck.empty.source.${source.integration}`" in helper
+        assert '`${base}_dialog`' in helper
+        assert '`${base}.not_installed`, "pluck.empty.not_installed"' in helper
 
     def test_a_source_with_no_string_says_nothing_rather_than_its_key(self):
         """t() falls back to en and then to the key itself, and a raw
         pluck.empty.source.foo on screen is worse than silence."""
         api = _read("api.ts")
-        helper = api.split("export function pluckEmptyLines")[1]
-        assert "if (line !== key) lines.push(line)" in helper
+        helper = api.split("export function pluckEmptyBlocks")[1]
+        assert "if (line !== key) return line" in helper
+        assert "if (body === null) continue" in helper
 
 
 class TestTheOwnersCopy:
@@ -206,27 +232,62 @@ class TestTheOwnersCopy:
             assert locale[key].strip(), f"{name}.json has {key} blank"
 
     @pytest.mark.parametrize("name", LOCALE_NAMES)
-    def test_the_service_and_product_names_ride_through(self, name):
+    def test_the_service_names_ride_through(self, name):
         """The parity suite guards HAIR / Sniffer / Plucker because they
         are in its brand list. These are not, and they are just as
-        untranslatable: an integration domain and two product names a
-        person has to type or go looking for."""
+        untranslatable: a service call a person types, and the name of
+        the product they would go and install."""
         locale = _locale(name)
-        assert "remote.learn_command" in locale["pluck.empty.source.broadlink"]
-        assert "Broadlink" in locale["pluck.empty.source.broadlink"]
-        assert "Tuya Local" in locale["pluck.empty.source.tuya_local"]
+        for key in ("pluck.empty.source.broadlink",
+                    "pluck.empty.source.broadlink_dialog"):
+            assert "remote.learn_command" in locale[key], f"{name}:{key}"
         assert "Home Assistant" in locale["pluck.empty.not_installed"]
-
-    @pytest.mark.parametrize("name", LOCALE_NAMES)
-    def test_the_vendor_slot_survives(self, name):
-        assert "{vendor}" in _locale(name)["pluck.empty.not_installed"]
+        assert "Tuya" in locale["pluck.empty.source.tuya_local"]
 
     @pytest.mark.parametrize("name", LOCALE_NAMES)
     def test_no_em_dash_anywhere_in_the_new_copy(self, name):
-        """House rule: spaced double hyphen, never an em-dash."""
         locale = _locale(name)
         for key in OWNER_COPY:
-            assert "—" not in locale[key], f"{name}.json:{key}"
+            assert "\u2014" not in locale[key], f"{name}.json:{key}"
+
+    @pytest.mark.parametrize("name", LOCALE_NAMES)
+    def test_no_spaced_double_hyphen_in_rendered_text(self, name):
+        """Round two, binding: the house style for PROSE is a spaced
+        double hyphen, and the owner ruled it out of RENDERED strings
+        because on screen it reads machine-written. Comments and
+        reports keep it; the panel does not."""
+        locale = _locale(name)
+        for key in OWNER_COPY:
+            assert " -- " not in locale[key], f"{name}.json:{key}"
+
+    @pytest.mark.parametrize("name", LOCALE_NAMES)
+    def test_no_colon_carries_the_provider_name(self, name):
+        """The name is a label above the body now. A body that opened
+        with 'Broadlink:' would say it twice, and in English."""
+        locale = _locale(name)
+        for key in OWNER_COPY:
+            if key in ("pluck.empty.footer", "pluck.empty.headline"):
+                continue
+            head = locale[key].split()[0]
+            assert not head.endswith(":"), f"{name}.json:{key} -> {head!r}"
+
+    @pytest.mark.parametrize("name", LOCALE_NAMES)
+    def test_the_vendor_slot_is_gone(self, name):
+        """It went with the prefix: the label carries the name now, so
+        the generic fallback has nothing to interpolate."""
+        assert "{vendor}" not in _locale(name)["pluck.empty.not_installed"]
+
+    @pytest.mark.parametrize("name", LOCALE_NAMES)
+    def test_the_dead_keys_are_gone(self, name):
+        locale = _locale(name)
+        for key in DEAD_KEYS:
+            assert key not in locale, f"{name}.json still carries {key}"
+
+    def test_nothing_still_renders_a_dead_key(self):
+        for name in ("ir-pluck.ts", "ir-pluck-add-remote-dialog.ts"):
+            source = _read(name)
+            for key in DEAD_KEYS:
+                assert key not in source, f"{name} still renders {key}"
 
     def test_a_source_key_exists_for_every_shipped_provider(self):
         """A provider with no line of its own contributes nothing to the
