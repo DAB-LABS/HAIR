@@ -30,6 +30,7 @@ import type {
     MatrixCells,
     PluckedStoreRecord,
     PluckRunResult,
+    PluckSource,
     PluckVendor,
     ProntoValidation,
     ReceiverInfo,
@@ -1052,8 +1053,14 @@ export class HairApi {
      * Cheap: counts only, no decoding, so the Add Blaster dialog can
      * call it every time it opens.
      */
-    listLearnedStores(): Promise<{ stores: LearnedStore[] }> {
-        return this.hass.connection.sendMessagePromise<{ stores: LearnedStore[] }>({
+    listLearnedStores(): Promise<{
+        stores: LearnedStore[];
+        sources: PluckSource[];
+    }> {
+        return this.hass.connection.sendMessagePromise<{
+            stores: LearnedStore[];
+            sources: PluckSource[];
+        }>({
             type: "hair/pluck/stores/list",
         });
     }
@@ -1440,4 +1447,31 @@ export class HairApi {
             { type: "hair/trigger/subscribe" },
         );
     }
+}
+
+
+/**
+ * Can anything be plucked RIGHT NOW?
+ *
+ * The one rule shared by every ACTION PICKER that offers Plucker as a
+ * source. Deliberately not the rule the Plucker TAB uses, and the
+ * distinction is the whole point of this branch:
+ *
+ *   DISCOVERY SURFACES ALWAYS SHOW. The tab renders unconditionally,
+ *   like Devices, Sniffer, Clipper, Closet and Mirror, and explains
+ *   itself when it is empty. Hiding it is what made the feature
+ *   invisible on exactly the hardware it was built for, twice.
+ *
+ *   ACTION PICKERS SHOW WHAT WORKS NOW. A dialog offering "pick a
+ *   source for this new device" must not offer a route that cannot
+ *   act, because there is nothing behind it to pick.
+ *
+ * One helper rather than a copy per site, so the next change to the
+ * rule cannot miss one -- the previous arrangement had three sites and
+ * two of them only claimed, in a comment, to agree with the third.
+ */
+export function anyPluckReadyNow(sources: PluckSource[] | null | undefined): boolean {
+    return (sources ?? []).some((source) =>
+        Object.values(source.ready).includes(true),
+    );
 }
