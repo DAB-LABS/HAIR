@@ -59,6 +59,12 @@ export class IrTestButton extends LitElement {
      * cannot send, only that it cannot. */
     @property({ attribute: false }) public disabledReason: string | null =
         null;
+    /** Locale key for the idle label. Defaults to the component's own
+     * word (TEST); a host may pass a different key so the same button
+     * can read differently on its surface without forking anything
+     * else about it (owner ruling 2026-08-27, Tangles). */
+    @property({ attribute: false }) public idleLabelKey = "cmdrow.test";
+
 
     /** Seed for the corner dot when a host restores a prior session.
      * Left alone it starts at zero and the button counts its own. */
@@ -123,7 +129,7 @@ export class IrTestButton extends LitElement {
         >
             <span class="stack">
                 <span class="lay ${flash ? "" : "on"}"
-                    >${t("cmdrow.test")}</span
+                    >${t(this.idleLabelKey)}</span
                 >
                 <span class="lay ${flash === "sent" ? "on" : ""}"
                     >${t("testbtn.sent")}</span
