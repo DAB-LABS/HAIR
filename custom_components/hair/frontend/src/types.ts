@@ -38,6 +38,32 @@ export type CommandSourceId = "captured" | "database" | "imported" | "matrix";
 
 export type CaptureProviderTypeId = "esphome" | "broadlink" | "native" | "mock";
 
+/** A repair's record, as tangles.py's build_provenance writes it
+ * under the command's/cell's `hair_repair` extra key (PROVENANCE_KEY).
+ * IRCommand.to_dict() carries every unknown key through unchanged
+ * (models.py's _with_extra), so this already rides the ordinary
+ * command-list payload -- nothing on the backend had to change for
+ * the frontend to type and read it. */
+export interface TangleRepairRecord {
+    origin: string;
+    source: "capture" | "donor" | "paste" | "synthesized";
+    applied: string;
+    tested: boolean;
+    tier: string;
+    prior: { pronto: string; digest: string };
+    finding: { key: string; classes: string[] };
+    map?: { id: string; version: number | string } | null;
+    run?: string | null;
+    tested_cells?: string[] | null;
+    detail?: Record<string, unknown> | null;
+    reading_disagreed?: {
+        user_attested: boolean;
+        reads_as: Record<string, unknown>;
+        claims: Record<string, unknown>;
+        mismatches: unknown[];
+    } | null;
+}
+
 export interface IRCommand {
     id: string;
     name: string;
@@ -73,6 +99,12 @@ export interface IRCommand {
      * The marker's tooltip says what the comb found rather than a
      * generic "suspect". */
     comb_finding?: string | null;
+    /** A repair's record, when a fix flow has rewritten this row's
+     * bytes (Phase 2 tangles ruling, 2026-08-27): the comb's suspect
+     * flag is stamped once at mint and stays, by owner ruling, so a
+     * repaired row can carry both -- this is what lets the row say so
+     * rather than looking like unresolved doubt. */
+    hair_repair?: TangleRepairRecord | null;
     /** A PORTHOLE to a lattice cell: every action through this row
      * acts on the matrix, so delete removes the cell and the confirm
      * names the coordinates. */
