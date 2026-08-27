@@ -742,6 +742,22 @@ PROVENANCE_KEY = "hair_repair"
 TIER_AIR_TESTED = "air-tested"
 TIER_RULE_DERIVED = "rule-derived"
 
+#: Stamped in a minted wig's ``extra`` when the repair write-through
+#: (C10) is what minted it. The write-through reads it back off the
+#: device's current source before deciding whether it may supersede,
+#: which is the whole guard: this machinery deletes only files it
+#: wrote itself. A person's own wig -- the contributor's original, a
+#: hand-saved copy -- never carries the stamp, so the first repair on
+#: an adopted device always mints BESIDE the original and leaves it
+#: standing, and only later repairs replace the version before them.
+REPAIR_SUCCESSOR = "hair_repair_successor"
+
+#: What a write-through reports when there was no wig to write to.
+#: Not a failure: a device built from scratch has no source, and
+#: saying so is the honest answer rather than an error the caller has
+#: to special-case.
+WROTE_NOT_ADOPTED = "not-adopted"
+
 APPLY_NO_FINDING = "no_finding"
 APPLY_NOT_TESTED = "not_tested"
 APPLY_BAD_CANDIDATE = "bad_candidate"

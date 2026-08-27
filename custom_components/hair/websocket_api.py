@@ -4982,7 +4982,8 @@ async def ws_wigs_save(
                 "current state.",
             )
             return
-        await _do_update(hass, connection, msg, device, attestation, key)
+        outcome = await _do_update(hass, msg, device, attestation, key)
+        refusals = _UPDATE_REFUSALS
     else:
         # CREATE and SUCCESSION are the same act at this layer: mint a
         # wig from the device's current commands and attest against
@@ -4998,19 +4999,38 @@ async def ws_wigs_save(
         # forced False in that case, so this call never
         # auto-supersedes on the Save As New route (item 2:
         # existing wig untouched).
-        await _do_create(
-            hass, connection, msg, device, attestation, key, replace=replace,
+        outcome = await _do_create(
+            hass, msg, device, attestation, key, replace=replace,
         )
+        refusals = _CREATE_REFUSALS
+
+    if isinstance(outcome, str):
+        connection.send_error(
+            msg["id"], outcome,
+            refusals.get(
+                outcome, "Nothing to write: no fitting, and nothing changed"
+            ),
+        )
+        return
+    connection.send_result(msg["id"], outcome)
 
 
 async def _do_update(
     hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
     device: IRDevice,
     attestation: Any | None,
     key: str | None,
-) -> None:
+) -> dict[str, Any] | str:
+    """Write the device's changes back onto its source wig.
+
+    RETURNS rather than sends (C10). It used to answer the connection
+    directly, which made it reachable only from a websocket handler --
+    and the wig write-through has to reach the same machinery from the
+    repair path, where there is no dialog and no message id. So the
+    wire moved out to ``ws_wigs_save`` and what is left is the act
+    itself: a result dict, or one of ``_UPDATE_REFUSALS``' keys.
+    """
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     device_matrix = (
         await manager.async_get_matrix(device.id)
@@ -5079,16 +5099,7 @@ async def _do_update(
         )]
         return result.as_dict()
 
-    result = await hass.async_add_executor_job(_write)
-    if isinstance(result, str):
-        connection.send_error(
-            msg["id"], result,
-            _UPDATE_REFUSALS.get(
-                result, "Nothing to write: no fitting, and nothing changed"
-            ),
-        )
-        return
-    connection.send_result(msg["id"], result)
+    return await hass.async_add_executor_job(_write)
 
 
 _UPDATE_REFUSALS = {
@@ -5162,14 +5173,24 @@ def _apply_metadata(wig: Any, edits: dict[str, str]) -> None:
 
 async def _do_create(
     hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
     device: IRDevice,
     attestation: Any | None,
     key: str | None,
     replace: bool = False,
-) -> None:
+    mark_repair: bool = False,
+) -> dict[str, Any] | str:
     """Mint the wig (CREATE or SUCCESSION); optionally auto-replace.
+
+    RETURNS rather than sends (C10), for the reason given on
+    ``_do_update``: the repair write-through needs this machinery and
+    has no connection to answer. A refusal comes back as one of
+    ``_CREATE_REFUSALS``' keys.
+
+    ``mark_repair`` stamps the minted file as one the repair flow made.
+    That stamp is what later write-throughs read to decide they may
+    supersede: this machinery deletes only files it wrote itself, so a
+    contributor's original is never the thing that disappears.
 
     ``replace`` (Second Fitting v3) asks that, when this mint names a
     local ancestor to supersede, the supersede runs immediately after
@@ -5191,19 +5212,15 @@ async def _do_create(
     )
     build = build_wig_from_device(device, matrix)
     if build.wig is None:
-        connection.send_error(
-            msg["id"], "no_signals", "No exportable signals on that device"
-        )
-        return
+        return "no_signals"
     from .wig_save import reject_flat_exclusions
 
     if reject_flat_exclusions(attestation, build.wig):
-        connection.send_error(
-            msg["id"], "exclusion_on_flat_row",
-            "An exclusion reason can only be given on a matrix "
-            "checklist cell.",
-        )
-        return
+        return "exclusion_on_flat_row"
+    if mark_repair:
+        from .tangles import REPAIR_SUCCESSOR
+
+        build.wig.extra[REPAIR_SUCCESSOR] = True
     if msg.get("name", "").strip():
         build.wig.name = msg["name"].strip()
     for field_name in ("brand", "model", "notes"):
@@ -5288,10 +5305,7 @@ async def _do_create(
 
     result = await hass.async_add_executor_job(_write)
     if result is None:
-        connection.send_error(
-            msg["id"], "write_failed", "Could not write the wig file"
-        )
-        return
+        return "write_failed"
 
     # The device now has a wig in the closet, so it remembers it: the
     # next SAVE TO CLOSET offers UPDATE instead of minting a second copy
@@ -5316,7 +5330,16 @@ async def _do_create(
             })
         replaced["devices"] = receipts
 
-    connection.send_result(msg["id"], result)
+    return result
+
+
+_CREATE_REFUSALS = {
+    "no_signals": "No exportable signals on that device",
+    "exclusion_on_flat_row":
+        "An exclusion reason can only be given on a matrix checklist "
+        "cell.",
+    "write_failed": "Could not write the wig file",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -7272,6 +7295,87 @@ async def ws_tangle_listen(
     )
 
 
+async def _write_through(
+    hass: HomeAssistant, device: IRDevice
+) -> dict[str, Any]:
+    """Push a finished repair back into the user's wig. C10.
+
+    The ruling (tangles-backend.md section 4, 2026-08-27) is that a
+    person who repairs an adopted device does not then have to go and
+    save it: the closet copy follows the device on its own, and the
+    UI's "Your wig has been updated." is allowed to render only once
+    this says it did.
+
+    It invokes the SHIPPED save machinery rather than a second copy of
+    it -- the same ``_do_create`` / ``_do_update`` the save dialog
+    drives, which is why those two stopped owning the connection. The
+    synthetic ``msg`` here is not a pretend websocket message; it is
+    the arguments dict those functions have always taken, carrying the
+    two things this caller has an opinion about: keep the wig's own
+    name, and yes, propose the lattice.
+
+    WHAT IT WILL AND WILL NOT DELETE. A mint stamps ``REPAIR_SUCCESSOR``
+    on what it writes, and ``replace`` is set only when the device's
+    CURRENT source carries that stamp. So the first repair on an
+    adopted device mints beside the contributor's original and leaves
+    it standing; every repair after that supersedes the version before
+    it. The closet settles at two files -- theirs, and the repaired one
+    -- instead of one file per click.
+
+    NEVER RAISES INTO THE REPAIR. The bytes are already on the device
+    and on disk by the time this runs; a wig that could not be written
+    is a thing to REPORT, not a reason to unwind a good repair. Every
+    failure comes back as ``{"written": False, "reason": ...}``.
+    """
+    from .tangles import REPAIR_SUCCESSOR, WROTE_NOT_ADOPTED
+
+    if not device.source_wig_id:
+        return {"written": False, "reason": WROTE_NOT_ADOPTED}
+
+    source_wig, _filename = await hass.async_add_executor_job(
+        _resolve_source, hass, device
+    )
+    if source_wig is None:
+        return {"written": False, "reason": "source_missing"}
+
+    # ALWAYS A MINT, never the UPDATE branch, and this is not an
+    # oversight. UPDATE edits the source file's text in place and can
+    # carry a lattice diff -- which is all the save dialog needs. A
+    # repair produces three things beyond changed bytes: a provenance
+    # record per cell, any KEEP attestations the person recorded, and
+    # a fresh comb receipt over the result. Those exist only in the
+    # wig the EXPORTER builds out of the device, so a write-through
+    # that took the UPDATE branch would silently drop them, and a KEEP
+    # (which changes no bytes at all) would refuse with
+    # "nothing_to_update" while the person watched their answer not
+    # arrive. Minting rebuilds from the device every time and carries
+    # all of it.
+    msg: dict[str, Any] = {
+        # The wig keeps its OWN name. build_wig_from_device would name
+        # the successor after the DEVICE, so a person who renamed the
+        # device in Home Assistant would watch their wig quietly get
+        # renamed on their next repair.
+        "name": source_wig.name or "",
+    }
+    outcome = await _do_create(
+        hass, msg, device, None, None,
+        replace=bool((source_wig.extra or {}).get(REPAIR_SUCCESSOR)),
+        mark_repair=True,
+    )
+
+    if isinstance(outcome, str):
+        return {"written": False, "reason": outcome}
+    written: dict[str, Any] = {
+        "written": True,
+        "filename": outcome.get("filename"),
+        "wig_id": outcome.get("wig_id"),
+    }
+    replaced = outcome.get("replaced")
+    if replaced:
+        written["replaced"] = replaced.get("old_filename")
+    return written
+
+
 def _apply_source(msg: dict[str, Any]) -> str:
     from .tangles import ORIGIN_CAPTURE, ORIGIN_DONOR, ORIGIN_PASTE
 
@@ -7449,6 +7553,7 @@ async def ws_tangle_apply(
         "target": row.id,
         "provenance": provenance,
         "verdict": verdict.as_dict(),
+        "wig": await _write_through(hass, device),
     })
 
 
@@ -7515,9 +7620,14 @@ async def ws_tangle_revert(
         record = revert_repair(command)
         await manager.async_update_device(device)
 
+    # UNDO writes through too (owner call, 2026-08-27). The old bytes
+    # are back on the device; leaving the closet holding the repaired
+    # ones would put the wig silently AHEAD of the device it came from,
+    # which is the same lie the write-through exists to prevent.
     connection.send_result(
         msg["id"], {"reverted": True, "target": msg["target"],
-                    "was": record})
+                    "was": record,
+                    "wig": await _write_through(hass, device)})
 
 
 @websocket_api.require_admin
@@ -7733,6 +7843,7 @@ async def ws_tangle_apply_batch(
         "cluster": msg["cluster"],
         "air_tested": sorted(tested_targets),
         "declined": plan.declined,
+        "wig": await _write_through(hass, device),
     })
 
 
@@ -7780,7 +7891,8 @@ async def ws_tangle_revert_run(
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     await manager.async_update_device(device)
     connection.send_result(
-        msg["id"], {"reverted": len(holders), "run": msg["run"]})
+        msg["id"], {"reverted": len(holders), "run": msg["run"],
+                    "wig": await _write_through(hass, device)})
 
 
 @websocket_api.require_admin
@@ -7855,5 +7967,10 @@ async def ws_tangle_keep(
     device.tangle_attestations.append(record)
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     await manager.async_update_device(device)
+    # KEEP is a DECIDE outcome and it changes what the wig SAYS, even
+    # though it changes no bytes: the attestation rides out in the
+    # receipt beside the finding it answers. So it writes through on
+    # the same terms as a repair.
     connection.send_result(
-        msg["id"], {"attested": True, "target": row.id, "record": record})
+        msg["id"], {"attested": True, "target": row.id, "record": record,
+                    "wig": await _write_through(hass, device)})

@@ -474,6 +474,66 @@ class TestBackToTheCloset:
             (wigs_dir(tmp_path) / saved["filename"]).read_text())
         assert not successor.get("fittings")
 
+    @pytest.mark.asyncio
+    async def test_the_closet_has_it_without_anybody_saving(
+            self, adopted, _no_signing):
+        """The C10 acceptance: run the loop and never call save.
+
+        Same repairs as the test above, same KEEP, and then nothing --
+        no dialog, no save handler, no second decision asked of the
+        person. What makes the surface's "Your wig has been updated."
+        true is that it was already true before anything rendered.
+
+        The write-through's own guarantees live in
+        test_tangles_writethrough.py; what this pins is that the LOOP
+        arrives at a repaired wig on the shelf on its own.
+        """
+        hass, device, tmp_path, source = adopted
+
+        listing = await _tangles(hass, device)
+        card = next(c for c in listing["clusters"]
+                    if c["mechanic"] == "donor")
+        plan = await _call(ws_tangle_plan, hass, {
+            "id": 6, "type": "hair/device/tangle/plan",
+            "device_id": device.id, "cluster": card["id"],
+        })
+        batch = await _call(ws_tangle_apply_batch, hass, {
+            "id": 7, "type": "hair/device/tangle/apply-batch",
+            "device_id": device.id, "cluster": card["id"],
+            "tested": True, "tested_targets": plan["sample"],
+        })
+        listing = await _tangles(hass, device)
+        kept = await _call(ws_tangle_keep, hass, {
+            "id": 8, "type": "hair/device/tangle/keep",
+            "device_id": device.id, "target": listing["rows"][0]["id"],
+            "tested": True, "note": "runs fine on my unit",
+        })
+
+        # The line the surface gates on, on both messages.
+        assert batch["wig"]["written"] is True
+        assert kept["wig"]["written"] is True
+
+        shelf = sorted(p.name for p in wigs_dir(tmp_path).glob("*.wig.json"))
+        assert SOURCE in shelf, "the contributor's file is still theirs"
+        assert len(shelf) == 2, shelf
+
+        repaired = parse_wig(
+            (wigs_dir(tmp_path) / kept["wig"]["filename"]).read_text()).wig
+        assert repaired is not None
+        assert source.wig_id in repaired.supersedes
+
+        # The repairs, the record and the human's answer all travelled.
+        matrix = load_matrix(str(tmp_path), device.id)
+        cells = {cell_key(c): c for c in repaired.climate.cells}
+        for cell in matrix.cells:
+            assert cells[cell_key(cell)].pronto == cell.pronto
+        assert sum(
+            1 for cell in cells.values()
+            if (getattr(cell, "extra", None) or {}).get(PROVENANCE_KEY)
+        ) == 48
+        assert repaired.extra[COMB_KEY][ATTESTED_KEY][0]["note"] == (
+            "runs fine on my unit")
+
 
 class TestTheFlatFan:
     """The Dreo: seven buttons, two noisy captures, no lattice at all.
