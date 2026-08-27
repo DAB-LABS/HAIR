@@ -7217,25 +7217,58 @@ async def ws_tangle_test_send(
 
     This is the press the guarded write is gated on, and it has to
     happen before the write or it proves nothing.
+
+    Answers with ``heard`` the same way ``ws_send_command`` does, and
+    for the same reason: the fix flow reuses the TEST button, so a
+    result without ``heard`` left that button permanently unable to
+    show SENT . HEARD here -- not because nothing was heard, but
+    because nobody waited for it. Same future, same
+    ``FITTING_HEARD_WAIT_S``, same rule that a send nothing hears is
+    still a send: a timeout reports ``heard: false`` and never an
+    error. ``emitters`` stays, because the fix flow's own receipts
+    already read it.
     """
     data = _get_first_entry_data(hass)
     if data is None:
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     manager: DeviceManager = data["device_manager"]
+
+    import asyncio
+
+    from .wig_fitting import FITTING_HEARD_WAIT_S
+
+    heard_future: asyncio.Future[str | None] = (
+        asyncio.get_running_loop().create_future()
+    )
     try:
         landed = await manager.async_test_send(
             msg["device_id"], msg["pronto"],
             send_count=msg.get("send_count", 1),
+            heard_future=heard_future,
         )
     except KeyError:
+        heard_future.cancel()
         connection.send_error(msg["id"], "not_found", "Device not found")
         return
     except RuntimeError as err:
+        heard_future.cancel()
         connection.send_error(msg["id"], "send_failed", str(err))
         return
-    connection.send_result(
-        msg["id"], {"sent": True, "emitters": sorted(landed)})
+
+    receiver: str | None = None
+    try:
+        receiver = await asyncio.wait_for(heard_future, FITTING_HEARD_WAIT_S)
+        heard = True
+    except (TimeoutError, asyncio.CancelledError):
+        heard_future.cancel()
+        heard = False
+    connection.send_result(msg["id"], {
+        "sent": True,
+        "heard": heard,
+        "receiver": receiver,
+        "emitters": sorted(landed),
+    })
 
 
 @websocket_api.require_admin
