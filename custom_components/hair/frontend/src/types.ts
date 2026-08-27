@@ -1247,3 +1247,220 @@ export interface TriggerFiredEvent {
 export interface SignalUpdatedEvent {
     signal_fingerprint: string;
 }
+
+/**
+ * Tangles (the detangle surface, PR #129): every open comb finding on
+ * one device as a row a repair surface can act on. Rows are DERIVED on
+ * every ``hair/device/tangles`` call and never stored -- there is no
+ * tangle record to migrate or refresh, the next call just combs
+ * different bytes and reaches a different answer.
+ */
+
+export interface TangleTarget {
+    kind: "cell" | "command";
+    key: string;
+    command_id?: string;
+    coordinates?:
+        | { mode: string; fan: string; swing: string; temp: string }
+        | { power: "on" | "off" };
+}
+
+/** One comb Finding, worst-first, as attached to a TangleRow. */
+export interface TangleFinding {
+    check: string;
+    keys: string[];
+    params: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+/** A cell whose current bytes already read as what a flagged cell
+ * needs -- found by donor search, nothing built or inferred. */
+export interface TangleDonor {
+    key: string;
+    coordinates: Record<string, string>;
+    pronto: string;
+    digest: string;
+    reasoning: Record<string, unknown>;
+}
+
+/** ``pre_read``'s answer: a candidate's bytes read and compared
+ * against a target's own label under the lattice's voted field map.
+ * ``matches`` stays null when nothing was comparable -- never invented
+ * as false. */
+export interface CandidateVerdict {
+    reads_as: Record<string, unknown> | null;
+    claims: Record<string, unknown> | null;
+    raw_read: Record<string, unknown> | null;
+    raw_expected: Record<string, unknown> | null;
+    mismatches: string[];
+    matches: boolean | null;
+    protocol: string | null;
+    declined: string | null;
+    integrity: Record<string, unknown> | null;
+    frame_vote: Record<string, unknown> | null;
+    decoded: boolean;
+}
+
+/** A KEEP outcome (hair/device/tangle/keep): the finding stays
+ * truthfully flagged in the comb, but this row leaves the open
+ * worklist until its bytes or map version change. */
+export interface TangleAttestation {
+    key: string;
+    target: string;
+    digest: string;
+    map_id: string;
+    map_version: number | string;
+    tested: boolean;
+    note?: string | null;
+    timestamp: string;
+}
+
+export interface TangleRow {
+    id: string;
+    target: TangleTarget;
+    classes: string[];
+    findings: TangleFinding[];
+    pronto: string;
+    digest: string;
+    has_donor: boolean;
+    donor: TangleDonor | null;
+    donor_abstain: string | null;
+    verdict: CandidateVerdict | null;
+    /** Present only on rows already answered by KEEP -- these live in
+     * ``TangleListing.attested``, not ``TangleListing.rows``. */
+    attested?: TangleAttestation | null;
+}
+
+export interface TangleCluster {
+    id: string;
+    rule:
+        | "same-shift"
+        | "same-reading"
+        | "identical-bytes"
+        | "same-field"
+        | "singleton";
+    cause: string;
+    mechanic: "donor" | "witness" | "recapture";
+    check: string;
+    field: string | null;
+    members: string[];
+    size: number;
+    detail: Record<string, unknown>;
+}
+
+export interface TangleListing {
+    rows: TangleRow[];
+    clusters: TangleCluster[];
+    /** Comb ADVISORY findings -- these never become rows. */
+    advisories: TangleFinding[];
+    attested: TangleRow[];
+    matrix: boolean;
+    coverage: Record<string, unknown>;
+    protocol: string | null;
+    field_tier: "read" | "protocol-unmapped" | "no-lattice";
+    candidate_sources: ("donor" | "capture" | "paste")[];
+}
+
+/** What every mutating tangle command reports under ``wig``: whether
+ * completing this step wrote a new version of the device's source wig
+ * through the existing successor machinery. "Your wig has been
+ * updated." renders only when ``written`` is true. */
+export interface TangleWriteThrough {
+    written: boolean;
+    reason?: string;
+    filename?: string;
+    wig_id?: string;
+    replaced?: string;
+}
+
+export interface TangleCaptureEvent {
+    type: "tangle_capture";
+    pronto: string;
+    decoded: boolean;
+    protocol: string | null;
+    receiver: string | null;
+    repeats_disagree?: Record<string, unknown>;
+    verdict: CandidateVerdict;
+    /** Echoed back only when the arming call carried a target. */
+    target?: string;
+}
+
+export interface TangleListenTimeoutEvent {
+    type: "tangle_listen_timeout";
+}
+
+export type TangleListenEvent = TangleCaptureEvent | TangleListenTimeoutEvent;
+
+export interface TangleApplyResult {
+    applied: true;
+    target: string;
+    provenance: Record<string, unknown>;
+    verdict: CandidateVerdict;
+    wig: TangleWriteThrough;
+}
+
+export interface TangleRevertResult {
+    reverted: true;
+    target: string;
+    was: Record<string, unknown>;
+    wig: TangleWriteThrough;
+}
+
+export interface TangleBatchCandidate {
+    pronto: string;
+    digest: string;
+    origin: "capture" | "donor" | "paste" | "synthesized";
+    verdict: CandidateVerdict;
+    [key: string]: unknown;
+}
+
+/** ``hair/device/tangle/plan``'s answer: a candidate for every member
+ * of one cluster, and the deterministic proof sample the UI can say
+ * it will air-test before anything is written. Pure read. */
+export interface TangleBatchPlan {
+    cluster: string;
+    candidates: Record<string, TangleBatchCandidate>;
+    sample: string[];
+    declined: Record<string, string>;
+    refused: string | null;
+    witness: {
+        digest: string;
+        field: string;
+        value: unknown;
+        reads_as: unknown;
+    } | null;
+}
+
+export interface TangleApplyBatchResult {
+    applied: number;
+    run: string;
+    cluster: string;
+    air_tested: string[];
+    declined: Record<string, string>;
+    wig: TangleWriteThrough;
+}
+
+export interface TangleRevertRunResult {
+    reverted: number;
+    run: string;
+    wig: TangleWriteThrough;
+}
+
+export interface TangleKeepResult {
+    attested: true;
+    target: string;
+    record: Record<string, unknown>;
+    wig: TangleWriteThrough;
+}
+
+/** hair/device/tangle/test-send's result (owner-ruled 2026-08-27 to
+ * match sendCommand/matrixSend's shape exactly, after the SEND-button
+ * reuse finding: the button's .send contract needs `heard` to choose
+ * between SENT and SENT . HEARD, and every other send command already
+ * reports it this way). */
+export interface TangleTestSendResult {
+    sent: boolean;
+    heard: boolean;
+    receiver: string | null;
+    emitters: string[];
+}
