@@ -20,6 +20,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import PLUCK_TIMEOUT_S
 from .learned_code_stores import (
+    PROVIDERS,
     PROVIDERS_BY_INTEGRATION,
     StoreInfo,
     discover_stores,
@@ -171,6 +172,41 @@ def _remote_entities_for(
     return out
 
 
+def _replay_blasters(
+    hass: HomeAssistant, ent_reg: Any, entry: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Candidate blasters for one replay entry, or an empty list.
+
+    Empty means "this vendor cannot replay anything right now", which is
+    the single question both callers ask: ``list_vendors`` to decide
+    whether to offer the vendor at all, and ``list_sources`` to decide
+    whether its replay mechanism is ready. Factored so the two cannot
+    drift into disagreeing about the same install.
+    """
+    service = entry["service"]
+    if not hass.services.has_service(entry["integration"], service["name"]):
+        return []
+    feature_filter = entry.get("remote_feature_filter")
+    blasters: list[dict[str, Any]] = []
+    for re_entry in _remote_entities_for(ent_reg, entry["integration"]):
+        if feature_filter == "LEARN_COMMAND":
+            features = getattr(re_entry, "supported_features", 0) or 0
+            if not features & _LEARN_COMMAND_BIT:
+                continue
+        entity_id = re_entry.entity_id
+        blasters.append(
+            {
+                "entity_id": entity_id,
+                "name": (
+                    getattr(re_entry, "name", None)
+                    or getattr(re_entry, "original_name", None)
+                    or entity_id
+                ),
+            }
+        )
+    return blasters
+
+
 def list_vendors(
     hass: HomeAssistant, registry: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -178,8 +214,9 @@ def list_vendors(
 
     For each registered vendor whose cross-emitter service is present, list
     its candidate blaster entities (optionally filtered by a remote feature).
-    Vendors with no candidate blaster are omitted, so the Plucker UI hides
-    entirely when nothing is pluckable.
+    Vendors with no candidate blaster are omitted -- this is the list of
+    what can be replayed NOW, and an empty one is an honest answer rather
+    than a reason to hide anything (the tab itself no longer gates on it).
     """
     ent_reg = er.async_get(hass)
     vendors: list[dict[str, Any]] = []
@@ -190,27 +227,7 @@ def list_vendors(
         if entry.get("mechanism", "replay") != "replay":
             continue
         integration = entry["integration"]
-        service = entry["service"]
-        if not hass.services.has_service(integration, service["name"]):
-            continue
-        feature_filter = entry.get("remote_feature_filter")
-        blasters: list[dict[str, Any]] = []
-        for re_entry in _remote_entities_for(ent_reg, integration):
-            if feature_filter == "LEARN_COMMAND":
-                features = getattr(re_entry, "supported_features", 0) or 0
-                if not features & _LEARN_COMMAND_BIT:
-                    continue
-            entity_id = re_entry.entity_id
-            blasters.append(
-                {
-                    "entity_id": entity_id,
-                    "name": (
-                        getattr(re_entry, "name", None)
-                        or getattr(re_entry, "original_name", None)
-                        or entity_id
-                    ),
-                }
-            )
+        blasters = _replay_blasters(hass, ent_reg, entry)
         if not blasters:
             continue
         vendors.append(
@@ -347,6 +364,110 @@ async def list_stores(
     """
     infos = await _discover(hass, registry)
     return [info.to_dict() for info in infos]
+
+
+# ---------------------------------------------------------------------
+# THE SOURCE ROLL (constant-tab plan, 2026-08-27)
+#
+# What the empty Plucker tab reads out. Not "what can be plucked now" --
+# list_vendors and list_stores answer that, and answering only that is
+# what hid the tab from every Broadlink owner who had never learned a
+# code. This answers the other question: what could this install EVER
+# pluck, and what is the state of each route today.
+#
+# Collapsed PER INTEGRATION, not per registry entry. Tuya Local is
+# registered twice, once for replay (tuya_local.yaml) and once for
+# storage (tuya_local_storage.yaml), and a person reading the card does
+# not have two Tuya Locals -- they have one, with two ways in. So the
+# entry carries a list of mechanisms and a ready flag per mechanism.
+# ---------------------------------------------------------------------
+
+MECHANISM_REPLAY = "replay"
+MECHANISM_STORAGE = "storage"
+
+
+def _source_display_name(integration: str) -> str:
+    """A name for a provider with no registry entry to name it.
+
+    The union below can hold a store provider that no ``pluckable/``
+    yaml describes, and the card still has to call it something. Domain
+    style is close enough to product style for the two that exist
+    (``tuya_local`` -> "Tuya Local", ``broadlink`` -> "Broadlink"), and
+    a registry entry always wins over this when there is one.
+    """
+    return integration.replace("_", " ").title()
+
+
+async def list_sources(
+    hass: HomeAssistant, registry: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Every pluckable source this build knows, and where each stands.
+
+    The set is the UNION of the ``pluckable/`` registry and the store
+    provider table, so a provider whose integration was never installed
+    still appears -- with ``loaded`` false, which is what lets the empty
+    tab double as the feature's shop window instead of only describing
+    the install it happens to be running on.
+    """
+    ent_reg = er.async_get(hass)
+    sources: dict[str, dict[str, Any]] = {}
+
+    def _slot(integration: str, name: str | None = None) -> dict[str, Any]:
+        entry = sources.get(integration)
+        if entry is None:
+            entry = {
+                "integration": integration,
+                "name": name or _source_display_name(integration),
+                "mechanisms": [],
+                "loaded": integration in (hass.config.components or set()),
+                "ready": {},
+            }
+            sources[integration] = entry
+        elif name:
+            # A registry name beats the derived one, whichever entry
+            # created the slot first.
+            entry["name"] = name
+        return entry
+
+    for entry in registry:
+        mechanism = entry.get("mechanism", MECHANISM_REPLAY)
+        if mechanism not in (MECHANISM_REPLAY, MECHANISM_STORAGE):
+            continue
+        integration = entry["integration"]
+        slot = _slot(integration, entry.get("name"))
+        if mechanism not in slot["mechanisms"]:
+            slot["mechanisms"].append(mechanism)
+        if mechanism == MECHANISM_REPLAY:
+            # The same test the vendor listing applies, through the same
+            # helper, so this can never say ready while the vendor list
+            # omits it.
+            ready = bool(_replay_blasters(hass, ent_reg, entry))
+            slot["ready"][MECHANISM_REPLAY] = (
+                slot["ready"].get(MECHANISM_REPLAY, False) or ready
+            )
+        else:
+            slot["ready"].setdefault(MECHANISM_STORAGE, False)
+
+    for provider in PROVIDERS:
+        slot = _slot(provider.integration)
+        if MECHANISM_STORAGE not in slot["mechanisms"]:
+            slot["mechanisms"].append(MECHANISM_STORAGE)
+        slot["ready"].setdefault(MECHANISM_STORAGE, False)
+
+    # One disk walk for every storage provider at once, in the executor:
+    # discover_stores globs .storage, which is blocking I/O.
+    if any(MECHANISM_STORAGE in slot["mechanisms"] for slot in sources.values()):
+        infos = await hass.async_add_executor_job(
+            discover_stores, hass.config.config_dir
+        )
+        for info in infos:
+            slot = sources.get(info.integration)
+            if slot is not None and MECHANISM_STORAGE in slot["mechanisms"]:
+                slot["ready"][MECHANISM_STORAGE] = True
+
+    for slot in sources.values():
+        slot["mechanisms"].sort()
+    return sorted(sources.values(), key=lambda slot: slot["name"].lower())
 
 
 async def run_store_pluck(

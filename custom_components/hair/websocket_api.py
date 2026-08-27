@@ -2235,6 +2235,14 @@ async def ws_pluck_stores_list(
     MAC is a lookup key and never something the user reads), the
     subdevice and code counts, the IR/RF split, and ``error``: null, or
     the receipt for a store that would not parse.
+
+    ``sources`` rides along (constant-tab plan, 2026-08-27): every
+    pluckable source this build knows and where each stands, whether or
+    not it has a store here. It answers the empty tab's question --
+    what COULD this install pluck -- which is a different question from
+    ``stores``, and conflating the two is what hid the tab. It rides
+    this response rather than arriving on a new command because the
+    panel already makes this call.
     """
     data = _get_first_entry_data(hass)
     if data is None:
@@ -2242,7 +2250,8 @@ async def ws_pluck_stores_list(
         return
     registry = data.get("pluckable_registry", [])
     stores = await pluck.list_stores(hass, registry)
-    connection.send_result(msg["id"], {"stores": stores})
+    sources = await pluck.list_sources(hass, registry)
+    connection.send_result(msg["id"], {"stores": stores, "sources": sources})
 
 
 @websocket_api.require_admin
