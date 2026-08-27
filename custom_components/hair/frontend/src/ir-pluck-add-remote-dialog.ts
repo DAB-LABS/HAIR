@@ -32,10 +32,12 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { pluckEmptyLines } from "./api.js";
 import type { HairApi } from "./api.js";
 import type {
     LearnedStore,
     LearnedStoreImport,
+    PluckSource,
     PluckVendor,
     UnknownDevice,
 } from "./types.js";
@@ -76,6 +78,7 @@ export class IrPluckAddRemoteDialog extends LitElement {
 
     @state() private _candidates: Candidate[] = [];
     @state() private _stores: LearnedStore[] = [];
+    @state() private _pluckSources: PluckSource[] = [];
     @state() private _entityId = "";
     @state() private _appliance = "";
     @state() private _name = "";
@@ -112,6 +115,7 @@ export class IrPluckAddRemoteDialog extends LitElement {
 
         if (stores.status === "fulfilled") {
             this._stores = stores.value.stores;
+            this._pluckSources = stores.value.sources ?? [];
         } else {
             this._stores = [];
             this._error = (stores.reason as Error).message;
@@ -402,7 +406,14 @@ export class IrPluckAddRemoteDialog extends LitElement {
         `;
     }
 
+    /** No stores found -- and now it says which sources it looked at.
+     *
+     *  The same source-driven lines the empty TAB renders, from the
+     *  same helper, because "nothing found" is the same question in
+     *  both places and answering it two ways would be two chances to
+     *  drift. The card keeps its own shape; only the reason grew. */
     private _renderEmptyCard() {
+        const lines = pluckEmptyLines(this._pluckSources, t);
         return html`
             <div class="device-card disabled">
                 <div class="card-glyph">
@@ -411,6 +422,9 @@ export class IrPluckAddRemoteDialog extends LitElement {
                 <div class="card-main">
                     <div class="card-name">${t("pluckstore.empty_name")}</div>
                     <div class="card-reason">${t("pluckstore.empty_reason")}</div>
+                    ${lines.map(
+                        (line) => html`<div class="card-reason">${line}</div>`,
+                    )}
                 </div>
             </div>
         `;

@@ -1475,3 +1475,42 @@ export function anyPluckReadyNow(sources: PluckSource[] | null | undefined): boo
         Object.values(source.ready).includes(true),
     );
 }
+
+/**
+ * The empty Plucker card's per-source lines, in render order.
+ *
+ * One line per SOURCE, never per mechanism: Tuya Local is registered
+ * under both and is still one thing a person has. The rule, from the
+ * plan's section 3:
+ *
+ *   ready anywhere  -> no line at all (there is something to pluck
+ *                      from this source, so the card is not the place
+ *                      to talk about it)
+ *   loaded, nothing ready -> that source's own line, which names its
+ *                      own routes -- which is why these are keyed per
+ *                      provider rather than written generically
+ *   not loaded      -> the generic not-installed line, with the name
+ *
+ * A source whose key is missing from the dictionary contributes
+ * nothing rather than printing its own key at the user: `t()` falls
+ * back to en and then to the key itself, and a raw `pluck.empty.
+ * source.foo` on screen is worse than silence. A provider added later
+ * needs its own key added with it.
+ */
+export function pluckEmptyLines(
+    sources: PluckSource[] | null | undefined,
+    translate: (key: string, subs?: Record<string, string | number>) => string,
+): string[] {
+    const lines: string[] = [];
+    for (const source of sources ?? []) {
+        if (Object.values(source.ready).includes(true)) continue;
+        if (!source.loaded) {
+            lines.push(translate("pluck.empty.not_installed", { vendor: source.name }));
+            continue;
+        }
+        const key = `pluck.empty.source.${source.integration}`;
+        const line = translate(key);
+        if (line !== key) lines.push(line);
+    }
+    return lines;
+}

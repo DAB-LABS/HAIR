@@ -25,7 +25,7 @@ import {
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
-import { HairApi } from "./api.js";
+import { HairApi, pluckEmptyLines } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-pluck-add-remote-dialog.js";
@@ -50,6 +50,7 @@ import type {
     IRDevice,
     IRTrigger,
     LinkedEntry,
+    PluckSource,
     PluckVendor,
     ReceiverInfo,
     SignalAssignment,
@@ -78,6 +79,10 @@ export class IrPluck extends LitElement {
     @property() public pendingEntity = "";
 
     @state() private _devices: UnknownDeviceSummary[] = [];
+    // The source roll behind the empty card. Re-read on every _load(),
+    // which runs when the tab is activated, so a first learned code
+    // shows up on the next visit without a panel reload.
+    @state() private _pluckSources: PluckSource[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
@@ -318,7 +323,7 @@ export class IrPluck extends LitElement {
     private async _load(): Promise<void> {
         this._loading = true;
         try {
-            const [unknowns, hairDevs, triggers, vendors] = await Promise.all([
+            const [unknowns, hairDevs, triggers, vendors, learned] = await Promise.all([
                 this.api.getUnknownDevices({
                     include_dismissed: false,
                     min_hits: 0,
@@ -327,11 +332,15 @@ export class IrPluck extends LitElement {
                 this.api.listDevices(),
                 this.api.listTriggers(),
                 this.api.listPluckVendors().catch(() => ({ vendors: [] })),
+                this.api
+                    .listLearnedStores()
+                    .catch(() => ({ stores: [], sources: [] })),
             ]);
             this._devices = unknowns;
             this._hairDevices = hairDevs;
             this._triggers = triggers;
             this._vendorIntegration = this._mapIntegrations(vendors.vendors);
+            this._pluckSources = learned.sources ?? [];
             this._error = null;
             this.api
                 .listReceivers()
@@ -963,6 +972,33 @@ export class IrPluck extends LitElement {
 
     // --- Render ---
 
+    /** What an empty Plucker says for itself.
+     *
+     *  The tab renders always now, so this card is the feature's front
+     *  door for anybody who has nothing to pluck -- and there are three
+     *  ways to arrive at it: a Broadlink that never learned a code, a
+     *  replay vendor with no IR appliances set up, or no pluckable
+     *  integration at all. One line per source answers all three,
+     *  because each line says what that source reads and what would
+     *  make something appear.
+     *
+     *  Documentation delivered at the moment of need, in the panel's
+     *  existing empty-state language (the Sniffer card is the
+     *  reference). No buttons that cannot work and no error styling:
+     *  an empty Plucker is a normal condition and the card reads calm.
+     */
+    private _renderEmpty() {
+        const lines = pluckEmptyLines(this._pluckSources, t);
+        return html`
+            <ha-card class="empty">
+                <ha-svg-icon class="empty-icon" .path=${ICON_PLUCK}></ha-svg-icon>
+                <p class="empty-lead">${t("pluck.empty.headline")}</p>
+                ${lines.map((line) => html`<p class="empty-source">${line}</p>`)}
+                <p class="hint">${t("pluck.empty.footer")}</p>
+            </ha-card>
+        `;
+    }
+
     render() {
         const count = this._devices.length;
         return html`
@@ -997,14 +1033,7 @@ export class IrPluck extends LitElement {
             ${this._loading
                 ? html`<div class="loading">${t("common.loading_plain")}</div>`
                 : count === 0
-                  ? html`
-                        <ha-card class="empty">
-                            <ha-svg-icon class="empty-icon" .path=${ICON_PLUCK}></ha-svg-icon>
-                            <h3>${t("pluck.empty_title")}</h3>
-                            <p>${t("pluck.empty_body")}</p>
-                            <p class="hint">${t("pluck.empty_hint")}</p>
-                        </ha-card>
-                    `
+                  ? this._renderEmpty()
                   : html`
                         <div class="device-list">
                             ${keyed(
@@ -1606,6 +1635,16 @@ export class IrPluck extends LitElement {
         .empty h3 {
             color: var(--primary-text-color);
             margin: 8px 0;
+        }
+        .empty-lead {
+            color: var(--primary-text-color);
+            margin: 8px auto 16px;
+            max-width: 52ch;
+        }
+        .empty-source {
+            margin: 8px auto;
+            max-width: 52ch;
+            text-align: left;
         }
         .hint {
             font-size: 0.85rem;
