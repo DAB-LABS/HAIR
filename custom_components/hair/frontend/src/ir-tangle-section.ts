@@ -14,25 +14,35 @@
  * "open it" full-width work, not simultaneous).
  *
  * BUCKETING (tangles-backend.md P6, verified against the merged
- * websocket_api.py/tangles.py source, 2026-08-27): a TangleListing has
- * no bucket field of its own, so this is derived from what the payload
- * DOES carry --
- *   - FIX:    rows in clusters whose mechanic is "donor" (a donor
- *             candidate already exists -- nothing to capture).
- *   - LISTEN: rows in clusters whose mechanic is "witness" or
- *             "recapture" (a live press is what produces the
- *             candidate). Once a witness press seeds synthesis and a
- *             batch apply lands, those rows simply stop appearing here
- *             on the next fetch and (if any remain) reappear as
- *             ordinary FIX rows -- ordinary counts-move-live, not a
- *             special transition this file has to orchestrate.
- *   - DECIDE: listing.advisories (the "keep or fix" / "looks unusual"
- *             items -- comb ADVISORY findings never become rows) plus
- *             any 2-member "identical-bytes" cluster (the duplicate-
- *             name shape P6 already clusters; brief section 8 notes
- *             the alias-collision comb check itself is a separate
- *             ticket, so this may render zero pairs today and that is
- *             correct, not a bug).
+ * websocket_api.py/tangles.py source, corrected 2026-08-27): a
+ * TangleListing has no bucket field of its own, and a cluster's own
+ * `mechanic` is the STRONGEST road any of its members can take
+ * (_best_mechanic in tangles.py), not a per-row fact -- a "donor"
+ * cluster can hold a member with no donor of its own. Bucketing keys
+ * on each ROW's own `has_donor` instead, which is what guarantees
+ * `row.donor.pronto` (the candidate FIX actually sends/writes) exists:
+ *   - FIX:    rows with `has_donor: true` (a donor candidate already
+ *             exists -- nothing to capture).
+ *   - LISTEN: rows with `has_donor: false`. Within LISTEN, the row's
+ *             CLUSTER mechanic ("witness" vs "recapture") still picks
+ *             which mismatch logic applies, per ir-tangle-listen.ts.
+ *             A witness capture there can seed `tangle/plan` for its
+ *             cluster; the result arrives here as a `tangle-batch-
+ *             planned` event and is held in `_witnessPlans` until its
+ *             cluster's members either get written (ACCEPT, in FIX) or
+ *             the listing moves on without them.
+ *   - DECIDE: any 2-member "identical-bytes" cluster (the duplicate-
+ *             name shape P6 already clusters). The brief's other
+ *             DECIDE item type ("keep or fix, this code looks
+ *             unusual") has no backend data source in the merged PR
+ *             #129 payload: `listing.advisories` are explicitly
+ *             informational-only (tangles.py's own docstring: "not
+ *             suspects", "never become rows or cards"), and every row
+ *             already resolves to has_donor or one of the two LISTEN
+ *             mechanics, with no ambiguous fourth case. Owner-ruled
+ *             2026-08-27: omit it entirely rather than ship a dormant
+ *             item type; it lands with the alias-collision ticket that
+ *             designs DECIDE's full population.
  *
  * The wig write-through result each mutating command returns under
  * `wig` is tracked here (the most recent one); "Your wig has been
@@ -42,7 +52,7 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
-import type { TangleListing, TangleRow, TangleCluster } from "./types.js";
+import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
 import { t } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
@@ -73,7 +83,7 @@ export function bucketFixRows(listing: TangleListing): TangleRow[] {
     return listing.rows.filter((row) => {
         const cluster = byId.get(row.id);
         if (cluster?.rule === "identical-bytes") return false;
-        return cluster?.mechanic === "donor";
+        return row.has_donor === true;
     });
 }
 
@@ -82,7 +92,7 @@ export function bucketListenRows(listing: TangleListing): TangleRow[] {
     return listing.rows.filter((row) => {
         const cluster = byId.get(row.id);
         if (cluster?.rule === "identical-bytes") return false;
-        return cluster?.mechanic === "witness" || cluster?.mechanic === "recapture";
+        return row.has_donor !== true;
     });
 }
 
@@ -93,19 +103,9 @@ export interface DecidePair {
 
 /**
  * DECIDE, as this build can actually populate it (2026-08-27 finding,
- * see the build report): brief v6 section 4 also describes a "keep or
- * fix, this code looks unusual" item type sourced from
- * `listing.advisories`. Reading tangles.py directly shows that is not
- * what advisories are -- the TangleListing.advisories docstring itself
- * says they are "not suspects" and "never become rows or cards" (same
- * code under two names on a legitimate toggle remote, informational
- * only). Separately, every ROW gets a mechanic (donor / witness /
- * recapture) with no fourth "ambiguous, ask a person" case -- so there
- * is currently no backend-provided data source for a keep-or-fix
- * decision item at all. Rather than invent one, this build ships only
- * the duplicate-name/identical-bytes pairing DECIDE can support today
- * (a real, well-formed cluster shape) and leaves keep-or-fix out,
- * flagged for the owner rather than guessed at.
+ * owner-ruled: ship the duplicate pairing only, the keep-or-fix item
+ * type has no data source today and lands with the alias-collision
+ * ticket). See this file's header doc comment for the full reasoning.
  */
 export function bucketDecide(listing: TangleListing): {
     pairs: DecidePair[];
@@ -123,6 +123,20 @@ export function bucketDecide(listing: TangleListing): {
     return { pairs };
 }
 
+/** One witness capture's pure plan for its cluster, held client-side
+ * until ACCEPT writes it (tangle/apply-batch) or it stops applying.
+ * `pendingMembers` is the deduped display list: every candidate the
+ * plan found, minus the witness target itself (LISTEN already applied
+ * that one directly) and minus anything already showing as an
+ * ordinary donor FIX row (real has_donor, no need to say it twice). */
+export interface WitnessBatchEntry {
+    clusterId: string;
+    witness: string;
+    witnessTarget: string;
+    plan: TangleBatchPlan;
+    pendingMembers: string[];
+}
+
 @customElement("ir-tangle-section")
 export class IrTangleSection extends LitElement {
     @property({ attribute: false }) public hass!: HassLike;
@@ -134,6 +148,10 @@ export class IrTangleSection extends LitElement {
     @state() private _open: CardKey | null = null;
     @state() private _lastWigWrite: boolean | null = null;
     @state() private _justRetired = false;
+    @state() private _witnessPlans = new Map<
+        string,
+        { witness: string; witnessTarget: string; plan: TangleBatchPlan }
+    >();
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -143,6 +161,7 @@ export class IrTangleSection extends LitElement {
     updated(changed: Map<string, unknown>): void {
         if (changed.has("deviceId") && changed.get("deviceId") !== undefined) {
             this._open = null;
+            this._witnessPlans = new Map();
             void this._refresh();
         }
     }
@@ -161,21 +180,47 @@ export class IrTangleSection extends LitElement {
      * write-through outcome, re-fetches, and -- if the section is now
      * empty and the write succeeded -- shows the closing line once. */
     private _handleMutated = async (
-        ev: CustomEvent<{ wigWritten: boolean | null }>,
+        ev: CustomEvent<{ wigWritten: boolean | null; batchClusterApplied?: string }>,
     ): Promise<void> => {
         if (ev.detail.wigWritten !== null) this._lastWigWrite = ev.detail.wigWritten;
+        if (ev.detail.batchClusterApplied) {
+            const next = new Map(this._witnessPlans);
+            next.delete(ev.detail.batchClusterApplied);
+            this._witnessPlans = next;
+        }
         const before = this._listing;
         await this._refresh();
         // Advisories are informational only (never suspects, never
         // actionable -- see bucketDecide's own doc comment) and are
         // deliberately excluded here: a device that still has
         // advisories but zero open rows is a fully retired section.
-        const nowEmpty = this._listing && this._listing.rows.length === 0;
+        const nowEmpty =
+            this._listing &&
+            this._listing.rows.length === 0 &&
+            this._witnessPlans.size === 0;
         const wasNonEmpty = before && before.rows.length > 0;
         if (nowEmpty && wasNonEmpty && this._lastWigWrite) {
             this._justRetired = true;
         }
         if (nowEmpty) this._open = null;
+    };
+
+    /** A witness capture in LISTEN produced a pure plan for its
+     * cluster (ir-tangle-listen.ts's tangle-batch-planned event). Held
+     * here, not written -- ACCEPT in FIX is still what commits it. */
+    private _handleBatchPlanned = (
+        ev: CustomEvent<{
+            clusterId: string;
+            witness: string;
+            witnessTarget: string;
+            plan: TangleBatchPlan;
+        }>,
+    ): void => {
+        const { clusterId, witness, witnessTarget, plan } = ev.detail;
+        if (plan.refused || Object.keys(plan.candidates).length === 0) return;
+        const next = new Map(this._witnessPlans);
+        next.set(clusterId, { witness, witnessTarget, plan });
+        this._witnessPlans = next;
     };
 
     private _toggle(card: CardKey): void {
@@ -193,18 +238,39 @@ export class IrTangleSection extends LitElement {
         const decide = bucketDecide(this._listing);
         const decideCount = decide.pairs.length * 2;
 
-        if (fixRows.length === 0 && listenRows.length === 0 && decideCount === 0) {
+        const fixRowIds = new Set(fixRows.map((r) => r.id));
+        const batchEntries: WitnessBatchEntry[] = Array.from(
+            this._witnessPlans.entries(),
+        )
+            .map(([clusterId, held]) => {
+                const pendingMembers = Object.keys(held.plan.candidates).filter(
+                    (m) => m !== held.witnessTarget && !fixRowIds.has(m),
+                );
+                return { clusterId, ...held, pendingMembers };
+            })
+            .filter((entry) => entry.pendingMembers.length > 0);
+        const batchCount = batchEntries.reduce(
+            (sum, entry) => sum + entry.pendingMembers.length,
+            0,
+        );
+        const fixCount = fixRows.length + batchCount;
+
+        if (fixCount === 0 && listenRows.length === 0 && decideCount === 0) {
             return nothing;
         }
 
         return html`
-            <div class="tangle-section" @tangle-mutated=${this._handleMutated}>
+            <div
+                class="tangle-section"
+                @tangle-mutated=${this._handleMutated}
+                @tangle-batch-planned=${this._handleBatchPlanned}
+            >
                 <div class="tangle-header">${t("tangles.section_header")}</div>
                 <div class="tangle-cards">
-                    ${fixRows.length > 0
+                    ${fixCount > 0
                         ? this._renderCard(
                               "fix",
-                              t("tangles.card_fix", { count: fixRows.length }),
+                              t("tangles.card_fix", { count: fixCount }),
                           )
                         : nothing}
                     ${listenRows.length > 0
@@ -226,6 +292,8 @@ export class IrTangleSection extends LitElement {
                           .api=${this.api}
                           .deviceId=${this.deviceId}
                           .rows=${fixRows}
+                          .listing=${this._listing}
+                          .batchPlans=${batchEntries}
                       ></ir-tangle-fix>`
                     : nothing}
                 ${this._open === "listen"

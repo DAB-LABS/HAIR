@@ -18,18 +18,20 @@
  * uses `verdict.matches` directly.
  *
  * ON CAPTURE, this applies the captured bytes to the row that was
- * actually aimed at (origin "capture") and stops there. It
- * deliberately does NOT also run the cluster-wide witness-synthesis +
- * batch-apply machinery (tangle/plan + tangle/apply-batch, backend
- * P7/P8) -- the design brief's LISTEN flow never mentions a batch step
- * or a representative-sample confirmation, and auto-writing an entire
- * cluster's sibling cells from one capture with no user-visible
- * confirmation step felt like a design decision this file shouldn't
- * make unilaterally. Flagged for the owner: see the build report.
- * Today, any FIX-side gain from a capture comes the ordinary way --
- * the freshly-corrected cell becoming a valid DONOR for a sibling on
- * the next listing fetch, ordinary P2 donor search, nothing special
- * wired here.
+ * actually aimed at (origin "capture") and stops there -- that part
+ * never changed. What DID change (owner ruling 2026-08-27, superseding
+ * this file's earlier documented choice to leave the rest passive):
+ * for a WITNESS-mechanic row, a good capture also asks `tangle/plan`
+ * (pure, nothing written) for its cluster with this capture as the
+ * witness reading. Never auto-applied -- the plan's candidates are
+ * handed up to the section as pending work, so they can appear as
+ * ordinary FIX rows and move the "Fixes ready" count live, exactly per
+ * the brief's LISTEN closing line ("your presses built N more fixes,
+ * waiting under Fixes ready"). Writing them is still ACCEPT's job, in
+ * FIX, same as any other candidate. A RECAPTURE-mechanic row never
+ * plans -- "nothing can be derived" is the whole meaning of that
+ * mechanic, so there is nothing a plan could find beyond the row just
+ * captured.
  */
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
@@ -39,6 +41,7 @@ import type {
     TangleRow,
     TangleListenEvent,
     TangleCaptureEvent,
+    TangleBatchPlan,
 } from "./types.js";
 import { t } from "./localize.js";
 import { targetWords } from "./ir-tangle-copy.js";
@@ -62,9 +65,14 @@ export class IrTangleListen extends LitElement {
     @state() private _states = new Map<string, RowState>();
     @state() private _missCounts = new Map<string, number>();
     @state() private _lastMessage = new Map<string, string>();
+    // The most recent decoded capture per row, good or mismatched --
+    // USE IT ANYWAY has to apply THIS, never the row's own current
+    // (still-wrong) bytes.
+    @state() private _lastPronto = new Map<string, string>();
     @state() private _ladder = new Set<string>();
     @state() private _listeningRow: string | null = null;
     @state() private _closing: { count: number; fixesGained: number } | null = null;
+    private _fixesGained = 0;
 
     private _unsubscribe: (() => Promise<void>) | null = null;
 
@@ -88,6 +96,24 @@ export class IrTangleListen extends LitElement {
         );
     }
 
+    /** Hands a witness cluster's pure plan up to the section, which
+     * merges its candidates into what FIX shows -- nothing here writes
+     * anything. */
+    private _emitBatchPlanned(
+        clusterId: string,
+        witness: string,
+        witnessTarget: string,
+        plan: TangleBatchPlan,
+    ): void {
+        this.dispatchEvent(
+            new CustomEvent("tangle-batch-planned", {
+                detail: { clusterId, witness, witnessTarget, plan },
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
     private _clusterFor(row: TangleRow) {
         return this.listing.clusters.find((c) => c.members.includes(row.id));
     }
@@ -103,6 +129,56 @@ export class IrTangleListen extends LitElement {
         );
     }
 
+    /** Common tail of a settled capture (a clean match, or a ladder
+     * override): write the row, then -- witness rows only -- ask what
+     * else this reading could seed and hand it up. */
+    private async _finishCapture(
+        row: TangleRow,
+        pronto: string,
+        readingDisagreed: boolean,
+    ): Promise<void> {
+        await this._unsubscribe?.();
+        this._unsubscribe = null;
+        this._listeningRow = null;
+        const cluster = this._clusterFor(row);
+        const result = await this.api.tangleApply({
+            deviceId: this.deviceId,
+            target: row.id,
+            pronto,
+            tested: true,
+            source: "capture",
+            ...(readingDisagreed ? { readingDisagreed: true } : {}),
+        });
+        this._states = new Map(this._states).set(row.id, "captured");
+        this._emitMutated(result.wig.written);
+
+        if (cluster?.mechanic === "witness" && cluster.field) {
+            try {
+                const plan = await this.api.tanglePlan({
+                    deviceId: this.deviceId,
+                    cluster: cluster.id,
+                    witness: pronto,
+                    witnessTarget: row.id,
+                });
+                if (!plan.refused) {
+                    const gained = Object.keys(plan.candidates).filter(
+                        (member) => member !== row.id,
+                    ).length;
+                    this._fixesGained += gained;
+                    this._emitBatchPlanned(cluster.id, pronto, row.id, plan);
+                }
+            } catch {
+                // Best-effort. The row this LISTEN session was actually
+                // working is already applied and settled above; a plan
+                // that fails to resolve just means no sibling rows show
+                // up early -- they are still reachable the ordinary way
+                // once this cell counts as a donor.
+            }
+        }
+
+        this._maybeClose();
+    }
+
     private async _onEvent(row: TangleRow, event: TangleListenEvent): Promise<void> {
         if (event.type === "tangle_listen_timeout") {
             // Stays listening -- a timeout just means try again; the
@@ -115,6 +191,8 @@ export class IrTangleListen extends LitElement {
             this._lastMessage = new Map(this._lastMessage);
             return;
         }
+        this._lastPronto.set(row.id, capture.pronto);
+        this._lastPronto = new Map(this._lastPronto);
 
         const cluster = this._clusterFor(row);
         const isWitness = cluster?.mechanic === "witness";
@@ -130,19 +208,7 @@ export class IrTangleListen extends LitElement {
         }
 
         if (good) {
-            await this._unsubscribe?.();
-            this._unsubscribe = null;
-            this._listeningRow = null;
-            const result = await this.api.tangleApply({
-                deviceId: this.deviceId,
-                target: row.id,
-                pronto: capture.pronto,
-                tested: true,
-                source: "capture",
-            });
-            this._states = new Map(this._states).set(row.id, "captured");
-            this._emitMutated(result.wig.written);
-            this._maybeClose();
+            await this._finishCapture(row, capture.pronto, false);
             return;
         }
 
@@ -173,21 +239,10 @@ export class IrTangleListen extends LitElement {
         // Row stays listening -- a miss never reverts the arm.
     }
 
-    private async _useAnyway(row: TangleRow, capturedPronto: string): Promise<void> {
-        await this._unsubscribe?.();
-        this._unsubscribe = null;
-        this._listeningRow = null;
-        const result = await this.api.tangleApply({
-            deviceId: this.deviceId,
-            target: row.id,
-            pronto: capturedPronto,
-            tested: true,
-            source: "capture",
-            readingDisagreed: true,
-        });
-        this._states = new Map(this._states).set(row.id, "captured");
-        this._emitMutated(result.wig.written);
-        this._maybeClose();
+    private async _useAnyway(row: TangleRow): Promise<void> {
+        const pronto = this._lastPronto.get(row.id);
+        if (!pronto) return;
+        await this._finishCapture(row, pronto, true);
     }
 
     private _skip(row: TangleRow): void {
@@ -209,12 +264,7 @@ export class IrTangleListen extends LitElement {
             (r) => this._states.get(r.id) === "captured",
         ).length;
         if (capturedCount === 0) return;
-        // Fixes gained: not independently knowable from here without a
-        // fresh listing diff, which the parent owns. Report 0 and let
-        // the parent's own count (already live via tangle-mutated)
-        // speak for itself; the closing line's own fixes-gained clause
-        // is a nice-to-have this build leaves at 0 pending a diff hook.
-        this._closing = { count: capturedCount, fixesGained: 0 };
+        this._closing = { count: capturedCount, fixesGained: this._fixesGained };
     }
 
     protected render() {
@@ -286,11 +336,7 @@ export class IrTangleListen extends LitElement {
                 ${onLadder
                     ? html`
                           <div class="ladder">
-                              <button
-                                  class="action-btn"
-                                  @click=${() =>
-                                      this._useAnyway(row, row.pronto)}
-                              >
+                              <button class="action-btn" @click=${() => this._useAnyway(row)}>
                                   ${t("tangles.use_anyway")}
                               </button>
                               <button class="action-btn" @click=${() => this._skip(row)}>
