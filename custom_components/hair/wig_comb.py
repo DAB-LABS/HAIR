@@ -795,6 +795,17 @@ _FIELD_COORDINATE = {
 
 _POWER_FIELD = "power"
 
+# The same reading, under public names, for the fix flow.
+#
+# ``tangles.py`` has to answer "what does this cell actually send" with
+# the identical family vote and the identical coordinate vocabulary the
+# sweep used to doubt it. A second implementation over there would be
+# two answers to one question, and the first time they disagreed the
+# repair would be offered against a reading nobody filed. Aliases
+# rather than a rename so every call site here stays as it reads.
+FIELD_COORDINATE = _FIELD_COORDINATE
+POWER_FIELD = _POWER_FIELD
+
 
 @dataclass(frozen=True)
 class _Code:
@@ -907,6 +918,12 @@ def _read_family(
         # nothing was ever a candidate.
         coverage.protocol["rejected"] = rejected
     return chosen, readings
+
+
+#: See FIELD_COORDINATE above: one reading, two callers.
+read_family = _read_family
+matrix_codes = _matrix_codes
+Code = _Code
 
 
 def _temperature_moves(

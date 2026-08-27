@@ -887,10 +887,24 @@ def recomb(wig: Wig) -> int:
     changing the bytes does. The comb doubts bytes; a person vouches
     for hardware; a row can honestly carry both.
     """
-    from .wig_comb import comb_wig, stamp_receipt
+    from .tangles import ATTESTED_KEY, ATTESTED_PENDING
+    from .wig_comb import COMB_KEY, comb_wig, stamp_receipt
 
     report = comb_wig(wig)
     stamp_receipt(wig, report, _now_date())
+    # A device that repaired what it could and vouched for the rest
+    # carries both out. The attestations are parked on the wig by the
+    # exporter because the receipt does not exist until the line above;
+    # they belong INSIDE it, beside the findings they answer, so the
+    # shop's own re-derive sees the math and the human's answer
+    # together.
+    carried = wig.extra.pop(ATTESTED_PENDING, None)
+    if isinstance(carried, list) and carried:
+        receipt = wig.extra.get(COMB_KEY)
+        if isinstance(receipt, dict):
+            receipt[ATTESTED_KEY] = [
+                dict(record) for record in carried if isinstance(record, dict)
+            ]
     return report.suspects
 
 

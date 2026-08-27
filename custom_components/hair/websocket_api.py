@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import voluptuous as vol
@@ -9,6 +10,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from . import pluck
 from .capture import (
@@ -48,6 +50,7 @@ from .signal_monitor import SignalMonitor
 from .signal_store import SignalStore
 from .trigger_manager import TriggerManager
 from .wig_format import VERDICTS
+from .wig_format import cell_key as _cell_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,6 +156,16 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_action_options)
     websocket_api.async_register_command(hass, ws_update_mapping)
     websocket_api.async_register_command(hass, ws_device_star)
+    websocket_api.async_register_command(hass, ws_device_tangles)
+    websocket_api.async_register_command(hass, ws_tangle_pre_read)
+    websocket_api.async_register_command(hass, ws_tangle_test_send)
+    websocket_api.async_register_command(hass, ws_tangle_listen)
+    websocket_api.async_register_command(hass, ws_tangle_apply)
+    websocket_api.async_register_command(hass, ws_tangle_revert)
+    websocket_api.async_register_command(hass, ws_tangle_plan)
+    websocket_api.async_register_command(hass, ws_tangle_apply_batch)
+    websocket_api.async_register_command(hass, ws_tangle_revert_run)
+    websocket_api.async_register_command(hass, ws_tangle_keep)
 
     # Triggers
     websocket_api.async_register_command(hass, ws_get_triggers)
@@ -4969,7 +4982,8 @@ async def ws_wigs_save(
                 "current state.",
             )
             return
-        await _do_update(hass, connection, msg, device, attestation, key)
+        outcome = await _do_update(hass, msg, device, attestation, key)
+        refusals = _UPDATE_REFUSALS
     else:
         # CREATE and SUCCESSION are the same act at this layer: mint a
         # wig from the device's current commands and attest against
@@ -4985,19 +4999,38 @@ async def ws_wigs_save(
         # forced False in that case, so this call never
         # auto-supersedes on the Save As New route (item 2:
         # existing wig untouched).
-        await _do_create(
-            hass, connection, msg, device, attestation, key, replace=replace,
+        outcome = await _do_create(
+            hass, msg, device, attestation, key, replace=replace,
         )
+        refusals = _CREATE_REFUSALS
+
+    if isinstance(outcome, str):
+        connection.send_error(
+            msg["id"], outcome,
+            refusals.get(
+                outcome, "Nothing to write: no fitting, and nothing changed"
+            ),
+        )
+        return
+    connection.send_result(msg["id"], outcome)
 
 
 async def _do_update(
     hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
     device: IRDevice,
     attestation: Any | None,
     key: str | None,
-) -> None:
+) -> dict[str, Any] | str:
+    """Write the device's changes back onto its source wig.
+
+    RETURNS rather than sends (C10). It used to answer the connection
+    directly, which made it reachable only from a websocket handler --
+    and the wig write-through has to reach the same machinery from the
+    repair path, where there is no dialog and no message id. So the
+    wire moved out to ``ws_wigs_save`` and what is left is the act
+    itself: a result dict, or one of ``_UPDATE_REFUSALS``' keys.
+    """
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     device_matrix = (
         await manager.async_get_matrix(device.id)
@@ -5066,16 +5099,7 @@ async def _do_update(
         )]
         return result.as_dict()
 
-    result = await hass.async_add_executor_job(_write)
-    if isinstance(result, str):
-        connection.send_error(
-            msg["id"], result,
-            _UPDATE_REFUSALS.get(
-                result, "Nothing to write: no fitting, and nothing changed"
-            ),
-        )
-        return
-    connection.send_result(msg["id"], result)
+    return await hass.async_add_executor_job(_write)
 
 
 _UPDATE_REFUSALS = {
@@ -5149,14 +5173,24 @@ def _apply_metadata(wig: Any, edits: dict[str, str]) -> None:
 
 async def _do_create(
     hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
     device: IRDevice,
     attestation: Any | None,
     key: str | None,
     replace: bool = False,
-) -> None:
+    mark_repair: bool = False,
+) -> dict[str, Any] | str:
     """Mint the wig (CREATE or SUCCESSION); optionally auto-replace.
+
+    RETURNS rather than sends (C10), for the reason given on
+    ``_do_update``: the repair write-through needs this machinery and
+    has no connection to answer. A refusal comes back as one of
+    ``_CREATE_REFUSALS``' keys.
+
+    ``mark_repair`` stamps the minted file as one the repair flow made.
+    That stamp is what later write-throughs read to decide they may
+    supersede: this machinery deletes only files it wrote itself, so a
+    contributor's original is never the thing that disappears.
 
     ``replace`` (Second Fitting v3) asks that, when this mint names a
     local ancestor to supersede, the supersede runs immediately after
@@ -5178,19 +5212,15 @@ async def _do_create(
     )
     build = build_wig_from_device(device, matrix)
     if build.wig is None:
-        connection.send_error(
-            msg["id"], "no_signals", "No exportable signals on that device"
-        )
-        return
+        return "no_signals"
     from .wig_save import reject_flat_exclusions
 
     if reject_flat_exclusions(attestation, build.wig):
-        connection.send_error(
-            msg["id"], "exclusion_on_flat_row",
-            "An exclusion reason can only be given on a matrix "
-            "checklist cell.",
-        )
-        return
+        return "exclusion_on_flat_row"
+    if mark_repair:
+        from .tangles import REPAIR_SUCCESSOR
+
+        build.wig.extra[REPAIR_SUCCESSOR] = True
     if msg.get("name", "").strip():
         build.wig.name = msg["name"].strip()
     for field_name in ("brand", "model", "notes"):
@@ -5275,10 +5305,7 @@ async def _do_create(
 
     result = await hass.async_add_executor_job(_write)
     if result is None:
-        connection.send_error(
-            msg["id"], "write_failed", "Could not write the wig file"
-        )
-        return
+        return "write_failed"
 
     # The device now has a wig in the closet, so it remembers it: the
     # next SAVE TO CLOSET offers UPDATE instead of minting a second copy
@@ -5303,7 +5330,16 @@ async def _do_create(
             })
         replaced["devices"] = receipts
 
-    connection.send_result(msg["id"], result)
+    return result
+
+
+_CREATE_REFUSALS = {
+    "no_signals": "No exportable signals on that device",
+    "exclusion_on_flat_row":
+        "An exclusion reason can only be given on a matrix checklist "
+        "cell.",
+    "write_failed": "Could not write the wig file",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -5332,6 +5368,7 @@ def _arm_listen(
     msg: dict[str, Any],
     capture_event: str,
     timeout_event: str,
+    decorate: Any = None,
 ) -> None:
     """Arm the Sniffer for one capture into a Replace box.
 
@@ -5413,6 +5450,13 @@ def _arm_listen(
         }
         if vote is not None:
             payload["repeats_disagree"] = vote.as_dict()
+        if decorate is not None:
+            # The fix flow adds what the capture READS AS against the
+            # target it was aimed at, so the surface can answer in the
+            # device's own words without a second round trip. Everything
+            # above stays identical -- one listen path, one capture
+            # notice, one set of semantics.
+            decorate(payload)
         connection.send_event(msg_id, payload)
 
     @callback
@@ -7043,3 +7087,890 @@ async def ws_device_matrix_command(
     manager: DeviceManager = data["device_manager"]
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))
+
+
+# --- Tangles: the fix flow (device-scoped findings) ---
+
+
+async def _device_and_matrix(
+    hass: HomeAssistant, device_id: str
+) -> tuple[IRDevice | None, Any]:
+    """Resolve a device and its lattice, or (None, None).
+
+    One helper for every tangle handler so the listing, the pre-read
+    and the guarded write can never disagree about what a device id
+    resolves to.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        return None, None
+    manager: DeviceManager = data["device_manager"]
+    device = manager.get_device(device_id)
+    if device is None:
+        return None, None
+    matrix = (
+        await manager.async_get_matrix(device.id)
+        if device.climate_matrix else None
+    )
+    return device, matrix
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangles",
+    vol.Required("device_id"): str,
+})
+@websocket_api.async_response
+async def ws_device_tangles(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Every open finding on one device, derived from its live state.
+
+    Derived per call and never stored: combing what is on the device
+    now is the only reading that survives a repair (tangles.py module
+    docstring). The lattice work runs in the executor -- a 1,156-cell
+    comb is real arithmetic and the event loop is not the place for it.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles
+
+    listing = await hass.async_add_executor_job(
+        list_tangles, device, matrix
+    )
+    connection.send_result(msg["id"], listing.as_dict())
+
+
+def _resolve_target(listing: Any, target_id: str) -> Any:
+    """The row a fix names, or None. One place, so every handler agrees."""
+    for row in listing.rows:
+        if row.id == target_id:
+            return row
+    return None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/pre-read",
+    vol.Required("device_id"): str,
+    vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("target"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_pre_read(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """What a candidate reads as, before anything is written.
+
+    Pure read: no store is touched and nothing is armed. ``target`` is
+    the row this candidate is proposed for; without it the bytes are
+    still read and reported, there is simply no claim to check them
+    against and the verdict says so rather than inventing a failure.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles, pre_read, project_device, read_lattice
+
+    def _read() -> dict[str, Any] | str:
+        coordinates = None
+        if msg.get("target"):
+            row = _resolve_target(list_tangles(device, matrix), msg["target"])
+            if row is None:
+                return "unknown_target"
+            coordinates = row.target.coordinates
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        return pre_read(lattice, msg["pronto"], coordinates).as_dict()
+
+    result = await hass.async_add_executor_job(_read)
+    if isinstance(result, str):
+        connection.send_error(
+            msg["id"], result, "That target carries no current finding")
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/test-send",
+    vol.Required("device_id"): str,
+    vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("send_count", default=1): vol.All(int, vol.Range(min=1, max=10)),
+})
+@websocket_api.async_response
+async def ws_tangle_test_send(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Send candidate bytes at the real unit. Nothing is saved.
+
+    This is the press the guarded write is gated on, and it has to
+    happen before the write or it proves nothing.
+    """
+    data = _get_first_entry_data(hass)
+    if data is None:
+        connection.send_error(msg["id"], "not_configured", "HAIR not configured")
+        return
+    manager: DeviceManager = data["device_manager"]
+    try:
+        landed = await manager.async_test_send(
+            msg["device_id"], msg["pronto"],
+            send_count=msg.get("send_count", 1),
+        )
+    except KeyError:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+    except RuntimeError as err:
+        connection.send_error(msg["id"], "send_failed", str(err))
+        return
+    connection.send_result(
+        msg["id"], {"sent": True, "emitters": sorted(landed)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/listen",
+    vol.Required("device_id"): str,
+    vol.Optional("target"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_listen(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Arm the Sniffer for one capture aimed at a target.
+
+    Rides the same listen path the command editor uses, so a capture
+    arrives here exactly as it arrives there, R1 capture notice and
+    all. What this adds is CONTEXT: the capture is pre-read against the
+    target's own label before the event leaves, so the surface can say
+    what it heard in the device's own words without a second round trip.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles, pre_read, project_device, read_lattice
+
+    def _context() -> tuple[Any, Any] | str:
+        coordinates = None
+        if msg.get("target"):
+            row = _resolve_target(list_tangles(device, matrix), msg["target"])
+            if row is None:
+                return "unknown_target"
+            coordinates = row.target.coordinates
+        wig, _sources = project_device(device, matrix)
+        return read_lattice(matrix, wig), coordinates
+
+    prepared = await hass.async_add_executor_job(_context)
+    if isinstance(prepared, str):
+        connection.send_error(
+            msg["id"], prepared, "That target carries no current finding")
+        return
+    lattice, coordinates = prepared
+
+    def _decorate(payload: dict[str, Any]) -> None:
+        payload["verdict"] = pre_read(
+            lattice, payload["pronto"], coordinates
+        ).as_dict()
+        if msg.get("target"):
+            payload["target"] = msg["target"]
+
+    _arm_listen(
+        hass, connection, msg, "tangle_capture", "tangle_listen_timeout",
+        decorate=_decorate,
+    )
+
+
+async def _write_through(
+    hass: HomeAssistant, device: IRDevice
+) -> dict[str, Any]:
+    """Push a finished repair back into the user's wig. C10.
+
+    The ruling (tangles-backend.md section 4, 2026-08-27) is that a
+    person who repairs an adopted device does not then have to go and
+    save it: the closet copy follows the device on its own, and the
+    UI's "Your wig has been updated." is allowed to render only once
+    this says it did.
+
+    It invokes the SHIPPED save machinery rather than a second copy of
+    it -- the same ``_do_create`` / ``_do_update`` the save dialog
+    drives, which is why those two stopped owning the connection. The
+    synthetic ``msg`` here is not a pretend websocket message; it is
+    the arguments dict those functions have always taken, carrying the
+    two things this caller has an opinion about: keep the wig's own
+    name, and yes, propose the lattice.
+
+    WHAT IT WILL AND WILL NOT DELETE. A mint stamps ``REPAIR_SUCCESSOR``
+    on what it writes, and ``replace`` is set only when the device's
+    CURRENT source carries that stamp. So the first repair on an
+    adopted device mints beside the contributor's original and leaves
+    it standing; every repair after that supersedes the version before
+    it. The closet settles at two files -- theirs, and the repaired one
+    -- instead of one file per click.
+
+    NEVER RAISES INTO THE REPAIR. The bytes are already on the device
+    and on disk by the time this runs; a wig that could not be written
+    is a thing to REPORT, not a reason to unwind a good repair. Every
+    failure comes back as ``{"written": False, "reason": ...}``.
+    """
+    from .tangles import REPAIR_SUCCESSOR, WROTE_NOT_ADOPTED
+
+    if not device.source_wig_id:
+        return {"written": False, "reason": WROTE_NOT_ADOPTED}
+
+    source_wig, _filename = await hass.async_add_executor_job(
+        _resolve_source, hass, device
+    )
+    if source_wig is None:
+        return {"written": False, "reason": "source_missing"}
+
+    # ALWAYS A MINT, never the UPDATE branch, and this is not an
+    # oversight. UPDATE edits the source file's text in place and can
+    # carry a lattice diff -- which is all the save dialog needs. A
+    # repair produces three things beyond changed bytes: a provenance
+    # record per cell, any KEEP attestations the person recorded, and
+    # a fresh comb receipt over the result. Those exist only in the
+    # wig the EXPORTER builds out of the device, so a write-through
+    # that took the UPDATE branch would silently drop them, and a KEEP
+    # (which changes no bytes at all) would refuse with
+    # "nothing_to_update" while the person watched their answer not
+    # arrive. Minting rebuilds from the device every time and carries
+    # all of it.
+    msg: dict[str, Any] = {
+        # The wig keeps its OWN name. build_wig_from_device would name
+        # the successor after the DEVICE, so a person who renamed the
+        # device in Home Assistant would watch their wig quietly get
+        # renamed on their next repair.
+        "name": source_wig.name or "",
+    }
+    outcome = await _do_create(
+        hass, msg, device, None, None,
+        replace=bool((source_wig.extra or {}).get(REPAIR_SUCCESSOR)),
+        mark_repair=True,
+    )
+
+    if isinstance(outcome, str):
+        return {"written": False, "reason": outcome}
+    written: dict[str, Any] = {
+        "written": True,
+        "filename": outcome.get("filename"),
+        "wig_id": outcome.get("wig_id"),
+    }
+    replaced = outcome.get("replaced")
+    if replaced:
+        written["replaced"] = replaced.get("old_filename")
+    return written
+
+
+def _apply_source(msg: dict[str, Any]) -> str:
+    from .tangles import ORIGIN_CAPTURE, ORIGIN_DONOR, ORIGIN_PASTE
+
+    source = msg.get("source") or ORIGIN_PASTE
+    return source if source in {
+        ORIGIN_DONOR, ORIGIN_CAPTURE, ORIGIN_PASTE, "synthesized",
+    } else ORIGIN_PASTE
+
+
+async def _write_matrix_and_signal(
+    hass: HomeAssistant, device: IRDevice, matrix: Any
+) -> str | None:
+    """Persist a repaired lattice and tell everything that holds one.
+
+    The dispatch is not optional. A climate entity loads its matrix once
+    and, before the fix flow, was right to: matrix files only changed
+    when a device was created. A repair changes one under a live entity,
+    and without the signal the unit would go on receiving the bytes the
+    repair replaced.
+    """
+    from .matrix_store import SIGNAL_MATRIX_CHANGED, write_matrix
+
+    try:
+        await hass.async_add_executor_job(
+            write_matrix, hass.config.config_dir, device.id, matrix
+        )
+    except (OSError, ValueError) as err:
+        return str(err)
+
+    data = _get_first_entry_data(hass)
+    listener = data.get("matrix_listener") if data else None
+    if listener is not None:
+        # The lattice CHANGED, so every cached index and reading built
+        # from it is answering about a file that no longer exists.
+        listener.invalidate(device.id)
+    async_dispatcher_send(hass, SIGNAL_MATRIX_CHANGED, device.id)
+    return None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/apply",
+    vol.Required("device_id"): str,
+    vol.Required("target"): str,
+    vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
+    vol.Required("tested"): bool,
+    vol.Optional("source"): str,
+    vol.Optional("detail"): dict,
+    vol.Optional("reading_disagreed"): bool,
+})
+@websocket_api.async_response
+async def ws_tangle_apply(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Write one repair, with its record and its undo.
+
+    THE ONLY DOOR through the no-cell-editing wall, and it is narrow on
+    purpose: it takes a finding reference, refuses a target that carries
+    no current finding, and is not reachable as a general cell editor.
+
+    ``tested`` is required and is RECORDED, never verified. The server
+    cannot watch somebody's air conditioner respond; what it can do is
+    write down that the claim was made and let the receipt carry it.
+
+    ``reading_disagreed`` is the escalation ladder's third rung. A
+    consistent mismatch is evidence about OUR reading rather than about
+    the person pressing the button, so the write is allowed -- but only
+    when it is declared, and the record then carries what the reading
+    said so repeated off-by-ones in one family can accumulate into the
+    map-defect report they are.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .pronto_validator import validate_pronto
+    from .tangles import (
+        APPLY_BAD_CANDIDATE,
+        APPLY_DISAGREEMENT_UNDECLARED,
+        APPLY_NO_FINDING,
+        APPLY_NOT_TESTED,
+        build_provenance,
+        list_tangles,
+        portholes_for,
+        pre_read,
+        project_device,
+        read_lattice,
+        write_repair,
+    )
+
+    if not msg["tested"]:
+        connection.send_error(
+            msg["id"], APPLY_NOT_TESTED,
+            "A repair is committed after a press, not before one",
+        )
+        return
+    if not validate_pronto(msg["pronto"]).valid:
+        connection.send_error(
+            msg["id"], APPLY_BAD_CANDIDATE, "That is not a usable code")
+        return
+
+    def _prepare() -> Any:
+        listing = list_tangles(device, matrix)
+        row = _resolve_target(listing, msg["target"])
+        if row is None:
+            return APPLY_NO_FINDING
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        verdict = pre_read(lattice, msg["pronto"], row.target.coordinates)
+        return row, lattice, verdict
+
+    prepared = await hass.async_add_executor_job(_prepare)
+    if isinstance(prepared, str):
+        connection.send_error(
+            msg["id"], prepared,
+            "That target carries no current finding",
+        )
+        return
+    row, lattice, verdict = prepared
+
+    declared = bool(msg.get("reading_disagreed"))
+    if verdict.matches is False and not declared:
+        connection.send_error(
+            msg["id"], APPLY_DISAGREEMENT_UNDECLARED,
+            "These bytes read as something else; say so to apply anyway",
+        )
+        return
+
+    provenance = build_provenance(
+        source=_apply_source(msg),
+        prior_pronto=row.pronto,
+        lattice=lattice,
+        row=row,
+        tested=True,
+        detail=msg.get("detail"),
+        disagreed=verdict.as_dict() if declared else None,
+    )
+
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    if row.target.kind == "cell":
+        cell = next(
+            (c for c in matrix.cells if _cell_key(c) == row.target.key), None
+        )
+        if cell is None:
+            connection.send_error(
+                msg["id"], APPLY_NO_FINDING, "That cell is gone")
+            return
+        write_repair(cell, msg["pronto"], provenance)
+        # The porthole is a copy of the cell taken at adopt, and it is
+        # what TEST sends. Leaving it behind would hand somebody a
+        # button that still transmits the code they just repaired.
+        for porthole in portholes_for(device, row.target.coordinates):
+            write_repair(porthole, msg["pronto"], provenance)
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+        await manager.async_update_device(device)
+    else:
+        command = device.get_command(row.target.command_id or "")
+        if command is None:
+            connection.send_error(
+                msg["id"], APPLY_NO_FINDING, "That command is gone")
+            return
+        write_repair(command, msg["pronto"], provenance)
+        # Through async_update_device, so the known-command index
+        # rebuilds on the new bytes and the entity hooks fire (gotcha 6).
+        await manager.async_update_device(device)
+
+    connection.send_result(msg["id"], {
+        "applied": True,
+        "target": row.id,
+        "provenance": provenance,
+        "verdict": verdict.as_dict(),
+        "wig": await _write_through(hass, device),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/revert",
+    vol.Required("device_id"): str,
+    vol.Required("target"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_revert(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Put back what a repair replaced. One step, not a history."""
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        APPLY_NOTHING_TO_REVERT,
+        TARGET_CELL,
+        portholes_for,
+        read_repair,
+        revert_repair,
+    )
+
+    kind, _, key = msg["target"].partition(":")
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+
+    if kind == TARGET_CELL:
+        cell = next(
+            (c for c in (matrix.cells if matrix else []) if _cell_key(c) == key),
+            None,
+        )
+        if cell is None or read_repair(cell) is None:
+            connection.send_error(
+                msg["id"], APPLY_NOTHING_TO_REVERT,
+                "Nothing was repaired here",
+            )
+            return
+        coordinates = {
+            "mode": cell.mode, "fan": cell.fan,
+            "swing": cell.swing, "temp": cell.temp,
+        }
+        record = revert_repair(cell)
+        for porthole in portholes_for(device, coordinates):
+            revert_repair(porthole)
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+        await manager.async_update_device(device)
+    else:
+        command = device.get_command(key)
+        if command is None or read_repair(command) is None:
+            connection.send_error(
+                msg["id"], APPLY_NOTHING_TO_REVERT,
+                "Nothing was repaired here",
+            )
+            return
+        record = revert_repair(command)
+        await manager.async_update_device(device)
+
+    # UNDO writes through too (owner call, 2026-08-27). The old bytes
+    # are back on the device; leaving the closet holding the repaired
+    # ones would put the wig silently AHEAD of the device it came from,
+    # which is the same lie the write-through exists to prevent.
+    connection.send_result(
+        msg["id"], {"reverted": True, "target": msg["target"],
+                    "was": record,
+                    "wig": await _write_through(hass, device)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/plan",
+    vol.Required("device_id"): str,
+    vol.Required("cluster"): str,
+    vol.Optional("witness"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("witness_target"): str,
+    vol.Optional("candidates"): dict,
+})
+@websocket_api.async_response
+async def ws_tangle_plan(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """What a run would do, and which cells it wants pressed at.
+
+    Pure. Nothing is written and nothing is armed; this exists so the
+    surface can say "we will send 2 test signals" and know which two,
+    and so the sample a person is asked to prove is the sample the write
+    then records.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import list_tangles, plan_batch, project_device, read_lattice
+
+    def _plan() -> dict[str, Any]:
+        listing = list_tangles(device, matrix)
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        return plan_batch(
+            listing, lattice, msg["cluster"],
+            witness=msg.get("witness"),
+            witness_target=msg.get("witness_target"),
+            supplied=msg.get("candidates"),
+        ).as_dict()
+
+    connection.send_result(
+        msg["id"], await hass.async_add_executor_job(_plan))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/apply-batch",
+    vol.Required("device_id"): str,
+    vol.Required("cluster"): str,
+    vol.Required("tested"): bool,
+    vol.Required("tested_targets"): [str],
+    vol.Optional("witness"): vol.All(str, vol.Length(max=20000)),
+    vol.Optional("witness_target"): str,
+    vol.Optional("candidates"): dict,
+    vol.Optional("reading_disagreed"): bool,
+})
+@websocket_api.async_response
+async def ws_tangle_apply_batch(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """One cause, one run: prove a sample on air, then write all of it.
+
+    The precedent is the dimension check, which attests axes rather than
+    walking six hundred cells. A run presses at a representative sample
+    spanning the card's modes and, on a pass, writes every member in one
+    batch -- with each cell's record honest about which tier it got:
+    air-tested, or rule-derived by a rule that was air-tested on named
+    cells.
+
+    NO PARTIAL BATCHES, EVER. Everything is resolved and read before
+    anything moves, and a failure anywhere leaves the lattice
+    byte-identical to what it was. That is not only failure handling: on
+    a shifted column, applying one cell of a cause at a time leaves the
+    repaired cell byte-identical to its still-broken neighbour, so the
+    batch is the correct unit of work as well as the safe one.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        APPLY_DISAGREEMENT_UNDECLARED,
+        APPLY_NOT_TESTED,
+        BATCH_EMPTY,
+        BATCH_SAMPLE_SHORT,
+        TARGET_CELL,
+        TIER_AIR_TESTED,
+        TIER_RULE_DERIVED,
+        build_provenance,
+        list_tangles,
+        plan_batch,
+        portholes_for,
+        project_device,
+        read_lattice,
+        repair_bytes,
+        repair_extras,
+        restore_holder,
+        sample_covers_modes,
+        write_repair,
+    )
+
+    if not msg["tested"]:
+        connection.send_error(
+            msg["id"], APPLY_NOT_TESTED,
+            "A run is committed after a press, not before one",
+        )
+        return
+
+    def _prepare() -> Any:
+        listing = list_tangles(device, matrix)
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        plan = plan_batch(
+            listing, lattice, msg["cluster"],
+            witness=msg.get("witness"),
+            witness_target=msg.get("witness_target"),
+            supplied=msg.get("candidates"),
+        )
+        return listing, lattice, plan
+
+    listing, lattice, plan = await hass.async_add_executor_job(_prepare)
+    if plan.refused:
+        connection.send_error(
+            msg["id"], plan.refused, "There is nothing to apply here")
+        return
+
+    rows = {row.id: row for row in listing.rows}
+    members = list(plan.candidates)
+    tested_targets = [t for t in msg["tested_targets"] if t in plan.candidates]
+    if not tested_targets or not sample_covers_modes(
+            rows, members, tested_targets):
+        connection.send_error(
+            msg["id"], BATCH_SAMPLE_SHORT,
+            "Every mode this covers has to be proved on air",
+        )
+        return
+
+    declared = bool(msg.get("reading_disagreed"))
+    disagreeing = [
+        member for member, candidate in plan.candidates.items()
+        if candidate["verdict"]["matches"] is False
+    ]
+    if disagreeing and not declared:
+        connection.send_error(
+            msg["id"], APPLY_DISAGREEMENT_UNDECLARED,
+            "Some of these read as something else; say so to apply anyway",
+        )
+        return
+
+    run = uuid.uuid4().hex
+    cells = {_cell_key(c): c for c in (matrix.cells if matrix else [])}
+    snapshot: list[tuple[Any, str, dict[str, Any]]] = []
+    writes: list[tuple[Any, str, dict[str, Any]]] = []
+    for member in members:
+        row = rows[member]
+        candidate = plan.candidates[member]
+        provenance = build_provenance(
+            source=candidate["origin"],
+            prior_pronto=row.pronto,
+            lattice=lattice,
+            row=row,
+            tested=True,
+            tier=(TIER_AIR_TESTED if member in tested_targets
+                  else TIER_RULE_DERIVED),
+            run=run,
+            tested_keys=[rows[t].target.key for t in tested_targets],
+            detail={k: v for k, v in candidate.items()
+                    if k in ("donor", "sibling", "witness_digest")},
+            disagreed=(candidate["verdict"] if declared
+                       and member in disagreeing else None),
+        )
+        if row.target.kind == TARGET_CELL:
+            holder = cells.get(row.target.key)
+            if holder is None:
+                connection.send_error(
+                    msg["id"], BATCH_EMPTY, "A cell in this run is gone")
+                return
+            holders = [holder, *portholes_for(device, row.target.coordinates)]
+        else:
+            holder = device.get_command(row.target.command_id or "")
+            if holder is None:
+                connection.send_error(
+                    msg["id"], BATCH_EMPTY, "A command in this run is gone")
+                return
+            holders = [holder]
+        for each in holders:
+            snapshot.append(
+                (each, repair_bytes(each), dict(repair_extras(each))))
+            writes.append((each, candidate["pronto"], provenance))
+
+    # Resolved, read and validated. Only now does anything move.
+    for holder, pronto, provenance in writes:
+        write_repair(holder, pronto, provenance)
+
+    if matrix is not None:
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            for holder, pronto, extras in snapshot:
+                restore_holder(holder, pronto, extras)
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    await manager.async_update_device(device)
+    connection.send_result(msg["id"], {
+        "applied": len(members),
+        "run": run,
+        "cluster": msg["cluster"],
+        "air_tested": sorted(tested_targets),
+        "declined": plan.declined,
+        "wig": await _write_through(hass, device),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/revert-run",
+    vol.Required("device_id"): str,
+    vol.Required("run"): str,
+})
+@websocket_api.async_response
+async def ws_tangle_revert_run(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Undo a whole run. One APPLY is one undo."""
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        APPLY_NOTHING_TO_REVERT,
+        read_repair,
+        revert_repair,
+    )
+
+    holders = [
+        holder for holder in
+        [*(matrix.cells if matrix else []), *device.commands]
+        if (read_repair(holder) or {}).get("run") == msg["run"]
+    ]
+    if not holders:
+        connection.send_error(
+            msg["id"], APPLY_NOTHING_TO_REVERT, "No such run on this device")
+        return
+    for holder in holders:
+        revert_repair(holder)
+
+    if matrix is not None:
+        failure = await _write_matrix_and_signal(hass, device, matrix)
+        if failure is not None:
+            connection.send_error(msg["id"], "write_failed", failure)
+            return
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    await manager.async_update_device(device)
+    connection.send_result(
+        msg["id"], {"reverted": len(holders), "run": msg["run"],
+                    "wig": await _write_through(hass, device)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/device/tangle/keep",
+    vol.Required("device_id"): str,
+    vol.Required("target"): str,
+    vol.Required("tested"): bool,
+    vol.Optional("note"): vol.All(str, vol.Length(max=500)),
+})
+@websocket_api.async_response
+async def ws_tangle_keep(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """The other outcome: looked at it, it works, keep it.
+
+    A finding is a doubt about bytes, and a person with the hardware in
+    front of them can answer it. This records that answer -- the target,
+    the exact bytes it is about, the classes it answers, the map version
+    that raised them, and the same tested assertion the write requires.
+
+    Nothing is deleted. The finding stands in the receipt and the wig
+    carries both the math and the human's answer, because attested is a
+    different thing from clean and has to keep reading as one. What
+    changes is that the row leaves the work list, and re-combing stays
+    quiet about it for exactly as long as the bytes and the map hold
+    still.
+    """
+    device, matrix = await _device_and_matrix(hass, msg["device_id"])
+    if device is None:
+        connection.send_error(msg["id"], "not_found", "Device not found")
+        return
+
+    from .tangles import (
+        KEEP_NO_FINDING,
+        KEEP_NOT_TESTED,
+        build_attestation,
+        list_tangles,
+        project_device,
+        read_lattice,
+    )
+
+    if not msg["tested"]:
+        connection.send_error(
+            msg["id"], KEEP_NOT_TESTED,
+            "Keeping a code means having tried it",
+        )
+        return
+
+    def _prepare() -> Any:
+        listing = list_tangles(device, matrix)
+        row = _resolve_target(listing, msg["target"])
+        if row is None:
+            return KEEP_NO_FINDING
+        wig, _sources = project_device(device, matrix)
+        return row, read_lattice(matrix, wig)
+
+    prepared = await hass.async_add_executor_job(_prepare)
+    if isinstance(prepared, str):
+        connection.send_error(
+            msg["id"], prepared, "That target carries no current finding")
+        return
+    row, lattice = prepared
+
+    record = build_attestation(row, lattice, note=msg.get("note"))
+    device.tangle_attestations = [
+        existing for existing in device.tangle_attestations
+        if existing.get("key") != record["key"]
+    ]
+    device.tangle_attestations.append(record)
+    manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
+    await manager.async_update_device(device)
+    # KEEP is a DECIDE outcome and it changes what the wig SAYS, even
+    # though it changes no bytes: the attestation rides out in the
+    # receipt beside the finding it answers. So it writes through on
+    # the same terms as a repair.
+    connection.send_result(
+        msg["id"], {"attested": True, "target": row.id, "record": record,
+                    "wig": await _write_through(hass, device)})

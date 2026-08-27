@@ -642,6 +642,41 @@ class DeviceManager:
             origin=origin,
         )
 
+    async def async_test_send(
+        self,
+        device_id: str,
+        pronto: str,
+        *,
+        send_count: int = 1,
+        label: str = "Test",
+    ) -> set[str]:
+        """Transmit candidate bytes once, saving nothing.
+
+        The fix flow has to let somebody point a candidate at the real
+        unit BEFORE it is written anywhere -- that press is the whole
+        gate on the write. So this takes raw Pronto rather than a stored
+        command id, and there is deliberately no path from here to the
+        store: it rides the same all-emitters resilience machinery every
+        other send uses (``_async_broadcast``) and then forgets.
+
+        Raw ALWAYS, never the canonical re-encode. A candidate is being
+        judged on what it will actually transmit once written, and
+        re-encoding it from a decoded identity would test bytes the
+        device is not about to store.
+        """
+        device = self._store.get_device(device_id)
+        if device is None:
+            raise KeyError(f"Unknown device {device_id}")
+        if not device.emitter_entity_ids:
+            raise RuntimeError(f"Device {device_id} has no emitters configured")
+
+        from .ir_command import build_command
+
+        ir_cmd = build_command(protocol="PRONTO", code=pronto)
+        return await self._async_broadcast(
+            device, ir_cmd, label, send_count=max(1, min(int(send_count), 10)),
+        )
+
     async def async_send_command(
         self,
         device_id: str,

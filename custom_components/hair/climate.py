@@ -43,6 +43,7 @@ from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import DOMAIN, CommandSource, DeviceType
+from .matrix_store import SIGNAL_MATRIX_CHANGED
 from .models import IRDevice
 from .power_monitor import SIGNAL_POWER_VERDICT, PowerVerdict
 from .send_signal import (
@@ -185,6 +186,7 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         # file I/O never runs in a constructor called on the loop).
         self._swing_mode: str | None = None
         self._matrix: ClimateMatrix | None = None
+        self._matrix_changed_unsub = None
         # Display name of the last transmitted cell ("Off"/"On" for
         # the power codes): the device page's current-cell readout
         # (owner ruling Q2). Display grammar since the second half
@@ -262,6 +264,12 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         self._device_sent_unsub = async_dispatcher_connect(
             self.hass, SIGNAL_DEVICE_SENT, self._handle_device_sent
         )
+        # A repair can rewrite one cell of a live device. Without this
+        # the entity would keep transmitting the bytes it loaded at
+        # startup, which are the broken ones.
+        self._matrix_changed_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_MATRIX_CHANGED, self._handle_matrix_changed
+        )
         self._subscribe_sensors()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -271,6 +279,9 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
         if self._device_sent_unsub is not None:
             self._device_sent_unsub()
             self._device_sent_unsub = None
+        if self._matrix_changed_unsub is not None:
+            self._matrix_changed_unsub()
+            self._matrix_changed_unsub = None
         self._unsubscribe_sensors()
 
     async def _async_restore_state(self) -> None:
@@ -728,6 +739,14 @@ class HAIRClimateEntity(RestoreEntity, ClimateEntity):
             self._target_temperature = (
                 m.min_temp + round((mid - m.min_temp) / step) * step
             )
+
+    @callback
+    def _handle_matrix_changed(self, owner_id: str) -> None:
+        """Re-read the lattice a repair just rewrote."""
+        if owner_id != self._device.id or not self._matrix_mode:
+            return
+        if self.hass is not None:
+            self.hass.async_create_task(self._async_refresh_matrix())
 
     async def _async_refresh_matrix(self) -> None:
         await self._async_load_matrix()
