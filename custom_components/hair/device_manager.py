@@ -649,6 +649,7 @@ class DeviceManager:
         *,
         send_count: int = 1,
         label: str = "Test",
+        heard_future: Any | None = None,
     ) -> set[str]:
         """Transmit candidate bytes once, saving nothing.
 
@@ -663,6 +664,15 @@ class DeviceManager:
         judged on what it will actually transmit once written, and
         re-encoding it from a decoded identity would test bytes the
         device is not about to store.
+
+        ``heard_future`` is the echo hook behind the TEST button's
+        SENT . HEARD reading, carried exactly as ``async_send_command``
+        carries it. The fix flow reuses that button, so without this the
+        button could never show HEARD there -- not because nothing was
+        heard, but because nobody was listening for it. Forwarded
+        untouched to ``_async_broadcast``, which arms the Mirror audit
+        before transmitting; None keeps the old behaviour for callers
+        that do not care.
         """
         device = self._store.get_device(device_id)
         if device is None:
@@ -675,6 +685,7 @@ class DeviceManager:
         ir_cmd = build_command(protocol="PRONTO", code=pronto)
         return await self._async_broadcast(
             device, ir_cmd, label, send_count=max(1, min(int(send_count), 10)),
+            heard_future=heard_future,
         )
 
     async def async_send_command(
