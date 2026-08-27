@@ -61,6 +61,7 @@ import {
 } from "./ir-icons.js";
 import "./ir-device-settings-dialog.js";
 import type { HairApi } from "./api.js";
+import "./ir-tangle-section.js";
 import type {
     ActionOption,
     IRCommand,
@@ -1731,6 +1732,12 @@ export class IrDeviceDetail extends LitElement {
                         : ""}
                 </div>
             </div>
+
+            <ir-tangle-section
+                .hass=${this.hass}
+                .api=${this.api}
+                .deviceId=${this.device.id}
+            ></ir-tangle-section>
 
             <div class="footer-actions">
                 <div class="add-group">
