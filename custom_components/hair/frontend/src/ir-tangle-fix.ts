@@ -64,6 +64,13 @@ export class IrTangleFix extends LitElement {
     @state() private _receipt: { count: number; targets: string[] } | null = null;
     @state() private _undoing = false;
 
+    // Every SEND this card actually put on the air, keyed by target.
+    // A call answered sent: true is the only thing that counts: this
+    // is evidence, it feeds the tier, and it is strict where the
+    // corner dot is not. Unheard still counts -- a send nothing hears
+    // is still a send (owner ruling 2026-08-28, brief s8).
+    @state() private _sends = new Map<string, number>();
+
     // Per cluster: which sample members have been proved this session
     // (seeded with the witness target itself -- LISTEN already proved
     // that one on air before this card ever existed).
@@ -97,6 +104,29 @@ export class IrTangleFix extends LitElement {
         );
     }
 
+    private _sendsFor(target: string): number {
+        return this._sends.get(target) ?? 0;
+    }
+
+    private _countSend(target: string): void {
+        this._sends = new Map(this._sends).set(
+            target,
+            this._sendsFor(target) + 1,
+        );
+    }
+
+    /** This cluster's tallies, keyed by target. Only the members this
+     * card knows of: apply-batch re-plans server-side, so the client
+     * has no authority over the member list, and a key it omits reads
+     * as zero. */
+    private _sendsForBatch(entry: WitnessBatchEntry): Record<string, number> {
+        const counts: Record<string, number> = {};
+        for (const target of [entry.witnessTarget, ...entry.pendingMembers]) {
+            counts[target] = this._sendsFor(target);
+        }
+        return counts;
+    }
+
     /** Wired straight to <ir-test-button>.send: resolves to whether a
      * receiver heard the echo, so the button itself decides SENT vs.
      * SENT . HEARD. No question ever follows a send (brief section 2)
@@ -104,6 +134,7 @@ export class IrTangleFix extends LitElement {
     private async _send(row: TangleRow): Promise<boolean> {
         const pronto = row.donor?.pronto ?? row.pronto;
         const result = await this.api.tangleTestSend(this.deviceId, pronto);
+        if (result.sent) this._countSend(row.id);
         return result.heard;
     }
 
@@ -115,6 +146,7 @@ export class IrTangleFix extends LitElement {
                 target: row.id,
                 pronto: row.donor?.pronto ?? row.pronto,
                 tested: true,
+                sendsFired: this._sendsFor(row.id),
                 source: "donor",
             });
             this._accepted = new Set(this._accepted).add(row.id);
@@ -143,6 +175,7 @@ export class IrTangleFix extends LitElement {
                         target: row.id,
                         pronto: row.donor?.pronto ?? row.pronto,
                         tested: true,
+                        sendsFired: this._sendsFor(row.id),
                         source: "donor",
                     });
                     this._accepted = new Set(this._accepted).add(row.id);
@@ -194,6 +227,10 @@ export class IrTangleFix extends LitElement {
         const result = pronto
             ? await this.api.tangleTestSend(this.deviceId, pronto)
             : { sent: false, heard: false, receiver: null, emitters: [] };
+        // Only a real transmission is tallied. The empty-candidate
+        // branch above sends nothing, and a call answered sent: false
+        // put nothing on the air either.
+        if (result.sent) this._countSend(member);
         // Recorded, never verified (build_provenance's own rule) --
         // an attempted press proves the sample regardless of heard,
         // same as every other SEND in this panel never gating on it.
@@ -213,6 +250,7 @@ export class IrTangleFix extends LitElement {
                 cluster: entry.clusterId,
                 tested: true,
                 testedTargets,
+                sendsFired: this._sendsForBatch(entry),
                 witness: entry.witness,
                 witnessTarget: entry.witnessTarget,
             });

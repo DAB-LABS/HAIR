@@ -146,6 +146,10 @@ export class IrTangleListen extends LitElement {
             target: row.id,
             pronto,
             tested: true,
+            // LISTEN has no SEND. A captured press is evidence of a
+            // press, not of a transmission, so zero is the true tally
+            // and the receipt reads accepted, never air-tested.
+            sendsFired: 0,
             source: "capture",
             ...(readingDisagreed ? { readingDisagreed: true } : {}),
         });

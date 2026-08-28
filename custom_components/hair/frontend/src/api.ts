@@ -1529,12 +1529,14 @@ export class HairApi {
      * is required -- a repair is committed after a press, not before
      * one -- and a candidate that reads as something else needs
      * ``readingDisagreed: true`` declared explicitly rather than
-     * applied silently. */
+     * applied silently. ``sendsFired`` is this target's real send
+     * tally, so the receipt can only claim air evidence it has. */
     tangleApply(payload: {
         deviceId: string;
         target: string;
         pronto: string;
         tested: boolean;
+        sendsFired: number;
         source?: string;
         detail?: Record<string, unknown>;
         readingDisagreed?: boolean;
@@ -1545,6 +1547,7 @@ export class HairApi {
             target: payload.target,
             pronto: payload.pronto,
             tested: payload.tested,
+            sends_fired: payload.sendsFired,
             ...(payload.source !== undefined
                 ? { source: payload.source }
                 : {}),
@@ -1604,6 +1607,7 @@ export class HairApi {
         cluster: string;
         tested: boolean;
         testedTargets: string[];
+        sendsFired: Record<string, number>;
         witness?: string;
         witnessTarget?: string;
         candidates?: Record<string, unknown>;
@@ -1616,6 +1620,7 @@ export class HairApi {
                 cluster: payload.cluster,
                 tested: payload.tested,
                 tested_targets: payload.testedTargets,
+                sends_fired: payload.sendsFired,
                 ...(payload.witness !== undefined
                     ? { witness: payload.witness }
                     : {}),

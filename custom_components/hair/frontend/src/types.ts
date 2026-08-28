@@ -50,6 +50,11 @@ export interface TangleRepairRecord {
     applied: string;
     tested: boolean;
     tier: string;
+    /** How many times this row was really sent before it was accepted,
+     * recorded verbatim. ``tier`` reads ``air-tested`` only where that
+     * evidence exists. Absent on records written before the receipt
+     * ruling (2026-08-28). */
+    sends_fired?: number | null;
     prior: { pronto: string; digest: string };
     finding: { key: string; classes: string[] };
     map?: { id: string; version: number | string } | null;
