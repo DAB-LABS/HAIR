@@ -231,10 +231,14 @@ export class IrTangleFix extends LitElement {
         // branch above sends nothing, and a call answered sent: false
         // put nothing on the air either.
         if (result.sent) this._countSend(member);
-        // Recorded, never verified (build_provenance's own rule) --
-        // an attempted press proves the sample regardless of heard,
-        // same as every other SEND in this panel never gating on it.
-        this._testedFor(entry).add(member);
+        // A member joins the sample only when a transmission really
+        // fired for it. The backend takes tested_targets on faith and
+        // cannot check this from its side, so marking an untransmitted
+        // member here would manufacture the very evidence the receipt
+        // ruling exists to stop. Recorded, never verified still holds
+        // for what a send PROVED: unheard counts, because sent is the
+        // predicate, not heard.
+        if (result.sent) this._testedFor(entry).add(member);
         this.requestUpdate();
         return result.heard;
     }
