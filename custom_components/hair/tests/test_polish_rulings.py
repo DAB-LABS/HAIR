@@ -127,7 +127,9 @@ class TestRowControlsCannotStagger:
         # surface is send / disabledReason / count, and the only event
         # it raises is a failure report.
         props = set(re.findall(r"public (\w+)", text))
-        assert props == {"send", "disabledReason", "count"}, props
+        # idleLabelKey is presentation only -- the word the button shows
+        # at rest -- and carries no verdict (owner-ruled 2026-08-28).
+        assert props == {"send", "disabledReason", "count", "idleLabelKey"}, props
         body = text.split("*/", 1)[1]
         assert body.count("dispatchEvent") == 1
         assert '"test-failed"' in body
