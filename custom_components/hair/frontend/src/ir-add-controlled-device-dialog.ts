@@ -36,8 +36,11 @@
  *     own kind-colored tab now, REPLACING the single grouped-with-
  *     chips "Remote" tab shell from signpost 2 (ir-remote-picker.ts,
  *     retired outright -- see ir-source-picker.ts's header for why).
- *     Plucker renders only when `.pluckerConfigured` is true. Rows are
- *     REAL, live-fetched via the already-standalone-callable
+ *     Plucker renders only when something can actually be plucked
+ *     right now (`anyPluckReadyNow`, shared with the other dialog):
+ *     this is an action picker, and an action picker offers what can
+ *     act. The Plucker TAB is the opposite case and renders always.
+ *     Rows are REAL, live-fetched via the already-standalone-callable
  *     `api.getUnknownDevices({source})` (one call per kind, lazily on
  *     first tab visit, cached per dialog instance) -- a genuine
  *     improvement over the old always-empty placeholder. LIVE
@@ -124,10 +127,12 @@ import { ORIGIN_COLORS, REMOTE_KIND_COLORS } from "./ir-origin-colors.js";
 import "./ir-emitter-picker.js";
 import "./ir-wig-picker.js";
 import "./ir-source-picker.js";
+import { anyPluckReadyNow } from "./api.js";
 import type { HairApi } from "./api.js";
 import type {
     DeviceTypeId,
     IRDevice,
+    PluckSource,
     SignalSourceId,
     TriggerRemoteInfo,
 } from "./types.js";
@@ -177,10 +182,14 @@ export class IrAddControlledDeviceDialog extends LitElement {
      *  the Closet; this is that wig's picker row. */
     @property({ attribute: false }) public dropSource: WigPickRow | null = null;
 
-    /** Whether this install has a Plucker source configured at all --
-     *  gates the Plucker tab entirely, same rule ir-remote-picker.ts
-     *  (and the main nav's own Plucker tab) used. */
-    @property({ type: Boolean }) public pluckerConfigured = false;
+    /** The pluckable source roll, straight from the panel.
+     *
+     *  Read through `anyPluckReadyNow()` rather than by hand, and NOT
+     *  the rule the main nav uses any more: the nav's Plucker tab
+     *  renders unconditionally now (discovery surfaces always show),
+     *  while this dialog is an action picker and shows what works now.
+     *  One helper, so the rule cannot drift between the sites. */
+    @property({ attribute: false }) public pluckSources: PluckSource[] = [];
 
     /** Existing named Remotes, for the Remotes tab. A prop, not a
      *  fetch -- see the file header on why this dialog doesn't
@@ -425,7 +434,7 @@ export class IrAddControlledDeviceDialog extends LitElement {
                               ${this._renderTab("closet", t("adddc.tab_closet"))}
                               ${this._renderTab("sniffer", SOURCE_KIND_LABEL.sniffer)}
                               ${this._renderTab("clipper", SOURCE_KIND_LABEL.clipper)}
-                              ${this.pluckerConfigured
+                              ${anyPluckReadyNow(this.pluckSources)
                                   ? this._renderTab("plucker", SOURCE_KIND_LABEL.plucker)
                                   : ""}
                               ${this._renderTab("remotes", t("adddc.tab_remotes"))}

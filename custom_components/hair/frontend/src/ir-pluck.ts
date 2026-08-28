@@ -25,7 +25,7 @@ import {
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import Sortable from "sortablejs";
-import { HairApi } from "./api.js";
+import { HairApi, pluckEmptyBlocks } from "./api.js";
 import "./ir-assign-signal-dialog.js";
 import "./ir-confirm-dialog.js";
 import "./ir-pluck-add-remote-dialog.js";
@@ -50,6 +50,7 @@ import type {
     IRDevice,
     IRTrigger,
     LinkedEntry,
+    PluckSource,
     PluckVendor,
     ReceiverInfo,
     SignalAssignment,
@@ -78,6 +79,10 @@ export class IrPluck extends LitElement {
     @property() public pendingEntity = "";
 
     @state() private _devices: UnknownDeviceSummary[] = [];
+    // The source roll behind the empty card. Re-read on every _load(),
+    // which runs when the tab is activated, so a first learned code
+    // shows up on the next visit without a panel reload.
+    @state() private _pluckSources: PluckSource[] = [];
     @state() private _hairDevices: DeviceSummary[] = [];
     @state() private _triggers: IRTrigger[] = [];
     @state() private _loading = true;
@@ -318,7 +323,7 @@ export class IrPluck extends LitElement {
     private async _load(): Promise<void> {
         this._loading = true;
         try {
-            const [unknowns, hairDevs, triggers, vendors] = await Promise.all([
+            const [unknowns, hairDevs, triggers, vendors, learned] = await Promise.all([
                 this.api.getUnknownDevices({
                     include_dismissed: false,
                     min_hits: 0,
@@ -327,11 +332,15 @@ export class IrPluck extends LitElement {
                 this.api.listDevices(),
                 this.api.listTriggers(),
                 this.api.listPluckVendors().catch(() => ({ vendors: [] })),
+                this.api
+                    .listLearnedStores()
+                    .catch(() => ({ stores: [], sources: [] })),
             ]);
             this._devices = unknowns;
             this._hairDevices = hairDevs;
             this._triggers = triggers;
             this._vendorIntegration = this._mapIntegrations(vendors.vendors);
+            this._pluckSources = learned.sources ?? [];
             this._error = null;
             this.api
                 .listReceivers()
@@ -963,6 +972,46 @@ export class IrPluck extends LitElement {
 
     // --- Render ---
 
+    /** What an empty Plucker says for itself.
+     *
+     *  The tab renders always now, so this card is the feature's front
+     *  door for anybody who has nothing to pluck -- and there are three
+     *  ways to arrive at it: a Broadlink that never learned a code, a
+     *  replay vendor with no IR appliances set up, or no pluckable
+     *  integration at all. One block per source answers all three,
+     *  because each says what that source reads.
+     *
+     *  LAYOUT (owner ruling 2026-08-27, off the live screenshots): the
+     *  whole card is centered to match its own headline and footer, and
+     *  each source is a BLOCK -- the provider's display name as a small
+     *  label above, the body centered beneath, no colon anywhere. The
+     *  name comes from the sources payload rather than the string, so
+     *  the sentence reads as a sentence in every language and the brand
+     *  is never said twice.
+     *
+     *  No buttons, no error styling, and no line telling anybody what
+     *  to do next: an empty Plucker is a normal condition, the card
+     *  reads calm, and every line ends on a fact.
+     */
+    private _renderEmpty() {
+        const blocks = pluckEmptyBlocks(this._pluckSources, t, "tab");
+        return html`
+            <ha-card class="empty">
+                <ha-svg-icon class="empty-icon" .path=${ICON_PLUCK}></ha-svg-icon>
+                <p class="empty-lead">${t("pluck.empty.headline")}</p>
+                ${blocks.map(
+                    (block) => html`
+                        <div class="empty-source">
+                            <div class="empty-source-name">${block.name}</div>
+                            <p class="empty-source-body">${block.body}</p>
+                        </div>
+                    `,
+                )}
+                <p class="hint">${t("pluck.empty.footer")}</p>
+            </ha-card>
+        `;
+    }
+
     render() {
         const count = this._devices.length;
         return html`
@@ -997,14 +1046,7 @@ export class IrPluck extends LitElement {
             ${this._loading
                 ? html`<div class="loading">${t("common.loading_plain")}</div>`
                 : count === 0
-                  ? html`
-                        <ha-card class="empty">
-                            <ha-svg-icon class="empty-icon" .path=${ICON_PLUCK}></ha-svg-icon>
-                            <h3>${t("pluck.empty_title")}</h3>
-                            <p>${t("pluck.empty_body")}</p>
-                            <p class="hint">${t("pluck.empty_hint")}</p>
-                        </ha-card>
-                    `
+                  ? this._renderEmpty()
                   : html`
                         <div class="device-list">
                             ${keyed(
@@ -1606,6 +1648,27 @@ export class IrPluck extends LitElement {
         .empty h3 {
             color: var(--primary-text-color);
             margin: 8px 0;
+        }
+        .empty-lead {
+            color: var(--primary-text-color);
+            margin: 8px auto 20px;
+            max-width: 52ch;
+        }
+        .empty-source {
+            margin: 0 auto 18px;
+            max-width: 48ch;
+        }
+        /* The panel's existing small-label style (.toolbar-tagline). */
+        .empty-source-name {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--secondary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-bottom: 4px;
+        }
+        .empty-source-body {
+            margin: 0;
         }
         .hint {
             font-size: 0.85rem;

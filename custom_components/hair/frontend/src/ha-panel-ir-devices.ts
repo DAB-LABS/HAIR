@@ -17,7 +17,12 @@ import "./ir-clips.js";
 import "./ir-pluck.js";
 import "./ir-mirror.js";
 import "./ir-wigs.js";
-import type { DeviceSummary, IRDevice, TriggerRemoteInfo } from "./types.js";
+import type {
+    DeviceSummary,
+    IRDevice,
+    PluckSource,
+    TriggerRemoteInfo,
+} from "./types.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 
 // Bump alongside manifest.json on every release. Surfaced as a quiet
@@ -48,7 +53,7 @@ export class HaPanelIrDevices extends LitElement {
     @state() private _addDialogDropSource: WigPickRow | null = null;
     @state() private _addRemoteDialogDropSource: WigPickRow | null = null;
     @state() private _triggerRemotes: TriggerRemoteInfo[] = [];
-    @state() private _pluckersAvailable = false;
+    @state() private _pluckSources: PluckSource[] = [];
     @state() private _pendingPluckEntity = "";
 
     private _api: HairApi | null = null;
@@ -94,39 +99,29 @@ export class HaPanelIrDevices extends LitElement {
         this._api = new HairApi(this.hass);
         void this._refreshDevices({ showSpinner: true });
         void this._refreshTriggerRemotes();
-        void this._checkPluckers();
+        void this._loadPluckSources();
     }
 
-    /** Gate the Plucker tab on there being anything to pluck.
+    /** The pluckable source roll, for the two add-dialogs.
      *
-     *  EITHER mechanism counts (0.10.3). Gating on replay vendors alone
-     *  was right while replay was the only mechanism, and wrong the
-     *  moment a store read arrived: a Broadlink user has no replay
-     *  vendor by definition, since remote.send_command transmits
-     *  through its own hardware and cannot be aimed at the Tweezer. On
-     *  the bench that hid the tab entirely on a box with a real
-     *  Broadlink store sitting in .storage, which made the headline
-     *  feature of this release unreachable on exactly the install it
-     *  was built for.
+     *  This used to be `_checkPluckers()`, and it used to GATE the
+     *  Plucker tab. It no longer does, and that is the whole point of
+     *  this change: the tab renders always, like the other five, and
+     *  says what it is when it is empty. Gating it hid the feature on
+     *  exactly the hardware it was built for -- twice, once on the
+     *  vendors-only rule and again on vendors-or-stores, because both
+     *  asked "is there anything to pluck right now" of a surface whose
+     *  job is to answer "could there ever be".
      *
-     *  Default false + render-only-when-true means no flash. */
-    private async _checkPluckers(): Promise<void> {
+     *  What survives is the ACTION PICKER rule, which is a different
+     *  question and a legitimate one: see `anyPluckReadyNow`. The two
+     *  dialogs read it off this list; nothing here decides for them. */
+    private async _loadPluckSources(): Promise<void> {
         if (!this._api) return;
         try {
-            const [vendors, stores] = await Promise.allSettled([
-                this._api.listPluckVendors(),
-                this._api.listLearnedStores(),
-            ]);
-            const haveVendors =
-                vendors.status === "fulfilled" && vendors.value.vendors.length > 0;
-            const haveStores =
-                stores.status === "fulfilled" && stores.value.stores.length > 0;
-            this._pluckersAvailable = haveVendors || haveStores;
+            this._pluckSources = (await this._api.listLearnedStores()).sources ?? [];
         } catch {
-            this._pluckersAvailable = false;
-        }
-        if (this._activeTab === "plucker" && !this._pluckersAvailable) {
-            this._switchTab("devices");
+            this._pluckSources = [];
         }
     }
 
@@ -343,14 +338,12 @@ export class HaPanelIrDevices extends LitElement {
                 >
                     Clipper
                 </button>
-                ${this._pluckersAvailable
-                    ? html`<button
-                          class="tab ${this._activeTab === "plucker" ? "active" : ""}"
-                          @click=${() => this._switchTab("plucker")}
-                      >
-                          Plucker
-                      </button>`
-                    : ""}
+                <button
+                    class="tab ${this._activeTab === "plucker" ? "active" : ""}"
+                    @click=${() => this._switchTab("plucker")}
+                >
+                    Plucker
+                </button>
                 <button
                     class="tab wigs-tab ${this._activeTab === "wigs" ? "active" : ""}"
                     @click=${() => this._switchTab("wigs")}
@@ -474,7 +467,7 @@ export class HaPanelIrDevices extends LitElement {
                       <ir-add-controlled-device-dialog
                           .api=${this._api}
                           .hass=${this.hass}
-                          .pluckerConfigured=${this._pluckersAvailable}
+                          .pluckSources=${this._pluckSources}
                           .triggerRemotes=${this._triggerRemotes}
                           .dropSource=${this._addDialogDropSource}
                           @closed=${this._closeAddDialog}
@@ -488,7 +481,7 @@ export class HaPanelIrDevices extends LitElement {
                       <ir-add-trigger-remote-dialog
                           .api=${this._api}
                           .hass=${this.hass}
-                          .pluckerConfigured=${this._pluckersAvailable}
+                          .pluckSources=${this._pluckSources}
                           .dropSource=${this._addRemoteDialogDropSource}
                           @closed=${this._closeAddRemoteDialog}
                           @remote-created=${this._onRemoteCreated}

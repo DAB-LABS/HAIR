@@ -32,10 +32,12 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
+import { pluckEmptyBlocks } from "./api.js";
 import type { HairApi } from "./api.js";
 import type {
     LearnedStore,
     LearnedStoreImport,
+    PluckSource,
     PluckVendor,
     UnknownDevice,
 } from "./types.js";
@@ -76,6 +78,7 @@ export class IrPluckAddRemoteDialog extends LitElement {
 
     @state() private _candidates: Candidate[] = [];
     @state() private _stores: LearnedStore[] = [];
+    @state() private _pluckSources: PluckSource[] = [];
     @state() private _entityId = "";
     @state() private _appliance = "";
     @state() private _name = "";
@@ -112,6 +115,7 @@ export class IrPluckAddRemoteDialog extends LitElement {
 
         if (stores.status === "fulfilled") {
             this._stores = stores.value.stores;
+            this._pluckSources = stores.value.sources ?? [];
         } else {
             this._stores = [];
             this._error = (stores.reason as Error).message;
@@ -402,7 +406,20 @@ export class IrPluckAddRemoteDialog extends LitElement {
         `;
     }
 
+    /** No stores found, and it says which sources it looked at.
+     *
+     *  The same source blocks the empty TAB renders, from the same
+     *  helper, because "nothing found" is the same question in both
+     *  places and answering it two ways would be two chances to drift.
+     *  The one difference is the wording, not the structure: this is a
+     *  dialog about a blaster being added, so a source with a
+     *  dialog-specific line gets it here (owner ruling, round two).
+     *
+     *  Name as a small label above the body, same as the tab, so the
+     *  brand is never in the sentence and never said twice.
+     */
     private _renderEmptyCard() {
+        const blocks = pluckEmptyBlocks(this._pluckSources, t, "dialog");
         return html`
             <div class="device-card disabled">
                 <div class="card-glyph">
@@ -411,6 +428,18 @@ export class IrPluckAddRemoteDialog extends LitElement {
                 <div class="card-main">
                     <div class="card-name">${t("pluckstore.empty_name")}</div>
                     <div class="card-reason">${t("pluckstore.empty_reason")}</div>
+                    ${blocks.map(
+                        (block) => html`
+                            <div class="empty-source">
+                                <div class="empty-source-name">
+                                    ${block.name}
+                                </div>
+                                <div class="empty-source-body">
+                                    ${block.body}
+                                </div>
+                            </div>
+                        `,
+                    )}
                 </div>
             </div>
         `;
@@ -686,6 +715,27 @@ export class IrPluckAddRemoteDialog extends LitElement {
             color: var(--secondary-text-color);
             font-style: italic;
             margin-top: 4px;
+        }
+        /* Source blocks, the same NAME-AS-LABEL structure the Plucker
+           tab's empty card uses. Alignment follows this card rather
+           than that one: the dialog card is a left-aligned flex row
+           with a glyph beside its text, so centering a block inside
+           that column would fight everything around it. The tab's
+           card is centered because the tab's card is centered. */
+        .empty-source {
+            margin: 14px 0 0;
+            max-width: 44ch;
+        }
+        .empty-source-name {
+            font-size: 0.72rem;
+            color: var(--secondary-text-color);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-bottom: 3px;
+        }
+        .empty-source-body {
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
         }
 
         /* --- The action control: idle -> busy -> done. --- */

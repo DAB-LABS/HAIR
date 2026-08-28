@@ -41,8 +41,11 @@
  *     own kind-colored tab now, REPLACING the single grouped-with-
  *     chips "Remote" tab shell from signpost 2 (ir-remote-picker.ts,
  *     retired outright -- see ir-source-picker.ts's header for why).
- *     Plucker renders only when `.pluckerConfigured` is true. Rows are
- *     REAL, live-fetched via the already-standalone-callable
+ *     Plucker renders only when something can actually be plucked
+ *     right now (`anyPluckReadyNow`, shared with the other dialog):
+ *     this is an action picker, and an action picker offers what can
+ *     act. The Plucker TAB is the opposite case and renders always.
+ *     Rows are REAL, live-fetched via the already-standalone-callable
  *     `api.getUnknownDevices({source})` (one call per kind, lazily on
  *     first tab visit, cached per dialog instance). LIVE (Track 4
  *     bench-gate fix): picking a row calls `api.createTriggerRemote()`
@@ -131,8 +134,14 @@ import "./ir-receiver-picker.js";
 import "./ir-wig-picker.js";
 import "./ir-device-picker.js";
 import "./ir-source-picker.js";
+import { anyPluckReadyNow } from "./api.js";
 import type { HairApi } from "./api.js";
-import type { DeviceSummary, SignalSourceId, TriggerRemoteInfo } from "./types.js";
+import type {
+    DeviceSummary,
+    PluckSource,
+    SignalSourceId,
+    TriggerRemoteInfo,
+} from "./types.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type { SourcePickRow } from "./ir-source-picker.js";
 
@@ -165,10 +174,14 @@ export class IrAddTriggerRemoteDialog extends LitElement {
      *  the Closet; this is that wig's picker row. */
     @property({ attribute: false }) public dropSource: WigPickRow | null = null;
 
-    /** Whether this install has a Plucker source configured at all --
-     *  gates the Plucker tab entirely, same rule the main nav's own
-     *  Plucker tab uses. */
-    @property({ type: Boolean }) public pluckerConfigured = false;
+    /** The pluckable source roll, straight from the panel.
+     *
+     *  Read through `anyPluckReadyNow()` rather than by hand, and NOT
+     *  the rule the main nav uses any more: the nav's Plucker tab
+     *  renders unconditionally now (discovery surfaces always show),
+     *  while this dialog is an action picker and shows what works now.
+     *  One helper, so the rule cannot drift between the sites. */
+    @property({ attribute: false }) public pluckSources: PluckSource[] = [];
 
     @state() private _activeTab: Tab = "manual";
     @state() private _name = "";
@@ -458,7 +471,7 @@ export class IrAddTriggerRemoteDialog extends LitElement {
                               ${this._renderTab("device", t("addtr.tab_device"))}
                               ${this._renderTab("sniffer", SOURCE_KIND_LABEL.sniffer)}
                               ${this._renderTab("clipper", SOURCE_KIND_LABEL.clipper)}
-                              ${this.pluckerConfigured
+                              ${anyPluckReadyNow(this.pluckSources)
                                   ? this._renderTab("plucker", SOURCE_KIND_LABEL.plucker)
                                   : ""}
                           </div>
