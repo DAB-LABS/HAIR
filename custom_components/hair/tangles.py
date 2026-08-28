@@ -739,8 +739,22 @@ def pre_read(
 PROVENANCE_KEY = "hair_repair"
 
 #: The write is honest about how much of it was proven on air.
+#:
+#: ``air-tested`` is a claim about the ROOM: somebody pointed this at
+#: the unit and pressed. It is only ever written where there is send
+#: evidence behind it -- a positive ``sends_fired`` for that row, or
+#: membership in a batch's air-tested sample. Everything else a person
+#: accepts is ``accepted``, which is the honest word for "a human said
+#: yes to these bytes" and claims nothing about a transmission.
+#:
+#: RULED 2026-08-28, ship-blocker. Single apply used to DEFAULT to
+#: air-tested, so a bench run produced 48 records claiming it with zero
+#: sends behind them. The code did what it said; what it said
+#: overclaimed, against this project's own rule that the server must
+#: not pretend to verify a press it cannot see.
 TIER_AIR_TESTED = "air-tested"
 TIER_RULE_DERIVED = "rule-derived"
+TIER_ACCEPTED = "accepted"
 
 #: Stamped in a minted wig's ``extra`` when the repair write-through
 #: (C10) is what minted it. The write-through reads it back off the
@@ -778,7 +792,8 @@ def build_provenance(
     lattice: LatticeReading,
     row: TangleRow,
     tested: bool,
-    tier: str = TIER_AIR_TESTED,
+    sends_fired: int = 0,
+    tier: str | None = None,
     run: str | None = None,
     tested_keys: list[str] | None = None,
     detail: dict[str, Any] | None = None,
@@ -794,13 +809,24 @@ def build_provenance(
     somebody's air conditioner respond and must not pretend to; what it
     can do is write down that the assertion was made, and let the
     receipt carry it where anybody can read it.
+
+    ``sends_fired`` is the countable half of that, and the reason the
+    tier can be trusted: it is how many times the surface actually
+    fired this row's code, recorded verbatim. The tier DERIVES from it
+    when a caller does not force one, so the old dangerous default --
+    air-tested for anything that reached this function -- cannot come
+    back by omission. A caller may still pass ``tier`` explicitly, and
+    the batch does: its air-tested sample is evidenced by the sample
+    itself rather than by a per-row count.
     """
+    fired = max(0, int(sends_fired or 0))
     record: dict[str, Any] = {
         "origin": "fix",
         "source": source,
         "applied": _now(),
         "tested": bool(tested),
-        "tier": tier,
+        "sends_fired": fired,
+        "tier": tier or (TIER_AIR_TESTED if fired else TIER_ACCEPTED),
         "prior": {
             "pronto": prior_pronto,
             "digest": _cell_digest(prior_pronto),
