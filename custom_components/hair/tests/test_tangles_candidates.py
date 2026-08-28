@@ -252,10 +252,16 @@ class TestOverTheWire:
 class TestListeningIntoContext:
     """The same listen path, aimed at a target.
 
-    Nothing about listening changes: one capture, the R1 notice, the
-    Mirror filter, the timeout. What is added is the read-back against
-    the cell the capture was aimed at, so a surface can answer "heard
-    it: 25 degrees" or "heard 29" without a second round trip.
+    The R1 notice, the Mirror filter and the timeout are all the shared
+    path's, unchanged. What is added is the read-back against the cell
+    the capture was aimed at, so a surface can answer "heard it: 25
+    degrees" or "heard 29" without a second round trip.
+
+    This class used to open by saying one capture per arm, which was
+    true of the shared path and wrong for this caller: the mismatch
+    ladder counts misses on ONE arm, so the fix flow's window stays
+    open. See test_tangle_listen_fixes.py, which pins that and the
+    reason it was not noticed here.
     """
 
     class _Monitor:

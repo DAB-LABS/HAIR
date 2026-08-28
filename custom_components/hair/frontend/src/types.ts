@@ -1031,6 +1031,31 @@ export interface PluckVendor {
 }
 
 /**
+ * One pluckable SOURCE and where it stands (hair/pluck/stores/list).
+ *
+ * Not a list of what can be plucked now -- ``PluckVendor`` and
+ * ``LearnedStore`` are that. This is what the install could EVER pluck,
+ * which is the question the empty Plucker tab answers, and the two
+ * being conflated is what hid the tab from the people it was built for.
+ *
+ * COLLAPSED PER INTEGRATION. Tuya Local is registered under both
+ * mechanisms and is one source with two ways in, not two sources, so
+ * ``mechanisms`` is a list and ``ready`` is keyed by mechanism --
+ * carrying only the mechanisms that source actually has (Broadlink is
+ * storage-only, so its ``ready`` has one key).
+ *
+ * A source with ``loaded`` false is not installed here at all, and
+ * still lists: the empty card doubles as the feature's shop window.
+ */
+export interface PluckSource {
+    integration: string;
+    name: string;
+    mechanisms: string[];
+    loaded: boolean;
+    ready: Record<string, boolean>;
+}
+
+/**
  * One discovered learned-code store (hair/pluck/stores/list).
  *
  * ``friendly_name`` is already resolved server-side from the config

@@ -438,3 +438,91 @@ class TestPluckedStoreRows:
         )
         conn.send_error.assert_called_once()
         assert conn.send_error.call_args[0][1] == "not_found"
+
+
+# ---------------------------------------------------------------------
+# hair/pluck/stores/list -- the `sources` field (constant-tab plan)
+#
+# The empty Plucker tab reads its lines off this. It answers "what
+# could this install ever pluck", which the two lists beside it do not:
+# they answer "what can be plucked right now", and a tab that asked
+# only that hid itself from every Broadlink owner who had never learned
+# a code. list_sources has its own unit suite; what is pinned here is
+# that the field survives the WS layer with its shape intact.
+# ---------------------------------------------------------------------
+
+
+class TestStoresListSources:
+    async def test_the_field_rides_the_existing_response(
+        self, fake_hass, config_dir
+    ):
+        """No new command. The panel already makes this call."""
+        _wire(fake_hass, config_dir)
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        result = _result(conn)
+        assert "stores" in result
+        assert "sources" in result
+
+    async def test_every_source_carries_the_whole_contract(
+        self, fake_hass, config_dir
+    ):
+        _wire(fake_hass, config_dir)
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        for source in _result(conn)["sources"]:
+            assert set(source) == {
+                "integration", "name", "mechanisms", "loaded", "ready",
+            }
+            assert source["mechanisms"], source
+            assert set(source["ready"]) <= set(source["mechanisms"])
+
+    async def test_tuya_local_arrives_collapsed(self, fake_hass, config_dir):
+        """Registered under both mechanisms, one entry on the wire."""
+        _wire(fake_hass, config_dir)
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        sources = _result(conn)["sources"]
+        tuya = [s for s in sources if s["integration"] == "tuya_local"]
+        assert len(tuya) == 1
+        assert sorted(tuya[0]["mechanisms"]) == ["replay", "storage"]
+
+    async def test_a_store_on_disk_reads_as_ready(self, fake_hass, config_dir):
+        """This fixture writes both stores, so both report storage
+        ready -- the one case the old gate got right, still right."""
+        _wire(fake_hass, config_dir)
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        ready = {
+            s["integration"]: s["ready"].get("storage")
+            for s in _result(conn)["sources"]
+        }
+        assert ready == {"broadlink": True, "tuya_local": True}
+
+    async def test_a_never_installed_provider_still_serializes(
+        self, fake_hass, tmp_path
+    ):
+        """Plan section 7's third verify item, through the real
+        handler: no entities, no store, no config entry, and it still
+        reaches the panel so the card can offer it as a possibility."""
+        _wire(fake_hass, tmp_path)
+        fake_hass.config.components = set()
+        conn = _conn()
+        await ws_pluck_stores_list(
+            fake_hass, conn, {"id": 1, "type": "hair/pluck/stores/list"}
+        )
+        result = _result(conn)
+        assert result["stores"] == []
+        by_integration = {s["integration"]: s for s in result["sources"]}
+        assert "broadlink" in by_integration
+        broadlink = by_integration["broadlink"]
+        assert broadlink["loaded"] is False
+        assert broadlink["ready"] == {"storage": False}
