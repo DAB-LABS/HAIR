@@ -5378,13 +5378,29 @@ def _arm_listen(
     capture_event: str,
     timeout_event: str,
     decorate: Any = None,
+    keep_listening: bool = False,
 ) -> None:
-    """Arm the Sniffer for one capture into a Replace box.
+    """Arm the Sniffer for captures into a Replace box.
 
     A subscription, not a one-shot: the window has to be cancellable
     from the dialog (Cancel, or simply closing it), and the house
-    already listens this way for capture sessions. Emits exactly one
-    capture event or one timeout event, then stops.
+    already listens this way for capture sessions.
+
+    ONE CAPTURE OR MANY is the caller's call, and the two answers are
+    both right for their own surface. A Replace box holds one code, so
+    the command editor and the fitting row take the default: forward
+    the first capture and stop. The fix flow's LISTEN needs the
+    opposite, because its mismatch ladder counts misses on ONE arm --
+    with a single-shot window the third rung is unreachable through
+    real presses, however many times somebody presses. Those callers
+    pass ``keep_listening`` and the window stays open: every capture
+    forwards, and teardown waits for the client to unsubscribe or for
+    the timeout.
+
+    The timeout is a silence window, not a total budget, so it is
+    restarted after each forwarded capture. A ladder that dropped its
+    listener mid-climb because the person took a moment between presses
+    would fail in exactly the way this argument exists to prevent.
 
     It rides ``signal_monitor``'s existing subscriber feed rather than
     opening a second capture path. That feed also carries MIRROR rows,
@@ -5441,7 +5457,18 @@ def _arm_listen(
             # window with nothing in it.
             return
         heard = getattr(signal, "heard_by", None) or []
-        _finish()
+        if keep_listening:
+            # Stay armed, and give the next press a fresh silence
+            # window. Teardown is the client's job now, or the
+            # timeout's.
+            timer = state.get("timer")
+            if timer is not None:
+                timer.cancel()
+            state["timer"] = hass.loop.call_later(
+                FITTING_LISTEN_TIMEOUT_S, _on_timeout
+            )
+        else:
+            _finish()
         # Repeats of one press should be identical, and the moment to say
         # otherwise is now, while the remote is still in somebody's hand
         # and pressing the button again costs nothing (fitting integrity
@@ -7292,13 +7319,22 @@ async def ws_tangle_listen(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Arm the Sniffer for one capture aimed at a target.
+    """Arm the Sniffer for captures aimed at a target.
 
     Rides the same listen path the command editor uses, so a capture
     arrives here exactly as it arrives there, R1 capture notice and
     all. What this adds is CONTEXT: the capture is pre-read against the
     target's own label before the event leaves, so the surface can say
     what it heard in the device's own words without a second round trip.
+
+    CAPTURES, PLURAL. This arm stays open (``keep_listening``) because
+    the LISTEN ladder counts mismatches on one arm: hear 18 when 19 was
+    asked for, say so, hear it again, say so again, and on the third
+    offer USE IT ANYWAY -- the rung that admits our READING may be at
+    fault rather than the remote. A single-shot window made that third
+    rung unreachable no matter how many times somebody pressed, because
+    the second press had nobody listening for it. Found on the bench
+    with real hardware.
     """
     device, matrix = await _device_and_matrix(hass, msg["device_id"])
     if device is None:
@@ -7325,15 +7361,25 @@ async def ws_tangle_listen(
     lattice, coordinates = prepared
 
     def _decorate(payload: dict[str, Any]) -> None:
-        payload["verdict"] = pre_read(
-            lattice, payload["pronto"], coordinates
-        ).as_dict()
+        verdict = pre_read(lattice, payload["pronto"], coordinates)
+        payload["verdict"] = verdict.as_dict()
+        # DECODED MEANS READABLE, and this is the only place that knows
+        # the second way to read something. The generic flag underneath
+        # is the general protocol classifier, which does not recognise
+        # AC protocols at all -- so a byte-perfect ZHLT01 press arrived
+        # decoded false and the surface, obeying the flag, called it
+        # garbled while the very same event carried a clean field-tier
+        # reading of it. Widened here rather than in _arm_listen
+        # because the field tier is this caller's knowledge: the
+        # command editor and the fitting row have no lattice to read
+        # against and their flag is right as it stands.
+        payload["decoded"] = bool(payload.get("decoded")) or verdict.readable
         if msg.get("target"):
             payload["target"] = msg["target"]
 
     _arm_listen(
         hass, connection, msg, "tangle_capture", "tangle_listen_timeout",
-        decorate=_decorate,
+        decorate=_decorate, keep_listening=True,
     )
 
 
