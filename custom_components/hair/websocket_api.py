@@ -7510,6 +7510,11 @@ async def _write_matrix_and_signal(
     vol.Required("target"): str,
     vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
     vol.Required("tested"): bool,
+    #: How many times the surface actually fired this row's code. The
+    #: evidence behind an air-tested tier, and zero is a perfectly
+    #: normal answer: accepting a repair without pressing anything is
+    #: allowed, it just does not get to claim the room.
+    vol.Optional("sends_fired"): vol.All(int, vol.Range(min=0)),
     vol.Optional("source"): str,
     vol.Optional("detail"): dict,
     vol.Optional("reading_disagreed"): bool,
@@ -7601,6 +7606,11 @@ async def ws_tangle_apply(
         lattice=lattice,
         row=row,
         tested=True,
+        # No tier argument: it derives from the send evidence. This
+        # call used to take the default, which was air-tested, so
+        # every single apply claimed the room whether or not anybody
+        # had pressed anything (ruled a ship-blocker 2026-08-28).
+        sends_fired=msg.get("sends_fired", 0),
         detail=msg.get("detail"),
         disagreed=verdict.as_dict() if declared else None,
     )
@@ -7769,6 +7779,10 @@ async def ws_tangle_plan(
     vol.Required("cluster"): str,
     vol.Required("tested"): bool,
     vol.Required("tested_targets"): [str],
+    #: Per-row send tallies, keyed by target id. A row the surface
+    #: actually fired is air-tested on its own evidence, on top of the
+    #: sample the run pressed at.
+    vol.Optional("sends_fired"): {str: vol.All(int, vol.Range(min=0))},
     vol.Optional("witness"): vol.All(str, vol.Length(max=20000)),
     vol.Optional("witness_target"): str,
     vol.Optional("candidates"): dict,
@@ -7871,6 +7885,10 @@ async def ws_tangle_apply_batch(
         return
 
     run = uuid.uuid4().hex
+    fired: dict[str, int] = {
+        key: max(0, int(value or 0))
+        for key, value in (msg.get("sends_fired") or {}).items()
+    }
     cells = {_cell_key(c): c for c in (matrix.cells if matrix else [])}
     snapshot: list[tuple[Any, str, dict[str, Any]]] = []
     writes: list[tuple[Any, str, dict[str, Any]]] = []
@@ -7883,7 +7901,12 @@ async def ws_tangle_apply_batch(
             lattice=lattice,
             row=row,
             tested=True,
-            tier=(TIER_AIR_TESTED if member in tested_targets
+            sends_fired=fired.get(member, 0),
+            # The batch keeps its two tiers. What changes is that a row
+            # the surface actually fired earns air-tested on its own
+            # evidence too, instead of only by being in the sample.
+            tier=(TIER_AIR_TESTED
+                  if member in tested_targets or fired.get(member, 0)
                   else TIER_RULE_DERIVED),
             run=run,
             tested_keys=[rows[t].target.key for t in tested_targets],
