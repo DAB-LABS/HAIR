@@ -43,7 +43,7 @@ import type {
     TangleCaptureEvent,
     TangleBatchPlan,
 } from "./types.js";
-import { t } from "./localize.js";
+import { t, tp } from "./localize.js";
 import { targetWords } from "./ir-tangle-copy.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 
@@ -276,8 +276,7 @@ export class IrTangleListen extends LitElement {
             return html`
                 <div class="work">
                     <div class="closing">
-                        ${t("tangles.listen_closing", {
-                            count: this._closing.count,
+                        ${tp("tangles.listen_closing", this._closing.count, {
                             gained: this._closing.fixesGained,
                         })}
                     </div>

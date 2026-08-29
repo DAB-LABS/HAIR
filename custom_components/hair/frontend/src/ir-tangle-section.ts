@@ -53,7 +53,7 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
-import { t } from "./localize.js";
+import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
@@ -270,13 +270,13 @@ export class IrTangleSection extends LitElement {
                     ${fixCount > 0
                         ? this._renderCard(
                               "fix",
-                              t("tangles.card_fix", { count: fixCount }),
+                              tp("tangles.card_fix", fixCount),
                           )
                         : nothing}
                     ${listenRows.length > 0
                         ? this._renderCard(
                               "listen",
-                              t("tangles.card_listen", { count: listenRows.length }),
+                              tp("tangles.card_listen", listenRows.length),
                           )
                         : nothing}
                     ${decideCount > 0
