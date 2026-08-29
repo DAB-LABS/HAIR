@@ -1007,6 +1007,81 @@ def build_attestation(
     return record
 
 
+#: Written into an attestation's note when the ladder wrote it rather
+#: than the keep button. The two are the same answer arrived at down
+#: different roads, and a later reader deserves to know which: a KEEP
+#: says "these bytes are right and the finding is wrong about them",
+#: while this says "I heard the disputed value with my own remote and I
+#: am keeping it anyway". Same standing, different story.
+ATTEST_LADDER_OVERRIDE = "ladder-override"
+
+
+def written_digest(
+    device: IRDevice, matrix: ClimateMatrix | None, row: TangleRow
+) -> str | None:
+    """The digest the NEXT listing will compute for this row.
+
+    A row's digest is about the bytes it carries, so a write moves it,
+    and an answer keyed to the bytes that were just REPLACED expires the
+    instant it is recorded. This reads the row's target back out of the
+    device, after the write, through the same recipe the listing uses,
+    which is the only way the two can be relied on to agree.
+    """
+    if row.target.kind == TARGET_CELL:
+        if matrix is None:
+            return None
+        if row.target.key in ("off", "on"):
+            pronto = matrix.off if row.target.key == "off" else matrix.on
+            return None if not pronto else _cell_digest(pronto)
+        cell = next(
+            (c for c in matrix.cells if cell_key(c) == row.target.key), None
+        )
+        return None if cell is None else _cell_digest(cell.pronto)
+    wig, _sources = project_device(device, matrix)
+    if wig is None:
+        return None
+    signal = next(
+        (s for s in wig.signals if s.alias == row.target.key), None
+    )
+    if signal is None:
+        return None
+    return row_digest(
+        signal.pronto, signal.ditto_count, signal.bypass_protocol
+    )
+
+
+def attest_override(
+    device: IRDevice, matrix: ClimateMatrix | None,
+    row: TangleRow, lattice: LatticeReading,
+) -> dict[str, Any] | None:
+    """The standing answer a USE IT ANYWAY leaves behind (issue 8).
+
+    The ladder's third rung admits our READING may be at fault, and a
+    person who presses it has done the one thing the server cannot: they
+    aimed the remote and heard what the unit answers to. Before this,
+    that answer was written into the bytes and nowhere else, so the next
+    listing re-derived the same finding from the same map and asked the
+    same question again -- and the pulled command beside it read
+    REPAIRED, so the two surfaces disagreed about a row the person had
+    already settled.
+
+    Recording it as an attestation is the shipped mechanism for exactly
+    this, expiry included: the key binds the answer to the bytes now on
+    the device and to the map version that doubted them, so the moment
+    either moves the finding is open again on its own.
+
+    Returns None when the target cannot be read back, in which case
+    nothing is recorded: an attestation keyed to a guess would be worse
+    than the nagging.
+    """
+    digest = written_digest(device, matrix, row)
+    if digest is None:
+        return None
+    return build_attestation(
+        replace(row, digest=digest), lattice, note=ATTEST_LADDER_OVERRIDE
+    )
+
+
 def standing_attestation(
     device: IRDevice, row: TangleRow, lattice: LatticeReading
 ) -> dict[str, Any] | None:
