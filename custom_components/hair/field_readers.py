@@ -197,6 +197,35 @@ class FieldMap:
                 return spec
         return None
 
+    @property
+    def repeats_identically(self) -> bool:
+        """Does this map declare its frames to be one payload, repeated?
+
+        DECLARED, never inferred. The evidence is the map's own two
+        statements: a layout whose frames are all the same width, and a
+        ratified ``frame_repeat`` rule saying every other frame equals
+        the payload one. A family that merely happens to send two frames
+        of equal width says nothing here, and TCL112 is why that matters
+        -- it carries [112, 112] with the payload in the SECOND frame
+        and no repeat rule at all, so its two frames are two different
+        things and one of them alone is not the code.
+
+        This is the whole licence behind the short-capture branch in
+        ``read_code``. Without it a lone frame is an unidentifiable
+        fragment; with it, the map has already said that a single clean
+        frame carries everything the family transmits.
+        """
+        if len(self.frame_layout) < 2 or len(set(self.frame_layout)) != 1:
+            return False
+        others = set(range(len(self.frame_layout))) - {self.payload_frame}
+        declared = {
+            int(rule.params.get("frame", -1) or -1)
+            for rule in self.integrity
+            if rule.type == RULE_FRAME_REPEAT and rule.ratified
+            and int(rule.params.get("equals", 0) or 0) == self.payload_frame
+        }
+        return bool(others) and others <= declared
+
 
 @dataclass(frozen=True)
 class Reading:
@@ -563,6 +592,56 @@ def _matches_identity(
     return True
 
 
+def _matches_repeat(field_map: FieldMap, frames: list[list[int]]) -> bool:
+    """A capture carrying fewer frames than the map declares.
+
+    Only for a map that declares identical repeats, and only when the
+    frames present are the declared width and the payload index is one
+    of them. Every other short capture stays unidentified: losing a
+    frame that carries something of its own loses the code.
+    """
+    declared = len(field_map.frame_layout)
+    if not field_map.repeats_identically:
+        return False
+    if not frames or len(frames) >= declared:
+        return False
+    if field_map.payload_frame >= len(frames):
+        return False
+    width = field_map.frame_layout[0]
+    return all(
+        abs(len(frame) - width) <= field_map.bits_tolerance
+        for frame in frames
+    )
+
+
+def _payload_holds(
+    field_map: FieldMap, decoded: list[tuple[int, ...]]
+) -> bool:
+    """Does what is here satisfy every ratified rule that can judge it?
+
+    The doubled shape IS evidence, and a short capture spends it: the
+    repeat rule cannot be evaluated on frames that did not arrive. So
+    identification asks the frame that DID arrive to hold together on
+    the map's own terms instead, and a family with nothing left to
+    check with keeps its full-layout requirement. A rule that cannot be
+    evaluated is not a pass here any more than it is anywhere else.
+    """
+    reading = Reading(
+        protocol_id=field_map.protocol_id, frames=tuple(decoded)
+    )
+    judged = False
+    for rule in field_map.integrity:
+        if not rule.ratified:
+            continue
+        holds = check_integrity(reading, rule)
+        if holds is None:
+            continue
+        if not holds:
+            return False
+        judged = True
+    return judged
+
+
 def read_code(
     pronto: str, maps: list[FieldMap] | None = None,
     prefer: str | None = None,
@@ -572,6 +651,11 @@ def read_code(
     ``prefer`` names the protocol to try first, which is what makes a
     1,156-cell sweep cheap: a lattice is one family, so the map that
     read the last cell reads the next one.
+
+    TWO PASSES, and the order is the point. A code matching a map's
+    declared layout outright wins over any short-capture reading of any
+    map, so relaxing the layout for repeat families can never take a
+    code away from the family that transmits it whole.
     """
     candidates = maps if maps is not None else library()
     if not candidates:
@@ -583,17 +667,44 @@ def read_code(
     if prefer:
         ordered = sorted(candidates, key=lambda m: m.protocol_id != prefer)
     unreadable = False
+    split: list[tuple[FieldMap, list[list[int]]]] = []
     for field_map in ordered:
         frames, failed = read_frames(field_map.timing, timings)
         if failed:
             unreadable = True
             continue
+        split.append((field_map, frames))
         if not _matches_layout(field_map, frames):
             continue
         decoded = [
             bits_to_bytes(frame, field_map.bit_order) for frame in frames
         ]
         if not _matches_identity(field_map, decoded):
+            continue
+        return Reading(
+            protocol_id=field_map.protocol_id,
+            frames=tuple(decoded),
+        )
+
+    # THE HALF PRESS. A receiver hands back what it heard between two
+    # gaps, so a family that transmits its frame twice arrives as two
+    # capture events of one frame each, and neither of them matches a
+    # layout that wants both. Every one of those reads as garbled today
+    # -- the whole of issue 9, and the reason a MITSUBISHI144 column
+    # cannot be recaptured from the remote at all. A map that declares
+    # its frames identical has already said the payload survives on its
+    # own, so the frame that arrived is read on those terms, with the
+    # identity bytes and the map's own integrity standing in for the
+    # shape that did not arrive.
+    for field_map, frames in split:
+        if not _matches_repeat(field_map, frames):
+            continue
+        decoded = [
+            bits_to_bytes(frame, field_map.bit_order) for frame in frames
+        ]
+        if not _matches_identity(field_map, decoded):
+            continue
+        if not _payload_holds(field_map, decoded):
             continue
         return Reading(
             protocol_id=field_map.protocol_id,
