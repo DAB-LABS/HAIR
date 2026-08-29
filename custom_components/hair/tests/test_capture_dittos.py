@@ -509,7 +509,7 @@ async def test_assign_signal_ws_carries_repeat_count(fake_hass):
         },
     )
     conn.send_error.assert_not_called()
-    assert hair_device.commands[0].repeat_count == 5
+    assert hair_device.get_command_by_name("Power").repeat_count == 5
 
     # No repeat_count in the payload -> signal-side fallback (2).
     await ws_assign_signal(
@@ -521,7 +521,7 @@ async def test_assign_signal_ws_carries_repeat_count(fake_hass):
         },
     )
     conn.send_error.assert_not_called()
-    assert hair_device.commands[1].repeat_count == 2
+    assert hair_device.get_command_by_name("Mute").repeat_count == 2
 
 
 @pytest.mark.asyncio

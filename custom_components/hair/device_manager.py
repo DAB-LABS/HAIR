@@ -452,12 +452,12 @@ class DeviceManager:
         return matrix
 
     async def async_add_command(
-        self, device_id: str, command: IRCommand
+        self, device_id: str, command: IRCommand, *, placement: str = "append"
     ) -> IRCommand:
         device = self._store.get_device(device_id)
         if device is None:
             raise KeyError(f"Unknown device {device_id}")
-        device.add_command(command)
+        device.add_command(command, placement=placement)
         self._auto_map_command(device, command)
         self._store.update_device(device)
         await self._store.async_save()

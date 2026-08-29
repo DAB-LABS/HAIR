@@ -1020,7 +1020,7 @@ async def ws_save_captured_command(
         dict(identity.extras) if identity and identity.extras else None
     )
     command.byte_hash = canonical_byte_hash(result.code)
-    await manager.async_add_command(device.id, command)
+    await manager.async_add_command(device.id, command, placement="top")
     # Notify other tabs this signal now has an assignment (v0.5.7).
     save_fp = canonical_fingerprint(
         command.protocol, command.code, command.raw_timings
@@ -7137,7 +7137,7 @@ async def ws_device_matrix_command(
     # than only the readout. NOT ``matrix_cell``: that field marks a
     # porthole, and deleting a porthole deletes the lattice cell.
     command.sent_state = dict(state)
-    device.add_command(command)
+    device.add_command(command, placement="top")
     manager: DeviceManager = data["device_manager"]
     await manager.async_update_device(device)
     connection.send_result(msg["id"], await _device_full(hass, device))

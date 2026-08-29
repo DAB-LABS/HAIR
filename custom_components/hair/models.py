@@ -453,10 +453,29 @@ class IRDevice:
                 return command
         return None
 
-    def add_command(self, command: IRCommand) -> None:
+    def add_command(
+        self, command: IRCommand, *, placement: str = "append"
+    ) -> None:
+        """Add a command, or replace the one that already owns its name.
+
+        ``placement`` is ``"append"`` for everything that builds a
+        device from a source whose order means something -- device
+        creation, adopt, imports, the bulk copies -- so a file's own
+        command order is the order it keeps.
+
+        The panel's own mint passes ``"top"`` (owner ruling
+        2026-08-29): a command the person just made appears where they
+        are looking, at the head of the list, rather than at the
+        bottom of a long one. A name collision still replaces in
+        place, whichever placement was asked for -- that is a rename,
+        not a mint, and moving it would shuffle the list under
+        someone who only edited a name.
+        """
         existing = self.get_command_by_name(command.name)
         if existing is not None:
             self.replace_command(existing.id, command)
+        elif placement == "top":
+            self.commands.insert(0, command)
         else:
             self.commands.append(command)
         self.updated_at = _now_iso()
