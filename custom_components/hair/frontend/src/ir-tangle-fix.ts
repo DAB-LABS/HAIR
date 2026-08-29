@@ -37,9 +37,10 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
-import type { TangleListing, TangleRow } from "./types.js";
+import type { TangleListing, TangleRow, TangleTarget } from "./types.js";
 import { t, tp } from "./localize.js";
 import { targetWords } from "./ir-tangle-copy.js";
+import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import "./ir-test-button.js";
 import type { WitnessBatchEntry } from "./ir-tangle-section.js";
@@ -56,6 +57,8 @@ export class IrTangleFix extends LitElement {
     @property({ attribute: false }) public rows: TangleRow[] = [];
     @property({ attribute: false }) public listing!: TangleListing;
     @property({ attribute: false }) public batchPlans: WitnessBatchEntry[] = [];
+    /** The matrix's own native unit; display converts off it. */
+    @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
 
     @state() private _snapshot: TangleRow[] = [];
     @state() private _accepted = new Set<string>();
@@ -272,6 +275,12 @@ export class IrTangleFix extends LitElement {
         }
     }
 
+
+    /** This row's words, in the panel's unit (F9). */
+    private _words(target: TangleTarget): string {
+        return targetWords(target, this.matrixUnit, installUnit(this.hass));
+    }
+
     protected render() {
         if (this._receipt) {
             return html`
@@ -326,14 +335,14 @@ export class IrTangleFix extends LitElement {
         if (done) {
             return html`
                 <div class="rrow done">
-                    <span class="rname">${targetWords(row.target)}</span>
+                    <span class="rname">${this._words(row.target)}</span>
                     <span class="done-mark">${t("tangles.row_done")}</span>
                 </div>
             `;
         }
         return html`
             <div class="rrow">
-                <span class="rname">${targetWords(row.target)}</span>
+                <span class="rname">${this._words(row.target)}</span>
                 <span class="ractions">
                     <ir-test-button
                         .send=${() => this._send(row)}
@@ -372,7 +381,7 @@ export class IrTangleFix extends LitElement {
                     return html`
                         <div class="rrow">
                             <span class="rname"
-                                >${target ? targetWords(target) : member}</span
+                                >${target ? this._words(target) : member}</span
                             >
                             <span class="ractions">
                                 <ir-test-button

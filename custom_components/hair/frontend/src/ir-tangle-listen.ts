@@ -42,9 +42,11 @@ import type {
     TangleListenEvent,
     TangleCaptureEvent,
     TangleBatchPlan,
+    TangleTarget,
 } from "./types.js";
 import { t, tp } from "./localize.js";
 import { targetWords } from "./ir-tangle-copy.js";
+import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 
 interface HassLike {
@@ -60,6 +62,8 @@ export class IrTangleListen extends LitElement {
     @property({ attribute: false }) public deviceId!: string;
     @property({ attribute: false }) public rows: TangleRow[] = [];
     @property({ attribute: false }) public listing!: TangleListing;
+    /** The matrix's own native unit; display converts off it. */
+    @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
 
     @state() private _snapshot: TangleRow[] = [];
     @state() private _states = new Map<string, RowState>();
@@ -271,6 +275,12 @@ export class IrTangleListen extends LitElement {
         this._closing = { count: capturedCount, fixesGained: this._fixesGained };
     }
 
+
+    /** This row's words, in the panel's unit (F9). */
+    private _words(target: TangleTarget): string {
+        return targetWords(target, this.matrixUnit, installUnit(this.hass));
+    }
+
     protected render() {
         if (this._closing) {
             return html`
@@ -298,7 +308,7 @@ export class IrTangleListen extends LitElement {
         if (state === "captured") {
             return html`
                 <div class="lrow captured">
-                    <span class="lname">${targetWords(row.target)}</span>
+                    <span class="lname">${this._words(row.target)}</span>
                     <span class="done-mark">${t("tangles.listen_captured")}</span>
                 </div>
             `;
@@ -306,7 +316,7 @@ export class IrTangleListen extends LitElement {
         if (state === "skipped") {
             return html`
                 <div class="lrow skipped">
-                    <span class="lname">${targetWords(row.target)}</span>
+                    <span class="lname">${this._words(row.target)}</span>
                     <span class="skip-mark">${t("tangles.skip_for_now")}</span>
                 </div>
             `;
@@ -316,7 +326,7 @@ export class IrTangleListen extends LitElement {
         return html`
             <div class="lrow">
                 <div class="ltop">
-                    <span class="lname">${targetWords(row.target)}</span>
+                    <span class="lname">${this._words(row.target)}</span>
                     <span class="lactions">
                         <button
                             class="action-btn listen-btn ${listening ? "pulsing" : ""}"

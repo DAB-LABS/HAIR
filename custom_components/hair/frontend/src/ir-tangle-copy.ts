@@ -7,6 +7,7 @@
  * own `tv()` doc-comment: "unknown labels pass through unchanged").
  */
 import type { TangleTarget } from "./types.js";
+import { displayTemp, type MatrixUnit } from "./temperature.js";
 
 function titleCase(raw: string): string {
     return raw
@@ -18,14 +19,29 @@ function titleCase(raw: string): string {
 
 /** A target's own setting in the wig's own words -- "Heat, Fan High,
  * 22" for a matrix cell (design brief v6 section 2's own example), or
- * a flat command's id for a command target (no IRCommand lookup is
- * wired into the Tangles section today, so a flat-command row shows
- * its command id/key rather than the friendly template name -- flagged
- * for a follow-up, not silently wrong: it is the target's own real
- * identifier, just not the prettiest one). */
-export function targetWords(target: TangleTarget, unit: "C" | "F" = "C"): string {
+ * the signal's own alias for a command target.
+ *
+ * The alias comes FIRST (round one, issue 2). The backend fills `key`
+ * with the human alias and `command_id` with the device command's
+ * uuid, and this helper used to prefer the uuid -- so a LISTEN row
+ * introduced itself as "a16d8c11-ce67-47fd-a18c-632f6733daf5". The
+ * uuid is still the fallback, because it is a real identifier and a
+ * row with no alias has to say something.
+ *
+ * Temperatures render in the panel's unit (round one, F9). The matrix
+ * keeps its native numbers forever and every display surface converts
+ * per render (unit ruling 2026-07-29); this one converts through the
+ * same displayTemp the state-matrix header uses, so a row and the
+ * header can never disagree on a degree. Precision is the format
+ * default: the tangle listing carries the matrix summary, which has
+ * no precision field of its own. */
+export function targetWords(
+    target: TangleTarget,
+    nativeUnit: MatrixUnit = "C",
+    displayUnit: MatrixUnit = nativeUnit,
+): string {
     if (target.kind === "command") {
-        return target.command_id ?? target.key;
+        return target.key || target.command_id || target.key;
     }
     const coords = target.coordinates;
     if (!coords) return target.key;
@@ -39,7 +55,11 @@ export function targetWords(target: TangleTarget, unit: "C" | "F" = "C"): string
         parts.push(`Swing ${titleCase(coords.swing)}`);
     }
     if (coords.temp !== undefined && coords.temp !== null && coords.temp !== "") {
-        parts.push(`${coords.temp}°${unit}`);
+        const native = Number(coords.temp);
+        const shown = Number.isFinite(native)
+            ? displayTemp(native, nativeUnit, displayUnit)
+            : String(coords.temp);
+        parts.push(`${shown}°${displayUnit}`);
     }
     return parts.length > 0 ? parts.join(", ") : target.key;
 }

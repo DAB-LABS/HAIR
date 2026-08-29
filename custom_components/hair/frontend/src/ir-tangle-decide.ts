@@ -19,9 +19,10 @@
 import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
-import type { TangleRow } from "./types.js";
+import type { TangleRow, TangleTarget } from "./types.js";
 import { t } from "./localize.js";
 import { targetWords } from "./ir-tangle-copy.js";
+import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import "./ir-test-button.js";
 
@@ -40,6 +41,8 @@ export class IrTangleDecide extends LitElement {
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public deviceId!: string;
     @property({ attribute: false }) public pairs: DecidePairProp[] = [];
+    /** The matrix's own native unit; display converts off it. */
+    @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
 
     @state() private _snapshot: DecidePairProp[] = [];
     @state() private _resolved = new Set<string>();
@@ -115,6 +118,12 @@ export class IrTangleDecide extends LitElement {
         }
     }
 
+
+    /** This row's words, in the panel's unit (F9). */
+    private _words(target: TangleTarget): string {
+        return targetWords(target, this.matrixUnit, installUnit(this.hass));
+    }
+
     protected render() {
         return html`
             <div class="work">
@@ -164,7 +173,7 @@ export class IrTangleDecide extends LitElement {
                         : html`<span
                               class="editableval"
                               @click=${() => this._startRename(row)}
-                              >${targetWords(row.target)}</span
+                              >${this._words(row.target)}</span
                           >`}
                 </span>
                 <span class="dactions">

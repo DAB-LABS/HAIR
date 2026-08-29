@@ -1737,6 +1737,7 @@ export class IrDeviceDetail extends LitElement {
                 .hass=${this.hass}
                 .api=${this.api}
                 .deviceId=${this.device.id}
+                .matrixUnit=${this.device.matrix?.unit ?? "C"}
             ></ir-tangle-section>
 
             <div class="footer-actions">

@@ -54,6 +54,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
 import { t, tp } from "./localize.js";
+import type { MatrixUnit } from "./temperature.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
@@ -142,6 +143,9 @@ export class IrTangleSection extends LitElement {
     @property({ attribute: false }) public hass!: HassLike;
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public deviceId!: string;
+    /** The device matrix's native temperature unit, handed down so
+     * row names convert like every other display surface. */
+    @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
 
     @state() private _listing: TangleListing | null = null;
     @state() private _loading = false;
@@ -291,6 +295,7 @@ export class IrTangleSection extends LitElement {
                           .hass=${this.hass}
                           .api=${this.api}
                           .deviceId=${this.deviceId}
+                          .matrixUnit=${this.matrixUnit}
                           .rows=${fixRows}
                           .listing=${this._listing}
                           .batchPlans=${batchEntries}
@@ -301,6 +306,7 @@ export class IrTangleSection extends LitElement {
                           .hass=${this.hass}
                           .api=${this.api}
                           .deviceId=${this.deviceId}
+                          .matrixUnit=${this.matrixUnit}
                           .rows=${listenRows}
                           .listing=${this._listing}
                       ></ir-tangle-listen>`
@@ -310,6 +316,7 @@ export class IrTangleSection extends LitElement {
                           .hass=${this.hass}
                           .api=${this.api}
                           .deviceId=${this.deviceId}
+                          .matrixUnit=${this.matrixUnit}
                           .pairs=${decide.pairs}
                       ></ir-tangle-decide>`
                     : nothing}
