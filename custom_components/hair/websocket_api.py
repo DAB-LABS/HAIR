@@ -4057,6 +4057,7 @@ async def ws_wigs_upload(
         from datetime import UTC, datetime
 
         from .wig_adapters import convert, sniff_format
+        from .wig_climate import matrix_summary
         from .wig_comb import comb_wig, receipt_summary, stamp_receipt
         from .wig_format import (
             drop_legacy_fittings,
@@ -4113,6 +4114,23 @@ async def ws_wigs_upload(
                     matches[0]["filename"] if matches else None
                 ),
                 "duplicates": matches,
+                # THE PICKER ROW (B4, issue 6). Everything below is
+                # already computed by the work this handler just did, and
+                # the drop path used to go and get it again by running a
+                # whole wigs/list -- a re-scan and re-parse of EVERY wig
+                # in the closet, with claims, receipts and matrix
+                # summaries for each, to find the one row whose filename
+                # it had known since the write. The wait was long enough
+                # that the owner doubted the drop had registered.
+                # wigs/list is unchanged; this is the drop path's
+                # shortcut, not a replacement for it.
+                "model": wig.model,
+                "kind": wig.kind,
+                "signal_count": len(wig.signals),
+                "matrix": (
+                    matrix_summary(wig.climate)
+                    if wig.climate is not None else None
+                ),
             }
 
         result = parse_wig(text)
@@ -7473,6 +7491,46 @@ def _apply_source(msg: dict[str, Any]) -> str:
     } else ORIGIN_PASTE
 
 
+async def _keep_the_override(
+    hass: HomeAssistant,
+    device: Any,
+    matrix: Any,
+    row: Any,
+    lattice: Any,
+    verdict: Any,
+    declared: bool,
+) -> dict[str, Any] | None:
+    """Record the standing answer behind a USE IT ANYWAY. B2, issue 8.
+
+    Only where there is an answer to record. A declared override whose
+    bytes still read as the disputed value is a person overruling the
+    map, and that has to survive the next listing or the surface asks
+    again -- the exact loop the owner reproduced on the practice AC.
+    Bytes that read clean after the write record nothing: the finding
+    clears on its own arithmetic and an attestation would be claiming a
+    dispute that no longer exists.
+
+    Called after the write and before the save, so the digest it keys on
+    is the one now on the device and one save carries both.
+    """
+    if not declared or verdict.matches is not False:
+        return None
+
+    from .tangles import attest_override
+
+    record = await hass.async_add_executor_job(
+        attest_override, device, matrix, row, lattice
+    )
+    if record is None:
+        return None
+    device.tangle_attestations = [
+        existing for existing in device.tangle_attestations
+        if existing.get("key") != record["key"]
+    ]
+    device.tangle_attestations.append(record)
+    return record
+
+
 async def _write_matrix_and_signal(
     hass: HomeAssistant, device: IRDevice, matrix: Any
 ) -> str | None:
@@ -7634,6 +7692,9 @@ async def ws_tangle_apply(
         if failure is not None:
             connection.send_error(msg["id"], "write_failed", failure)
             return
+        attested = await _keep_the_override(
+            hass, device, matrix, row, lattice, verdict, declared,
+        )
         await manager.async_update_device(device)
     else:
         command = device.get_command(row.target.command_id or "")
@@ -7642,6 +7703,9 @@ async def ws_tangle_apply(
                 msg["id"], APPLY_NO_FINDING, "That command is gone")
             return
         write_repair(command, msg["pronto"], provenance)
+        attested = await _keep_the_override(
+            hass, device, matrix, row, lattice, verdict, declared,
+        )
         # Through async_update_device, so the known-command index
         # rebuilds on the new bytes and the entity hooks fire (gotcha 6).
         await manager.async_update_device(device)
@@ -7651,6 +7715,7 @@ async def ws_tangle_apply(
         "target": row.id,
         "provenance": provenance,
         "verdict": verdict.as_dict(),
+        "attested": attested,
         "wig": await _write_through(hass, device),
     })
 

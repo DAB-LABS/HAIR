@@ -40,6 +40,7 @@ from . import field_readers
 from .models import IRCommand, IRDevice
 from .wig_comb import (
     ADVISORY_CHECKS,
+    CHECK_DUPLICATE_LABELS,
     CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FIELD_MISMATCH,
     FIELD_COORDINATE,
@@ -234,6 +235,29 @@ def _findings_by_key(report: Any) -> dict[str, list[Finding]]:
     return grouped
 
 
+def _promoted_pairs(report: Any) -> list[Finding]:
+    """Duplicate-label findings that DECIDE can actually act on.
+
+    B3, issue 5, owner ruled 2026-08-29. `duplicate-labels` is advisory
+    and stays advisory: a flat file has no lattice to prove intent, and
+    same-code-different-label is genuinely right on a toggle remote
+    where one button says Power On and Power Off. Nothing here changes
+    the suspect count or the closet's comb chip.
+
+    What changes is that a pair reaches the surface that can answer it.
+    DECIDE's rename-or-delete UI is built for exactly two rows carrying
+    the same bytes, and a pair is the one shape of this finding where
+    the question has a small, obvious set of answers: which of these two
+    names is the liar. Three or more is a mess a person should look at
+    rather than a question a card can ask, so those stay advisory only.
+    """
+    return [
+        finding for finding in report.findings
+        if finding.check == CHECK_DUPLICATE_LABELS
+        and len(finding.keys) == 2 and len(set(finding.keys)) == 2
+    ]
+
+
 def _cell_digest(pronto: str) -> str:
     """A cell's current-bytes digest.
 
@@ -256,6 +280,10 @@ def list_tangles(
 
     report = comb_wig(wig)
     grouped = _findings_by_key(report)
+    promoted = _promoted_pairs(report)
+    for finding in promoted:
+        for key in finding.keys:
+            grouped.setdefault(key, []).append(finding)
     coverage = report.coverage.to_dict() if report.coverage else None
     listing.coverage = coverage
     protocol = None
@@ -274,9 +302,10 @@ def list_tangles(
 
     rows: list[TangleRow] = []
     lattice = read_lattice(matrix, wig)
+    lifted = {id(finding) for finding in promoted}
     listing.advisories = [
         finding.to_dict() for finding in report.findings
-        if finding.check in ADVISORY_CHECKS
+        if finding.check in ADVISORY_CHECKS and id(finding) not in lifted
     ]
     if matrix is not None:
         portholes = {
@@ -1005,6 +1034,81 @@ def build_attestation(
     if note:
         record["note"] = note
     return record
+
+
+#: Written into an attestation's note when the ladder wrote it rather
+#: than the keep button. The two are the same answer arrived at down
+#: different roads, and a later reader deserves to know which: a KEEP
+#: says "these bytes are right and the finding is wrong about them",
+#: while this says "I heard the disputed value with my own remote and I
+#: am keeping it anyway". Same standing, different story.
+ATTEST_LADDER_OVERRIDE = "ladder-override"
+
+
+def written_digest(
+    device: IRDevice, matrix: ClimateMatrix | None, row: TangleRow
+) -> str | None:
+    """The digest the NEXT listing will compute for this row.
+
+    A row's digest is about the bytes it carries, so a write moves it,
+    and an answer keyed to the bytes that were just REPLACED expires the
+    instant it is recorded. This reads the row's target back out of the
+    device, after the write, through the same recipe the listing uses,
+    which is the only way the two can be relied on to agree.
+    """
+    if row.target.kind == TARGET_CELL:
+        if matrix is None:
+            return None
+        if row.target.key in ("off", "on"):
+            pronto = matrix.off if row.target.key == "off" else matrix.on
+            return None if not pronto else _cell_digest(pronto)
+        cell = next(
+            (c for c in matrix.cells if cell_key(c) == row.target.key), None
+        )
+        return None if cell is None else _cell_digest(cell.pronto)
+    wig, _sources = project_device(device, matrix)
+    if wig is None:
+        return None
+    signal = next(
+        (s for s in wig.signals if s.alias == row.target.key), None
+    )
+    if signal is None:
+        return None
+    return row_digest(
+        signal.pronto, signal.ditto_count, signal.bypass_protocol
+    )
+
+
+def attest_override(
+    device: IRDevice, matrix: ClimateMatrix | None,
+    row: TangleRow, lattice: LatticeReading,
+) -> dict[str, Any] | None:
+    """The standing answer a USE IT ANYWAY leaves behind (issue 8).
+
+    The ladder's third rung admits our READING may be at fault, and a
+    person who presses it has done the one thing the server cannot: they
+    aimed the remote and heard what the unit answers to. Before this,
+    that answer was written into the bytes and nowhere else, so the next
+    listing re-derived the same finding from the same map and asked the
+    same question again -- and the pulled command beside it read
+    REPAIRED, so the two surfaces disagreed about a row the person had
+    already settled.
+
+    Recording it as an attestation is the shipped mechanism for exactly
+    this, expiry included: the key binds the answer to the bytes now on
+    the device and to the map version that doubted them, so the moment
+    either moves the finding is open again on its own.
+
+    Returns None when the target cannot be read back, in which case
+    nothing is recorded: an attestation keyed to a guess would be worse
+    than the nagging.
+    """
+    digest = written_digest(device, matrix, row)
+    if digest is None:
+        return None
+    return build_attestation(
+        replace(row, digest=digest), lattice, note=ATTEST_LADDER_OVERRIDE
+    )
 
 
 def standing_attestation(
@@ -1898,6 +2002,24 @@ def _cause_of(
         if name is not None:
             return CLUSTER_FIELD, (CLUSTER_FIELD, name), name, {
                 "field": name}
+
+    # Two names over one payload cluster the same way a duplicated
+    # neighbour does, and for the same reason: the card is about the
+    # GROUP, and its job is to list every place the bytes turn up. The
+    # lattice road reaches this through the comb's matrix check and a
+    # flat file reaches it through duplicate labels (B3), but what a
+    # person is looking at on the card is identical either way.
+    if leading == CHECK_DUPLICATE_LABELS:
+        # Keyed on the PAYLOAD rather than on the row digest, because
+        # that is what the comb grouped these two by. Two names over one
+        # code can still carry different ditto counts, and a card that
+        # split on those would ask the same question twice and answer
+        # neither: the question is which name is the liar, and the
+        # dittos have no opinion about that.
+        payload = _cell_digest(row.pronto)
+        return CLUSTER_IDENTICAL, (
+            CLUSTER_IDENTICAL, payload,
+        ), None, {"digest": payload}
 
     if leading == CHECK_DUPLICATED_NEIGHBOUR:
         return CLUSTER_IDENTICAL, (
