@@ -4057,6 +4057,7 @@ async def ws_wigs_upload(
         from datetime import UTC, datetime
 
         from .wig_adapters import convert, sniff_format
+        from .wig_climate import matrix_summary
         from .wig_comb import comb_wig, receipt_summary, stamp_receipt
         from .wig_format import (
             drop_legacy_fittings,
@@ -4113,6 +4114,23 @@ async def ws_wigs_upload(
                     matches[0]["filename"] if matches else None
                 ),
                 "duplicates": matches,
+                # THE PICKER ROW (B4, issue 6). Everything below is
+                # already computed by the work this handler just did, and
+                # the drop path used to go and get it again by running a
+                # whole wigs/list -- a re-scan and re-parse of EVERY wig
+                # in the closet, with claims, receipts and matrix
+                # summaries for each, to find the one row whose filename
+                # it had known since the write. The wait was long enough
+                # that the owner doubted the drop had registered.
+                # wigs/list is unchanged; this is the drop path's
+                # shortcut, not a replacement for it.
+                "model": wig.model,
+                "kind": wig.kind,
+                "signal_count": len(wig.signals),
+                "matrix": (
+                    matrix_summary(wig.climate)
+                    if wig.climate is not None else None
+                ),
             }
 
         result = parse_wig(text)
