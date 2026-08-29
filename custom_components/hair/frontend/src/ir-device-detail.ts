@@ -1583,6 +1583,16 @@ export class IrDeviceDetail extends LitElement {
                 <div class="commands-header">
                     <span>${t("devdetail.commands", { count })}</span>
                 </div>
+                <!-- The detangle rows sit ABOVE the command rows
+                     (owner ruling 2026-08-29), inside Commands and in
+                     the same visual language, so the two read as one
+                     list with the work that needs attention first. -->
+                <ir-tangle-section
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .deviceId=${this.device.id}
+                    .matrixUnit=${this.device.matrix?.unit ?? "C"}
+                ></ir-tangle-section>
                 <div class="commands-list">
                     ${keyed(
                         this._commandsListVersion,
@@ -1733,12 +1743,6 @@ export class IrDeviceDetail extends LitElement {
                 </div>
             </div>
 
-            <ir-tangle-section
-                .hass=${this.hass}
-                .api=${this.api}
-                .deviceId=${this.device.id}
-                .matrixUnit=${this.device.matrix?.unit ?? "C"}
-            ></ir-tangle-section>
 
             <div class="footer-actions">
                 <div class="add-group">

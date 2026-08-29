@@ -55,6 +55,7 @@ import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
 import { t, tp } from "./localize.js";
 import type { MatrixUnit } from "./temperature.js";
+import { ICON_COMB, COMB_VIEWBOX } from "./ir-icons.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
@@ -289,6 +290,10 @@ export class IrTangleSection extends LitElement {
                 @tangle-batch-planned=${this._handleBatchPlanned}
             >
                 <div class="tangle-header">${t("tangles.section_header")}</div>
+                <!-- At most three detangle rows, at the top (ruling
+                     2026-08-29). There are only ever three cards, so
+                     this is the shape rather than a limit that bites,
+                     but it is stated here rather than left implicit. -->
                 <div class="tangle-cards">
                     ${fixCount > 0
                         ? this._renderCard(
@@ -343,18 +348,35 @@ export class IrTangleSection extends LitElement {
         `;
     }
 
+    /** One detangle row, in the command row's own anatomy (owner
+     * ruling batch, 2026-08-29): status column, name line, actions,
+     * same paddings and background, no colored left edge. The comb
+     * takes the slot the drag grip holds on a command row and carries
+     * the card's own color -- blue FIX, amber LISTEN, copper DECIDE,
+     * the colors the chrome already used, no new palette. */
     private _renderCard(card: CardKey, sentence: string) {
         const isOpen = this._open === card;
         return html`
-            <div class="tcard ${card}">
-                <div class="tcard-sentence">${sentence}</div>
-                <button
-                    class="tcard-btn ${card}"
-                    ?disabled=${this._loading}
-                    @click=${() => this._toggle(card)}
-                >
-                    ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
-                </button>
+            <div class="trow">
+                <div class="top-line">
+                    <div class="status" aria-hidden="true">
+                        <span class="comb-glyph ${card}">
+                            <svg viewBox=${COMB_VIEWBOX}>
+                                <path d=${ICON_COMB}></path>
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="name-line">${sentence}</div>
+                    <div class="actions">
+                        <button
+                            class="tcard-btn ${card}"
+                            ?disabled=${this._loading}
+                            @click=${() => this._toggle(card)}
+                        >
+                            ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
     }
@@ -379,32 +401,65 @@ export class IrTangleSection extends LitElement {
             .tangle-cards {
                 display: flex;
                 flex-direction: column;
-                gap: 6px;
+                gap: 4px;
             }
-            .tcard {
+            /* The command row's anatomy, deliberately duplicated
+               rather than imported: ir-command-row owns its styles
+               inside its own shadow root, and the ruling is that these
+               cells LOOK like command cells, not that they become
+               them. Same paddings, same background, same three-part
+               top line (32px status | flexible name | auto actions),
+               same wrap behaviour at narrow widths. */
+            .trow {
                 display: flex;
-                align-items: center;
-                gap: 12px;
-                flex-wrap: wrap;
+                flex-direction: column;
+                gap: 4px;
+                padding: 8px 10px;
                 background: var(--primary-background-color);
                 border-radius: 4px;
-                padding: 10px 12px;
-                border-left: 3px solid var(--divider-color);
             }
-            .tcard.fix {
-                border-left-color: var(--tangle-blue, #2196f3);
+            .top-line {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 12px;
             }
-            .tcard.listen {
-                border-left-color: var(--tangle-amber, #b89930);
+            .status {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex: 0 0 32px;
             }
-            .tcard.decide {
-                border-left-color: var(--tangle-copper, #b5651d);
-            }
-            .tcard-sentence {
-                flex: 1 1 260px;
+            .name-line {
+                flex: 1 1 auto;
+                min-width: 0;
                 font-size: 0.85rem;
                 color: var(--primary-text-color);
-                min-width: 0;
+            }
+            .actions {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                flex: 0 0 auto;
+            }
+            /* The comb sits where the drag grip sits on a command row
+               and wears the card's own color. */
+            .comb-glyph {
+                display: inline-flex;
+                align-items: center;
+            }
+            .comb-glyph svg {
+                width: 14px;
+                height: 14px;
+            }
+            .comb-glyph.fix svg {
+                fill: var(--tangle-blue, #2196f3);
+            }
+            .comb-glyph.listen svg {
+                fill: var(--tangle-amber, #b89930);
+            }
+            .comb-glyph.decide svg {
+                fill: var(--tangle-copper, #b5651d);
             }
             .tcard-btn {
                 background: none;
