@@ -930,6 +930,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Clique para adicionar ou solte um ficheiro Wig, SmartIR, Flipper, LIRC ou Girr",
+    "ghost.reading": "Lendo seu arquivo...",
     "ghost.hint_compact_remote": "Clique para adicionar ou solte um ficheiro Wig, SmartIR, Flipper, LIRC ou Girr",
     "pinprompt.heading": "Fixar estes dois?",
     "pinprompt.body": "Pressionamentos em {remote} vão acionar {device}. Recusar deixa os dois objetos sem vínculo; você pode fixá-los depois pelo cabeçalho de qualquer uma das páginas de detalhes.",

@@ -930,6 +930,7 @@
     "devlist.on_badge": "ON：{count}",
     "devlist.off_badge": "OFF：{count}",
     "ghost.hint_compact_device": "クリックして追加、または Wig、SmartIR、Flipper、LIRC、Girr ファイルをドロップ",
+    "ghost.reading": "ファイルを読み込んでいます...",
     "ghost.hint_compact_remote": "クリックして追加、または Wig、SmartIR、Flipper、LIRC、Girr ファイルをドロップ",
     "pinprompt.heading": "これらをピン留めしますか？",
     "pinprompt.body": "{remote} の操作が {device} を動かすようになります。今は行わない場合、2つのオブジェクトは連携しないままです。後からどちらかの詳細ページのヘッダーからピン留めできます。",

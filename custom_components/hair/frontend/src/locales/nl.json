@@ -930,6 +930,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Klik om toe te voegen of sleep een Wig-, SmartIR-, Flipper-, LIRC- of Girr-bestand",
+    "ghost.reading": "Uw bestand wordt gelezen...",
     "ghost.hint_compact_remote": "Klik om toe te voegen of sleep een Wig-, SmartIR-, Flipper-, LIRC- of Girr-bestand",
     "pinprompt.heading": "Deze twee vastzetten?",
     "pinprompt.body": "Drukken op {remote} sturen dan {device} aan. Als je afwijst, blijven beide objecten los; je kunt ze later vastzetten via de kop van een van beide detailpagina's.",

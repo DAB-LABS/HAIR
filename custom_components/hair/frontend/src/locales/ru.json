@@ -1000,6 +1000,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Нажмите, чтобы добавить, или перетащите файл Wig, SmartIR, Flipper, LIRC или Girr",
+    "ghost.reading": "Чтение вашего файла...",
     "ghost.hint_compact_remote": "Нажмите, чтобы добавить, или перетащите файл Wig, SmartIR, Flipper, LIRC или Girr",
     "pinprompt.heading": "Закрепить их вместе?",
     "pinprompt.body": "Нажатия на {remote} будут управлять {device}. При отказе оба объекта останутся несвязанными; вы сможете закрепить их позже из заголовка любой из двух страниц с подробностями.",

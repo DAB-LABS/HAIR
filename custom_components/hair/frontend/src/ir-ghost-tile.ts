@@ -120,6 +120,13 @@ export class IrGhostTile extends LitElement {
      * does. */
     @property({ type: Boolean }) public empty = false;
 
+    /** A drop is being read and filed. The tile says so from the
+     * moment the file lands (issue 6): the import parses, combs,
+     * checks supersession and writes before the create dialog can
+     * open, and with no feedback in between the owner doubted the
+     * drop had registered at all. */
+    @property({ type: Boolean }) public busy = false;
+
     /** Tile-only dragover lighting (owner-ruled 2026-08-15: no
      * section-wide lighting -- see the coding plan's open item 0.3). */
     @state() private _dragOver = false;
@@ -169,10 +176,23 @@ export class IrGhostTile extends LitElement {
             "gt-tile",
             this.kind,
             full ? "gt-tile-full" : "gt-tile-compact",
-            this._dragOver ? "gt-dragover" : "",
+            this._dragOver && !this.busy ? "gt-dragover" : "",
+            this.busy ? "gt-busy" : "",
         ]
             .filter(Boolean)
             .join(" ");
+
+        // Reading a dropped file: the tile says so and accepts
+        // nothing else until it is done -- no click, no second drop
+        // landing on top of the first (F10).
+        if (this.busy) {
+            return html`
+                <div class=${classes} aria-busy="true" aria-label=${copy.aria}>
+                    <span class="gt-spinner" aria-hidden="true"></span>
+                    <div class="gt-tile-hint">${t("ghost.reading")}</div>
+                </div>
+            `;
+        }
 
         return html`
             <div
@@ -216,6 +236,28 @@ export class IrGhostTile extends LitElement {
     }
 
     static styles = css`
+        .gt-tile.gt-busy {
+            cursor: progress;
+        }
+        .gt-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            opacity: 0.7;
+            animation: gt-spin 900ms linear infinite;
+        }
+        @keyframes gt-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .gt-spinner {
+                animation: none;
+            }
+        }
         :host {
             display: contents;
         }

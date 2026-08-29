@@ -930,6 +930,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Fai clic per aggiungere o trascina un file Wig, SmartIR, Flipper, LIRC o Girr",
+    "ghost.reading": "Lettura del file in corso...",
     "ghost.hint_compact_remote": "Fai clic per aggiungere o trascina un file Wig, SmartIR, Flipper, LIRC o Girr",
     "pinprompt.heading": "Bloccare insieme questi due?",
     "pinprompt.body": "Le pressioni su {remote} comanderanno {device}. Rifiutando, i due oggetti restano non collegati; potrai bloccarli in seguito dall'intestazione di una delle due pagine di dettaglio.",

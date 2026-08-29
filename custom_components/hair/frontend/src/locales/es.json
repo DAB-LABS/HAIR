@@ -930,6 +930,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Haz clic para añadir o suelta un archivo Wig, SmartIR, Flipper, LIRC o Girr",
+    "ghost.reading": "Leyendo su archivo...",
     "ghost.hint_compact_remote": "Haz clic para añadir o suelta un archivo Wig, SmartIR, Flipper, LIRC o Girr",
     "pinprompt.heading": "¿Anclar estos dos?",
     "pinprompt.body": "Las pulsaciones en {remote} controlarán {device}. Si rechazas, ambos objetos quedan sin vincular; podrás anclarlos más tarde desde el encabezado de cualquiera de las dos páginas de detalle.",

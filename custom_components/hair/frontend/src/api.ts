@@ -72,6 +72,8 @@ import type {
     UnknownSignalEvent,
     WigSignalIdentity,
     WigsList,
+    MatrixSummary,
+    CombSummary,
 } from "./types.js";
 
 interface HaConnection {
@@ -415,6 +417,15 @@ export class HairApi {
             filename: string;
             name: string;
             brand: string | null;
+            // THE PICKER ROW (B4): everything the drop path needs to
+            // build its row, computed by the upload itself. Before
+            // this it ran a whole wigs/list to find the one row whose
+            // filename it already knew.
+            model?: string | null;
+            kind?: string | null;
+            signal_count?: number;
+            matrix?: MatrixSummary | null;
+            comb?: CombSummary | null;
             duplicate_of: string | null;
             // Every closet wig holding an identical device (owner ask,
             // 2026-07-20): the receipt lists all of them, clickably.

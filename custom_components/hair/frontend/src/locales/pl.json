@@ -1000,6 +1000,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Kliknij, aby dodać, lub upuść plik Wig, SmartIR, Flipper, LIRC lub Girr",
+    "ghost.reading": "Odczytywanie pliku...",
     "ghost.hint_compact_remote": "Kliknij, aby dodać, lub upuść plik Wig, SmartIR, Flipper, LIRC lub Girr",
     "pinprompt.heading": "Przypiąć je razem?",
     "pinprompt.body": "Naciśnięcia na {remote} będą sterować {device}. Odmowa pozostawia oba obiekty niepowiązane; możesz je przypiąć później z nagłówka którejkolwiek ze stron szczegółów.",

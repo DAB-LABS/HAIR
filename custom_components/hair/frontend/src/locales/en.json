@@ -930,6 +930,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Click to add, or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
+    "ghost.reading": "Reading your file...",
     "ghost.hint_compact_remote": "Click to add, or drop a Wig, SmartIR, Flipper, LIRC, or Girr file",
     "pinprompt.heading": "Pin these together?",
     "pinprompt.body": "Presses on {remote} will drive {device}. Decline leaves two unlinked objects; you can pin them later from either detail page's header.",

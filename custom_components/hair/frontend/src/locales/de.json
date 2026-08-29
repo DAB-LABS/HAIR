@@ -930,6 +930,7 @@
     "devlist.on_badge": "ON: {count}",
     "devlist.off_badge": "OFF: {count}",
     "ghost.hint_compact_device": "Zum Hinzufügen klicken oder eine Wig-, SmartIR-, Flipper-, LIRC- oder Girr-Datei ablegen",
+    "ghost.reading": "Ihre Datei wird gelesen...",
     "ghost.hint_compact_remote": "Zum Hinzufügen klicken oder eine Wig-, SmartIR-, Flipper-, LIRC- oder Girr-Datei ablegen",
     "pinprompt.heading": "Diese beiden anheften?",
     "pinprompt.body": "Tastendrücke auf {remote} steuern dann {device}. Bei Ablehnung bleiben beide Objekte unverknüpft; du kannst sie später über die Kopfzeile einer der beiden Detailseiten anheften.",
