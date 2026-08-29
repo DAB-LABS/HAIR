@@ -88,11 +88,25 @@ export function bucketFixRows(listing: TangleListing): TangleRow[] {
     });
 }
 
-export function bucketListenRows(listing: TangleListing): TangleRow[] {
+/** LISTEN's rows: everything with no donor of its own, MINUS anything
+ * a held witness plan has already built a candidate for.
+ *
+ * That subtraction is the whole of issue 7. One good witness capture
+ * settles the row it was aimed at and stages its cluster siblings as
+ * FIX rows immediately, but they kept counting here too, so after a
+ * sixteen-row capture the section read "15 more fixes ready" AND "15
+ * presses from your remote will finish these" -- the second claim no
+ * longer true. A row belongs to one card at a time; the press is what
+ * moves it. */
+export function bucketListenRows(
+    listing: TangleListing,
+    plannedIds: ReadonlySet<string> = new Set(),
+): TangleRow[] {
     const byId = clusterByRowId(listing);
     return listing.rows.filter((row) => {
         const cluster = byId.get(row.id);
         if (cluster?.rule === "identical-bytes") return false;
+        if (plannedIds.has(row.id)) return false;
         return row.has_donor !== true;
     });
 }
@@ -238,7 +252,6 @@ export class IrTangleSection extends LitElement {
         if (!this._listing) return nothing;
 
         const fixRows = bucketFixRows(this._listing);
-        const listenRows = bucketListenRows(this._listing);
         const decide = bucketDecide(this._listing);
         const decideCount = decide.pairs.length * 2;
 
@@ -258,6 +271,12 @@ export class IrTangleSection extends LitElement {
             0,
         );
         const fixCount = fixRows.length + batchCount;
+        // The rows those plans now speak for are FIX's, not LISTEN's
+        // (issue 7): counted once, in the card that can act on them.
+        const plannedIds = new Set(
+            batchEntries.flatMap((entry) => entry.pendingMembers),
+        );
+        const listenRows = bucketListenRows(this._listing, plannedIds);
 
         if (fixCount === 0 && listenRows.length === 0 && decideCount === 0) {
             return nothing;
