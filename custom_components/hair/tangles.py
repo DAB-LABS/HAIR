@@ -40,6 +40,7 @@ from . import field_readers
 from .models import IRCommand, IRDevice
 from .wig_comb import (
     ADVISORY_CHECKS,
+    CHECK_DUPLICATE_LABELS,
     CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FIELD_MISMATCH,
     FIELD_COORDINATE,
@@ -234,6 +235,29 @@ def _findings_by_key(report: Any) -> dict[str, list[Finding]]:
     return grouped
 
 
+def _promoted_pairs(report: Any) -> list[Finding]:
+    """Duplicate-label findings that DECIDE can actually act on.
+
+    B3, issue 5, owner ruled 2026-08-29. `duplicate-labels` is advisory
+    and stays advisory: a flat file has no lattice to prove intent, and
+    same-code-different-label is genuinely right on a toggle remote
+    where one button says Power On and Power Off. Nothing here changes
+    the suspect count or the closet's comb chip.
+
+    What changes is that a pair reaches the surface that can answer it.
+    DECIDE's rename-or-delete UI is built for exactly two rows carrying
+    the same bytes, and a pair is the one shape of this finding where
+    the question has a small, obvious set of answers: which of these two
+    names is the liar. Three or more is a mess a person should look at
+    rather than a question a card can ask, so those stay advisory only.
+    """
+    return [
+        finding for finding in report.findings
+        if finding.check == CHECK_DUPLICATE_LABELS
+        and len(finding.keys) == 2 and len(set(finding.keys)) == 2
+    ]
+
+
 def _cell_digest(pronto: str) -> str:
     """A cell's current-bytes digest.
 
@@ -256,6 +280,10 @@ def list_tangles(
 
     report = comb_wig(wig)
     grouped = _findings_by_key(report)
+    promoted = _promoted_pairs(report)
+    for finding in promoted:
+        for key in finding.keys:
+            grouped.setdefault(key, []).append(finding)
     coverage = report.coverage.to_dict() if report.coverage else None
     listing.coverage = coverage
     protocol = None
@@ -274,9 +302,10 @@ def list_tangles(
 
     rows: list[TangleRow] = []
     lattice = read_lattice(matrix, wig)
+    lifted = {id(finding) for finding in promoted}
     listing.advisories = [
         finding.to_dict() for finding in report.findings
-        if finding.check in ADVISORY_CHECKS
+        if finding.check in ADVISORY_CHECKS and id(finding) not in lifted
     ]
     if matrix is not None:
         portholes = {
@@ -1973,6 +2002,24 @@ def _cause_of(
         if name is not None:
             return CLUSTER_FIELD, (CLUSTER_FIELD, name), name, {
                 "field": name}
+
+    # Two names over one payload cluster the same way a duplicated
+    # neighbour does, and for the same reason: the card is about the
+    # GROUP, and its job is to list every place the bytes turn up. The
+    # lattice road reaches this through the comb's matrix check and a
+    # flat file reaches it through duplicate labels (B3), but what a
+    # person is looking at on the card is identical either way.
+    if leading == CHECK_DUPLICATE_LABELS:
+        # Keyed on the PAYLOAD rather than on the row digest, because
+        # that is what the comb grouped these two by. Two names over one
+        # code can still carry different ditto counts, and a card that
+        # split on those would ask the same question twice and answer
+        # neither: the question is which name is the liar, and the
+        # dittos have no opinion about that.
+        payload = _cell_digest(row.pronto)
+        return CLUSTER_IDENTICAL, (
+            CLUSTER_IDENTICAL, payload,
+        ), None, {"digest": payload}
 
     if leading == CHECK_DUPLICATED_NEIGHBOUR:
         return CLUSTER_IDENTICAL, (
