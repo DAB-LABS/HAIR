@@ -9,16 +9,17 @@
 import type {
     ActionOption,
     AssignResult,
+    CandidateVerdict,
     CaptureEvent,
     CaptureProviderInfo,
     CaptureStartResponse,
+    ClaimsLedger,
     CodeBrand,
+    CombReport,
+    CommandListenEvent,
     CommandTemplate,
     DeleteSignalResult,
     DeviceSummary,
-    ClaimsLedger,
-    CombReport,
-    CommandListenEvent,
     DeviceTypeId,
     DismissActivityEvent,
     IRCommand,
@@ -28,30 +29,49 @@ import type {
     LearnedStoreImport,
     MatrixCellDetail,
     MatrixCells,
-    PluckedStoreRecord,
     PluckRunResult,
     PluckSource,
     PluckVendor,
+    PluckedStoreRecord,
     ProntoValidation,
     ReceiverInfo,
     ReverseSupersessionBlock,
     SavePlan,
     SaveResult,
-    SupersedeResult,
-    SupersessionBlock,
     SignalRemovedEvent,
     SignalSourceId,
     SignalUpdatedEvent,
+    SupersedeResult,
+    SupersessionBlock,
+    TangleApplyBatchResult,
+    TangleApplyResult,
+    TangleAttestation,
+    TangleBatchCandidate,
+    TangleBatchPlan,
+    TangleCaptureEvent,
+    TangleCluster,
+    TangleDonor,
+    TangleFinding,
+    TangleKeepResult,
+    TangleListenEvent,
+    TangleListenTimeoutEvent,
+    TangleListing,
+    TangleRevertResult,
+    TangleRevertRunResult,
+    TangleRow,
+    TangleTarget,
+    TangleTestSendResult,
+    TangleWriteThrough,
     TestSignalResult,
     TriggerDrawerInfo,
-    TriggerRemoteInfo,
     TriggerFiredEvent,
+    TriggerRemoteInfo,
     UnknownDevice,
     UnknownDeviceSummary,
     UnknownSignal,
     UnknownSignalEvent,
-    WigsList,
     WigSignalIdentity,
+    WigsList,
 } from "./types.js";
 
 interface HaConnection {
@@ -1446,6 +1466,215 @@ export class HairApi {
             onEvent,
             { type: "hair/trigger/subscribe" },
         );
+    }
+
+    // --- Tangles: the fix flow (device-scoped findings, PR #129) ---
+
+    /** List every open Tangles finding on a device -- derived live from
+     * the comb on every call, never stored. */
+    tangles(deviceId: string): Promise<TangleListing> {
+        return this.hass.connection.sendMessagePromise<TangleListing>({
+            type: "hair/device/tangles",
+            device_id: deviceId,
+        });
+    }
+
+    /** Read a candidate's bytes against a target's own label (or just
+     * decode it, with no target) before committing to anything. Pure
+     * read -- nothing armed, nothing written. */
+    tanglePreRead(
+        deviceId: string,
+        pronto: string,
+        target?: string,
+    ): Promise<CandidateVerdict> {
+        return this.hass.connection.sendMessagePromise<CandidateVerdict>({
+            type: "hair/device/tangle/pre-read",
+            device_id: deviceId,
+            pronto,
+            ...(target !== undefined ? { target } : {}),
+        });
+    }
+
+    /** Fire a candidate at the real unit once. Nothing is saved; the
+     * user watches the device and decides. */
+    tangleTestSend(
+        deviceId: string,
+        pronto: string,
+        sendCount = 1,
+    ): Promise<TangleTestSendResult> {
+        return this.hass.connection.sendMessagePromise<TangleTestSendResult>({
+            type: "hair/device/tangle/test-send",
+            device_id: deviceId,
+            pronto,
+            send_count: sendCount,
+        });
+    }
+
+    /** Arm a one-shot capture for a target (or none, for a bare
+     * listen), decorated with a pre-read verdict once something
+     * arrives. Resolves immediately with {listening:true}; the single
+     * capture or timeout event follows separately. Call the returned
+     * unsubscribe on cancel or when the row stops listening -- only
+     * one row may listen at a time. */
+    async tangleListen(
+        deviceId: string,
+        onEvent: (event: TangleListenEvent) => void,
+        target?: string,
+    ): Promise<() => Promise<void>> {
+        return this.hass.connection.subscribeMessage<TangleListenEvent>(
+            onEvent,
+            {
+                type: "hair/device/tangle/listen",
+                device_id: deviceId,
+                ...(target !== undefined ? { target } : {}),
+            },
+        );
+    }
+
+    /** The one door through the no-cell-editing wall: commit candidate
+     * bytes to one cell/command with full provenance. ``tested: true``
+     * is required -- a repair is committed after a press, not before
+     * one -- and a candidate that reads as something else needs
+     * ``readingDisagreed: true`` declared explicitly rather than
+     * applied silently. ``sendsFired`` is this target's real send
+     * tally, so the receipt can only claim air evidence it has. */
+    tangleApply(payload: {
+        deviceId: string;
+        target: string;
+        pronto: string;
+        tested: boolean;
+        sendsFired: number;
+        source?: string;
+        detail?: Record<string, unknown>;
+        readingDisagreed?: boolean;
+    }): Promise<TangleApplyResult> {
+        return this.hass.connection.sendMessagePromise<TangleApplyResult>({
+            type: "hair/device/tangle/apply",
+            device_id: payload.deviceId,
+            target: payload.target,
+            pronto: payload.pronto,
+            tested: payload.tested,
+            sends_fired: payload.sendsFired,
+            ...(payload.source !== undefined
+                ? { source: payload.source }
+                : {}),
+            ...(payload.detail !== undefined
+                ? { detail: payload.detail }
+                : {}),
+            ...(payload.readingDisagreed !== undefined
+                ? { reading_disagreed: payload.readingDisagreed }
+                : {}),
+        });
+    }
+
+    /** Undo the single most recent repair on one target. One step of
+     * undo only, not a history. */
+    tangleRevert(
+        deviceId: string,
+        target: string,
+    ): Promise<TangleRevertResult> {
+        return this.hass.connection.sendMessagePromise<TangleRevertResult>({
+            type: "hair/device/tangle/revert",
+            device_id: deviceId,
+            target,
+        });
+    }
+
+    /** Resolve a candidate for every member of one cluster before
+     * anything is written, plus the deterministic proof sample the UI
+     * can say it will air-test. Pure read -- nothing armed. */
+    tanglePlan(payload: {
+        deviceId: string;
+        cluster: string;
+        witness?: string;
+        witnessTarget?: string;
+        candidates?: Record<string, unknown>;
+    }): Promise<TangleBatchPlan> {
+        return this.hass.connection.sendMessagePromise<TangleBatchPlan>({
+            type: "hair/device/tangle/plan",
+            device_id: payload.deviceId,
+            cluster: payload.cluster,
+            ...(payload.witness !== undefined
+                ? { witness: payload.witness }
+                : {}),
+            ...(payload.witnessTarget !== undefined
+                ? { witness_target: payload.witnessTarget }
+                : {}),
+            ...(payload.candidates !== undefined
+                ? { candidates: payload.candidates }
+                : {}),
+        });
+    }
+
+    /** Re-plans server-side (never trusts a client-supplied plan) and
+     * writes every member of one cluster in a single all-or-nothing
+     * batch once the given sample has proven out. */
+    tangleApplyBatch(payload: {
+        deviceId: string;
+        cluster: string;
+        tested: boolean;
+        testedTargets: string[];
+        sendsFired: Record<string, number>;
+        witness?: string;
+        witnessTarget?: string;
+        candidates?: Record<string, unknown>;
+        readingDisagreed?: boolean;
+    }): Promise<TangleApplyBatchResult> {
+        return this.hass.connection.sendMessagePromise<TangleApplyBatchResult>(
+            {
+                type: "hair/device/tangle/apply-batch",
+                device_id: payload.deviceId,
+                cluster: payload.cluster,
+                tested: payload.tested,
+                tested_targets: payload.testedTargets,
+                sends_fired: payload.sendsFired,
+                ...(payload.witness !== undefined
+                    ? { witness: payload.witness }
+                    : {}),
+                ...(payload.witnessTarget !== undefined
+                    ? { witness_target: payload.witnessTarget }
+                    : {}),
+                ...(payload.candidates !== undefined
+                    ? { candidates: payload.candidates }
+                    : {}),
+                ...(payload.readingDisagreed !== undefined
+                    ? { reading_disagreed: payload.readingDisagreed }
+                    : {}),
+            },
+        );
+    }
+
+    /** Undo every write recorded under one batch run id. */
+    tangleRevertRun(
+        deviceId: string,
+        run: string,
+    ): Promise<TangleRevertRunResult> {
+        return this.hass.connection.sendMessagePromise<TangleRevertRunResult>(
+            {
+                type: "hair/device/tangle/revert-run",
+                device_id: deviceId,
+                run,
+            },
+        );
+    }
+
+    /** Record a KEEP attestation: the finding stays truthfully flagged
+     * in the comb, but this row leaves the open worklist until its
+     * bytes or map version change. ``tested: true`` is required --
+     * keeping a code means having tried it. */
+    tangleKeep(
+        deviceId: string,
+        target: string,
+        tested: boolean,
+        note?: string,
+    ): Promise<TangleKeepResult> {
+        return this.hass.connection.sendMessagePromise<TangleKeepResult>({
+            type: "hair/device/tangle/keep",
+            device_id: deviceId,
+            target,
+            tested,
+            ...(note !== undefined ? { note } : {}),
+        });
     }
 }
 

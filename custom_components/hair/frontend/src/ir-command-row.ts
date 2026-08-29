@@ -229,6 +229,22 @@ export class IrCommandRow extends LitElement {
         return `${t(`comb.class.${found}`)} -- ${t(`comb.what.${found}`)}`;
     }
 
+    /** What a repair on this row actually did, for the chip's tooltip
+     * (kickoff ruling: the repair reads alongside the comb flag,
+     * never as more doubt). Falls back to the plain word if the date
+     * cannot be parsed rather than showing nothing. */
+    private _repairTitle(): string {
+        const record = this.command?.hair_repair;
+        if (!record) return "";
+        let when = record.applied;
+        try {
+            when = new Date(record.applied).toLocaleString();
+        } catch {
+            // Keep the raw ISO string.
+        }
+        return t("cmdrow.repaired_tooltip", { date: when });
+    }
+
     private _renderDiamonds() {
         const cmd = this.command;
         if (!cmd || cmd.protocol?.toUpperCase() !== "PRONTO" || !cmd.code)
@@ -344,6 +360,13 @@ export class IrCommandRow extends LitElement {
                                   ><svg viewBox="0 0 512 512"><path
                                               d=${ICON_COMB}
                                           ></path></svg></span
+                                  >`
+                                : ""}
+                            ${learned && this.command?.hair_repair
+                                ? html`<span
+                                      class="repair-chip"
+                                      title=${this._repairTitle()}
+                                      >${t("cmdrow.repaired")}</span
                                   >`
                                 : ""}
                             ${learned && this.command
@@ -624,6 +647,25 @@ export class IrCommandRow extends LitElement {
             width: 11px;
             height: 11px;
             fill: #d9a441;
+        }
+        /* A repair's record, alongside the comb mark rather than in
+           place of it (kickoff ruling, 2026-08-27): a repaired row
+           still wears its suspect flag, and this chip is what keeps
+           that from reading as unresolved doubt. Same chip grammar as
+           .state-chip, assign green rather than the state chip's
+           blue. */
+        .repair-chip {
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            line-height: 1.4;
+            padding: 1px 5px;
+            border-radius: 4px;
+            color: #2e7d32;
+            background: rgba(46, 125, 50, 0.12);
+            border: 1px solid rgba(46, 125, 50, 0.45);
+            cursor: help;
         }
         .name-input {
             font-size: inherit;

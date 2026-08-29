@@ -1,0 +1,427 @@
+/**
+ * The detangle surface (internal name "Tangles", PR #129 backend).
+ * Design brief v6 (docs/internal/plans/tangles-frontend-design-brief.md)
+ * is THE spec; section 6's copy table is verbatim law. Mockups
+ * tangle-mockup-t4.html through t8.html are the approved look and the
+ * click-annotated flows this file builds from.
+ *
+ * Mounted under Commands in ir-device-detail.ts, rendered only when
+ * there is something to show. One calm header line, then up to three
+ * cards -- "Fixes ready" [FIX], "Requires your remote" [LISTEN],
+ * "Requires your answer" [DECIDE] -- each a plain sentence, a count,
+ * one button opening its flow. No imposed order. One card open at a
+ * time; opening a second closes the first (the brief's flows are each
+ * "open it" full-width work, not simultaneous).
+ *
+ * BUCKETING (tangles-backend.md P6, verified against the merged
+ * websocket_api.py/tangles.py source, corrected 2026-08-27): a
+ * TangleListing has no bucket field of its own, and a cluster's own
+ * `mechanic` is the STRONGEST road any of its members can take
+ * (_best_mechanic in tangles.py), not a per-row fact -- a "donor"
+ * cluster can hold a member with no donor of its own. Bucketing keys
+ * on each ROW's own `has_donor` instead, which is what guarantees
+ * `row.donor.pronto` (the candidate FIX actually sends/writes) exists:
+ *   - FIX:    rows with `has_donor: true` (a donor candidate already
+ *             exists -- nothing to capture).
+ *   - LISTEN: rows with `has_donor: false`. Within LISTEN, the row's
+ *             CLUSTER mechanic ("witness" vs "recapture") still picks
+ *             which mismatch logic applies, per ir-tangle-listen.ts.
+ *             A witness capture there can seed `tangle/plan` for its
+ *             cluster; the result arrives here as a `tangle-batch-
+ *             planned` event and is held in `_witnessPlans` until its
+ *             cluster's members either get written (ACCEPT, in FIX) or
+ *             the listing moves on without them.
+ *   - DECIDE: any 2-member "identical-bytes" cluster (the duplicate-
+ *             name shape P6 already clusters). The brief's other
+ *             DECIDE item type ("keep or fix, this code looks
+ *             unusual") has no backend data source in the merged PR
+ *             #129 payload: `listing.advisories` are explicitly
+ *             informational-only (tangles.py's own docstring: "not
+ *             suspects", "never become rows or cards"), and every row
+ *             already resolves to has_donor or one of the two LISTEN
+ *             mechanics, with no ambiguous fourth case. Owner-ruled
+ *             2026-08-27: omit it entirely rather than ship a dormant
+ *             item type; it lands with the alias-collision ticket that
+ *             designs DECIDE's full population.
+ *
+ * The wig write-through result each mutating command returns under
+ * `wig` is tracked here (the most recent one); "Your wig has been
+ * updated." (brief section 5) renders only once the whole section is
+ * about to retire AND that last write reported `written: true`.
+ */
+import { LitElement, html, css, nothing } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
+import type { HairApi } from "./api.js";
+import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
+import { t } from "./localize.js";
+import { dialogStyles } from "./ir-dialog-styles.js";
+import "./ir-tangle-fix.js";
+import "./ir-tangle-listen.js";
+import "./ir-tangle-decide.js";
+
+interface HassLike {
+    language?: string;
+    [key: string]: unknown;
+}
+
+type CardKey = "fix" | "listen" | "decide";
+
+/** Which cluster (if any) a row belongs to -- built once per listing
+ * fetch since clusters carry members by row id, not the reverse. */
+function clusterByRowId(listing: TangleListing): Map<string, TangleCluster> {
+    const map = new Map<string, TangleCluster>();
+    for (const cluster of listing.clusters) {
+        for (const memberId of cluster.members) {
+            map.set(memberId, cluster);
+        }
+    }
+    return map;
+}
+
+export function bucketFixRows(listing: TangleListing): TangleRow[] {
+    const byId = clusterByRowId(listing);
+    return listing.rows.filter((row) => {
+        const cluster = byId.get(row.id);
+        if (cluster?.rule === "identical-bytes") return false;
+        return row.has_donor === true;
+    });
+}
+
+export function bucketListenRows(listing: TangleListing): TangleRow[] {
+    const byId = clusterByRowId(listing);
+    return listing.rows.filter((row) => {
+        const cluster = byId.get(row.id);
+        if (cluster?.rule === "identical-bytes") return false;
+        return row.has_donor !== true;
+    });
+}
+
+export interface DecidePair {
+    cluster: TangleCluster;
+    rows: TangleRow[];
+}
+
+/**
+ * DECIDE, as this build can actually populate it (2026-08-27 finding,
+ * owner-ruled: ship the duplicate pairing only, the keep-or-fix item
+ * type has no data source today and lands with the alias-collision
+ * ticket). See this file's header doc comment for the full reasoning.
+ */
+export function bucketDecide(listing: TangleListing): {
+    pairs: DecidePair[];
+} {
+    const byId = new Map(listing.rows.map((r) => [r.id, r]));
+    const pairs: DecidePair[] = [];
+    for (const cluster of listing.clusters) {
+        if (cluster.rule === "identical-bytes" && cluster.members.length === 2) {
+            const rows = cluster.members
+                .map((id) => byId.get(id))
+                .filter((r): r is TangleRow => !!r);
+            if (rows.length === 2) pairs.push({ cluster, rows });
+        }
+    }
+    return { pairs };
+}
+
+/** One witness capture's pure plan for its cluster, held client-side
+ * until ACCEPT writes it (tangle/apply-batch) or it stops applying.
+ * `pendingMembers` is the deduped display list: every candidate the
+ * plan found, minus the witness target itself (LISTEN already applied
+ * that one directly) and minus anything already showing as an
+ * ordinary donor FIX row (real has_donor, no need to say it twice). */
+export interface WitnessBatchEntry {
+    clusterId: string;
+    witness: string;
+    witnessTarget: string;
+    plan: TangleBatchPlan;
+    pendingMembers: string[];
+}
+
+@customElement("ir-tangle-section")
+export class IrTangleSection extends LitElement {
+    @property({ attribute: false }) public hass!: HassLike;
+    @property({ attribute: false }) public api!: HairApi;
+    @property({ attribute: false }) public deviceId!: string;
+
+    @state() private _listing: TangleListing | null = null;
+    @state() private _loading = false;
+    @state() private _open: CardKey | null = null;
+    @state() private _lastWigWrite: boolean | null = null;
+    @state() private _justRetired = false;
+    @state() private _witnessPlans = new Map<
+        string,
+        { witness: string; witnessTarget: string; plan: TangleBatchPlan }
+    >();
+
+    connectedCallback(): void {
+        super.connectedCallback();
+        void this._refresh();
+    }
+
+    updated(changed: Map<string, unknown>): void {
+        if (changed.has("deviceId") && changed.get("deviceId") !== undefined) {
+            this._open = null;
+            this._witnessPlans = new Map();
+            void this._refresh();
+        }
+    }
+
+    private async _refresh(): Promise<void> {
+        if (!this.deviceId) return;
+        this._loading = true;
+        try {
+            this._listing = await this.api.tangles(this.deviceId);
+        } finally {
+            this._loading = false;
+        }
+    }
+
+    /** Called by a child flow after any mutating command. Records the
+     * write-through outcome, re-fetches, and -- if the section is now
+     * empty and the write succeeded -- shows the closing line once. */
+    private _handleMutated = async (
+        ev: CustomEvent<{ wigWritten: boolean | null; batchClusterApplied?: string }>,
+    ): Promise<void> => {
+        if (ev.detail.wigWritten !== null) this._lastWigWrite = ev.detail.wigWritten;
+        if (ev.detail.batchClusterApplied) {
+            const next = new Map(this._witnessPlans);
+            next.delete(ev.detail.batchClusterApplied);
+            this._witnessPlans = next;
+        }
+        const before = this._listing;
+        await this._refresh();
+        // Advisories are informational only (never suspects, never
+        // actionable -- see bucketDecide's own doc comment) and are
+        // deliberately excluded here: a device that still has
+        // advisories but zero open rows is a fully retired section.
+        const nowEmpty =
+            this._listing &&
+            this._listing.rows.length === 0 &&
+            this._witnessPlans.size === 0;
+        const wasNonEmpty = before && before.rows.length > 0;
+        if (nowEmpty && wasNonEmpty && this._lastWigWrite) {
+            this._justRetired = true;
+        }
+        if (nowEmpty) this._open = null;
+    };
+
+    /** A witness capture in LISTEN produced a pure plan for its
+     * cluster (ir-tangle-listen.ts's tangle-batch-planned event). Held
+     * here, not written -- ACCEPT in FIX is still what commits it. */
+    private _handleBatchPlanned = (
+        ev: CustomEvent<{
+            clusterId: string;
+            witness: string;
+            witnessTarget: string;
+            plan: TangleBatchPlan;
+        }>,
+    ): void => {
+        const { clusterId, witness, witnessTarget, plan } = ev.detail;
+        if (plan.refused || Object.keys(plan.candidates).length === 0) return;
+        const next = new Map(this._witnessPlans);
+        next.set(clusterId, { witness, witnessTarget, plan });
+        this._witnessPlans = next;
+    };
+
+    private _toggle(card: CardKey): void {
+        this._open = this._open === card ? null : card;
+    }
+
+    protected render() {
+        if (this._justRetired) {
+            return html`<div class="retired-line">${t("tangles.updated")}</div>`;
+        }
+        if (!this._listing) return nothing;
+
+        const fixRows = bucketFixRows(this._listing);
+        const listenRows = bucketListenRows(this._listing);
+        const decide = bucketDecide(this._listing);
+        const decideCount = decide.pairs.length * 2;
+
+        const fixRowIds = new Set(fixRows.map((r) => r.id));
+        const batchEntries: WitnessBatchEntry[] = Array.from(
+            this._witnessPlans.entries(),
+        )
+            .map(([clusterId, held]) => {
+                const pendingMembers = Object.keys(held.plan.candidates).filter(
+                    (m) => m !== held.witnessTarget && !fixRowIds.has(m),
+                );
+                return { clusterId, ...held, pendingMembers };
+            })
+            .filter((entry) => entry.pendingMembers.length > 0);
+        const batchCount = batchEntries.reduce(
+            (sum, entry) => sum + entry.pendingMembers.length,
+            0,
+        );
+        const fixCount = fixRows.length + batchCount;
+
+        if (fixCount === 0 && listenRows.length === 0 && decideCount === 0) {
+            return nothing;
+        }
+
+        return html`
+            <div
+                class="tangle-section"
+                @tangle-mutated=${this._handleMutated}
+                @tangle-batch-planned=${this._handleBatchPlanned}
+            >
+                <div class="tangle-header">${t("tangles.section_header")}</div>
+                <div class="tangle-cards">
+                    ${fixCount > 0
+                        ? this._renderCard(
+                              "fix",
+                              t("tangles.card_fix", { count: fixCount }),
+                          )
+                        : nothing}
+                    ${listenRows.length > 0
+                        ? this._renderCard(
+                              "listen",
+                              t("tangles.card_listen", { count: listenRows.length }),
+                          )
+                        : nothing}
+                    ${decideCount > 0
+                        ? this._renderCard(
+                              "decide",
+                              t("tangles.card_decide", { count: decideCount }),
+                          )
+                        : nothing}
+                </div>
+                ${this._open === "fix"
+                    ? html`<ir-tangle-fix
+                          .hass=${this.hass}
+                          .api=${this.api}
+                          .deviceId=${this.deviceId}
+                          .rows=${fixRows}
+                          .listing=${this._listing}
+                          .batchPlans=${batchEntries}
+                      ></ir-tangle-fix>`
+                    : nothing}
+                ${this._open === "listen"
+                    ? html`<ir-tangle-listen
+                          .hass=${this.hass}
+                          .api=${this.api}
+                          .deviceId=${this.deviceId}
+                          .rows=${listenRows}
+                          .listing=${this._listing}
+                      ></ir-tangle-listen>`
+                    : nothing}
+                ${this._open === "decide"
+                    ? html`<ir-tangle-decide
+                          .hass=${this.hass}
+                          .api=${this.api}
+                          .deviceId=${this.deviceId}
+                          .pairs=${decide.pairs}
+                      ></ir-tangle-decide>`
+                    : nothing}
+            </div>
+        `;
+    }
+
+    private _renderCard(card: CardKey, sentence: string) {
+        const isOpen = this._open === card;
+        return html`
+            <div class="tcard ${card}">
+                <div class="tcard-sentence">${sentence}</div>
+                <button
+                    class="tcard-btn ${card}"
+                    ?disabled=${this._loading}
+                    @click=${() => this._toggle(card)}
+                >
+                    ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
+                </button>
+            </div>
+        `;
+    }
+
+    static styles = [
+        dialogStyles,
+        css`
+            :host {
+                display: block;
+            }
+            .tangle-section {
+                margin: 12px 0;
+                border-top: 1px solid var(--divider-color);
+                padding-top: 9px;
+            }
+            .tangle-header {
+                font-size: 0.85rem;
+                font-weight: 500;
+                margin-bottom: 8px;
+                color: var(--primary-text-color);
+            }
+            .tangle-cards {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+            .tcard {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                background: var(--primary-background-color);
+                border-radius: 4px;
+                padding: 10px 12px;
+                border-left: 3px solid var(--divider-color);
+            }
+            .tcard.fix {
+                border-left-color: var(--tangle-blue, #2196f3);
+            }
+            .tcard.listen {
+                border-left-color: var(--tangle-amber, #b89930);
+            }
+            .tcard.decide {
+                border-left-color: var(--tangle-copper, #b5651d);
+            }
+            .tcard-sentence {
+                flex: 1 1 260px;
+                font-size: 0.85rem;
+                color: var(--primary-text-color);
+                min-width: 0;
+            }
+            .tcard-btn {
+                background: none;
+                border: 1px solid var(--divider-color);
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 0.75rem;
+                font-weight: 500;
+                font-family: inherit;
+                cursor: pointer;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                transition: background 150ms ease;
+                flex: 0 0 auto;
+            }
+            .tcard-btn:hover {
+                background: var(--secondary-background-color);
+            }
+            .tcard-btn.fix {
+                color: var(--tangle-blue, #2196f3);
+                border-color: rgba(33, 150, 243, 0.3);
+            }
+            .tcard-btn.listen {
+                color: var(--tangle-amber, #b89930);
+                border-color: rgba(184, 153, 48, 0.3);
+            }
+            .tcard-btn.decide {
+                color: var(--tangle-copper, #b5651d);
+                border-color: rgba(181, 101, 29, 0.3);
+            }
+            .retired-line {
+                margin: 12px 0;
+                padding: 10px 12px;
+                font-size: 0.85rem;
+                color: var(--secondary-text-color);
+                text-align: center;
+            }
+        `,
+    ];
+}
+
+declare global {
+    interface HTMLElementTagNameMap {
+        "ir-tangle-section": IrTangleSection;
+    }
+}
