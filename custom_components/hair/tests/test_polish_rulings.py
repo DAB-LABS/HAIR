@@ -3558,3 +3558,52 @@ class TestTheGhostDropAnswersAReverseSupersession:
         assert "public altLabel" in text
         assert "${this.altLabel" in text
         assert 'new CustomEvent("alt-action"' in text
+class TestTheDetangleSectionIsItsOwnBlock:
+    """R4 (issue 12, owner ruled 2026-08-30), superseding the placement
+    ruled the day before.
+
+    Round one put the detangle rows under the "Commands (N)" header,
+    which read on the box as "the tangles are inside the commands".
+    That is a claim about what these rows ARE, and it is the wrong one:
+    they are work ABOUT the commands, not commands. The section is now
+    its own block, fully above and outside that header, carrying its
+    own attention line and at most three rows, and keeping the
+    command-row visual language it adopted in round one.
+    """
+
+    def test_the_section_sits_above_the_commands_block(self):
+        text = _read("ir-device-detail.ts")
+        assert text.index("</ir-tangle-section>") < text.index(
+            '<div class="commands-section">'
+        )
+
+    def test_it_renders_exactly_once(self):
+        """Two of them would double every finding on the page."""
+        text = _read("ir-device-detail.ts")
+        assert text.count("<ir-tangle-section") == 1
+
+    def test_the_commands_header_no_longer_wraps_it(self):
+        """The header and the section must not share a parent: the
+        block between the Commands header and the command list is the
+        exact place this section is no longer allowed to be."""
+        text = _read("ir-device-detail.ts")
+        block = text.split('<div class="commands-section">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "ir-tangle-section" not in block
+
+    def test_the_section_still_carries_its_own_attention_line(self):
+        """Outside the Commands header it has nothing else to announce
+        it, so the header line is now load-bearing rather than
+        decorative."""
+        text = _read("ir-tangle-section.ts")
+        assert 't("tangles.section_header")' in text
+
+    def test_the_rows_still_read_as_command_rows(self):
+        """The placement changed; the visual language did not. The
+        cells keep the command row's three-part top line and the comb
+        in the status slot (owner ruling batch, 2026-08-29)."""
+        text = _read("ir-tangle-section.ts")
+        assert 'class="trow"' in text
+        assert 'class="top-line"' in text
+        assert "comb-glyph" in text

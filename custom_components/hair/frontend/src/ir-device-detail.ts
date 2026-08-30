@@ -1578,21 +1578,31 @@ export class IrDeviceDetail extends LitElement {
                   ></ir-matrix-card>`
                 : nothing}
 
+            <!-- THE DETANGLE SECTION IS ITS OWN BLOCK (issue 12,
+                 owner ruling 2026-08-30, superseding the placement
+                 ruled a day earlier). It sits fully above and outside
+                 the Commands header, carrying its own attention line
+                 and at most three rows. Round one put it under that
+                 header and the result read as "the tangles are inside
+                 the commands", which is a claim about what these rows
+                 ARE. They are work about the commands, not commands.
+                 The command-row visual language stays: the rows still
+                 look like command cells, they just are not filed
+                 under the Commands count. The section renders itself
+                 away when there are no findings, so a healthy device
+                 shows no gap here. -->
+            <ir-tangle-section
+                .hass=${this.hass}
+                .api=${this.api}
+                .deviceId=${this.device.id}
+                .matrixUnit=${this.device.matrix?.unit ?? "C"}
+            ></ir-tangle-section>
+
             <!-- Commands -->
             <div class="commands-section">
                 <div class="commands-header">
                     <span>${t("devdetail.commands", { count })}</span>
                 </div>
-                <!-- The detangle rows sit ABOVE the command rows
-                     (owner ruling 2026-08-29), inside Commands and in
-                     the same visual language, so the two read as one
-                     list with the work that needs attention first. -->
-                <ir-tangle-section
-                    .hass=${this.hass}
-                    .api=${this.api}
-                    .deviceId=${this.device.id}
-                    .matrixUnit=${this.device.matrix?.unit ?? "C"}
-                ></ir-tangle-section>
                 <div class="commands-list">
                     ${keyed(
                         this._commandsListVersion,
