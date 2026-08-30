@@ -1221,11 +1221,40 @@ def attest_override(
 def standing_attestation(
     device: IRDevice, row: TangleRow, lattice: LatticeReading
 ) -> dict[str, Any] | None:
-    """The attestation covering this row's CURRENT bytes, if any."""
+    """The attestation covering this row's CURRENT bytes, if any.
+
+    Keyed match first, which is the exact-and-cheap case. Then, for a
+    COMMAND row only, a second look that ignores the name.
+
+    A flat row's target key is the command's own alias, so the key
+    moves when somebody renames the command -- and renaming is not an
+    incidental thing here, it is half of what DECIDE offers. Keeping a
+    duplicate pair and then renaming one member would expire the answer
+    that was just given about it, and the pair would come back on the
+    next listing wearing the new name. The bytes are what an
+    attestation is ABOUT; the digest and the map version identify them,
+    and both of those still have to match exactly, so nothing is
+    loosened about WHICH bytes were answered. Only where they live is
+    allowed to move.
+
+    A cell row is left alone: its key is coordinates, coordinates do
+    not get renamed, and a cell whose coordinates changed genuinely is
+    a different cell.
+    """
     version = lattice.field_map.version if lattice.readable else None
     wanted = attestation_key(row.target.key, row.digest, version)
     for record in device.tangle_attestations:
         if record.get("key") == wanted:
+            return record
+    if row.target.kind != TARGET_COMMAND:
+        return None
+    for record in device.tangle_attestations:
+        if record.get("kind") != TARGET_COMMAND:
+            continue
+        if record.get("digest") != row.digest:
+            continue
+        stamped = (record.get("map") or {}).get("version")
+        if stamped == version:
             return record
     return None
 

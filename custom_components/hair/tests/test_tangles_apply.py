@@ -35,6 +35,7 @@ from custom_components.hair.tangles import (
     APPLY_NO_FINDING,
     APPLY_NOT_TESTED,
     APPLY_NOTHING_TO_REVERT,
+    KEEP_NO_FINDING,
     PROVENANCE_KEY,
     list_tangles,
     read_repair,
@@ -655,3 +656,131 @@ class TestTheRetireMomentSweep:
         assert len(listing.attested) == 2
         assert first.comb_suspect is True
         assert second.comb_suspect is True
+class TestKeepingAPairIsOneAnswer:
+    """Issue 23, confirmed live on the Mitsubishi before it was built.
+
+    Round three's KEEP BOTH settled a pair on screen and wrote nothing,
+    so the duplicate-labels finding regenerated on the next listing and
+    the pair came back. Renaming does not change bytes, and the comb
+    reads bytes.
+
+    Both members are answered together, through the mechanism issue 8
+    already built: an attestation keyed to each row's own digest and
+    the map version, which expires itself the moment either moves.
+    """
+
+    def _pair(self, device):
+        rows = list_tangles(device, None).rows
+        assert len(rows) == 2
+        return rows
+
+    async def _keep(self, hass, device, targets, note=None):
+        connection = _conn()
+        payload = {
+            "id": 1, "type": "hair/device/tangle/keep",
+            "device_id": device.id, "targets": targets, "tested": True,
+        }
+        if note is not None:
+            payload["note"] = note
+        await ws_tangle_keep(hass, connection, payload)
+        return connection
+
+    @pytest.mark.asyncio
+    async def test_both_members_are_answered_in_one_call(self, dreo):
+        hass, device, manager = dreo
+        rows = self._pair(device)
+
+        connection = await self._keep(
+            hass, device, [rows[0].id, rows[1].id], note="pair-kept")
+
+        connection.send_error.assert_not_called()
+        result = connection.send_result.call_args.args[1]
+        assert len(result["records"]) == 2
+        assert {r["note"] for r in result["records"]} == {"pair-kept"}
+        assert len(device.tangle_attestations) == 2
+        # One save and one write-through for one human answer: keeping
+        # them one at a time would mint a successor wig per member.
+        manager.async_update_device.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_the_pair_is_gone_from_the_next_listing(self, dreo):
+        """The whole point. Both rows leave the work list, and stay
+        gone as long as their bytes and the map hold still."""
+        hass, device, _manager = dreo
+        rows = self._pair(device)
+
+        await self._keep(hass, device, [rows[0].id, rows[1].id])
+
+        after = list_tangles(device, None)
+        assert after.rows == []
+        assert len(after.attested) == 2
+
+    @pytest.mark.asyncio
+    async def test_renaming_after_the_answer_does_not_resurrect_it(
+        self, dreo
+    ):
+        """Round three's shape, from the other side: a rename changes
+        no bytes, so it cannot reopen an answer that is keyed to
+        bytes."""
+        hass, device, _manager = dreo
+        rows = self._pair(device)
+        await self._keep(hass, device, [rows[0].id, rows[1].id])
+
+        device.get_command(rows[0].target.command_id).name = "Renamed"
+
+        assert list_tangles(device, None).rows == []
+
+    @pytest.mark.asyncio
+    async def test_changing_the_bytes_reopens_it(self, dreo):
+        """The expiry mechanism, unchanged: an attestation is about
+        SOME BYTES, and different bytes are a different question. There
+        is nothing scheduled and nothing swept -- the key simply stops
+        matching."""
+        hass, device, _manager = dreo
+        rows = self._pair(device)
+        await self._keep(hass, device, [rows[0].id, rows[1].id])
+        assert list_tangles(device, None).rows == []
+
+        command = device.get_command(rows[0].target.command_id)
+        words = command.code.split()
+        words[20] = format(int(words[20], 16) + 6, "04X")
+        command.code = " ".join(words)
+
+        assert list_tangles(device, None).rows
+
+    @pytest.mark.asyncio
+    async def test_a_target_with_no_finding_refuses_the_whole_call(
+        self, dreo
+    ):
+        """No half-answered pairs. Everything is resolved before
+        anything is stored, so a stale target takes the call down
+        rather than leaving one member settled and one open."""
+        hass, device, _manager = dreo
+        rows = self._pair(device)
+
+        connection = await self._keep(
+            hass, device, [rows[0].id, "command:not-a-real-target"])
+
+        assert connection.send_error.call_args.args[1] == KEEP_NO_FINDING
+        assert device.tangle_attestations == []
+        assert len(list_tangles(device, None).rows) == 2
+
+    @pytest.mark.asyncio
+    async def test_one_target_still_works_exactly_as_before(self, dreo):
+        """Every existing caller sends a single target. The exclusive
+        pair is additive precisely so none of them had to change."""
+        hass, device, _manager = dreo
+        rows = self._pair(device)
+
+        connection = _conn()
+        await ws_tangle_keep(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/keep",
+            "device_id": device.id, "target": rows[0].id, "tested": True,
+        })
+
+        connection.send_error.assert_not_called()
+        result = connection.send_result.call_args.args[1]
+        assert result["target"] == rows[0].id
+        assert result["record"]["target"] == rows[0].target.key
+        assert len(device.tangle_attestations) == 1
+        assert len(list_tangles(device, None).rows) == 1

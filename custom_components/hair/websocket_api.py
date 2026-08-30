@@ -8171,7 +8171,14 @@ async def ws_tangle_revert_run(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/device/tangle/keep",
     vol.Required("device_id"): str,
-    vol.Required("target"): str,
+    # One target, or several answered together (issue 23). Exclusive
+    # rather than a list-only rewrite: every existing caller sends one
+    # target and keeps working unchanged, which is the same shape
+    # ws_wig_signals already uses for its two source keys.
+    vol.Exclusive("target", "keep_target"): str,
+    vol.Exclusive("targets", "keep_target"): vol.All(
+        [str], vol.Length(min=1, max=8)
+    ),
     vol.Required("tested"): bool,
     vol.Optional("note"): vol.All(str, vol.Length(max=500)),
 })
@@ -8194,6 +8201,16 @@ async def ws_tangle_keep(
     changes is that the row leaves the work list, and re-combing stays
     quiet about it for exactly as long as the bytes and the map hold
     still.
+
+    SEVERAL AT ONCE (issue 23). A duplicate pair is one decision about
+    two rows: KEEP BOTH means both of these are wanted. Answering them
+    one at a time would write two records in two saves and mint two
+    successor wigs for a single human answer, so the endpoint takes
+    ``targets`` and settles them together -- one save, one write
+    through, one supersession. Every row is resolved and every
+    attestation built before anything is stored, so a target that has
+    no current finding refuses the whole call rather than leaving half
+    a pair answered.
     """
     device, matrix = await _device_and_matrix(hass, msg["device_id"])
     if device is None:
@@ -8217,27 +8234,44 @@ async def ws_tangle_keep(
         )
         return
 
+    targets = msg.get("targets") or (
+        [msg["target"]] if msg.get("target") else []
+    )
+    if not targets:
+        connection.send_error(
+            msg["id"], KEEP_NO_FINDING, "Nothing was named to keep")
+        return
+
     def _prepare() -> Any:
         listing = list_tangles(device, matrix)
-        row = _resolve_target(listing, msg["target"])
-        if row is None:
-            return KEEP_NO_FINDING
+        rows = []
+        for target in targets:
+            row = _resolve_target(listing, target)
+            if row is None:
+                return KEEP_NO_FINDING
+            rows.append(row)
         wig, _sources = project_device(device, matrix)
-        return row, read_lattice(matrix, wig)
+        return rows, read_lattice(matrix, wig)
 
     prepared = await hass.async_add_executor_job(_prepare)
     if isinstance(prepared, str):
         connection.send_error(
             msg["id"], prepared, "That target carries no current finding")
         return
-    row, lattice = prepared
+    rows, lattice = prepared
 
-    record = build_attestation(row, lattice, note=msg.get("note"))
+    records = [
+        build_attestation(row, lattice, note=msg.get("note"))
+        for row in rows
+    ]
+    keys = {record["key"] for record in records}
     device.tangle_attestations = [
         existing for existing in device.tangle_attestations
-        if existing.get("key") != record["key"]
+        if existing.get("key") not in keys
     ]
-    device.tangle_attestations.append(record)
+    device.tangle_attestations.extend(records)
+    row = rows[0]
+    record = records[0]
     # An answer can be the last thing a device was waiting on, and then
     # this is the retire moment too.
     sweep_comb_stamps_if_retired(device, matrix)
@@ -8249,4 +8283,5 @@ async def ws_tangle_keep(
     # the same terms as a repair.
     connection.send_result(
         msg["id"], {"attested": True, "target": row.id, "record": record,
+                    "targets": [r.id for r in rows], "records": records,
                     "wig": await _write_through(hass, device)})
