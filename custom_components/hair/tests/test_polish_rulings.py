@@ -3477,3 +3477,84 @@ class TestRemotesGhostTileIsAlwaysCompact:
             )
             assert data["ghost.hint_compact_remote"]
             assert data["ghost.hint_compact_device"]
+class TestTheGhostDropAnswersAReverseSupersession:
+    """R3 (issue 11, owner ruled 2026-08-30).
+
+    The drop path used to answer a reverse-supersession result with a
+    bare ``return``, which ate the drop: the closet already held a
+    newer version of that wig, wigs/upload wrote nothing and said so,
+    and the tile just stopped. The bug is as old as the drop path and
+    was unreachable until repairs started minting successors, at which
+    point the owner dropped a file and watched a spinner turn into
+    nothing. Round one's busy state is what made the silence visible.
+
+    What the person is doing on this tile is CREATING A DEVICE, so the
+    answer leads with the wig they almost certainly want. Three
+    choices, no silent return left anywhere on the path.
+    """
+
+    def test_the_silent_return_is_gone(self):
+        text = _read("ir-device-list.ts")
+        assert "if (result.reverse_supersession) return;" not in text
+
+    def test_the_held_drop_carries_what_a_resend_needs(self):
+        """IMPORT THIS FILE ANYWAY has to resend the identical bytes
+        under the identical name, and nothing else on this component
+        remembers either once the dialog is up."""
+        text = _read("ir-device-list.ts")
+        state = text.split("_dropSupersede: {", 1)[1].split(
+            "} | null = null;", 1
+        )[0]
+        assert "text: string;" in state
+        assert "filename: string;" in state
+        assert 'kind: "device" | "remote";' in state
+
+    def test_the_dialog_offers_all_three(self):
+        text = _read("ir-device-list.ts")
+        block = text.split("private _renderDropSupersede()", 1)[1].split(
+            "</ir-confirm-dialog>", 1
+        )[0]
+        assert 'confirmLabel=${t("supersede.drop_newer_use")}' in block
+        assert 'altLabel=${t("supersede.drop_newer_import")}' in block
+        assert "@confirmed=${this._onDropUseNewer}" in block
+        assert "@alt-action=${this._onDropImportAnyway}" in block
+        # Cancel is the dialog's own close, and it has to be wired or
+        # the third choice is unreachable.
+        assert "@closed=" in block
+
+    def test_import_anyway_resends_the_same_bytes_confirmed(self):
+        """Confirmed is the one thing that gets past the reverse check
+        server-side; a fresh upload of the same text would be blocked
+        again, forever."""
+        text = _read("ir-device-list.ts")
+        body = text.split("private async _onDropImportAnyway(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "held.text, held.filename, true" in body
+
+    def test_use_the_newer_one_files_nothing(self):
+        """Choosing the successor is not a reason to write the dropped
+        file. It goes into the create dialog on the wig already in the
+        closet, and the dropped bytes are dropped."""
+        text = _read("ir-device-list.ts")
+        body = text.split("private _onDropUseNewer(", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert "wigsUpload" not in body
+
+    def test_one_reader_builds_the_row_for_both_answers(self):
+        """A landed file's entry and the successor's row are the same
+        shape out of the same function on the server, so a second
+        reader here would be a second place to get it wrong."""
+        text = _read("ir-device-list.ts")
+        assert text.count("const wig: WigInfo = {") == 1
+        assert "this._offerWig(kind, landed[0]);" in text
+        assert "this._offerWig(held.kind, {" in text
+
+    def test_the_confirm_dialogs_third_button_is_opt_in(self):
+        """Every other caller of this dialog passes no altLabel and
+        must keep rendering exactly two buttons."""
+        text = _read("ir-confirm-dialog.ts")
+        assert "public altLabel" in text
+        assert "${this.altLabel" in text
+        assert 'new CustomEvent("alt-action"' in text

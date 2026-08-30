@@ -599,6 +599,18 @@ export interface SupersessionBlock {
 export interface ReverseSupersessionBlock {
     name: string;
     signal_count: number;
+    // R2 (issue 11): the superseding wig's own picker row rides with
+    // the answer, so a drop that hits this branch can offer to build
+    // from the newer wig without a second round trip through
+    // wigs/list. Same field set a landed upload entry carries, out of
+    // the same function on the server, so the two cannot describe a
+    // wig differently.
+    filename: string;
+    brand?: string | null;
+    model?: string | null;
+    kind?: string | null;
+    matrix?: MatrixSummary | null;
+    comb?: CombSummary | null;
 }
 
 /** The outcome of hair/wigs/supersede, per device, for the receipt. */
