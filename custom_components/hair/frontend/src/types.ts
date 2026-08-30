@@ -1524,6 +1524,11 @@ export interface TangleKeepResult {
     attested: true;
     target: string;
     record: Record<string, unknown>;
+    /** Every row this call answered, and the record written for each
+     * (issue 23). ``target`` and ``record`` are the first of these and
+     * stay for callers that only ever send one. */
+    targets: string[];
+    records: Record<string, unknown>[];
     wig: TangleWriteThrough;
 }
 

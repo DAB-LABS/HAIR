@@ -1673,16 +1673,29 @@ export class HairApi {
      * in the comb, but this row leaves the open worklist until its
      * bytes or map version change. ``tested: true`` is required --
      * keeping a code means having tried it. */
+    /** Record the human answer behind one row, or behind several
+     * rows settled by a single decision (issue 23).
+     *
+     * ONE CALL, not a loop. A duplicate pair kept on purpose is one
+     * answer about two rows, and answering them one at a time would
+     * write two records in two saves and mint two successor wigs for
+     * a decision the person made once. The backend takes ``targets``
+     * for exactly that and resolves every row before it stores any of
+     * them, so a pair can never end up half answered.
+     *
+     * The single-target form stays because every other caller has one
+     * row and the endpoint still takes ``target`` on its own. */
     tangleKeep(
         deviceId: string,
-        target: string,
+        target: string | readonly string[],
         tested: boolean,
         note?: string,
     ): Promise<TangleKeepResult> {
+        const many = Array.isArray(target);
         return this.hass.connection.sendMessagePromise<TangleKeepResult>({
             type: "hair/device/tangle/keep",
             device_id: deviceId,
-            target,
+            ...(many ? { targets: [...target] } : { target }),
             tested,
             ...(note !== undefined ? { note } : {}),
         });
