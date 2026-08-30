@@ -1302,6 +1302,11 @@ export interface TriggerFiredEvent {
     trigger_id: string;
     trigger_name: string;
     hit_count: number;
+    /** The trigger's stored fire_count AFTER this fire (issue 125).
+     * Assign it; never add to it. ``timestamp`` is the same instant
+     * the row's last_fired_at was stamped with, so the two facts the
+     * aliveness line renders both ride this one push. */
+    fire_count: number;
     protocol: string | null;
     code: string | null;
     source_remote: string | null;

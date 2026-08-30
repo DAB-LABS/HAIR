@@ -403,6 +403,70 @@ class TestTriggerManagerHitCounting:
         cb.assert_not_called()
 
 
+class TestThePushCarriesTheTally:
+    """Issue 125: the row counted two per press.
+
+    The count itself was always right in the store, which is why a
+    restart showed the true number and why nothing in the backend ever
+    looked wrong. The panel was adding one of its own on every push
+    from a subscription it had opened twice.
+
+    Half the cure is on this side: send the tally rather than a signal
+    to add one. A listener that ASSIGNS what the store says cannot
+    drift, however many times a push is delivered, and a second
+    delivery becomes a no-op instead of a doubled number.
+    """
+
+    def test_the_event_says_what_the_store_holds(
+        self, manager, mock_store, clock
+    ):
+        t = _make_trigger(min_hits=1)
+        mock_store.add_trigger(t)
+        seen = []
+        manager.subscribe(seen.append)
+
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+
+        assert len(seen) == 1
+        assert seen[0]["fire_count"] == 1
+        assert seen[0]["fire_count"] == t.fire_count
+
+    def test_it_counts_presses_not_pushes(
+        self, manager, mock_store, clock
+    ):
+        """Three presses, three pushes, and the third says three. A
+        panel that assigns this number lands on three; the one that
+        added one per push landed on six."""
+        t = _make_trigger(min_hits=1)
+        mock_store.add_trigger(t)
+        seen = []
+        manager.subscribe(seen.append)
+
+        for _ in range(3):
+            # Past the 60ms multi-receiver dedup window: three
+            # distinct presses, not one press heard three times.
+            clock.advance(1.0)
+            manager.on_signal_captured("fp1", "pronto", "0000 0001")
+
+        assert [event["fire_count"] for event in seen] == [1, 2, 3]
+        assert t.fire_count == 3
+
+    def test_the_stamp_and_the_timestamp_are_the_same_instant(
+        self, manager, mock_store, clock
+    ):
+        """The row renders two facts off one push, and they have to
+        agree: the panel reads last_fired_at from ``timestamp``
+        rather than stamping a clock of its own."""
+        t = _make_trigger(min_hits=1)
+        mock_store.add_trigger(t)
+        seen = []
+        manager.subscribe(seen.append)
+
+        manager.on_signal_captured("fp1", "pronto", "0000 0001")
+
+        assert seen[0]["timestamp"] == t.last_fired_at
+
+
 class TestTriggerFireCount:
     """fire_count/last_fired_at (Track B "aliveness" fact) stamp once per
     CONFIRMED fire, not once per raw hit."""
