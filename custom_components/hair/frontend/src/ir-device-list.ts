@@ -478,6 +478,26 @@ export class IrDeviceList extends LitElement {
         );
     }
 
+    /**
+     * The expanded child refetched its own device; take its copy.
+     *
+     * The same trade _onCommandsReordered makes, for the same reason:
+     * the child has the authoritative object already, so a round-trip
+     * here would buy nothing and cost a render. What it prevents is
+     * the opposite of a missing refresh -- this cache overwriting a
+     * fresher device on its next render (P8).
+     *
+     * Guarded on the id because the cache belongs to whichever device
+     * is expanded NOW. A refresh that resolves after the person has
+     * collapsed the card, or opened another one, is about a device
+     * this element is no longer showing.
+     */
+    private _onExpandedDeviceRefreshed(ev: CustomEvent): void {
+        const fresh = ev.detail?.device as IRDevice | undefined;
+        if (!fresh || fresh.id !== this.expandedDeviceId) return;
+        this._expandedDevice = fresh;
+    }
+
     private _onExpandedDeviceDeleted(): void {
         this.dispatchEvent(
             new CustomEvent("device-deleted", { bubbles: true, composed: true }),
@@ -1833,6 +1853,8 @@ export class IrDeviceList extends LitElement {
                                                     .receivers=${this._receivers}
                                                     .triggerRemotes=${this.triggerRemotes}
                                                     @device-changed=${this._onExpandedDeviceChanged}
+                                                    @device-refreshed=${this
+                                                        ._onExpandedDeviceRefreshed}
                                                     @device-deleted=${this._onExpandedDeviceDeleted}
                                                     @commands-reordered=${this._onCommandsReordered}
                                                     @trigger-changed=${this._loadTriggers}
