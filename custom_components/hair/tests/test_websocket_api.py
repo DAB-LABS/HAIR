@@ -3860,10 +3860,12 @@ class TestReverseSupersession:
         assert result["success"] is True
         assert result["filenames"] == []
         assert result["files"] == []
-        assert result["reverse_supersession"] == {
-            "name": "Fable Ceiling Fan (2)",
-            "signal_count": 3,
-        }
+        block = result["reverse_supersession"]
+        # The two fields the Wigs tab's re-confirm has always read keep
+        # their names and their meaning; R2 only widened the block
+        # around them, and this dialog reads exactly what it did.
+        assert block["name"] == "Fable Ceiling Fan (2)"
+        assert block["signal_count"] == 3
         # Nothing files: the closet holds only the successor already
         # planted there, never a copy of the arrival.
         names = {p.name for p in wigs_dir(tmp_path).glob("*.wig.json")}
@@ -3906,6 +3908,210 @@ class TestReverseSupersession:
         result = await self._upload(fake_hass, self._original_text())
         assert result["success"] is True
         assert "reverse_supersession" not in result
+
+
+class TestTheReverseAnswerCarriesTheSuccessorsRow:
+    """R2 (issue 11, owner ruled 2026-08-30). The drop that lands on a
+    device's ghost tile is somebody trying to CREATE A DEVICE, so the
+    useful answer to "your closet already has a newer version of this"
+    is the newer version itself, ready to build from. That needs the
+    successor's picker row in the same answer -- otherwise the offer
+    costs a whole second round trip through wigs/list, which is the
+    exact re-scan B4 was written to stop doing.
+
+    The row is the same shape a landed file's entry carries, out of the
+    same function, so the two answers cannot drift into describing a
+    wig differently. Nothing else about the block moved: the Wigs tab's
+    own re-confirm dialog reads name and signal_count and is untouched.
+    """
+
+    PRONTO = "0000 006D 0002 0000 0020 0040 0020 0040"
+
+    def _write_successor(self, tmp_path, **extra) -> None:
+        import json
+
+        from custom_components.hair.wig_format import WIG_FORMAT_V1
+        from custom_components.hair.wig_store import (
+            ensure_wigs_dir,
+            wigs_dir,
+        )
+
+        ensure_wigs_dir(tmp_path)
+        payload = {
+            "format": WIG_FORMAT_V1,
+            "name": "Fable Ceiling Fan (2)",
+            "wig_id": "wig-successor-id",
+            "supersedes": ["wig-original-id"],
+            "brand": "Fable",
+            "model": "FCF-9",
+            "kind": "ceiling fan",
+            "signals": [
+                {"alias": f"Signal {i}", "pronto": self.PRONTO}
+                for i in range(3)
+            ],
+        }
+        payload.update(extra)
+        (wigs_dir(tmp_path) / "successor.wig.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+
+    def _original_text(self) -> str:
+        import json
+
+        from custom_components.hair.wig_format import WIG_FORMAT_V1
+
+        return json.dumps({
+            "format": WIG_FORMAT_V1,
+            "name": "Fable Ceiling Fan",
+            "wig_id": "wig-original-id",
+            "signals": [{"alias": "Power", "pronto": self.PRONTO}],
+        })
+
+    async def _upload(self, fake_hass) -> dict:
+        from custom_components.hair.websocket_api import ws_wigs_upload
+
+        conn = _make_connection()
+        await ws_wigs_upload(fake_hass, conn, {
+            "id": 1, "type": "hair/wigs/upload",
+            "text": self._original_text(),
+        })
+        conn.send_result.assert_called_once()
+        return conn.send_result.call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_the_block_names_the_file_the_offer_would_build_from(
+        self, fake_hass, tmp_path
+    ):
+        """Without the filename there is nothing to build from: every
+        create path downstream keys on it."""
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path)
+
+        block = (await self._upload(fake_hass))["reverse_supersession"]
+
+        assert block["filename"] == "successor.wig.json"
+
+    @pytest.mark.asyncio
+    async def test_the_block_carries_the_row_a_picker_renders(
+        self, fake_hass, tmp_path
+    ):
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path)
+
+        block = (await self._upload(fake_hass))["reverse_supersession"]
+
+        assert block["name"] == "Fable Ceiling Fan (2)"
+        assert block["brand"] == "Fable"
+        assert block["model"] == "FCF-9"
+        assert block["kind"] == "ceiling fan"
+        assert block["signal_count"] == 3
+        assert block["matrix"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_matrix_successor_carries_its_matrix_summary(
+        self, fake_hass, tmp_path
+    ):
+        """A climate successor is the case that matters most here: its
+        signal list is near-empty and the states live in the lattice,
+        so a row without the matrix summary would offer the person a
+        wig that looks like it carries nothing."""
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path, climate={
+            "min_temp": 16, "max_temp": 30, "precision": 1,
+            "unit": "C", "off": self.PRONTO,
+            "modes": ["cool"], "fan_modes": ["auto"],
+            "cells": [{
+                "mode": "cool", "fan": "auto", "temp": 24,
+                "pronto": self.PRONTO,
+            }],
+        })
+
+        block = (await self._upload(fake_hass))["reverse_supersession"]
+
+        assert block["matrix"] is not None
+        assert block["matrix"]["cells"] == 1
+
+    @pytest.mark.asyncio
+    async def test_the_block_reports_the_successors_own_comb_receipt(
+        self, fake_hass, tmp_path
+    ):
+        """The receipt this wig already carries, read, not re-derived.
+        Combing here would stamp a fresh receipt onto a closet wig that
+        nothing writes back to disk, which is a lie with a short life
+        and no author. A successor nobody has combed reports None,
+        which the closet already renders as its own distinct state.
+        """
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path)
+
+        block = (await self._upload(fake_hass))["reverse_supersession"]
+
+        assert "comb" in block
+        assert block["comb"] is None
+
+    @pytest.mark.asyncio
+    async def test_nothing_files_and_the_closet_is_unchanged(
+        self, fake_hass, tmp_path
+    ):
+        """The whole point of answering rather than writing: this path
+        still holds the arrival off disk. R2 added fields to the
+        answer, not a write to it."""
+        from custom_components.hair.wig_store import wigs_dir
+
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path)
+
+        result = await self._upload(fake_hass)
+
+        assert result["files"] == []
+        assert result["filenames"] == []
+        names = {p.name for p in wigs_dir(tmp_path).glob("*.wig.json")}
+        assert names == {"successor.wig.json"}
+
+    @pytest.mark.asyncio
+    async def test_a_landed_entry_and_this_block_describe_a_wig_alike(
+        self, fake_hass, tmp_path
+    ):
+        """One definition of the row, checked from both ends. Upload the
+        successor's own bytes into an empty closet and the entry it
+        files carries the same field set this block does, so a future
+        edit to one cannot quietly leave the other behind.
+        """
+        import json
+
+        from custom_components.hair.websocket_api import ws_wigs_upload
+        from custom_components.hair.wig_format import WIG_FORMAT_V1
+
+        fake_hass.config.config_dir = str(tmp_path)
+        self._write_successor(tmp_path)
+        block = (await self._upload(fake_hass))["reverse_supersession"]
+
+        fresh = json.dumps({
+            "format": WIG_FORMAT_V1,
+            "name": "Fable Ceiling Fan (2)",
+            "wig_id": "wig-successor-id",
+            "brand": "Fable",
+            "model": "FCF-9",
+            "kind": "ceiling fan",
+            "signals": [
+                {"alias": f"Signal {i}", "pronto": self.PRONTO}
+                for i in range(3)
+            ],
+        })
+        conn = _make_connection()
+        await ws_wigs_upload(fake_hass, conn, {
+            "id": 2, "type": "hair/wigs/upload", "text": fresh,
+            "confirmed": True,
+        })
+        entry = conn.send_result.call_args[0][1]["files"][0]
+
+        row = ("filename", "name", "brand", "model", "kind",
+               "signal_count", "matrix")
+        assert set(row) <= set(block)
+        for key in row:
+            if key == "filename":
+                continue
+            assert block[key] == entry[key]
 
 
 class TestEveryRegisteredCommandIsDecorated:

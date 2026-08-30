@@ -4102,28 +4102,28 @@ async def ws_wigs_upload(
                 "brand": loaded.wig.brand,
             })
 
-        def _entry(wig, filename: str) -> dict[str, Any]:
-            matches = existing.get(
-                wig_content_hash(wig), []
-            )
+        def _row_fields(wig, filename: str) -> dict[str, Any]:
+            """THE PICKER ROW (B4, issue 6). Everything here is already
+            computed by the work this handler does anyway, and the drop
+            path used to go and get it again by running a whole
+            wigs/list -- a re-scan and re-parse of EVERY wig in the
+            closet, with claims, receipts and matrix summaries for each,
+            to find the one row whose filename it had known since the
+            write. The wait was long enough that the owner doubted the
+            drop had registered. wigs/list is unchanged; this is the
+            drop path's shortcut, not a replacement for it.
+
+            Lifted out of ``_entry`` for R2 (issue 11): the
+            reverse-supersession answer hands back the SUCCESSOR's row
+            in exactly this shape, so the drop path can offer to create
+            from the newer wig without a second round trip. One
+            definition, so the two answers cannot drift into describing
+            a wig differently.
+            """
             return {
                 "filename": filename,
                 "name": wig.name,
                 "brand": wig.brand,
-                "duplicate_of": (
-                    matches[0]["filename"] if matches else None
-                ),
-                "duplicates": matches,
-                # THE PICKER ROW (B4, issue 6). Everything below is
-                # already computed by the work this handler just did, and
-                # the drop path used to go and get it again by running a
-                # whole wigs/list -- a re-scan and re-parse of EVERY wig
-                # in the closet, with claims, receipts and matrix
-                # summaries for each, to find the one row whose filename
-                # it had known since the write. The wait was long enough
-                # that the owner doubted the drop had registered.
-                # wigs/list is unchanged; this is the drop path's
-                # shortcut, not a replacement for it.
                 "model": wig.model,
                 "kind": wig.kind,
                 "signal_count": len(wig.signals),
@@ -4131,6 +4131,18 @@ async def ws_wigs_upload(
                     matrix_summary(wig.climate)
                     if wig.climate is not None else None
                 ),
+            }
+
+        def _entry(wig, filename: str) -> dict[str, Any]:
+            matches = existing.get(
+                wig_content_hash(wig), []
+            )
+            return {
+                **_row_fields(wig, filename),
+                "duplicate_of": (
+                    matches[0]["filename"] if matches else None
+                ),
+                "duplicates": matches,
             }
 
         result = parse_wig(text)
@@ -4151,9 +4163,24 @@ async def ws_wigs_upload(
                             "success": True,
                             "filenames": [],
                             "files": [],
+                            # R2 (issue 11): the answer carries the
+                            # SUPERSEDING wig's own picker row, so the
+                            # ghost-drop path can offer "use the newer
+                            # one" and go straight into the create
+                            # dialog with it. Additive -- name and
+                            # signal_count keep their meaning and their
+                            # place, and the Wigs tab's re-confirm
+                            # dialog reads exactly what it always did.
+                            # The comb is this wig's EXISTING receipt,
+                            # not a fresh comb run: it was combed when
+                            # it arrived, and re-combing a closet wig
+                            # here would stamp a receipt nothing ever
+                            # writes back.
                             "reverse_supersession": {
-                                "name": loaded.wig.name,
-                                "signal_count": len(loaded.wig.signals),
+                                **_row_fields(
+                                    loaded.wig, loaded.path.name,
+                                ),
+                                "comb": receipt_summary(loaded.wig),
                             },
                         }
 
