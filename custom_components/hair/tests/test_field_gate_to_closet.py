@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from custom_components.hair.const import DOMAIN
+from custom_components.hair.tangles import list_tangles
 from custom_components.hair.websocket_api import ws_wig_make_device
 from custom_components.hair.wig_comb import (
     CHECK_FIELD_MISMATCH,
@@ -94,53 +95,72 @@ def _flagged_coordinates(wig: Wig) -> set[str]:
 
 
 @pytest.mark.asyncio
-async def test_adopt_mints_a_porthole_for_every_doubted_cell(adopted):
-    """52 findings, 52 rows. The lattice's other 1,104 cells stay in
-    the lattice: a commands area listing all of them would be useless,
-    and one listing none of them would leave the defective column with
-    no way to reach it."""
-    run, _manager, wig = adopted
+async def test_adopt_mints_no_portholes_any_more(adopted):
+    """EXTRACTION LEAVES (owner ruled 2026-08-30: in during QA, out
+    before launch).
+
+    52 findings used to mean 52 command rows copied out of the lattice,
+    because before the Detangler that row WAS the anomaly workflow --
+    the only way the command toolset could reach a defective cell. The
+    detangle surface is that workflow now, and it reaches every one of
+    them without minting anything, so a fresh adopt leaves the lattice
+    whole and the commands area holds only the wig's own buttons.
+    """
+    run, manager, wig = adopted
     result = await run()
-    assert result["cell_rows"] == 52
+    assert result["cell_rows"] == 0
     assert result["matrix_cells"] == len(wig.climate.cells)
+    device = manager.async_create_device.call_args.args[0]
+    assert [c for c in device.commands if c.matrix_cell] == []
 
 
 @pytest.mark.asyncio
-async def test_the_portholes_are_the_cells_the_sweep_named(adopted):
-    """Not a count that happens to match -- the same coordinates."""
+async def test_the_findings_are_all_still_reachable(adopted):
+    """THE PIN THAT MATTERS. Extraction leaving must not cost the
+    person a single defective cell: every coordinate the sweep named
+    still arrives as a tangle row, out of the same fixture, with no
+    command rows involved at all."""
     run, manager, wig = adopted
     await run()
     device = manager.async_create_device.call_args.args[0]
-    minted = {
-        "/".join([
-            command.matrix_cell["mode"],
-            command.matrix_cell["fan"],
-            command.matrix_cell["swing"],
-            f"{command.matrix_cell['temp']:g}",
-        ])
-        for command in device.commands if command.matrix_cell
+
+    listing = list_tangles(device, wig.climate)
+    reached = {
+        row.target.key for row in listing.rows
+        if CHECK_FIELD_MISMATCH in row.classes
     }
-    assert minted == _flagged_coordinates(wig)
+    assert reached == _flagged_coordinates(wig)
+    assert len(reached) == 52
 
 
 @pytest.mark.asyncio
-async def test_each_porthole_says_which_check_doubted_it(adopted):
+async def test_every_finding_still_says_which_check_doubted_it(adopted):
     """A bare "suspect" tells somebody there is a problem and nothing
-    about which problem. These rows all carry the same class because
-    they all have the same cause."""
-    run, manager, _ = adopted
+    about which problem. The class used to ride on the minted row; it
+    rides on the tangle row now, which is where it always belonged."""
+    run, manager, wig = adopted
     await run()
     device = manager.async_create_device.call_args.args[0]
-    cells = [c for c in device.commands if c.matrix_cell]
-    assert {c.comb_finding for c in cells} == {CHECK_FIELD_MISMATCH}
-    assert all(c.comb_suspect for c in cells)
+
+    listing = list_tangles(device, wig.climate)
+    assert listing.rows
+    assert all(row.classes for row in listing.rows)
+    assert {row.classes[0] for row in listing.rows} == {CHECK_FIELD_MISMATCH}
 
 
 @pytest.mark.asyncio
-async def test_the_checklist_carries_the_gate(adopted):
-    """SAVE TO CLOSET through the real plan builder. The 52 arrive as
-    comb-gated rows: a person cannot attest the lattice without being
-    shown the column that lies about its setpoint."""
+async def test_the_checklist_no_longer_carries_the_gate(adopted):
+    """THE GATE MOVED (issue 26, ruled 2026-08-30).
+
+    The 52 used to arrive in the save plan as comb-gated rows, because
+    they were commands, because extraction had copied them there. With
+    extraction gone the checklist is the lattice's own sample again and
+    nothing in it is comb-flagged -- which would be a hole if the gate
+    had stayed here. It did not: save-perfect now REFUSES outright
+    while the device has open tangle rows (P4), so the answer to "can
+    this be attested" is given once, at the door, instead of 52 times
+    inside a checklist. Detangle first, then perfect fit.
+    """
     run, manager, wig = adopted
     await run()
     device = manager.async_create_device.call_args.args[0]
@@ -149,16 +169,8 @@ async def test_the_checklist_carries_the_gate(adopted):
         device, source_wig=wig, source_filename=FILENAME,
         matrix=wig.climate,
     )
-    gated = [row for row in plan.rows if row.comb_suspect]
-    assert len(gated) == 52
-    assert {row.comb_finding for row in gated} == {CHECK_FIELD_MISMATCH}
-    # Named as instructions, not coordinates: "set your remote to
-    # heat_cool, medium, 19". Fan and swing join because four swing
-    # modes share each temperature.
-    assert all(row.alias.startswith("Heat_cool ") for row in gated)
-    assert all("medium" in row.alias for row in gated)
-    degrees = {int(row.alias.split()[1]) for row in gated}
-    assert degrees == set(range(19, 32))
+    assert plan.rows
+    assert [row for row in plan.rows if row.comb_suspect] == []
 
 
 @pytest.mark.asyncio

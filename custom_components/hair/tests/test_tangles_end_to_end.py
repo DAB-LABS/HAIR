@@ -124,7 +124,10 @@ async def adopted(fake_hass, tmp_path):
         "name": "Komeco", "device_type": "ac",
         "emitter_entity_ids": ["infrared.blaster"],
     })
-    assert result["cell_rows"] == 52
+    # Zero since extraction left the adopt path (P1). Every flow below
+    # works the LATTICE through the tangle surface, which is the point:
+    # none of them needed the pulled rows to reach a defective cell.
+    assert result["cell_rows"] == 0
     return fake_hass, devices[0], tmp_path, wig
 
 

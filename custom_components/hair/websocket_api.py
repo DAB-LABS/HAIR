@@ -5940,21 +5940,23 @@ async def ws_wig_make_device(
         manager._auto_map_command(device, command)
         copied += 1
 
-    # THE PORTHOLE ROWS (v0.9.5). A flagged lattice cell gets a
-    # coordinate-named command row so the full command toolset reaches
-    # it: TEST sends it, edit rewrites it, delete removes it. ONLY
-    # flagged cells -- the healthy thousands stay in the lattice where
-    # they belong, and a commands area listing them all would be
-    # useless. Without this the release would regress v0.9.1, whose
-    # fitting dialog could replace a defective cell.
+    # EXTRACTION LEAVES (owner ruled 2026-08-30: in during QA, out
+    # before launch). A flagged lattice cell used to get a
+    # coordinate-named command row here, because before the Detangler
+    # that row WAS the anomaly workflow -- the only way the command
+    # toolset could reach a defective cell. The detangle surface is
+    # that workflow now, and it reaches every finding without minting
+    # anything, so a fresh adopt no longer copies a slice of the
+    # lattice into the commands area.
+    #
+    # NOTHING ELSE RETIRES. Devices adopted before this still carry
+    # their pulled rows, and every piece of machinery that serves them
+    # stays exactly where it was: portholes_for keeps a repair in sync
+    # with the cell it copied, rederive_comb_stamps keeps their marks
+    # honest, the write-through keeps their wig current. Only the mint
+    # is gone, so the population stops growing and the ones that exist
+    # keep working.
     cell_rows = 0
-    if matrix is not None:
-        from .wig_climate import unit_letter
-
-        cell_rows = _mint_cell_rows(
-            device, matrix, findings,
-            unit_letter(hass.config.units.temperature_unit),
-        )
 
     await manager.async_update_device(device)
     result = await _device_full(hass, device)
@@ -6466,6 +6468,13 @@ def _mint_cell_rows(
     display_unit: str | None = None,
 ) -> int:
     """Give every comb-flagged cell a command row. Returns how many.
+
+    RETIRED FROM THE ADOPT PATH (owner ruled 2026-08-30, "in during QA,
+    out before launch"): nothing calls this any more, and a new caller
+    would put the extraction back. It stays, with its tests, because
+    devices adopted during the QA rounds carry rows this minted and
+    named, and the rules those names were formed under are worth being
+    able to read while those devices are still in the field.
 
     Keyed off the same suspect set the flat rows use, matched to cells
     by ``cell_key`` -- the comb records cell findings under exactly that
