@@ -4209,3 +4209,45 @@ class TestDecidesRowActionsAreTheStandardOnes:
             for key in ("tangles.delete", "tangles.delete_confirm",
                         "tangles.cancel"):
                 assert key not in data, f"{name}: {key}"
+class TestTheListenCardSaysFix:
+    """Owner ruling 2026-08-30, copy. The card said the presses would
+    "finish these", which describes the flow rather than what the
+    person gets out of it. Every other card on this surface offers to
+    fix something; this one now says so too."""
+
+    def test_english_reads_as_ruled(self):
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.card_listen.other"] == (
+            "{count} presses from your remote will fix these codes."
+        )
+        assert data["tangles.card_listen.one"] == (
+            "{count} press from your remote will fix this code."
+        )
+
+    def test_every_variant_in_every_language_moved(self):
+        """Including pl and ru's few and many, which a sweep that only
+        looked for one and other would have left saying finish."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            variants = [
+                key for key in data
+                if key.startswith("tangles.card_listen.")
+            ]
+            assert variants, name
+            for key in variants:
+                assert "{count}" in data[key], f"{name}: {key}"
+
+    def test_the_one_variant_keeps_its_count(self):
+        """A hard "1" is safe in English, where the one-category is
+        exactly one. Russian's one-category covers 1, 21, 31 and so on,
+        so a literal there would read "1 press" beside twenty-one of
+        them. With the placeholder it renders the ruled sentence for
+        every case English's own one-variant covers, and stays true
+        everywhere else."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            assert "{count}" in data["tangles.card_listen.one"], name
