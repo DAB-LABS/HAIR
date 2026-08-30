@@ -164,6 +164,10 @@ export class IrTangleSection extends LitElement {
 
     @state() private _listing: TangleListing | null = null;
     @state() private _loading = false;
+    /** Why the listing could not be read, when it could not. A silent
+     * failure here used to mean the previous device's rows stayed on
+     * screen looking authoritative (issue 22). */
+    @state() private _error: string | null = null;
     @state() private _open: CardKey | null = null;
     @state() private _lastWigWrite: boolean | null = null;
     @state() private _justRetired = false;
@@ -179,19 +183,52 @@ export class IrTangleSection extends LitElement {
 
     updated(changed: Map<string, unknown>): void {
         if (changed.has("deviceId") && changed.get("deviceId") !== undefined) {
-            this._open = null;
-            this._witnessPlans = new Map();
+            this._forget();
             void this._refresh();
         }
     }
 
+    /** EVERYTHING that belongs to the device we are leaving (issue
+     * 22). The listing was the one that mattered and the one that was
+     * missed: it stayed put across the switch, so the new device's
+     * page rendered the old device's rows -- eleven findings on a
+     * Marantz whose own listing is provably empty -- and every one of
+     * them opened a flow that would have written to the wrong place.
+     *
+     * The rest are the same class. A held witness plan belongs to one
+     * lattice. "Your wig has been updated." belongs to the device that
+     * was just repaired. A stale error line belongs to the fetch that
+     * failed. None of them survive a device change. */
+    private _forget(): void {
+        this._listing = null;
+        this._open = null;
+        this._witnessPlans = new Map();
+        this._justRetired = false;
+        this._lastWigWrite = null;
+        this._error = null;
+    }
+
     private async _refresh(): Promise<void> {
         if (!this.deviceId) return;
+        // Which device this answer is for. Two quick switches can land
+        // the first device's response after the second has already
+        // asked, and a listing is not "the newest answer", it is one
+        // device's answer.
+        const asked = this.deviceId;
         this._loading = true;
         try {
-            this._listing = await this.api.tangles(this.deviceId);
+            const listing = await this.api.tangles(asked);
+            if (this.deviceId !== asked) return;
+            this._listing = listing;
+            this._error = null;
+        } catch (err) {
+            if (this.deviceId !== asked) return;
+            // Say so. Keeping the last good listing would be the
+            // stale-data bug again, arrived at from the other side.
+            this._listing = null;
+            this._error = (err as Error).message || String(err);
         } finally {
-            this._loading = false;
+            if (this.deviceId === asked) this._loading = false;
         }
     }
 
@@ -249,6 +286,11 @@ export class IrTangleSection extends LitElement {
     protected render() {
         if (this._justRetired) {
             return html`<div class="retired-line">${t("tangles.updated")}</div>`;
+        }
+        if (this._error) {
+            return html`<div class="tangle-section">
+                <div class="load-failed">${t("tangles.load_failed")}</div>
+            </div>`;
         }
         if (!this._listing) return nothing;
 
@@ -412,6 +454,10 @@ export class IrTangleSection extends LitElement {
                 margin: 12px 0;
                 border-top: 1px solid var(--divider-color);
                 padding-top: 9px;
+            }
+            .load-failed {
+                font-size: 0.8rem;
+                color: var(--secondary-text-color);
             }
             .tangle-header {
                 font-size: 0.85rem;

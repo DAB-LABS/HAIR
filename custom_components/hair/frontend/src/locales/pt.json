@@ -978,6 +978,7 @@
     "devlist.forget_store": "Esquecer",
     "devlist.forget_store_title": "Remove este registro. Os controles extraídos não são excluídos.",
     "tangles.section_header": "Este dispositivo tem códigos que precisam de atenção.",
+    "tangles.load_failed": "Não foi possível verificar os códigos deste dispositivo agora.",
     "tangles.card_fix.other": "{count} códigos estão enviando o sinal errado. Os corretos já estão neste arquivo.",
     "tangles.card_fix.one": "{count} código está enviando o sinal errado. O correto já está neste arquivo.",
     "tangles.card_listen.other": "{count} pressionamentos do seu controle remoto vão concluir isso.",

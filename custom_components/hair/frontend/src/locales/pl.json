@@ -1068,6 +1068,7 @@
     "pluckstore.landing.already.few": "{count} już w katalogu.",
     "pluckstore.landing.already.many": "{count} już w katalogu.",
     "tangles.section_header": "To urządzenie ma kody wymagające uwagi.",
+    "tangles.load_failed": "Nie udało się teraz sprawdzić kodów tego urządzenia.",
     "tangles.card_fix.other": "{count} kodów wysyła niewłaściwy sygnał. Właściwe są już w tym pliku.",
     "tangles.card_fix.one": "{count} kod wysyła niewłaściwy sygnał. Właściwy jest już w tym pliku.",
     "tangles.card_fix.few": "{count} kody wysyłają niewłaściwy sygnał. Właściwe są już w tym pliku.",

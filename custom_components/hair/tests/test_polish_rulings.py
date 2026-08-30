@@ -3812,3 +3812,107 @@ class TestTheWitnessMatchTranslatesTheField:
         )[0]
         assert 'if (field !== "temperature") return String(value);' in body
         assert "displayTemp(" in body
+class TestTheSectionNeverWearsAnotherDevicesListing:
+    """Issue 22, wrong-data class.
+
+    The Marantz's page rendered the Panasonic's eleven findings. The
+    Marantz's own listing is provably empty, so every row on that page
+    was another device's, and every one of them opened a flow that
+    would have written somewhere else. The section reset its open card
+    and its held plans on a device change and kept the listing itself,
+    which is the one piece of state that IS the previous device.
+    """
+
+    def test_the_listing_is_dropped_before_the_refetch(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private _forget(): void {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert "this._listing = null;" in body
+
+    def test_everything_that_belongs_to_the_old_device_goes(self):
+        """The listing was the one that mattered and the one that was
+        missed, but a held witness plan belongs to one lattice and the
+        wig-updated line belongs to the device that was repaired."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private _forget(): void {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        for field in ("_open", "_witnessPlans", "_justRetired",
+                      "_lastWigWrite", "_error"):
+            assert f"this.{field} =" in body
+
+    def test_the_device_change_forgets_before_it_asks(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split("updated(changed: Map<string, unknown>)", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert body.index("this._forget();") < body.index("this._refresh()")
+
+    def test_a_failed_fetch_says_so_instead_of_keeping_the_old_rows(self):
+        """Silently keeping the last good listing is the same bug
+        arrived at from the other side: rows on screen that describe a
+        device nobody is looking at."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private async _refresh()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert "catch (err)" in body
+        assert "this._listing = null;" in body
+        assert "this._error =" in body
+
+    def test_a_late_answer_for_a_device_we_left_is_dropped(self):
+        """Two quick switches can land the first device's response
+        after the second has asked. A listing is one device's answer,
+        not the newest one."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private async _refresh()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert "const asked = this.deviceId;" in body
+        assert body.count("if (this.deviceId !== asked) return;") == 2
+
+    def test_the_section_is_keyed_to_the_device(self):
+        """Belt and braces: even if the internal reset were ever
+        undone, a keyed switch remounts the element clean."""
+        text = _read("ir-device-detail.ts")
+        block = text.split("<ir-tangle-section", 1)[0]
+        assert block.rstrip().endswith("html`") or "keyed(" in block[-200:]
+        assert "keyed(\n                this.device.id," in text
+
+    def test_the_error_line_is_localized(self):
+        text = _read("ir-tangle-section.ts")
+        assert 't("tangles.load_failed")' in text
+
+
+class TestTheCommandsListHearsAboutARepair:
+    """Issue 17. The section refetches after an apply; the command rows
+    above it kept their old props, so the REPAIRED badge only appeared
+    after the owner closed the device and opened it again. Round
+    three's backend also clears the comb mark when repaired bytes comb
+    clean, and TRIGGER is gated on that mark, so the stale rows were
+    hiding a button that had just come back."""
+
+    def test_the_detail_listens_for_the_mutation(self):
+        text = _read("ir-device-detail.ts")
+        assert "@tangle-mutated=${this._onTangleMutated}" in text
+
+    def test_it_refetches_the_device_and_rebuilds_the_rows(self):
+        text = _read("ir-device-detail.ts")
+        body = text.split(
+            "private _onTangleMutated = async (): Promise<void> => {", 1
+        )[1].split("};", 1)[0]
+        assert "this.api.getDevice(this.device.id)" in body
+        assert "this._commandsListVersion++" in body
+
+    def test_it_does_not_fire_the_rebuild_cascade(self):
+        """_refresh() dispatches device-changed, which rebuilds this
+        element from ir-device-list -- and would close the tangle flow
+        the person is standing in after every accept. That cascade is
+        the 2026-08-07 bench lesson this file already records."""
+        text = _read("ir-device-detail.ts")
+        body = text.split(
+            "private _onTangleMutated = async (): Promise<void> => {", 1
+        )[1].split("};", 1)[0]
+        assert "device-changed" not in body
+        assert "this._refresh()" not in body

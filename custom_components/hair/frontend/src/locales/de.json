@@ -978,6 +978,7 @@
     "devlist.forget_store": "Vergessen",
     "devlist.forget_store_title": "Entfernt diesen Eintrag. Die gepflückten Fernbedienungen bleiben erhalten.",
     "tangles.section_header": "Dieses Gerät hat Codes, die Aufmerksamkeit brauchen.",
+    "tangles.load_failed": "Die Codes dieses Geräts konnten gerade nicht geprüft werden.",
     "tangles.card_fix.other": "{count} Codes senden das falsche Signal. Die richtigen sind bereits in dieser Datei.",
     "tangles.card_fix.one": "{count} Code sendet das falsche Signal. Der richtige ist bereits in dieser Datei.",
     "tangles.card_listen.other": "{count} Tastendrücke von Ihrer Fernbedienung erledigen den Rest.",

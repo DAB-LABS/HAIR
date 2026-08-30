@@ -279,6 +279,25 @@ export class IrDeviceDetail extends LitElement {
         );
     }
 
+    /** A repair landed, so the command rows above the section are
+     * describing bytes that no longer exist (issue 17). The REPAIRED
+     * badge and the affordances the comb mark gates -- TRIGGER is
+     * hidden on a flagged row, and round three's backend clears that
+     * mark when the new bytes comb clean -- all live on props this
+     * element holds, and they used to sit stale until somebody closed
+     * the device and opened it again.
+     *
+     * Deliberately NOT _refresh(): that dispatches device-changed,
+     * which rebuilds this element from ir-device-list, which would
+     * close the tangle flow the person is standing in after every
+     * single accept. That cascade is the 2026-08-07 bench lesson
+     * recorded below. Refetch the device, bump the keyed list, leave
+     * the rest of the page alone. */
+    private _onTangleMutated = async (): Promise<void> => {
+        this.device = await this.api.getDevice(this.device.id);
+        this._commandsListVersion++;
+    };
+
     /** Bench fix (2026-08-07): the "wig-saved" handler for all three
      * save dialogs used to call _refresh() straight away. That
      * dispatched "device-changed" the instant the server save
@@ -1591,12 +1610,16 @@ export class IrDeviceDetail extends LitElement {
                  under the Commands count. The section renders itself
                  away when there are no findings, so a healthy device
                  shows no gap here. -->
-            <ir-tangle-section
-                .hass=${this.hass}
-                .api=${this.api}
-                .deviceId=${this.device.id}
-                .matrixUnit=${this.device.matrix?.unit ?? "C"}
-            ></ir-tangle-section>
+            ${keyed(
+                this.device.id,
+                html`<ir-tangle-section
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .deviceId=${this.device.id}
+                    .matrixUnit=${this.device.matrix?.unit ?? "C"}
+                    @tangle-mutated=${this._onTangleMutated}
+                ></ir-tangle-section>`,
+            )}
 
             <!-- Commands -->
             <div class="commands-section">

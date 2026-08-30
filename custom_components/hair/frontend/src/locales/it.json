@@ -978,6 +978,7 @@
     "devlist.forget_store": "Dimentica",
     "devlist.forget_store_title": "Rimuove questo record. I telecomandi prelevati non vengono eliminati.",
     "tangles.section_header": "Questo dispositivo ha codici che richiedono attenzione.",
+    "tangles.load_failed": "Non è stato possibile controllare i codici di questo dispositivo in questo momento.",
     "tangles.card_fix.other": "{count} codici stanno inviando il segnale sbagliato. Quelli corretti sono già in questo file.",
     "tangles.card_fix.one": "{count} codice sta inviando il segnale sbagliato. Quello corretto è già in questo file.",
     "tangles.card_listen.other": "{count} pressioni dal telecomando completeranno questi codici.",
