@@ -1143,6 +1143,12 @@ def build_attestation(
     return record
 
 
+#: Refused because the device still has codes the comb doubts, and a
+#: Perfect Fit is a claim that every one of them was proved (owner
+#: ruled 2026-08-30). Detangle first, then fit; the tangles are never
+#: rolled into the fit process.
+FIT_HAS_TANGLES = "fit_has_tangles"
+
 #: Written into an attestation's note when the ladder wrote it rather
 #: than the keep button. The two are the same answer arrived at down
 #: different roads, and a later reader deserves to know which: a KEEP

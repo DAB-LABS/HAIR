@@ -4995,6 +4995,35 @@ async def ws_wigs_save(
         if device.climate_matrix else None
     )
 
+    # THE PERFECT FIT GATE (issue 26, owner ruled 2026-08-30). A
+    # fitting is a claim that somebody proved these codes on their own
+    # hardware, and a device with open tangle rows has codes nobody has
+    # proved anything about yet. Detangle first, then fit.
+    #
+    # The gate is on the SIGNING, not on saving: a plain Save to Closet
+    # carries no attestation and is refused by nothing here. It is on
+    # MATRIX devices, per the ruling -- a flat device's findings are
+    # answered row by row through the same checklist, which is the
+    # arrangement the fit flow was built for.
+    #
+    # The frontend hides the Perfect Fit action entirely when rows are
+    # open, so nobody should reach this. It stands behind that for
+    # anything calling the endpoint directly, which is exactly why a
+    # ruled UI shape does not make a server-side check redundant.
+    if attestation is not None and matrix is not None:
+        from .tangles import FIT_HAS_TANGLES, list_tangles
+
+        open_rows = await hass.async_add_executor_job(
+            lambda: list_tangles(device, matrix).rows
+        )
+        if open_rows:
+            connection.send_error(
+                msg["id"], FIT_HAS_TANGLES,
+                f"{len(open_rows)} codes on this device still need "
+                "attention. Fix them before fitting.",
+            )
+            return
+
     # A matrix bundle binds the lattice as a set, because a sampled
     # checklist vouches for the set rather than for the rows it walked.
     # STAMPED HERE, from the matrix this server just read -- never

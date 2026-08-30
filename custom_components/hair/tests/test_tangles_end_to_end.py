@@ -27,6 +27,7 @@ from custom_components.hair.tangles import (
     APPLY_NO_FINDING,
     APPLY_NOT_TESTED,
     ATTESTED_KEY,
+    FIT_HAS_TANGLES,
     PROVENANCE_KEY,
     TIER_AIR_TESTED,
     TIER_RULE_DERIVED,
@@ -667,3 +668,76 @@ class TestTheFlatFan:
         })
         assert "map" not in result["record"]
         assert result["record"]["key"].endswith("|-")
+class TestPerfectFitIsGatedOnACleanListing:
+    """Issue 26, ruled 2026-08-30: detangle first, then perfect fit.
+
+    The fit process predates the Detangler. It used to include the
+    pulled commands, because extraction WAS the old anomaly workflow
+    and those rows carried the comb flags the checklist gated on. With
+    extraction gone (P1) the checklist has no comb-flagged rows left,
+    so the gate does not live there any more; it lives at the door.
+
+    A fitting is a claim that somebody proved these codes on their own
+    hardware. A device with open tangle rows has codes nobody has
+    proved anything about, so the claim cannot be made yet.
+    """
+
+    async def _sign(self, hass, device, **extra):
+        payload = {
+            "id": 9, "type": "hair/wigs/save",
+            "device_id": device.id,
+            "attest": {
+                "github": "someone",
+                "hair_version": "0.13.0",
+                "ha_version": "2026.8.0",
+                "claims": {},
+            },
+        }
+        payload.update(extra)
+        connection = MagicMock()
+        connection.send_error = MagicMock()
+        connection.send_result = MagicMock()
+        await ws_wigs_save(hass, connection, payload)
+        return connection
+
+    @pytest.mark.asyncio
+    async def test_signing_refuses_while_rows_are_open(self, adopted):
+        hass, device, _tmp_path, _wig = adopted
+        assert (await _tangles(hass, device))["rows"]
+
+        connection = await self._sign(hass, device)
+
+        assert connection.send_error.called
+        assert connection.send_error.call_args.args[1] == FIT_HAS_TANGLES
+        # A plain sentence pointing at the work, with the count in it.
+        reason = connection.send_error.call_args.args[2]
+        assert "need attention" in reason
+        assert "52" in reason
+
+    @pytest.mark.asyncio
+    async def test_a_plain_save_is_not_gated(self, adopted):
+        """The gate is on the SIGNING, not on saving. Somebody who
+        wants their repairs in the closet without claiming a fit is
+        doing an ordinary Save to Closet, and this gate has no opinion
+        about that.
+
+        Narrow on purpose: wigs/save has refusals of its own, and this
+        fixture's device is byte-identical to its source, so it can
+        legitimately come back with one. What must never happen is
+        THIS refusal on a save that made no fitting claim.
+        """
+        hass, device, _tmp_path, _wig = adopted
+        assert (await _tangles(hass, device))["rows"]
+
+        connection = MagicMock()
+        connection.send_error = MagicMock()
+        connection.send_result = MagicMock()
+        await ws_wigs_save(hass, connection, {
+            "id": 9, "type": "hair/wigs/save", "device_id": device.id,
+        })
+
+        refused = (
+            connection.send_error.call_args.args[1]
+            if connection.send_error.called else None
+        )
+        assert refused != FIT_HAS_TANGLES
