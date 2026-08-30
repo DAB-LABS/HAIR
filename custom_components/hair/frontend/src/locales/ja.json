@@ -1000,6 +1000,7 @@
     "tangles.row_done": "完了",
     "tangles.listen": "聞き取り",
     "tangles.listen_captured": "取得済み",
+    "tangles.listen_heard": "受信",
     "tangles.listen_garbled": "信号が乱れて届きました。もう少し近づいて、もう一度お試しください。",
     "tangles.listen_mismatch_1": "{heard} を受信しました。リモコンの表示を確認して、もう一度お試しください。",
     "tangles.listen_mismatch_2": "再び{heard}として受信しました。",

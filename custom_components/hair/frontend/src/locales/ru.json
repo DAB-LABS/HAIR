@@ -1100,6 +1100,7 @@
     "tangles.row_done": "Готово",
     "tangles.listen": "Слушать",
     "tangles.listen_captured": "Записано",
+    "tangles.listen_heard": "Принято",
     "tangles.listen_garbled": "Сигнал пришёл искажённым. Попробуйте ещё раз, немного ближе.",
     "tangles.listen_mismatch_1": "Услышано {heard}. Проверьте экран пульта и попробуйте ещё раз.",
     "tangles.listen_mismatch_2": "Снова услышано {heard}.",

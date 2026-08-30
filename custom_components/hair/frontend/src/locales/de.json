@@ -1000,6 +1000,7 @@
     "tangles.row_done": "Fertig",
     "tangles.listen": "Anhören",
     "tangles.listen_captured": "Erfasst",
+    "tangles.listen_heard": "Empfangen",
     "tangles.listen_garbled": "Kam verzerrt an. Bitte noch einmal, etwas näher dran.",
     "tangles.listen_mismatch_1": "{heard} gehört. Prüfen Sie die Anzeige der Fernbedienung und versuchen Sie es erneut.",
     "tangles.listen_mismatch_2": "Wieder {heard} gehört.",

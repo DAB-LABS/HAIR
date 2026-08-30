@@ -1000,6 +1000,7 @@
     "tangles.row_done": "Done",
     "tangles.listen": "Listen",
     "tangles.listen_captured": "Captured",
+    "tangles.listen_heard": "Heard",
     "tangles.listen_garbled": "Came through garbled. Try again, a little closer.",
     "tangles.listen_mismatch_1": "Heard {heard}. Check the remote's display and try again.",
     "tangles.listen_mismatch_2": "Heard {heard} again.",

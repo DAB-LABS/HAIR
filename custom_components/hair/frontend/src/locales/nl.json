@@ -1000,6 +1000,7 @@
     "tangles.row_done": "Klaar",
     "tangles.listen": "Luisteren",
     "tangles.listen_captured": "Vastgelegd",
+    "tangles.listen_heard": "Ontvangen",
     "tangles.listen_garbled": "Kwam vervormd binnen. Probeer het opnieuw, iets dichterbij.",
     "tangles.listen_mismatch_1": "{heard} gehoord. Controleer het display van de afstandsbediening en probeer het opnieuw.",
     "tangles.listen_mismatch_2": "Opnieuw {heard} gehoord.",

@@ -1000,6 +1000,7 @@
     "tangles.row_done": "Fatto",
     "tangles.listen": "Ascolta",
     "tangles.listen_captured": "Catturato",
+    "tangles.listen_heard": "Ricevuto",
     "tangles.listen_garbled": "Arrivato disturbato. Riprova, un po' più vicino.",
     "tangles.listen_mismatch_1": "Sentito {heard}. Controlla il display del telecomando e riprova.",
     "tangles.listen_mismatch_2": "Ricevuto di nuovo {heard}.",

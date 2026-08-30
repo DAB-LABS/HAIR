@@ -3652,3 +3652,72 @@ class TestABucketOpensUnderItsOwnCard:
         )[1].split("return html`", 1)[0]
         assert body.index('card: "fix"') < body.index('card: "listen"')
         assert body.index('card: "listen"') < body.index('card: "decide"')
+class TestTheListenButtonSaysWhatItIsDoing:
+    """R6 (issue 14, owner ruled 2026-08-30).
+
+    Clicking LISTEN replaced the button's label with three pulsing
+    dots. The owner's read was that the button had gone dark: the dots
+    explain nothing, and nothing on the button ever acknowledged the
+    press it was sitting there asking for. Three states now, and each
+    one says which it is -- idle Listen, a greyed but visibly alive
+    wait, and Heard from the moment a press arrives through judgment
+    and apply.
+    """
+
+    def test_the_button_has_three_states_and_two_words(self):
+        text = _read("ir-tangle-listen.ts")
+        block = text.split('class="action-btn listen-btn', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert 't("tangles.listen_heard")' in block
+        assert 't("tangles.listen")' in block
+        # The dots are what the owner read as a dead button.
+        assert 'class="pulse"' not in block
+
+    def test_waiting_is_grey_and_alive(self):
+        """Grey so it is plainly not the thing to click next, animated
+        so it is plainly not dead. The reduced-motion path keeps the
+        grey and drops the movement."""
+        text = _read("ir-tangle-listen.ts")
+        assert ".listen-btn.waiting {" in text
+        assert "animation: tangle-breathe" in text
+        assert "@media (prefers-reduced-motion: reduce)" in text
+
+    def test_heard_is_not_faded_out(self):
+        """The shared disabled style is a 50 percent fade, which would
+        leave the one word the person is waiting to read as the
+        faintest thing in the row."""
+        text = _read("ir-tangle-listen.ts")
+        assert ".listen-btn.heard:disabled {" in text
+
+    def test_heard_and_waiting_cannot_both_be_on(self):
+        text = _read("ir-tangle-listen.ts")
+        assert "const waiting = !heard && (listening || arming);" in text
+
+    def test_a_press_that_does_not_settle_returns_to_waiting(self):
+        """A garbled press and a mismatch both leave the row listening,
+        so the button has to stop saying Heard and go back to asking.
+        Without this it would sit on Heard forever while the person
+        pressed again."""
+        text = _read("ir-tangle-listen.ts")
+        body = text.split("private async _onEvent(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert body.count("this._release(this._heard, row.id)") == 2
+
+    def test_the_apply_path_clears_it_too(self):
+        text = _read("ir-tangle-listen.ts")
+        body = text.split("private async _finishCapture(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this._release(this._heard, row.id)" in body
+
+    def test_use_it_anyway_never_claims_a_press_arrived(self):
+        """USE IT ANYWAY applies a press already heard and judged; the
+        listen button is not reporting anything new during that write,
+        and _busy already disables it."""
+        text = _read("ir-tangle-listen.ts")
+        body = text.split("private async _useAnyway(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "_heard" not in body

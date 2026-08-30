@@ -1000,6 +1000,7 @@
     "tangles.row_done": "Listo",
     "tangles.listen": "Escuchar",
     "tangles.listen_captured": "Capturado",
+    "tangles.listen_heard": "Recibido",
     "tangles.listen_garbled": "Llegó distorsionado. Inténtelo de nuevo, un poco más cerca.",
     "tangles.listen_mismatch_1": "Se escuchó {heard}. Revise la pantalla del control remoto e inténtelo de nuevo.",
     "tangles.listen_mismatch_2": "Se escuchó {heard} otra vez.",

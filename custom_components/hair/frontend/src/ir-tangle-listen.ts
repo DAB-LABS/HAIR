@@ -80,6 +80,10 @@ export class IrTangleListen extends LitElement {
     // run a second full write (issue 10).
     @state() private _arming = new Set<string>();
     @state() private _busy = new Set<string>();
+    // Rows whose press has ARRIVED and is being judged and applied
+    // (issue 14). Distinct from _busy, which also covers USE IT
+    // ANYWAY's write, where nothing was just heard.
+    @state() private _heard = new Set<string>();
     @state() private _closing: { count: number; fixesGained: number } | null = null;
     private _fixesGained = 0;
 
@@ -212,6 +216,7 @@ export class IrTangleListen extends LitElement {
             this._setMessage(row.id, IrTangleListen._errorText(err));
         } finally {
             this._busy = this._release(this._busy, row.id);
+            this._heard = this._release(this._heard, row.id);
         }
     }
 
@@ -281,7 +286,14 @@ export class IrTangleListen extends LitElement {
             return;
         }
         const capture = event as TangleCaptureEvent;
+        // A PRESS ARRIVED (issue 14). The button stops waiting and
+        // says so, and keeps saying so through judgment and apply --
+        // the owner's read of the old behaviour was that the button
+        // had gone dark, because nothing on it ever acknowledged the
+        // press it was sitting there asking for.
+        this._heard = new Set(this._heard).add(row.id);
         if (!capture.decoded) {
+            this._heard = this._release(this._heard, row.id);
             this._lastMessage.set(row.id, t("tangles.listen_garbled"));
             this._lastMessage = new Map(this._lastMessage);
             return;
@@ -338,7 +350,9 @@ export class IrTangleListen extends LitElement {
                 : t(`tangles.listen_mismatch_${rung}`, { heard });
         if (misses >= 3) this._ladder = new Set(this._ladder).add(row.id);
         this._setMessage(row.id, message);
-        // Row stays listening -- a miss never reverts the arm.
+        // Row stays listening -- a miss never reverts the arm -- so the
+        // button goes back to waiting for the next press.
+        this._heard = this._release(this._heard, row.id);
     }
 
     private async _useAnyway(row: TangleRow): Promise<void> {
@@ -418,24 +432,28 @@ export class IrTangleListen extends LitElement {
         const listening = state === "listening";
         const arming = this._arming.has(row.id);
         const busy = this._busy.has(row.id);
+        // Idle LISTEN, waiting LISTEN, HEARD (issue 14, owner ruled
+        // 2026-08-30). Waiting keeps the word and greys down, rather
+        // than swapping the label for three dots that explain nothing
+        // and read as a dead button.
+        const heard = this._heard.has(row.id);
+        const waiting = !heard && (listening || arming);
         return html`
             <div class="lrow">
                 <div class="ltop">
                     <span class="lname">${this._words(row.target)}</span>
                     <span class="lactions">
                         <button
-                            class="action-btn listen-btn ${listening || arming
-                                ? "pulsing"
-                                : ""}"
-                            ?disabled=${arming || busy}
+                            class="action-btn listen-btn ${heard
+                                ? "heard"
+                                : waiting
+                                  ? "waiting"
+                                  : ""}"
+                            ?disabled=${arming || busy || heard}
                             @click=${() => this._arm(row)}
                         >
-                            ${listening || arming
-                                ? html`<span class="pulse"
-                                      ><span class="dot"></span
-                                      ><span class="dot"></span
-                                      ><span class="dot"></span
-                                  ></span>`
+                            ${heard
+                                ? t("tangles.listen_heard")
                                 : t("tangles.listen")}
                         </button>
                         <button class="action-btn skip-btn" @click=${() => this._skip(row)}>
@@ -531,6 +549,44 @@ export class IrTangleListen extends LitElement {
                 color: var(--tangle-amber, #b89930);
                 border-color: rgba(184, 153, 48, 0.3);
                 min-width: 64px;
+            }
+            /* WAITING. Greyed so it plainly is not the thing to click
+               next, breathing so it is plainly not dead, and still
+               clickable: clicking again re-arms, which is the honest
+               escape from a press that never landed. */
+            .listen-btn.waiting {
+                color: var(--secondary-text-color);
+                border-color: var(--divider-color);
+                animation: tangle-breathe 1.8s ease-in-out infinite;
+            }
+            @keyframes tangle-breathe {
+                0%,
+                100% {
+                    opacity: 0.55;
+                }
+                50% {
+                    opacity: 1;
+                }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .listen-btn.waiting {
+                    animation: none;
+                    opacity: 0.7;
+                }
+            }
+            /* HEARD, through judgment and apply. Green is already this
+               panel's word for a receiver caught it, and it is the
+               green the settled row wears a moment later. */
+            .listen-btn.heard {
+                color: #2e7d32;
+                border-color: rgba(46, 125, 50, 0.4);
+            }
+            /* It is reporting, not offering, so it is disabled -- but
+               the shared 50 percent disabled fade would leave the one
+               word the person is waiting to read as the faintest thing
+               in the row. */
+            .listen-btn.heard:disabled {
+                opacity: 1;
             }
             .pulse {
                 display: inline-flex;

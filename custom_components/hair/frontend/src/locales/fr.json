@@ -1000,6 +1000,7 @@
     "tangles.row_done": "Terminé",
     "tangles.listen": "Écouter",
     "tangles.listen_captured": "Capturé",
+    "tangles.listen_heard": "Reçu",
     "tangles.listen_garbled": "Signal brouillé à la réception. Réessayez, un peu plus près.",
     "tangles.listen_mismatch_1": "{heard} entendu. Vérifiez l'écran de la télécommande et réessayez.",
     "tangles.listen_mismatch_2": "{heard} entendu à nouveau.",
