@@ -970,6 +970,60 @@ def revert_repair(holder: Any) -> dict[str, Any] | None:
     return record
 
 
+def rederive_comb_stamps(
+    device: IRDevice, matrix: ClimateMatrix | None, holders: list
+) -> None:
+    """Re-stamp the comb marks on the holders a repair just rewrote.
+
+    THE STAMPS WERE FROZEN AT ADOPT (issue 16). ``comb_suspect`` and
+    ``comb_finding`` were written once, from the wig's own receipt, and
+    never looked at again -- so a command whose bytes were repaired
+    into perfectly good ones kept wearing the mark, and kept its
+    TRIGGER button hidden, forever. The mark is a claim about the bytes
+    a row currently holds, and the bytes had just changed underneath
+    it.
+
+    Re-derived from THE LIVE COMB, which is what ``list_tangles``
+    already is: the device projected to a wig and combed as it stands
+    now. Clean bytes clear both fields and the TRIGGER button comes
+    back; bytes that still read wrong keep the mark and get the NEW
+    class, because "we fixed it and it is still wrong, differently" is
+    a thing that happens and the tooltip should say which.
+
+    ONLY the holders handed in. A sweep over every command would look
+    tidier and would be wrong: the adopt-time stamps came from the wig
+    FILE's receipt, this reads the DEVICE, and the two can legitimately
+    disagree on a row nobody has touched. A repair is licence to
+    re-read the row that was repaired, not licence to re-open every
+    verdict on the device.
+
+    Cells are handed in alongside their portholes by every caller, and
+    a cell carries no stamps to move; they are skipped rather than
+    filtered out at each call site.
+    """
+    holders = [h for h in holders if hasattr(h, "comb_suspect")]
+    if not holders:
+        return
+    listing = list_tangles(device, matrix)
+    cells: dict[tuple, str] = {}
+    flats: dict[str, str] = {}
+    for row in listing.rows:
+        lead = row.classes[0] if row.classes else None
+        if lead is None:
+            continue
+        if row.target.kind == TARGET_CELL:
+            cells[_coord_key(row.target.coordinates)] = lead
+        elif row.target.command_id:
+            flats[row.target.command_id] = lead
+    for command in holders:
+        if is_porthole(command):
+            finding = cells.get(_coord_key(command.matrix_cell))
+        else:
+            finding = flats.get(command.id)
+        command.comb_suspect = finding is not None
+        command.comb_finding = finding
+
+
 def portholes_for(device: IRDevice, coordinates: dict[str, Any]) -> list:
     """Every porthole command standing for one lattice cell.
 
