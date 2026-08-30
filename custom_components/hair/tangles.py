@@ -970,6 +970,34 @@ def revert_repair(holder: Any) -> dict[str, Any] | None:
     return record
 
 
+def holders_for_rows(device: IRDevice, rows: list) -> list:
+    """The commands standing behind a set of tangle rows.
+
+    A row names a TARGET, not a holder: a cell row is answered by every
+    porthole parked at those coordinates, a flat row by the one command
+    it was raised on. Callers that have just settled some rows need the
+    commands to re-read, and this is that lookup in one place instead
+    of open-coded at each of them.
+    """
+    wanted_cells: set = set()
+    wanted_ids: set = set()
+    for row in rows:
+        if row.target.kind == TARGET_CELL:
+            wanted_cells.add(_coord_key(row.target.coordinates))
+        elif row.target.command_id:
+            wanted_ids.add(row.target.command_id)
+    holders = []
+    for command in device.commands:
+        if command.id in wanted_ids:
+            holders.append(command)
+            continue
+        if not is_porthole(command):
+            continue
+        if _coord_key(command.matrix_cell) in wanted_cells:
+            holders.append(command)
+    return holders
+
+
 def rederive_comb_stamps(
     device: IRDevice,
     matrix: ClimateMatrix | None,
@@ -1011,15 +1039,22 @@ def rederive_comb_stamps(
         listing = list_tangles(device, matrix)
     cells: dict[tuple, str] = {}
     flats: dict[str, str] = {}
-    # OPEN ROWS AND ANSWERED ONES BOTH COUNT. A mark says the comb
-    # doubts these bytes; an attestation says a person looked at the
-    # doubt and vouched for them anyway. Those are different facts and
-    # the receipt keeps both, so an answered row is not a clean row and
-    # its command should not shed its mark and quietly get its TRIGGER
-    # back. Reading only the open list would have done exactly that
-    # after a ladder override, and P2's own ruling says an
-    # attested-but-flagged row keeps honest marks.
-    answered = listing.attested or []
+    # A MARK IS AN UNANSWERED DOUBT (owner ruled 2026-08-30).
+    #
+    # Two steps, and ``list_tangles`` has already done both by the time
+    # its listing gets here: it derives every finding from the live
+    # comb, and THEN settles the ones a standing attestation covers,
+    # moving those out of ``rows`` and into ``attested``. So reading
+    # ``rows`` is reading exactly the doubts nobody has answered yet,
+    # which is what the mark means and what the surface should show.
+    #
+    # DO NOT fold ``listing.attested`` back in here. A row somebody
+    # tested and vouched for reads CLEAN on the command surface and
+    # gets its TRIGGER back -- that is the whole point of answering
+    # one. Nothing is lost by it: the finding and the answer both stay
+    # in the attestation and in the wig's receipt, and the moment the
+    # bytes or the map version move, the attestation stops matching,
+    # the row returns to ``rows``, and the mark comes back on its own.
     for row in listing.rows:
         lead = row.classes[0] if row.classes else None
         if lead is None:
@@ -1028,16 +1063,6 @@ def rederive_comb_stamps(
             cells[_coord_key(row.target.coordinates)] = lead
         elif row.target.command_id:
             flats[row.target.command_id] = lead
-    for record in answered:
-        classes = record.get("classes") or []
-        lead = classes[0] if classes else None
-        target = record.get("target") or {}
-        if lead is None or not isinstance(target, dict):
-            continue
-        if target.get("kind") == TARGET_CELL:
-            cells.setdefault(_coord_key(target.get("coordinates")), lead)
-        elif target.get("command_id"):
-            flats.setdefault(target["command_id"], lead)
     for command in holders:
         if is_porthole(command):
             finding = cells.get(_coord_key(command.matrix_cell))
@@ -1065,6 +1090,10 @@ def sweep_comb_stamps_if_retired(
     member was repaired leaves the OTHER one still wearing a mark it
     earned only by resembling its broken partner. Nothing will ever
     touch that command again, so nothing would ever release it.
+
+    Zero open rows is the same test either way: a device whose
+    remaining findings were all ANSWERED has no unanswered doubts left
+    either, and under the mark rule above that device is clean.
 
     Returns whether the sweep ran, so a caller can say so.
     """

@@ -39,6 +39,7 @@ from custom_components.hair.tangles import (
     PROVENANCE_KEY,
     list_tangles,
     read_repair,
+    rederive_comb_stamps,
 )
 from custom_components.hair.websocket_api import (
     ws_tangle_apply,
@@ -626,13 +627,16 @@ class TestTheRetireMomentSweep:
         assert second.comb_finding == rows[1].classes[0]
 
     @pytest.mark.asyncio
-    async def test_an_answered_row_keeps_its_mark_through_the_sweep(
-        self, dreo
-    ):
-        """ATTESTED IS NOT CLEAN. A kept row leaves the work list, so
-        the section can retire with it still flagged -- and its command
-        must not shed the mark and quietly get its TRIGGER back. The
-        receipt carries both facts and so does the row."""
+    async def test_an_answered_row_reads_clean_on_the_command(self, dreo):
+        """A MARK IS AN UNANSWERED DOUBT (owner ruled 2026-08-30).
+
+        Stamps re-derive from the live comb and then standing
+        attestations settle them. A row somebody tested and vouched for
+        reads clean on the command surface and gets its TRIGGER back --
+        which is what answering one is FOR. Nothing is lost: the
+        finding and the answer both stay in the attestation and in the
+        wig's receipt, where the disagreement is fully recorded.
+        """
         hass, device, _manager = dreo
         rows = list_tangles(device, None).rows
         assert len(rows) == 2
@@ -641,8 +645,6 @@ class TestTheRetireMomentSweep:
             command.comb_suspect = True
             command.comb_finding = row.classes[0]
 
-        # Answer both rows instead of repairing them: the section
-        # retires with every finding still standing, attested.
         for row in rows:
             connection = _conn()
             await ws_tangle_keep(hass, connection, {
@@ -654,8 +656,52 @@ class TestTheRetireMomentSweep:
         listing = list_tangles(device, None)
         assert listing.rows == []
         assert len(listing.attested) == 2
-        assert first.comb_suspect is True
-        assert second.comb_suspect is True
+        assert first.comb_suspect is False
+        assert first.comb_finding is None
+        assert second.comb_suspect is False
+
+    @pytest.mark.asyncio
+    async def test_the_mark_returns_when_the_answer_stops_applying(
+        self, dreo
+    ):
+        """The other half of the rule, and the reason it is safe.
+
+        An attestation is about SOME BYTES read under SOME MAP. Move
+        either and it stops matching, the row comes back to the work
+        list, and the mark returns on its own -- nothing scheduled,
+        nothing swept, no state that can be wrong. Here the map version
+        moves underneath a standing answer.
+        """
+        hass, device, _manager = dreo
+        rows = list_tangles(device, None).rows
+        command = device.get_command(rows[0].target.command_id)
+        command.comb_suspect = True
+        command.comb_finding = rows[0].classes[0]
+
+        connection = _conn()
+        await ws_tangle_keep(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/keep",
+            "device_id": device.id, "target": rows[0].id, "tested": True,
+        })
+        connection.send_error.assert_not_called()
+        assert command.comb_suspect is False
+
+        # The answer was recorded against a map version. Move it, and
+        # the standing attestation stops covering this row -- neither
+        # by its key nor by the digest-and-version match a renamed
+        # command survives on.
+        for record in device.tangle_attestations:
+            record["key"] = record["key"] + "-moved"
+            record["map"] = {
+                **(record.get("map") or {}), "version": "moved",
+            }
+
+        rederive_comb_stamps(device, None, [command])
+
+        assert command.comb_suspect is True
+        assert command.comb_finding == rows[0].classes[0]
+
+
 class TestKeepingAPairIsOneAnswer:
     """Issue 23, confirmed live on the Mitsubishi before it was built.
 

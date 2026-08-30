@@ -7789,8 +7789,6 @@ async def ws_tangle_apply(
         portholes = portholes_for(device, row.target.coordinates)
         for porthole in portholes:
             write_repair(porthole, msg["pronto"], provenance)
-        rederive_comb_stamps(device, matrix, portholes)
-        sweep_comb_stamps_if_retired(device, matrix)
         failure = await _write_matrix_and_signal(hass, device, matrix)
         if failure is not None:
             connection.send_error(msg["id"], "write_failed", failure)
@@ -7798,6 +7796,15 @@ async def ws_tangle_apply(
         attested = await _keep_the_override(
             hass, device, matrix, row, lattice, verdict, declared,
         )
+        # AFTER THE ANSWER, NOT BEFORE (owner ruled 2026-08-30). A mark
+        # is an unanswered doubt, and a USE IT ANYWAY is an answer. Read
+        # the marks before the override is on the device and the listing
+        # still shows the row open, so the mark stays on a row nobody is
+        # being asked about any more -- and nothing would ever come back
+        # to take it off. Nothing here changes bytes, so the digest the
+        # attestation keyed on is still the one it was built from.
+        rederive_comb_stamps(device, matrix, portholes)
+        sweep_comb_stamps_if_retired(device, matrix)
         await manager.async_update_device(device)
     else:
         command = device.get_command(row.target.command_id or "")
@@ -7806,11 +7813,13 @@ async def ws_tangle_apply(
                 msg["id"], APPLY_NO_FINDING, "That command is gone")
             return
         write_repair(command, msg["pronto"], provenance)
-        rederive_comb_stamps(device, matrix, [command])
-        sweep_comb_stamps_if_retired(device, matrix)
         attested = await _keep_the_override(
             hass, device, matrix, row, lattice, verdict, declared,
         )
+        # After the answer, not before: the same rule as the cell
+        # branch above, for the same reason.
+        rederive_comb_stamps(device, matrix, [command])
+        sweep_comb_stamps_if_retired(device, matrix)
         # Through async_update_device, so the known-command index
         # rebuilds on the new bytes and the entity hooks fire (gotcha 6).
         await manager.async_update_device(device)
@@ -8225,11 +8234,13 @@ async def ws_tangle_keep(
     that raised them, and the same tested assertion the write requires.
 
     Nothing is deleted. The finding stands in the receipt and the wig
-    carries both the math and the human's answer, because attested is a
-    different thing from clean and has to keep reading as one. What
-    changes is that the row leaves the work list, and re-combing stays
-    quiet about it for exactly as long as the bytes and the map hold
-    still.
+    carries both the math and the human's answer, because the record of
+    a disagreement is worth keeping long after somebody settled it.
+    What changes is the SURFACE: the row leaves the work list, the
+    command behind it drops its mark and gets its TRIGGER back, and
+    re-combing stays quiet about it for exactly as long as the bytes
+    and the map hold still. Move either one and the attestation stops
+    matching, the row returns, and the mark comes back on its own.
 
     SEVERAL AT ONCE (issue 23). A duplicate pair is one decision about
     two rows: KEEP BOTH means both of these are wanted. Answering them
@@ -8250,10 +8261,11 @@ async def ws_tangle_keep(
         KEEP_NO_FINDING,
         KEEP_NOT_TESTED,
         build_attestation,
+        holders_for_rows,
         list_tangles,
         project_device,
         read_lattice,
-        sweep_comb_stamps_if_retired,
+        rederive_comb_stamps,
     )
 
     if not msg["tested"]:
@@ -8301,9 +8313,28 @@ async def ws_tangle_keep(
     device.tangle_attestations.extend(records)
     row = rows[0]
     record = records[0]
-    # An answer can be the last thing a device was waiting on, and then
-    # this is the retire moment too.
-    sweep_comb_stamps_if_retired(device, matrix)
+    # AN ANSWER SETTLES ITS OWN ROW AT ONCE (owner ruled 2026-08-30).
+    #
+    # A mark is an unanswered doubt, so storing the answer is the
+    # moment the doubt stops. Re-read the commands behind the rows
+    # just answered, against the listing as it stands now: those rows
+    # have moved to ``attested``, so the marks come off and TRIGGER
+    # comes back. The device does not have to come all the way clean
+    # for that to be true of the rows it does answer.
+    #
+    # And when it DOES come clean, an answer was the last thing it was
+    # waiting on: that is the retire moment, and every command is
+    # re-read on the same terms the apply paths sweep on, so the
+    # untouched twin releases here too.
+    settled = list_tangles(device, matrix)
+    rederive_comb_stamps(
+        device,
+        matrix,
+        list(device.commands)
+        if not settled.rows
+        else holders_for_rows(device, rows),
+        listing=settled,
+    )
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     await manager.async_update_device(device)
     # KEEP is a DECIDE outcome and it changes what the wig SAYS, even
