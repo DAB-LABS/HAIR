@@ -41,6 +41,7 @@ from custom_components.hair.tangles import (
 )
 from custom_components.hair.websocket_api import (
     ws_tangle_apply,
+    ws_tangle_keep,
     ws_tangle_revert,
 )
 from custom_components.hair.wig_comb import CHECK_FIELD_MISMATCH
@@ -537,3 +538,120 @@ class TestTheCombStampsFollowTheBytes:
         connection.send_error.assert_not_called()
         assert porthole.comb_suspect is True
         assert porthole.comb_finding == "duplicated-neighbour"
+class TestTheRetireMomentSweep:
+    """The device-proved-clean moment (owner ruled 2026-08-30).
+
+    T1 re-reads only the rows a write touched, on purpose: the
+    adopt-time stamps came from the wig FILE and a listing reads the
+    DEVICE, so a repair is not licence to re-open every verdict. But
+    when every bucket is empty -- no open rows anywhere, the same
+    moment the section retires and the write-through fires -- the
+    device has just answered the question for all of itself.
+
+    The healthy twin is why it matters. An identical pair where one
+    member was repaired leaves the OTHER still wearing a mark it
+    earned only by resembling its broken partner, and nothing will
+    ever touch that command again.
+    """
+
+    def _twins(self, device, listing_rows):
+        """Two commands the comb flagged, one of which nothing will
+        repair: the classic identical pair."""
+        return [device.get_command(r.target.command_id) for r in listing_rows]
+
+    @pytest.mark.asyncio
+    async def test_the_untouched_twin_releases_when_the_device_comes_clean(
+        self, dreo
+    ):
+        hass, device, _manager = dreo
+        rows = list_tangles(device, None).rows
+        assert len(rows) == 2
+        first, second = self._twins(device, rows)
+        for command, row in zip((first, second), rows, strict=True):
+            command.comb_suspect = True
+            command.comb_finding = row.classes[0]
+
+        # Repair BOTH rows with codes that comb clean, so the last
+        # write empties the section.
+        healthy = next(
+            c for c in device.commands
+            if c.id not in {r.target.command_id for r in rows}
+        )
+        for index, row in enumerate(rows):
+            words = healthy.code.split()
+            words[20] = format(int(words[20], 16) + 4 + index, "04X")
+            connection = _conn()
+            await ws_tangle_apply(hass, connection, {
+                "id": 1, "type": "hair/device/tangle/apply",
+                "device_id": device.id, "target": row.id,
+                "pronto": " ".join(words), "tested": True, "source": "paste",
+            })
+            connection.send_error.assert_not_called()
+
+        assert list_tangles(device, None).rows == []
+        assert first.comb_suspect is False
+        assert second.comb_suspect is False
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_swept_while_a_row_is_still_open(self, dreo):
+        """THE RESTRAINT, still in force. One row repaired out of two
+        leaves the device with work to do, and the other row's command
+        keeps the mark it arrived with -- exactly T1's scope rule."""
+        hass, device, _manager = dreo
+        rows = list_tangles(device, None).rows
+        assert len(rows) == 2
+        first, second = self._twins(device, rows)
+        for command, row in zip((first, second), rows, strict=True):
+            command.comb_suspect = True
+            command.comb_finding = row.classes[0]
+
+        healthy = next(
+            c for c in device.commands
+            if c.id not in {r.target.command_id for r in rows}
+        )
+        words = healthy.code.split()
+        words[20] = format(int(words[20], 16) + 4, "04X")
+        connection = _conn()
+        await ws_tangle_apply(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": rows[0].id,
+            "pronto": " ".join(words), "tested": True, "source": "paste",
+        })
+        connection.send_error.assert_not_called()
+
+        assert list_tangles(device, None).rows
+        assert first.comb_suspect is False
+        assert second.comb_suspect is True
+        assert second.comb_finding == rows[1].classes[0]
+
+    @pytest.mark.asyncio
+    async def test_an_answered_row_keeps_its_mark_through_the_sweep(
+        self, dreo
+    ):
+        """ATTESTED IS NOT CLEAN. A kept row leaves the work list, so
+        the section can retire with it still flagged -- and its command
+        must not shed the mark and quietly get its TRIGGER back. The
+        receipt carries both facts and so does the row."""
+        hass, device, _manager = dreo
+        rows = list_tangles(device, None).rows
+        assert len(rows) == 2
+        first, second = self._twins(device, rows)
+        for command, row in zip((first, second), rows, strict=True):
+            command.comb_suspect = True
+            command.comb_finding = row.classes[0]
+
+        # Answer both rows instead of repairing them: the section
+        # retires with every finding still standing, attested.
+        for row in rows:
+            connection = _conn()
+            await ws_tangle_keep(hass, connection, {
+                "id": 1, "type": "hair/device/tangle/keep",
+                "device_id": device.id, "target": row.id, "tested": True,
+            })
+            connection.send_error.assert_not_called()
+
+        listing = list_tangles(device, None)
+        assert listing.rows == []
+        assert len(listing.attested) == 2
+        assert first.comb_suspect is True
+        assert second.comb_suspect is True

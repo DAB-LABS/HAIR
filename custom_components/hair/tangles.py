@@ -971,7 +971,10 @@ def revert_repair(holder: Any) -> dict[str, Any] | None:
 
 
 def rederive_comb_stamps(
-    device: IRDevice, matrix: ClimateMatrix | None, holders: list
+    device: IRDevice,
+    matrix: ClimateMatrix | None,
+    holders: list,
+    listing: Any | None = None,
 ) -> None:
     """Re-stamp the comb marks on the holders a repair just rewrote.
 
@@ -1004,9 +1007,19 @@ def rederive_comb_stamps(
     holders = [h for h in holders if hasattr(h, "comb_suspect")]
     if not holders:
         return
-    listing = list_tangles(device, matrix)
+    if listing is None:
+        listing = list_tangles(device, matrix)
     cells: dict[tuple, str] = {}
     flats: dict[str, str] = {}
+    # OPEN ROWS AND ANSWERED ONES BOTH COUNT. A mark says the comb
+    # doubts these bytes; an attestation says a person looked at the
+    # doubt and vouched for them anyway. Those are different facts and
+    # the receipt keeps both, so an answered row is not a clean row and
+    # its command should not shed its mark and quietly get its TRIGGER
+    # back. Reading only the open list would have done exactly that
+    # after a ladder override, and P2's own ruling says an
+    # attested-but-flagged row keeps honest marks.
+    answered = listing.attested or []
     for row in listing.rows:
         lead = row.classes[0] if row.classes else None
         if lead is None:
@@ -1015,6 +1028,16 @@ def rederive_comb_stamps(
             cells[_coord_key(row.target.coordinates)] = lead
         elif row.target.command_id:
             flats[row.target.command_id] = lead
+    for record in answered:
+        classes = record.get("classes") or []
+        lead = classes[0] if classes else None
+        target = record.get("target") or {}
+        if lead is None or not isinstance(target, dict):
+            continue
+        if target.get("kind") == TARGET_CELL:
+            cells.setdefault(_coord_key(target.get("coordinates")), lead)
+        elif target.get("command_id"):
+            flats.setdefault(target["command_id"], lead)
     for command in holders:
         if is_porthole(command):
             finding = cells.get(_coord_key(command.matrix_cell))
@@ -1022,6 +1045,36 @@ def rederive_comb_stamps(
             finding = flats.get(command.id)
         command.comb_suspect = finding is not None
         command.comb_finding = finding
+
+
+def sweep_comb_stamps_if_retired(
+    device: IRDevice, matrix: ClimateMatrix | None
+) -> bool:
+    """The device just came clean, so re-read the mark on ALL of it.
+
+    THE DEVICE-PROVED-CLEAN MOMENT IS THE LICENCE (owner ruled
+    2026-08-30). T1 re-reads only the rows a write touched, on purpose:
+    the adopt-time stamps came from the wig FILE and a listing reads
+    the DEVICE, so a repair is not licence to re-open every verdict.
+    But when every bucket is empty -- no open rows anywhere, the same
+    moment the section retires and the write-through fires -- the
+    device has just answered the question for all of itself, and the
+    restraint has nothing left to protect.
+
+    The healthy twin is why it matters. An identical pair where one
+    member was repaired leaves the OTHER one still wearing a mark it
+    earned only by resembling its broken partner. Nothing will ever
+    touch that command again, so nothing would ever release it.
+
+    Returns whether the sweep ran, so a caller can say so.
+    """
+    listing = list_tangles(device, matrix)
+    if listing.rows:
+        return False
+    rederive_comb_stamps(
+        device, matrix, list(device.commands), listing=listing,
+    )
+    return True
 
 
 def portholes_for(device: IRDevice, coordinates: dict[str, Any]) -> list:

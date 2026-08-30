@@ -7687,6 +7687,7 @@ async def ws_tangle_apply(
         project_device,
         read_lattice,
         rederive_comb_stamps,
+        sweep_comb_stamps_if_retired,
         write_repair,
     )
 
@@ -7760,6 +7761,7 @@ async def ws_tangle_apply(
         for porthole in portholes:
             write_repair(porthole, msg["pronto"], provenance)
         rederive_comb_stamps(device, matrix, portholes)
+        sweep_comb_stamps_if_retired(device, matrix)
         failure = await _write_matrix_and_signal(hass, device, matrix)
         if failure is not None:
             connection.send_error(msg["id"], "write_failed", failure)
@@ -7776,6 +7778,7 @@ async def ws_tangle_apply(
             return
         write_repair(command, msg["pronto"], provenance)
         rederive_comb_stamps(device, matrix, [command])
+        sweep_comb_stamps_if_retired(device, matrix)
         attested = await _keep_the_override(
             hass, device, matrix, row, lattice, verdict, declared,
         )
@@ -7979,6 +7982,7 @@ async def ws_tangle_apply_batch(
         repair_extras,
         restore_holder,
         sample_covers_modes,
+        sweep_comb_stamps_if_retired,
         write_repair,
     )
 
@@ -8087,6 +8091,7 @@ async def ws_tangle_apply_batch(
     # comb the device N times and read each repair against a lattice
     # the rest of the run had not landed in yet.
     rederive_comb_stamps(device, matrix, [holder for holder, _, _ in writes])
+    sweep_comb_stamps_if_retired(device, matrix)
 
     if matrix is not None:
         failure = await _write_matrix_and_signal(hass, device, matrix)
@@ -8202,6 +8207,7 @@ async def ws_tangle_keep(
         list_tangles,
         project_device,
         read_lattice,
+        sweep_comb_stamps_if_retired,
     )
 
     if not msg["tested"]:
@@ -8232,6 +8238,9 @@ async def ws_tangle_keep(
         if existing.get("key") != record["key"]
     ]
     device.tangle_attestations.append(record)
+    # An answer can be the last thing a device was waiting on, and then
+    # this is the retire moment too.
+    sweep_comb_stamps_if_retired(device, matrix)
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     await manager.async_update_device(device)
     # KEEP is a DECIDE outcome and it changes what the wig SAYS, even
