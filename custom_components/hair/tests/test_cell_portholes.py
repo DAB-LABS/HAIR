@@ -105,6 +105,86 @@ class TestRowNames:
         assert names == {"Cool 24 auto", "Cool 24 high"}
 
 
+class TestRowNamesFollowTheInstallsUnit:
+    """Issue 15, owner ruled 2026-08-30: a porthole name is minted at
+    adopt, and the name is an instruction -- "set your remote to this"
+    -- so it has to read in the unit the person's dial reads in. The
+    cell itself never moves: machine keys stay file-native forever
+    (the 2026-07-29 units ruling), only the minted string converts,
+    and it freezes at whatever the install said that day. Devices that
+    already carry names are not touched by any of this.
+    """
+
+    def test_a_fahrenheit_install_mints_fahrenheit_names(self):
+        matrix = _matrix()
+        cool18 = ClimateCell(
+            mode="cool", fan="auto", temp=18.0, pronto=PRONTO_A,
+        )
+        name = _cell_row_name(cool18, [cool18], matrix.unit, "F")
+        assert name == "Cool 64"
+
+    def test_a_celsius_install_is_byte_for_byte_what_it_always_was(self):
+        """The conversion is a no-op when the units agree, so a
+        Celsius house sees exactly the string this function returned
+        before the argument existed."""
+        matrix = _matrix()
+        cell = matrix.cells[2]
+        assert _cell_row_name(cell, [cell], matrix.unit, "C") == "Heat 20"
+        assert _cell_row_name(cell, [cell]) == "Heat 20"
+
+    def test_the_minted_row_carries_the_converted_name(self):
+        matrix = _matrix()
+        flagged = {cell_key(matrix.cells[2]): "duplicated-neighbour"}
+        device = IRDevice(name="AC")
+        assert _mint_cell_rows(device, matrix, flagged, "F") == 1
+        assert device.commands[0].name == "Heat 68"
+        # The CELL is untouched -- only the name converted.
+        assert device.commands[0].matrix_cell["temp"] == 20.0
+
+    def test_the_name_and_the_tangle_row_agree_on_the_number(self):
+        """The two surfaces that show this cell to a person -- the
+        command row's stored name and the detangle row's live label --
+        must never disagree about the temperature. They agree by
+        construction, not by coincidence: this name goes through
+        display_temp_str, and the frontend's targetWords goes through
+        displayTemp, which mirrors it byte-for-byte (documented at both
+        ends). Pinning the shared function is what keeps a future edit
+        to one from silently forking the other.
+        """
+        from custom_components.hair.wig_climate import display_temp_str
+
+        matrix = _matrix()
+        for cell in matrix.cells:
+            for unit in ("C", "F"):
+                shown = display_temp_str(
+                    cell.temp, matrix.unit, unit, matrix.precision,
+                )
+                name = _cell_row_name(
+                    cell, [cell], matrix.unit, unit, matrix.precision,
+                )
+                assert name.endswith(shown)
+
+    def test_a_half_degree_matrix_keeps_its_decimal(self):
+        """A 0.5C matrix converts at one decimal, because 0.5C steps
+        are 0.9F apart and rounding to int would collide two distinct
+        cells onto one name. Same rule display_temp_str already
+        applies everywhere else; the point here is that the precision
+        actually reaches it from the matrix."""
+        matrix = ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=PRONTO_A, precision=0.5,
+            cells=[
+                ClimateCell(
+                    mode="cool", fan="auto", temp=22.5, pronto=PRONTO_A,
+                ),
+            ],
+        )
+        device = IRDevice(name="AC")
+        _mint_cell_rows(
+            device, matrix, {cell_key(matrix.cells[0]): "malformed"}, "F",
+        )
+        assert device.commands[0].name == "Cool 72.5"
+
+
 class TestThePorthole:
     def _wire(self, fake_hass, device, manager):
         fake_hass.data[DOMAIN] = {"entry-1": {"device_manager": manager}}
