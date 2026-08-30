@@ -45,7 +45,12 @@ import type {
     TangleTarget,
 } from "./types.js";
 import { t, tp } from "./localize.js";
-import { targetWords } from "./ir-tangle-copy.js";
+import {
+    claimedFor,
+    fieldWords,
+    sameReading,
+    targetWords,
+} from "./ir-tangle-copy.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 
@@ -305,11 +310,19 @@ export class IrTangleListen extends LitElement {
         const isWitness = cluster?.mechanic === "witness";
         let good: boolean;
         if (isWitness && cluster?.field) {
+            // THE WITNESS COMPARISON (issue 18, ship-blocker). reads_as
+            // is keyed by map FIELD NAME, coordinates by cell AXIS, and
+            // this read one with the other's key -- so for every
+            // temperature cluster `asked` was undefined and a capture
+            // reading exactly the right value went to the ladder. Found
+            // on the bench: the small-shift AC's own 26C frame, sent at
+            // its own 26C row, answered "Heard 26. Check the remote's
+            // display and try again."
             const readsAs = capture.verdict.reads_as as Record<string, unknown> | null;
             const witnessed = readsAs?.[cluster.field];
             const coords = row.target.coordinates as Record<string, unknown> | undefined;
-            const asked = coords?.[cluster.field];
-            good = witnessed !== undefined && witnessed === asked;
+            const asked = claimedFor(cluster.field, coords);
+            good = sameReading(witnessed, asked);
         } else {
             // `matches` is null when there was no claim to check the
             // press against -- a flat wig has no lattice, so pre_read
@@ -339,10 +352,16 @@ export class IrTangleListen extends LitElement {
         const heardWord = (
             capture.verdict.reads_as as Record<string, unknown> | null
         )?.[cluster?.field ?? ""];
-        const heard =
-            heardWord === undefined || heardWord === null || heardWord === ""
-                ? null
-                : String(heardWord);
+        // The ladder speaks the panel's unit (T5). The reading is a
+        // native lattice value, and quoting it raw put "Heard 26" under
+        // a row named 79, which reads as the panel disagreeing with
+        // itself rather than with the remote.
+        const heard = fieldWords(
+            cluster?.field,
+            heardWord,
+            this.matrixUnit,
+            installUnit(this.hass),
+        );
         const rung = misses >= 3 ? 3 : misses === 1 ? 1 : 2;
         const message =
             heard === null
@@ -432,10 +451,13 @@ export class IrTangleListen extends LitElement {
         const listening = state === "listening";
         const arming = this._arming.has(row.id);
         const busy = this._busy.has(row.id);
-        // Idle LISTEN, waiting LISTEN, HEARD (issue 14, owner ruled
-        // 2026-08-30). Waiting keeps the word and greys down, rather
-        // than swapping the label for three dots that explain nothing
-        // and read as a dead button.
+        // Idle LISTEN, dots while it waits, HEARD when a press lands
+        // (owner ruled 2026-08-30, superseding the grayed-word
+        // treatment tried the same day). The dots were never the
+        // problem: the problem was that nothing ever acknowledged the
+        // press, so the animation ran on and on and read as a button
+        // that had died. With HEARD arriving at the end, the dots read
+        // as what they are, which is waiting.
         const heard = this._heard.has(row.id);
         const waiting = !heard && (listening || arming);
         return html`
@@ -447,14 +469,20 @@ export class IrTangleListen extends LitElement {
                             class="action-btn listen-btn ${heard
                                 ? "heard"
                                 : waiting
-                                  ? "waiting"
+                                  ? "pulsing"
                                   : ""}"
                             ?disabled=${arming || busy || heard}
                             @click=${() => this._arm(row)}
                         >
                             ${heard
                                 ? t("tangles.listen_heard")
-                                : t("tangles.listen")}
+                                : waiting
+                                  ? html`<span class="pulse"
+                                        ><span class="dot"></span
+                                        ><span class="dot"></span
+                                        ><span class="dot"></span
+                                    ></span>`
+                                  : t("tangles.listen")}
                         </button>
                         <button class="action-btn skip-btn" @click=${() => this._skip(row)}>
                             ${t("tangles.skip_for_now")}
@@ -498,11 +526,18 @@ export class IrTangleListen extends LitElement {
             :host {
                 display: block;
             }
+            /* THE CARD PAINTS THE BOX (issue 19). This used to be a
+               separate rounded panel with its own background and an
+               8px gap above it, so an opened bucket read as a second
+               thing that had appeared near the card rather than as
+               the card opening. The block in ir-tangle-section owns
+               the surface and the corners now; what is left here is
+               the padding the rows sit in. */
             .work {
-                margin: 8px 0 0 0;
+                margin: 0;
                 padding: 10px 12px;
-                background: var(--card-background-color, var(--primary-background-color));
-                border-radius: 4px;
+                background: none;
+                border-radius: 0;
             }
             .rows {
                 display: flex;
@@ -550,30 +585,6 @@ export class IrTangleListen extends LitElement {
                 border-color: rgba(184, 153, 48, 0.3);
                 min-width: 64px;
             }
-            /* WAITING. Greyed so it plainly is not the thing to click
-               next, breathing so it is plainly not dead, and still
-               clickable: clicking again re-arms, which is the honest
-               escape from a press that never landed. */
-            .listen-btn.waiting {
-                color: var(--secondary-text-color);
-                border-color: var(--divider-color);
-                animation: tangle-breathe 1.8s ease-in-out infinite;
-            }
-            @keyframes tangle-breathe {
-                0%,
-                100% {
-                    opacity: 0.55;
-                }
-                50% {
-                    opacity: 1;
-                }
-            }
-            @media (prefers-reduced-motion: reduce) {
-                .listen-btn.waiting {
-                    animation: none;
-                    opacity: 0.7;
-                }
-            }
             /* HEARD, through judgment and apply. Green is already this
                panel's word for a receiver caught it, and it is the
                green the settled row wears a moment later. */
@@ -615,6 +626,14 @@ export class IrTangleListen extends LitElement {
                 }
                 40% {
                     opacity: 1;
+                }
+            }
+            /* Three dots at rest still read as a distinct state, and
+               the button says HEARD when the press lands either way. */
+            @media (prefers-reduced-motion: reduce) {
+                .pulse .dot {
+                    animation: none;
+                    opacity: 0.6;
                 }
             }
             .lmsg {

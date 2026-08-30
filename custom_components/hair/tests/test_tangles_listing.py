@@ -31,12 +31,17 @@ from custom_components.hair.tangles import (
     TARGET_CELL,
     TARGET_COMMAND,
     list_tangles,
+    pre_read,
+    project_device,
+    read_lattice,
 )
 from custom_components.hair.websocket_api import ws_device_tangles
 from custom_components.hair.wig_comb import (
     CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FIELD_MISMATCH,
     CHECK_FRAME_DISAGREEMENT,
+    FIELD_COORDINATE,
+    POWER_FIELD,
     comb_wig,
     receipt_summary,
     stamp_receipt,
@@ -373,3 +378,111 @@ class TestOverTheWire:
         })
         connection.send_result.assert_not_called()
         assert connection.send_error.call_args.args[1] == "not_found"
+class TestTheWitnessComparisonHasTheKeysItNeeds:
+    """Issue 18, found live 2026-08-30: the witness happy path could
+    never match.
+
+    A bench send of a wig's own vertical/26 frame, verified reading
+    temperature 26, at that wig's own armed 26C witness row, answered
+    "Heard 26. Check the remote's display and try again." The reading
+    was right and the ask was right; the comparison was reading one of
+    them with the other's key.
+
+    A verdict's ``reads_as`` is keyed by MAP FIELD NAME, because that
+    is what the field map calls it. A target's ``coordinates`` are
+    keyed by CELL AXIS, because that is what the lattice calls it.
+    ``FIELD_COORDINATE`` is the bridge, and the frontend mirrors it in
+    one constant.
+
+    These pins hold the two vocabularies apart on the backend side,
+    where nothing in TypeScript can notice a rename. The fixture is the
+    Komeco's own witness cluster, the same shape as the small-shift AC
+    left standing on the bench box.
+    """
+
+    @pytest.fixture
+    def witness(self, komeco_device):
+        device, wig = komeco_device
+        matrix = wig.climate
+        listing = list_tangles(device, matrix)
+        cluster = next(
+            c for c in listing.clusters if c.mechanic == "witness"
+        )
+        rows = {row.id: row for row in listing.rows}
+        return device, matrix, cluster, rows[cluster.members[0]]
+
+    def test_a_witness_cluster_names_a_map_field(self, witness):
+        _device, _matrix, cluster, _row = witness
+        assert cluster.field == "temperature"
+        assert cluster.field in FIELD_COORDINATE
+
+    def test_the_field_name_is_not_a_coordinate_key(self, witness):
+        """THE BUG, stated as a fact about the data. Indexing the
+        coordinates with the cluster's own field name yields nothing,
+        which is why every witness capture missed: the value it was
+        compared against was undefined."""
+        _device, _matrix, cluster, row = witness
+        assert cluster.field not in row.target.coordinates
+        assert row.target.coordinates.get(cluster.field) is None
+
+    def test_the_axis_is_where_the_asked_value_lives(self, witness):
+        _device, _matrix, cluster, row = witness
+        axis = FIELD_COORDINATE[cluster.field]
+        assert axis == "temp"
+        assert row.target.coordinates[axis] == 19.0
+
+    def test_a_capture_reading_the_asked_value_says_so_under_the_field(
+        self, witness
+    ):
+        """THE REGRESSION CASE, on real fixture bytes. A witness press
+        from a different fan branch reads the asked temperature
+        exactly. Its verdict still says matches is False, because the
+        fan axis honestly disagrees, which is exactly why the witness
+        flow compares the witnessed FIELD rather than the verdict, and
+        exactly why the field has to be translated first.
+
+        Translated, 19.0 meets 19.0 and the row settles. Untranslated,
+        19.0 meets None and a perfect press climbs the ladder.
+        """
+        device, matrix, cluster, row = witness
+        wig, _sources = project_device(device, matrix)
+        lattice = read_lattice(matrix, wig)
+        press = next(
+            cell for cell in matrix.cells
+            if cell_key(cell) == "cool/auto/off/19"
+        )
+        verdict = pre_read(lattice, press.pronto, row.target.coordinates)
+        reads_as = verdict.as_dict()["reads_as"]
+
+        assert reads_as[cluster.field] == 19.0
+        assert verdict.as_dict()["matches"] is False
+
+        asked = row.target.coordinates[FIELD_COORDINATE[cluster.field]]
+        assert reads_as[cluster.field] == asked
+        assert row.target.coordinates.get(cluster.field) is None
+
+    def test_every_field_a_cluster_can_name_has_an_axis(self, witness):
+        """Four field names, four axes, and the frontend mirrors this
+        table. A fifth field added on the backend without its mirror
+        would make that field's clusters unmatchable in exactly the way
+        temperature was."""
+        _device, _matrix, _cluster, _row = witness
+        assert set(FIELD_COORDINATE) == {
+            "temperature", "mode", "fan_speed", "swing",
+        }
+        assert set(FIELD_COORDINATE.values()) == {
+            "temp", "mode", "fan", "swing",
+        }
+        assert POWER_FIELD == "power"
+
+    def test_no_cluster_names_a_field_the_bridge_cannot_cross(
+        self, witness
+    ):
+        device, matrix, _cluster, _row = witness
+        for cluster in list_tangles(device, matrix).clusters:
+            if cluster.field is None:
+                continue
+            assert (
+                cluster.field in FIELD_COORDINATE
+                or cluster.field == POWER_FIELD
+            )

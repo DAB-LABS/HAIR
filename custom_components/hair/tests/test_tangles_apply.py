@@ -337,24 +337,27 @@ class TestPuttingItBack:
                     expected_error)
 
 
-class TestFlatCommands:
-    @pytest.fixture
-    def dreo(self, fake_hass, tmp_path):
-        wig = _wig(DREO)
-        device = IRDevice(name="Dreo", emitter_entity_ids=["infrared.b"])
-        for signal in wig.signals:
-            device.add_command(IRCommand(
-                name=signal.alias, category=CommandCategory.CUSTOM,
-                protocol="PRONTO", code=signal.pronto,
-            ))
-        manager = MagicMock()
-        manager.get_device = MagicMock(return_value=device)
-        manager.async_get_matrix = AsyncMock(return_value=None)
-        manager.async_update_device = AsyncMock()
-        fake_hass.config.config_dir = str(tmp_path)
-        fake_hass.data[DOMAIN] = {"entry-1": {"device_manager": manager}}
-        return fake_hass, device, manager
+@pytest.fixture
+def dreo(fake_hass, tmp_path):
+    """A flat device built from the Dreo wig, no lattice. Module level
+    since the comb-stamp class below works the same device."""
+    wig = _wig(DREO)
+    device = IRDevice(name="Dreo", emitter_entity_ids=["infrared.b"])
+    for signal in wig.signals:
+        device.add_command(IRCommand(
+            name=signal.alias, category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=signal.pronto,
+        ))
+    manager = MagicMock()
+    manager.get_device = MagicMock(return_value=device)
+    manager.async_get_matrix = AsyncMock(return_value=None)
+    manager.async_update_device = AsyncMock()
+    fake_hass.config.config_dir = str(tmp_path)
+    fake_hass.data[DOMAIN] = {"entry-1": {"device_manager": manager}}
+    return fake_hass, device, manager
 
+
+class TestFlatCommands:
     @pytest.mark.asyncio
     async def test_a_flat_repair_goes_through_the_command(self, dreo):
         """Same door, same record. The persistence rides
@@ -395,3 +398,142 @@ class TestFlatCommands:
         })
         connection.send_error.assert_not_called()
         assert device.get_command(row.target.command_id).code == row.pronto
+class TestTheCombStampsFollowTheBytes:
+    """Issue 16, ruled 2026-08-30.
+
+    ``comb_suspect`` and ``comb_finding`` were written once at adopt,
+    from the wig file's own receipt, and never looked at again. A
+    command whose bytes had been repaired into perfectly good ones kept
+    wearing the mark, and kept its TRIGGER button hidden, forever. The
+    mark is a claim about the bytes a row is holding, and a repair
+    changes the bytes underneath it.
+
+    Re-derived from the live comb, in the same save as the write. The
+    third test here matters as much as the first: a repair re-reads the
+    row that was repaired and nothing else, because the adopt-time
+    stamps came from the wig FILE and this reads the DEVICE, and those
+    two can legitimately disagree about a row nobody has touched.
+    """
+
+    def _flagged(self, device):
+        """The first open row's command, stamped as adopt leaves it:
+        frozen at whatever the comb said that day."""
+        row = list_tangles(device, None).rows[0]
+        command = device.get_command(row.target.command_id)
+        command.comb_suspect = True
+        command.comb_finding = row.classes[0]
+        return row, command
+
+    @staticmethod
+    def _healthy(device):
+        """A command the comb has no complaint about."""
+        flagged = {r.target.command_id for r in list_tangles(device, None).rows}
+        return next(c for c in device.commands if c.id not in flagged)
+
+    @staticmethod
+    def _shape_preserving(pronto: str) -> str:
+        """A code with the healthy family's frame shape and nobody
+        else's bytes: one burst value nudged, the rest intact.
+        Structurally normal, so it combs clean, and unique, so it draws
+        no duplicate finding of its own."""
+        words = pronto.split()
+        words[20] = format(int(words[20], 16) + 4, "04X")
+        return " ".join(words)
+
+    @pytest.mark.asyncio
+    async def test_bytes_that_comb_clean_clear_the_mark(self, dreo):
+        """The whole point: the TRIGGER button comes back. The panel
+        hides TRIGGER on a comb-flagged row, so a stamp that never
+        cleared meant a repaired command could never be triggered
+        again."""
+        hass, device, _manager = dreo
+        row, command = self._flagged(device)
+        connection = _conn()
+        await ws_tangle_apply(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": row.id,
+            "pronto": self._shape_preserving(self._healthy(device).code),
+            "tested": True, "source": "paste",
+        })
+        connection.send_error.assert_not_called()
+        assert command.comb_suspect is False
+        assert command.comb_finding is None
+
+    @pytest.mark.asyncio
+    async def test_a_repair_that_is_still_wrong_says_how(self, dreo):
+        """"Fixed, and still wrong, differently" is a real outcome, and
+        the tooltip should name the new class rather than the one the
+        wig file recorded before anybody touched it. This repair
+        borrows another command's bytes, so the row stops disagreeing
+        about its frame and starts sharing a code."""
+        hass, device, _manager = dreo
+        row, command = self._flagged(device)
+        assert command.comb_finding == "frame-disagreement"
+        other = next(c for c in device.commands if c.id != command.id)
+        connection = _conn()
+        await ws_tangle_apply(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": row.id,
+            "pronto": other.code, "tested": True, "source": "paste",
+        })
+        connection.send_error.assert_not_called()
+        assert command.comb_suspect is True
+        assert command.comb_finding == "duplicate-labels"
+
+    @pytest.mark.asyncio
+    async def test_a_command_nobody_repaired_keeps_its_own_stamps(
+        self, dreo
+    ):
+        """THE SCOPE PIN, and it bites in the sharpest place: the
+        borrow above makes the DONOR a duplicate too, so a sweep over
+        every command would newly flag a command nobody touched."""
+        hass, device, _manager = dreo
+        row, command = self._flagged(device)
+        other = next(c for c in device.commands if c.id != command.id)
+        assert other.comb_suspect is False
+        await ws_tangle_apply(hass, _conn(), {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": row.id,
+            "pronto": other.code, "tested": True, "source": "paste",
+        })
+        assert other.comb_suspect is False
+        assert other.comb_finding is None
+
+    @pytest.mark.asyncio
+    async def test_the_undo_puts_the_mark_back(self, dreo):
+        """A revert restores the bytes the comb doubted. Leaving the
+        mark cleared would leave TRIGGER showing on a row that is
+        broken again, which is issue 16 pointing the other way."""
+        hass, device, _manager = dreo
+        row, command = self._flagged(device)
+        await ws_tangle_apply(hass, _conn(), {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": row.id,
+            "pronto": self._shape_preserving(self._healthy(device).code),
+            "tested": True, "source": "paste",
+        })
+        assert command.comb_suspect is False
+        connection = _conn()
+        await ws_tangle_revert(hass, connection, {
+            "id": 2, "type": "hair/device/tangle/revert",
+            "device_id": device.id, "target": row.id,
+        })
+        connection.send_error.assert_not_called()
+        assert command.comb_suspect is True
+        assert command.comb_finding == "frame-disagreement"
+
+    @pytest.mark.asyncio
+    async def test_a_porthole_is_re_read_through_its_cell(self, wired):
+        """The matrix path. A porthole carries no row of its own -- the
+        CELL is the row -- so its mark is looked up through the
+        coordinates it stands for. This repair lands the donor's exact
+        bytes, which is honestly a different problem from the one it
+        started with, and the mark says so."""
+        hass, device, _matrix, cells, _manager, _listener = wired
+        porthole = device.commands[0]
+        assert porthole.comb_finding == CHECK_FIELD_MISMATCH
+        connection = await _apply(
+            hass, device, cells[DONOR_KEY].pronto, source="donor")
+        connection.send_error.assert_not_called()
+        assert porthole.comb_suspect is True
+        assert porthole.comb_finding == "duplicated-neighbour"

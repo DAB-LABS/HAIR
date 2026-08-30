@@ -3604,7 +3604,7 @@ class TestTheDetangleSectionIsItsOwnBlock:
         cells keep the command row's three-part top line and the comb
         in the status slot (owner ruling batch, 2026-08-29)."""
         text = _read("ir-tangle-section.ts")
-        assert 'class="trow"' in text
+        assert 'class="trow ' in text
         assert 'class="top-line"' in text
         assert "comb-glyph" in text
 class TestABucketOpensUnderItsOwnCard:
@@ -3620,7 +3620,7 @@ class TestABucketOpensUnderItsOwnCard:
 
     def test_each_card_carries_its_own_bucket(self):
         text = _read("ir-tangle-section.ts")
-        block = text.split('<div class="tcard-block">', 1)[1].split(
+        block = text.split('class="tcard-block ', 1)[1].split(
             "</div>", 1
         )[0]
         assert "this._renderCard(entry.card, entry.sentence)" in block
@@ -3664,24 +3664,39 @@ class TestTheListenButtonSaysWhatItIsDoing:
     and apply.
     """
 
-    def test_the_button_has_three_states_and_two_words(self):
+    def test_the_button_has_three_states(self):
+        """Idle says LISTEN, waiting animates the dots, a landed press
+        says HEARD. Round two tried a grayed word for the middle state
+        and the owner ruled the dots back (2026-08-30): the dots were
+        never the problem, the problem was that nothing acknowledged
+        the press, so they ran on and read as a dead button. With HEARD
+        arriving at the end they read as what they are."""
         text = _read("ir-tangle-listen.ts")
         block = text.split('class="action-btn listen-btn', 1)[1].split(
             "</button>", 1
         )[0]
         assert 't("tangles.listen_heard")' in block
         assert 't("tangles.listen")' in block
-        # The dots are what the owner read as a dead button.
-        assert 'class="pulse"' not in block
+        assert 'class="pulse"' in block
+        assert '"pulsing"' in block
 
-    def test_waiting_is_grey_and_alive(self):
-        """Grey so it is plainly not the thing to click next, animated
-        so it is plainly not dead. The reduced-motion path keeps the
-        grey and drops the movement."""
+    def test_the_grayed_word_treatment_is_gone(self):
+        """Superseded the same day it shipped. Leaving the class behind
+        would leave two waiting treatments in one file, one of them
+        unreachable."""
         text = _read("ir-tangle-listen.ts")
-        assert ".listen-btn.waiting {" in text
-        assert "animation: tangle-breathe" in text
+        assert ".listen-btn.waiting" not in text
+        assert "tangle-breathe" not in text
+
+    def test_the_dots_hold_still_for_reduced_motion(self):
+        """Three dots at rest still read as a distinct state, and the
+        button says HEARD when the press lands either way."""
+        text = _read("ir-tangle-listen.ts")
         assert "@media (prefers-reduced-motion: reduce)" in text
+        block = text.split(
+            "@media (prefers-reduced-motion: reduce)", 1
+        )[1].split("}", 2)[0]
+        assert ".pulse .dot" in block
 
     def test_heard_is_not_faded_out(self):
         """The shared disabled style is a 50 percent fade, which would
@@ -3721,3 +3736,518 @@ class TestTheListenButtonSaysWhatItIsDoing:
             "\n    private", 1
         )[0]
         assert "_heard" not in body
+class TestTheWitnessMatchTranslatesTheField:
+    """Issue 18, ship-blocker for the witness flow.
+
+    ``reads_as`` is keyed by map field name, ``coordinates`` by cell
+    axis, and the witness comparison read one with the other's key. For
+    every temperature cluster the asked value came back undefined, so a
+    capture reading exactly the right value went to the ladder. The
+    backend side is pinned in test_tangles_listing.py; these hold the
+    frontend's mirror of the bridge honest.
+    """
+
+    def test_the_frontend_mirrors_the_backends_field_map(self):
+        """THE PARITY PIN. Two copies of one table is the arrangement
+        that caused this, so the copies are compared rather than
+        trusted. A field added on the backend without its mirror makes
+        that field's clusters unmatchable in exactly the old way."""
+        from custom_components.hair.wig_comb import FIELD_COORDINATE
+
+        text = _read("ir-tangle-copy.ts")
+        block = text.split(
+            "export const FIELD_COORDINATE", 1
+        )[1].split("};", 1)[0]
+        mirrored = dict(re.findall(r'(\w+):\s*"(\w+)"', block))
+        assert mirrored == FIELD_COORDINATE
+
+    def test_power_is_not_an_axis_on_either_side(self):
+        """A cell that does not mention power is on, which is the rule
+        pre_read applies, so the mirror applies it too rather than
+        reading undefined and calling the press a miss."""
+        from custom_components.hair.wig_comb import POWER_FIELD
+
+        text = _read("ir-tangle-copy.ts")
+        assert f'export const POWER_FIELD = "{POWER_FIELD}"' in text
+        body = text.split("export function claimedFor(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert 'coordinates[POWER_FIELD] ?? "on"' in body
+
+    def test_the_witness_branch_asks_for_the_translation(self):
+        text = _read("ir-tangle-listen.ts")
+        branch = text.split("if (isWitness && cluster?.field) {", 1)[1].split(
+            "} else {", 1
+        )[0]
+        assert "claimedFor(cluster.field, coords)" in branch
+        assert "sameReading(witnessed, asked)" in branch
+        # The exact expression that could never match.
+        assert "coords?.[cluster.field]" not in branch
+
+    def test_a_reading_and_a_claim_compare_as_numbers_when_they_are(self):
+        """A lattice writes 26 and a reading comes back 26.0. Compared
+        as text those are two different temperatures."""
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("export function sameReading(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert "Number(reading)" in body
+        assert "Number(claim)" in body
+        assert "Number.isFinite(a) && Number.isFinite(b)" in body
+
+    def test_labels_are_not_case_folded(self):
+        """Mode and fan vocabularies ride verbatim through this whole
+        surface (the 2026-07-29 addendum), so two labels differing only
+        in case are two labels, not one."""
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("export function sameReading(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert "toLowerCase" not in body
+        assert "String(reading).trim() === String(claim).trim()" in body
+
+    def test_the_ladder_speaks_the_panels_unit(self):
+        """T5. The reading is a native lattice value, and quoting it raw
+        put "Heard 26" under a row named 79, which reads as the panel
+        disagreeing with itself rather than with the remote."""
+        text = _read("ir-tangle-listen.ts")
+        assert "fieldWords(" in text
+        body = text.split("const heard = fieldWords(", 1)[1].split(
+            ");", 1
+        )[0]
+        assert "this.matrixUnit" in body
+        assert "installUnit(this.hass)" in body
+
+    def test_only_temperature_converts(self):
+        """Every other field is a vocabulary label and has no unit to
+        convert into."""
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("export function fieldWords(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert 'if (field !== "temperature") return String(value);' in body
+        assert "displayTemp(" in body
+class TestTheSectionNeverWearsAnotherDevicesListing:
+    """Issue 22, wrong-data class.
+
+    The Marantz's page rendered the Panasonic's eleven findings. The
+    Marantz's own listing is provably empty, so every row on that page
+    was another device's, and every one of them opened a flow that
+    would have written somewhere else. The section reset its open card
+    and its held plans on a device change and kept the listing itself,
+    which is the one piece of state that IS the previous device.
+    """
+
+    def test_the_listing_is_dropped_before_the_refetch(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private _forget(): void {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert "this._listing = null;" in body
+
+    def test_everything_that_belongs_to_the_old_device_goes(self):
+        """The listing was the one that mattered and the one that was
+        missed, but a held witness plan belongs to one lattice and the
+        wig-updated line belongs to the device that was repaired."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private _forget(): void {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        for field in ("_open", "_witnessPlans", "_justRetired",
+                      "_lastWigWrite", "_error"):
+            assert f"this.{field} =" in body
+
+    def test_the_device_change_forgets_before_it_asks(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split("updated(changed: Map<string, unknown>)", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert body.index("this._forget();") < body.index("this._refresh()")
+
+    def test_a_failed_fetch_says_so_instead_of_keeping_the_old_rows(self):
+        """Silently keeping the last good listing is the same bug
+        arrived at from the other side: rows on screen that describe a
+        device nobody is looking at."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private async _refresh()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert "catch (err)" in body
+        assert "this._listing = null;" in body
+        assert "this._error =" in body
+
+    def test_a_late_answer_for_a_device_we_left_is_dropped(self):
+        """Two quick switches can land the first device's response
+        after the second has asked. A listing is one device's answer,
+        not the newest one."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split("private async _refresh()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert "const asked = this.deviceId;" in body
+        assert body.count("if (this.deviceId !== asked) return;") == 2
+
+    def test_the_section_is_keyed_to_the_device(self):
+        """Belt and braces: even if the internal reset were ever
+        undone, a keyed switch remounts the element clean."""
+        text = _read("ir-device-detail.ts")
+        block = text.split("<ir-tangle-section", 1)[0]
+        assert block.rstrip().endswith("html`") or "keyed(" in block[-200:]
+        assert "keyed(\n                this.device.id," in text
+
+    def test_the_error_line_is_localized(self):
+        text = _read("ir-tangle-section.ts")
+        assert 't("tangles.load_failed")' in text
+
+
+class TestTheCommandsListHearsAboutARepair:
+    """Issue 17. The section refetches after an apply; the command rows
+    above it kept their old props, so the REPAIRED badge only appeared
+    after the owner closed the device and opened it again. Round
+    three's backend also clears the comb mark when repaired bytes comb
+    clean, and TRIGGER is gated on that mark, so the stale rows were
+    hiding a button that had just come back."""
+
+    def test_the_detail_listens_for_the_mutation(self):
+        text = _read("ir-device-detail.ts")
+        assert "@tangle-mutated=${this._onTangleMutated}" in text
+
+    def test_it_refetches_the_device_and_rebuilds_the_rows(self):
+        text = _read("ir-device-detail.ts")
+        body = text.split(
+            "private _onTangleMutated = async (): Promise<void> => {", 1
+        )[1].split("};", 1)[0]
+        assert "this.api.getDevice(this.device.id)" in body
+        assert "this._commandsListVersion++" in body
+
+    def test_it_does_not_fire_the_rebuild_cascade(self):
+        """_refresh() dispatches device-changed, which rebuilds this
+        element from ir-device-list -- and would close the tangle flow
+        the person is standing in after every accept. That cascade is
+        the 2026-08-07 bench lesson this file already records."""
+        text = _read("ir-device-detail.ts")
+        body = text.split(
+            "private _onTangleMutated = async (): Promise<void> => {", 1
+        )[1].split("};", 1)[0]
+        assert "device-changed" not in body
+        assert "this._refresh()" not in body
+class TestTheOpenBucketIsOneBlockWithItsCard:
+    """Issue 19. Round two put the bucket under the right card; it
+    still read as a second thing that had appeared near the card rather
+    than as the card opening. The bucket painted its own rounded panel,
+    with its own background and an 8px gap above it, and DECIDE's work
+    area carried a copper left border that was the card chrome leaking
+    down. Card and bucket are one surface now."""
+
+    BUCKETS = ("ir-tangle-fix.ts", "ir-tangle-listen.ts",
+               "ir-tangle-decide.ts")
+
+    def test_no_bucket_paints_its_own_panel(self):
+        for name in self.BUCKETS:
+            body = _read(name).split(".work {", 1)[1].split("}", 1)[0]
+            assert "margin: 0;" in body, name
+            assert "background: none;" in body, name
+            assert "border-radius: 0;" in body, name
+
+    def test_the_block_paints_the_box_when_it_is_open(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split(".tcard-block.open {", 1)[1].split("}", 1)[0]
+        assert "background: var(--primary-background-color)" in body
+        assert "border-radius: 4px" in body
+
+    def test_the_cards_corners_join_the_rows_below_it(self):
+        """Rounded on top, square where the rows meet it, so the seam
+        the old layout showed is gone."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split(".tcard-block.open .trow {", 1)[1].split("}", 1)[0]
+        assert "background: none;" in body
+        assert "border-radius: 4px 4px 0 0;" in body
+
+    def test_the_stray_copper_edge_is_gone(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "border-left: 3px solid var(--tangle-copper" not in text
+
+
+class TestTheWholeCardOpensIt:
+    """Owner ruled 2026-08-30: the card cell is the click target, and
+    the right-side button stays as the visual call to action."""
+
+    def test_the_cell_carries_the_handler(self):
+        text = _read("ir-tangle-section.ts")
+        block = text.split('class="trow ${this._loading', 1)[1].split(
+            "<div class=\"top-line\">", 1
+        )[0]
+        assert "@click=" in block
+        assert "this._toggle(card)" in block
+
+    def test_the_button_does_not_handle_its_own_click(self):
+        """One handler, not two racing. The button is inside the cell,
+        so a click on it (and Enter on it, since it is a real button)
+        lands on the cell by bubbling."""
+        text = _read("ir-tangle-section.ts")
+        button = text.split('class="tcard-btn ${card}"', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert "@click=" not in button
+
+    def test_the_button_is_still_a_button(self):
+        """It is the keyboard control and the accessible name for this
+        row; the clickable cell is a mouse convenience on top of it."""
+        text = _read("ir-tangle-section.ts")
+        assert '<button\n                            class="tcard-btn' in text
+
+    def test_a_loading_section_is_not_clickable(self):
+        text = _read("ir-tangle-section.ts")
+        block = text.split('class="trow ${this._loading', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "if (!this._loading) this._toggle(card);" in block
+
+
+class TestEveryCardsCallToActionReadsFix:
+    """Owner ruled 2026-08-30. The three cards each open a different
+    flow, but from the reader's side the offer is the same one: fix
+    this. The colors and the comb glyphs are what tell the cards
+    apart."""
+
+    def test_all_three_open_labels_are_one_word_per_language(self):
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            word = data["tangles.open_fix"]
+            assert data["tangles.open_listen"] == word, name
+            assert data["tangles.open_decide"] == word, name
+
+    def test_each_button_keeps_its_own_card_color(self):
+        text = _read("ir-tangle-section.ts")
+        for card, token in (("fix", "--tangle-blue"),
+                            ("listen", "--tangle-amber"),
+                            ("decide", "--tangle-copper")):
+            body = text.split(f".tcard-btn.{card} {{", 1)[1].split("}", 1)[0]
+            assert token in body, card
+
+    def test_the_glyphs_still_match_their_cards(self):
+        text = _read("ir-tangle-section.ts")
+        for card, token in (("fix", "--tangle-blue"),
+                            ("listen", "--tangle-amber"),
+                            ("decide", "--tangle-copper")):
+            body = text.split(
+                f".comb-glyph.{card} svg {{", 1
+            )[1].split("}", 1)[0]
+            assert token in body, card
+
+    def test_close_is_still_its_own_word(self):
+        """An open card says Close, which is the one label that has to
+        keep meaning what it says."""
+        text = _read("ir-tangle-section.ts")
+        assert 'isOpen ? t("tangles.close")' in text
+class TestDecideSaysTrueThingsInWords:
+    """Issue 20, from the owner's screenshot of a matrix DECIDE pair:
+    "Two buttons are both named 07f385d0-..." over two rows that
+    rendered correctly as "Heat, Fan Turbo, Swing Swing, 63/64F". Two
+    defects in one line. The name fell back to an id, and the sentence
+    itself was untrue of a matrix pair, which shares BYTES rather than
+    a name."""
+
+    def test_a_matrix_pair_gets_its_own_sentence(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 't("tangles.decide_pair_intro_matrix")' in text
+        block = text.split('<div class="pair-intro">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "isMatrix" in block
+
+    def test_a_matrix_pair_is_the_one_with_a_cell_in_it(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 'row.target.kind === "cell"' in text
+
+    def test_the_intro_says_the_rows_own_words(self):
+        """The uuid used to be interpolated straight into the
+        sentence."""
+        text = _read("ir-tangle-decide.ts")
+        block = text.split('t("tangles.decide_pair_intro", {', 1)[1].split(
+            "})", 1
+        )[0]
+        assert "this._displayName(rowA)" in block
+        assert "command_id" not in block
+
+    def test_the_rename_box_does_not_open_on_a_uuid(self):
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private _startRename(", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert "this._displayName(row)" in body
+        assert "command_id" not in body
+
+    def test_the_matrix_sentence_names_nothing(self):
+        """It cannot: the two states have different names and that was
+        never the problem with them."""
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.decide_pair_intro_matrix"] == (
+            "These two states carry the same code."
+        )
+        assert "{" not in data["tangles.decide_pair_intro_matrix"]
+
+
+class TestKeepBothSettlesThePair:
+    """Issue 21, ruled 2026-08-30. Enter used to resolve the whole pair
+    and move on, which answers the question on the person's behalf, and
+    nothing on the row said the name could be clicked at all."""
+
+    def test_enter_commits_the_text_and_nothing_else(self):
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private async _commitRename(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this._names = new Map(this._names).set(row.id, name);" in body
+        assert "_resolved" not in body
+
+    def test_keep_both_is_what_settles_it(self):
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
+        assert '"kept"' in body
+
+    def test_keep_both_writes_nothing(self):
+        """The rename already wrote. A pair kept on purpose has nothing
+        left to save, and firing a mutation for a no-op would refetch
+        the listing and the device for no reason."""
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
+        assert "api" not in body
+        assert "_emitMutated" not in body
+
+    def test_keep_both_is_dark_until_the_names_actually_differ(self):
+        text = _read("ir-tangle-decide.ts")
+        assert (
+            "this._displayName(rowA) !== this._displayName(rowB)" in text
+        )
+        block = text.split('class="action-btn keep-both"', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert "?disabled=${!namesDiffer" in block
+
+    def test_a_kept_pair_does_not_claim_a_duplicate_was_removed(self):
+        text = _read("ir-tangle-decide.ts")
+        block = text.split('<div class="pair-intro done">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert '"tangles.decide_kept"' in block
+        assert '"tangles.decide_removed"' in block
+        assert 'settled === "kept"' in block
+
+    def test_each_editable_name_carries_a_pencil(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "renderEditBtn(" in text
+        assert 't("cmdrow.rename")' in text
+
+    def test_a_cell_gets_no_pencil(self):
+        """A lattice cell has no name of its own to change; its pair is
+        about the bytes two states share, so the pencil would open a
+        box that cannot answer the question."""
+        text = _read("ir-tangle-decide.ts")
+        assert 'const renameable = row.target.kind === "command";' in text
+        assert "editing || !renameable" in text
+
+    def test_the_hint_tells_people_the_name_is_clickable(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 't("tangles.decide_pair_hint")' in text
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.decide_pair_hint"] == (
+            "Click a name to change it, or delete the extra."
+        )
+
+
+class TestDecidesRowActionsAreTheStandardOnes:
+    """T12 and T14. The send button was already the shipped one and is
+    pinned here so it stays that way; the delete affordance was a text
+    button with a bespoke inline confirm bar and is now the panel's own
+    trash can and confirm dialog."""
+
+    def test_the_send_button_is_the_shipped_one_unforked(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 'import "./ir-test-button.js";' in text
+        assert "<ir-test-button" in text
+        block = text.split("<ir-test-button", 1)[1].split("</ir-test-button>", 1)[0]
+        assert ".send=${() => this._send(row)}" in block
+        assert '.idleLabelKey=${"tangles.send"}' in block
+
+    def test_it_is_wired_exactly_as_the_fix_rows_wire_it(self):
+        """Unforked means the same component AND the same contract."""
+        decide = _read("ir-tangle-decide.ts").split("<ir-test-button", 1)[1]
+        fix = _read("ir-tangle-fix.ts").split("<ir-test-button", 1)[1]
+        for needle in (".send=", ".idleLabelKey=${\"tangles.send\"}"):
+            assert needle in decide.split("</ir-test-button>", 1)[0]
+            assert needle in fix.split("</ir-test-button>", 1)[0]
+
+    def test_delete_is_the_panels_trash_can(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 'class="trash-btn"' in text
+        assert "ICON_TRASH" in text
+        assert "trashButtonStyles" in text
+        assert 't("cmdrow.delete_title")' in text
+
+    def test_delete_asks_the_standard_confirm(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "<ir-confirm-dialog" in text
+        assert 't("devdetail.del_cmd_title")' in text
+        assert 't("devdetail.del_cmd_msg"' in text
+        assert ".destructive=${true}" in text
+
+    def test_the_bespoke_confirm_bar_is_gone(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "confirmbar" not in text
+
+    def test_the_keys_the_old_affordance_used_are_gone_everywhere(self):
+        """Left behind they would be three dead strings in ten files,
+        and the next reader would have to work out which surface they
+        belonged to."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for key in ("tangles.delete", "tangles.delete_confirm",
+                        "tangles.cancel"):
+                assert key not in data, f"{name}: {key}"
+class TestTheListenCardSaysFix:
+    """Owner ruling 2026-08-30, copy. The card said the presses would
+    "finish these", which describes the flow rather than what the
+    person gets out of it. Every other card on this surface offers to
+    fix something; this one now says so too."""
+
+    def test_english_reads_as_ruled(self):
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.card_listen.other"] == (
+            "{count} presses from your remote will fix these codes."
+        )
+        assert data["tangles.card_listen.one"] == (
+            "{count} press from your remote will fix this code."
+        )
+
+    def test_every_variant_in_every_language_moved(self):
+        """Including pl and ru's few and many, which a sweep that only
+        looked for one and other would have left saying finish."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            variants = [
+                key for key in data
+                if key.startswith("tangles.card_listen.")
+            ]
+            assert variants, name
+            for key in variants:
+                assert "{count}" in data[key], f"{name}: {key}"
+
+    def test_the_one_variant_keeps_its_count(self):
+        """A hard "1" is safe in English, where the one-category is
+        exactly one. Russian's one-category covers 1, 21, 31 and so on,
+        so a literal there would read "1 press" beside twenty-one of
+        them. With the placeholder it renders the ruled sentence for
+        every case English's own one-variant covers, and stays true
+        everywhere else."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            assert "{count}" in data["tangles.card_listen.one"], name

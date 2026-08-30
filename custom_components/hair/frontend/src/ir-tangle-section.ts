@@ -164,6 +164,10 @@ export class IrTangleSection extends LitElement {
 
     @state() private _listing: TangleListing | null = null;
     @state() private _loading = false;
+    /** Why the listing could not be read, when it could not. A silent
+     * failure here used to mean the previous device's rows stayed on
+     * screen looking authoritative (issue 22). */
+    @state() private _error: string | null = null;
     @state() private _open: CardKey | null = null;
     @state() private _lastWigWrite: boolean | null = null;
     @state() private _justRetired = false;
@@ -179,19 +183,52 @@ export class IrTangleSection extends LitElement {
 
     updated(changed: Map<string, unknown>): void {
         if (changed.has("deviceId") && changed.get("deviceId") !== undefined) {
-            this._open = null;
-            this._witnessPlans = new Map();
+            this._forget();
             void this._refresh();
         }
     }
 
+    /** EVERYTHING that belongs to the device we are leaving (issue
+     * 22). The listing was the one that mattered and the one that was
+     * missed: it stayed put across the switch, so the new device's
+     * page rendered the old device's rows -- eleven findings on a
+     * Marantz whose own listing is provably empty -- and every one of
+     * them opened a flow that would have written to the wrong place.
+     *
+     * The rest are the same class. A held witness plan belongs to one
+     * lattice. "Your wig has been updated." belongs to the device that
+     * was just repaired. A stale error line belongs to the fetch that
+     * failed. None of them survive a device change. */
+    private _forget(): void {
+        this._listing = null;
+        this._open = null;
+        this._witnessPlans = new Map();
+        this._justRetired = false;
+        this._lastWigWrite = null;
+        this._error = null;
+    }
+
     private async _refresh(): Promise<void> {
         if (!this.deviceId) return;
+        // Which device this answer is for. Two quick switches can land
+        // the first device's response after the second has already
+        // asked, and a listing is not "the newest answer", it is one
+        // device's answer.
+        const asked = this.deviceId;
         this._loading = true;
         try {
-            this._listing = await this.api.tangles(this.deviceId);
+            const listing = await this.api.tangles(asked);
+            if (this.deviceId !== asked) return;
+            this._listing = listing;
+            this._error = null;
+        } catch (err) {
+            if (this.deviceId !== asked) return;
+            // Say so. Keeping the last good listing would be the
+            // stale-data bug again, arrived at from the other side.
+            this._listing = null;
+            this._error = (err as Error).message || String(err);
         } finally {
-            this._loading = false;
+            if (this.deviceId === asked) this._loading = false;
         }
     }
 
@@ -249,6 +286,11 @@ export class IrTangleSection extends LitElement {
     protected render() {
         if (this._justRetired) {
             return html`<div class="retired-line">${t("tangles.updated")}</div>`;
+        }
+        if (this._error) {
+            return html`<div class="tangle-section">
+                <div class="load-failed">${t("tangles.load_failed")}</div>
+            </div>`;
         }
         if (!this._listing) return nothing;
 
@@ -358,7 +400,11 @@ export class IrTangleSection extends LitElement {
                 <div class="tangle-cards">
                     ${cards.map(
                         (entry) => html`
-                            <div class="tcard-block">
+                            <div
+                                class="tcard-block ${this._open === entry.card
+                                    ? "open"
+                                    : ""}"
+                            >
                                 ${this._renderCard(entry.card, entry.sentence)}
                                 ${bucket(entry.card)}
                             </div>
@@ -377,8 +423,18 @@ export class IrTangleSection extends LitElement {
      * the colors the chrome already used, no new palette. */
     private _renderCard(card: CardKey, sentence: string) {
         const isOpen = this._open === card;
+        // THE WHOLE CELL OPENS IT (owner ruled 2026-08-30). The button
+        // stays as the visual call to action and remains the keyboard
+        // control -- it is a real button, it focuses, and Enter on it
+        // fires a click that lands here by bubbling, so there is one
+        // handler rather than two racing each other.
         return html`
-            <div class="trow">
+            <div
+                class="trow ${this._loading ? "" : "clickable"}"
+                @click=${() => {
+                    if (!this._loading) this._toggle(card);
+                }}
+            >
                 <div class="top-line">
                     <div class="status" aria-hidden="true">
                         <span class="comb-glyph ${card}">
@@ -392,7 +448,6 @@ export class IrTangleSection extends LitElement {
                         <button
                             class="tcard-btn ${card}"
                             ?disabled=${this._loading}
-                            @click=${() => this._toggle(card)}
                         >
                             ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
                         </button>
@@ -413,6 +468,10 @@ export class IrTangleSection extends LitElement {
                 border-top: 1px solid var(--divider-color);
                 padding-top: 9px;
             }
+            .load-failed {
+                font-size: 0.8rem;
+                color: var(--secondary-text-color);
+            }
             .tangle-header {
                 font-size: 0.85rem;
                 font-weight: 500;
@@ -426,11 +485,22 @@ export class IrTangleSection extends LitElement {
             }
             /* A card and its open bucket are one block, so the gap
                between cards never lands between a card and the rows it
-               just opened. The bucket brings its own 8px top margin,
-               which is what separates it from the card it belongs to. */
+               just opened. */
             .tcard-block {
                 display: flex;
                 flex-direction: column;
+            }
+            /* ONE SURFACE (issue 19). Open, the block paints the box
+               that the card used to paint alone: same background, one
+               set of rounded corners around card and rows together, no
+               seam and no second panel floating below. */
+            .tcard-block.open {
+                background: var(--primary-background-color);
+                border-radius: 4px;
+            }
+            .tcard-block.open .trow {
+                background: none;
+                border-radius: 4px 4px 0 0;
             }
             /* The command row's anatomy, deliberately duplicated
                rather than imported: ir-command-row owns its styles
@@ -446,6 +516,9 @@ export class IrTangleSection extends LitElement {
                 padding: 8px 10px;
                 background: var(--primary-background-color);
                 border-radius: 4px;
+            }
+            .trow.clickable {
+                cursor: pointer;
             }
             .top-line {
                 display: flex;

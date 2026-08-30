@@ -7677,6 +7677,7 @@ async def ws_tangle_apply(
         pre_read,
         project_device,
         read_lattice,
+        rederive_comb_stamps,
         write_repair,
     )
 
@@ -7746,8 +7747,10 @@ async def ws_tangle_apply(
         # The porthole is a copy of the cell taken at adopt, and it is
         # what TEST sends. Leaving it behind would hand somebody a
         # button that still transmits the code they just repaired.
-        for porthole in portholes_for(device, row.target.coordinates):
+        portholes = portholes_for(device, row.target.coordinates)
+        for porthole in portholes:
             write_repair(porthole, msg["pronto"], provenance)
+        rederive_comb_stamps(device, matrix, portholes)
         failure = await _write_matrix_and_signal(hass, device, matrix)
         if failure is not None:
             connection.send_error(msg["id"], "write_failed", failure)
@@ -7763,6 +7766,7 @@ async def ws_tangle_apply(
                 msg["id"], APPLY_NO_FINDING, "That command is gone")
             return
         write_repair(command, msg["pronto"], provenance)
+        rederive_comb_stamps(device, matrix, [command])
         attested = await _keep_the_override(
             hass, device, matrix, row, lattice, verdict, declared,
         )
@@ -7803,6 +7807,7 @@ async def ws_tangle_revert(
         TARGET_CELL,
         portholes_for,
         read_repair,
+        rederive_comb_stamps,
         revert_repair,
     )
 
@@ -7825,8 +7830,13 @@ async def ws_tangle_revert(
             "swing": cell.swing, "temp": cell.temp,
         }
         record = revert_repair(cell)
-        for porthole in portholes_for(device, coordinates):
+        portholes = portholes_for(device, coordinates)
+        for porthole in portholes:
             revert_repair(porthole)
+        # The mark goes back with the bytes: an undo that left the
+        # stamp cleared would leave TRIGGER showing on a row that is
+        # broken again (issue 16, pointing the other way).
+        rederive_comb_stamps(device, matrix, portholes)
         failure = await _write_matrix_and_signal(hass, device, matrix)
         if failure is not None:
             connection.send_error(msg["id"], "write_failed", failure)
@@ -7841,6 +7851,7 @@ async def ws_tangle_revert(
             )
             return
         record = revert_repair(command)
+        rederive_comb_stamps(device, matrix, [command])
         await manager.async_update_device(device)
 
     # UNDO writes through too (owner call, 2026-08-27). The old bytes
@@ -7954,6 +7965,7 @@ async def ws_tangle_apply_batch(
         portholes_for,
         project_device,
         read_lattice,
+        rederive_comb_stamps,
         repair_bytes,
         repair_extras,
         restore_holder,
@@ -8062,6 +8074,10 @@ async def ws_tangle_apply_batch(
     # Resolved, read and validated. Only now does anything move.
     for holder, pronto, provenance in writes:
         write_repair(holder, pronto, provenance)
+    # ONCE, after every write in the run (issue 16). Per row it would
+    # comb the device N times and read each repair against a lattice
+    # the rest of the run had not landed in yet.
+    rederive_comb_stamps(device, matrix, [holder for holder, _, _ in writes])
 
     if matrix is not None:
         failure = await _write_matrix_and_signal(hass, device, matrix)
@@ -8104,6 +8120,7 @@ async def ws_tangle_revert_run(
     from .tangles import (
         APPLY_NOTHING_TO_REVERT,
         read_repair,
+        rederive_comb_stamps,
         revert_repair,
     )
 
@@ -8118,6 +8135,11 @@ async def ws_tangle_revert_run(
         return
     for holder in holders:
         revert_repair(holder)
+    # The undo has to move the stamp back too. A revert restores the
+    # bytes the comb doubted; leaving the mark cleared would leave
+    # TRIGGER showing on a row that is broken again, which is the same
+    # lie as issue 16 pointing the other way.
+    rederive_comb_stamps(device, matrix, holders)
 
     if matrix is not None:
         failure = await _write_matrix_and_signal(hass, device, matrix)
