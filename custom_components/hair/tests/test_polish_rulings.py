@@ -3721,3 +3721,94 @@ class TestTheListenButtonSaysWhatItIsDoing:
             "\n    private", 1
         )[0]
         assert "_heard" not in body
+class TestTheWitnessMatchTranslatesTheField:
+    """Issue 18, ship-blocker for the witness flow.
+
+    ``reads_as`` is keyed by map field name, ``coordinates`` by cell
+    axis, and the witness comparison read one with the other's key. For
+    every temperature cluster the asked value came back undefined, so a
+    capture reading exactly the right value went to the ladder. The
+    backend side is pinned in test_tangles_listing.py; these hold the
+    frontend's mirror of the bridge honest.
+    """
+
+    def test_the_frontend_mirrors_the_backends_field_map(self):
+        """THE PARITY PIN. Two copies of one table is the arrangement
+        that caused this, so the copies are compared rather than
+        trusted. A field added on the backend without its mirror makes
+        that field's clusters unmatchable in exactly the old way."""
+        from custom_components.hair.wig_comb import FIELD_COORDINATE
+
+        text = _read("ir-tangle-copy.ts")
+        block = text.split(
+            "export const FIELD_COORDINATE", 1
+        )[1].split("};", 1)[0]
+        mirrored = dict(re.findall(r'(\w+):\s*"(\w+)"', block))
+        assert mirrored == FIELD_COORDINATE
+
+    def test_power_is_not_an_axis_on_either_side(self):
+        """A cell that does not mention power is on, which is the rule
+        pre_read applies, so the mirror applies it too rather than
+        reading undefined and calling the press a miss."""
+        from custom_components.hair.wig_comb import POWER_FIELD
+
+        text = _read("ir-tangle-copy.ts")
+        assert f'export const POWER_FIELD = "{POWER_FIELD}"' in text
+        body = text.split("export function claimedFor(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert 'coordinates[POWER_FIELD] ?? "on"' in body
+
+    def test_the_witness_branch_asks_for_the_translation(self):
+        text = _read("ir-tangle-listen.ts")
+        branch = text.split("if (isWitness && cluster?.field) {", 1)[1].split(
+            "} else {", 1
+        )[0]
+        assert "claimedFor(cluster.field, coords)" in branch
+        assert "sameReading(witnessed, asked)" in branch
+        # The exact expression that could never match.
+        assert "coords?.[cluster.field]" not in branch
+
+    def test_a_reading_and_a_claim_compare_as_numbers_when_they_are(self):
+        """A lattice writes 26 and a reading comes back 26.0. Compared
+        as text those are two different temperatures."""
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("export function sameReading(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert "Number(reading)" in body
+        assert "Number(claim)" in body
+        assert "Number.isFinite(a) && Number.isFinite(b)" in body
+
+    def test_labels_are_not_case_folded(self):
+        """Mode and fan vocabularies ride verbatim through this whole
+        surface (the 2026-07-29 addendum), so two labels differing only
+        in case are two labels, not one."""
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("export function sameReading(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert "toLowerCase" not in body
+        assert "String(reading).trim() === String(claim).trim()" in body
+
+    def test_the_ladder_speaks_the_panels_unit(self):
+        """T5. The reading is a native lattice value, and quoting it raw
+        put "Heard 26" under a row named 79, which reads as the panel
+        disagreeing with itself rather than with the remote."""
+        text = _read("ir-tangle-listen.ts")
+        assert "fieldWords(" in text
+        body = text.split("const heard = fieldWords(", 1)[1].split(
+            ");", 1
+        )[0]
+        assert "this.matrixUnit" in body
+        assert "installUnit(this.hass)" in body
+
+    def test_only_temperature_converts(self):
+        """Every other field is a vocabulary label and has no unit to
+        convert into."""
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("export function fieldWords(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert 'if (field !== "temperature") return String(value);' in body
+        assert "displayTemp(" in body

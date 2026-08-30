@@ -45,7 +45,12 @@ import type {
     TangleTarget,
 } from "./types.js";
 import { t, tp } from "./localize.js";
-import { targetWords } from "./ir-tangle-copy.js";
+import {
+    claimedFor,
+    fieldWords,
+    sameReading,
+    targetWords,
+} from "./ir-tangle-copy.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 
@@ -305,11 +310,19 @@ export class IrTangleListen extends LitElement {
         const isWitness = cluster?.mechanic === "witness";
         let good: boolean;
         if (isWitness && cluster?.field) {
+            // THE WITNESS COMPARISON (issue 18, ship-blocker). reads_as
+            // is keyed by map FIELD NAME, coordinates by cell AXIS, and
+            // this read one with the other's key -- so for every
+            // temperature cluster `asked` was undefined and a capture
+            // reading exactly the right value went to the ladder. Found
+            // on the bench: the small-shift AC's own 26C frame, sent at
+            // its own 26C row, answered "Heard 26. Check the remote's
+            // display and try again."
             const readsAs = capture.verdict.reads_as as Record<string, unknown> | null;
             const witnessed = readsAs?.[cluster.field];
             const coords = row.target.coordinates as Record<string, unknown> | undefined;
-            const asked = coords?.[cluster.field];
-            good = witnessed !== undefined && witnessed === asked;
+            const asked = claimedFor(cluster.field, coords);
+            good = sameReading(witnessed, asked);
         } else {
             // `matches` is null when there was no claim to check the
             // press against -- a flat wig has no lattice, so pre_read
@@ -339,10 +352,16 @@ export class IrTangleListen extends LitElement {
         const heardWord = (
             capture.verdict.reads_as as Record<string, unknown> | null
         )?.[cluster?.field ?? ""];
-        const heard =
-            heardWord === undefined || heardWord === null || heardWord === ""
-                ? null
-                : String(heardWord);
+        // The ladder speaks the panel's unit (T5). The reading is a
+        // native lattice value, and quoting it raw put "Heard 26" under
+        // a row named 79, which reads as the panel disagreeing with
+        // itself rather than with the remote.
+        const heard = fieldWords(
+            cluster?.field,
+            heardWord,
+            this.matrixUnit,
+            installUnit(this.hass),
+        );
         const rung = misses >= 3 ? 3 : misses === 1 ? 1 : 2;
         const message =
             heard === null
