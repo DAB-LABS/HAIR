@@ -400,7 +400,11 @@ export class IrTangleSection extends LitElement {
                 <div class="tangle-cards">
                     ${cards.map(
                         (entry) => html`
-                            <div class="tcard-block">
+                            <div
+                                class="tcard-block ${this._open === entry.card
+                                    ? "open"
+                                    : ""}"
+                            >
                                 ${this._renderCard(entry.card, entry.sentence)}
                                 ${bucket(entry.card)}
                             </div>
@@ -419,8 +423,18 @@ export class IrTangleSection extends LitElement {
      * the colors the chrome already used, no new palette. */
     private _renderCard(card: CardKey, sentence: string) {
         const isOpen = this._open === card;
+        // THE WHOLE CELL OPENS IT (owner ruled 2026-08-30). The button
+        // stays as the visual call to action and remains the keyboard
+        // control -- it is a real button, it focuses, and Enter on it
+        // fires a click that lands here by bubbling, so there is one
+        // handler rather than two racing each other.
         return html`
-            <div class="trow">
+            <div
+                class="trow ${this._loading ? "" : "clickable"}"
+                @click=${() => {
+                    if (!this._loading) this._toggle(card);
+                }}
+            >
                 <div class="top-line">
                     <div class="status" aria-hidden="true">
                         <span class="comb-glyph ${card}">
@@ -434,7 +448,6 @@ export class IrTangleSection extends LitElement {
                         <button
                             class="tcard-btn ${card}"
                             ?disabled=${this._loading}
-                            @click=${() => this._toggle(card)}
                         >
                             ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
                         </button>
@@ -472,11 +485,22 @@ export class IrTangleSection extends LitElement {
             }
             /* A card and its open bucket are one block, so the gap
                between cards never lands between a card and the rows it
-               just opened. The bucket brings its own 8px top margin,
-               which is what separates it from the card it belongs to. */
+               just opened. */
             .tcard-block {
                 display: flex;
                 flex-direction: column;
+            }
+            /* ONE SURFACE (issue 19). Open, the block paints the box
+               that the card used to paint alone: same background, one
+               set of rounded corners around card and rows together, no
+               seam and no second panel floating below. */
+            .tcard-block.open {
+                background: var(--primary-background-color);
+                border-radius: 4px;
+            }
+            .tcard-block.open .trow {
+                background: none;
+                border-radius: 4px 4px 0 0;
             }
             /* The command row's anatomy, deliberately duplicated
                rather than imported: ir-command-row owns its styles
@@ -492,6 +516,9 @@ export class IrTangleSection extends LitElement {
                 padding: 8px 10px;
                 background: var(--primary-background-color);
                 border-radius: 4px;
+            }
+            .trow.clickable {
+                cursor: pointer;
             }
             .top-line {
                 display: flex;

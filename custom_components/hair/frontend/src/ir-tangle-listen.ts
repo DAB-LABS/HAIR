@@ -526,11 +526,18 @@ export class IrTangleListen extends LitElement {
             :host {
                 display: block;
             }
+            /* THE CARD PAINTS THE BOX (issue 19). This used to be a
+               separate rounded panel with its own background and an
+               8px gap above it, so an opened bucket read as a second
+               thing that had appeared near the card rather than as
+               the card opening. The block in ir-tangle-section owns
+               the surface and the corners now; what is left here is
+               the padding the rows sit in. */
             .work {
-                margin: 8px 0 0 0;
+                margin: 0;
                 padding: 10px 12px;
-                background: var(--card-background-color, var(--primary-background-color));
-                border-radius: 4px;
+                background: none;
+                border-radius: 0;
             }
             .rows {
                 display: flex;

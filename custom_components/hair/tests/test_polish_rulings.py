@@ -3931,3 +3931,114 @@ class TestTheCommandsListHearsAboutARepair:
         )[1].split("};", 1)[0]
         assert "device-changed" not in body
         assert "this._refresh()" not in body
+class TestTheOpenBucketIsOneBlockWithItsCard:
+    """Issue 19. Round two put the bucket under the right card; it
+    still read as a second thing that had appeared near the card rather
+    than as the card opening. The bucket painted its own rounded panel,
+    with its own background and an 8px gap above it, and DECIDE's work
+    area carried a copper left border that was the card chrome leaking
+    down. Card and bucket are one surface now."""
+
+    BUCKETS = ("ir-tangle-fix.ts", "ir-tangle-listen.ts",
+               "ir-tangle-decide.ts")
+
+    def test_no_bucket_paints_its_own_panel(self):
+        for name in self.BUCKETS:
+            body = _read(name).split(".work {", 1)[1].split("}", 1)[0]
+            assert "margin: 0;" in body, name
+            assert "background: none;" in body, name
+            assert "border-radius: 0;" in body, name
+
+    def test_the_block_paints_the_box_when_it_is_open(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split(".tcard-block.open {", 1)[1].split("}", 1)[0]
+        assert "background: var(--primary-background-color)" in body
+        assert "border-radius: 4px" in body
+
+    def test_the_cards_corners_join_the_rows_below_it(self):
+        """Rounded on top, square where the rows meet it, so the seam
+        the old layout showed is gone."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split(".tcard-block.open .trow {", 1)[1].split("}", 1)[0]
+        assert "background: none;" in body
+        assert "border-radius: 4px 4px 0 0;" in body
+
+    def test_the_stray_copper_edge_is_gone(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "border-left: 3px solid var(--tangle-copper" not in text
+
+
+class TestTheWholeCardOpensIt:
+    """Owner ruled 2026-08-30: the card cell is the click target, and
+    the right-side button stays as the visual call to action."""
+
+    def test_the_cell_carries_the_handler(self):
+        text = _read("ir-tangle-section.ts")
+        block = text.split('class="trow ${this._loading', 1)[1].split(
+            "<div class=\"top-line\">", 1
+        )[0]
+        assert "@click=" in block
+        assert "this._toggle(card)" in block
+
+    def test_the_button_does_not_handle_its_own_click(self):
+        """One handler, not two racing. The button is inside the cell,
+        so a click on it (and Enter on it, since it is a real button)
+        lands on the cell by bubbling."""
+        text = _read("ir-tangle-section.ts")
+        button = text.split('class="tcard-btn ${card}"', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert "@click=" not in button
+
+    def test_the_button_is_still_a_button(self):
+        """It is the keyboard control and the accessible name for this
+        row; the clickable cell is a mouse convenience on top of it."""
+        text = _read("ir-tangle-section.ts")
+        assert '<button\n                            class="tcard-btn' in text
+
+    def test_a_loading_section_is_not_clickable(self):
+        text = _read("ir-tangle-section.ts")
+        block = text.split('class="trow ${this._loading', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "if (!this._loading) this._toggle(card);" in block
+
+
+class TestEveryCardsCallToActionReadsFix:
+    """Owner ruled 2026-08-30. The three cards each open a different
+    flow, but from the reader's side the offer is the same one: fix
+    this. The colors and the comb glyphs are what tell the cards
+    apart."""
+
+    def test_all_three_open_labels_are_one_word_per_language(self):
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            word = data["tangles.open_fix"]
+            assert data["tangles.open_listen"] == word, name
+            assert data["tangles.open_decide"] == word, name
+
+    def test_each_button_keeps_its_own_card_color(self):
+        text = _read("ir-tangle-section.ts")
+        for card, token in (("fix", "--tangle-blue"),
+                            ("listen", "--tangle-amber"),
+                            ("decide", "--tangle-copper")):
+            body = text.split(f".tcard-btn.{card} {{", 1)[1].split("}", 1)[0]
+            assert token in body, card
+
+    def test_the_glyphs_still_match_their_cards(self):
+        text = _read("ir-tangle-section.ts")
+        for card, token in (("fix", "--tangle-blue"),
+                            ("listen", "--tangle-amber"),
+                            ("decide", "--tangle-copper")):
+            body = text.split(
+                f".comb-glyph.{card} svg {{", 1
+            )[1].split("}", 1)[0]
+            assert token in body, card
+
+    def test_close_is_still_its_own_word(self):
+        """An open card says Close, which is the one label that has to
+        keep meaning what it says."""
+        text = _read("ir-tangle-section.ts")
+        assert 'isOpen ? t("tangles.close")' in text

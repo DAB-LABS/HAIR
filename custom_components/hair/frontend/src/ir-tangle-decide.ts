@@ -221,20 +221,30 @@ export class IrTangleDecide extends LitElement {
             :host {
                 display: block;
             }
+            /* THE CARD PAINTS THE BOX (issue 19). This used to be a
+               separate rounded panel with its own background and an
+               8px gap above it, so an opened bucket read as a second
+               thing that had appeared near the card rather than as
+               the card opening. The block in ir-tangle-section owns
+               the surface and the corners now; what is left here is
+               the padding the rows sit in. */
             .work {
-                margin: 8px 0 0 0;
+                margin: 0;
                 padding: 10px 12px;
-                background: var(--card-background-color, var(--primary-background-color));
-                border-radius: 4px;
+                background: none;
+                border-radius: 0;
             }
             .pairs {
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
             }
+            /* The copper edge went with the card chrome (issue 19).
+               It was the card's own left border leaking onto the work
+               area, and with the bucket now inside the card there is
+               nothing for it to distinguish. */
             .pair {
-                border-left: 3px solid var(--tangle-copper, #b5651d);
-                padding-left: 10px;
+                padding-left: 0;
             }
             .pair-intro {
                 font-size: 0.8rem;
@@ -242,8 +252,6 @@ export class IrTangleDecide extends LitElement {
                 margin-bottom: 6px;
             }
             .pair-intro.done {
-                border-left: 3px solid var(--tangle-copper, #b5651d);
-                padding-left: 10px;
                 color: #2e7d32;
             }
             .drow {
