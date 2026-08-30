@@ -3924,13 +3924,45 @@ class TestTheCommandsListHearsAboutARepair:
         """_refresh() dispatches device-changed, which rebuilds this
         element from ir-device-list -- and would close the tangle flow
         the person is standing in after every accept. That cascade is
-        the 2026-08-07 bench lesson this file already records."""
+        the 2026-08-07 bench lesson this file already records.
+
+        Keyed on the EVENT rather than on the word, since P8 added a
+        comment that names the cascade in order to say this is not it.
+        A pin that a comment can trip is a pin that gets loosened by
+        whoever trips it, which is the wrong outcome twice over."""
         text = _read("ir-device-detail.ts")
         body = text.split(
             "private _onTangleMutated = async (): Promise<void> => {", 1
         )[1].split("};", 1)[0]
-        assert "device-changed" not in body
+        assert 'CustomEvent("device-changed"' not in body
         assert "this._refresh()" not in body
+
+    def test_it_hands_the_fresh_device_up_instead(self):
+        """P8. The refetch was never the problem. ``device`` is a
+        property ir-device-list hands down from its own cache, so the
+        fresh device survived only until that list rendered for any
+        reason, and then the stale copy came back down and the
+        repaired row wore its old bytes again. The child hands its
+        copy up on a quiet event that rebuilds nothing."""
+        text = _read("ir-device-detail.ts")
+        body = text.split(
+            "private _onTangleMutated = async (): Promise<void> => {", 1
+        )[1].split("};", 1)[0]
+        assert 'CustomEvent("device-refreshed"' in body
+        assert "detail: { device: fresh }" in body
+
+    def test_the_list_takes_that_copy_for_its_cache(self):
+        """The other half. An event nobody listens to fixes nothing."""
+        text = _read("ir-device-list.ts")
+        assert "@device-refreshed=${this" in text
+        body = text.split(
+            "private _onExpandedDeviceRefreshed(ev: CustomEvent): void {", 1
+        )[1].split("\n    }", 1)[0]
+        assert "this._expandedDevice = fresh;" in body
+        # Guarded on the id: a refresh that resolves after the person
+        # collapsed the card is about a device this element is no
+        # longer showing.
+        assert "fresh.id !== this.expandedDeviceId" in body
 class TestTheOpenBucketIsOneBlockWithItsCard:
     """Issue 19. Round two put the bucket under the right card; it
     still read as a second thing that had appeared near the card rather
@@ -3985,16 +4017,36 @@ class TestTheWholeCardOpensIt:
         so a click on it (and Enter on it, since it is a real button)
         lands on the cell by bubbling."""
         text = _read("ir-tangle-section.ts")
-        button = text.split('class="tcard-btn ${card}"', 1)[1].split(
-            "</button>", 1
-        )[0]
+        button = text.split(
+            'class="action-btn tcard-btn ${card}"', 1
+        )[1].split("</button>", 1)[0]
         assert "@click=" not in button
 
     def test_the_button_is_still_a_button(self):
         """It is the keyboard control and the accessible name for this
         row; the clickable cell is a mouse convenience on top of it."""
         text = _read("ir-tangle-section.ts")
-        assert '<button\n                            class="tcard-btn' in text
+        assert (
+            '<button\n                            class="action-btn tcard-btn'
+            in text
+        )
+
+    def test_the_button_wears_the_shared_chip_and_not_a_copy(self):
+        """P7. It had grown its own anatomy, a taller box that read as
+        a different KIND of control from the command chips it stacks
+        with. ir-action-chip-styles is the one source of truth for
+        that anatomy and exists so a fourth copy cannot drift."""
+        text = _read("ir-tangle-section.ts")
+        assert 'import { actionChipStyles } from "./ir-action-chip-styles.js"' in text
+        assert "actionChipStyles," in text
+        body = text.split(".tcard-btn {", 1)[1].split("}", 1)[0]
+        # Only what is genuinely its own. Anything else here is the
+        # copy coming back.
+        assert "flex: 0 0 auto;" in body
+        for owned_by_the_shared_chip in (
+            "padding:", "font-size:", "border-radius:", "text-transform:",
+        ):
+            assert owned_by_the_shared_chip not in body
 
     def test_a_loading_section_is_not_clickable(self):
         text = _read("ir-tangle-section.ts")
@@ -4105,17 +4157,43 @@ class TestKeepBothSettlesThePair:
 
     def test_keep_both_is_what_settles_it(self):
         text = _read("ir-tangle-decide.ts")
-        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
         assert '"kept"' in body
 
-    def test_keep_both_writes_nothing(self):
-        """The rename already wrote. A pair kept on purpose has nothing
-        left to save, and firing a mutation for a no-op would refetch
-        the listing and the device for no reason."""
+    def test_keep_both_records_the_answer(self):
+        """SUPERSEDES test_keep_both_writes_nothing (issue 23, ruled
+        for the pre-release).
+
+        The old rule was that the rename had already written and a
+        kept pair had nothing left to save. That was wrong about what
+        a kept pair IS. Settling it in a member field meant the
+        decision lived exactly as long as the panel stayed open:
+        reload and the same pair asked the same question again, with
+        the person's answer nowhere on the device. KEEP is the
+        endpoint that exists to record it."""
         text = _read("ir-tangle-decide.ts")
-        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
-        assert "api" not in body
-        assert "_emitMutated" not in body
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
+        assert "this.api.tangleKeep(" in body
+        assert "_emitMutated(" in body
+
+    def test_it_answers_both_rows_in_one_call(self):
+        """One decision about two rows is one save and one successor
+        wig. Answering them one at a time would mint two."""
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
+        assert "pair.rows.map((row) => row.id)" in body
+        assert "this.api.tangleKeep(\n                this.deviceId, ids, true)" in body
+
+    def test_a_refused_answer_does_not_look_settled(self):
+        """The failure mode this whole item is about, arrived at from
+        the other side: a card that says kept while the device knows
+        nothing about it. The resolved mark is written INSIDE the try,
+        after the call returns, and a refusal surfaces instead."""
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
+        assert "} catch (err) {" in body
+        assert "this._error = " in body
+        assert body.index('"kept"') < body.index("} catch (err) {")
 
     def test_keep_both_is_dark_until_the_names_actually_differ(self):
         text = _read("ir-tangle-decide.ts")
