@@ -61,6 +61,7 @@ import type {
     TriggerDrawerInfo,
     TriggerFiredEvent,
     TriggerRemoteInfo,
+    WigInfo,
 } from "./types.js";
 
 /**
@@ -248,6 +249,8 @@ export class IrDeviceList extends LitElement {
         deviceName: string;
     } | null = null;
     @state() private _confirmDeleteRemote: TriggerRemoteInfo | null = null;
+    /** Which ghost tile is reading a dropped file right now (F10). */
+    @state() private _dropBusy: "device" | "remote" | null = null;
     // Add Popups signpost 2, Track 5: named-remote expand-view
     // rename-in-place. Single-instance, same shape as the drawer's
     // own _editingDrawerName/_draftDrawerName/_drawerBusy trio --
@@ -670,10 +673,15 @@ export class IrDeviceList extends LitElement {
     ): Promise<void> {
         const file = e.detail.files[0];
         if (!file || !this.api) return;
+        // Before anything else: the tile says it is working. Reading,
+        // parsing, combing and writing all happen before the dialog
+        // can open, and that gap used to be silent (issue 6).
+        this._dropBusy = kind;
         let text: string;
         try {
             text = await file.text();
         } catch {
+            this._dropBusy = null;
             return;
         }
         try {
@@ -693,10 +701,29 @@ export class IrDeviceList extends LitElement {
             }
             const landed = result.files ?? [];
             if (landed.length !== 1) return;
-            const filename = landed[0].filename;
-            const list = await this.api.wigsList();
-            const wig = list.wigs.find((w) => w.filename === filename);
-            if (!wig) return;
+            const entry = landed[0];
+            // The upload already knows this row (B4). It used to be
+            // fetched back out of a full wigs/list, which re-scans and
+            // re-parses every wig in the closet -- claims, receipts and
+            // matrix summaries for each -- to find the one file this
+            // path has known the name of since the write.
+            //
+            // notes and origin are not on the upload result and nothing
+            // on this path reads them; they are null here rather than
+            // guessed, and the closet's own list still serves the full
+            // record everywhere else.
+            const wig: WigInfo = {
+                filename: entry.filename,
+                name: entry.name,
+                brand: entry.brand,
+                model: entry.model ?? null,
+                notes: null,
+                origin: null,
+                signal_count: entry.signal_count ?? 0,
+                kind: entry.kind ?? null,
+                matrix: entry.matrix ?? null,
+                comb: entry.comb ?? null,
+            };
             const row: WigPickRow = {
                 source: "local",
                 id: `wig:${wig.filename}`,
@@ -726,6 +753,8 @@ export class IrDeviceList extends LitElement {
                     composed: true,
                 }),
             );
+        } finally {
+            this._dropBusy = null;
         }
     }
 
@@ -1720,6 +1749,7 @@ export class IrDeviceList extends LitElement {
                           )}
                           <ir-ghost-tile
                               kind="device"
+                              .busy=${this._dropBusy === "device"}
                               @add-click=${this._add}
                               @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
                                   this._onGhostTileDrop("device", e)}
@@ -1731,6 +1761,7 @@ export class IrDeviceList extends LitElement {
                           <ir-ghost-tile
                               kind="device"
                               .empty=${true}
+                              .busy=${this._dropBusy === "device"}
                               @add-click=${this._add}
                               @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
                                   this._onGhostTileDrop("device", e)}
@@ -2102,6 +2133,7 @@ export class IrDeviceList extends LitElement {
                      that belongs beside a card is the compact one. -->
                 <ir-ghost-tile
                     kind="remote"
+                    .busy=${this._dropBusy === "remote"}
                     @add-click=${this._addRemote}
                     @files-dropped=${(e: CustomEvent<{ files: File[] }>) =>
                         this._onGhostTileDrop("remote", e)}

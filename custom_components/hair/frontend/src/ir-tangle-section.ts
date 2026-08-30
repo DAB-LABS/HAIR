@@ -53,7 +53,9 @@ import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
-import { t } from "./localize.js";
+import { t, tp } from "./localize.js";
+import type { MatrixUnit } from "./temperature.js";
+import { ICON_COMB, COMB_VIEWBOX } from "./ir-icons.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
@@ -87,11 +89,25 @@ export function bucketFixRows(listing: TangleListing): TangleRow[] {
     });
 }
 
-export function bucketListenRows(listing: TangleListing): TangleRow[] {
+/** LISTEN's rows: everything with no donor of its own, MINUS anything
+ * a held witness plan has already built a candidate for.
+ *
+ * That subtraction is the whole of issue 7. One good witness capture
+ * settles the row it was aimed at and stages its cluster siblings as
+ * FIX rows immediately, but they kept counting here too, so after a
+ * sixteen-row capture the section read "15 more fixes ready" AND "15
+ * presses from your remote will finish these" -- the second claim no
+ * longer true. A row belongs to one card at a time; the press is what
+ * moves it. */
+export function bucketListenRows(
+    listing: TangleListing,
+    plannedIds: ReadonlySet<string> = new Set(),
+): TangleRow[] {
     const byId = clusterByRowId(listing);
     return listing.rows.filter((row) => {
         const cluster = byId.get(row.id);
         if (cluster?.rule === "identical-bytes") return false;
+        if (plannedIds.has(row.id)) return false;
         return row.has_donor !== true;
     });
 }
@@ -142,6 +158,9 @@ export class IrTangleSection extends LitElement {
     @property({ attribute: false }) public hass!: HassLike;
     @property({ attribute: false }) public api!: HairApi;
     @property({ attribute: false }) public deviceId!: string;
+    /** The device matrix's native temperature unit, handed down so
+     * row names convert like every other display surface. */
+    @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
 
     @state() private _listing: TangleListing | null = null;
     @state() private _loading = false;
@@ -234,7 +253,6 @@ export class IrTangleSection extends LitElement {
         if (!this._listing) return nothing;
 
         const fixRows = bucketFixRows(this._listing);
-        const listenRows = bucketListenRows(this._listing);
         const decide = bucketDecide(this._listing);
         const decideCount = decide.pairs.length * 2;
 
@@ -254,6 +272,12 @@ export class IrTangleSection extends LitElement {
             0,
         );
         const fixCount = fixRows.length + batchCount;
+        // The rows those plans now speak for are FIX's, not LISTEN's
+        // (issue 7): counted once, in the card that can act on them.
+        const plannedIds = new Set(
+            batchEntries.flatMap((entry) => entry.pendingMembers),
+        );
+        const listenRows = bucketListenRows(this._listing, plannedIds);
 
         if (fixCount === 0 && listenRows.length === 0 && decideCount === 0) {
             return nothing;
@@ -266,17 +290,21 @@ export class IrTangleSection extends LitElement {
                 @tangle-batch-planned=${this._handleBatchPlanned}
             >
                 <div class="tangle-header">${t("tangles.section_header")}</div>
+                <!-- At most three detangle rows, at the top (ruling
+                     2026-08-29). There are only ever three cards, so
+                     this is the shape rather than a limit that bites,
+                     but it is stated here rather than left implicit. -->
                 <div class="tangle-cards">
                     ${fixCount > 0
                         ? this._renderCard(
                               "fix",
-                              t("tangles.card_fix", { count: fixCount }),
+                              tp("tangles.card_fix", fixCount),
                           )
                         : nothing}
                     ${listenRows.length > 0
                         ? this._renderCard(
                               "listen",
-                              t("tangles.card_listen", { count: listenRows.length }),
+                              tp("tangles.card_listen", listenRows.length),
                           )
                         : nothing}
                     ${decideCount > 0
@@ -291,6 +319,7 @@ export class IrTangleSection extends LitElement {
                           .hass=${this.hass}
                           .api=${this.api}
                           .deviceId=${this.deviceId}
+                          .matrixUnit=${this.matrixUnit}
                           .rows=${fixRows}
                           .listing=${this._listing}
                           .batchPlans=${batchEntries}
@@ -301,6 +330,7 @@ export class IrTangleSection extends LitElement {
                           .hass=${this.hass}
                           .api=${this.api}
                           .deviceId=${this.deviceId}
+                          .matrixUnit=${this.matrixUnit}
                           .rows=${listenRows}
                           .listing=${this._listing}
                       ></ir-tangle-listen>`
@@ -310,6 +340,7 @@ export class IrTangleSection extends LitElement {
                           .hass=${this.hass}
                           .api=${this.api}
                           .deviceId=${this.deviceId}
+                          .matrixUnit=${this.matrixUnit}
                           .pairs=${decide.pairs}
                       ></ir-tangle-decide>`
                     : nothing}
@@ -317,18 +348,35 @@ export class IrTangleSection extends LitElement {
         `;
     }
 
+    /** One detangle row, in the command row's own anatomy (owner
+     * ruling batch, 2026-08-29): status column, name line, actions,
+     * same paddings and background, no colored left edge. The comb
+     * takes the slot the drag grip holds on a command row and carries
+     * the card's own color -- blue FIX, amber LISTEN, copper DECIDE,
+     * the colors the chrome already used, no new palette. */
     private _renderCard(card: CardKey, sentence: string) {
         const isOpen = this._open === card;
         return html`
-            <div class="tcard ${card}">
-                <div class="tcard-sentence">${sentence}</div>
-                <button
-                    class="tcard-btn ${card}"
-                    ?disabled=${this._loading}
-                    @click=${() => this._toggle(card)}
-                >
-                    ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
-                </button>
+            <div class="trow">
+                <div class="top-line">
+                    <div class="status" aria-hidden="true">
+                        <span class="comb-glyph ${card}">
+                            <svg viewBox=${COMB_VIEWBOX}>
+                                <path d=${ICON_COMB}></path>
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="name-line">${sentence}</div>
+                    <div class="actions">
+                        <button
+                            class="tcard-btn ${card}"
+                            ?disabled=${this._loading}
+                            @click=${() => this._toggle(card)}
+                        >
+                            ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
     }
@@ -353,32 +401,65 @@ export class IrTangleSection extends LitElement {
             .tangle-cards {
                 display: flex;
                 flex-direction: column;
-                gap: 6px;
+                gap: 4px;
             }
-            .tcard {
+            /* The command row's anatomy, deliberately duplicated
+               rather than imported: ir-command-row owns its styles
+               inside its own shadow root, and the ruling is that these
+               cells LOOK like command cells, not that they become
+               them. Same paddings, same background, same three-part
+               top line (32px status | flexible name | auto actions),
+               same wrap behaviour at narrow widths. */
+            .trow {
                 display: flex;
-                align-items: center;
-                gap: 12px;
-                flex-wrap: wrap;
+                flex-direction: column;
+                gap: 4px;
+                padding: 8px 10px;
                 background: var(--primary-background-color);
                 border-radius: 4px;
-                padding: 10px 12px;
-                border-left: 3px solid var(--divider-color);
             }
-            .tcard.fix {
-                border-left-color: var(--tangle-blue, #2196f3);
+            .top-line {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 12px;
             }
-            .tcard.listen {
-                border-left-color: var(--tangle-amber, #b89930);
+            .status {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex: 0 0 32px;
             }
-            .tcard.decide {
-                border-left-color: var(--tangle-copper, #b5651d);
-            }
-            .tcard-sentence {
-                flex: 1 1 260px;
+            .name-line {
+                flex: 1 1 auto;
+                min-width: 0;
                 font-size: 0.85rem;
                 color: var(--primary-text-color);
-                min-width: 0;
+            }
+            .actions {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                flex: 0 0 auto;
+            }
+            /* The comb sits where the drag grip sits on a command row
+               and wears the card's own color. */
+            .comb-glyph {
+                display: inline-flex;
+                align-items: center;
+            }
+            .comb-glyph svg {
+                width: 14px;
+                height: 14px;
+            }
+            .comb-glyph.fix svg {
+                fill: var(--tangle-blue, #2196f3);
+            }
+            .comb-glyph.listen svg {
+                fill: var(--tangle-amber, #b89930);
+            }
+            .comb-glyph.decide svg {
+                fill: var(--tangle-copper, #b5651d);
             }
             .tcard-btn {
                 background: none;

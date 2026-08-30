@@ -447,7 +447,9 @@ export class IrCommandRow extends LitElement {
                                       ?disabled=${this.busy}
                                       @click=${() => this._emit("test")}
                                   >${t("cmdrow.test")}</button>
-                                  <button
+                                  ${this.command?.comb_suspect
+                                      ? ""
+                                      : html`<button
                                       class="action-btn trigger-btn"
                                       ?disabled=${this.busy}
                                       @click=${(e: Event) => this._emit("toggle-trigger", e)}
@@ -456,7 +458,7 @@ export class IrCommandRow extends LitElement {
                                           color="yellow"
                                           .count=${this.triggerCount ||
                                           (this.hasTrigger ? 1 : 0)}
-                                      ></ir-count-dot></button>
+                                      ></ir-count-dot></button>`}
                                   <div class="edit-trash-group">
                                       ${this.showStar
                                           ? renderStarBtn(

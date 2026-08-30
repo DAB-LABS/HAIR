@@ -42,9 +42,11 @@ import type {
     TangleListenEvent,
     TangleCaptureEvent,
     TangleBatchPlan,
+    TangleTarget,
 } from "./types.js";
-import { t } from "./localize.js";
+import { t, tp } from "./localize.js";
 import { targetWords } from "./ir-tangle-copy.js";
+import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 
 interface HassLike {
@@ -60,6 +62,8 @@ export class IrTangleListen extends LitElement {
     @property({ attribute: false }) public deviceId!: string;
     @property({ attribute: false }) public rows: TangleRow[] = [];
     @property({ attribute: false }) public listing!: TangleListing;
+    /** The matrix's own native unit; display converts off it. */
+    @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
 
     @state() private _snapshot: TangleRow[] = [];
     @state() private _states = new Map<string, RowState>();
@@ -71,6 +75,11 @@ export class IrTangleListen extends LitElement {
     @state() private _lastPronto = new Map<string, string>();
     @state() private _ladder = new Set<string>();
     @state() private _listeningRow: string | null = null;
+    // Rows with an arm or an apply in flight. USE IT ANYWAY used to
+    // stay live through its own apply, and a second click would have
+    // run a second full write (issue 10).
+    @state() private _arming = new Set<string>();
+    @state() private _busy = new Set<string>();
     @state() private _closing: { count: number; fixesGained: number } | null = null;
     private _fixesGained = 0;
 
@@ -83,7 +92,46 @@ export class IrTangleListen extends LitElement {
 
     disconnectedCallback(): void {
         super.disconnectedCallback();
-        void this._unsubscribe?.();
+        void this._teardown();
+    }
+
+    /** Drop the current arm, tolerating one that is already gone.
+     *
+     * The server tears its own arm down after FITTING_LISTEN_TIMEOUT_S
+     * of silence, and the stored unsubscribe then points at a
+     * subscription that no longer exists, so calling it REJECTS. That
+     * rejection was the first await in both _arm and _finishCapture,
+     * which is how USE IT ANYWAY could die before apply was ever
+     * called and stay dead on every retry (issue 4). A dead arm is a
+     * normal outcome, not an error. */
+    private async _teardown(): Promise<void> {
+        const unsubscribe = this._unsubscribe;
+        this._unsubscribe = null;
+        if (!unsubscribe) return;
+        try {
+            await unsubscribe();
+        } catch {
+            // Already gone server-side; nothing to release.
+        }
+    }
+
+    private _setMessage(rowId: string, message: string | undefined): void {
+        const next = new Map(this._lastMessage);
+        if (message === undefined) next.delete(rowId);
+        else next.set(rowId, message);
+        this._lastMessage = next;
+    }
+
+    private _release(set: Set<string>, rowId: string): Set<string> {
+        const next = new Set(set);
+        next.delete(rowId);
+        return next;
+    }
+
+    private static _errorText(err: unknown): string {
+        if (err instanceof Error && err.message) return err.message;
+        const message = (err as { message?: unknown } | null)?.message;
+        return typeof message === "string" && message ? message : String(err);
     }
 
     private _emitMutated(wigWritten: boolean | null): void {
@@ -119,14 +167,27 @@ export class IrTangleListen extends LitElement {
     }
 
     private async _arm(row: TangleRow): Promise<void> {
-        await this._unsubscribe?.();
-        this._listeningRow = row.id;
-        this._states = new Map(this._states).set(row.id, "listening");
-        this._unsubscribe = await this.api.tangleListen(
-            this.deviceId,
-            (event) => this._onEvent(row, event),
-            row.id,
-        );
+        if (this._arming.has(row.id) || this._busy.has(row.id)) return;
+        this._arming = new Set(this._arming).add(row.id);
+        try {
+            await this._teardown();
+            this._listeningRow = row.id;
+            this._states = new Map(this._states).set(row.id, "listening");
+            this._setMessage(row.id, undefined);
+            this._unsubscribe = await this.api.tangleListen(
+                this.deviceId,
+                (event) => this._onEvent(row, event),
+                row.id,
+            );
+        } catch (err) {
+            // The arm never took. Say so and leave the row re-armable
+            // rather than pretending it is listening.
+            this._listeningRow = null;
+            this._states = new Map(this._states).set(row.id, "idle");
+            this._setMessage(row.id, IrTangleListen._errorText(err));
+        } finally {
+            this._arming = this._release(this._arming, row.id);
+        }
     }
 
     /** Common tail of a settled capture (a clean match, or a ladder
@@ -137,8 +198,29 @@ export class IrTangleListen extends LitElement {
         pronto: string,
         readingDisagreed: boolean,
     ): Promise<void> {
-        await this._unsubscribe?.();
-        this._unsubscribe = null;
+        if (this._busy.has(row.id)) return;
+        this._busy = new Set(this._busy).add(row.id);
+        try {
+            await this._settle(row, pronto, readingDisagreed);
+        } catch (err) {
+            // An apply can be refused for real reasons (the target no
+            // longer carries a finding, an unusable pronto, an
+            // undeclared disagreement). Return the row to a state the
+            // person can act on and put the reason where they can read
+            // it, instead of leaving it pulsing forever (issue 4).
+            this._states = new Map(this._states).set(row.id, "idle");
+            this._setMessage(row.id, IrTangleListen._errorText(err));
+        } finally {
+            this._busy = this._release(this._busy, row.id);
+        }
+    }
+
+    private async _settle(
+        row: TangleRow,
+        pronto: string,
+        readingDisagreed: boolean,
+    ): Promise<void> {
+        await this._teardown();
         this._listeningRow = null;
         const cluster = this._clusterFor(row);
         const result = await this.api.tangleApply({
@@ -154,6 +236,7 @@ export class IrTangleListen extends LitElement {
             ...(readingDisagreed ? { readingDisagreed: true } : {}),
         });
         this._states = new Map(this._states).set(row.id, "captured");
+        this._setMessage(row.id, undefined);
         this._emitMutated(result.wig.written);
 
         if (cluster?.mechanic === "witness" && cluster.field) {
@@ -185,8 +268,16 @@ export class IrTangleListen extends LitElement {
 
     private async _onEvent(row: TangleRow, event: TangleListenEvent): Promise<void> {
         if (event.type === "tangle_listen_timeout") {
-            // Stays listening -- a timeout just means try again; the
-            // row does not revert or escalate on a timeout alone.
+            // The server has already torn this arm down, so the stored
+            // unsubscribe is dead and must not be called (issue 4).
+            // The row stops claiming to listen and says how to start
+            // again, rather than pulsing at something that has stopped.
+            this._unsubscribe = null;
+            if (this._listeningRow === row.id) this._listeningRow = null;
+            if ((this._states.get(row.id) ?? "idle") === "listening") {
+                this._states = new Map(this._states).set(row.id, "idle");
+            }
+            this._setMessage(row.id, t("tangles.listen_timeout"));
             return;
         }
         const capture = event as TangleCaptureEvent;
@@ -208,7 +299,19 @@ export class IrTangleListen extends LitElement {
             const asked = coords?.[cluster.field];
             good = witnessed !== undefined && witnessed === asked;
         } else {
-            good = capture.verdict.matches === true;
+            // `matches` is null when there was no claim to check the
+            // press against -- a flat wig has no lattice, so pre_read
+            // returns an unreadable verdict for every row on it. That
+            // is "nothing to disagree with", not "wrong", and reading
+            // it as a miss made recapture structurally impossible on
+            // flat wigs: every press, including the right button on
+            // the right remote, climbed the ladder (issue 3, owner
+            // ruled). Recapture means "re-prove by pressing"; the
+            // person aimed the remote, and a decoded press is the
+            // proof. The ladder now only appears where a reading
+            // exists to disagree with.
+            const claim = capture.verdict.matches;
+            good = claim === null || claim === undefined ? true : claim === true;
         }
 
         if (good) {
@@ -218,28 +321,23 @@ export class IrTangleListen extends LitElement {
 
         const misses = (this._missCounts.get(row.id) ?? 0) + 1;
         this._missCounts = new Map(this._missCounts).set(row.id, misses);
-        const heardWord =
-            (capture.verdict.reads_as as Record<string, unknown> | null)?.[
-                cluster?.field ?? ""
-            ] ?? "?";
-        if (misses >= 3) {
-            this._ladder = new Set(this._ladder).add(row.id);
-            this._lastMessage.set(
-                row.id,
-                t("tangles.listen_mismatch_3", { heard: String(heardWord) }),
-            );
-        } else if (misses === 1) {
-            this._lastMessage.set(
-                row.id,
-                t("tangles.listen_mismatch_1", { heard: String(heardWord) }),
-            );
-        } else {
-            this._lastMessage.set(
-                row.id,
-                t("tangles.listen_mismatch_2", { heard: String(heardWord) }),
-            );
-        }
-        this._lastMessage = new Map(this._lastMessage);
+        // Defensively (F3): where there is no reading to quote, say so
+        // in words rather than interpolating a bare "?" into the
+        // sentence, which is what a flat wig used to render.
+        const heardWord = (
+            capture.verdict.reads_as as Record<string, unknown> | null
+        )?.[cluster?.field ?? ""];
+        const heard =
+            heardWord === undefined || heardWord === null || heardWord === ""
+                ? null
+                : String(heardWord);
+        const rung = misses >= 3 ? 3 : misses === 1 ? 1 : 2;
+        const message =
+            heard === null
+                ? t(`tangles.listen_mismatch_${rung}_noread`)
+                : t(`tangles.listen_mismatch_${rung}`, { heard });
+        if (misses >= 3) this._ladder = new Set(this._ladder).add(row.id);
+        this._setMessage(row.id, message);
         // Row stays listening -- a miss never reverts the arm.
     }
 
@@ -252,8 +350,7 @@ export class IrTangleListen extends LitElement {
     private _skip(row: TangleRow): void {
         this._states = new Map(this._states).set(row.id, "skipped");
         if (this._listeningRow === row.id) {
-            void this._unsubscribe?.();
-            this._unsubscribe = null;
+            void this._teardown();
             this._listeningRow = null;
         }
     }
@@ -271,13 +368,18 @@ export class IrTangleListen extends LitElement {
         this._closing = { count: capturedCount, fixesGained: this._fixesGained };
     }
 
+
+    /** This row's words, in the panel's unit (F9). */
+    private _words(target: TangleTarget): string {
+        return targetWords(target, this.matrixUnit, installUnit(this.hass));
+    }
+
     protected render() {
         if (this._closing) {
             return html`
                 <div class="work">
                     <div class="closing">
-                        ${t("tangles.listen_closing", {
-                            count: this._closing.count,
+                        ${tp("tangles.listen_closing", this._closing.count, {
                             gained: this._closing.fixesGained,
                         })}
                     </div>
@@ -299,7 +401,7 @@ export class IrTangleListen extends LitElement {
         if (state === "captured") {
             return html`
                 <div class="lrow captured">
-                    <span class="lname">${targetWords(row.target)}</span>
+                    <span class="lname">${this._words(row.target)}</span>
                     <span class="done-mark">${t("tangles.listen_captured")}</span>
                 </div>
             `;
@@ -307,23 +409,28 @@ export class IrTangleListen extends LitElement {
         if (state === "skipped") {
             return html`
                 <div class="lrow skipped">
-                    <span class="lname">${targetWords(row.target)}</span>
+                    <span class="lname">${this._words(row.target)}</span>
                     <span class="skip-mark">${t("tangles.skip_for_now")}</span>
                 </div>
             `;
         }
 
         const listening = state === "listening";
+        const arming = this._arming.has(row.id);
+        const busy = this._busy.has(row.id);
         return html`
             <div class="lrow">
                 <div class="ltop">
-                    <span class="lname">${targetWords(row.target)}</span>
+                    <span class="lname">${this._words(row.target)}</span>
                     <span class="lactions">
                         <button
-                            class="action-btn listen-btn ${listening ? "pulsing" : ""}"
+                            class="action-btn listen-btn ${listening || arming
+                                ? "pulsing"
+                                : ""}"
+                            ?disabled=${arming || busy}
                             @click=${() => this._arm(row)}
                         >
-                            ${listening
+                            ${listening || arming
                                 ? html`<span class="pulse"
                                       ><span class="dot"></span
                                       ><span class="dot"></span
@@ -340,10 +447,24 @@ export class IrTangleListen extends LitElement {
                 ${onLadder
                     ? html`
                           <div class="ladder">
-                              <button class="action-btn" @click=${() => this._useAnyway(row)}>
-                                  ${t("tangles.use_anyway")}
+                              <button
+                                  class="action-btn ${busy ? "pulsing" : ""}"
+                                  ?disabled=${busy}
+                                  @click=${() => this._useAnyway(row)}
+                              >
+                                  ${busy
+                                      ? html`<span class="pulse"
+                                            ><span class="dot"></span
+                                            ><span class="dot"></span
+                                            ><span class="dot"></span
+                                        ></span>`
+                                      : t("tangles.use_anyway")}
                               </button>
-                              <button class="action-btn" @click=${() => this._skip(row)}>
+                              <button
+                                  class="action-btn"
+                                  ?disabled=${busy}
+                                  @click=${() => this._skip(row)}
+                              >
                                   ${t("tangles.skip_for_now")}
                               </button>
                           </div>

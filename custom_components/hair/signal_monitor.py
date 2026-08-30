@@ -2148,7 +2148,7 @@ class SignalMonitor:
                 repeat_count=repeat_count,
             )
 
-            hair_device.add_command(ir_command)
+            hair_device.add_command(ir_command, placement="top")
             command_id = ir_command.id
             try:
                 await self._hair_store.async_save()

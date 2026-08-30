@@ -1339,7 +1339,9 @@ async def test_cancel_capture(fake_hass):
 async def test_save_captured_command(fake_hass, mock_device, capture_result):
     manager = MagicMock()
     manager.get_device.return_value = mock_device
-    manager.async_add_command = AsyncMock(side_effect=lambda did, cmd: cmd)
+    manager.async_add_command = AsyncMock(
+        side_effect=lambda did, cmd, placement="append": cmd
+    )
     orchestrator = MagicMock()
     orchestrator.get_session_result.return_value = capture_result
     _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
@@ -1392,7 +1394,9 @@ async def test_save_captured_command_with_explicit_category(
 ):
     manager = MagicMock()
     manager.get_device.return_value = mock_device
-    manager.async_add_command = AsyncMock(side_effect=lambda did, cmd: cmd)
+    manager.async_add_command = AsyncMock(
+        side_effect=lambda did, cmd, placement="append": cmd
+    )
     orchestrator = MagicMock()
     orchestrator.get_session_result.return_value = capture_result
     _wire_hass(fake_hass, manager=manager, orchestrator=orchestrator)
