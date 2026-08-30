@@ -4000,6 +4000,93 @@ class TestTheOpenBucketIsOneBlockWithItsCard:
         assert "border-left: 3px solid var(--tangle-copper" not in text
 
 
+class TestTheFitGateIsTheDialogsOneMessage:
+    """Owner amendment 2026-08-30, from the Komeco QA pass.
+
+    P4 put a red notice where the Perfect Fit action was, and left the
+    propose-changes block rendering above it: a yellow box, a checkbox
+    and an explanation of attesting, stacked on top of a notice whose
+    whole content is that nothing can be attested yet. Two prompts,
+    the dead one first.
+
+    Pinned BOTH ways, because the amendment is a pair of claims and
+    only one of them is about what disappears.
+    """
+
+    @staticmethod
+    def _fitting_body():
+        text = _read("ir-save-perfect-dialog.ts")
+        return text.split("private _renderFitting() {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+
+    @staticmethod
+    def _squash(text):
+        """Whitespace-insensitive, so a reflow of this template does
+        not read as a behaviour change."""
+        return " ".join(text.split())
+
+    def test_the_gate_takes_the_propose_block_down(self):
+        body = self._squash(self._fitting_body())
+        assert (
+            "${this._tanglesBlock ? nothing : this._renderLatticeChanges()}"
+            in body
+        )
+
+    def test_the_notice_is_the_only_thing_the_head_says(self):
+        """The head is the notice OR the ordinary fitting head, never
+        both: they are the two branches of one condition, in that
+        order. Read as positions rather than by slicing the head out,
+        because either branch carries markup of its own and any
+        delimiter that closes one of them also closes tags inside
+        it."""
+        body = self._squash(self._fitting_body())
+        head_at = body.index('<div class="fit-head">')
+        ternary = body.index("${this._tanglesBlock ?", head_at)
+        notice = body.index(
+            'tp("tangles.fit_blocked", this._openTangles)', ternary)
+        otherwise = body.index(": html`", notice)
+        label = body.index("wigs.save.perfect_label", otherwise)
+        explainer = body.index("wigs.save.explainer", otherwise)
+        assert head_at < ternary < notice < otherwise < label
+        assert otherwise < explainer
+        # One notice and one ordinary head, not a notice added beside
+        # an offer that still renders.
+        assert body.count('tp("tangles.fit_blocked"') == 1
+        assert body.count("wigs.save.perfect_label") == 1
+
+    def test_the_propose_flow_returns_unchanged_when_the_gate_clears(self):
+        """The other half of the amendment, and the one a careless fix
+        would break: this is suppressed at the CALL, not gutted. The
+        block itself still carries its head, its cell chips and its
+        propose checkbox, so a device that combs clean gets back
+        exactly what it had."""
+        text = _read("ir-save-perfect-dialog.ts")
+        body = text.split("private _renderLatticeChanges() {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert "wigs.save.lattice_changed" in body
+        assert "wigs.save.propose_lattice" in body
+        assert "this._toggleProposeLattice" in body
+        assert 'class="lattice-block"' in body
+        # And it is reached from exactly one place, which is the
+        # condition above. A second unguarded call would put the box
+        # back on screen with the gate still up.
+        assert text.count("this._renderLatticeChanges()") == 1
+
+    def test_a_succession_still_says_what_it_is_replacing(self):
+        """NOT suppressed, and deliberately so. The amendment names
+        the propose block; the checklist is a different disclosure,
+        and "a succession save is never silent" is a standing rule
+        that open tangle rows are not a reason to break. Flagged for
+        review rather than assumed either way."""
+        body = self._squash(self._fitting_body())
+        assert (
+            "${this._armed || this._isSuccession ? this._renderList() : \"\"}"
+            in body
+        )
+
+
 class TestTheWholeCardOpensIt:
     """Owner ruled 2026-08-30: the card cell is the click target, and
     the right-side button stays as the visual call to action."""

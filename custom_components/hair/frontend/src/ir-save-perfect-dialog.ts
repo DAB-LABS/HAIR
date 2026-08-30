@@ -961,7 +961,7 @@ export class IrSavePerfectDialog extends LitElement {
         }
         if (!this._plan) return nothing;
         return html`
-            ${this._renderLatticeChanges()}
+            ${this._tanglesBlock ? nothing : this._renderLatticeChanges()}
             <div class="fit-block ${this._armed ? "on" : ""}">
                 <div class="fit-head">
                     ${this._tanglesBlock
@@ -1019,6 +1019,17 @@ export class IrSavePerfectDialog extends LitElement {
      * Proposing is a CONTENT change and attesting is a claim about
      * hardware; keeping them separate ticks is what stops one from
      * being mistaken for the other.
+     *
+     * NOT WHILE THE GATE IS UP (owner amendment 2026-08-30, from the
+     * Komeco QA pass). The caller renders this only when the fitting
+     * gate is clear. A yellow box with a checkbox and an explanation
+     * of attesting, stacked above a red notice that says nothing can
+     * be attested yet, is two prompts with the dead one on top. The
+     * gate is the dialog's one message until the device combs clean.
+     *
+     * Nothing here changed. The propose flow returns exactly as it
+     * was, on the other side of that one condition, the moment the
+     * last row is settled.
      */
     private _renderLatticeChanges() {
         const changes = this._plan?.cell_changes ?? [];
