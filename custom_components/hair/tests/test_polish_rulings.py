@@ -3664,24 +3664,39 @@ class TestTheListenButtonSaysWhatItIsDoing:
     and apply.
     """
 
-    def test_the_button_has_three_states_and_two_words(self):
+    def test_the_button_has_three_states(self):
+        """Idle says LISTEN, waiting animates the dots, a landed press
+        says HEARD. Round two tried a grayed word for the middle state
+        and the owner ruled the dots back (2026-08-30): the dots were
+        never the problem, the problem was that nothing acknowledged
+        the press, so they ran on and read as a dead button. With HEARD
+        arriving at the end they read as what they are."""
         text = _read("ir-tangle-listen.ts")
         block = text.split('class="action-btn listen-btn', 1)[1].split(
             "</button>", 1
         )[0]
         assert 't("tangles.listen_heard")' in block
         assert 't("tangles.listen")' in block
-        # The dots are what the owner read as a dead button.
-        assert 'class="pulse"' not in block
+        assert 'class="pulse"' in block
+        assert '"pulsing"' in block
 
-    def test_waiting_is_grey_and_alive(self):
-        """Grey so it is plainly not the thing to click next, animated
-        so it is plainly not dead. The reduced-motion path keeps the
-        grey and drops the movement."""
+    def test_the_grayed_word_treatment_is_gone(self):
+        """Superseded the same day it shipped. Leaving the class behind
+        would leave two waiting treatments in one file, one of them
+        unreachable."""
         text = _read("ir-tangle-listen.ts")
-        assert ".listen-btn.waiting {" in text
-        assert "animation: tangle-breathe" in text
+        assert ".listen-btn.waiting" not in text
+        assert "tangle-breathe" not in text
+
+    def test_the_dots_hold_still_for_reduced_motion(self):
+        """Three dots at rest still read as a distinct state, and the
+        button says HEARD when the press lands either way."""
+        text = _read("ir-tangle-listen.ts")
         assert "@media (prefers-reduced-motion: reduce)" in text
+        block = text.split(
+            "@media (prefers-reduced-motion: reduce)", 1
+        )[1].split("}", 2)[0]
+        assert ".pulse .dot" in block
 
     def test_heard_is_not_faded_out(self):
         """The shared disabled style is a 50 percent fade, which would
