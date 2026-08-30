@@ -40,6 +40,7 @@ import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleTarget } from "./types.js";
 import { t, tp } from "./localize.js";
 import { targetWords } from "./ir-tangle-copy.js";
+import { reasonLine } from "./ir-tangle-reason.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 import "./ir-test-button.js";
@@ -281,6 +282,16 @@ export class IrTangleFix extends LitElement {
         return targetWords(target, this.matrixUnit, installUnit(this.hass));
     }
 
+    /** This row's reason, on a middle dot after its name (P5).
+
+     * Never a dash. A dash between a name and a sentence reads as an
+     * aside, and the copy rule for every rendered string in this build
+     * is that there are none. */
+    private _reason(row: TangleRow) {
+        const line = reasonLine(row, this.matrixUnit, installUnit(this.hass));
+        return line ? html`<span class="reason"> · ${line}</span>` : nothing;
+    }
+
     protected render() {
         if (this._receipt) {
             return html`
@@ -316,13 +327,15 @@ export class IrTangleFix extends LitElement {
                 </div>
                 ${remaining.length > 0
                     ? html`
-                          <button
-                              class="accept-all-btn"
-                              ?disabled=${this._acceptAllBusy}
-                              @click=${() => this._acceptAll()}
-                          >
-                              ${tp("tangles.accept_all", remaining.length)}
-                          </button>
+                          <div class="accept-all-bar">
+                              <button
+                                  class="accept-all-btn"
+                                  ?disabled=${this._acceptAllBusy}
+                                  @click=${() => this._acceptAll()}
+                              >
+                                  ${tp("tangles.accept_all", remaining.length)}
+                              </button>
+                          </div>
                       `
                     : nothing}
             </div>
@@ -335,14 +348,18 @@ export class IrTangleFix extends LitElement {
         if (done) {
             return html`
                 <div class="rrow done">
-                    <span class="rname">${this._words(row.target)}</span>
+                    <span class="rname"
+                        >${this._words(row.target)}${this._reason(row)}</span
+                    >
                     <span class="done-mark">${t("tangles.row_done")}</span>
                 </div>
             `;
         }
         return html`
             <div class="rrow">
-                <span class="rname">${this._words(row.target)}</span>
+                <span class="rname"
+                    >${this._words(row.target)}${this._reason(row)}</span
+                >
                 <span class="ractions">
                     <ir-test-button
                         .send=${() => this._send(row)}
@@ -375,13 +392,16 @@ export class IrTangleFix extends LitElement {
                     ${tp("tangles.batch_intro", entry.pendingMembers.length)}
                 </div>
                 ${sampleRemaining.map((member) => {
-                    const target = byId.get(member)?.target;
+                    const memberRow = byId.get(member);
+                    const target = memberRow?.target;
                     const candidate = entry.plan.candidates[member];
                     const pronto = (candidate?.pronto as string | undefined) ?? "";
                     return html`
                         <div class="rrow">
                             <span class="rname"
-                                >${target ? this._words(target) : member}</span
+                                >${target ? this._words(target) : member}${memberRow
+                                    ? this._reason(memberRow)
+                                    : nothing}</span
                             >
                             <span class="ractions">
                                 <ir-test-button
@@ -453,6 +473,11 @@ export class IrTangleFix extends LitElement {
                 color: var(--primary-text-color);
                 min-width: 0;
             }
+            .reason {
+                color: var(--secondary-text-color);
+                font-family: var(--paper-font-body1_-_font-family, inherit);
+                font-weight: 400;
+            }
             .ractions {
                 display: flex;
                 gap: 6px;
@@ -469,17 +494,32 @@ export class IrTangleFix extends LitElement {
                 text-transform: uppercase;
                 letter-spacing: 0.03em;
             }
-            .accept-all-btn {
+            /* UNDER THE ACCEPT COLUMN, on the right (P7). It used
+               to sit at the left margin at nearly twice the height of
+               the row chips, which put the do-everything button
+               furthest from the one-at-a-time buttons it stands in for
+               and made it read as the primary action of the card
+               rather than the shortcut it is. Flush right lines its
+               edge up with the green ACCEPT above it, and the chip's
+               own metrics make the two the same size and shape. Solid
+               blue with white text is what keeps it distinct there:
+               same anatomy, filled instead of outlined. */
+            .accept-all-bar {
+                display: flex;
+                justify-content: flex-end;
                 margin-top: 10px;
-                padding: 9px 20px;
-                font-size: 0.85rem;
+                padding: 0 8px;
+            }
+            .accept-all-btn {
+                padding: 4px 10px;
+                font-size: 0.75rem;
                 font-weight: 500;
                 font-family: inherit;
                 text-transform: uppercase;
                 letter-spacing: 0.03em;
                 color: #fff;
                 background: var(--tangle-blue, #2196f3);
-                border: none;
+                border: 1px solid var(--tangle-blue, #2196f3);
                 border-radius: 4px;
                 cursor: pointer;
             }

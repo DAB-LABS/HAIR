@@ -56,6 +56,7 @@ import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from ".
 import { t, tp } from "./localize.js";
 import type { MatrixUnit } from "./temperature.js";
 import { ICON_COMB, COMB_VIEWBOX } from "./ir-icons.js";
+import { actionChipStyles } from "./ir-action-chip-styles.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
@@ -171,6 +172,13 @@ export class IrTangleSection extends LitElement {
     @state() private _open: CardKey | null = null;
     @state() private _lastWigWrite: boolean | null = null;
     @state() private _justRetired = false;
+    /** How many codes the presses in this visit replaced (P6).
+     *
+     * Not @state on purpose: nothing renders it on its own, and every
+     * write to it happens in the same handler that then flips
+     * ``_justRetired``, which IS state and pulls the re-render. A
+     * device change clears it with everything else. */
+    private _pressReplaced = 0;
     @state() private _witnessPlans = new Map<
         string,
         { witness: string; witnessTarget: string; plan: TangleBatchPlan }
@@ -204,6 +212,7 @@ export class IrTangleSection extends LitElement {
         this._open = null;
         this._witnessPlans = new Map();
         this._justRetired = false;
+        this._pressReplaced = 0;
         this._lastWigWrite = null;
         this._error = null;
     }
@@ -236,10 +245,25 @@ export class IrTangleSection extends LitElement {
      * write-through outcome, re-fetches, and -- if the section is now
      * empty and the write succeeded -- shows the closing line once. */
     private _handleMutated = async (
-        ev: CustomEvent<{ wigWritten: boolean | null; batchClusterApplied?: string }>,
+        ev: CustomEvent<{
+            wigWritten: boolean | null;
+            batchClusterApplied?: string;
+            replaced?: number;
+        }>,
     ): Promise<void> => {
         if (ev.detail.wigWritten !== null) this._lastWigWrite = ev.detail.wigWritten;
+        // WHAT THE PRESS REPLACED (P6). A capture reports one, and a
+        // witness batch reports the siblings that press built: the
+        // person pressed a button once and this many codes came right
+        // because of it, which is the whole claim the receipt makes.
+        // An ACCEPT of a donor candidate carries no count, because no
+        // press was involved in it.
+        this._pressReplaced += ev.detail.replaced ?? 0;
         if (ev.detail.batchClusterApplied) {
+            const entry = this._witnessPlans.get(ev.detail.batchClusterApplied);
+            if (entry) {
+                this._pressReplaced += Object.keys(entry.plan.candidates).length;
+            }
             const next = new Map(this._witnessPlans);
             next.delete(ev.detail.batchClusterApplied);
             this._witnessPlans = next;
@@ -285,7 +309,23 @@ export class IrTangleSection extends LitElement {
 
     protected render() {
         if (this._justRetired) {
-            return html`<div class="retired-line">${t("tangles.updated")}</div>`;
+            // THE RECEIPT FOR A PRESS (P6). When the thing that
+            // emptied the section was somebody pressing their own
+            // remote at it, say so and say how many codes it put
+            // right; the bare "your wig has been updated" was true
+            // and told them nothing about what they had just done.
+            //
+            // It HOLDS. There is no timer and no dismiss, because the
+            // person may well have been across the room pressing the
+            // remote when the last row settled and the receipt is the
+            // only place that moment is recorded. And there is no save
+            // button: the write-through already happened, which is
+            // exactly what the last sentence is reporting.
+            return html`<div class="retired-line">
+                ${this._pressReplaced > 0
+                    ? tp("tangles.listen_receipt", this._pressReplaced)
+                    : t("tangles.updated")}
+            </div>`;
         }
         if (this._error) {
             return html`<div class="tangle-section">
@@ -446,7 +486,7 @@ export class IrTangleSection extends LitElement {
                     <div class="name-line">${sentence}</div>
                     <div class="actions">
                         <button
-                            class="tcard-btn ${card}"
+                            class="action-btn tcard-btn ${card}"
                             ?disabled=${this._loading}
                         >
                             ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
@@ -459,6 +499,7 @@ export class IrTangleSection extends LitElement {
 
     static styles = [
         dialogStyles,
+        actionChipStyles,
         css`
             :host {
                 display: block;
@@ -563,22 +604,18 @@ export class IrTangleSection extends LitElement {
             .comb-glyph.decide svg {
                 fill: var(--tangle-copper, #b5651d);
             }
+            /* THE STANDARD CHIP, not a copy of it (P7). The card
+               button had grown its own anatomy, a taller 6px by 14px
+               box, and sat a row above the command chips it is
+               stacked with, reading as a different KIND of control.
+               ir-action-chip-styles is the one source of truth for
+               that anatomy, so the button takes it and keeps only what
+               is genuinely its own: the flex behaviour and the three
+               card colors, which the shared palette has no names for.
+               Both are two-class selectors, so they win over the
+               shared .action-btn without needing to shout. */
             .tcard-btn {
-                background: none;
-                border: 1px solid var(--divider-color);
-                border-radius: 4px;
-                padding: 6px 14px;
-                font-size: 0.75rem;
-                font-weight: 500;
-                font-family: inherit;
-                cursor: pointer;
-                text-transform: uppercase;
-                letter-spacing: 0.03em;
-                transition: background 150ms ease;
                 flex: 0 0 auto;
-            }
-            .tcard-btn:hover {
-                background: var(--secondary-background-color);
             }
             .tcard-btn.fix {
                 color: var(--tangle-blue, #2196f3);

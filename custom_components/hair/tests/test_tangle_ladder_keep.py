@@ -344,3 +344,42 @@ class TestTheOverrideClearsTheMarkOnTheCommand:
         assert CHECK_FIELD_MISMATCH in row.classes
         assert porthole.comb_suspect is True
         assert porthole.comb_finding == row.classes[0]
+
+
+class TestTheRowSaysWhatItCompared:
+    """P5's backend half.
+
+    The comb reports the BYTES it compared, because at the layer it
+    works on bytes are all there is. A person reading the row wants the
+    two settings, and the map that raised the finding is the only thing
+    that can name them, so the listing names them on the way out.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_mismatch_finding_names_both_values(self, wired):
+        _hass, device, matrix, _cells = wired
+        row = next(
+            r for r in list_tangles(device, matrix).rows if r.id == TARGET
+        )
+        finding = next(
+            f for f in row.findings if f["check"] == CHECK_FIELD_MISMATCH
+        )
+        params = finding["params"]
+        assert str(params["claimed"]) == "25.0"
+        assert params["reads_as"] is not None
+        assert str(params["reads_as"]) != str(params["claimed"])
+
+    @pytest.mark.asyncio
+    async def test_the_bytes_it_compared_are_still_there(self, wired):
+        """Named, not replaced. A surface that wants the raw comparison
+        still has it, and a value the map cannot name gets no label
+        rather than a guess."""
+        _hass, device, matrix, _cells = wired
+        row = next(
+            r for r in list_tangles(device, matrix).rows if r.id == TARGET
+        )
+        finding = next(
+            f for f in row.findings if f["check"] == CHECK_FIELD_MISMATCH
+        )
+        assert finding["params"]["expected"].startswith("0x")
+        assert finding["params"]["read"].startswith("0x")

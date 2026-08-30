@@ -396,6 +396,8 @@ def list_tangles(
     # The finding itself is untouched. Keep never deletes a finding, and
     # the receipt still carries it -- attested is a different thing from
     # clean and has to read as one.
+    _stamp_mismatch_labels(rows, lattice)
+
     answered = []
     open_rows = []
     for row in rows:
@@ -2073,6 +2075,43 @@ def _label_for(spec: Any, domain: list[Any], value: int) -> Any:
         if field_readers.expected_value(spec, label) == value:
             return label
     return None
+
+
+def _stamp_mismatch_labels(
+    rows: list[TangleRow], lattice: LatticeReading
+) -> None:
+    """Name the two values a field-mismatch is about, in the wig's words.
+
+    THE COMB REPORTS BYTES, because at the layer it works on bytes are
+    all there is: 0x1A read where 0x18 was expected. A person looking
+    at the row wants the two SETTINGS -- "sends 27 where this state
+    says 25" -- and the map that raised the finding is the only thing
+    that can name them.
+
+    So it names them here, once, on the way out of the listing, and
+    every surface downstream reads labels instead of inverting an
+    encoding of its own. Nothing is replaced: ``expected`` and ``read``
+    stay exactly as the comb wrote them, and a value the map cannot
+    name simply gets no label rather than a guess.
+    """
+    for row in rows:
+        for finding in row.findings:
+            if finding.get("check") != CHECK_FIELD_MISMATCH:
+                continue
+            params = dict(finding.get("params") or {})
+            name = str(params.get("field", "")).rsplit(".", 1)[-1]
+            expected, read = params.get("expected"), params.get("read")
+            spec = lattice.spec_for(name) if name else None
+            if spec is None or expected is None or read is None:
+                continue
+            domain = _axis_domain(lattice, name)
+            claimed = _label_for(spec, domain, int(str(expected), 16))
+            actual = _label_for(spec, domain, int(str(read), 16))
+            if claimed is not None:
+                params["claimed"] = claimed
+            if actual is not None:
+                params["reads_as"] = actual
+            finding["params"] = params
 
 
 def _donor_debts(
