@@ -3604,7 +3604,7 @@ class TestTheDetangleSectionIsItsOwnBlock:
         cells keep the command row's three-part top line and the comb
         in the status slot (owner ruling batch, 2026-08-29)."""
         text = _read("ir-tangle-section.ts")
-        assert 'class="trow"' in text
+        assert 'class="trow ' in text
         assert 'class="top-line"' in text
         assert "comb-glyph" in text
 class TestABucketOpensUnderItsOwnCard:
@@ -3620,7 +3620,7 @@ class TestABucketOpensUnderItsOwnCard:
 
     def test_each_card_carries_its_own_bucket(self):
         text = _read("ir-tangle-section.ts")
-        block = text.split('<div class="tcard-block">', 1)[1].split(
+        block = text.split('class="tcard-block ', 1)[1].split(
             "</div>", 1
         )[0]
         assert "this._renderCard(entry.card, entry.sentence)" in block
@@ -4042,3 +4042,170 @@ class TestEveryCardsCallToActionReadsFix:
         keep meaning what it says."""
         text = _read("ir-tangle-section.ts")
         assert 'isOpen ? t("tangles.close")' in text
+class TestDecideSaysTrueThingsInWords:
+    """Issue 20, from the owner's screenshot of a matrix DECIDE pair:
+    "Two buttons are both named 07f385d0-..." over two rows that
+    rendered correctly as "Heat, Fan Turbo, Swing Swing, 63/64F". Two
+    defects in one line. The name fell back to an id, and the sentence
+    itself was untrue of a matrix pair, which shares BYTES rather than
+    a name."""
+
+    def test_a_matrix_pair_gets_its_own_sentence(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 't("tangles.decide_pair_intro_matrix")' in text
+        block = text.split('<div class="pair-intro">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "isMatrix" in block
+
+    def test_a_matrix_pair_is_the_one_with_a_cell_in_it(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 'row.target.kind === "cell"' in text
+
+    def test_the_intro_says_the_rows_own_words(self):
+        """The uuid used to be interpolated straight into the
+        sentence."""
+        text = _read("ir-tangle-decide.ts")
+        block = text.split('t("tangles.decide_pair_intro", {', 1)[1].split(
+            "})", 1
+        )[0]
+        assert "this._displayName(rowA)" in block
+        assert "command_id" not in block
+
+    def test_the_rename_box_does_not_open_on_a_uuid(self):
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private _startRename(", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert "this._displayName(row)" in body
+        assert "command_id" not in body
+
+    def test_the_matrix_sentence_names_nothing(self):
+        """It cannot: the two states have different names and that was
+        never the problem with them."""
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.decide_pair_intro_matrix"] == (
+            "These two states carry the same code."
+        )
+        assert "{" not in data["tangles.decide_pair_intro_matrix"]
+
+
+class TestKeepBothSettlesThePair:
+    """Issue 21, ruled 2026-08-30. Enter used to resolve the whole pair
+    and move on, which answers the question on the person's behalf, and
+    nothing on the row said the name could be clicked at all."""
+
+    def test_enter_commits_the_text_and_nothing_else(self):
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private async _commitRename(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this._names = new Map(this._names).set(row.id, name);" in body
+        assert "_resolved" not in body
+
+    def test_keep_both_is_what_settles_it(self):
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
+        assert '"kept"' in body
+
+    def test_keep_both_writes_nothing(self):
+        """The rename already wrote. A pair kept on purpose has nothing
+        left to save, and firing a mutation for a no-op would refetch
+        the listing and the device for no reason."""
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
+        assert "api" not in body
+        assert "_emitMutated" not in body
+
+    def test_keep_both_is_dark_until_the_names_actually_differ(self):
+        text = _read("ir-tangle-decide.ts")
+        assert (
+            "this._displayName(rowA) !== this._displayName(rowB)" in text
+        )
+        block = text.split('class="action-btn keep-both"', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert "?disabled=${!namesDiffer" in block
+
+    def test_a_kept_pair_does_not_claim_a_duplicate_was_removed(self):
+        text = _read("ir-tangle-decide.ts")
+        block = text.split('<div class="pair-intro done">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert '"tangles.decide_kept"' in block
+        assert '"tangles.decide_removed"' in block
+        assert 'settled === "kept"' in block
+
+    def test_each_editable_name_carries_a_pencil(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "renderEditBtn(" in text
+        assert 't("cmdrow.rename")' in text
+
+    def test_a_cell_gets_no_pencil(self):
+        """A lattice cell has no name of its own to change; its pair is
+        about the bytes two states share, so the pencil would open a
+        box that cannot answer the question."""
+        text = _read("ir-tangle-decide.ts")
+        assert 'const renameable = row.target.kind === "command";' in text
+        assert "editing || !renameable" in text
+
+    def test_the_hint_tells_people_the_name_is_clickable(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 't("tangles.decide_pair_hint")' in text
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.decide_pair_hint"] == (
+            "Click a name to change it, or delete the extra."
+        )
+
+
+class TestDecidesRowActionsAreTheStandardOnes:
+    """T12 and T14. The send button was already the shipped one and is
+    pinned here so it stays that way; the delete affordance was a text
+    button with a bespoke inline confirm bar and is now the panel's own
+    trash can and confirm dialog."""
+
+    def test_the_send_button_is_the_shipped_one_unforked(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 'import "./ir-test-button.js";' in text
+        assert "<ir-test-button" in text
+        block = text.split("<ir-test-button", 1)[1].split("</ir-test-button>", 1)[0]
+        assert ".send=${() => this._send(row)}" in block
+        assert '.idleLabelKey=${"tangles.send"}' in block
+
+    def test_it_is_wired_exactly_as_the_fix_rows_wire_it(self):
+        """Unforked means the same component AND the same contract."""
+        decide = _read("ir-tangle-decide.ts").split("<ir-test-button", 1)[1]
+        fix = _read("ir-tangle-fix.ts").split("<ir-test-button", 1)[1]
+        for needle in (".send=", ".idleLabelKey=${\"tangles.send\"}"):
+            assert needle in decide.split("</ir-test-button>", 1)[0]
+            assert needle in fix.split("</ir-test-button>", 1)[0]
+
+    def test_delete_is_the_panels_trash_can(self):
+        text = _read("ir-tangle-decide.ts")
+        assert 'class="trash-btn"' in text
+        assert "ICON_TRASH" in text
+        assert "trashButtonStyles" in text
+        assert 't("cmdrow.delete_title")' in text
+
+    def test_delete_asks_the_standard_confirm(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "<ir-confirm-dialog" in text
+        assert 't("devdetail.del_cmd_title")' in text
+        assert 't("devdetail.del_cmd_msg"' in text
+        assert ".destructive=${true}" in text
+
+    def test_the_bespoke_confirm_bar_is_gone(self):
+        text = _read("ir-tangle-decide.ts")
+        assert "confirmbar" not in text
+
+    def test_the_keys_the_old_affordance_used_are_gone_everywhere(self):
+        """Left behind they would be three dead strings in ten files,
+        and the next reader would have to work out which surface they
+        belonged to."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for key in ("tangles.delete", "tangles.delete_confirm",
+                        "tangles.cancel"):
+                assert key not in data, f"{name}: {key}"
