@@ -50,14 +50,17 @@ import type { MatrixCardPick } from "./ir-matrix-card.js";
 import type { WigPickRow } from "./ir-wig-picker.js";
 import type {
     CaptureProviderInfo,
+    CombSummary,
     DeviceSummary,
     DeviceTypeId,
     IRDevice,
     IRTrigger,
     LastHeard,
     MatrixCellDetail,
+    MatrixSummary,
     PluckedStoreRecord,
     ReceiverInfo,
+    ReverseSupersessionBlock,
     TriggerDrawerInfo,
     TriggerFiredEvent,
     TriggerRemoteInfo,
@@ -251,6 +254,17 @@ export class IrDeviceList extends LitElement {
     @state() private _confirmDeleteRemote: TriggerRemoteInfo | null = null;
     /** Which ghost tile is reading a dropped file right now (F10). */
     @state() private _dropBusy: "device" | "remote" | null = null;
+    /** A drop whose wig the closet already has a newer version of
+     *  (R3, issue 11). Holds the successor's row for USE THE NEWER
+     *  ONE, and the dropped bytes and filename for IMPORT THIS FILE
+     *  ANYWAY, which has to resend them identically with confirmed
+     *  set. Nothing has been written when this is set. */
+    @state() private _dropSupersede: {
+        block: ReverseSupersessionBlock;
+        text: string;
+        filename: string;
+        kind: "device" | "remote";
+    } | null = null;
     // Add Popups signpost 2, Track 5: named-remote expand-view
     // rename-in-place. Single-instance, same shape as the drawer's
     // own _editingDrawerName/_draftDrawerName/_drawerBusy trio --
@@ -686,76 +700,171 @@ export class IrDeviceList extends LitElement {
         }
         try {
             const result = await this.api.wigsUpload(text, file.name);
-            if (result.reverse_supersession) return;
-            if (!result.success) {
-                this.dispatchEvent(
-                    new CustomEvent("drop-upload-failed", {
-                        detail: t("wigs.upload_failed", {
-                            reason: (result.errors ?? []).join("; "),
-                        }),
-                        bubbles: true,
-                        composed: true,
-                    }),
-                );
+            // THE DROP ANSWERS (R3, issue 11). This used to be a bare
+            // return, and it ate the drop: the closet holds a newer
+            // version of the wig, wigs/upload writes nothing and says
+            // so, and the tile just stopped. Pre-existing since this
+            // path was built and unreachable until repairs started
+            // minting successors, at which point the owner dropped a
+            // file and watched a spinner turn into nothing.
+            //
+            // What the person is doing here is creating a device, so
+            // the offer leads with the wig they almost certainly want
+            // (owner ruled): use the newer one, import this file
+            // anyway, or cancel.
+            if (result.reverse_supersession) {
+                this._dropSupersede = {
+                    block: result.reverse_supersession,
+                    text,
+                    filename: file.name,
+                    kind,
+                };
                 return;
             }
-            const landed = result.files ?? [];
-            if (landed.length !== 1) return;
-            const entry = landed[0];
-            // The upload already knows this row (B4). It used to be
-            // fetched back out of a full wigs/list, which re-scans and
-            // re-parses every wig in the closet -- claims, receipts and
-            // matrix summaries for each -- to find the one file this
-            // path has known the name of since the write.
-            //
-            // notes and origin are not on the upload result and nothing
-            // on this path reads them; they are null here rather than
-            // guessed, and the closet's own list still serves the full
-            // record everywhere else.
-            const wig: WigInfo = {
-                filename: entry.filename,
-                name: entry.name,
-                brand: entry.brand,
-                model: entry.model ?? null,
-                notes: null,
-                origin: null,
-                signal_count: entry.signal_count ?? 0,
-                kind: entry.kind ?? null,
-                matrix: entry.matrix ?? null,
-                comb: entry.comb ?? null,
-            };
-            const row: WigPickRow = {
-                source: "local",
-                id: `wig:${wig.filename}`,
-                label: wig.name,
-                signalCount: wig.signal_count,
-                wig,
-                brand: null,
-                codebook: null,
-            };
-            this.dispatchEvent(
-                new CustomEvent(
-                    kind === "device" ? "add-device" : "add-trigger-remote",
-                    {
-                        detail: { dropSource: row },
-                        bubbles: true,
-                        composed: true,
-                    },
-                ),
-            );
+            this._landedFromDrop(kind, result);
         } catch (err) {
-            this.dispatchEvent(
-                new CustomEvent("drop-upload-failed", {
-                    detail: t("wigs.upload_failed", {
-                        reason: (err as Error).message,
-                    }),
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
+            this._dropFailed((err as Error).message);
         } finally {
             this._dropBusy = null;
         }
+    }
+
+    /** A drop that actually filed: hand its row to the create dialog.
+     *  Shared by the ordinary path and by IMPORT THIS FILE ANYWAY,
+     *  which files the same bytes a second time with confirmed set and
+     *  then continues exactly here. */
+    private _landedFromDrop(
+        kind: "device" | "remote",
+        result: Awaited<ReturnType<HairApi["wigsUpload"]>>,
+    ): void {
+        if (!result.success) {
+            this._dropFailed((result.errors ?? []).join("; "));
+            return;
+        }
+        const landed = result.files ?? [];
+        if (landed.length !== 1) return;
+        this._offerWig(kind, landed[0]);
+    }
+
+    private _dropFailed(reason: string): void {
+        this.dispatchEvent(
+            new CustomEvent("drop-upload-failed", {
+                detail: t("wigs.upload_failed", { reason }),
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    }
+
+    /** Build the picker row and open the create dialog on it.
+     *
+     * The upload already knows this row (B4). It used to be fetched
+     * back out of a full wigs/list, which re-scans and re-parses every
+     * wig in the closet -- claims, receipts and matrix summaries for
+     * each -- to find the one file this path has known the name of
+     * since the write.
+     *
+     * The same shape arrives from two places now: a landed file's own
+     * entry, and (R3) the superseding wig's row on a
+     * reverse-supersession answer. Both come out of one function on
+     * the server, so one reader here is right for both.
+     *
+     * notes and origin are on neither answer and nothing on this path
+     * reads them; they are null here rather than guessed, and the
+     * closet's own list still serves the full record everywhere else. */
+    private _offerWig(
+        kind: "device" | "remote",
+        entry: {
+            filename: string;
+            name: string;
+            brand: string | null;
+            model?: string | null;
+            kind?: string | null;
+            signal_count?: number;
+            matrix?: MatrixSummary | null;
+            comb?: CombSummary | null;
+        },
+    ): void {
+        const wig: WigInfo = {
+            filename: entry.filename,
+            name: entry.name,
+            brand: entry.brand,
+            model: entry.model ?? null,
+            notes: null,
+            origin: null,
+            signal_count: entry.signal_count ?? 0,
+            kind: entry.kind ?? null,
+            matrix: entry.matrix ?? null,
+            comb: entry.comb ?? null,
+        };
+        const row: WigPickRow = {
+            source: "local",
+            id: `wig:${wig.filename}`,
+            label: wig.name,
+            signalCount: wig.signal_count,
+            wig,
+            brand: null,
+            codebook: null,
+        };
+        this.dispatchEvent(
+            new CustomEvent(
+                kind === "device" ? "add-device" : "add-trigger-remote",
+                {
+                    detail: { dropSource: row },
+                    bubbles: true,
+                    composed: true,
+                },
+            ),
+        );
+    }
+
+    /** USE THE NEWER ONE: straight into the create dialog on the
+     *  successor's row. Nothing files -- the dropped file is not
+     *  written, which is the same thing Cancel does to it. */
+    private _onDropUseNewer(): void {
+        const held = this._dropSupersede;
+        if (!held) return;
+        this._dropSupersede = null;
+        this._offerWig(held.kind, {
+            ...held.block,
+            brand: held.block.brand ?? null,
+        });
+    }
+
+    /** IMPORT THIS FILE ANYWAY: resend the identical bytes with
+     *  confirmed set, which is the one thing that gets past the
+     *  reverse check, then continue with the file that just filed. */
+    private async _onDropImportAnyway(): Promise<void> {
+        const held = this._dropSupersede;
+        if (!held || !this.api) return;
+        this._dropSupersede = null;
+        this._dropBusy = held.kind;
+        try {
+            const result = await this.api.wigsUpload(
+                held.text, held.filename, true,
+            );
+            this._landedFromDrop(held.kind, result);
+        } catch (err) {
+            this._dropFailed((err as Error).message);
+        } finally {
+            this._dropBusy = null;
+        }
+    }
+
+    private _renderDropSupersede() {
+        const held = this._dropSupersede;
+        if (!held) return nothing;
+        return html`<ir-confirm-dialog
+            title=${t("supersede.drop_newer_title")}
+            message=${t("supersede.drop_newer_message", {
+                name: held.block.name,
+            })}
+            confirmLabel=${t("supersede.drop_newer_use")}
+            altLabel=${t("supersede.drop_newer_import")}
+            @confirmed=${this._onDropUseNewer}
+            @alt-action=${this._onDropImportAnyway}
+            @closed=${() => (this._dropSupersede = null)}
+        ></ir-confirm-dialog>`;
     }
 
     private _requestDeleteRemote(remote: TriggerRemoteInfo, e: Event): void {
@@ -2419,6 +2528,8 @@ export class IrDeviceList extends LitElement {
                       ></ir-confirm-dialog>
                   `
                 : nothing}
+
+            ${this._renderDropSupersede()}
 
             ${this._confirmDeleteRemote
                 ? html`

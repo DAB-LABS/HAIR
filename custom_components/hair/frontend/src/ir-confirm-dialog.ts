@@ -10,8 +10,13 @@
  *       @confirmed=${this._onConfirmed}
  *       @closed=${this._onClosed}
  *   ></ir-confirm-dialog>
+ *
+ * A third choice (R3, issue 11): set altLabel and the dialog grows one
+ * more button between cancel and confirm, dispatching "alt-action".
+ * Left unset -- which is every other caller -- the dialog renders
+ * exactly the two buttons it always did.
  */
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "./decorators.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import { t } from "./localize.js";
@@ -25,6 +30,8 @@ export class IrConfirmDialog extends LitElement {
     @property() public message = "";
     @property() public confirmLabel = "";
     @property() public cancelLabel = "";
+    /** The optional middle choice. Empty means no third button. */
+    @property() public altLabel = "";
     @property({ type: Boolean }) public destructive = false;
     @state() private _busy = false;
 
@@ -40,6 +47,12 @@ export class IrConfirmDialog extends LitElement {
         );
     }
 
+    private _alt(): void {
+        this.dispatchEvent(
+            new CustomEvent("alt-action", { bubbles: true, composed: true }),
+        );
+    }
+
     render() {
         return html`
             <div class="overlay" @click=${this._close}>
@@ -50,6 +63,11 @@ export class IrConfirmDialog extends LitElement {
                         <button class="btn cancel" @click=${this._close}>
                             ${this.cancelLabel || t("common.cancel")}
                         </button>
+                        ${this.altLabel
+                            ? html`<button class="btn alt" @click=${this._alt}>
+                                  ${this.altLabel}
+                              </button>`
+                            : nothing}
                         <button
                             class="btn confirm ${this.destructive ? "destructive" : ""}"
                             @click=${this._confirm}
@@ -96,6 +114,12 @@ export class IrConfirmDialog extends LitElement {
         }
         .cancel {
             color: var(--secondary-text-color);
+        }
+        /* The middle choice reads as a real option, not as a second
+           cancel: full text colour, still outlined rather than
+           filled, so the primary keeps the one filled slot. */
+        .alt {
+            color: var(--primary-text-color);
         }
         .confirm {
             color: #fff;

@@ -4102,28 +4102,28 @@ async def ws_wigs_upload(
                 "brand": loaded.wig.brand,
             })
 
-        def _entry(wig, filename: str) -> dict[str, Any]:
-            matches = existing.get(
-                wig_content_hash(wig), []
-            )
+        def _row_fields(wig, filename: str) -> dict[str, Any]:
+            """THE PICKER ROW (B4, issue 6). Everything here is already
+            computed by the work this handler does anyway, and the drop
+            path used to go and get it again by running a whole
+            wigs/list -- a re-scan and re-parse of EVERY wig in the
+            closet, with claims, receipts and matrix summaries for each,
+            to find the one row whose filename it had known since the
+            write. The wait was long enough that the owner doubted the
+            drop had registered. wigs/list is unchanged; this is the
+            drop path's shortcut, not a replacement for it.
+
+            Lifted out of ``_entry`` for R2 (issue 11): the
+            reverse-supersession answer hands back the SUCCESSOR's row
+            in exactly this shape, so the drop path can offer to create
+            from the newer wig without a second round trip. One
+            definition, so the two answers cannot drift into describing
+            a wig differently.
+            """
             return {
                 "filename": filename,
                 "name": wig.name,
                 "brand": wig.brand,
-                "duplicate_of": (
-                    matches[0]["filename"] if matches else None
-                ),
-                "duplicates": matches,
-                # THE PICKER ROW (B4, issue 6). Everything below is
-                # already computed by the work this handler just did, and
-                # the drop path used to go and get it again by running a
-                # whole wigs/list -- a re-scan and re-parse of EVERY wig
-                # in the closet, with claims, receipts and matrix
-                # summaries for each, to find the one row whose filename
-                # it had known since the write. The wait was long enough
-                # that the owner doubted the drop had registered.
-                # wigs/list is unchanged; this is the drop path's
-                # shortcut, not a replacement for it.
                 "model": wig.model,
                 "kind": wig.kind,
                 "signal_count": len(wig.signals),
@@ -4131,6 +4131,18 @@ async def ws_wigs_upload(
                     matrix_summary(wig.climate)
                     if wig.climate is not None else None
                 ),
+            }
+
+        def _entry(wig, filename: str) -> dict[str, Any]:
+            matches = existing.get(
+                wig_content_hash(wig), []
+            )
+            return {
+                **_row_fields(wig, filename),
+                "duplicate_of": (
+                    matches[0]["filename"] if matches else None
+                ),
+                "duplicates": matches,
             }
 
         result = parse_wig(text)
@@ -4151,9 +4163,24 @@ async def ws_wigs_upload(
                             "success": True,
                             "filenames": [],
                             "files": [],
+                            # R2 (issue 11): the answer carries the
+                            # SUPERSEDING wig's own picker row, so the
+                            # ghost-drop path can offer "use the newer
+                            # one" and go straight into the create
+                            # dialog with it. Additive -- name and
+                            # signal_count keep their meaning and their
+                            # place, and the Wigs tab's re-confirm
+                            # dialog reads exactly what it always did.
+                            # The comb is this wig's EXISTING receipt,
+                            # not a fresh comb run: it was combed when
+                            # it arrived, and re-combing a closet wig
+                            # here would stamp a receipt nothing ever
+                            # writes back.
                             "reverse_supersession": {
-                                "name": loaded.wig.name,
-                                "signal_count": len(loaded.wig.signals),
+                                **_row_fields(
+                                    loaded.wig, loaded.path.name,
+                                ),
+                                "comb": receipt_summary(loaded.wig),
                             },
                         }
 
@@ -5922,7 +5949,12 @@ async def ws_wig_make_device(
     # fitting dialog could replace a defective cell.
     cell_rows = 0
     if matrix is not None:
-        cell_rows = _mint_cell_rows(device, matrix, findings)
+        from .wig_climate import unit_letter
+
+        cell_rows = _mint_cell_rows(
+            device, matrix, findings,
+            unit_letter(hass.config.units.temperature_unit),
+        )
 
     await manager.async_update_device(device)
     result = await _device_full(hass, device)
@@ -6378,7 +6410,13 @@ async def ws_device_make_remote(
     connection.send_result(msg["id"], result)
 
 
-def _cell_row_name(cell: Any, others: list[Any]) -> str:
+def _cell_row_name(
+    cell: Any,
+    others: list[Any],
+    unit: str = "C",
+    display_unit: str | None = None,
+    precision: float = 1.0,
+) -> str:
     """A flagged cell's row name: "Cool 24", coordinates only as needed.
 
     Mode and temperature read as a state a person can set on their
@@ -6387,10 +6425,26 @@ def _cell_row_name(cell: Any, others: list[Any]) -> str:
     two flagged cells would otherwise wear the same name, because a
     lattice usually carries several fan speeds per temperature and two
     identical rows help nobody.
+
+    UNITS (issue 15, owner ruled 2026-08-30). The instruction has to
+    match the dial the person is looking at, so the temperature is
+    minted in the install's own unit -- "Cool 64" on a Fahrenheit
+    house, from the same 18C cell. This is the standing rule for a
+    PERSISTED name (owner ruling 2026-07-29, wig_climate): machine
+    keys stay file-native forever, displays convert, and a minted name
+    freezes in whatever unit was active when it was minted. Existing
+    devices are never renamed. The conversion is display_temp_str, the
+    one the tangle row's own name already goes through on the
+    frontend, so the two surfaces cannot drift apart on the number.
+    The zero-extra-arg form stays valid and native.
     """
+    from .wig_climate import display_temp_str
+
     base = [cell.mode.capitalize() if cell.mode else "Cell"]
     if cell.temp is not None:
-        base.append(_temp_label(cell.temp))
+        base.append(
+            display_temp_str(cell.temp, unit, display_unit, precision)
+        )
     short = " ".join(base)
     clashes = [
         c for c in others
@@ -6405,18 +6459,22 @@ def _cell_row_name(cell: Any, others: list[Any]) -> str:
     return " ".join([*base, *extra]) if extra else short
 
 
-def _temp_label(temp: float) -> str:
-    return str(int(temp)) if float(temp).is_integer() else str(temp)
-
-
 def _mint_cell_rows(
-    device: IRDevice, matrix: Any, findings: dict[str, str]
+    device: IRDevice,
+    matrix: Any,
+    findings: dict[str, str],
+    display_unit: str | None = None,
 ) -> int:
     """Give every comb-flagged cell a command row. Returns how many.
 
     Keyed off the same suspect set the flat rows use, matched to cells
     by ``cell_key`` -- the comb records cell findings under exactly that
     key, so no second vocabulary is invented here.
+
+    ``display_unit`` is the install's temperature unit at the moment of
+    adopt; the names freeze in it (issue 15). Omitted, the names stay
+    in the matrix's own unit, which is what every caller did before
+    this argument existed.
     """
     if not findings:
         return 0
@@ -6427,7 +6485,9 @@ def _mint_cell_rows(
     minted = 0
     for cell in flagged:
         command = IRCommand(
-            name=_cell_row_name(cell, flagged),
+            name=_cell_row_name(
+                cell, flagged, matrix.unit, display_unit, matrix.precision,
+            ),
             category=CommandCategory.CUSTOM,
             source=CommandSource.MATRIX,
             protocol="PRONTO",

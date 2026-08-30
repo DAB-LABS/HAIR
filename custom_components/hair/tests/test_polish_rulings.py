@@ -3477,3 +3477,247 @@ class TestRemotesGhostTileIsAlwaysCompact:
             )
             assert data["ghost.hint_compact_remote"]
             assert data["ghost.hint_compact_device"]
+class TestTheGhostDropAnswersAReverseSupersession:
+    """R3 (issue 11, owner ruled 2026-08-30).
+
+    The drop path used to answer a reverse-supersession result with a
+    bare ``return``, which ate the drop: the closet already held a
+    newer version of that wig, wigs/upload wrote nothing and said so,
+    and the tile just stopped. The bug is as old as the drop path and
+    was unreachable until repairs started minting successors, at which
+    point the owner dropped a file and watched a spinner turn into
+    nothing. Round one's busy state is what made the silence visible.
+
+    What the person is doing on this tile is CREATING A DEVICE, so the
+    answer leads with the wig they almost certainly want. Three
+    choices, no silent return left anywhere on the path.
+    """
+
+    def test_the_silent_return_is_gone(self):
+        text = _read("ir-device-list.ts")
+        assert "if (result.reverse_supersession) return;" not in text
+
+    def test_the_held_drop_carries_what_a_resend_needs(self):
+        """IMPORT THIS FILE ANYWAY has to resend the identical bytes
+        under the identical name, and nothing else on this component
+        remembers either once the dialog is up."""
+        text = _read("ir-device-list.ts")
+        state = text.split("_dropSupersede: {", 1)[1].split(
+            "} | null = null;", 1
+        )[0]
+        assert "text: string;" in state
+        assert "filename: string;" in state
+        assert 'kind: "device" | "remote";' in state
+
+    def test_the_dialog_offers_all_three(self):
+        text = _read("ir-device-list.ts")
+        block = text.split("private _renderDropSupersede()", 1)[1].split(
+            "</ir-confirm-dialog>", 1
+        )[0]
+        assert 'confirmLabel=${t("supersede.drop_newer_use")}' in block
+        assert 'altLabel=${t("supersede.drop_newer_import")}' in block
+        assert "@confirmed=${this._onDropUseNewer}" in block
+        assert "@alt-action=${this._onDropImportAnyway}" in block
+        # Cancel is the dialog's own close, and it has to be wired or
+        # the third choice is unreachable.
+        assert "@closed=" in block
+
+    def test_import_anyway_resends_the_same_bytes_confirmed(self):
+        """Confirmed is the one thing that gets past the reverse check
+        server-side; a fresh upload of the same text would be blocked
+        again, forever."""
+        text = _read("ir-device-list.ts")
+        body = text.split("private async _onDropImportAnyway(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "held.text, held.filename, true" in body
+
+    def test_use_the_newer_one_files_nothing(self):
+        """Choosing the successor is not a reason to write the dropped
+        file. It goes into the create dialog on the wig already in the
+        closet, and the dropped bytes are dropped."""
+        text = _read("ir-device-list.ts")
+        body = text.split("private _onDropUseNewer(", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert "wigsUpload" not in body
+
+    def test_one_reader_builds_the_row_for_both_answers(self):
+        """A landed file's entry and the successor's row are the same
+        shape out of the same function on the server, so a second
+        reader here would be a second place to get it wrong."""
+        text = _read("ir-device-list.ts")
+        assert text.count("const wig: WigInfo = {") == 1
+        assert "this._offerWig(kind, landed[0]);" in text
+        assert "this._offerWig(held.kind, {" in text
+
+    def test_the_confirm_dialogs_third_button_is_opt_in(self):
+        """Every other caller of this dialog passes no altLabel and
+        must keep rendering exactly two buttons."""
+        text = _read("ir-confirm-dialog.ts")
+        assert "public altLabel" in text
+        assert "${this.altLabel" in text
+        assert 'new CustomEvent("alt-action"' in text
+class TestTheDetangleSectionIsItsOwnBlock:
+    """R4 (issue 12, owner ruled 2026-08-30), superseding the placement
+    ruled the day before.
+
+    Round one put the detangle rows under the "Commands (N)" header,
+    which read on the box as "the tangles are inside the commands".
+    That is a claim about what these rows ARE, and it is the wrong one:
+    they are work ABOUT the commands, not commands. The section is now
+    its own block, fully above and outside that header, carrying its
+    own attention line and at most three rows, and keeping the
+    command-row visual language it adopted in round one.
+    """
+
+    def test_the_section_sits_above_the_commands_block(self):
+        text = _read("ir-device-detail.ts")
+        assert text.index("</ir-tangle-section>") < text.index(
+            '<div class="commands-section">'
+        )
+
+    def test_it_renders_exactly_once(self):
+        """Two of them would double every finding on the page."""
+        text = _read("ir-device-detail.ts")
+        assert text.count("<ir-tangle-section") == 1
+
+    def test_the_commands_header_no_longer_wraps_it(self):
+        """The header and the section must not share a parent: the
+        block between the Commands header and the command list is the
+        exact place this section is no longer allowed to be."""
+        text = _read("ir-device-detail.ts")
+        block = text.split('<div class="commands-section">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "ir-tangle-section" not in block
+
+    def test_the_section_still_carries_its_own_attention_line(self):
+        """Outside the Commands header it has nothing else to announce
+        it, so the header line is now load-bearing rather than
+        decorative."""
+        text = _read("ir-tangle-section.ts")
+        assert 't("tangles.section_header")' in text
+
+    def test_the_rows_still_read_as_command_rows(self):
+        """The placement changed; the visual language did not. The
+        cells keep the command row's three-part top line and the comb
+        in the status slot (owner ruling batch, 2026-08-29)."""
+        text = _read("ir-tangle-section.ts")
+        assert 'class="trow"' in text
+        assert 'class="top-line"' in text
+        assert "comb-glyph" in text
+class TestABucketOpensUnderItsOwnCard:
+    """R5 (issue 13, owner ruled 2026-08-30).
+
+    The three panels used to render after the whole card stack, so
+    clicking LISTEN opened its rows underneath the DECIDE card. The
+    rows then read as DECIDE's rows, which is worse than untidy on a
+    surface whose entire job is telling three kinds of work apart. A
+    card and the bucket it opens are one block now, and the other
+    cards keep their order around it.
+    """
+
+    def test_each_card_carries_its_own_bucket(self):
+        text = _read("ir-tangle-section.ts")
+        block = text.split('<div class="tcard-block">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "this._renderCard(entry.card, entry.sentence)" in block
+        assert "bucket(entry.card)" in block
+
+    def test_no_panel_renders_outside_a_card_block(self):
+        """The three elements must appear exactly once each, inside the
+        one bucket helper. A second copy anywhere is the old layout
+        growing back."""
+        text = _read("ir-tangle-section.ts")
+        for tag in ("<ir-tangle-fix", "<ir-tangle-listen",
+                    "<ir-tangle-decide"):
+            assert text.count(tag) == 1
+
+    def test_the_bucket_is_gated_on_the_card_that_owns_it(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split("const bucket = (card: CardKey)", 1)[1].split(
+            "};", 1
+        )[0]
+        assert "if (this._open !== card) return nothing;" in body
+
+    def test_the_cards_keep_one_order(self):
+        """Built once, in one order, and opening one does not rebuild
+        the list differently -- a card that moved when its own bucket
+        opened would take the reader's place on the page with it."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split(
+            "const cards: { card: CardKey; sentence: string }[] = [];", 1
+        )[1].split("return html`", 1)[0]
+        assert body.index('card: "fix"') < body.index('card: "listen"')
+        assert body.index('card: "listen"') < body.index('card: "decide"')
+class TestTheListenButtonSaysWhatItIsDoing:
+    """R6 (issue 14, owner ruled 2026-08-30).
+
+    Clicking LISTEN replaced the button's label with three pulsing
+    dots. The owner's read was that the button had gone dark: the dots
+    explain nothing, and nothing on the button ever acknowledged the
+    press it was sitting there asking for. Three states now, and each
+    one says which it is -- idle Listen, a greyed but visibly alive
+    wait, and Heard from the moment a press arrives through judgment
+    and apply.
+    """
+
+    def test_the_button_has_three_states_and_two_words(self):
+        text = _read("ir-tangle-listen.ts")
+        block = text.split('class="action-btn listen-btn', 1)[1].split(
+            "</button>", 1
+        )[0]
+        assert 't("tangles.listen_heard")' in block
+        assert 't("tangles.listen")' in block
+        # The dots are what the owner read as a dead button.
+        assert 'class="pulse"' not in block
+
+    def test_waiting_is_grey_and_alive(self):
+        """Grey so it is plainly not the thing to click next, animated
+        so it is plainly not dead. The reduced-motion path keeps the
+        grey and drops the movement."""
+        text = _read("ir-tangle-listen.ts")
+        assert ".listen-btn.waiting {" in text
+        assert "animation: tangle-breathe" in text
+        assert "@media (prefers-reduced-motion: reduce)" in text
+
+    def test_heard_is_not_faded_out(self):
+        """The shared disabled style is a 50 percent fade, which would
+        leave the one word the person is waiting to read as the
+        faintest thing in the row."""
+        text = _read("ir-tangle-listen.ts")
+        assert ".listen-btn.heard:disabled {" in text
+
+    def test_heard_and_waiting_cannot_both_be_on(self):
+        text = _read("ir-tangle-listen.ts")
+        assert "const waiting = !heard && (listening || arming);" in text
+
+    def test_a_press_that_does_not_settle_returns_to_waiting(self):
+        """A garbled press and a mismatch both leave the row listening,
+        so the button has to stop saying Heard and go back to asking.
+        Without this it would sit on Heard forever while the person
+        pressed again."""
+        text = _read("ir-tangle-listen.ts")
+        body = text.split("private async _onEvent(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert body.count("this._release(this._heard, row.id)") == 2
+
+    def test_the_apply_path_clears_it_too(self):
+        text = _read("ir-tangle-listen.ts")
+        body = text.split("private async _finishCapture(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this._release(this._heard, row.id)" in body
+
+    def test_use_it_anyway_never_claims_a_press_arrived(self):
+        """USE IT ANYWAY applies a press already heard and judged; the
+        listen button is not reporting anything new during that write,
+        and _busy already disables it."""
+        text = _read("ir-tangle-listen.ts")
+        body = text.split("private async _useAnyway(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "_heard" not in body
