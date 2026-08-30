@@ -283,6 +283,67 @@ export class IrTangleSection extends LitElement {
             return nothing;
         }
 
+        // THE OPEN BUCKET BELONGS TO ITS OWN CARD (issue 13, owner
+        // ruled 2026-08-30). The three panels used to render after the
+        // whole card stack, so clicking LISTEN opened its rows
+        // underneath the DECIDE card and the rows read as DECIDE's.
+        // Each card now carries its own bucket directly beneath it and
+        // the other cards keep their order around the opened block.
+        const bucket = (card: CardKey) => {
+            if (this._open !== card) return nothing;
+            if (card === "fix") {
+                return html`<ir-tangle-fix
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .deviceId=${this.deviceId}
+                    .matrixUnit=${this.matrixUnit}
+                    .rows=${fixRows}
+                    .listing=${this._listing}
+                    .batchPlans=${batchEntries}
+                ></ir-tangle-fix>`;
+            }
+            if (card === "listen") {
+                return html`<ir-tangle-listen
+                    .hass=${this.hass}
+                    .api=${this.api}
+                    .deviceId=${this.deviceId}
+                    .matrixUnit=${this.matrixUnit}
+                    .rows=${listenRows}
+                    .listing=${this._listing}
+                ></ir-tangle-listen>`;
+            }
+            return html`<ir-tangle-decide
+                .hass=${this.hass}
+                .api=${this.api}
+                .deviceId=${this.deviceId}
+                .matrixUnit=${this.matrixUnit}
+                .pairs=${decide.pairs}
+            ></ir-tangle-decide>`;
+        };
+
+        // The card order is the order they are built in, and it does
+        // not move when one opens (owner ruling): the others stay
+        // above or below the opened block exactly where they were.
+        const cards: { card: CardKey; sentence: string }[] = [];
+        if (fixCount > 0) {
+            cards.push({
+                card: "fix",
+                sentence: tp("tangles.card_fix", fixCount),
+            });
+        }
+        if (listenRows.length > 0) {
+            cards.push({
+                card: "listen",
+                sentence: tp("tangles.card_listen", listenRows.length),
+            });
+        }
+        if (decideCount > 0) {
+            cards.push({
+                card: "decide",
+                sentence: t("tangles.card_decide", { count: decideCount }),
+            });
+        }
+
         return html`
             <div
                 class="tangle-section"
@@ -295,55 +356,15 @@ export class IrTangleSection extends LitElement {
                      this is the shape rather than a limit that bites,
                      but it is stated here rather than left implicit. -->
                 <div class="tangle-cards">
-                    ${fixCount > 0
-                        ? this._renderCard(
-                              "fix",
-                              tp("tangles.card_fix", fixCount),
-                          )
-                        : nothing}
-                    ${listenRows.length > 0
-                        ? this._renderCard(
-                              "listen",
-                              tp("tangles.card_listen", listenRows.length),
-                          )
-                        : nothing}
-                    ${decideCount > 0
-                        ? this._renderCard(
-                              "decide",
-                              t("tangles.card_decide", { count: decideCount }),
-                          )
-                        : nothing}
+                    ${cards.map(
+                        (entry) => html`
+                            <div class="tcard-block">
+                                ${this._renderCard(entry.card, entry.sentence)}
+                                ${bucket(entry.card)}
+                            </div>
+                        `,
+                    )}
                 </div>
-                ${this._open === "fix"
-                    ? html`<ir-tangle-fix
-                          .hass=${this.hass}
-                          .api=${this.api}
-                          .deviceId=${this.deviceId}
-                          .matrixUnit=${this.matrixUnit}
-                          .rows=${fixRows}
-                          .listing=${this._listing}
-                          .batchPlans=${batchEntries}
-                      ></ir-tangle-fix>`
-                    : nothing}
-                ${this._open === "listen"
-                    ? html`<ir-tangle-listen
-                          .hass=${this.hass}
-                          .api=${this.api}
-                          .deviceId=${this.deviceId}
-                          .matrixUnit=${this.matrixUnit}
-                          .rows=${listenRows}
-                          .listing=${this._listing}
-                      ></ir-tangle-listen>`
-                    : nothing}
-                ${this._open === "decide"
-                    ? html`<ir-tangle-decide
-                          .hass=${this.hass}
-                          .api=${this.api}
-                          .deviceId=${this.deviceId}
-                          .matrixUnit=${this.matrixUnit}
-                          .pairs=${decide.pairs}
-                      ></ir-tangle-decide>`
-                    : nothing}
             </div>
         `;
     }
@@ -402,6 +423,14 @@ export class IrTangleSection extends LitElement {
                 display: flex;
                 flex-direction: column;
                 gap: 4px;
+            }
+            /* A card and its open bucket are one block, so the gap
+               between cards never lands between a card and the rows it
+               just opened. The bucket brings its own 8px top margin,
+               which is what separates it from the card it belongs to. */
+            .tcard-block {
+                display: flex;
+                flex-direction: column;
             }
             /* The command row's anatomy, deliberately duplicated
                rather than imported: ir-command-row owns its styles

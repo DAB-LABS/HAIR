@@ -3607,3 +3607,48 @@ class TestTheDetangleSectionIsItsOwnBlock:
         assert 'class="trow"' in text
         assert 'class="top-line"' in text
         assert "comb-glyph" in text
+class TestABucketOpensUnderItsOwnCard:
+    """R5 (issue 13, owner ruled 2026-08-30).
+
+    The three panels used to render after the whole card stack, so
+    clicking LISTEN opened its rows underneath the DECIDE card. The
+    rows then read as DECIDE's rows, which is worse than untidy on a
+    surface whose entire job is telling three kinds of work apart. A
+    card and the bucket it opens are one block now, and the other
+    cards keep their order around it.
+    """
+
+    def test_each_card_carries_its_own_bucket(self):
+        text = _read("ir-tangle-section.ts")
+        block = text.split('<div class="tcard-block">', 1)[1].split(
+            "</div>", 1
+        )[0]
+        assert "this._renderCard(entry.card, entry.sentence)" in block
+        assert "bucket(entry.card)" in block
+
+    def test_no_panel_renders_outside_a_card_block(self):
+        """The three elements must appear exactly once each, inside the
+        one bucket helper. A second copy anywhere is the old layout
+        growing back."""
+        text = _read("ir-tangle-section.ts")
+        for tag in ("<ir-tangle-fix", "<ir-tangle-listen",
+                    "<ir-tangle-decide"):
+            assert text.count(tag) == 1
+
+    def test_the_bucket_is_gated_on_the_card_that_owns_it(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split("const bucket = (card: CardKey)", 1)[1].split(
+            "};", 1
+        )[0]
+        assert "if (this._open !== card) return nothing;" in body
+
+    def test_the_cards_keep_one_order(self):
+        """Built once, in one order, and opening one does not rebuild
+        the list differently -- a card that moved when its own bucket
+        opened would take the reader's place on the page with it."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split(
+            "const cards: { card: CardKey; sentence: string }[] = [];", 1
+        )[1].split("return html`", 1)[0]
+        assert body.index('card: "fix"') < body.index('card: "listen"')
+        assert body.index('card: "listen"') < body.index('card: "decide"')
