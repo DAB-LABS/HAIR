@@ -27,6 +27,7 @@ from custom_components.hair.tangles import (
     APPLY_NO_FINDING,
     APPLY_NOT_TESTED,
     ATTESTED_KEY,
+    FIT_HAS_TANGLES,
     PROVENANCE_KEY,
     TIER_AIR_TESTED,
     TIER_RULE_DERIVED,
@@ -35,6 +36,7 @@ from custom_components.hair.tangles import (
 )
 from custom_components.hair.websocket_api import (
     ws_device_tangles,
+    ws_get_device,
     ws_tangle_apply,
     ws_tangle_apply_batch,
     ws_tangle_keep,
@@ -124,7 +126,10 @@ async def adopted(fake_hass, tmp_path):
         "name": "Komeco", "device_type": "ac",
         "emitter_entity_ids": ["infrared.blaster"],
     })
-    assert result["cell_rows"] == 52
+    # Zero since extraction left the adopt path (P1). Every flow below
+    # works the LATTICE through the tangle surface, which is the point:
+    # none of them needed the pulled rows to reach a defective cell.
+    assert result["cell_rows"] == 0
     return fake_hass, devices[0], tmp_path, wig
 
 
@@ -535,6 +540,38 @@ class TestBackToTheCloset:
             "runs fine on my unit")
 
 
+@pytest.fixture
+async def fan(fake_hass, tmp_path):
+    """The Dreo: seven buttons, no lattice. Module level since P8,
+    because the refetch-shape pins need the same device."""
+    from custom_components.hair.models import (
+        CommandCategory,
+        IRCommand,
+        IRDevice,
+    )
+
+    parsed = parse_wig(DREO.read_text())
+    assert parsed.wig is not None, parsed.errors
+    wig = parsed.wig
+    device = IRDevice(name="Dreo", emitter_entity_ids=["infrared.b"])
+    for signal in wig.signals:
+        device.add_command(IRCommand(
+            name=signal.alias, category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=signal.pronto,
+            send_count=signal.send_count,
+            repeat_count=signal.ditto_count,
+            tx_force_raw=signal.bypass_protocol,
+        ))
+    manager = MagicMock()
+    manager.get_device = MagicMock(return_value=device)
+    manager.async_get_matrix = AsyncMock(return_value=None)
+    manager.async_update_device = AsyncMock()
+    manager.async_test_send = AsyncMock(return_value={"infrared.b"})
+    fake_hass.config.config_dir = str(tmp_path)
+    fake_hass.data[DOMAIN] = {"entry-1": {"device_manager": manager}}
+    return fake_hass, device, wig, manager
+
+
 class TestTheFlatFan:
     """The Dreo: seven buttons, two noisy captures, no lattice at all.
 
@@ -543,35 +580,6 @@ class TestTheFlatFan:
     the finding, its vote, a candidate somebody pastes, and the same
     door.
     """
-
-    @pytest.fixture
-    async def fan(self, fake_hass, tmp_path):
-        from custom_components.hair.models import (
-            CommandCategory,
-            IRCommand,
-            IRDevice,
-        )
-
-        parsed = parse_wig(DREO.read_text())
-        assert parsed.wig is not None, parsed.errors
-        wig = parsed.wig
-        device = IRDevice(name="Dreo", emitter_entity_ids=["infrared.b"])
-        for signal in wig.signals:
-            device.add_command(IRCommand(
-                name=signal.alias, category=CommandCategory.CUSTOM,
-                protocol="PRONTO", code=signal.pronto,
-                send_count=signal.send_count,
-                repeat_count=signal.ditto_count,
-                tx_force_raw=signal.bypass_protocol,
-            ))
-        manager = MagicMock()
-        manager.get_device = MagicMock(return_value=device)
-        manager.async_get_matrix = AsyncMock(return_value=None)
-        manager.async_update_device = AsyncMock()
-        manager.async_test_send = AsyncMock(return_value={"infrared.b"})
-        fake_hass.config.config_dir = str(tmp_path)
-        fake_hass.data[DOMAIN] = {"entry-1": {"device_manager": manager}}
-        return fake_hass, device, wig, manager
 
     @pytest.mark.asyncio
     async def test_two_rows_no_donors_and_it_says_why(self, fan):
@@ -664,3 +672,178 @@ class TestTheFlatFan:
         })
         assert "map" not in result["record"]
         assert result["record"]["key"].endswith("|-")
+class TestTheRefetchAfterARepair:
+    """P8. The panel refetches the device after every tangle write.
+
+    The bug it was blamed for was a stale copy, not a thin one: the
+    device page held the fresh device and the list above it handed the
+    old one straight back down on its next render. That half is fixed
+    in the panel. This is the half that has to hold on this side, and
+    it is the one nothing was watching: the payload the refetch gets
+    back is the SAME payload the page was built from, with every field
+    the command rows render still on it.
+
+    Trimming it would put the panel back where it started by a
+    different road, and the symptom would look identical.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_refetch_has_the_same_shape_as_the_first_load(
+        self, fan
+    ):
+        hass, device, wig, _manager = fan
+        listing = await _tangles(hass, device)
+        row = listing["rows"][0]
+        clean = next(
+            s.pronto for s in wig.signals
+            if s.alias not in {r["target"]["key"] for r in listing["rows"]}
+        )
+
+        before = await _call(ws_get_device, hass, {
+            "id": 10, "type": "hair/device", "device_id": device.id,
+        })
+        await _call(ws_tangle_apply, hass, {
+            "id": 11, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": row["id"],
+            "pronto": clean, "tested": True, "source": "paste",
+        })
+        after = await _call(ws_get_device, hass, {
+            "id": 12, "type": "hair/device", "device_id": device.id,
+        })
+
+        assert set(after) == set(before)
+        assert len(after["commands"]) == len(before["commands"])
+        repaired_id = row["target"]["command_id"]
+        for old_cmd, new_cmd in zip(
+            before["commands"], after["commands"], strict=True
+        ):
+            # NOTHING IS DROPPED, and only the repaired row gains
+            # anything. A repair adds its provenance record, which is
+            # what UNDO reads and what the row's repaired badge
+            # renders from; every other row comes back byte for byte
+            # the shape the page was built from.
+            assert set(old_cmd) <= set(new_cmd)
+            gained = set(new_cmd) - set(old_cmd)
+            if old_cmd["id"] == repaired_id:
+                assert gained == {PROVENANCE_KEY}
+            else:
+                assert not gained
+
+    @pytest.mark.asyncio
+    async def test_the_repaired_row_carries_what_the_surface_reads(
+        self, fan
+    ):
+        """The bytes, the mark, and the provenance the UNDO needs. A
+        payload missing any of these renders a row that looks
+        untouched, which is exactly what the person reported."""
+        hass, device, wig, _manager = fan
+        listing = await _tangles(hass, device)
+        row = listing["rows"][0]
+        clean = next(
+            s.pronto for s in wig.signals
+            if s.alias not in {r["target"]["key"] for r in listing["rows"]}
+        )
+
+        await _call(ws_tangle_apply, hass, {
+            "id": 13, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": row["id"],
+            "pronto": clean, "tested": True, "source": "paste",
+        })
+        payload = await _call(ws_get_device, hass, {
+            "id": 14, "type": "hair/device", "device_id": device.id,
+        })
+
+        repaired = next(
+            c for c in payload["commands"]
+            if c["id"] == row["target"]["command_id"]
+        )
+        assert repaired["code"] == clean
+        assert repaired[PROVENANCE_KEY]["source"] == "paste"
+
+        # THE MARK AGREES WITH THE LISTING, whatever the listing says.
+        # Not "the mark is gone": these seven buttons have no lattice
+        # and nothing to copy from, so a candidate pasted in from a
+        # sibling leaves two names over one payload and the row is
+        # flagged again, differently. That is the honest answer and T1
+        # is what produces it. What P8 is about is that the answer
+        # REACHES the page, on the same payload, on the same refetch.
+        listing_after = await _tangles(hass, device)
+        open_ids = {r["target"]["command_id"] for r in listing_after["rows"]}
+        assert "comb_suspect" in repaired
+        assert "comb_finding" in repaired
+        assert repaired["comb_suspect"] is (repaired["id"] in open_ids)
+
+
+class TestPerfectFitIsGatedOnACleanListing:
+    """Issue 26, ruled 2026-08-30: detangle first, then perfect fit.
+
+    The fit process predates the Detangler. It used to include the
+    pulled commands, because extraction WAS the old anomaly workflow
+    and those rows carried the comb flags the checklist gated on. With
+    extraction gone (P1) the checklist has no comb-flagged rows left,
+    so the gate does not live there any more; it lives at the door.
+
+    A fitting is a claim that somebody proved these codes on their own
+    hardware. A device with open tangle rows has codes nobody has
+    proved anything about, so the claim cannot be made yet.
+    """
+
+    async def _sign(self, hass, device, **extra):
+        payload = {
+            "id": 9, "type": "hair/wigs/save",
+            "device_id": device.id,
+            "attest": {
+                "github": "someone",
+                "hair_version": "0.13.0",
+                "ha_version": "2026.8.0",
+                "claims": {},
+            },
+        }
+        payload.update(extra)
+        connection = MagicMock()
+        connection.send_error = MagicMock()
+        connection.send_result = MagicMock()
+        await ws_wigs_save(hass, connection, payload)
+        return connection
+
+    @pytest.mark.asyncio
+    async def test_signing_refuses_while_rows_are_open(self, adopted):
+        hass, device, _tmp_path, _wig = adopted
+        assert (await _tangles(hass, device))["rows"]
+
+        connection = await self._sign(hass, device)
+
+        assert connection.send_error.called
+        assert connection.send_error.call_args.args[1] == FIT_HAS_TANGLES
+        # A plain sentence pointing at the work, with the count in it.
+        reason = connection.send_error.call_args.args[2]
+        assert "need attention" in reason
+        assert "52" in reason
+
+    @pytest.mark.asyncio
+    async def test_a_plain_save_is_not_gated(self, adopted):
+        """The gate is on the SIGNING, not on saving. Somebody who
+        wants their repairs in the closet without claiming a fit is
+        doing an ordinary Save to Closet, and this gate has no opinion
+        about that.
+
+        Narrow on purpose: wigs/save has refusals of its own, and this
+        fixture's device is byte-identical to its source, so it can
+        legitimately come back with one. What must never happen is
+        THIS refusal on a save that made no fitting claim.
+        """
+        hass, device, _tmp_path, _wig = adopted
+        assert (await _tangles(hass, device))["rows"]
+
+        connection = MagicMock()
+        connection.send_error = MagicMock()
+        connection.send_result = MagicMock()
+        await ws_wigs_save(hass, connection, {
+            "id": 9, "type": "hair/wigs/save", "device_id": device.id,
+        })
+
+        refused = (
+            connection.send_error.call_args.args[1]
+            if connection.send_error.called else None
+        )
+        assert refused != FIT_HAS_TANGLES

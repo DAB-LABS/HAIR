@@ -120,6 +120,15 @@ export class IrSavePerfectDialog extends LitElement {
     // --- The fitting half (device source only) -------------------------
     @state() private _plan: SavePlan | null = null;
     @state() private _loading = false;
+    /** How many codes on this device are still open tangle rows (P4).
+     *
+     * Read once when the dialog opens. Zero is also what a failed read
+     * leaves behind, deliberately: the door is on the BACKEND, which
+     * refuses a fitting over an unclean listing whatever this dialog
+     * believes. This is the face of that refusal, shown before the
+     * click instead of after it, and a face that cannot be drawn is a
+     * reason to let the person try, not to bar them on a guess. */
+    @state() private _openTangles = 0;
     /** Digests currently checked. Nothing, until somebody checks one --
      * perfect-or-nothing (owner ruling 2026-08-07): the click IS the
      * attestation, so the default claim is nothing rather than
@@ -297,13 +306,33 @@ export class IrSavePerfectDialog extends LitElement {
         return this._diverged && !this._proposeLattice;
     }
 
+    /** A FITTING IS A CLAIM ABOUT CODES THAT WORK (P4).
+     *
+     * The comb doubts some of these and nobody has answered it yet.
+     * Signing a perfect fit over that would put a person's name on
+     * bytes the device itself is still asking about, and the shop
+     * would carry it as proof. The rows are right there on the same
+     * page with the buttons that settle them, so this is a door, not
+     * a dead end: fix them, or keep them, and the door opens.
+     *
+     * A plain save is untouched. The wig can be written and updated
+     * with open rows all day; it is the ATTESTATION that waits. */
+    private get _tanglesBlock(): boolean {
+        return this._openTangles > 0;
+    }
+
     /** Second Fitting v3 punch list, item 3: choosing the route IS
      * the arming now -- there is no checkbox left to tick. Armed
      * whenever there is something to attest and nothing blocking it
-     * (a diverged matrix lattice, until proposed). Replaces every
-     * read of the old manually-ticked `_perfect` field. */
+     * (a diverged matrix lattice, until proposed; open tangle rows,
+     * until they are settled). Replaces every read of the old
+     * manually-ticked `_perfect` field. */
     private get _armed(): boolean {
-        return !this._attestBlocked && !this._nothingToAttest;
+        return (
+            !this._attestBlocked &&
+            !this._tanglesBlock &&
+            !this._nothingToAttest
+        );
     }
 
     private get _signed(): boolean {
@@ -398,6 +427,14 @@ export class IrSavePerfectDialog extends LitElement {
             const plan =
                 this.plan ?? (await this.api.wigsSavePlan(this.sourceId));
             this._plan = plan;
+            // Asked once, here, rather than watched: the dialog is
+            // modal, so nothing can settle a row while it is open.
+            try {
+                const listing = await this.api.tangles(this.sourceId);
+                this._openTangles = listing.rows.length;
+            } catch {
+                this._openTangles = 0;
+            }
             this._name = plan.metadata.name ?? this.sourceName;
             this._brand = plan.metadata.brand ?? "";
             this._model = plan.metadata.model ?? "";
@@ -924,26 +961,44 @@ export class IrSavePerfectDialog extends LitElement {
         }
         if (!this._plan) return nothing;
         return html`
-            ${this._renderLatticeChanges()}
+            ${this._tanglesBlock ? nothing : this._renderLatticeChanges()}
             <div class="fit-block ${this._armed ? "on" : ""}">
                 <div class="fit-head">
-                    <div class="fit-check">
-                        <span>${t("wigs.save.perfect_label")}</span>
-                    </div>
-                    ${this._nothingToAttest
-                        ? html`<div class="fit-explainer">
-                              ${t("wigs.save.nothing_to_attest")}
+                    ${this._tanglesBlock
+                        ? // IN PLACE OF THE ACTION, NOT BESIDE IT
+                          // (P4). A greyed-out Perfect Fit with a note
+                          // under it still reads as an offer that
+                          // failed. The HEAD is what swaps, and only
+                          // the head: _armed is already false while
+                          // rows are open, so the attestation block
+                          // hides itself, and the list below keeps
+                          // rendering for a succession. A succession
+                          // save is never silent, and codes needing
+                          // attention are not a reason to make one.
+                          html`<div class="fit-blocked">
+                              ${tp("tangles.fit_blocked", this._openTangles)}
                           </div>`
-                        : ""}
-                    <div class="fit-explainer">
-                        ${t("wigs.save.explainer")}
-                    </div>
-                    ${this._attestBlocked
-                        ? html`<div class="fit-gate">
-                              ${t("wigs.save.lattice_blocks_attestation")}
-                          </div>`
-                        : ""}
-                    ${this._renderJoining()}
+                        : html`
+                              <div class="fit-check">
+                                  <span>${t("wigs.save.perfect_label")}</span>
+                              </div>
+                              ${this._nothingToAttest
+                                  ? html`<div class="fit-explainer">
+                                        ${t("wigs.save.nothing_to_attest")}
+                                    </div>`
+                                  : ""}
+                              <div class="fit-explainer">
+                                  ${t("wigs.save.explainer")}
+                              </div>
+                              ${this._attestBlocked
+                                  ? html`<div class="fit-gate">
+                                        ${t(
+                                            "wigs.save.lattice_blocks_attestation",
+                                        )}
+                                    </div>`
+                                  : ""}
+                              ${this._renderJoining()}
+                          `}
                 </div>
                 ${this._armed || this._isSuccession
                     ? this._renderList()
@@ -964,6 +1019,17 @@ export class IrSavePerfectDialog extends LitElement {
      * Proposing is a CONTENT change and attesting is a claim about
      * hardware; keeping them separate ticks is what stops one from
      * being mistaken for the other.
+     *
+     * NOT WHILE THE GATE IS UP (owner amendment 2026-08-30, from the
+     * Komeco QA pass). The caller renders this only when the fitting
+     * gate is clear. A yellow box with a checkbox and an explanation
+     * of attesting, stacked above a red notice that says nothing can
+     * be attested yet, is two prompts with the dead one on top. The
+     * gate is the dialog's one message until the device combs clean.
+     *
+     * Nothing here changed. The propose flow returns exactly as it
+     * was, on the other side of that one condition, the moment the
+     * last row is settled.
      */
     private _renderLatticeChanges() {
         const changes = this._plan?.cell_changes ?? [];
@@ -1534,6 +1600,15 @@ export class IrSavePerfectDialog extends LitElement {
                 color: #d9a441;
                 line-height: 1.45;
                 margin: 6px 0 0 0;
+            }
+            /* The panel's own ember, the one DELETE and every other
+               refusal already wears. The lattice gate above it is
+               amber because it is a caution about which bytes get
+               bound; this one is a refusal, and it reads as one. */
+            .fit-blocked {
+                font-size: 12px;
+                color: #e65100;
+                line-height: 1.45;
             }
             .fit-check {
                 display: flex;

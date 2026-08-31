@@ -80,6 +80,13 @@ export class IrTangleDecide extends LitElement {
      * name it arrived with and KEEP BOTH could never tell that the two
      * had stopped matching. */
     @state() private _names = new Map<string, string>();
+    /** Why the last answer did not land, when it did not (P3).
+     *
+     * This card had no error surface at all, which was survivable
+     * while KEEP BOTH wrote nothing and stopped being so the moment it
+     * did. A refused answer that leaves the pair looking settled is
+     * the exact shape of the bug issue 23 is about. */
+    @state() private _error: string | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -166,10 +173,41 @@ export class IrTangleDecide extends LitElement {
 
 
     /** Both of these are wanted, and saying so is the answer (issue
-     * 21). Nothing is written: the rename already wrote, and a pair
-     * kept on purpose has nothing left to save. */
-    private _keepBoth(pair: DecidePairProp): void {
-        this._resolved = new Map(this._resolved).set(pair.cluster.id, "kept");
+     * 21).
+     *
+     * IT IS RECORDED NOW (issue 23, P3). The card used to settle this
+     * in a member field and nothing else, so the answer lived exactly
+     * as long as the panel stayed open: reload the page and the same
+     * pair asked the same question again, with the person's decision
+     * nowhere on the device. KEEP is the endpoint that exists for
+     * this, and it takes both rows in one call, so one decision
+     * writes one save and mints one successor wig.
+     *
+     * ``tested`` is true because the pair is not a doubt about bytes.
+     * The person read two names over one payload and said both are
+     * wanted, which is a statement about their own remote and their
+     * own intent, and it is the statement KEEP records.
+     *
+     * A refusal leaves the card exactly as it was, still offering the
+     * button. Marking it kept on screen while the device knows
+     * nothing about it is the bug this is fixing. */
+    private async _keepBoth(pair: DecidePairProp): Promise<void> {
+        const ids = pair.rows.map((row) => row.id);
+        this._busy = new Set([...this._busy, ...ids]);
+        this._error = null;
+        try {
+            const result = await this.api.tangleKeep(
+                this.deviceId, ids, true);
+            this._resolved = new Map(this._resolved).set(
+                pair.cluster.id, "kept");
+            this._emitMutated(result.wig.written);
+        } catch (err) {
+            this._error = (err as Error).message || String(err);
+        } finally {
+            const next = new Set(this._busy);
+            for (const id of ids) next.delete(id);
+            this._busy = next;
+        }
     }
 
     private _anyBusy(pair: DecidePairProp): boolean {
@@ -220,11 +258,14 @@ export class IrTangleDecide extends LitElement {
                 </div>
                 <div class="pair-hint">${t("tangles.decide_pair_hint")}</div>
                 ${pair.rows.map((row) => this._renderRow(pair, row))}
+                ${this._error
+                    ? html`<div class="pair-error">${this._error}</div>`
+                    : nothing}
                 <div class="pair-actions">
                     <button
                         class="action-btn keep-both"
                         ?disabled=${!namesDiffer || this._anyBusy(pair)}
-                        @click=${() => this._keepBoth(pair)}
+                        @click=${() => void this._keepBoth(pair)}
                     >
                         ${t("tangles.decide_keep_both")}
                     </button>
@@ -349,6 +390,10 @@ export class IrTangleDecide extends LitElement {
                 font-size: 0.75rem;
                 color: var(--secondary-text-color);
                 margin-bottom: 6px;
+            }
+            .pair-error {
+                font-size: 0.75rem;
+                color: #e65100;
             }
             .pair-actions {
                 display: flex;

@@ -396,6 +396,8 @@ def list_tangles(
     # The finding itself is untouched. Keep never deletes a finding, and
     # the receipt still carries it -- attested is a different thing from
     # clean and has to read as one.
+    _stamp_mismatch_labels(rows, lattice)
+
     answered = []
     open_rows = []
     for row in rows:
@@ -970,8 +972,39 @@ def revert_repair(holder: Any) -> dict[str, Any] | None:
     return record
 
 
+def holders_for_rows(device: IRDevice, rows: list) -> list:
+    """The commands standing behind a set of tangle rows.
+
+    A row names a TARGET, not a holder: a cell row is answered by every
+    porthole parked at those coordinates, a flat row by the one command
+    it was raised on. Callers that have just settled some rows need the
+    commands to re-read, and this is that lookup in one place instead
+    of open-coded at each of them.
+    """
+    wanted_cells: set = set()
+    wanted_ids: set = set()
+    for row in rows:
+        if row.target.kind == TARGET_CELL:
+            wanted_cells.add(_coord_key(row.target.coordinates))
+        elif row.target.command_id:
+            wanted_ids.add(row.target.command_id)
+    holders = []
+    for command in device.commands:
+        if command.id in wanted_ids:
+            holders.append(command)
+            continue
+        if not is_porthole(command):
+            continue
+        if _coord_key(command.matrix_cell) in wanted_cells:
+            holders.append(command)
+    return holders
+
+
 def rederive_comb_stamps(
-    device: IRDevice, matrix: ClimateMatrix | None, holders: list
+    device: IRDevice,
+    matrix: ClimateMatrix | None,
+    holders: list,
+    listing: Any | None = None,
 ) -> None:
     """Re-stamp the comb marks on the holders a repair just rewrote.
 
@@ -1004,9 +1037,26 @@ def rederive_comb_stamps(
     holders = [h for h in holders if hasattr(h, "comb_suspect")]
     if not holders:
         return
-    listing = list_tangles(device, matrix)
+    if listing is None:
+        listing = list_tangles(device, matrix)
     cells: dict[tuple, str] = {}
     flats: dict[str, str] = {}
+    # A MARK IS AN UNANSWERED DOUBT (owner ruled 2026-08-30).
+    #
+    # Two steps, and ``list_tangles`` has already done both by the time
+    # its listing gets here: it derives every finding from the live
+    # comb, and THEN settles the ones a standing attestation covers,
+    # moving those out of ``rows`` and into ``attested``. So reading
+    # ``rows`` is reading exactly the doubts nobody has answered yet,
+    # which is what the mark means and what the surface should show.
+    #
+    # DO NOT fold ``listing.attested`` back in here. A row somebody
+    # tested and vouched for reads CLEAN on the command surface and
+    # gets its TRIGGER back -- that is the whole point of answering
+    # one. Nothing is lost by it: the finding and the answer both stay
+    # in the attestation and in the wig's receipt, and the moment the
+    # bytes or the map version move, the attestation stops matching,
+    # the row returns to ``rows``, and the mark comes back on its own.
     for row in listing.rows:
         lead = row.classes[0] if row.classes else None
         if lead is None:
@@ -1022,6 +1072,40 @@ def rederive_comb_stamps(
             finding = flats.get(command.id)
         command.comb_suspect = finding is not None
         command.comb_finding = finding
+
+
+def sweep_comb_stamps_if_retired(
+    device: IRDevice, matrix: ClimateMatrix | None
+) -> bool:
+    """The device just came clean, so re-read the mark on ALL of it.
+
+    THE DEVICE-PROVED-CLEAN MOMENT IS THE LICENCE (owner ruled
+    2026-08-30). T1 re-reads only the rows a write touched, on purpose:
+    the adopt-time stamps came from the wig FILE and a listing reads
+    the DEVICE, so a repair is not licence to re-open every verdict.
+    But when every bucket is empty -- no open rows anywhere, the same
+    moment the section retires and the write-through fires -- the
+    device has just answered the question for all of itself, and the
+    restraint has nothing left to protect.
+
+    The healthy twin is why it matters. An identical pair where one
+    member was repaired leaves the OTHER one still wearing a mark it
+    earned only by resembling its broken partner. Nothing will ever
+    touch that command again, so nothing would ever release it.
+
+    Zero open rows is the same test either way: a device whose
+    remaining findings were all ANSWERED has no unanswered doubts left
+    either, and under the mark rule above that device is clean.
+
+    Returns whether the sweep ran, so a caller can say so.
+    """
+    listing = list_tangles(device, matrix)
+    if listing.rows:
+        return False
+    rederive_comb_stamps(
+        device, matrix, list(device.commands), listing=listing,
+    )
+    return True
 
 
 def portholes_for(device: IRDevice, coordinates: dict[str, Any]) -> list:
@@ -1089,6 +1173,12 @@ def build_attestation(
         record["note"] = note
     return record
 
+
+#: Refused because the device still has codes the comb doubts, and a
+#: Perfect Fit is a claim that every one of them was proved (owner
+#: ruled 2026-08-30). Detangle first, then fit; the tangles are never
+#: rolled into the fit process.
+FIT_HAS_TANGLES = "fit_has_tangles"
 
 #: Written into an attestation's note when the ladder wrote it rather
 #: than the keep button. The two are the same answer arrived at down
@@ -1168,11 +1258,40 @@ def attest_override(
 def standing_attestation(
     device: IRDevice, row: TangleRow, lattice: LatticeReading
 ) -> dict[str, Any] | None:
-    """The attestation covering this row's CURRENT bytes, if any."""
+    """The attestation covering this row's CURRENT bytes, if any.
+
+    Keyed match first, which is the exact-and-cheap case. Then, for a
+    COMMAND row only, a second look that ignores the name.
+
+    A flat row's target key is the command's own alias, so the key
+    moves when somebody renames the command -- and renaming is not an
+    incidental thing here, it is half of what DECIDE offers. Keeping a
+    duplicate pair and then renaming one member would expire the answer
+    that was just given about it, and the pair would come back on the
+    next listing wearing the new name. The bytes are what an
+    attestation is ABOUT; the digest and the map version identify them,
+    and both of those still have to match exactly, so nothing is
+    loosened about WHICH bytes were answered. Only where they live is
+    allowed to move.
+
+    A cell row is left alone: its key is coordinates, coordinates do
+    not get renamed, and a cell whose coordinates changed genuinely is
+    a different cell.
+    """
     version = lattice.field_map.version if lattice.readable else None
     wanted = attestation_key(row.target.key, row.digest, version)
     for record in device.tangle_attestations:
         if record.get("key") == wanted:
+            return record
+    if row.target.kind != TARGET_COMMAND:
+        return None
+    for record in device.tangle_attestations:
+        if record.get("kind") != TARGET_COMMAND:
+            continue
+        if record.get("digest") != row.digest:
+            continue
+        stamped = (record.get("map") or {}).get("version")
+        if stamped == version:
             return record
     return None
 
@@ -1956,6 +2075,43 @@ def _label_for(spec: Any, domain: list[Any], value: int) -> Any:
         if field_readers.expected_value(spec, label) == value:
             return label
     return None
+
+
+def _stamp_mismatch_labels(
+    rows: list[TangleRow], lattice: LatticeReading
+) -> None:
+    """Name the two values a field-mismatch is about, in the wig's words.
+
+    THE COMB REPORTS BYTES, because at the layer it works on bytes are
+    all there is: 0x1A read where 0x18 was expected. A person looking
+    at the row wants the two SETTINGS -- "sends 27 where this state
+    says 25" -- and the map that raised the finding is the only thing
+    that can name them.
+
+    So it names them here, once, on the way out of the listing, and
+    every surface downstream reads labels instead of inverting an
+    encoding of its own. Nothing is replaced: ``expected`` and ``read``
+    stay exactly as the comb wrote them, and a value the map cannot
+    name simply gets no label rather than a guess.
+    """
+    for row in rows:
+        for finding in row.findings:
+            if finding.get("check") != CHECK_FIELD_MISMATCH:
+                continue
+            params = dict(finding.get("params") or {})
+            name = str(params.get("field", "")).rsplit(".", 1)[-1]
+            expected, read = params.get("expected"), params.get("read")
+            spec = lattice.spec_for(name) if name else None
+            if spec is None or expected is None or read is None:
+                continue
+            domain = _axis_domain(lattice, name)
+            claimed = _label_for(spec, domain, int(str(expected), 16))
+            actual = _label_for(spec, domain, int(str(read), 16))
+            if claimed is not None:
+                params["claimed"] = claimed
+            if actual is not None:
+                params["reads_as"] = actual
+            finding["params"] = params
 
 
 def _donor_debts(

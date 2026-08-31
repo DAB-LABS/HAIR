@@ -4995,6 +4995,35 @@ async def ws_wigs_save(
         if device.climate_matrix else None
     )
 
+    # THE PERFECT FIT GATE (issue 26, owner ruled 2026-08-30). A
+    # fitting is a claim that somebody proved these codes on their own
+    # hardware, and a device with open tangle rows has codes nobody has
+    # proved anything about yet. Detangle first, then fit.
+    #
+    # The gate is on the SIGNING, not on saving: a plain Save to Closet
+    # carries no attestation and is refused by nothing here. It is on
+    # MATRIX devices, per the ruling -- a flat device's findings are
+    # answered row by row through the same checklist, which is the
+    # arrangement the fit flow was built for.
+    #
+    # The frontend hides the Perfect Fit action entirely when rows are
+    # open, so nobody should reach this. It stands behind that for
+    # anything calling the endpoint directly, which is exactly why a
+    # ruled UI shape does not make a server-side check redundant.
+    if attestation is not None and matrix is not None:
+        from .tangles import FIT_HAS_TANGLES, list_tangles
+
+        open_rows = await hass.async_add_executor_job(
+            lambda: list_tangles(device, matrix).rows
+        )
+        if open_rows:
+            connection.send_error(
+                msg["id"], FIT_HAS_TANGLES,
+                f"{len(open_rows)} codes on this device still need "
+                "attention. Fix them before fitting.",
+            )
+            return
+
     # A matrix bundle binds the lattice as a set, because a sampled
     # checklist vouches for the set rather than for the rows it walked.
     # STAMPED HERE, from the matrix this server just read -- never
@@ -5940,21 +5969,23 @@ async def ws_wig_make_device(
         manager._auto_map_command(device, command)
         copied += 1
 
-    # THE PORTHOLE ROWS (v0.9.5). A flagged lattice cell gets a
-    # coordinate-named command row so the full command toolset reaches
-    # it: TEST sends it, edit rewrites it, delete removes it. ONLY
-    # flagged cells -- the healthy thousands stay in the lattice where
-    # they belong, and a commands area listing them all would be
-    # useless. Without this the release would regress v0.9.1, whose
-    # fitting dialog could replace a defective cell.
+    # EXTRACTION LEAVES (owner ruled 2026-08-30: in during QA, out
+    # before launch). A flagged lattice cell used to get a
+    # coordinate-named command row here, because before the Detangler
+    # that row WAS the anomaly workflow -- the only way the command
+    # toolset could reach a defective cell. The detangle surface is
+    # that workflow now, and it reaches every finding without minting
+    # anything, so a fresh adopt no longer copies a slice of the
+    # lattice into the commands area.
+    #
+    # NOTHING ELSE RETIRES. Devices adopted before this still carry
+    # their pulled rows, and every piece of machinery that serves them
+    # stays exactly where it was: portholes_for keeps a repair in sync
+    # with the cell it copied, rederive_comb_stamps keeps their marks
+    # honest, the write-through keeps their wig current. Only the mint
+    # is gone, so the population stops growing and the ones that exist
+    # keep working.
     cell_rows = 0
-    if matrix is not None:
-        from .wig_climate import unit_letter
-
-        cell_rows = _mint_cell_rows(
-            device, matrix, findings,
-            unit_letter(hass.config.units.temperature_unit),
-        )
 
     await manager.async_update_device(device)
     result = await _device_full(hass, device)
@@ -6466,6 +6497,13 @@ def _mint_cell_rows(
     display_unit: str | None = None,
 ) -> int:
     """Give every comb-flagged cell a command row. Returns how many.
+
+    RETIRED FROM THE ADOPT PATH (owner ruled 2026-08-30, "in during QA,
+    out before launch"): nothing calls this any more, and a new caller
+    would put the extraction back. It stays, with its tests, because
+    devices adopted during the QA rounds carry rows this minted and
+    named, and the rules those names were formed under are worth being
+    able to read while those devices are still in the field.
 
     Keyed off the same suspect set the flat rows use, matched to cells
     by ``cell_key`` -- the comb records cell findings under exactly that
@@ -7678,6 +7716,7 @@ async def ws_tangle_apply(
         project_device,
         read_lattice,
         rederive_comb_stamps,
+        sweep_comb_stamps_if_retired,
         write_repair,
     )
 
@@ -7750,7 +7789,6 @@ async def ws_tangle_apply(
         portholes = portholes_for(device, row.target.coordinates)
         for porthole in portholes:
             write_repair(porthole, msg["pronto"], provenance)
-        rederive_comb_stamps(device, matrix, portholes)
         failure = await _write_matrix_and_signal(hass, device, matrix)
         if failure is not None:
             connection.send_error(msg["id"], "write_failed", failure)
@@ -7758,6 +7796,15 @@ async def ws_tangle_apply(
         attested = await _keep_the_override(
             hass, device, matrix, row, lattice, verdict, declared,
         )
+        # AFTER THE ANSWER, NOT BEFORE (owner ruled 2026-08-30). A mark
+        # is an unanswered doubt, and a USE IT ANYWAY is an answer. Read
+        # the marks before the override is on the device and the listing
+        # still shows the row open, so the mark stays on a row nobody is
+        # being asked about any more -- and nothing would ever come back
+        # to take it off. Nothing here changes bytes, so the digest the
+        # attestation keyed on is still the one it was built from.
+        rederive_comb_stamps(device, matrix, portholes)
+        sweep_comb_stamps_if_retired(device, matrix)
         await manager.async_update_device(device)
     else:
         command = device.get_command(row.target.command_id or "")
@@ -7766,10 +7813,13 @@ async def ws_tangle_apply(
                 msg["id"], APPLY_NO_FINDING, "That command is gone")
             return
         write_repair(command, msg["pronto"], provenance)
-        rederive_comb_stamps(device, matrix, [command])
         attested = await _keep_the_override(
             hass, device, matrix, row, lattice, verdict, declared,
         )
+        # After the answer, not before: the same rule as the cell
+        # branch above, for the same reason.
+        rederive_comb_stamps(device, matrix, [command])
+        sweep_comb_stamps_if_retired(device, matrix)
         # Through async_update_device, so the known-command index
         # rebuilds on the new bytes and the entity hooks fire (gotcha 6).
         await manager.async_update_device(device)
@@ -7970,6 +8020,7 @@ async def ws_tangle_apply_batch(
         repair_extras,
         restore_holder,
         sample_covers_modes,
+        sweep_comb_stamps_if_retired,
         write_repair,
     )
 
@@ -8078,6 +8129,7 @@ async def ws_tangle_apply_batch(
     # comb the device N times and read each repair against a lattice
     # the rest of the run had not landed in yet.
     rederive_comb_stamps(device, matrix, [holder for holder, _, _ in writes])
+    sweep_comb_stamps_if_retired(device, matrix)
 
     if matrix is not None:
         failure = await _write_matrix_and_signal(hass, device, matrix)
@@ -8157,7 +8209,14 @@ async def ws_tangle_revert_run(
 @websocket_api.websocket_command({
     vol.Required("type"): f"{WS_PREFIX}/device/tangle/keep",
     vol.Required("device_id"): str,
-    vol.Required("target"): str,
+    # One target, or several answered together (issue 23). Exclusive
+    # rather than a list-only rewrite: every existing caller sends one
+    # target and keeps working unchanged, which is the same shape
+    # ws_wig_signals already uses for its two source keys.
+    vol.Exclusive("target", "keep_target"): str,
+    vol.Exclusive("targets", "keep_target"): vol.All(
+        [str], vol.Length(min=1, max=8)
+    ),
     vol.Required("tested"): bool,
     vol.Optional("note"): vol.All(str, vol.Length(max=500)),
 })
@@ -8175,11 +8234,23 @@ async def ws_tangle_keep(
     that raised them, and the same tested assertion the write requires.
 
     Nothing is deleted. The finding stands in the receipt and the wig
-    carries both the math and the human's answer, because attested is a
-    different thing from clean and has to keep reading as one. What
-    changes is that the row leaves the work list, and re-combing stays
-    quiet about it for exactly as long as the bytes and the map hold
-    still.
+    carries both the math and the human's answer, because the record of
+    a disagreement is worth keeping long after somebody settled it.
+    What changes is the SURFACE: the row leaves the work list, the
+    command behind it drops its mark and gets its TRIGGER back, and
+    re-combing stays quiet about it for exactly as long as the bytes
+    and the map hold still. Move either one and the attestation stops
+    matching, the row returns, and the mark comes back on its own.
+
+    SEVERAL AT ONCE (issue 23). A duplicate pair is one decision about
+    two rows: KEEP BOTH means both of these are wanted. Answering them
+    one at a time would write two records in two saves and mint two
+    successor wigs for a single human answer, so the endpoint takes
+    ``targets`` and settles them together -- one save, one write
+    through, one supersession. Every row is resolved and every
+    attestation built before anything is stored, so a target that has
+    no current finding refuses the whole call rather than leaving half
+    a pair answered.
     """
     device, matrix = await _device_and_matrix(hass, msg["device_id"])
     if device is None:
@@ -8190,9 +8261,11 @@ async def ws_tangle_keep(
         KEEP_NO_FINDING,
         KEEP_NOT_TESTED,
         build_attestation,
+        holders_for_rows,
         list_tangles,
         project_device,
         read_lattice,
+        rederive_comb_stamps,
     )
 
     if not msg["tested"]:
@@ -8202,27 +8275,66 @@ async def ws_tangle_keep(
         )
         return
 
+    targets = msg.get("targets") or (
+        [msg["target"]] if msg.get("target") else []
+    )
+    if not targets:
+        connection.send_error(
+            msg["id"], KEEP_NO_FINDING, "Nothing was named to keep")
+        return
+
     def _prepare() -> Any:
         listing = list_tangles(device, matrix)
-        row = _resolve_target(listing, msg["target"])
-        if row is None:
-            return KEEP_NO_FINDING
+        rows = []
+        for target in targets:
+            row = _resolve_target(listing, target)
+            if row is None:
+                return KEEP_NO_FINDING
+            rows.append(row)
         wig, _sources = project_device(device, matrix)
-        return row, read_lattice(matrix, wig)
+        return rows, read_lattice(matrix, wig)
 
     prepared = await hass.async_add_executor_job(_prepare)
     if isinstance(prepared, str):
         connection.send_error(
             msg["id"], prepared, "That target carries no current finding")
         return
-    row, lattice = prepared
+    rows, lattice = prepared
 
-    record = build_attestation(row, lattice, note=msg.get("note"))
+    records = [
+        build_attestation(row, lattice, note=msg.get("note"))
+        for row in rows
+    ]
+    keys = {record["key"] for record in records}
     device.tangle_attestations = [
         existing for existing in device.tangle_attestations
-        if existing.get("key") != record["key"]
+        if existing.get("key") not in keys
     ]
-    device.tangle_attestations.append(record)
+    device.tangle_attestations.extend(records)
+    row = rows[0]
+    record = records[0]
+    # AN ANSWER SETTLES ITS OWN ROW AT ONCE (owner ruled 2026-08-30).
+    #
+    # A mark is an unanswered doubt, so storing the answer is the
+    # moment the doubt stops. Re-read the commands behind the rows
+    # just answered, against the listing as it stands now: those rows
+    # have moved to ``attested``, so the marks come off and TRIGGER
+    # comes back. The device does not have to come all the way clean
+    # for that to be true of the rows it does answer.
+    #
+    # And when it DOES come clean, an answer was the last thing it was
+    # waiting on: that is the retire moment, and every command is
+    # re-read on the same terms the apply paths sweep on, so the
+    # untouched twin releases here too.
+    settled = list_tangles(device, matrix)
+    rederive_comb_stamps(
+        device,
+        matrix,
+        list(device.commands)
+        if not settled.rows
+        else holders_for_rows(device, rows),
+        listing=settled,
+    )
     manager: DeviceManager = _get_first_entry_data(hass)["device_manager"]
     await manager.async_update_device(device)
     # KEEP is a DECIDE outcome and it changes what the wig SAYS, even
@@ -8231,4 +8343,5 @@ async def ws_tangle_keep(
     # the same terms as a repair.
     connection.send_result(
         msg["id"], {"attested": True, "target": row.id, "record": record,
+                    "targets": [r.id for r in rows], "records": records,
                     "wig": await _write_through(hass, device)})

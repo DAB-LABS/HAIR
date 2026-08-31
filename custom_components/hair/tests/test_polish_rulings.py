@@ -3924,13 +3924,45 @@ class TestTheCommandsListHearsAboutARepair:
         """_refresh() dispatches device-changed, which rebuilds this
         element from ir-device-list -- and would close the tangle flow
         the person is standing in after every accept. That cascade is
-        the 2026-08-07 bench lesson this file already records."""
+        the 2026-08-07 bench lesson this file already records.
+
+        Keyed on the EVENT rather than on the word, since P8 added a
+        comment that names the cascade in order to say this is not it.
+        A pin that a comment can trip is a pin that gets loosened by
+        whoever trips it, which is the wrong outcome twice over."""
         text = _read("ir-device-detail.ts")
         body = text.split(
             "private _onTangleMutated = async (): Promise<void> => {", 1
         )[1].split("};", 1)[0]
-        assert "device-changed" not in body
+        assert 'CustomEvent("device-changed"' not in body
         assert "this._refresh()" not in body
+
+    def test_it_hands_the_fresh_device_up_instead(self):
+        """P8. The refetch was never the problem. ``device`` is a
+        property ir-device-list hands down from its own cache, so the
+        fresh device survived only until that list rendered for any
+        reason, and then the stale copy came back down and the
+        repaired row wore its old bytes again. The child hands its
+        copy up on a quiet event that rebuilds nothing."""
+        text = _read("ir-device-detail.ts")
+        body = text.split(
+            "private _onTangleMutated = async (): Promise<void> => {", 1
+        )[1].split("};", 1)[0]
+        assert 'CustomEvent("device-refreshed"' in body
+        assert "detail: { device: fresh }" in body
+
+    def test_the_list_takes_that_copy_for_its_cache(self):
+        """The other half. An event nobody listens to fixes nothing."""
+        text = _read("ir-device-list.ts")
+        assert "@device-refreshed=${this" in text
+        body = text.split(
+            "private _onExpandedDeviceRefreshed(ev: CustomEvent): void {", 1
+        )[1].split("\n    }", 1)[0]
+        assert "this._expandedDevice = fresh;" in body
+        # Guarded on the id: a refresh that resolves after the person
+        # collapsed the card is about a device this element is no
+        # longer showing.
+        assert "fresh.id !== this.expandedDeviceId" in body
 class TestTheOpenBucketIsOneBlockWithItsCard:
     """Issue 19. Round two put the bucket under the right card; it
     still read as a second thing that had appeared near the card rather
@@ -3968,6 +4000,93 @@ class TestTheOpenBucketIsOneBlockWithItsCard:
         assert "border-left: 3px solid var(--tangle-copper" not in text
 
 
+class TestTheFitGateIsTheDialogsOneMessage:
+    """Owner amendment 2026-08-30, from the Komeco QA pass.
+
+    P4 put a red notice where the Perfect Fit action was, and left the
+    propose-changes block rendering above it: a yellow box, a checkbox
+    and an explanation of attesting, stacked on top of a notice whose
+    whole content is that nothing can be attested yet. Two prompts,
+    the dead one first.
+
+    Pinned BOTH ways, because the amendment is a pair of claims and
+    only one of them is about what disappears.
+    """
+
+    @staticmethod
+    def _fitting_body():
+        text = _read("ir-save-perfect-dialog.ts")
+        return text.split("private _renderFitting() {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+
+    @staticmethod
+    def _squash(text):
+        """Whitespace-insensitive, so a reflow of this template does
+        not read as a behaviour change."""
+        return " ".join(text.split())
+
+    def test_the_gate_takes_the_propose_block_down(self):
+        body = self._squash(self._fitting_body())
+        assert (
+            "${this._tanglesBlock ? nothing : this._renderLatticeChanges()}"
+            in body
+        )
+
+    def test_the_notice_is_the_only_thing_the_head_says(self):
+        """The head is the notice OR the ordinary fitting head, never
+        both: they are the two branches of one condition, in that
+        order. Read as positions rather than by slicing the head out,
+        because either branch carries markup of its own and any
+        delimiter that closes one of them also closes tags inside
+        it."""
+        body = self._squash(self._fitting_body())
+        head_at = body.index('<div class="fit-head">')
+        ternary = body.index("${this._tanglesBlock ?", head_at)
+        notice = body.index(
+            'tp("tangles.fit_blocked", this._openTangles)', ternary)
+        otherwise = body.index(": html`", notice)
+        label = body.index("wigs.save.perfect_label", otherwise)
+        explainer = body.index("wigs.save.explainer", otherwise)
+        assert head_at < ternary < notice < otherwise < label
+        assert otherwise < explainer
+        # One notice and one ordinary head, not a notice added beside
+        # an offer that still renders.
+        assert body.count('tp("tangles.fit_blocked"') == 1
+        assert body.count("wigs.save.perfect_label") == 1
+
+    def test_the_propose_flow_returns_unchanged_when_the_gate_clears(self):
+        """The other half of the amendment, and the one a careless fix
+        would break: this is suppressed at the CALL, not gutted. The
+        block itself still carries its head, its cell chips and its
+        propose checkbox, so a device that combs clean gets back
+        exactly what it had."""
+        text = _read("ir-save-perfect-dialog.ts")
+        body = text.split("private _renderLatticeChanges() {", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert "wigs.save.lattice_changed" in body
+        assert "wigs.save.propose_lattice" in body
+        assert "this._toggleProposeLattice" in body
+        assert 'class="lattice-block"' in body
+        # And it is reached from exactly one place, which is the
+        # condition above. A second unguarded call would put the box
+        # back on screen with the gate still up.
+        assert text.count("this._renderLatticeChanges()") == 1
+
+    def test_a_succession_still_says_what_it_is_replacing(self):
+        """NOT suppressed, and deliberately so. The amendment names
+        the propose block; the checklist is a different disclosure,
+        and "a succession save is never silent" is a standing rule
+        that open tangle rows are not a reason to break. Flagged for
+        review rather than assumed either way."""
+        body = self._squash(self._fitting_body())
+        assert (
+            "${this._armed || this._isSuccession ? this._renderList() : \"\"}"
+            in body
+        )
+
+
 class TestTheWholeCardOpensIt:
     """Owner ruled 2026-08-30: the card cell is the click target, and
     the right-side button stays as the visual call to action."""
@@ -3985,16 +4104,36 @@ class TestTheWholeCardOpensIt:
         so a click on it (and Enter on it, since it is a real button)
         lands on the cell by bubbling."""
         text = _read("ir-tangle-section.ts")
-        button = text.split('class="tcard-btn ${card}"', 1)[1].split(
-            "</button>", 1
-        )[0]
+        button = text.split(
+            'class="action-btn tcard-btn ${card}"', 1
+        )[1].split("</button>", 1)[0]
         assert "@click=" not in button
 
     def test_the_button_is_still_a_button(self):
         """It is the keyboard control and the accessible name for this
         row; the clickable cell is a mouse convenience on top of it."""
         text = _read("ir-tangle-section.ts")
-        assert '<button\n                            class="tcard-btn' in text
+        assert (
+            '<button\n                            class="action-btn tcard-btn'
+            in text
+        )
+
+    def test_the_button_wears_the_shared_chip_and_not_a_copy(self):
+        """P7. It had grown its own anatomy, a taller box that read as
+        a different KIND of control from the command chips it stacks
+        with. ir-action-chip-styles is the one source of truth for
+        that anatomy and exists so a fourth copy cannot drift."""
+        text = _read("ir-tangle-section.ts")
+        assert 'import { actionChipStyles } from "./ir-action-chip-styles.js"' in text
+        assert "actionChipStyles," in text
+        body = text.split(".tcard-btn {", 1)[1].split("}", 1)[0]
+        # Only what is genuinely its own. Anything else here is the
+        # copy coming back.
+        assert "flex: 0 0 auto;" in body
+        for owned_by_the_shared_chip in (
+            "padding:", "font-size:", "border-radius:", "text-transform:",
+        ):
+            assert owned_by_the_shared_chip not in body
 
     def test_a_loading_section_is_not_clickable(self):
         text = _read("ir-tangle-section.ts")
@@ -4105,17 +4244,43 @@ class TestKeepBothSettlesThePair:
 
     def test_keep_both_is_what_settles_it(self):
         text = _read("ir-tangle-decide.ts")
-        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
         assert '"kept"' in body
 
-    def test_keep_both_writes_nothing(self):
-        """The rename already wrote. A pair kept on purpose has nothing
-        left to save, and firing a mutation for a no-op would refetch
-        the listing and the device for no reason."""
+    def test_keep_both_records_the_answer(self):
+        """SUPERSEDES test_keep_both_writes_nothing (issue 23, ruled
+        for the pre-release).
+
+        The old rule was that the rename had already written and a
+        kept pair had nothing left to save. That was wrong about what
+        a kept pair IS. Settling it in a member field meant the
+        decision lived exactly as long as the panel stayed open:
+        reload and the same pair asked the same question again, with
+        the person's answer nowhere on the device. KEEP is the
+        endpoint that exists to record it."""
         text = _read("ir-tangle-decide.ts")
-        body = text.split("private _keepBoth(", 1)[1].split("\n    }", 1)[0]
-        assert "api" not in body
-        assert "_emitMutated" not in body
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
+        assert "this.api.tangleKeep(" in body
+        assert "_emitMutated(" in body
+
+    def test_it_answers_both_rows_in_one_call(self):
+        """One decision about two rows is one save and one successor
+        wig. Answering them one at a time would mint two."""
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
+        assert "pair.rows.map((row) => row.id)" in body
+        assert "this.api.tangleKeep(\n                this.deviceId, ids, true)" in body
+
+    def test_a_refused_answer_does_not_look_settled(self):
+        """The failure mode this whole item is about, arrived at from
+        the other side: a card that says kept while the device knows
+        nothing about it. The resolved mark is written INSIDE the try,
+        after the call returns, and a refusal surfaces instead."""
+        text = _read("ir-tangle-decide.ts")
+        body = text.split("_keepBoth(pair", 1)[1].split("\n    }", 1)[0]
+        assert "} catch (err) {" in body
+        assert "this._error = " in body
+        assert body.index('"kept"') < body.index("} catch (err) {")
 
     def test_keep_both_is_dark_until_the_names_actually_differ(self):
         text = _read("ir-tangle-decide.ts")

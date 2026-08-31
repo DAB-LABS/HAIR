@@ -1302,6 +1302,11 @@ export interface TriggerFiredEvent {
     trigger_id: string;
     trigger_name: string;
     hit_count: number;
+    /** The trigger's stored fire_count AFTER this fire (issue 125).
+     * Assign it; never add to it. ``timestamp`` is the same instant
+     * the row's last_fired_at was stamped with, so the two facts the
+     * aliveness line renders both ride this one push. */
+    fire_count: number;
     protocol: string | null;
     code: string | null;
     source_remote: string | null;
@@ -1524,6 +1529,11 @@ export interface TangleKeepResult {
     attested: true;
     target: string;
     record: Record<string, unknown>;
+    /** Every row this call answered, and the record written for each
+     * (issue 23). ``target`` and ``record`` are the first of these and
+     * stay for callers that only ever send one. */
+    targets: string[];
+    records: Record<string, unknown>[];
     wig: TangleWriteThrough;
 }
 

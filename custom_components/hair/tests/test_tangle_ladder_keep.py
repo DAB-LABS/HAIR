@@ -34,11 +34,13 @@ from custom_components.hair.models import (
 )
 from custom_components.hair.tangles import (
     ATTEST_LADDER_OVERRIDE,
+    attestation_key,
     build_attestation,
     list_tangles,
     project_device,
     read_lattice,
     read_repair,
+    rederive_comb_stamps,
 )
 from custom_components.hair.websocket_api import (
     ws_tangle_apply,
@@ -170,8 +172,14 @@ class TestTheOverrideIsRemembered:
 
     @pytest.mark.asyncio
     async def test_the_finding_itself_is_untouched(self, wired):
-        """Attested is not clean, and has to keep reading as one. The
-        answered row still carries the finding it answers."""
+        """THE RECEIPT PRINCIPLE, untouched by the surface rule.
+
+        The command drops its mark once somebody answers the row, but
+        the ROW keeps the finding it answers and the note that says
+        which road the answer came down. That is what a receipt is
+        for: the disagreement is settled, not erased, and anybody
+        reading the wig later can see both halves of it.
+        """
         hass, device, matrix, cells = wired
         await _apply(
             hass, device, cells[DISPUTED_KEY].pronto,
@@ -280,3 +288,98 @@ class TestWhatRecordsNothing:
             hass, device, cells[CLEAN_KEY].pronto, source="donor")
         assert result["attested"] is None
         assert device.tangle_attestations == []
+
+
+class TestTheOverrideClearsTheMarkOnTheCommand:
+    """A MARK IS AN UNANSWERED DOUBT (owner ruled 2026-08-30).
+
+    Stamps re-derive from the live comb and THEN standing attestations
+    settle them. A ladder override is the strongest form of "I have the
+    hardware in front of me and these bytes are right", so the porthole
+    it answers stops wearing a mark and gets its TRIGGER back. Nothing
+    is lost by it: the class stays on the attested row and in the wig's
+    receipt, which the class above pins.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_answered_row_shows_no_mark(self, wired):
+        hass, device, _matrix, cells = wired
+        porthole = device.commands[0]
+        assert porthole.comb_suspect is True
+
+        await _apply(
+            hass, device, cells[DISPUTED_KEY].pronto,
+            source="capture", reading_disagreed=True,
+        )
+
+        assert device.tangle_attestations
+        assert porthole.comb_suspect is False
+        assert porthole.comb_finding is None
+
+    @pytest.mark.asyncio
+    async def test_the_mark_returns_when_the_map_version_moves(self, wired):
+        """The other half of the rule, and the reason it is safe.
+
+        An attestation is about SOME BYTES read under SOME MAP. Move
+        either and it stops matching, the row comes back to the work
+        list, and the mark returns on its own -- nothing scheduled,
+        nothing swept, no state that can be wrong.
+        """
+        hass, device, matrix, cells = wired
+        porthole = device.commands[0]
+        await _apply(
+            hass, device, cells[DISPUTED_KEY].pronto,
+            source="capture", reading_disagreed=True,
+        )
+        assert porthole.comb_suspect is False
+
+        record = device.tangle_attestations[0]
+        record["map"] = {**(record.get("map") or {}), "version": "moved"}
+        record["key"] = attestation_key(TARGET_KEY, record["digest"], "moved")
+
+        rederive_comb_stamps(device, matrix, [porthole])
+
+        row = next(r for r in list_tangles(device, matrix).rows
+                   if r.id == TARGET)
+        assert CHECK_FIELD_MISMATCH in row.classes
+        assert porthole.comb_suspect is True
+        assert porthole.comb_finding == row.classes[0]
+
+
+class TestTheRowSaysWhatItCompared:
+    """P5's backend half.
+
+    The comb reports the BYTES it compared, because at the layer it
+    works on bytes are all there is. A person reading the row wants the
+    two settings, and the map that raised the finding is the only thing
+    that can name them, so the listing names them on the way out.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_mismatch_finding_names_both_values(self, wired):
+        _hass, device, matrix, _cells = wired
+        row = next(
+            r for r in list_tangles(device, matrix).rows if r.id == TARGET
+        )
+        finding = next(
+            f for f in row.findings if f["check"] == CHECK_FIELD_MISMATCH
+        )
+        params = finding["params"]
+        assert str(params["claimed"]) == "25.0"
+        assert params["reads_as"] is not None
+        assert str(params["reads_as"]) != str(params["claimed"])
+
+    @pytest.mark.asyncio
+    async def test_the_bytes_it_compared_are_still_there(self, wired):
+        """Named, not replaced. A surface that wants the raw comparison
+        still has it, and a value the map cannot name gets no label
+        rather than a guess."""
+        _hass, device, matrix, _cells = wired
+        row = next(
+            r for r in list_tangles(device, matrix).rows if r.id == TARGET
+        )
+        finding = next(
+            f for f in row.findings if f["check"] == CHECK_FIELD_MISMATCH
+        )
+        assert finding["params"]["expected"].startswith("0x")
+        assert finding["params"]["read"].startswith("0x")

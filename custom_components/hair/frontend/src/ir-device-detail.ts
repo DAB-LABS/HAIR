@@ -294,8 +294,30 @@ export class IrDeviceDetail extends LitElement {
      * recorded below. Refetch the device, bump the keyed list, leave
      * the rest of the page alone. */
     private _onTangleMutated = async (): Promise<void> => {
-        this.device = await this.api.getDevice(this.device.id);
+        const fresh = await this.api.getDevice(this.device.id);
+        this.device = fresh;
         this._commandsListVersion++;
+        // AND TELL THE PARENT, QUIETLY (P8). ``device`` is a property
+        // ir-device-list hands down from its own cached copy, so the
+        // fresh device set above survives only until that list renders
+        // for any reason at all -- another card blooming, a trigger
+        // firing, a hass tick. Then the stale copy comes back down and
+        // a repaired command is wearing its old bytes and its old comb
+        // mark again, with nothing on screen that says why.
+        //
+        // This is not device-changed. That event makes the list refetch
+        // and rebuild this element, which closes the tangle flow the
+        // person is standing in -- the 2026-08-07 cascade the comment
+        // above is about. It hands over the device already fetched, the
+        // whole of it, exactly as getDevice returned it, and the list
+        // swaps its cache for it and renders nothing new.
+        this.dispatchEvent(
+            new CustomEvent("device-refreshed", {
+                detail: { device: fresh },
+                bubbles: true,
+                composed: true,
+            }),
+        );
     };
 
     /** Bench fix (2026-08-07): the "wig-saved" handler for all three

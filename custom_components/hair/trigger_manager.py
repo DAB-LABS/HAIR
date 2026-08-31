@@ -519,6 +519,17 @@ class TriggerManager:
             "trigger_id": trigger.id,
             "trigger_name": trigger.name,
             "hit_count": hit_count,
+            # THE TALLY ITSELF, not a signal to add one (issue 125).
+            # The panel used to increment its own copy on every push,
+            # which is only correct if every push arrives exactly once
+            # and the copy started right. Neither is guaranteed by
+            # anything, and both were false: the row counted two per
+            # press. This is the stored number, taken after the
+            # increment above, so a listener assigns what the store
+            # says rather than doing arithmetic of its own. Two pushes
+            # for one fire would then be visible as no change at all
+            # rather than as a doubled count.
+            "fire_count": trigger.fire_count,
             "protocol": trigger.protocol,
             "code": trigger.code,
             "source_remote": source_device_fp,

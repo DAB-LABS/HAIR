@@ -51,6 +51,7 @@ import {
     sameReading,
     targetWords,
 } from "./ir-tangle-copy.js";
+import { reasonLine } from "./ir-tangle-reason.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 
@@ -143,10 +144,19 @@ export class IrTangleListen extends LitElement {
         return typeof message === "string" && message ? message : String(err);
     }
 
-    private _emitMutated(wigWritten: boolean | null): void {
+    /** ``replaced`` is how many codes THIS press put right (P6). The
+     * section adds it up so that, if the press turns out to be the
+     * last thing the device was waiting on, the retirement line can
+     * say what the press did instead of only that something was
+     * saved. Nothing else reads it, and a mutation that was not a
+     * press simply does not carry it. */
+    private _emitMutated(
+        wigWritten: boolean | null,
+        replaced = 0,
+    ): void {
         this.dispatchEvent(
             new CustomEvent("tangle-mutated", {
-                detail: { wigWritten },
+                detail: { wigWritten, replaced },
                 bubbles: true,
                 composed: true,
             }),
@@ -247,7 +257,7 @@ export class IrTangleListen extends LitElement {
         });
         this._states = new Map(this._states).set(row.id, "captured");
         this._setMessage(row.id, undefined);
-        this._emitMutated(result.wig.written);
+        this._emitMutated(result.wig.written, 1);
 
         if (cluster?.mechanic === "witness" && cluster.field) {
             try {
@@ -407,6 +417,16 @@ export class IrTangleListen extends LitElement {
         return targetWords(target, this.matrixUnit, installUnit(this.hass));
     }
 
+    /** This row's reason, on a middle dot after its name (P5).
+
+     * Never a dash. A dash between a name and a sentence reads as an
+     * aside, and the copy rule for every rendered string in this build
+     * is that there are none. */
+    private _reason(row: TangleRow) {
+        const line = reasonLine(row, this.matrixUnit, installUnit(this.hass));
+        return line ? html`<span class="reason"> · ${line}</span>` : nothing;
+    }
+
     protected render() {
         if (this._closing) {
             return html`
@@ -434,7 +454,9 @@ export class IrTangleListen extends LitElement {
         if (state === "captured") {
             return html`
                 <div class="lrow captured">
-                    <span class="lname">${this._words(row.target)}</span>
+                    <span class="lname"
+                        >${this._words(row.target)}${this._reason(row)}</span
+                    >
                     <span class="done-mark">${t("tangles.listen_captured")}</span>
                 </div>
             `;
@@ -442,7 +464,9 @@ export class IrTangleListen extends LitElement {
         if (state === "skipped") {
             return html`
                 <div class="lrow skipped">
-                    <span class="lname">${this._words(row.target)}</span>
+                    <span class="lname"
+                        >${this._words(row.target)}${this._reason(row)}</span
+                    >
                     <span class="skip-mark">${t("tangles.skip_for_now")}</span>
                 </div>
             `;
@@ -463,7 +487,9 @@ export class IrTangleListen extends LitElement {
         return html`
             <div class="lrow">
                 <div class="ltop">
-                    <span class="lname">${this._words(row.target)}</span>
+                    <span class="lname"
+                        >${this._words(row.target)}${this._reason(row)}</span
+                    >
                     <span class="lactions">
                         <button
                             class="action-btn listen-btn ${heard
@@ -574,6 +600,11 @@ export class IrTangleListen extends LitElement {
                 font-size: 0.8rem;
                 color: var(--primary-text-color);
                 min-width: 0;
+            }
+            .reason {
+                color: var(--secondary-text-color);
+                font-family: var(--paper-font-body1_-_font-family, inherit);
+                font-weight: 400;
             }
             .lactions {
                 display: flex;

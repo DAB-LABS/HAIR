@@ -318,7 +318,21 @@ export class IrDeviceList extends LitElement {
     private _devicesSortable: Sortable | null = null;
     private _pendingDevicesSave: number | null = null;
 
-    private _unsubTriggerFired: (() => Promise<void>) | null = null;
+    /** The trigger-fired subscription, held as the PROMISE rather
+     * than as the unsubscribe it resolves to (issue 125).
+     *
+     * THE RACE. connectedCallback starts a subscribe; `updated` runs
+     * before it resolves, sees a null unsubscribe handle, and starts a
+     * second one. Both land, both stay, and every fire is delivered
+     * twice for the rest of the session: the row counted two per press
+     * and the Sniffer, which assigns rather than adds, looked merely
+     * one ahead. Restarting fixed it because a fresh element subscribes
+     * once, which is exactly why it never reproduced on demand.
+     *
+     * A promise assigned synchronously closes it. The guard is set in
+     * the same tick the subscribe starts, so there is no window for a
+     * second caller to find nothing there. */
+    private _triggerFiredSub: Promise<() => Promise<void>> | null = null;
 
     connectedCallback(): void {
         super.connectedCallback();
@@ -353,7 +367,7 @@ export class IrDeviceList extends LitElement {
         if (changed.has("hass") || changed.has("api")) {
             this._discoverHardware();
         }
-        if (changed.has("api") && this.api && !this._unsubTriggerFired) {
+        if (changed.has("api") && this.api && !this._triggerFiredSub) {
             void this._loadTriggers();
             void this._loadTriggerDrawer();
             void this._subscribeTriggerFired();
@@ -476,6 +490,26 @@ export class IrDeviceList extends LitElement {
         this.dispatchEvent(
             new CustomEvent("device-changed", { bubbles: true, composed: true }),
         );
+    }
+
+    /**
+     * The expanded child refetched its own device; take its copy.
+     *
+     * The same trade _onCommandsReordered makes, for the same reason:
+     * the child has the authoritative object already, so a round-trip
+     * here would buy nothing and cost a render. What it prevents is
+     * the opposite of a missing refresh -- this cache overwriting a
+     * fresher device on its next render (P8).
+     *
+     * Guarded on the id because the cache belongs to whichever device
+     * is expanded NOW. A refresh that resolves after the person has
+     * collapsed the card, or opened another one, is about a device
+     * this element is no longer showing.
+     */
+    private _onExpandedDeviceRefreshed(ev: CustomEvent): void {
+        const fresh = ev.detail?.device as IRDevice | undefined;
+        if (!fresh || fresh.id !== this.expandedDeviceId) return;
+        this._expandedDevice = fresh;
     }
 
     private _onExpandedDeviceDeleted(): void {
@@ -1190,9 +1224,9 @@ export class IrDeviceList extends LitElement {
     }
 
     private async _subscribeTriggerFired(): Promise<void> {
-        if (!this.api) return;
+        if (!this.api || this._triggerFiredSub) return;
         try {
-            this._unsubTriggerFired = await this.api.subscribeTriggerFired(
+            this._triggerFiredSub = this.api.subscribeTriggerFired(
                 (ev: TriggerFiredEvent) => {
                     // One channel, two kinds of news (signpost 4, Track M):
                     // a matrix Remote's heard state rides this same
@@ -1234,29 +1268,47 @@ export class IrDeviceList extends LitElement {
                             this._glowTriggerIds = next;
                         },
                     );
-                    // Bump the trigger's own fire_count/last_fired_at
-                    // optimistically so the row's aliveness phrase updates
-                    // without waiting on a full _loadTriggers() round-trip.
+                    // ASSIGN, DO NOT ADD (issue 125). The push
+                    // carries the store's own fire_count taken after
+                    // the fire, and its timestamp is the instant
+                    // last_fired_at was stamped with, so the row shows
+                    // the two facts the backend actually holds. It
+                    // still updates without waiting on a full
+                    // _loadTriggers() round-trip, which is the whole
+                    // point of doing it here; what it no longer does
+                    // is compute a number of its own that only a
+                    // restart could correct.
                     this._triggers = this._triggers.map((t) =>
                         t.id === ev.trigger_id
                             ? {
                                   ...t,
-                                  fire_count: t.fire_count + 1,
-                                  last_fired_at: new Date().toISOString(),
+                                  fire_count: ev.fire_count,
+                                  last_fired_at: ev.timestamp,
                               }
                             : t,
                     );
                 },
             );
+            await this._triggerFiredSub;
         } catch {
-            // Non-fatal.
+            // Non-fatal, and it lets a later attempt try again.
+            this._triggerFiredSub = null;
         }
     }
 
     private async _unsubscribeTriggerFired(): Promise<void> {
-        if (this._unsubTriggerFired) {
-            await this._unsubTriggerFired();
-            this._unsubTriggerFired = null;
+        const pending = this._triggerFiredSub;
+        this._triggerFiredSub = null;
+        if (!pending) return;
+        try {
+            // Awaited, not skipped: tearing down while the subscribe
+            // is still in flight is the other half of the same race,
+            // and dropping the handle there would leave a live
+            // subscription behind on a page the person has left.
+            const unsub = await pending;
+            await unsub();
+        } catch {
+            // Never landed; there is nothing to tear down.
         }
     }
 
@@ -1833,6 +1885,8 @@ export class IrDeviceList extends LitElement {
                                                     .receivers=${this._receivers}
                                                     .triggerRemotes=${this.triggerRemotes}
                                                     @device-changed=${this._onExpandedDeviceChanged}
+                                                    @device-refreshed=${this
+                                                        ._onExpandedDeviceRefreshed}
                                                     @device-deleted=${this._onExpandedDeviceDeleted}
                                                     @commands-reordered=${this._onCommandsReordered}
                                                     @trigger-changed=${this._loadTriggers}
