@@ -282,6 +282,48 @@ The result is stored on `wig.extra["comb"]`, an optional extra-key convention **
 - **A version 1 receipt has no `coverage` key and that absence is the honest answer**, not an empty one: a receipt written before coverage existed cannot say what it did not check. Version 1 receipts still parse and still display; combing again writes a version 2 receipt in place.
 - A receipt describes the codes as they were when it was written. A REPLACE changes codes without touching the receipt, so a stale receipt is expected and combing again is what refreshes it.
 
+## Repairs and attestations
+
+Added in HAIR 0.14.0. When a person fixes a comb finding on a device made from a wig, HAIR writes the result back to the closet as a **repaired successor** of the source wig rather than editing the source. The first repair on an adopted device mints beside the contributor's original and leaves it standing; every repair after that supersedes the version before it (through the ordinary `supersedes` list), so the closet settles at two files: theirs, and the repaired one. The successor carries `"hair_repair_successor": true` in its top-level `extra`, and that stamp is the only thing the write-through will ever replace: a file without it is somebody's own and is never overwritten.
+
+Three records ride along, all in `extra` maps and all **outside every canonical hash**, so a repaired wig's identity is decided by its bytes and nothing else.
+
+**The repair record** sits on the repaired cell (or signal) under `hair_repair`:
+
+```json
+"hair_repair": {
+    "origin": "fix",
+    "source": "donor",
+    "applied": "2026-08-30T21:14:02+00:00",
+    "tested": true,
+    "sends_fired": 3,
+    "tier": "air-tested",
+    "prior": {"pronto": "0000 006D ...", "digest": "..."},
+    "finding": {"key": "cool/low/24", "classes": ["field-mismatch"]},
+    "map": {"id": "MITSUBISHI144", "version": "3f9a1c0e5b7d2a48"}
+}
+```
+
+- `source` is where the bytes came from: `donor` (a cell already in the file that reads as the needed value), `synthesized` (built under a ratified field rule from a witnessed capture, and pre-read back before it was offered), `capture` (a press from the real remote), or `paste`.
+- `prior` is the one-step undo: the bytes and digest the cell held before this repair. It is not a history, so reverting twice is not a thing.
+- `tested` is **recorded, never verified**. HAIR cannot see an air conditioner respond; `sends_fired` is how many times the surface actually fired the code, and `tier` derives from it: `air-tested` when at least one send went out, `accepted` otherwise.
+- `reading_disagreed`, when present, records that the field reader still disagreed with the label and a person chose Use It Anyway: what the bytes read as, what the cell claims, and which fields differ. Repeated same-family disagreements are how a field map gets re-ratified, and they can only accumulate if they are written down.
+
+**Attestations** are a person's answer to a finding that changes no bytes: looked at it, it works, keep it. They come from Use It Anyway and from Keep Both, and they live inside the comb receipt as `attested`, beside the findings they answer:
+
+```json
+"attested": [
+    {"key": "cool/low/24|<digest>|3f9a1c0e5b7d2a48", "target": "cool/low/24", "kind": "cell",
+     "digest": "...", "classes": ["field-mismatch"], "tested": true,
+     "attested": "2026-08-30T21:20:11+00:00",
+     "map": {"id": "MITSUBISHI144", "version": "3f9a1c0e5b7d2a48"}}
+]
+```
+
+- `key` is what the attestation is **about**, expressed so it can expire itself: the target, the payload digest, and the field-map version (a content digest of the map document, so an edited map is a new version whether or not anybody remembered to bump a number). Change the bytes or change the map and the key stops matching, so the finding comes back on its own. A flat wig's row matches on digest and map version alone, so a rename does not lose the answer.
+- **Attesting never silences the comb.** The receipt still carries the finding; the attestation sits next to it. The comb doubts bytes, a person vouches for hardware, and a row can honestly carry both. A reader that shows findings should show the answers beside them.
+- A version 2 receipt without an `attested` key simply has no answers recorded.
+
 ## Superseded versions
 
 <details>

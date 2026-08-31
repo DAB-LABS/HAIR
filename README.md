@@ -139,7 +139,7 @@ Every command row on an AC Device also has a star; click it to make that command
 
 A few limits to know: files whose codes are stored as Xiaomi-controller Raw are refused on import, since that format is proprietary rather than timing data HAIR can convert. Of the cells that do convert, a small share (roughly half a percent) fail and are skipped, with the reason written into the wig's notes; HAIR never invents a code for a state the file does not carry.
 
-If the comb flags a cell as suspect when you make a device from the wig, that cell gets its own named command row on the device instead of staying buried in the matrix, so you can **TEST** it, fix it, or delete it like any other command.
+If the comb flags a cell, it stays in the matrix and shows up under **Needs attention** on the device. See [Fix codes that need attention](#fix-codes-that-need-attention).
 
 ## Import codes (SmartIR and the closet)
 
@@ -161,6 +161,18 @@ Good to know: a Remote made from a wig, or a Device adopted from one, recognizes
 Every arrival is also combed on the way in. Combing is a different question from fitting: a fitting asks whether a code works on your hardware, combing asks whether a wig's codes agree with each other, and it can answer that on its own, without hardware or a protocol decoder. It catches things like a cell that quietly sends its neighbor's code, a frame too short for the device to register, or a gap in an otherwise complete temperature run. The comb glyph on a closet row stays plain grey until something is checked, glows yellow when a finding needs a look, and glows red for the one class worth interrupting you for: the neighbor's-code mix-up, since the device answers and looks like it worked while quietly setting the wrong state.
 
 ![Closet tab with brand shelves, count chips, the oxblood drop bar, and library and personal wigs side by side](images/screenshots/closet.png)
+
+## Fix codes that need attention
+
+When the comb finds a problem in a wig, the device made from it shows a **Needs attention** block above its commands. Each row is one code and a reason.
+
+To fix a code:
+
+1. Click **Fix** on the card.
+2. Do what the card asks. Some fixes are ready to accept. Some need a press from your remote. Some ask you to pick between two buttons that share a name.
+3. The row goes away. The device sends the fixed code from then on.
+
+A code still sends as-is until you fix it, so nothing here stops you from using the device.
 
 ## Share a wig
 
@@ -185,7 +197,7 @@ To fit a wig:
 5. If your device has gained or dropped commands since the wig was last saved, review the **Changes with new fitting** section before you sign.
 6. Sign. Your verdicts tie to a key generated on your own install, not the name you type, so nobody can edit your results or fit in your name. Fitting the same wig again later just replaces your old signature.
 
-To fix a broken code, do it on the device itself, not in the fitting screen: open the command, paste in a corrected Pronto code or press **LISTEN** to capture it fresh, then save. Run **Update Closet Wig** afterward to push the fix back to the shared file (state-matrix AC wigs are the exception; they repair in place and recomb automatically). A repaired wig is a different wig, so a change to any command starts a brand new fitting carrying only your signature, current until someone else fits the corrected version too.
+Fix flagged codes under **Needs attention** before you fit. Perfect Fit waits until that block is empty. To fix a code the comb did not catch, open the command, paste in a corrected Pronto code or press **LISTEN**, then save. A repaired wig is a different wig, so any change starts a brand new fitting with only your signature on it.
 
 Give the device a beat between presses so you can watch it react before marking a row. Fittings are what make a shared wig trustworthy, and only perfect-fit wigs can graduate into generated Home Assistant integrations.
 

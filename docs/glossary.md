@@ -324,6 +324,23 @@ code, a frame too short to register, or a gap in a temperature run. The comb
 glyph on a Closet row stays grey until something is checked, glows yellow when
 a finding needs a look, and red for the neighbor's-code mix-up.
 
+**Needs attention.** The block above a Device's commands that lists what the
+comb found in its wig, one row per code with a plain reason. Every card has one
+**Fix** button. Some fixes are ready to accept, some need a press from your
+remote, and some ask you to choose between two buttons that share a name.
+
+**Repaired.** The chip on a command whose code was fixed from Needs attention.
+The fix is saved to your Closet as a repaired copy of the wig; the original
+file is never changed.
+
+**Use It Anyway.** When HAIR keeps hearing something other than what it asked
+for, this keeps your press as the answer. HAIR remembers the answer, so the
+row does not come back.
+
+**Keep Both.** When two buttons share one name or two states share one code
+and that is how the remote really works, this keeps both and remembers the
+answer.
+
 ## Fittings
 
 **Fitting.** Proof that a wig's codes actually work on real hardware, and the
@@ -332,7 +349,8 @@ proof travels with the file from then on. You run one from **Save to Closet**,
 
 **Perfect Fit.** A finished fitting: every row of a flat wig checked, or every
 dimension of a state-matrix wig checked or honestly excluded ("not on my
-device", "could not make it work"). There is no partial grade. Only perfect-fit
+device", "could not make it work"). There is no partial grade. A fitting
+waits until the Device's Needs attention block is empty. Only perfect-fit
 wigs can graduate into generated Home Assistant integrations.
 
 **Signature.** The proof on a fitting. Your verdicts tie to a key generated on

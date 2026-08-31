@@ -167,11 +167,11 @@ Key components:
   hyphenated never dotted, because the old dotted suffix failed the
   shop's upload. The client no longer composes a name at all, so a closet
   row and its filename read the same claims and can never disagree. A
-  comb-flagged cell (v0.9.8, the comb gate) joins the matrix checklist as
-  its own coordinate-named, check-only row before a perfect fit can sign
-  it; the check is the resolution -- a tested flag that works is simply
-  checked, a code that really is broken is fixed on the device and rides
-  the existing porthole/propose path. The read-only ledger (via the
+  comb-flagged cell used to join the matrix checklist as its own
+  coordinate-named row (v0.9.8 through v0.12.1); since v0.14.0 flagged
+  cells stay in the matrix and are resolved in the device's Needs
+  attention block (see Detangle below), and a perfect fit refuses to sign
+  while any finding on the device is open. The read-only ledger (via the
   fittings-count door on the save dialog) shows fitters, per-row verdicts,
   signature states, and orphaned claims. Pre-claims fittings are dropped
   on import with a receipt notice; they cannot become claims (a whole-file
@@ -256,6 +256,29 @@ Key components:
   bi-phase protocols vary pair count by command, so flat remotes flag gross
   outliers instead. The closet row carries a comb glyph, grey with a yellow or
   red glow, which is also the action that opens the report.
+- Detangle (v0.14.0): comb findings become fixes, in tangles.py behind the
+  tangles/* websocket door. list_tangles turns a device's comb receipt into
+  rows, one per flagged code, each carrying a plain reason line (fourteen
+  reason keys; field-mismatch findings get the map's labels stamped on).
+  Rows cluster into three roads. FIX: the correct bytes already exist in
+  the file (a donor cell that reads as the needed value, or a frame
+  synthesized under a ratified field rule and pre-read back before it is
+  offered); the user accepts one or all. LISTEN: a press from the real
+  remote is needed; the heard frame is read back against the coordinate
+  and a mismatch is reported three times before Use It Anyway records a
+  keep attestation. DECIDE: two members carry one name or one code; rename,
+  delete, or Keep Both. Attestations key on target, payload digest, and
+  field-map version (flat rows on digest and version alone, so answers
+  survive renames); an attested row reads clean on the surface and the
+  record is kept, on the rule that a mark is an unanswered doubt. Every
+  repair writes through to the closet as a repaired successor wig beside
+  the original; the original is never edited. Comb stamps rederive at the
+  moment a device comes clean. Matrix cells are never extracted as
+  commands (the v0.9.8 porthole path is retired); flat-wig findings sit on
+  the individual commands. A flat wig never gets synthesized bytes in
+  this release: reconstruction by frame vote is next-cycle work. The
+  Perfect Fit dialog refuses to open the checklist while findings are
+  open and says how many codes need attention.
 - Adopt Device (v0.8.1): every code set becomes a HAIR device in one step,
   from wherever you meet it. Closet wigs, library rows, Sniffer remotes,
   Clipper remotes, and Plucker blasters all carry one ADOPT button
@@ -314,7 +337,7 @@ Key components:
   command row of an AC device promotes that command to preset_mode on
   the climate entity, named after the command; unstarring retires it.
   Learned commands and states saved out of the STATE MATRIX card both
-  qualify; comb repair rows do not. Presets are stored per device and
+  qualify; matrix cells do not. Presets are stored per device and
   are never written into a wig.
 - Device-sent state (v0.10.1): every transmit path dispatches a
   device-sent notification once at least one emitter has accepted the
