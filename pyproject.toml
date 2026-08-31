@@ -4,14 +4,15 @@ version = "0.9.6"
 description = "HAIR - Home Assistant IR Device Manager"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [
     { name = "David Bailey", email = "david.a.bailey@gmail.com" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 [tool.setuptools.packages.find]
@@ -49,8 +50,9 @@ test = [
     # newest 5.x today and picks up 6.x automatically once it is published.
     # Upstream moved to 7.x in 2026-07; the commands.Command contract is
     # unchanged from 5.x (verified against the 7.5.0 source), so the cap
-    # tracks the next major.
-    "infrared-protocols>=5.6,<9.0; python_version >= '3.13'",
+    # tracks the next major. The library publishes for Python 3.13 and
+    # up, which is also HA 2026.4's floor, so the pin is unconditional.
+    "infrared-protocols>=5.6,<9.0",
 ]
 lint = [
     "ruff>=0.4",
@@ -62,14 +64,14 @@ testpaths = ["custom_components/hair/tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 99
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
