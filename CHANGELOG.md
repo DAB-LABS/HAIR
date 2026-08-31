@@ -5,6 +5,34 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-08-31 -- Detangle
+
+There is no 0.13.0; the version number skips from 0.12.1 to 0.14.0.
+
+### Added
+
+- Needs attention: a device made from a wig with comb findings shows a block above its commands, one row per flagged code with a plain reason line (fourteen reason keys, with the field map's own labels on a field mismatch). Rows cluster into three cards, each with one Fix button. Fixes ready: the correct bytes already exist in the file, as a donor cell or as a frame synthesized under a ratified field rule and read back before it is offered; accept one or Accept All. Listen: a press from the real remote is needed; the heard frame is read back against the row, a mismatch is reported in plain words up to three times, and Use It Anyway keeps the press and records the answer. Decide: two buttons share a name or two states share a code; rename, delete, or Keep Both.
+- Repairs write back to the Closet. A fix on an adopted device mints a repaired copy of the wig beside the original and never edits the original; later fixes supersede the repaired copy. Each repaired cell carries a repair record (source, prior bytes for a one-step undo, sends fired, and an accepted or air-tested tier), and answers recorded through Use It Anyway and Keep Both ride inside the comb receipt as attestations keyed to the bytes and the field-map version, so they expire on their own when either changes. A Repaired chip marks the command.
+- Perfect Fit waits for a clean device: the fitting refuses to open while any finding is open, and the dialog says how many codes need attention.
+- Second-pass frame identification for protocols whose repeats are identical by rule (Mitsubishi 144 and Midea Coolix), so a two-frame press reads as one code instead of an unreadable frame.
+- Matrix names show in your install's temperature unit everywhere, including what a listen heard and the row it names.
+
+### Changed
+
+- Flagged matrix cells stay in the matrix and are fixed there. Adopting a wig no longer pulls them out as separate comb-flagged command rows.
+- Dropping a wig you already have offers the newer copy (or import anyway, or cancel) instead of filing a duplicate.
+- Comb stamps rederive the moment a repair lands or a device comes clean, so a Repaired chip stays put across renders and the closet glyph agrees with the device.
+- An attested row reads clean on the surface; the record is kept in the receipt. A mark is an unanswered doubt.
+- Newly minted commands land at the top of the list on the three mint paths and are appended everywhere else.
+- Tests run on Python 3.13 and 3.14, matching the Home Assistant 2026.4 floor; the 3.12 leg was skipping the decoder tests that need infrared-protocols.
+
+### Fixed
+
+- The receive counter no longer runs ahead of itself: the panel subscribed twice on connect, so one press counted as two. Reported by @philippegu56 (GH #125).
+- A flat recapture accepts a decoded press when the reader has no verdict to compare against, instead of refusing every press.
+- Listen closes cleanly on timeout and on teardown, and says so instead of hanging.
+- Duplicate-label pairs on flat wigs are clustered on payload digest, so the same code under two names is one Decide card.
+
 ## [0.12.1] - 2026-08-26 -- Undercut
 
 ### Fixed
