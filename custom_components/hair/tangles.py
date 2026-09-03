@@ -598,6 +598,18 @@ def find_trim(
     pairs = _pairs(pronto)
     if not pairs:
         return None, TRIM_NOTHING_TO_TRIM
+
+    # A Pronto header splits its pairs into a once sequence and a repeat
+    # sequence, and _write_pronto below writes the result as once-only.
+    # That is what every matrix cell HAIR has met looks like, but it is
+    # a fact about the corpus and not about the format, so it is checked
+    # rather than assumed: deleting a pair from a code that carries a
+    # repeat sequence would fold the repeat pairs into the once sequence
+    # and change what a blaster does while the button is held. A code
+    # shaped like that is not this branch to trim.
+    once, repeat = _sequence_counts(pronto)
+    if repeat or once != len(pairs):
+        return None, TRIM_HAS_REPEAT_SEQUENCE
     lengths = _frame_lengths(pairs)
     if len(lengths) < 2:
         return None, TRIM_NOTHING_TO_TRIM
@@ -636,6 +648,18 @@ def find_trim(
     }, None
 
 
+def _sequence_counts(pronto: str) -> tuple[int, int]:
+    """The header's (once, repeat) burst-pair counts, or (0, 0)."""
+    tokens = pronto.split()
+    try:
+        words = [int(tok, 16) for tok in tokens[:4]]
+    except ValueError:
+        return 0, 0
+    if len(words) < 4:
+        return 0, 0
+    return words[2], words[3]
+
+
 def _write_pronto(original: str, pairs: list[tuple[int, int]]) -> str | None:
     """``pairs`` written back as a Pronto code, keeping the header.
 
@@ -653,8 +677,9 @@ def _write_pronto(original: str, pairs: list[tuple[int, int]]) -> str | None:
         return None
     if len(words) < 4:
         return None
-    # A one-off burst sequence and no repeat sequence, which is what
-    # every code this repairs already is.
+    # A once sequence and no repeat sequence. find_trim refuses any
+    # code that is not already shaped this way, so this is a statement
+    # of what was checked rather than an assumption about the input.
     out = [words[0], words[1], len(pairs), 0]
     for mark, space in pairs:
         out.extend([mark, space])
@@ -1629,6 +1654,10 @@ TRIM_FRAGMENT_IS_A_FRAME = "fragment-is-a-frame"
 #: The trimmed bytes stopped reading as this cell claims. A map that can
 #: check the result gets to veto it.
 TRIM_READS_WRONG = "trimmed-bytes-read-wrong"
+#: The code carries a repeat sequence, or its header does not account for
+#: every pair as once-only. Trimming would have to rewrite the sequence
+#: split, which is a re-encode and not a deletion.
+TRIM_HAS_REPEAT_SEQUENCE = "code-has-repeat-sequence"
 
 
 class SynthesisBug(RuntimeError):

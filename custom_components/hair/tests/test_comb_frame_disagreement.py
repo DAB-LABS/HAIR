@@ -559,6 +559,97 @@ class TestTheDebrisTrim:
             self._matrix([first, second, candidate["pronto"]]))
         assert "stray-burst" not in {f.check for f in after.findings}
 
+    def test_a_code_with_a_repeat_sequence_is_not_trimmed(self):
+        """A Pronto header splits pairs into a once sequence and a
+        repeat sequence, and the trimmed code is written once-only.
+        On a code that already is, that is a deletion. On a code that
+        carries a repeat sequence it would be a rewrite of what the
+        blaster loops while the button is held, so the builder abstains
+        and names the reason, whatever the tail looks like."""
+        from custom_components.hair.tangles import (
+            TRIM_HAS_REPEAT_SEQUENCE,
+            find_trim,
+        )
+
+        words = self._dangling().split()
+        total = int(words[2], 16)
+        # The same pairs, with the dangling one declared as the repeat
+        # sequence instead of part of the once sequence.
+        words[2] = f"{total - 1:04X}"
+        words[3] = "0001"
+        split = " ".join(words)
+        candidate, abstain = find_trim(split, [{"check": "stray-burst"}])
+        assert candidate is None
+        assert abstain == TRIM_HAS_REPEAT_SEQUENCE
+
+        # And the whole code as a repeat sequence, which some exporters
+        # write for a held-button code.
+        words[2] = "0000"
+        words[3] = f"{total:04X}"
+        held = " ".join(words)
+        candidate, abstain = find_trim(held, [{"check": "stray-burst"}])
+        assert candidate is None
+        assert abstain == TRIM_HAS_REPEAT_SEQUENCE
+
+    def test_a_header_that_miscounts_its_pairs_is_not_trimmed(self):
+        """The once count has to account for every pair. A header that
+        says fewer pairs than the code carries is a code the builder
+        cannot rewrite faithfully, so it does not."""
+        from custom_components.hair.tangles import (
+            TRIM_HAS_REPEAT_SEQUENCE,
+            find_trim,
+        )
+
+        words = self._dangling().split()
+        words[2] = f"{int(words[2], 16) - 1:04X}"
+        short = " ".join(words)
+        candidate, abstain = find_trim(short, [{"check": "stray-burst"}])
+        assert candidate is None
+        assert abstain == TRIM_HAS_REPEAT_SEQUENCE
+
+    def test_flat_rows_never_reach_the_trim_builder(self, monkeypatch):
+        """SCOPE PIN (0.14.1 B3 is matrix only). The flat comb has no
+        stray-burst detector yet, and the ditto whitelist a flat trim
+        needs ships with that detector. Until then a flat row must not
+        be offered a trim by any road, however its capture ends: the
+        builder is simply never consulted for a command row."""
+        from custom_components.hair import tangles
+        from custom_components.hair.const import CommandCategory
+        from custom_components.hair.models import IRCommand, IRDevice
+
+        calls: list[str] = []
+
+        def spy(pronto, *args, **kwargs):
+            calls.append(pronto)
+            raise AssertionError("find_trim consulted for a flat row")
+
+        monkeypatch.setattr(tangles, "find_trim", spy)
+
+        device = IRDevice(name="Fan", emitter_entity_ids=["infrared.b"])
+        # A genuinely disagreeing capture, so the row is open, with a
+        # dangling pair on the end so a trim WOULD have something to
+        # remove if anything asked for one.
+        from custom_components.hair.tests.util_disagreeing_capture import (
+            SECOND_OPEN_ROW,
+        )
+        words = SECOND_OPEN_ROW.split()
+        words += ["0010", f"{TRAILER:04X}"]
+        words[2] = f"{int(words[2], 16) + 1:04X}"
+        device.add_command(IRCommand(
+            name="Oscillate", category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=" ".join(words),
+        ))
+        device.add_command(IRCommand(
+            name="Power", category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=self._clean("110100100101"),
+        ))
+
+        rows = tangles.list_tangles(device, None).rows
+        assert calls == []
+        for row in rows:
+            assert row.has_donor is False
+            assert row.donor is None
+
 
 class TestADecodeThatVotesStandsTheCheckDown:
     """0.14.1 A1. The field case, and the four ways it must not overreach.
