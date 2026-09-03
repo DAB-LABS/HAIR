@@ -52,6 +52,7 @@ import {
     targetWords,
 } from "./ir-tangle-copy.js";
 import { reasonLine } from "./ir-tangle-reason.js";
+import "./ir-signal-editor.js";
 import { installUnit, type MatrixUnit } from "./temperature.js";
 import { actionChipStyles } from "./ir-action-chip-styles.js";
 
@@ -80,6 +81,19 @@ export class IrTangleListen extends LitElement {
     // (still-wrong) bytes.
     @state() private _lastPronto = new Map<string, string>();
     @state() private _ladder = new Set<string>();
+    /** The row whose Fix popup is open, if any (0.14.1 B1).
+     *
+     * The popup is the ordinary command editor in its tangle mode:
+     * code box, paste, live validation and the carrier snap, with
+     * the fields that mean nothing to a repair left out. Paste goes
+     * through the same apply door the rest of this surface uses.
+     *
+     * LISTEN IS NOT IN THE POPUP THIS ROUND (owner ruled
+     * 2026-09-02). The inline Listen button below is unchanged and
+     * still owns the press flow; consolidating the two entries is
+     * queued with the Fix rename for the next cycle.
+     */
+    @state() private _fixing: TangleRow | null = null;
     @state() private _listeningRow: string | null = null;
     // Rows with an arm or an apply in flight. USE IT ANYWAY used to
     // stay live through its own apply, and a second click would have
@@ -422,6 +436,12 @@ export class IrTangleListen extends LitElement {
      * Never a dash. A dash between a name and a sentence reads as an
      * aside, and the copy rule for every rendered string in this build
      * is that there are none. */
+    /** The reason as plain text, for the popup that has no room for
+     * markup. Same sentence the row shows, same source. */
+    private _reasonText(row: TangleRow): string | null {
+        return reasonLine(row, this.matrixUnit, installUnit(this.hass));
+    }
+
     private _reason(row: TangleRow) {
         const line = reasonLine(row, this.matrixUnit, installUnit(this.hass));
         return line ? html`<span class="reason"> · ${line}</span>` : nothing;
@@ -442,6 +462,19 @@ export class IrTangleListen extends LitElement {
         return html`
             <div class="work">
                 <div class="rows">${this._snapshot.map((row) => this._renderRow(row))}</div>
+                ${this._fixing
+                    ? html`<ir-signal-editor
+                          .hass=${this.hass}
+                          .api=${this.api}
+                          .deviceId=${this.deviceId}
+                          .initialPronto=${this._fixing.pronto}
+                          .tangleTarget=${this._fixing.id}
+                          .tangleReason=${this._reasonText(this._fixing)}
+                          allowSnap
+                          @closed=${() => (this._fixing = null)}
+                          @tangle-mutated=${() => (this._fixing = null)}
+                      ></ir-signal-editor>`
+                    : nothing}
             </div>
         `;
     }
@@ -509,6 +542,12 @@ export class IrTangleListen extends LitElement {
                                         ><span class="dot"></span
                                     ></span>`
                                   : t("tangles.listen")}
+                        </button>
+                        <button
+                            class="action-btn"
+                            @click=${() => (this._fixing = row)}
+                        >
+                            ${t("tangles.open_listen")}
                         </button>
                         <button class="action-btn skip-btn" @click=${() => this._skip(row)}>
                             ${t("tangles.skip_for_now")}

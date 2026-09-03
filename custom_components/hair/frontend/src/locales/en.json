@@ -700,6 +700,7 @@
     "comb.declined.pinned-to-raw": "{count} pinned to raw",
     "comb.declined.unparseable": "{count} could not be read",
     "comb.declined.single-frame": "{count} where no repeat boundary was found, so there is nothing to compare",
+    "comb.declined.decode-resolved": "{count} where the decoder read the whole signal and accepted it",
     "comb.declined.separator-unclear": "{count} where the repeats could not be told apart from the bits",
     "comb.declined.too-few-frames": "{count} carry too few repeats to compare",
     "comb.declined.too-few-codes": "{count} where the remote has too few codes to compare",

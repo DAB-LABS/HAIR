@@ -700,6 +700,7 @@
     "comb.declined.pinned-to-raw": "{count} 件は生データ固定",
     "comb.declined.unparseable": "{count} 件は読み取れません",
     "comb.declined.single-frame": "{count} 件は繰り返しの境界が見つからず、比較できません",
+    "comb.declined.decode-resolved": "{count}件はデコーダーが信号全体を読み取って受け入れました",
     "comb.declined.separator-unclear": "{count} 件は繰り返しとビットを区別できません",
     "comb.declined.too-few-frames": "{count} 件は繰り返しが少なすぎて比較できません",
     "comb.declined.too-few-codes": "{count} 件はコードが少なすぎるリモコン上にあります",

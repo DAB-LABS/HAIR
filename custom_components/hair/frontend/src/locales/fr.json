@@ -700,6 +700,7 @@
     "comb.declined.pinned-to-raw": "{count} épinglés en brut",
     "comb.declined.unparseable": "{count} illisibles",
     "comb.declined.single-frame": "{count} où aucune limite de répétition n'a été trouvée, il n'y a donc rien à comparer",
+    "comb.declined.decode-resolved": "{count} où le décodeur a lu tout le signal et accepté",
     "comb.declined.separator-unclear": "{count} où les répétitions ne se distinguent pas des bits",
     "comb.declined.too-few-frames": "{count} portent trop peu de répétitions pour comparer",
     "comb.declined.too-few-codes": "{count} sur une télécommande qui a trop peu de codes pour comparer",

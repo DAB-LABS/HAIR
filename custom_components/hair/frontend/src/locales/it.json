@@ -700,6 +700,7 @@
     "comb.declined.pinned-to-raw": "{count} fissati al grezzo",
     "comb.declined.unparseable": "{count} illeggibili",
     "comb.declined.single-frame": "{count} senza alcun confine di ripetizione, quindi non c'è nulla da confrontare",
+    "comb.declined.decode-resolved": "{count} dove il decodificatore ha letto tutto il segnale e lo ha accettato",
     "comb.declined.separator-unclear": "{count} in cui le ripetizioni non si distinguono dai bit",
     "comb.declined.too-few-frames": "{count} portano troppe poche ripetizioni per confrontarle",
     "comb.declined.too-few-codes": "{count} su un telecomando con troppi pochi codici da confrontare",

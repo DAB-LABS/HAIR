@@ -700,6 +700,7 @@
     "comb.declined.pinned-to-raw": "{count} auf Rohdaten festgelegt",
     "comb.declined.unparseable": "{count} nicht lesbar",
     "comb.declined.single-frame": "{count} ohne erkennbare Wiederholungsgrenze, es gibt also nichts zu vergleichen",
+    "comb.declined.decode-resolved": "{count} bei denen der Decoder das ganze Signal gelesen und angenommen hat",
     "comb.declined.separator-unclear": "{count}, bei denen sich die Wiederholungen nicht von den Bits unterscheiden lassen",
     "comb.declined.too-few-frames": "{count} tragen zu wenige Wiederholungen zum Vergleichen",
     "comb.declined.too-few-codes": "{count} auf einer Fernbedienung mit zu wenigen Codes zum Vergleichen",

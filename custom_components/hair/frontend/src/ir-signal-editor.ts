@@ -66,6 +66,30 @@ export class IrSignalEditor extends LitElement {
     /** Sniffer-only: enables the off-standard carrier snap affordance. */
     @property({ type: Boolean }) public allowSnap = false;
 
+    /** TANGLE CONTEXT (0.14.1 B1). The row id this popup is repairing.
+     *
+     * Set means the dialog is the Fix entry on a tangle row rather than
+     * an ordinary editor, and three things change: the fields that have
+     * no meaning here are not rendered, the row's reason line leads,
+     * and Save routes through the tangle apply door instead of the
+     * command or signal update.
+     *
+     * It is the SAME dialog on purpose. A person repairing a code and a
+     * person editing one are doing the same thing to the same bytes,
+     * and a second component would be a second place for the validation
+     * and the carrier snap to drift.
+     */
+    @property({ attribute: false }) public tangleTarget: string | null = null;
+
+    /** The row's own reason line, rendered at the top of the popup so
+     * the person can see what they are fixing while they fix it. */
+    @property({ attribute: false }) public tangleReason: string | null = null;
+
+    /** Set once the apply door has refused an undeclared cross-reading
+     * paste. The person is then offered the same ladder the LISTEN flow
+     * offers: use it anyway, or go back. */
+    @state() private _tangleLadder = false;
+
     @state() private _pronto = "";
     @state() private _alias = "";
     @state() private _sendCount = 1;
@@ -308,8 +332,67 @@ export class IrSignalEditor extends LitElement {
         return out.length ? out : null;
     }
 
+    private get _isTangle(): boolean {
+        return this.tangleTarget !== null;
+    }
+
+    /** Apply these bytes to the tangle row (0.14.1 B1).
+     *
+     * Through the SAME door the Fixes ready card and the listen flow
+     * use, with source paste, so a pasted repair is recorded exactly
+     * like any other: origin stamped, prior bytes kept, revert
+     * available. Nothing new was added on the server for this.
+     *
+     * A paste that reads as a different state than the row claims is
+     * refused rather than written, and the refusal is not an error
+     * message to dismiss: it is the declared-override ladder. Saying
+     * yes to it re-sends the identical bytes with the declaration
+     * attached, which is what turns an accident into a decision.
+     */
+    private async _applyToTangle(declared: boolean): Promise<void> {
+        this._busy = true;
+        this._error = null;
+        try {
+            const result = await this.api.tangleApply({
+                deviceId: this.deviceId,
+                target: this.tangleTarget as string,
+                pronto: this._pronto,
+                tested: true,
+                // A paste is evidence of bytes, not of a transmission,
+                // so zero is the true tally and the receipt reads
+                // accepted rather than air-tested. Same value the
+                // listen flow sends for the same reason.
+                sendsFired: 0,
+                source: "paste",
+                ...(declared ? { readingDisagreed: true } : {}),
+            });
+            this.dispatchEvent(
+                new CustomEvent("tangle-mutated", {
+                    detail: { wigWritten: result.wig?.written ?? null },
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+            this._close();
+        } catch (err) {
+            const message = (err as Error).message || String(err);
+            if (message.includes("reading_disagreed_required")) {
+                this._tangleLadder = true;
+                this._error = t("tangles.listen_mismatch_3_noread");
+            } else {
+                this._error = message;
+            }
+        } finally {
+            this._busy = false;
+        }
+    }
+
     private async _save(): Promise<void> {
         if (!this._canSave) return;
+        if (this._isTangle) {
+            await this._applyToTangle(false);
+            return;
+        }
         this._busy = true;
         this._error = null;
         // Ditto count persists only when the code is decodable; on a raw /
@@ -716,6 +799,11 @@ export class IrSignalEditor extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
+                ${this._isTangle && this.tangleReason
+                    ? html`<div class="tangle-reason">
+                          ${this.tangleReason}
+                      </div>`
+                    : ""}
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
@@ -757,19 +845,23 @@ export class IrSignalEditor extends LitElement {
                 ${this._renderReplace()} ${this._renderFeedback()}
                 ${this._renderPill()} ${this._renderSnap()}
 
-                <div class="field">
-                    <label>${nameLabel}</label>
-                    <input
-                        type="text"
-                        .value=${this._alias}
-                        placeholder=${t("editor.alias_placeholder")}
-                        @input=${(e: Event) =>
-                            (this._alias = (e.target as HTMLInputElement).value)}
-                        @keydown=${this._onKeydown}
-                    />
-                </div>
+                ${this._isTangle
+                    ? ""
+                    : html`<div class="field">
+                          <label>${nameLabel}</label>
+                          <input
+                              type="text"
+                              .value=${this._alias}
+                              placeholder=${t("editor.alias_placeholder")}
+                              @input=${(e: Event) =>
+                                  (this._alias = (
+                                      e.target as HTMLInputElement
+                                  ).value)}
+                              @keydown=${this._onKeydown}
+                          />
+                      </div>`}
 
-                <div class="field tx-knobs">
+                <div class="field tx-knobs" ?hidden=${this._isTangle}>
                     <div class="knob">
                         <label>${t("assign.send_times")}</label>
                         <input
@@ -799,13 +891,13 @@ export class IrSignalEditor extends LitElement {
                               />
                           </div>`}
                 </div>
-                ${this.initialObservedRepeatCount > 0
+                ${this.initialObservedRepeatCount > 0 && !this._isTangle
                     ? html`<div class="observed-hint">
                           ${tp("editor.observed", this.initialObservedRepeatCount)}
                       </div>`
                     : ""}
 
-                ${showTriggerNote
+                ${showTriggerNote && !this._isTangle
                     ? html`<div class="note">${triggerNoteText}</div>`
                     : ""}
 
@@ -818,13 +910,21 @@ export class IrSignalEditor extends LitElement {
                     >
                         ${t("common.cancel")}
                     </button>
-                    <button
-                        class="action-btn create-btn"
-                        @click=${this._save}
-                        ?disabled=${!this._canSave}
-                    >
-                        ${primaryLabel}
-                    </button>
+                    ${this._isTangle && this._tangleLadder
+                        ? html`<button
+                              class="action-btn create-btn"
+                              @click=${() => void this._applyToTangle(true)}
+                              ?disabled=${this._busy}
+                          >
+                              ${t("tangles.use_anyway")}
+                          </button>`
+                        : html`<button
+                              class="action-btn create-btn"
+                              @click=${this._save}
+                              ?disabled=${!this._canSave}
+                          >
+                              ${primaryLabel}
+                          </button>`}
                 </div>
             </ha-dialog>
         `;
@@ -833,6 +933,14 @@ export class IrSignalEditor extends LitElement {
     static styles = [
         dialogStyles,
         css`
+            /* The row's own reason, leading the dialog so the person can
+               see what they are fixing while they fix it. */
+            .tangle-reason {
+                font-size: 0.8rem;
+                color: var(--secondary-text-color);
+                margin-bottom: 10px;
+                line-height: 1.4;
+            }
         .field {
             display: block;
             margin: 12px 0;
