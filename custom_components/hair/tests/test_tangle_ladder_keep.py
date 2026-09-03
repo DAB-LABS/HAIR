@@ -33,6 +33,7 @@ from custom_components.hair.models import (
     IRDevice,
 )
 from custom_components.hair.tangles import (
+    APPLY_DISAGREEMENT_UNDECLARED,
     ATTEST_LADDER_OVERRIDE,
     attestation_key,
     build_attestation,
@@ -126,6 +127,75 @@ def _rows(device, matrix):
         {row["id"] for row in listing.as_dict()["rows"]},
         {row["id"] for row in listing.as_dict()["attested"]},
     )
+
+
+class TestThePasteRoadFromTheFixPopup:
+    """0.14.1 B1. The Fix popup on a Listen row pastes through the same
+    apply door everything else on this surface uses.
+
+    Nothing was added on the server for it. That is the claim worth
+    pinning: a pasted repair is recorded exactly like a captured or
+    donated one, and a paste that reads as a different state meets the
+    same declared-override ladder rather than a softer path of its own.
+
+    (The popup carries no LISTEN this round, owner ruled 2026-09-02.
+    The inline Listen button still owns the press flow.)
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_clean_paste_applies_and_records_its_origin(self, wired):
+        hass, device, _matrix, cells = wired
+        row = next(
+            r for r in list_tangles(device, _matrix).rows if r.id == TARGET
+        )
+        before = row.pronto
+
+        result = await _apply(
+            hass, device, cells[CLEAN_KEY].pronto, source="paste",
+        )
+        assert result["applied"] is True
+
+        porthole = device.commands[0]
+        record = read_repair(porthole)
+        assert record is not None
+        assert record["source"] == "paste"
+        # The prior bytes are kept, which is what makes the repair
+        # reversible rather than merely done.
+        assert record["prior"]["pronto"] == before
+
+    @pytest.mark.asyncio
+    async def test_a_cross_reading_paste_is_refused_undeclared(self, wired):
+        """The bytes read as a different state than the row claims, and
+        the door will not take them silently."""
+        hass, device, _matrix, cells = wired
+        connection = _conn()
+        await ws_tangle_apply(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": TARGET,
+            "pronto": cells[DISPUTED_KEY].pronto,
+            "tested": True, "source": "paste",
+        })
+        connection.send_result.assert_not_called()
+        assert (
+            connection.send_error.call_args[0][1]
+            == APPLY_DISAGREEMENT_UNDECLARED
+        )
+
+    @pytest.mark.asyncio
+    async def test_and_applies_once_the_person_declares_it(self, wired):
+        """Saying yes to the ladder re-sends the identical bytes with the
+        declaration attached, which is what turns an accident into a
+        decision. Same road the capture flow takes."""
+        hass, device, _matrix, cells = wired
+        result = await _apply(
+            hass, device, cells[DISPUTED_KEY].pronto,
+            source="paste", reading_disagreed=True,
+        )
+        assert result["applied"] is True
+        assert result["verdict"]["matches"] is False
+        assert result["attested"] is not None
+        record = read_repair(device.commands[0])
+        assert record["source"] == "paste"
 
 
 class TestTheOverrideIsRemembered:

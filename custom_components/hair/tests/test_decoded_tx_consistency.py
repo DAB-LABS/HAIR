@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import homeassistant.components.infrared as _infrared_mod
 import pytest
 
-from custom_components.hair.const import DOMAIN
+from custom_components.hair.const import DOMAIN, CommandCategory, CommandSource
 from custom_components.hair.device_manager import DeviceManager
 from custom_components.hair.entity_factory import EntityFactory
 from custom_components.hair.models import (
@@ -473,3 +473,136 @@ async def test_assigned_command_transmits_canonical_without_reload(fake_hass):
     bc.assert_not_called()
     ir_send.assert_awaited_once()
     assert _unwrap(ir_send.call_args[0][2]) is sentinel
+
+
+# ---------------------------------------------------------------------------
+# GH #134: a matrix state never transmits a decoded re-encode
+# ---------------------------------------------------------------------------
+#
+# An AC state blob is long and opaque, and a decoder hunting a short
+# addressed frame can find one inside it by coincidence. The reported
+# case was a false KASEIKYO48 match that re-encoded a whole climate
+# state into a meaningless 99-timing frame: the unit did nothing, and
+# nothing in the UI suggested why.
+#
+# Re-encoding is safe exactly where the decode describes the WHOLE
+# signal. On a state row it does not, so the send path replays the
+# stored bytes and the decoded identity keeps serving the things that
+# only READ it.
+
+
+def _matrix_command(**attrs):
+    """A saved matrix state carrying a decodable false match."""
+    command = IRCommand(
+        name="Cool 22",
+        category=CommandCategory.CUSTOM,
+        protocol="PRONTO",
+        code=_PRONTO,
+        decoded_protocol="KASEIKYO48",
+        decoded_address=0x2002,
+        decoded_command=0x41,
+        decoded_fingerprint="KASEIKYO48:0x2002:0x41",
+    )
+    for key, value in attrs.items():
+        setattr(command, key, value)
+    return command
+
+
+async def _send(fake_hass, command):
+    """Send one command; report which builder the path chose."""
+    manager = _make_device_manager(fake_hass)
+    device = IRDevice(name="AC", emitter_entity_ids=["infrared.e"])
+    device.add_command(command)
+    manager._store.add_device(device)
+    sentinel = _cmd_stub()
+    with (
+        patch.object(_infrared_mod, "async_send_command", AsyncMock()),
+        patch(
+            "custom_components.hair.ir_command.build_decoded_command",
+            return_value=sentinel,
+        ) as bdc,
+        patch(
+            "custom_components.hair.ir_command.build_command",
+            return_value=sentinel,
+        ) as bc,
+    ):
+        await manager.async_send_command(device.id, command.id)
+    return bdc, bc
+
+
+@pytest.mark.asyncio
+async def test_a_porthole_transmits_its_stored_pronto_verbatim(fake_hass):
+    """The shape the bug was reported on: matrix_cell set, decodable
+    code, and the decode is a coincidence."""
+    bdc, bc = await _send(fake_hass, _matrix_command(
+        matrix_cell={"mode": "cool", "fan": None, "swing": None, "temp": 22.0},
+    ))
+    bdc.assert_not_called()
+    bc.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_state_row_is_guarded_by_its_source(fake_hass):
+    """A saved STATE row has historically set source and NOT
+    matrix_cell, so the source clause is the only thing standing
+    between this row and a re-encode."""
+    bdc, bc = await _send(fake_hass, _matrix_command(
+        source=CommandSource.MATRIX, matrix_cell=None,
+    ))
+    bdc.assert_not_called()
+    bc.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a_device_clone_of_a_matrix_command_is_still_guarded(
+    fake_hass,
+):
+    """THE PIN FOR THE SOURCE CLAUSE. Cloning a device drops
+    matrix_cell and keeps source, so a clone is precisely the row that
+    a matrix_cell-only guard would wave through."""
+    bdc, bc = await _send(fake_hass, _matrix_command(
+        source=CommandSource.MATRIX, matrix_cell=None, name="Cool 22 (copy)",
+    ))
+    bdc.assert_not_called()
+    bc.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a_flat_command_with_a_real_decode_still_re_encodes(fake_hass):
+    """GH #14 must not regress. A captured button whose decode
+    describes the whole signal still transmits the clean library
+    encode rather than receiver-distorted timings."""
+    bdc, bc = await _send(fake_hass, _matrix_command(
+        name="Power", source=CommandSource.CAPTURED, matrix_cell=None,
+        decoded_protocol="NEC", decoded_fingerprint="NEC:0x1000:0x18",
+    ))
+    bdc.assert_called_once()
+    bc.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tx_force_raw_is_still_respected(fake_hass):
+    """The older opt-out keeps working, and keeps working for the same
+    reason: the person pinned these bytes on purpose."""
+    bdc, bc = await _send(fake_hass, _matrix_command(
+        name="Power", source=CommandSource.CAPTURED, matrix_cell=None,
+        decoded_protocol="NEC", decoded_fingerprint="NEC:0x1000:0x18",
+        tx_force_raw=True,
+    ))
+    bdc.assert_not_called()
+    bc.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_the_decoded_identity_survives_the_guard(fake_hass):
+    """Guarded on the SEND path only. Press matching, pin bindings and
+    Mirror echo all read these fields, and a row that stopped carrying
+    them would break three things to fix one."""
+    command = _matrix_command(
+        matrix_cell={"mode": "cool", "fan": None, "swing": None, "temp": 22.0},
+    )
+    await _send(fake_hass, command)
+    assert command.decoded_fingerprint == "KASEIKYO48:0x2002:0x41"
+    assert command.decoded_protocol == "KASEIKYO48"
+    assert command.decoded_address == 0x2002
+    assert command.decoded_command == 0x41

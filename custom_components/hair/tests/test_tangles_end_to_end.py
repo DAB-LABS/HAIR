@@ -49,11 +49,14 @@ from custom_components.hair.wig_comb import COMB_KEY, comb_wig, stamp_receipt
 from custom_components.hair.wig_format import cell_key, parse_wig, serialize_wig
 from custom_components.hair.wig_store import ensure_wigs_dir, wigs_dir
 
+from .util_disagreeing_capture import SECOND_OPEN_ROW
+
 FIXTURES = Path(__file__).parent / "fixtures"
 KOMECO = (FIXTURES / "wigs"
           / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json")
 DREO = (FIXTURES / "wigs"
         / "dreo-fan-dr-haf004s-perfect-fit.wig.json")
+
 SOURCE = "komeco.wig.json"
 
 
@@ -562,6 +565,14 @@ async def fan(fake_hass, tmp_path):
             repeat_count=signal.ditto_count,
             tx_force_raw=signal.bypass_protocol,
         ))
+    # A SECOND OPEN ROW, BUILT (0.14.1 A1). The wig used to arrive with
+    # two flagged captures and now arrives with one: Speed Down is a
+    # capture the decoder reads whole, so it no longer reaches the work
+    # list. This class is about two of them, so it builds the second.
+    device.add_command(IRCommand(
+        name="Speed Up", category=CommandCategory.CUSTOM,
+        protocol="PRONTO", code=SECOND_OPEN_ROW,
+    ))
     manager = MagicMock()
     manager.get_device = MagicMock(return_value=device)
     manager.async_get_matrix = AsyncMock(return_value=None)

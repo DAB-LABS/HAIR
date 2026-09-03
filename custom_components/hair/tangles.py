@@ -43,6 +43,7 @@ from .wig_comb import (
     CHECK_DUPLICATE_LABELS,
     CHECK_DUPLICATED_NEIGHBOUR,
     CHECK_FIELD_MISMATCH,
+    CHECK_STRAY_BURST,
     FIELD_COORDINATE,
     POWER_FIELD,
     SEVERITY_ORDER,
@@ -324,6 +325,26 @@ def list_tangles(
             }
             payload = [f.to_dict() for f in findings]
             donor, abstain = find_donor(lattice, key, payload)
+            if donor is None:
+                # A DONOR FIRST, ALWAYS (0.14.1 B3). A donor is another
+                # cell that already sends what this one claims, proved
+                # by reading it; a trim is a shape argument about debris
+                # on the end. Where both are available the reading wins,
+                # so this only runs once the donor search has abstained.
+                #
+                # It rides the SAME candidate field on purpose. A trim
+                # is a candidate like any other from the surface-s point
+                # of view: it lands in Fixes ready, it is tested before
+                # it is accepted, and it reverts byte-exact. Its origin
+                # says where it came from, and nothing new had to be
+                # built to show it.
+                trimmed, trim_abstain = find_trim(
+                    cell.pronto, payload, lattice, key, coordinates,
+                )
+                if trimmed is not None:
+                    donor, abstain = trimmed, None
+                elif abstain is None:
+                    abstain = trim_abstain
             rows.append(TangleRow(
                 id=row_id(TARGET_CELL, key),
                 target=TangleTarget(
@@ -526,6 +547,118 @@ def _elsewhere(cell: ClimateCell, exclude: set[str]) -> tuple:
         if name not in exclude
     ]
     return tuple(getattr(cell, axis, None) for axis in sorted(axes))
+
+
+def find_trim(
+    pronto: str,
+    findings: list[dict[str, Any]],
+    lattice: LatticeReading | None = None,
+    key: str | None = None,
+    coordinates: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """A candidate built by deleting a trailing fragment, or a reason.
+
+    THE STRAY BURST (0.14.1 B3). A capture that ends with one extra
+    timing after the last complete frame is the classic unclean capture:
+    the receiver caught the leading edge of something after the button
+    was released. Every receiver ignores it, which is why the comb ranks
+    it last, and it still means the file carries a frame that is not a
+    frame.
+
+    Nothing is constructed here. The repair is a DELETION, and every
+    timing in the candidate was already in the original, which is why
+    this has its own origin rather than riding on synthesized: a reader
+    asking where these bytes came from gets a true and much simpler
+    answer.
+
+    THREE GUARDS, and the middle one is the point.
+
+    The finding has to be a stray burst. This does not go looking for
+    fragments on its own; it repairs the thing the comb already named.
+
+    The fragment has to be STRICTLY SHORTER than every frame that
+    remains. A short trailing frame is not always debris: an NEC ditto
+    is a deliberate two-timing repeat marker, and a protocol whose last
+    frame is legitimately shorter is a protocol this must not touch. If
+    the tail is as long as anything else in the code, this abstains and
+    says so rather than guessing which one it is.
+
+    The result has to still read right. Where a map can read these
+    bytes, the trimmed candidate is put back through the same reader
+    that judged the cell, and a candidate that stopped matching its own
+    label is refused. Where no map claims the protocol there is nothing
+    to check against, and the deletion stands on the shape argument
+    alone.
+    """
+    if not any(f.get("check") == CHECK_STRAY_BURST for f in findings):
+        return None, TRIM_NOTHING_TO_TRIM
+
+    from .wig_comb import _frame_lengths, _pairs
+
+    pairs = _pairs(pronto)
+    if not pairs:
+        return None, TRIM_NOTHING_TO_TRIM
+    lengths = _frame_lengths(pairs)
+    if len(lengths) < 2:
+        return None, TRIM_NOTHING_TO_TRIM
+    tail = lengths[-1]
+    if tail >= min(lengths[:-1]):
+        return None, TRIM_FRAGMENT_IS_A_FRAME
+
+    kept = pairs[: len(pairs) - tail]
+    if not kept:
+        return None, TRIM_NOTHING_TO_TRIM
+    trimmed = _write_pronto(pronto, kept)
+    if trimmed is None:
+        return None, TRIM_NOTHING_TO_TRIM
+
+    # The read-back gate. Only where a map actually reads this cell:
+    # an unreadable lattice has no opinion, and inventing one would be
+    # the guess this module exists to avoid.
+    if lattice is not None and lattice.readable and coordinates is not None:
+        verdict = pre_read(lattice, trimmed, coordinates)
+        if verdict.matches is False:
+            return None, TRIM_READS_WRONG
+
+    return {
+        "key": key,
+        "coordinates": dict(coordinates) if coordinates else None,
+        "pronto": trimmed,
+        "digest": _cell_digest(trimmed),
+        # Structured, like the donor branch: the surface writes the
+        # sentence, this writes the facts behind it.
+        "reasoning": {
+            "origin": ORIGIN_TRIM,
+            "frames_before": list(lengths),
+            "frames_after": list(lengths[:-1]),
+            "pairs_removed": tail,
+        },
+    }, None
+
+
+def _write_pronto(original: str, pairs: list[tuple[int, int]]) -> str | None:
+    """``pairs`` written back as a Pronto code, keeping the header.
+
+    The header carries the carrier and the burst-sequence counts, and
+    the counts move when pairs are removed, so they are recomputed here
+    rather than copied. Everything else about the original header is
+    preserved: this is a deletion, not a re-encode, and a code that
+    comes back through here should differ from its original by exactly
+    the timings that were dropped.
+    """
+    tokens = original.split()
+    try:
+        words = [int(tok, 16) for tok in tokens]
+    except ValueError:
+        return None
+    if len(words) < 4:
+        return None
+    # A one-off burst sequence and no repeat sequence, which is what
+    # every code this repairs already is.
+    out = [words[0], words[1], len(pairs), 0]
+    for mark, space in pairs:
+        out.extend([mark, space])
+    return " ".join(f"{w:04X}" for w in out)
 
 
 def find_donor(
@@ -1482,6 +1615,20 @@ ORIGIN_DONOR = "donor"
 ORIGIN_SYNTHESIZED = "synthesized"
 ORIGIN_CAPTURE = "capture"
 ORIGIN_PASTE = "paste"
+#: Built by removing a trailing fragment that is too short to be a frame
+#: (0.14.1 B3). Its own origin rather than a flavour of synthesized,
+#: because nothing here is constructed: every timing in the candidate
+#: was already in the original, and the repair is a deletion.
+ORIGIN_TRIM = "trim"
+
+#: No trailing fragment, or the code will not parse.
+TRIM_NOTHING_TO_TRIM = "nothing-to-trim"
+#: The trailing fragment is as long as a real frame, so removing it
+#: would be removing data rather than debris.
+TRIM_FRAGMENT_IS_A_FRAME = "fragment-is-a-frame"
+#: The trimmed bytes stopped reading as this cell claims. A map that can
+#: check the result gets to veto it.
+TRIM_READS_WRONG = "trimmed-bytes-read-wrong"
 
 
 class SynthesisBug(RuntimeError):

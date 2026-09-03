@@ -582,7 +582,9 @@ def _storable(
     return True
 
 
-def try_decode_identity(raw_timings: list[int] | None) -> DecodedIdentity | None:
+def _identify(
+    raw_timings: list[int] | None,
+) -> tuple[DecodedIdentity, ProtocolSpec] | None:
     """Decode raw timings into a :class:`DecodedIdentity`, or ``None``.
 
     Probes the registry in order; the first protocol whose decoder
@@ -623,7 +625,7 @@ def try_decode_identity(raw_timings: list[int] | None) -> DecodedIdentity | None
                         ),
                         extras=None,
                         source=spec.source,
-                    )
+                    ), spec
             continue
         try:
             protocol, address, command, extras = spec.extract(cmd)
@@ -641,8 +643,48 @@ def try_decode_identity(raw_timings: list[int] | None) -> DecodedIdentity | None
             fingerprint=format_fingerprint(protocol, address, command, extras),
             extras=extras,
             source=spec.source,
-        )
+        ), spec
     return None
+
+
+def try_decode_identity(
+    raw_timings: list[int] | None,
+) -> DecodedIdentity | None:
+    """The decoded identity for a capture, or None.
+
+    The public probe. Everything about HOW the answer was reached lives
+    in ``_identify``; callers that only want the identity get it here
+    and stay unaffected by which spec produced it.
+    """
+    found = _identify(raw_timings)
+    return None if found is None else found[0]
+
+
+def decode_is_repeat_voted(raw_timings: list[int] | None) -> bool:
+    """Did a REPEAT-VOTING decoder accept this whole capture?
+
+    A protocol with no checksum has one piece of integrity evidence:
+    the same frame arriving more than once and saying the same thing.
+    Its decoder therefore demands a minimum number of agreeing frames
+    before it accepts a capture at all, and it reaches that verdict by
+    discarding the frames that disagree, which is exactly what a vendor
+    preamble, a truncated tail, or one frame mangled by jitter is.
+
+    That matters to a protocol-blind check that doubts a capture
+    BECAUSE its raw frames differ. Where a voting decoder has accepted
+    the whole capture, those differences are the ones it already looked
+    at and ruled on, and doubting them again is re-asking a question
+    that has an answer.
+
+    Detected, never listed: any decoder declaring MIN_FRAME_VOTES of
+    two or more qualifies, so a protocol added later arrives with this
+    behaviour instead of needing to be remembered here. Today that is
+    Symphony alone.
+    """
+    found = _identify(raw_timings)
+    if found is None:
+        return False
+    return int(getattr(found[1].command_cls, "MIN_FRAME_VOTES", 1)) >= 2
 
 
 def identity_from_command(command: Any) -> DecodedIdentity | None:

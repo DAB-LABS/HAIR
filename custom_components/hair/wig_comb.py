@@ -455,6 +455,12 @@ DECLINE_TOO_FEW_CODES = "too-few-codes"
 DECLINE_NO_LATTICE = "no-lattice"
 DECLINE_ROW_TOO_SHORT = "row-too-short"
 DECLINE_NO_TEMPERATURE = "no-temperature"
+# A voting decoder already read the whole capture and accepted it, so
+# the raw frame differences this check would otherwise report are the
+# ones that decoder discarded on its way to a verdict. Declining is the
+# honest record: the check ran, it had an opinion, and a better-informed
+# reader overruled it. See decode_resolves_repeats below.
+DECLINE_DECODE_RESOLVED = "decode-resolved"
 JUDGED = "judged"
 
 
@@ -713,6 +719,37 @@ def _repeat_reading(pronto: str) -> tuple[str, FrameVote | None]:
     return (JUDGED if judged else DECLINE_TOO_FEW_FRAMES), None
 
 
+def decode_resolves_repeats(pronto: str) -> bool:
+    """Has a repeat-voting decoder already settled this capture?
+
+    THE FIELD CASE (0.14.1 A1). A Dreo fan capture decodes cleanly as
+    SYMPHONY12: the decoder splits the capture into frames, throws away
+    the vendor preamble and any frame jitter mangled, and requires two
+    survivors to agree before it accepts anything. The raw frames of
+    that same capture are all different from each other, so this
+    protocol-blind check flags it. Both are right about what they
+    measured, and only one of them was looking at the whole picture.
+
+    The cost of leaving it alone was not cosmetic. A row flagged this
+    way re-flags after every repair, because repairing it cannot make
+    raw frames agree that were never meant to agree, so the person
+    fixing it had no exit at all.
+
+    Deliberately narrow. Only a decode that accepts the WHOLE capture
+    counts, and only from a decoder whose acceptance rule is agreement
+    across repeats. A capture that merely looks like a protocol, or one
+    whose vote did not carry, is not settled and still flags.
+    """
+    from .ir_command import ProntoCommand
+    from .protocol_decode import decode_is_repeat_voted
+
+    try:
+        timings = ProntoCommand(pronto).get_raw_timings()
+    except Exception:  # a code the decoder cannot even parse is not settled
+        return False
+    return decode_is_repeat_voted(timings)
+
+
 def frame_disagreement(pronto: str) -> FrameVote | None:
     """The vote when a code's own repeats disagree, else None.
 
@@ -720,11 +757,18 @@ def frame_disagreement(pronto: str) -> FrameVote | None:
     is still holding the remote and can simply press the button again
     (design plan 1a). Same code, same answer, one implementation.
     """
-    return _repeat_reading(pronto)[1]
+    vote = _repeat_reading(pronto)[1]
+    if vote is not None and decode_resolves_repeats(pronto):
+        # Nothing to warn about: the capture decoded, and the decoder
+        # reached that answer by voting across these very frames.
+        return None
+    return vote
 
 
 def _repeat_findings(
-    rows: list[tuple[str, str]], coverage: Coverage
+    rows: list[tuple[str, str]],
+    coverage: Coverage,
+    consult_decode: bool = False,
 ) -> list[Finding]:
     findings: list[Finding] = []
     for key, pronto in rows:
@@ -734,6 +778,15 @@ def _repeat_findings(
             continue
         coverage.judged(CHECK_FRAME_DISAGREEMENT, key)
         if vote is None:
+            continue
+        if consult_decode and decode_resolves_repeats(pronto):
+            # Judged AND declined, both on purpose. The code was looked
+            # at, so it stays counted and stays out of the unverified
+            # bucket; the decline is the receipt saying why no finding
+            # came of it. A reader can tell this apart from a code
+            # nobody could read.
+            coverage.declined(
+                CHECK_FRAME_DISAGREEMENT, DECLINE_DECODE_RESOLVED)
             continue
         named = vote.positions[:_MAX_NAMED_POSITIONS]
         params = {
@@ -1520,7 +1573,12 @@ def comb_wig(wig: Wig) -> CombReport:
         findings += _shape_findings(rows, strict=False, coverage=coverage)
         findings += _duplicate_label_findings(wig)
         coverage.codes = len(rows) + len(skipped)
-        findings += _repeat_findings(rows, coverage)
+        # FLAT ONLY (0.14.1 A1). A flat row is a captured button and can
+        # legitimately be a voting protocol whose frames differ by
+        # design. A lattice cell is generated, not captured, so the same
+        # exemption there would be excusing a defect rather than
+        # explaining one; the matrix branch above is untouched.
+        findings += _repeat_findings(rows, coverage, consult_decode=True)
         coverage.declined(CHECK_DUPLICATED_NEIGHBOUR, DECLINE_NO_LATTICE)
         # Integrity rules need no labels, so a flat wig whose codes
         # identify under a map gets them anyway. The field-versus-label

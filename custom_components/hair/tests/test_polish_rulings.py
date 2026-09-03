@@ -4181,6 +4181,183 @@ class TestEveryCardsCallToActionReadsFix:
         keep meaning what it says."""
         text = _read("ir-tangle-section.ts")
         assert 'isOpen ? t("tangles.close")' in text
+class TestTheFixPopupOnAListenRow:
+    """0.14.1 B1, as descoped by the owner on 2026-09-02.
+
+    A Listen row gets a Fix entry that opens the ordinary command editor
+    in a trimmed mode: code box, paste, live validation, carrier snap,
+    and the row's own reason line leading the dialog. The fields that
+    mean nothing to a repair are not rendered.
+
+    IT IS THE SAME COMPONENT. A person repairing a code and a person
+    editing one are doing the same thing to the same bytes, and a second
+    dialog would be a second place for the validation and the snap to
+    drift apart.
+
+    NO LISTEN IN THE POPUP THIS ROUND. The inline Listen button is
+    untouched and still owns the press flow; consolidating the two
+    entries is queued with the Fix rename for the next cycle.
+    """
+
+    def test_the_row_can_open_it(self):
+        text = _read("ir-tangle-listen.ts")
+        assert "this._fixing = row" in text
+        assert "<ir-signal-editor" in text
+        block = text.split("<ir-signal-editor", 1)[1].split(
+            "</ir-signal-editor>", 1
+        )[0]
+        squashed = " ".join(block.split())
+        assert ".tangleTarget=${this._fixing.id}" in squashed
+        assert ".tangleReason=${this._reasonText(this._fixing)}" in squashed
+        assert "allowSnap" in squashed
+
+    def test_it_serves_flat_and_matrix_rows_alike(self):
+        """One row renderer, so both kinds reach it. A matrix row and a
+        flat row differ in what their name says, not in how they are
+        repaired."""
+        text = _read("ir-tangle-listen.ts")
+        # The Fix button lives in the shared row body, not behind any
+        # cell-versus-command branch.
+        body = text.split("private _renderRow(row: TangleRow)", 1)[1]
+        assert "this._fixing = row" in body
+        assert 'target.kind === "cell"' not in body
+
+    def test_the_inline_listen_button_is_untouched(self):
+        """The descoped half, pinned so it cannot drift in by accident.
+        Listen still arms the press flow in place and keeps its own
+        label."""
+        text = _read("ir-tangle-listen.ts")
+        assert "@click=${() => this._arm(row)}" in text
+        assert 't("tangles.listen")' in text
+
+    def test_the_trimmed_fields_are_gone_in_the_tangle_context(self):
+        """Name, send times and dittos describe a stored command. A
+        tangle row is a repair to some bytes, and offering to rename it
+        here would offer to rename the wrong thing."""
+        text = _read("ir-signal-editor.ts")
+        squashed = " ".join(text.split())
+        assert "${this._isTangle ? \"\" : html`<div class=\"field\">" in squashed
+        assert 'class="field tx-knobs" ?hidden=${this._isTangle}' in squashed
+        assert "this.initialObservedRepeatCount > 0 && !this._isTangle" in squashed
+        assert "showTriggerNote && !this._isTangle" in squashed
+
+    def test_but_the_ordinary_editor_still_has_them(self):
+        """The other half of the same claim: this trimmed a context, not
+        the component. Outside the tangle context every field is exactly
+        where it was."""
+        text = _read("ir-signal-editor.ts")
+        assert "editor.pronto_code" in text
+        assert "assign.send_times" in text
+        assert "assign.ditto_count" in text
+        assert "editor.alias_placeholder" in text
+
+    def test_the_popup_pastes_through_the_shared_apply_door(self):
+        """No new server surface. Source paste, and a refusal raises the
+        same declared-override ladder the capture road raises."""
+        text = _read("ir-signal-editor.ts")
+        body = text.split("private async _applyToTangle(", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "this.api.tangleApply(" in body
+        assert 'source: "paste"' in body
+        assert "reading_disagreed_required" in body
+        assert "readingDisagreed: true" in body
+        assert 't("tangles.use_anyway")' in text
+
+
+class TestTheProtocolChipDoesNotOfferADeadToggle:
+    """0.14.1 B2, and it only makes sense beside A2.
+
+    A matrix state row still decodes as something, often by coincidence.
+    The send path now ignores that decode for these rows and always
+    replays the stored bytes, so a chip offering to switch between
+    decoded and captured offers a choice with one side.
+
+    It keeps SAYING the protocol. What a row decodes as is true, and the
+    chip already has a describe-only mode built for the fitting rows, so
+    nothing new had to be invented to stop it inviting a press.
+    """
+
+    def test_a_matrix_state_row_gets_a_describing_chip(self):
+        text = _read("ir-command-row.ts")
+        block = text.split("<ir-protocol-chip", 1)[1].split(
+            "</ir-protocol-chip>", 1
+        )[0]
+        # Whitespace-squashed: the template wraps this binding across
+        # two lines, and a reflow of it is not a behaviour change.
+        squashed = " ".join(block.split())
+        assert "?interactive=${!this ._isMatrixState}" in squashed or (
+            "?interactive=${!this._isMatrixState}" in squashed
+        )
+        # Still named, still shown: only the invitation goes away.
+        assert ".protocol=${this.command" in squashed
+
+    def test_it_reads_both_fields_the_send_guard_reads(self):
+        """A clone keeps source and drops matrix_cell; a saved STATE row
+        has historically set source alone. Either field on its own
+        leaves a real shape presenting a toggle the backend ignores."""
+        text = _read("ir-command-row.ts")
+        body = text.split("private get _isMatrixState()", 1)[1].split(
+            "\n    }", 1
+        )[0]
+        assert "matrix_cell != null" in body
+        assert 'source === "matrix"' in body
+
+    def test_a_captured_button_keeps_its_live_chip(self):
+        """The toggle is real everywhere the decode describes the whole
+        signal, which is every ordinary captured button."""
+        text = _read("ir-command-row.ts")
+        block = text.split("<ir-protocol-chip", 1)[1].split(
+            "</ir-protocol-chip>", 1
+        )[0]
+        assert "@toggle-bypass=" in block
+        assert "toggle-tx-raw" in block
+
+
+class TestTheDimensionWordIsSaidOnce:
+    """0.14.1 B4. A swing-bearing matrix rendered "Heat, Fan Low, Swing
+    Swing, 61F".
+
+    Vocabulary values are verbatim from the source file and a great many
+    lattices spell the swing-is-on value as the word "swing", so
+    prefixing every value with its dimension name produced a stutter on
+    exactly the files that use the obvious spelling.
+    """
+
+    def test_the_composer_collapses_an_exact_repeat(self):
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("function dimensionWords(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        assert "shown.toLowerCase() === dimension.toLowerCase()" in body
+        assert "? dimension" in body
+
+    def test_both_dimensions_go_through_it(self):
+        """Fan and swing compose the same way, so the fix cannot hold on
+        one of them and rot on the other."""
+        text = _read("ir-tangle-copy.ts")
+        assert 'dimensionWords("Fan", coords.fan)' in text
+        assert 'dimensionWords("Swing", coords.swing)' in text
+        assert "`Swing ${titleCase(" not in text
+        assert "`Fan ${titleCase(" not in text
+
+    def test_a_real_setting_keeps_its_label(self):
+        """The guard that stops this being a regression of its own.
+        Only an EXACT match collapses: Wide, Vertical and Full are all
+        saying something the bare dimension does not, and Off is
+        dropped earlier and never reaches the composer at all.
+        """
+        text = _read("ir-tangle-copy.ts")
+        body = text.split("function dimensionWords(", 1)[1].split(
+            "\n}", 1
+        )[0]
+        # An equality test, not a substring test: "Swing Vertical" must
+        # not collapse just because it contains the dimension word.
+        assert "includes(" not in body
+        assert "startsWith(" not in body
+        assert 'coords.swing !== "off"' in text
+
+
 class TestDecideSaysTrueThingsInWords:
     """Issue 20, from the owner's screenshot of a matrix DECIDE pair:
     "Two buttons are both named 07f385d0-..." over two rows that

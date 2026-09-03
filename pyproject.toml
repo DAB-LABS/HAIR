@@ -48,11 +48,34 @@ test = [
     # (decode paths in protocol_decode.py are defensively guarded either
     # way). PyPI currently publishes through 5.8.1, so CI installs the
     # newest 5.x today and picks up 6.x automatically once it is published.
-    # Upstream moved to 7.x in 2026-07; the commands.Command contract is
-    # unchanged from 5.x (verified against the 7.5.0 source), so the cap
-    # tracks the next major. The library publishes for Python 3.13 and
-    # up, which is also HA 2026.4's floor, so the pin is unconditional.
-    "infrared-protocols>=5.6,<9.0",
+    # Upstream moved to 7.x in 2026-07 and is on 9.1.0 as of 2026-09;
+    # the commands.Command contract is unchanged from 5.x, so the cap
+    # tracks the next major. Verified for the 9.1.0 bump by reading the
+    # sources rather than the release notes: commands/__init__.py, which
+    # defines the base Command every registered class derives from, is
+    # BYTE-IDENTICAL across 5.8.1, 8.2.1 and 9.1.0; from_raw_timings is
+    # still callable positionally everywhere protocol_decode calls it
+    # (NEC gained a keyword-only decode_subfunction defaulting to False,
+    # which is compatible); and Kaseikyo widened data from bytes to
+    # bytes | list[bytes] additively, preserving the single-frame path,
+    # on a class HAIR resolves locally anyway.
+    #
+    # TWO THINGS THE CAP CANNOT EXPRESS, both worth knowing before
+    # trusting it (0.14.1 A3):
+    #
+    # 1. From 6.0.0 upstream requires Python >= 3.14. On 3.13, which is
+    #    this project's floor and one of the two CI legs, pip resolves
+    #    5.8.1 no matter what this cap says. The pin is therefore NOT
+    #    unconditional, as this comment used to claim; it is a ceiling
+    #    that only the 3.14 leg can reach.
+    # 2. Because of (1) the two CI legs can resolve different majors,
+    #    and the majors differ in what they DECODE:
+    #    general_electric.GEACCommand gains from_raw_timings in 8.x, and
+    #    protocol_decode registers exactly that module and class name by
+    #    feature detection, so GEAC joins the probe order on 3.14 and
+    #    stays absent on 3.13. An environment marker would keep the legs
+    #    identical if that divergence is not wanted.
+    "infrared-protocols>=5.6,<10.0",
 ]
 lint = [
     "ruff>=0.4",
