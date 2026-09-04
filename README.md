@@ -57,9 +57,11 @@ These integrations have adopted the `infrared` platform:
 |---|---|---|---|---|
 | [ESPHome](https://esphome.io/) | Yes | Yes | No | 2026.4 (TX), 2026.6 (native RX) |
 | [Tuya Local](https://github.com/make-all/tuya-local) | Yes | No | Yes | TX 2026.4, Pluck 2026.6.2 |
-| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | No | No | 2026.5 |
+| [Broadlink](https://www.home-assistant.io/integrations/broadlink/) | Yes | No | Yes | 2026.5 |
 | [SMLIGHT](https://www.home-assistant.io/integrations/smlight/) | Yes | Yes | No | TX 2026.5, native RX (Ultima) 2026.7 |
 | [MQTT](https://www.home-assistant.io/integrations/mqtt/) | Yes | Yes | No | 2026.8 |
+
+Pluck reads codes an integration has already stored in Home Assistant. For Broadlink that means codes learned with `remote.learn_command`: a blaster you have only ever transmitted through has nothing to pluck yet, and codes learned in the Broadlink phone app stay in Broadlink's cloud and never reach Home Assistant. This applies to every RM model Home Assistant supports, not only the newer ones.
 
 As more integrations adopt the `infrared` platform, HAIR picks them up automatically.
 
