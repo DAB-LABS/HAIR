@@ -49,6 +49,8 @@ from custom_components.hair.websocket_api import (
 from custom_components.hair.wig_comb import CHECK_FIELD_MISMATCH
 from custom_components.hair.wig_format import Wig, cell_key, parse_wig
 
+from .util_disagreeing_capture import SECOND_OPEN_ROW
+
 FIXTURES = Path(__file__).parent / "fixtures"
 KOMECO = (FIXTURES / "wigs"
           / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json")
@@ -360,6 +362,30 @@ def dreo(fake_hass, tmp_path):
     return fake_hass, device, manager
 
 
+# A SECOND OPEN ROW, BUILT (0.14.1 A1).
+#
+# The Dreo wig used to arrive with two captures the comb flagged, and
+# the two classes at the bottom of this file are about what happens to
+# a PAIR of open rows. A1 stood one of those two down: Speed Down is a
+# Symphony capture the decoder reads whole, so it no longer reaches the
+# work list, and the field data supplies one open row. The second is
+# built, in the shared util, as the case A1 leaves flagged. The plain
+# ``dreo`` fixture below is untouched and every other class here still
+# uses it.
+
+
+@pytest.fixture
+def dreo_pair(dreo):
+    """The Dreo device with a second open row beside its own, so the
+    pair rules below have a pair to work on."""
+    hass, device, manager = dreo
+    device.add_command(IRCommand(
+        name="Speed Up", category=CommandCategory.CUSTOM,
+        protocol="PRONTO", code=SECOND_OPEN_ROW,
+    ))
+    return hass, device, manager
+
+
 class TestFlatCommands:
     @pytest.mark.asyncio
     async def test_a_flat_repair_goes_through_the_command(self, dreo):
@@ -563,9 +589,9 @@ class TestTheRetireMomentSweep:
 
     @pytest.mark.asyncio
     async def test_the_untouched_twin_releases_when_the_device_comes_clean(
-        self, dreo
+        self, dreo_pair
     ):
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = list_tangles(device, None).rows
         assert len(rows) == 2
         first, second = self._twins(device, rows)
@@ -595,11 +621,11 @@ class TestTheRetireMomentSweep:
         assert second.comb_suspect is False
 
     @pytest.mark.asyncio
-    async def test_nothing_is_swept_while_a_row_is_still_open(self, dreo):
+    async def test_nothing_is_swept_while_a_row_is_still_open(self, dreo_pair):
         """THE RESTRAINT, still in force. One row repaired out of two
         leaves the device with work to do, and the other row's command
         keeps the mark it arrived with -- exactly T1's scope rule."""
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = list_tangles(device, None).rows
         assert len(rows) == 2
         first, second = self._twins(device, rows)
@@ -627,7 +653,7 @@ class TestTheRetireMomentSweep:
         assert second.comb_finding == rows[1].classes[0]
 
     @pytest.mark.asyncio
-    async def test_an_answered_row_reads_clean_on_the_command(self, dreo):
+    async def test_an_answered_row_reads_clean_on_the_command(self, dreo_pair):
         """A MARK IS AN UNANSWERED DOUBT (owner ruled 2026-08-30).
 
         Stamps re-derive from the live comb and then standing
@@ -637,7 +663,7 @@ class TestTheRetireMomentSweep:
         finding and the answer both stay in the attestation and in the
         wig's receipt, where the disagreement is fully recorded.
         """
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = list_tangles(device, None).rows
         assert len(rows) == 2
         first, second = self._twins(device, rows)
@@ -662,7 +688,7 @@ class TestTheRetireMomentSweep:
 
     @pytest.mark.asyncio
     async def test_the_mark_returns_when_the_answer_stops_applying(
-        self, dreo
+        self, dreo_pair
     ):
         """The other half of the rule, and the reason it is safe.
 
@@ -672,7 +698,7 @@ class TestTheRetireMomentSweep:
         nothing swept, no state that can be wrong. Here the map version
         moves underneath a standing answer.
         """
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = list_tangles(device, None).rows
         command = device.get_command(rows[0].target.command_id)
         command.comb_suspect = True
@@ -732,8 +758,8 @@ class TestKeepingAPairIsOneAnswer:
         return connection
 
     @pytest.mark.asyncio
-    async def test_both_members_are_answered_in_one_call(self, dreo):
-        hass, device, manager = dreo
+    async def test_both_members_are_answered_in_one_call(self, dreo_pair):
+        hass, device, manager = dreo_pair
         rows = self._pair(device)
 
         connection = await self._keep(
@@ -749,10 +775,10 @@ class TestKeepingAPairIsOneAnswer:
         manager.async_update_device.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_the_pair_is_gone_from_the_next_listing(self, dreo):
+    async def test_the_pair_is_gone_from_the_next_listing(self, dreo_pair):
         """The whole point. Both rows leave the work list, and stay
         gone as long as their bytes and the map hold still."""
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = self._pair(device)
 
         await self._keep(hass, device, [rows[0].id, rows[1].id])
@@ -763,12 +789,12 @@ class TestKeepingAPairIsOneAnswer:
 
     @pytest.mark.asyncio
     async def test_renaming_after_the_answer_does_not_resurrect_it(
-        self, dreo
+        self, dreo_pair
     ):
         """Round three's shape, from the other side: a rename changes
         no bytes, so it cannot reopen an answer that is keyed to
         bytes."""
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = self._pair(device)
         await self._keep(hass, device, [rows[0].id, rows[1].id])
 
@@ -777,12 +803,12 @@ class TestKeepingAPairIsOneAnswer:
         assert list_tangles(device, None).rows == []
 
     @pytest.mark.asyncio
-    async def test_changing_the_bytes_reopens_it(self, dreo):
+    async def test_changing_the_bytes_reopens_it(self, dreo_pair):
         """The expiry mechanism, unchanged: an attestation is about
         SOME BYTES, and different bytes are a different question. There
         is nothing scheduled and nothing swept -- the key simply stops
         matching."""
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = self._pair(device)
         await self._keep(hass, device, [rows[0].id, rows[1].id])
         assert list_tangles(device, None).rows == []
@@ -796,12 +822,12 @@ class TestKeepingAPairIsOneAnswer:
 
     @pytest.mark.asyncio
     async def test_a_target_with_no_finding_refuses_the_whole_call(
-        self, dreo
+        self, dreo_pair
     ):
         """No half-answered pairs. Everything is resolved before
         anything is stored, so a stale target takes the call down
         rather than leaving one member settled and one open."""
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = self._pair(device)
 
         connection = await self._keep(
@@ -812,10 +838,10 @@ class TestKeepingAPairIsOneAnswer:
         assert len(list_tangles(device, None).rows) == 2
 
     @pytest.mark.asyncio
-    async def test_one_target_still_works_exactly_as_before(self, dreo):
+    async def test_one_target_still_works_exactly_as_before(self, dreo_pair):
         """Every existing caller sends a single target. The exclusive
         pair is additive precisely so none of them had to change."""
-        hass, device, _manager = dreo
+        hass, device, _manager = dreo_pair
         rows = self._pair(device)
 
         connection = _conn()
@@ -830,3 +856,79 @@ class TestKeepingAPairIsOneAnswer:
         assert result["record"]["target"] == rows[0].target.key
         assert len(device.tangle_attestations) == 1
         assert len(list_tangles(device, None).rows) == 1
+
+
+class TestARepairedRowLeavesTheListing:
+    """Owner walkthrough, 2026-09-03, finding 2.
+
+    Repairing one of two rows dropped the header count but left BOTH
+    rows on screen wearing their Fix buttons, until some later refresh
+    cleared it. The count and the rows were reading different snapshots
+    of one list.
+
+    THE DATA WAS NEVER STALE, which is what these two pin. One apply,
+    one re-listing, and the repaired row is gone from it while its
+    neighbour stays exactly where it was. Whatever the surface was
+    showing, the next listing already disagreed with it, so the fault
+    was never here. The surface half is pinned in test_polish_rulings.py,
+    on the component that was holding the copy.
+    """
+
+    async def _repair_one(self, hass, device, rows):
+        """Paste a code that combs clean onto the first row.
+
+        Nudged off the healthy command's own bytes rather than copied
+        from them: an exact duplicate would trade one finding for a
+        duplicated-neighbour finding and the row would stay for a
+        different reason, which would prove nothing about this one.
+        """
+        healthy = next(
+            c for c in device.commands
+            if c.id not in {r.target.command_id for r in rows}
+        )
+        words = healthy.code.split()
+        words[20] = format(int(words[20], 16) + 4, "04X")
+        connection = _conn()
+        await ws_tangle_apply(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": rows[0].id,
+            "pronto": " ".join(words), "tested": True, "source": "paste",
+        })
+        connection.send_error.assert_not_called()
+        return connection
+
+    @pytest.mark.asyncio
+    async def test_the_repaired_row_is_gone_from_the_next_listing(
+        self, dreo_pair
+    ):
+        hass, device, _manager = dreo_pair
+        before = list_tangles(device, None).rows
+        assert len(before) == 2
+        repaired, untouched = before[0], before[1]
+
+        await self._repair_one(hass, device, before)
+
+        after = list_tangles(device, None).rows
+        ids = {row.id for row in after}
+        assert repaired.id not in ids
+        assert untouched.id in ids
+
+    @pytest.mark.asyncio
+    async def test_the_count_and_the_rows_come_from_one_list(
+        self, dreo_pair
+    ):
+        """There is one number to be wrong about, not two. The card's
+        rows and the card's count are the same array, so a listing that
+        has dropped a row has dropped it from both."""
+        hass, device, _manager = dreo_pair
+        before = list_tangles(device, None).rows
+        assert len(before) == 2
+        repaired = before[0]
+
+        await self._repair_one(hass, device, before)
+
+        after = list_tangles(device, None).rows
+        assert len(after) == 1
+        assert [row.id for row in after] == [
+            row.id for row in before if row.id != repaired.id
+        ]

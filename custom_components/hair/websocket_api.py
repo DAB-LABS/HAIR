@@ -7228,6 +7228,11 @@ async def ws_device_matrix_command(
         dict(ident.decoded_extras) if ident.decoded_extras else None
     )
     command.send_count = max(1, send_count or 1)
+    # Cells carry no dittos (plan 5.5), and an inherited catalog default
+    # would invent one. The porthole mint has always said so; this door
+    # did not, so the same cell sent from the card and from its saved
+    # row could differ by a repeat nobody asked for.
+    command.repeat_count = 0
     # WHICH STATE THIS ROW IS (0.10.1 item 7). Stamped at mint from the
     # coordinates the pick already resolved, so sending the row later
     # moves the climate card exactly as the card's own SEND does -- and
@@ -7581,11 +7586,21 @@ async def _write_through(
 
 
 def _apply_source(msg: dict[str, Any]) -> str:
-    from .tangles import ORIGIN_CAPTURE, ORIGIN_DONOR, ORIGIN_PASTE
+    from .tangles import (
+        ORIGIN_CAPTURE,
+        ORIGIN_DONOR,
+        ORIGIN_PASTE,
+        ORIGIN_TRIM,
+    )
 
+    # An unrecognised origin falls back to paste rather than refusing:
+    # the bytes are what matter and the origin is a label on them. Trim
+    # joins the list in 0.14.1 B3 so a trimmed repair records what it
+    # actually was instead of arriving as somebody else's paste.
     source = msg.get("source") or ORIGIN_PASTE
     return source if source in {
-        ORIGIN_DONOR, ORIGIN_CAPTURE, ORIGIN_PASTE, "synthesized",
+        ORIGIN_DONOR, ORIGIN_CAPTURE, ORIGIN_PASTE, ORIGIN_TRIM,
+        "synthesized",
     } else ORIGIN_PASTE
 
 

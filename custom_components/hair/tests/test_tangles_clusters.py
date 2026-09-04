@@ -37,6 +37,8 @@ from custom_components.hair.tangles import (
 from custom_components.hair.wig_comb import CHECK_DUPLICATED_NEIGHBOUR
 from custom_components.hair.wig_format import Wig, cell_key, parse_wig
 
+from .util_disagreeing_capture import SECOND_OPEN_ROW
+
 FIXTURES = Path(__file__).parent / "fixtures"
 KOMECO = (FIXTURES / "wigs"
           / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json")
@@ -150,10 +152,17 @@ class TestDeterminism:
 
 
 class TestNoInventedStructure:
-    def test_the_dreo_stays_two_separate_things(self):
+    def test_two_noisy_captures_stay_two_separate_things(self):
         """Two noisy captures on one remote are two accidents, not a
         pattern. The receipt carries no capture session to group them
-        by, so grouping them would be a claim nothing supports."""
+        by, so grouping them would be a claim nothing supports.
+
+        One of the two is the Dreo's own Oscillate Horizontal. The
+        other is built (0.14.1 A1): the wig used to carry two flagged
+        captures and now carries one, because Speed Down is a capture
+        the decoder reads whole. The claim under test is unchanged, and
+        it still needs two of them to mean anything.
+        """
         wig = _wig(DREO)
         device = IRDevice(name="Dreo")
         for signal in wig.signals:
@@ -164,6 +173,10 @@ class TestNoInventedStructure:
                 repeat_count=signal.ditto_count,
                 tx_force_raw=signal.bypass_protocol,
             ))
+        device.add_command(IRCommand(
+            name="Speed Up", category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=SECOND_OPEN_ROW,
+        ))
         listing = list_tangles(device, None)
         assert len(listing.clusters) == 2
         assert {c.rule for c in listing.clusters} == {CLUSTER_SINGLETON}

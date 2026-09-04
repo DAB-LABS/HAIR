@@ -54,11 +54,14 @@ from custom_components.hair.wig_format import (
     parse_wig,
 )
 
+from .util_disagreeing_capture import SECOND_OPEN_ROW
+
 FIXTURES = Path(__file__).parent / "fixtures"
 KOMECO = (FIXTURES / "wigs"
           / "komeco-airconditioner-kos-09qc-3hx-perfect-fit.wig.json")
 DREO = (FIXTURES / "wigs"
         / "dreo-fan-dr-haf004s-perfect-fit.wig.json")
+
 
 
 def _wig(path: Path) -> Wig:
@@ -117,7 +120,13 @@ def komeco_device():
 
 @pytest.fixture
 def dreo_device():
-    """The Dreo fan as a flat device: seven buttons, two of them noisy."""
+    """The Dreo fan as a flat device: seven buttons, one of them noisy.
+
+    It was two until 0.14.1 A1: Speed Down is a capture the decoder
+    reads whole, so its frames disagreeing is the protocol working
+    rather than a bad capture, and it no longer reaches the work
+    list.
+    """
     wig = _wig(DREO)
     device = IRDevice(name="Dreo")
     for signal in wig.signals:
@@ -203,10 +212,17 @@ class TestTheKomecoListing:
 
 
 class TestTheDreoListing:
-    def test_the_two_noisy_captures(self, dreo_device):
+    def test_the_listing_is_exactly_what_the_comb_flagged(
+        self, dreo_device
+    ):
+        """The claim has not moved: the rows ARE the flagged captures,
+        counted from the same comb the listing runs. What moved is the
+        number. 0.14.1 A1 stands Speed Down down, so the fan has one
+        noisy capture where it used to have two, and both sides of this
+        comparison say so together."""
         device, wig = dreo_device
         listing = list_tangles(device, None)
-        assert len(listing.rows) == 2
+        assert len(listing.rows) == 1
         assert {row.target.key for row in listing.rows} == _flagged(
             wig, CHECK_FRAME_DISAGREEMENT)
 
@@ -327,15 +343,19 @@ class TestDerivedNotRemembered:
             "heat_cool/medium/off/24"].classes
 
     def test_the_digest_follows_the_bytes(self, dreo_device):
-        """Swapped for the OTHER noisy capture, so the row survives the
-        edit and the digest is the only thing that moved."""
+        """Swapped for OTHER bytes the comb also flags, so the row
+        survives the edit and the digest is the only thing that moved.
+
+        The other bytes used to be the fan's second noisy capture. A1
+        stood that one down, so they are built here instead, and the
+        substitution is the same one: still flagged, still this row."""
         device, _wig = dreo_device
         rows = list_tangles(device, None).rows
-        first, other = rows[0], rows[1]
+        first = rows[0]
         command = next(c for c in device.commands
                        if c.id == first.target.command_id)
         assert first.pronto == command.code
-        command.code = other.pronto
+        command.code = SECOND_OPEN_ROW
         again = next(
             r for r in list_tangles(device, None).rows
             if r.target.command_id == command.id

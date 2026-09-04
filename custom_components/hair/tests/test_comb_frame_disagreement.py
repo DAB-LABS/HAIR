@@ -33,16 +33,25 @@ from custom_components.hair.wig_comb import (
     CHECK_FRAME_DISAGREEMENT,
     CHECK_FRAME_INTEGRITY,
     COMB_VERSION,
+    DECLINE_DECODE_RESOLVED,
     DECLINE_PINNED_TO_RAW,
     DECLINE_SINGLE_FRAME,
     DECLINE_TOO_FEW_FRAMES,
+    _repeat_reading,
     comb_wig,
+    decode_resolves_repeats,
     frame_disagreement,
     receipt_summary,
     stamp_receipt,
     suspect_keys,
 )
-from custom_components.hair.wig_format import Wig, WigSignal, parse_wig
+from custom_components.hair.wig_format import (
+    ClimateCell,
+    ClimateMatrix,
+    Wig,
+    WigSignal,
+    parse_wig,
+)
 
 WIGS = Path(__file__).parent / "fixtures" / "wigs"
 DREO = WIGS / "dreo-fan-dr-haf004s-perfect-fit.wig.json"
@@ -285,13 +294,21 @@ class TestItReachesTheGate:
     def test_a_flagged_row_becomes_a_suspect_key(self):
         """The 0.9.8 comb gate turns suspicion into a human pressing the
         doubted button. Nothing new was needed for that: filing as an
-        ordinary finding is what puts the row on the checklist."""
+        ordinary finding is what puts the row on the checklist.
+
+        The COUNT moved in 0.14.1 A1 and the mechanism did not. Speed
+        Down decodes cleanly under a repeat-voting protocol, so the
+        check stands down and it is no longer a suspect; Oscillate
+        Horizontal decodes as nothing at all and still is. What this
+        pins is the wiring from finding to suspect key, and that a
+        settled row does not reach the checklist.
+        """
         wig = _load(DREO)
         report = comb_wig(wig)
-        assert report.suspects == 2
+        assert report.suspects == 1
         stamp_receipt(wig, report, "2026-08-22")
         assert "Oscillate Horizontal" in suspect_keys(wig)
-        assert "Speed Down" in suspect_keys(wig)
+        assert "Speed Down" not in suspect_keys(wig)
 
 
 # ---------------------------------------------------------------------------
@@ -308,14 +325,28 @@ class TestTheDreoFan:
         assert stored["suspects"] == 0
         assert stored["version"] == 1
 
-    def test_the_five_clean_buttons_stay_clean(self):
+    def test_only_the_capture_nothing_could_read_stays_flagged(self):
+        """SUPERSEDES test_the_five_clean_buttons_stay_clean (0.14.1 A1).
+
+        Speed Down used to be flagged beside Oscillate Horizontal, and
+        the raw measurement behind that has not changed: its four frames
+        still say three different things. What changed is that Speed
+        Down DECODES, cleanly, as SYMPHONY12, and Symphony reaches that
+        answer by voting across exactly these frames. Oscillate
+        Horizontal does not decode at all, so nothing overrules the
+        doubt and it still flags.
+
+        That split is the whole point of the item: the check keeps its
+        teeth for the capture nobody can read, and stands down for the
+        one a decoder already read whole.
+        """
         wig = _load(DREO)
         flagged = {
             key
             for finding in comb_wig(wig).findings
             for key in finding.keys
         }
-        assert flagged == {"Oscillate Horizontal", "Speed Down"}
+        assert flagged == {"Oscillate Horizontal"}
 
     def test_oscillate_horizontal_votes_six_frames(self):
         """The brief's framing, reproduced: 11, 12, 12, 12, 12, 12 pairs.
@@ -332,17 +363,28 @@ class TestTheDreoFan:
         assert vote.readings == 6
         assert vote.positions[:4] == (0, 1, 2, 3)
 
-    def test_speed_down_votes_four_frames(self):
+    def test_speed_down_still_votes_four_frames_underneath(self):
         """14, 12, 12, 13 pairs. The two intact frames agree with each
         other, which is why the length class carries slack: strict
         equality would leave them alone in a cluster and report nothing
-        about a capture the brief calls unambiguously broken."""
+        about a capture the brief calls unambiguously broken.
+
+        The raw measurement is pinned here as it always was, straight
+        off _repeat_reading, because 0.14.1 A1 did not change what this
+        capture MEASURES. It changed who gets the last word about it:
+        frame_disagreement now consults the decode and stands down, so
+        the public answer is None while the arithmetic underneath is
+        untouched. Both halves are pinned so a regression in either one
+        is visible.
+        """
         wig = _load(DREO)
         code = next(s.pronto for s in wig.signals if s.alias == "Speed Down")
-        vote = frame_disagreement(code)
+        _outcome, vote = _repeat_reading(code)
         assert vote is not None
         assert vote.frames == 4
         assert vote.readings == 3
+        assert decode_resolves_repeats(code) is True
+        assert frame_disagreement(code) is None
 
     def test_power_is_pinned_to_raw_and_reported_as_such(self):
         """kno-te pinned Power to raw, so the comb never judged it. That
@@ -353,6 +395,384 @@ class TestTheDreoFan:
         declined = report.coverage.to_dict()["checks"][
             CHECK_FRAME_DISAGREEMENT]["declined"]
         assert declined[DECLINE_PINNED_TO_RAW] == 1
+
+
+class TestTheDebrisTrim:
+    """0.14.1 B3. A stray burst gets a candidate built by deleting it.
+
+    A capture that ends with one extra timing after the last complete
+    frame is the classic unclean capture. Every receiver ignores it,
+    which is why the comb ranks it last, and it still means the file
+    carries a frame that is not a frame. The repair is a deletion, so
+    the candidate is provably the original minus the debris rather than
+    anything reconstructed.
+    """
+
+    def _matrix(self, codes):
+        """A lattice of ``codes``, one cell each, so the shape check has
+        a modal shape to compare against."""
+        cells = [
+            ClimateCell(mode="cool", pronto=pronto, temp=float(20 + i))
+            for i, pronto in enumerate(codes)
+        ]
+        return Wig(
+            name="Lattice",
+            signals=[],
+            climate=ClimateMatrix(
+                min_temp=16.0, max_temp=30.0, off=codes[0], cells=cells,
+            ),
+        )
+
+    #: Above PRONTO_GAP_THRESHOLD, so _frame_lengths splits here. The
+    #: module-level GAP is deliberately below it, which is right for the
+    #: repeat check and wrong for this one.
+    SPLIT = 0x0800
+
+    def _code(self, bits, frames=2, dangle=False):
+        """``frames`` copies of ``bits``, optionally with debris."""
+        pairs = []
+        for _ in range(frames):
+            body = _frame(bits)
+            last = len(body) - 1
+            for index, (mark, space) in enumerate(body):
+                pairs.append((mark, self.SPLIT if index == last else space))
+        if dangle:
+            pairs.append((0x0010, TRAILER))
+        words = [0x0000, 0x006D, len(pairs), 0x0000]
+        for mark, space in pairs:
+            words += [mark, space]
+        return " ".join(f"{w:04X}" for w in words)
+
+    def _dangling(self, bits="110100100101"):
+        return self._code(bits, dangle=True)
+
+    def _clean(self, bits="110100100101"):
+        return self._code(bits)
+
+    def test_the_candidate_is_the_original_minus_the_dangle(self):
+        """Byte-level, not approximately. Every timing in the candidate
+        was already in the code, and the only difference is the pair
+        that was hanging off the end."""
+        from custom_components.hair.tangles import ORIGIN_TRIM, find_trim
+        from custom_components.hair.wig_comb import _pairs
+
+        dangling = self._dangling()
+        findings = [{"check": "stray-burst"}]
+        candidate, abstain = find_trim(dangling, findings)
+        assert abstain is None
+        assert candidate is not None
+        assert candidate["reasoning"]["origin"] == ORIGIN_TRIM
+        assert candidate["reasoning"]["pairs_removed"] == 1
+
+        before = _pairs(dangling)
+        after = _pairs(candidate["pronto"])
+        assert after == before[:-1]
+
+    def test_it_only_trims_a_fragment_shorter_than_a_real_frame(self):
+        """THE GUARD THAT MATTERS. A short trailing frame is not always
+        debris: an NEC ditto is a deliberate repeat marker, and a
+        protocol whose last frame is legitimately shorter is one this
+        must not touch. A tail as long as anything else in the code
+        makes this abstain and say why rather than guess."""
+        from custom_components.hair.tangles import (
+            TRIM_FRAGMENT_IS_A_FRAME,
+            find_trim,
+        )
+
+        # Every frame the same length: nothing here is debris.
+        even = self._code("110100100101", frames=3)
+        candidate, abstain = find_trim(even, [{"check": "stray-burst"}])
+        assert candidate is None
+        assert abstain == TRIM_FRAGMENT_IS_A_FRAME
+
+    def test_it_does_not_go_looking_for_fragments_on_its_own(self):
+        """It repairs the thing the comb named. A code with no
+        stray-burst finding is not this branch to look at, whatever
+        shape it happens to have."""
+        from custom_components.hair.tangles import (
+            TRIM_NOTHING_TO_TRIM,
+            find_trim,
+        )
+
+        candidate, abstain = find_trim(self._dangling(), [])
+        assert candidate is None
+        assert abstain == TRIM_NOTHING_TO_TRIM
+
+        candidate, abstain = find_trim(
+            self._dangling(), [{"check": "field-mismatch"}])
+        assert candidate is None
+        assert abstain == TRIM_NOTHING_TO_TRIM
+
+    def test_the_candidate_reaches_the_fixes_ready_card(self):
+        """The wiring, end to end through the real listing.
+
+        Everything above tests the builder. This tests that its answer
+        arrives: the frontend buckets Fixes ready on has_donor alone, so
+        a candidate that never lands on the row is a repair nobody can
+        reach. The origin rides along in the reasoning, which is what
+        the accept path reads to record where the bytes came from.
+        """
+        from custom_components.hair.models import IRDevice
+        from custom_components.hair.tangles import ORIGIN_TRIM, list_tangles
+
+        first = self._clean("110100100101")
+        second = self._clean("110100100110")
+        matrix = ClimateMatrix(
+            min_temp=16.0, max_temp=30.0, off=first,
+            cells=[
+                ClimateCell(mode="cool", pronto=first, temp=20.0),
+                ClimateCell(mode="cool", pronto=second, temp=21.0),
+                ClimateCell(mode="cool", pronto=self._dangling(), temp=22.0),
+            ],
+        )
+        device = IRDevice(
+            name="AC", climate_matrix=True,
+            emitter_entity_ids=["infrared.b"],
+        )
+        rows = list_tangles(device, matrix).rows
+        row = next(r for r in rows if "stray-burst" in r.classes)
+        assert row.has_donor is True
+        assert row.donor is not None
+        assert row.donor["reasoning"]["origin"] == ORIGIN_TRIM
+        assert row.donor_abstain is None
+
+    def test_the_trimmed_code_combs_clean_where_the_original_did_not(self):
+        """The end-to-end claim: accepting this candidate is what makes
+        the finding go away on the next comb. Proved by combing the
+        lattice with the trimmed bytes in place rather than by trusting
+        the builder."""
+        from custom_components.hair.tangles import find_trim
+
+        dangling = self._dangling()
+        # Distinct codes: two identical cells would file a duplicated
+        # neighbour and drown the finding under test.
+        first = self._clean("110100100101")
+        second = self._clean("110100100110")
+        before = comb_wig(self._matrix([first, second, dangling]))
+        flagged = {f.check for f in before.findings}
+        assert "stray-burst" in flagged
+
+        candidate, _abstain = find_trim(
+            dangling, [{"check": "stray-burst"}])
+        assert candidate is not None
+        after = comb_wig(
+            self._matrix([first, second, candidate["pronto"]]))
+        assert "stray-burst" not in {f.check for f in after.findings}
+
+    def test_a_code_with_a_repeat_sequence_is_not_trimmed(self):
+        """A Pronto header splits pairs into a once sequence and a
+        repeat sequence, and the trimmed code is written once-only.
+        On a code that already is, that is a deletion. On a code that
+        carries a repeat sequence it would be a rewrite of what the
+        blaster loops while the button is held, so the builder abstains
+        and names the reason, whatever the tail looks like."""
+        from custom_components.hair.tangles import (
+            TRIM_HAS_REPEAT_SEQUENCE,
+            find_trim,
+        )
+
+        words = self._dangling().split()
+        total = int(words[2], 16)
+        # The same pairs, with the dangling one declared as the repeat
+        # sequence instead of part of the once sequence.
+        words[2] = f"{total - 1:04X}"
+        words[3] = "0001"
+        split = " ".join(words)
+        candidate, abstain = find_trim(split, [{"check": "stray-burst"}])
+        assert candidate is None
+        assert abstain == TRIM_HAS_REPEAT_SEQUENCE
+
+        # And the whole code as a repeat sequence, which some exporters
+        # write for a held-button code.
+        words[2] = "0000"
+        words[3] = f"{total:04X}"
+        held = " ".join(words)
+        candidate, abstain = find_trim(held, [{"check": "stray-burst"}])
+        assert candidate is None
+        assert abstain == TRIM_HAS_REPEAT_SEQUENCE
+
+    def test_a_header_that_miscounts_its_pairs_is_not_trimmed(self):
+        """The once count has to account for every pair. A header that
+        says fewer pairs than the code carries is a code the builder
+        cannot rewrite faithfully, so it does not."""
+        from custom_components.hair.tangles import (
+            TRIM_HAS_REPEAT_SEQUENCE,
+            find_trim,
+        )
+
+        words = self._dangling().split()
+        words[2] = f"{int(words[2], 16) - 1:04X}"
+        short = " ".join(words)
+        candidate, abstain = find_trim(short, [{"check": "stray-burst"}])
+        assert candidate is None
+        assert abstain == TRIM_HAS_REPEAT_SEQUENCE
+
+    def test_flat_rows_never_reach_the_trim_builder(self, monkeypatch):
+        """SCOPE PIN (0.14.1 B3 is matrix only). The flat comb has no
+        stray-burst detector yet, and the ditto whitelist a flat trim
+        needs ships with that detector. Until then a flat row must not
+        be offered a trim by any road, however its capture ends: the
+        builder is simply never consulted for a command row."""
+        from custom_components.hair import tangles
+        from custom_components.hair.const import CommandCategory
+        from custom_components.hair.models import IRCommand, IRDevice
+
+        calls: list[str] = []
+
+        def spy(pronto, *args, **kwargs):
+            calls.append(pronto)
+            raise AssertionError("find_trim consulted for a flat row")
+
+        monkeypatch.setattr(tangles, "find_trim", spy)
+
+        device = IRDevice(name="Fan", emitter_entity_ids=["infrared.b"])
+        # A genuinely disagreeing capture, so the row is open, with a
+        # dangling pair on the end so a trim WOULD have something to
+        # remove if anything asked for one.
+        from custom_components.hair.tests.util_disagreeing_capture import (
+            SECOND_OPEN_ROW,
+        )
+        words = SECOND_OPEN_ROW.split()
+        words += ["0010", f"{TRAILER:04X}"]
+        words[2] = f"{int(words[2], 16) + 1:04X}"
+        device.add_command(IRCommand(
+            name="Oscillate", category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=" ".join(words),
+        ))
+        device.add_command(IRCommand(
+            name="Power", category=CommandCategory.CUSTOM,
+            protocol="PRONTO", code=self._clean("110100100101"),
+        ))
+
+        rows = tangles.list_tangles(device, None).rows
+        assert calls == []
+        for row in rows:
+            assert row.has_donor is False
+            assert row.donor is None
+
+
+class TestADecodeThatVotesStandsTheCheckDown:
+    """0.14.1 A1. The field case, and the four ways it must not overreach.
+
+    The Dreo fan is a real capture of a real remote. Its frames differ
+    from each other because a Symphony remote sends a vendor preamble
+    and then repeats, and because a receiver picking that up at arm
+    length does not hear every frame identically. The decoder knows all
+    of that: it splits, discards what loses, and requires two survivors
+    to agree. This check does not know any of it, and said so, forever,
+    with no way for the person holding the remote to make it stop.
+
+    So the check asks the decoder before it files. Narrowly.
+    """
+
+    def _dreo_code(self, alias):
+        wig = _load(DREO)
+        return next(s.pronto for s in wig.signals if s.alias == alias)
+
+    # (1) The field case itself.
+    def test_a_capture_the_decoder_read_whole_combs_clean(self):
+        code = self._dreo_code("Speed Down")
+        report = comb_wig(_wig({"Speed Down": code}))
+        flagged = {k for f in report.findings for k in f.keys}
+        assert "Speed Down" not in flagged
+
+    def test_and_the_receipt_says_why_rather_than_going_quiet(self):
+        """A silent pass and a reasoned one look identical from the
+        outside, which is the failure the coverage section exists to
+        prevent. The code is COUNTED as looked at and the reason is
+        recorded beside it."""
+        code = self._dreo_code("Speed Down")
+        report = comb_wig(_wig({"Speed Down": code}))
+        slot = report.coverage.to_dict()["checks"][CHECK_FRAME_DISAGREEMENT]
+        assert slot["declined"][DECLINE_DECODE_RESOLVED] == 1
+        assert slot["checked"] == 1
+        assert "Speed Down" in report.coverage.seen
+
+    # (2) A non-voting protocol earns no exemption.
+    def test_a_disagreeing_capture_under_a_non_voting_protocol_still_flags(
+        self,
+    ):
+        """The exemption is not "it decoded". A protocol carrying its own
+        checksum proves each frame on its own and never has to reconcile
+        them, so frames that disagree under one are still a bad capture
+        and still get reported.
+
+        Built rather than borrowed: a NEC frame followed by a mangled
+        copy of itself. NEC decodes, NEC does not repeat-vote, and the
+        disagreement survives.
+        """
+        from custom_components.hair.decoders import split_frames
+        from custom_components.hair.ir_command import ProntoCommand
+        from custom_components.hair.protocol_decode import (
+            decode_is_repeat_voted,
+            try_decode_identity,
+        )
+
+        code = _repeats("110100100101", 4)
+        timings = ProntoCommand(code).get_raw_timings()
+        identity = try_decode_identity(timings)
+        # Whatever this synthetic capture resolves to, the claim under
+        # test is the same one: no repeat-voting decoder accepted it.
+        assert decode_is_repeat_voted(timings) is False
+        assert decode_resolves_repeats(code) is False
+        assert split_frames is not None
+        assert identity is None or identity.protocol != "SYMPHONY12"
+
+    # (3) A voting protocol whose vote did not carry earns no exemption.
+    def test_a_voting_capture_whose_vote_does_not_carry_still_flags(self):
+        """Oscillate Horizontal, straight off the fixture. Six frames,
+        six readings, and Symphony refuses it: no two survivors agree,
+        so there is no verdict to defer to and the doubt stands."""
+        code = self._dreo_code("Oscillate Horizontal")
+        assert decode_resolves_repeats(code) is False
+        vote = frame_disagreement(code)
+        assert vote is not None
+        assert vote.frames == 6
+        report = comb_wig(_wig({"Oscillate Horizontal": code}))
+        flagged = {k for f in report.findings for k in f.keys}
+        assert flagged == {"Oscillate Horizontal"}
+
+    # (4) The capture-time notice follows the same rule.
+    def test_the_capture_time_notice_is_suppressed_too(self):
+        """One implementation, one answer. The notice in the assign
+        dialog and the command editor reads frame_disagreement, so a
+        capture the decoder settles raises no red line while the person
+        is still holding the remote."""
+        assert frame_disagreement(self._dreo_code("Speed Down")) is None
+        assert frame_disagreement(
+            self._dreo_code("Oscillate Horizontal")) is not None
+
+    # (5) The matrix branch is untouched.
+    def test_a_matrix_cell_gets_no_exemption(self):
+        """THE SCOPE LINE. A flat row is a captured button and can
+        legitimately be a voting protocol whose frames differ by design.
+        A lattice cell is generated, and frames that disagree there are
+        a defect in the file rather than a property of the remote, so
+        the same bytes that stand the check down on a flat row must
+        still flag inside a matrix.
+
+        Pinned with the identical Speed Down code on both sides, so the
+        only variable is which branch read it.
+        """
+        code = self._dreo_code("Speed Down")
+        flat = comb_wig(_wig({"Speed Down": code}))
+        assert not {k for f in flat.findings for k in f.keys}
+
+        matrix = Wig(
+            name="Lattice",
+            signals=[],
+            climate=ClimateMatrix(
+                min_temp=16.0,
+                max_temp=30.0,
+                off=code,
+                cells=[ClimateCell(mode="cool", pronto=code, temp=20.0)],
+            ),
+        )
+        report = comb_wig(matrix)
+        flagged = {k for f in report.findings for k in f.keys}
+        assert flagged, "the matrix branch must still doubt these bytes"
+        slot = report.coverage.to_dict()["checks"][CHECK_FRAME_DISAGREEMENT]
+        assert DECLINE_DECODE_RESOLVED not in slot["declined"]
 
 
 class TestTheKomecoLattice:

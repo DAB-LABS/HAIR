@@ -142,6 +142,21 @@ export class IrTangleFix extends LitElement {
         return result.heard;
     }
 
+    /** Which road this candidate came down (0.14.1 B3).
+     *
+     * The card is deliberately one card: a candidate is a candidate,
+     * tested the same way and accepted with the same button. What
+     * differs is the truthful record left behind, so the origin is read
+     * off the candidate rather than assumed to be a donor.
+     */
+    private _originOf(row: TangleRow): string {
+        const reasoning = row.donor?.reasoning as
+            | Record<string, unknown>
+            | undefined;
+        const origin = reasoning?.origin;
+        return typeof origin === "string" ? origin : "donor";
+    }
+
     private async _accept(row: TangleRow): Promise<void> {
         this._accepting = new Set(this._accepting).add(row.id);
         try {
@@ -151,7 +166,7 @@ export class IrTangleFix extends LitElement {
                 pronto: row.donor?.pronto ?? row.pronto,
                 tested: true,
                 sendsFired: this._sendsFor(row.id),
-                source: "donor",
+                source: this._originOf(row),
             });
             this._accepted = new Set(this._accepted).add(row.id);
             this._emitMutated(result.wig.written);

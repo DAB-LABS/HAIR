@@ -5,6 +5,22 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-09-04 -- Touch-Up
+
+### Added
+
+- The whole repair happens in one Fix window. Each Needs attention row has one Fix button opening a window that leads with the reason, then one plain sentence, with Listen in the footer beside Create. Listen keeps the full press flow: read-back, plain-words mismatches, Use It Anyway after three misses, timeout honesty. A corrected code can be pasted into the same window, so a repair no longer requires the remote in hand. Skip for now is retired; closing the window skips and records nothing.
+- Trailing-debris fixes: a matrix cell with one stray burst hanging off its last frame gets a ready-made fix that trims the dangle and keeps everything the hardware emitted, with the prior bytes kept for revert. The trim refuses any code whose Pronto header carries a repeat sequence, since that would be a rewrite rather than a deletion.
+
+### Fixed
+
+- A clean decode now settles the repeat question. Captures from protocols whose decoders vote across repeat frames (Symphony and kin) legitimately carry differing raw frames, and the byte-level repeat check flagged them forever, including after a correct repair. The check now stands down when the decoder accepted the whole capture, in the comb, the capture-time warning, and the repair listing, with the receipt recording why. Reported by kno-te (WigShop poll 18).
+- A command holding an air conditioner state never transmits a decoded re-encode. A long state code can contain a short valid frame of another protocol by coincidence, and re-encoding that false match transmitted a meaningless frame. State-carrying commands now always replay their stored bytes; decoded names remain for matching and display only, and the protocol chip on those rows is informational rather than a toggle. Reported by @bp-alex (GH #134).
+- A press that a mapped wig cannot read as any of its states now climbs the did-not-match ladder instead of being accepted, with Use It Anyway as the deliberate exit. A flat wig's press is accepted as before, since it has no reading to disagree with.
+- A repaired row leaves the Needs attention listing the moment its fix applies, instead of waiting for a reopen.
+- Saved state rows send with the same repeat count as their matrix cell.
+- Swing row names no longer repeat the dimension word, and the repair cards say plainly what HAIR built and ask for a test and an accept.
+
 ## [0.14.0] - 2026-08-31 -- Detangle
 
 There is no 0.13.0; the version number skips from 0.12.1 to 0.14.0.

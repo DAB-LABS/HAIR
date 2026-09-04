@@ -89,6 +89,27 @@ export function fieldWords(
         : String(value);
 }
 
+/** A dimension and its value, without saying the dimension twice.
+ *
+ * B4. Vocabulary values are verbatim from the source file, and a great
+ * many lattices spell the swing-is-on value as the word "swing" -- so
+ * the obvious composition produced "Swing Swing", and the row that
+ * should have read "Heat, Fan Low, Swing, 61F" read like a stutter.
+ *
+ * Only the exact match collapses. A value that merely CONTAINS the
+ * dimension word keeps its label, because "Swing Vertical" and "Swing
+ * Full" are saying something the bare value does not, and so do "Wide"
+ * and every other real setting. Compared case-insensitively because the
+ * census found the same value spelled Swing, swing and SWING across
+ * files, and none of those spellings is wrong.
+ */
+function dimensionWords(dimension: string, value: string): string {
+    const shown = titleCase(value);
+    return shown.toLowerCase() === dimension.toLowerCase()
+        ? dimension
+        : `${dimension} ${shown}`;
+}
+
 function titleCase(raw: string): string {
     return raw
         .split("_")
@@ -130,9 +151,9 @@ export function targetWords(
     }
     const parts: string[] = [];
     if (coords.mode) parts.push(titleCase(coords.mode));
-    if (coords.fan) parts.push(`Fan ${titleCase(coords.fan)}`);
+    if (coords.fan) parts.push(dimensionWords("Fan", coords.fan));
     if (coords.swing && coords.swing !== "off") {
-        parts.push(`Swing ${titleCase(coords.swing)}`);
+        parts.push(dimensionWords("Swing", coords.swing));
     }
     if (coords.temp !== undefined && coords.temp !== null && coords.temp !== "") {
         const native = Number(coords.temp);

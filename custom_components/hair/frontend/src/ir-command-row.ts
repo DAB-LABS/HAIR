@@ -128,6 +128,31 @@ import type { IRCommand } from "./types.js";
 export class IrCommandRow extends LitElement {
     @property({ attribute: false }) public templateName: string = "";
     @property({ attribute: false }) public command: IRCommand | null = null;
+
+    /** Does this row carry a matrix state rather than a captured button?
+     *
+     * B2, and it pairs with the GH #134 send guard. A state row still
+     * DECODES as something, often as a coincidence -- a long opaque AC
+     * blob with a short addressed frame hiding inside it. The send path
+     * now ignores that decode for these rows and always replays the
+     * stored bytes, so a chip offering to toggle between decoded and
+     * captured would be offering a choice that no longer has two sides.
+     *
+     * The chip still SAYS the protocol, because what a row decodes as is
+     * true and useful; it just stops presenting as a control. That is
+     * the read-only mode the chip already has for the fitting rows, so
+     * this needs no new visual language.
+     *
+     * Both fields are read for the same reason the backend guard reads
+     * both: a clone keeps source and drops matrix_cell, and a saved
+     * STATE row has historically set source alone.
+     */
+    private get _isMatrixState(): boolean {
+        return (
+            this.command?.matrix_cell != null ||
+            this.command?.source === "matrix"
+        );
+    }
     @property({ type: Boolean }) public busy = false;
 
     /** Label of the mapped action (e.g. "Power On"), or empty/null if unmapped. */
@@ -389,7 +414,8 @@ export class IrCommandRow extends LitElement {
                                                     .decoded_protocol}
                                                 .bypass=${!!this.command
                                                     .tx_force_raw}
-                                                interactive
+                                                ?interactive=${!this
+                                                    ._isMatrixState}
                                                 ?disabled=${this.busy}
                                                 @toggle-bypass=${() =>
                                                     this._emit("toggle-tx-raw")}

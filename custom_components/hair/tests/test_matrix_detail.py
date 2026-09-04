@@ -586,6 +586,58 @@ class TestMatrixCommand:
         assert payload["commands"][0]["source"] == "matrix"
 
     @pytest.mark.asyncio
+    async def test_a_saved_row_sends_the_cell_the_card_sends(self, fake_hass):
+        """GH #134, second half. Cells carry no dittos, and the porthole
+        mint has always said so explicitly; this door inherited whatever
+        the catalog default happened to be. The same cell could
+        therefore go out one way from the climate card and another way
+        from its own saved row, which is the kind of difference nobody
+        thinks to look for until a unit answers one and ignores the
+        other.
+        """
+        _manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        await ws_device_matrix_command(
+            fake_hass, _make_connection(),
+            self._msg(mode="cool", fan="quiet", swing="swing", temp=25),
+        )
+        assert device.commands[0].repeat_count == 0
+
+    @pytest.mark.asyncio
+    async def test_the_saved_row_still_carries_its_decoded_identity(
+        self, fake_hass
+    ):
+        """The GH #134 guard is on the SEND path alone.
+
+        What a state row decodes AS is still stamped at mint and still
+        stored, because press matching, pin bindings and Mirror echo all
+        read those fields and none of them transmit anything. Only the
+        decision to re-encode FROM them went away.
+
+        Pinned against an independent decode of the stored
+        code, so this says the mint recorded what the decoder actually
+        found rather than merely recording something.
+        """
+        from custom_components.hair.wig_identity import wig_signal_identity
+
+        _manager, device = _wire_matrix(
+            fake_hass, _entity_matrix(real_prontos=True)
+        )
+        await ws_device_matrix_command(
+            fake_hass, _make_connection(),
+            self._msg(mode="cool", fan="quiet", swing="swing", temp=25),
+        )
+        command = device.commands[0]
+        expected = wig_signal_identity(command.code)
+        assert expected is not None
+        assert command.decoded_protocol == expected.decoded_protocol
+        assert command.decoded_address == expected.decoded_address
+        assert command.decoded_command == expected.decoded_command
+        assert command.decoded_fingerprint == expected.decoded_fingerprint
+        assert command.byte_hash == expected.byte_hash
+
+    @pytest.mark.asyncio
     async def test_saved_name_mints_in_the_install_unit(self, fake_hass):
         """Mint-time naming (unit ruling 2026-07-29): the saved
         command's name freezes in the install's unit as of now; the

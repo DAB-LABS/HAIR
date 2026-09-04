@@ -288,7 +288,7 @@ Added in HAIR 0.14.0. When a person fixes a comb finding on a device made from a
 
 Three records ride along, all in `extra` maps and all **outside every canonical hash**, so a repaired wig's identity is decided by its bytes and nothing else.
 
-**The repair record** sits on the repaired cell (or signal) under `hair_repair`:
+**The repair record** sits on the repaired matrix cell under `hair_repair`. Flat signals do not carry it: their canonical form is exactly five fields, so a flat repair's record lives on the device alone, and the fresh bytes plus the re-comb are the evidence that travels.
 
 ```json
 "hair_repair": {

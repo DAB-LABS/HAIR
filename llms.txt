@@ -266,7 +266,13 @@ Key components:
   offered); the user accepts one or all. LISTEN: a press from the real
   remote is needed; the heard frame is read back against the coordinate
   and a mismatch is reported three times before Use It Anyway records a
-  keep attestation. DECIDE: two members carry one name or one code; rename,
+  keep attestation. Since 0.14.1 the whole repair happens in one Fix
+  window per row (Listen beside a paste box feeding the same gated
+  apply; closing the window skips and records nothing), a press a
+  map-covered wig cannot read climbs the same ladder instead of being
+  accepted, and the repeat-disagreement check stands down when a
+  repeat-voting decoder (SYMPHONY class) accepted the whole capture,
+  with the receipt recording decode-resolved. DECIDE: two members carry one name or one code; rename,
   delete, or Keep Both. Attestations key on target, payload digest, and
   field-map version (flat rows on digest and version alone, so answers
   survive renames); an attested row reads clean on the surface and the

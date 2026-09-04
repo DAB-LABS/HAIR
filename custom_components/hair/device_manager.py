@@ -19,6 +19,7 @@ from .const import (
     MAX_SEND_COUNT,
     SEND_REPEAT_GAP,
     CommandCategory,
+    CommandSource,
     DeviceType,
 )
 from .entity_factory import EntityFactory
@@ -724,8 +725,33 @@ class DeviceManager:
         # fixes replay failures against non-TSOP destinations (GH #14).
         # Falls back to Pronto/raw replay when undecodable, opted out, or
         # the library is unavailable.
+        #
+        # NEVER FOR A MATRIX STATE (GH #134). An AC state blob is a long
+        # opaque payload, and a decoder looking for a short addressed
+        # frame can find one inside it by coincidence: the reported case
+        # was a false KASEIKYO48 match that re-encoded a whole climate
+        # state into a meaningless 99-timing frame. Re-encoding is only
+        # ever safe where the decode describes the WHOLE signal, and on
+        # a state row it does not.
+        #
+        # Both clauses carry weight and neither is redundant. A device
+        # clone drops matrix_cell but keeps source, and a saved STATE
+        # row has historically set source alone and never matrix_cell,
+        # so either one on its own leaves a real shape unguarded.
+        #
+        # The decoded identity fields stay exactly as they are. They
+        # serve press matching, pin bindings and Mirror echo, none of
+        # which transmit anything; this guards the send path only.
         ir_cmd = None
-        if command.decoded_fingerprint and not command.tx_force_raw:
+        is_matrix_state = (
+            command.matrix_cell is not None
+            or command.source == CommandSource.MATRIX
+        )
+        if (
+            command.decoded_fingerprint
+            and not command.tx_force_raw
+            and not is_matrix_state
+        ):
             ir_cmd = build_decoded_command(
                 command.decoded_protocol,
                 command.decoded_address,

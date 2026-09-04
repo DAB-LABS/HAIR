@@ -47,6 +47,20 @@ _VALID_NBITS = (8, 12, 16)
 class SymphonyCommand(Command):
     """Symphony IR command (8/12/16-bit, rc_switch family)."""
 
+    #: How many frames must agree before this decoder accepts a capture.
+    #:
+    #: Symphony carries no checksum, so repetition is the only integrity
+    #: evidence there is and one decoded frame is not enough. Declared
+    #: here rather than passed as a literal below because it is a fact
+    #: ABOUT the decoder that callers outside it need: a check that
+    #: doubts a capture because its raw frames differ has to know
+    #: whether the winning decoder already resolved that difference by
+    #: voting. Read through ``decode_is_repeat_voted``.
+    #:
+    #: The constant and the call site cannot drift, because the call
+    #: site below is the only place it is used.
+    MIN_FRAME_VOTES = 2
+
     data: int
     nbits: int
 
@@ -99,7 +113,8 @@ class SymphonyCommand(Command):
         discarded. Returns None otherwise.
         """
         frames = split_frames(timings, _FRAME_GAP_US)
-        result = decode_frames_majority(frames, cls._decode_frame, min_votes=2)
+        result = decode_frames_majority(
+            frames, cls._decode_frame, min_votes=cls.MIN_FRAME_VOTES)
         if result is None:
             return None
         (data, nbits), votes = result
