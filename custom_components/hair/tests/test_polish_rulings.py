@@ -4187,13 +4187,15 @@ class TestEveryCardsCallToActionReadsFix:
     def test_the_chevron_keeps_its_own_card_color(self):
         """Blue FIX, amber LISTEN, copper DECIDE: the colors the comb
         glyph beside it already carries, so the hinge and the glyph
-        cannot come to disagree about which card this is."""
+        cannot come to disagree about which card this is. The color
+        rides on the button now rather than on a raw svg, because
+        ha-svg-icon fills with currentColor."""
         text = _read("ir-tangle-section.ts")
         for card, token in (("fix", "--tangle-blue"),
                             ("listen", "--tangle-amber"),
                             ("decide", "--tangle-copper")):
             body = text.split(
-                f".tcard-chevron.{card} svg {{", 1
+                f".tcard-chevron.{card} {{", 1
             )[1].split("}", 1)[0]
             assert token in body, card
 
@@ -4208,14 +4210,16 @@ class TestEveryCardsCallToActionReadsFix:
             assert token in body, card
 
     def test_the_chevron_points_down_closed_and_up_open(self):
-        """One path, turned, rather than two glyphs that could drift
-        into disagreeing about which way is closed."""
+        """Two paths swapped, which is what the Sniffer and Clipper
+        cards do. The turned single path it used before said the same
+        thing in a way nothing else on the panel said it."""
         section = _read("ir-tangle-section.ts")
-        assert 'class="tcard-chevron ${card} ${isOpen' in section
-        body = section.split(".tcard-chevron.open {", 1)[1].split("}", 1)[0]
-        assert "rotate(180deg)" in body
+        assert "${isOpen\n                                    ? ICON_CHEVRON_UP" \
+            in section
+        assert "rotate(180deg)" not in section
         icons = _read("ir-icons.ts")
         assert "export const ICON_CHEVRON_DOWN" in icons
+        assert "export const ICON_CHEVRON_UP" in icons
 
     def test_the_rows_underneath_keep_their_fix_buttons(self):
         """Only the card-level open and close changed."""
@@ -4610,12 +4614,15 @@ class TestTheListenCardSaysFix:
     fix something; this one now says so too."""
 
     def test_english_reads_as_ruled(self):
+        """Owner ruled again 2026-09-04: SHOULD, not WILL. The presses
+        are the person's to make and the panel cannot promise what a
+        receiver will hear."""
         data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
         assert data["tangles.card_listen.other"] == (
-            "{count} presses from your remote will fix these codes."
+            "{count} presses from your remote should fix these codes."
         )
         assert data["tangles.card_listen.one"] == (
-            "{count} press from your remote will fix this code."
+            "{count} press from your remote should fix this code."
         )
 
     def test_every_variant_in_every_language_moved(self):
@@ -4762,7 +4769,16 @@ class TestThePopupOwnsTheWholeLadder:
         assert "const asked = claimedFor(cluster.field, coords);" in body
         assert "good = sameReading(witnessed, asked);" in body
         # And the flat wig's unreadable verdict is still not a miss.
-        assert "claim === null || claim === undefined ? true" in body
+        # The ternary became an if on 2026-09-04, when the OTHER null
+        # -- a mapped wig whose map could not read the press -- stopped
+        # being accepted with it. The flat half of the claim is
+        # unchanged and is what this line still holds: with no map,
+        # tangleMapped is false and the press goes straight through.
+        assert "if (claim === null || claim === undefined) {" in body
+        assert (
+            "good = !(this.tangleMapped && "
+            "capture.verdict.protocol === null);"
+        ) in body
 
     def test_three_misses_offer_use_it_anyway(self):
         text = self._flow()
@@ -5208,3 +5224,231 @@ class TestTheFixWindowRedesign:
         )[0]
         assert 'class="replace-row"' in ordinary
         assert 'class="action-btn listen-btn ${this._listening' in ordinary
+
+
+class TestTheCardsChevronIsThePanelsChevron:
+    """Owner ruled 2026-09-04, style. The detangle card's disclosure
+    was a rotated 18px raw svg. The Sniffer and Clipper cards swap two
+    24px mdi paths through ha-svg-icon, and a card that stacks with
+    them should not read as a smaller kind of control."""
+
+    def test_it_swaps_the_same_two_paths_those_cards_use(self):
+        icons = _read("ir-icons.ts")
+        down = icons.split("ICON_CHEVRON_DOWN =", 1)[1].split(";", 1)[0]
+        up = icons.split("ICON_CHEVRON_UP =", 1)[1].split(";", 1)[0]
+        # The literals the Sniffer and Clipper declare for themselves.
+        for other in ("ir-signal-monitor.ts", "ir-clips.ts"):
+            body = _read(other)
+            assert down.strip().strip('"') in " ".join(body.split()).replace(
+                '" "', ""), other
+        assert "M7.41,8.58" in down
+        assert "M7.41,15.41" in up
+
+    def test_it_is_the_panels_disclosure_size(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split(".tcard-chevron ha-svg-icon {", 1)[1].split(
+            "}", 1)[0]
+        assert "--mdc-icon-size: 24px;" in body
+        # The 18px raw-svg box it replaced is gone, not left behind.
+        assert ".tcard-chevron svg {" not in text
+
+    def test_it_keeps_everything_the_last_round_gave_it(self):
+        """A restyle, not a redesign: the comb coloring, the state it
+        announces, and the name it borrows all survive."""
+        text = _read("ir-tangle-section.ts")
+        assert 'aria-expanded=${isOpen ? "true" : "false"}' in text
+        assert 'aria-labelledby="tname-${card}"' in text
+        assert '<div class="name-line" id="tname-${card}">' in text
+        assert 'class="tcard-chevron ${card}"' in text
+
+
+class TestListenReadsAsCreatesEqual:
+    """Owner ruled 2026-09-04, style. The footer offers a press and a
+    save. They are equally the point of the window, and an outlined
+    chip beside a solid Create read as the lesser of the two."""
+
+    def _footer_rule(self, text, selector):
+        return text.split(selector, 1)[1].split("}", 1)[0]
+
+    def test_listen_is_filled_in_the_tangle_amber(self):
+        text = _read("ir-signal-editor.ts")
+        body = self._footer_rule(text, ".dialog-actions .listen-btn {")
+        assert "background: var(--tangle-amber, #b89930);" in body
+        assert "color: #fff;" in body
+        assert "font-weight: 600;" in body
+
+    def test_the_dots_survive_the_fill(self):
+        """Owner ruling with a pin behind it (issue 14). They were
+        amber on the card's background, which is the fill they now sit
+        on, so keeping the declaration would have kept the dots and
+        lost the ability to see them."""
+        text = _read("ir-signal-editor.ts")
+        button = text.split(
+            "private _renderTangleListenButton()", 1
+        )[1].split("\n    /**", 1)[0]
+        assert 'class="pulse"' in button
+        assert button.count('<span class="dot">') == 3
+        body = self._footer_rule(
+            text, ".dialog-actions .listen-btn .pulse .dot {")
+        assert "background: #fff;" in body
+        assert "@media (prefers-reduced-motion: reduce)" in text
+        reduced = text.split(
+            "@media (prefers-reduced-motion: reduce)", 1
+        )[1].split("}", 2)[0]
+        assert ".pulse .dot" in reduced
+
+    def test_heard_still_goes_green(self):
+        """A green word on an amber fill is not a state change anybody
+        can read, so on the filled button the fill turns instead."""
+        text = _read("ir-signal-editor.ts")
+        body = self._footer_rule(text, ".dialog-actions .listen-btn.heard {")
+        assert "background: #2e7d32;" in body
+        assert ".listen-btn.heard:disabled {" in text
+
+    def test_the_ordinary_editors_listen_is_untouched(self):
+        """Every rule this round added is scoped to .dialog-actions.
+        The Replace block's outlined Listen is not in the footer."""
+        text = _read("ir-signal-editor.ts")
+        ordinary = text.split("private _renderReplace()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert 'class="action-btn listen-btn ${this._listening' in ordinary
+        assert "dialog-actions" not in ordinary
+        body = self._footer_rule(text, "\n        .listen-btn {")
+        assert "background" not in body
+
+
+class TestTheUnreadablePressIsNotAnAcceptableNull:
+    """Owner field case, 2026-09-04. A Samsung remote pressed at a BAXI
+    cell read back as nothing, the flow accepted the foreign code
+    because ``matches`` was null, and the comb re-flagged the row on
+    the next pass.
+
+    The two nulls and what tells them apart are measured against the
+    real doors in test_tangle_unreadable_press.py. What is pinned here
+    is the branch that consumes them, which lives in TypeScript.
+    """
+
+    def _branch(self) -> str:
+        text = _read("ir-signal-editor.ts")
+        body = text.split("private async _onTangleEvent(", 1)[1]
+        return body.split("if (good) {", 1)[0]
+
+    def test_the_flat_wigs_null_still_accepts(self):
+        """The ruled behaviour, unchanged. Reading it as a miss made
+        recapture structurally impossible on flat wigs (issue 3)."""
+        branch = self._branch()
+        assert "good = !(this.tangleMapped && capture.verdict.protocol === null);" \
+            in branch
+
+    def test_it_takes_both_signals_to_separate_them(self):
+        """Neither alone does it: an unmapped wig and a mapped wig that
+        could not read the press both arrive with no protocol."""
+        branch = self._branch()
+        assert "this.tangleMapped" in branch
+        assert "capture.verdict.protocol === null" in branch
+        assert "claim === true" in branch
+
+    def test_a_readable_verdict_is_judged_exactly_as_before(self):
+        branch = self._branch()
+        assert "const claim = capture.verdict.matches;" in branch
+        assert "} else {\n                good = claim === true;" in branch
+
+    def test_the_map_coverage_comes_off_the_listing(self):
+        """It cannot come off the verdict, which does not know it. The
+        card holds the listing already, so nothing new is fetched and
+        nothing new is on the wire."""
+        editor = _read("ir-signal-editor.ts")
+        assert "@property({ type: Boolean }) public tangleMapped = false;" \
+            in editor
+        card = _read("ir-tangle-listen.ts")
+        assert '.tangleMapped=${this.listing.field_tier === "read"}' in card
+
+    def test_the_ladder_it_climbs_is_the_one_that_already_existed(self):
+        """No new rungs and no new strings: with nothing to quote, the
+        existing noread wording is what renders, and the third rung is
+        the same Use It Anyway."""
+        editor = _read("ir-signal-editor.ts")
+        assert 't(`tangles.listen_mismatch_${rung}_noread`)' in editor
+        assert "this._raiseTangleLadder(capture.pronto, \"capture\");" in editor
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        for rung in (1, 2, 3):
+            assert f"tangles.listen_mismatch_{rung}_noread" in data
+
+
+class TestTheFixCardsRuledCopy:
+    """Owner ruled 2026-09-04. The Fixes card said the correct codes
+    were already in the file, which is true and does not say what the
+    person is being asked to do. It names HAIR as what built the
+    replacements now, and asks for a test and an accept."""
+
+    def test_english_reads_as_ruled(self):
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.card_fix.other"] == (
+            "{count} codes are storing the wrong signal. HAIR built "
+            "replacements from the correct codes already in this file. "
+            "Test and accept the ones that work."
+        )
+        assert data["tangles.card_fix.one"] == (
+            "{count} code is storing the wrong signal. HAIR built a "
+            "replacement from the correct codes already in this file. "
+            "Test and accept it if it works."
+        )
+        assert data["tangles.fix_case.other"] == (
+            "We built replacements from the correct codes already in "
+            "this file."
+        )
+        assert data["tangles.fix_case.one"] == (
+            "We built a replacement from the correct codes already in "
+            "this file."
+        )
+
+    def test_the_case_line_dropped_its_count_everywhere(self):
+        """It no longer opens with a tally, so the placeholder went
+        with the clause -- including pl and ru's few and many, which
+        placeholder parity checks against the English other."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            variants = [k for k in data
+                        if k.startswith("tangles.fix_case.")]
+            assert variants, name
+            for key in variants:
+                assert "{count}" not in data[key], f"{name}: {key}"
+
+    def test_the_two_card_lines_kept_theirs(self):
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for family in ("tangles.card_fix.", "tangles.card_listen."):
+                variants = [k for k in data if k.startswith(family)]
+                assert variants, f"{name}: {family}"
+                for key in variants:
+                    assert "{count}" in data[key], f"{name}: {key}"
+
+    def test_every_language_names_hair(self):
+        """It is a brand name, so it rides through untranslated -- and
+        the sentence is about what HAIR did, so a translation that
+        dropped it would be describing nobody."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for key in [k for k in data if k.startswith("tangles.card_fix.")]:
+                assert "HAIR" in data[key], f"{name}: {key}"
+
+    def test_the_new_copy_carries_no_dashes(self):
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for key in data:
+                if not key.startswith((
+                    "tangles.card_fix.", "tangles.fix_case.",
+                    "tangles.card_listen.",
+                )):
+                    continue
+                for bad in ("\u2014", "\u2013", " -- "):
+                    assert bad not in data[key], f"{name}: {key}"

@@ -107,6 +107,17 @@ export class IrSignalEditor extends LitElement {
     @property({ attribute: false }) public tangleCluster: TangleCluster | null =
         null;
 
+    /** Whether this row's wig is covered by a field map, straight
+     * off the listing's own ``field_tier`` (owner field case,
+     * 2026-09-04).
+     *
+     * It is what tells the two meanings of ``verdict.matches: null``
+     * apart, and it comes from the listing rather than from the verdict
+     * because the verdict cannot say it: an unmapped wig and a mapped
+     * wig that could not read the press both arrive with no protocol
+     * and nothing to compare. The listing knows which wig it is. */
+    @property({ type: Boolean }) public tangleMapped = false;
+
     /** The matrix's native unit, so a quoted reading is spoken in the
      * unit the panel is showing (T5) rather than the lattice's own. */
     @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
@@ -613,15 +624,36 @@ export class IrSignalEditor extends LitElement {
             const asked = claimedFor(cluster.field, coords);
             good = sameReading(witnessed, asked);
         } else {
-            // ``matches`` is null when there was no claim to check the
-            // press against -- a flat wig has no lattice, so pre_read
-            // returns an unreadable verdict for every row on it. That
-            // is "nothing to disagree with", not "wrong", and reading
-            // it as a miss made recapture structurally impossible on
-            // flat wigs (issue 3, owner ruled). The ladder only appears
-            // where a reading exists to disagree with.
+            // TWO DIFFERENT NULLS (owner field case, 2026-09-04).
+            //
+            // ``matches`` is null whenever nothing could be compared,
+            // and that happens for two unrelated reasons.
+            //
+            // On a wig with no field map there is no claim to check a
+            // press against at all. That is "nothing to disagree
+            // with", not "wrong", and reading it as a miss made
+            // recapture structurally impossible on flat wigs (issue 3,
+            // owner ruled). Those presses still accept, unchanged.
+            //
+            // On a MAP-COVERED wig the same null also means the press
+            // could not be read under the wig's own map -- a Samsung
+            // remote pressed at a BAXI cell. Accepting that wrote a
+            // foreign code into the lattice and the comb re-flagged the
+            // row on the next pass, which is the field case this
+            // distinguishes. There the reading is not absent, it
+            // FAILED, and the noread ladder is exactly the thing that
+            // says so.
+            //
+            // ``protocol`` is the verdict's own word for whether the
+            // bytes were read at all, and ``tangleMapped`` is the
+            // listing's word for whether there was a map to read them
+            // with. Both are needed: neither alone separates the two.
             const claim = capture.verdict.matches;
-            good = claim === null || claim === undefined ? true : claim === true;
+            if (claim === null || claim === undefined) {
+                good = !(this.tangleMapped && capture.verdict.protocol === null);
+            } else {
+                good = claim === true;
+            }
         }
 
         if (good) {
@@ -1449,17 +1481,29 @@ export class IrSignalEditor extends LitElement {
             textarea.held:focus {
                 opacity: 1;
             }
-            /* THE CORNER BUTTON (owner ruled 2026-09-03). Listen
-               keeps the amber it has worn on this surface all along:
-               the Fix chip that opens this window and the three dots
-               inside this very button are the same yellow, and in the
-               footer's corner it needs to read bright rather than
-               blend into Cancel. Scoped by the footer rather than by a
-               new class, so the button's own class list is untouched
-               and HEARD's green still wins by coming after. */
+            /* THE CORNER BUTTON (owner ruled 2026-09-03, restyled
+               2026-09-04). Listen keeps the amber it has worn on this
+               surface all along, but it wears it as a fill now rather
+               than as an outline: the two things this footer offers are
+               a press and a save, they are equally the point of the
+               window, and an outlined chip beside a solid Create read
+               as the lesser of the two. Same weight, same shape, one
+               colour apart. Scoped by the footer rather than by a new
+               class, so the button's own class list is untouched. */
             .dialog-actions .listen-btn {
-                color: var(--tangle-amber, #b89930);
-                border-color: rgba(184, 153, 48, 0.3);
+                background: var(--tangle-amber, #b89930);
+                border-color: var(--tangle-amber, #b89930);
+                color: #fff;
+                font-weight: 600;
+            }
+            /* THE DOTS SURVIVE THE RESTYLE (owner ruling with a pin
+               behind it, issue 14). They were amber on the card's own
+               background, which is exactly the fill they now sit on, so
+               keeping the declaration would have kept the dots and lost
+               the ability to see them. White is the same treatment the
+               word beside them gets. */
+            .dialog-actions .listen-btn .pulse .dot {
+                background: #fff;
             }
             /* HEARD, through judgment and apply. Green is already this
                panel's word for a receiver caught it. It is reporting
@@ -1472,6 +1516,15 @@ export class IrSignalEditor extends LitElement {
             }
             .listen-btn.heard:disabled {
                 opacity: 1;
+            }
+            /* HEARD, on a filled button. Green is still the word, but a
+               green word on an amber fill is not a state change anybody
+               can read, so on this one the fill turns instead. The
+               outlined Listen in the ordinary editor is untouched. */
+            .dialog-actions .listen-btn.heard {
+                background: #2e7d32;
+                border-color: #2e7d32;
+                color: #fff;
             }
             /* The dots came with the flow (issue 14, ruled
                2026-08-30). They were never the problem: the problem was

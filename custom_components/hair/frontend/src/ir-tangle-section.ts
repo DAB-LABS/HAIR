@@ -55,7 +55,12 @@ import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
 import { t, tp } from "./localize.js";
 import type { MatrixUnit } from "./temperature.js";
-import { ICON_COMB, COMB_VIEWBOX, ICON_CHEVRON_DOWN } from "./ir-icons.js";
+import {
+    ICON_COMB,
+    COMB_VIEWBOX,
+    ICON_CHEVRON_DOWN,
+    ICON_CHEVRON_UP,
+} from "./ir-icons.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
@@ -525,16 +530,16 @@ export class IrTangleSection extends LitElement {
                              from the sentence beside it, which says
                              more than either word did. -->
                         <button
-                            class="tcard-chevron ${card} ${isOpen
-                                ? "open"
-                                : ""}"
+                            class="tcard-chevron ${card}"
                             aria-expanded=${isOpen ? "true" : "false"}
                             aria-labelledby="tname-${card}"
                             ?disabled=${this._loading}
                         >
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d=${ICON_CHEVRON_DOWN}></path>
-                            </svg>
+                            <ha-svg-icon
+                                .path=${isOpen
+                                    ? ICON_CHEVRON_UP
+                                    : ICON_CHEVRON_DOWN}
+                            ></ha-svg-icon>
                         </button>
                     </div>
                 </div>
@@ -666,28 +671,29 @@ export class IrTangleSection extends LitElement {
                 border: none;
                 background: none;
                 cursor: pointer;
-                transition: transform 150ms ease;
             }
             .tcard-chevron:disabled {
                 opacity: 0.5;
                 cursor: default;
             }
-            .tcard-chevron svg {
-                width: 18px;
-                height: 18px;
+            /* THE PANEL'S OWN DISCLOSURE SIZE (owner ruled 2026-09-04).
+               24px is what the Sniffer and Clipper cards give theirs,
+               and at 18px in a rotated raw svg this one read as a
+               smaller kind of control on a surface that stacks with
+               them. Same glyph, same box, same gesture. */
+            .tcard-chevron ha-svg-icon {
+                --mdc-icon-size: 24px;
             }
-            /* Down when closed, up when open. One path, turned. */
-            .tcard-chevron.open {
-                transform: rotate(180deg);
+            /* ha-svg-icon fills with currentColor, so the card's own
+               comb color reaches the glyph through the button. */
+            .tcard-chevron.fix {
+                color: var(--tangle-blue, #2196f3);
             }
-            .tcard-chevron.fix svg {
-                fill: var(--tangle-blue, #2196f3);
+            .tcard-chevron.listen {
+                color: var(--tangle-amber, #b89930);
             }
-            .tcard-chevron.listen svg {
-                fill: var(--tangle-amber, #b89930);
-            }
-            .tcard-chevron.decide svg {
-                fill: var(--tangle-copper, #b5651d);
+            .tcard-chevron.decide {
+                color: var(--tangle-copper, #b5651d);
             }
             /* The same green the settled row wears, and the same
                centred line the retirement receipt uses: both are the

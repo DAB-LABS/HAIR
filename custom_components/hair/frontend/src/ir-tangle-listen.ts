@@ -106,6 +106,7 @@ export class IrTangleListen extends LitElement {
                           .tangleReason=${this._reasonText(this._fixing)}
                           .tangleRow=${this._fixing}
                           .tangleCluster=${this._clusterFor(this._fixing)}
+                          .tangleMapped=${this.listing.field_tier === "read"}
                           .matrixUnit=${this.matrixUnit}
                           allowSnap
                           @closed=${() => (this._fixing = null)}
