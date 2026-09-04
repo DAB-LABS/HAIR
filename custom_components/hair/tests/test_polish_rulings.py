@@ -3662,6 +3662,10 @@ class TestTheListenButtonSaysWhatItIsDoing:
     one says which it is -- idle Listen, a greyed but visibly alive
     wait, and Heard from the moment a press arrives through judgment
     and apply.
+
+    The button moved into the Fix popup on 2026-09-03. It is the same
+    button making the same three claims; these pins follow it rather
+    than being retired with the card that used to hold it.
     """
 
     def test_the_button_has_three_states(self):
@@ -3671,10 +3675,10 @@ class TestTheListenButtonSaysWhatItIsDoing:
         never the problem, the problem was that nothing acknowledged
         the press, so they ran on and read as a dead button. With HEARD
         arriving at the end they read as what they are."""
-        text = _read("ir-tangle-listen.ts")
-        block = text.split('class="action-btn listen-btn', 1)[1].split(
-            "</button>", 1
-        )[0]
+        text = _read("ir-signal-editor.ts")
+        block = text.split(
+            'class="action-btn listen-btn ${this._tangleHeard', 1
+        )[1].split("</button>", 1)[0]
         assert 't("tangles.listen_heard")' in block
         assert 't("tangles.listen")' in block
         assert 'class="pulse"' in block
@@ -3684,14 +3688,15 @@ class TestTheListenButtonSaysWhatItIsDoing:
         """Superseded the same day it shipped. Leaving the class behind
         would leave two waiting treatments in one file, one of them
         unreachable."""
-        text = _read("ir-tangle-listen.ts")
-        assert ".listen-btn.waiting" not in text
-        assert "tangle-breathe" not in text
+        for name in ("ir-tangle-listen.ts", "ir-signal-editor.ts"):
+            text = _read(name)
+            assert ".listen-btn.waiting" not in text, name
+            assert "tangle-breathe" not in text, name
 
     def test_the_dots_hold_still_for_reduced_motion(self):
         """Three dots at rest still read as a distinct state, and the
         button says HEARD when the press lands either way."""
-        text = _read("ir-tangle-listen.ts")
+        text = _read("ir-signal-editor.ts")
         assert "@media (prefers-reduced-motion: reduce)" in text
         block = text.split(
             "@media (prefers-reduced-motion: reduce)", 1
@@ -3702,40 +3707,45 @@ class TestTheListenButtonSaysWhatItIsDoing:
         """The shared disabled style is a 50 percent fade, which would
         leave the one word the person is waiting to read as the
         faintest thing in the row."""
-        text = _read("ir-tangle-listen.ts")
+        text = _read("ir-signal-editor.ts")
         assert ".listen-btn.heard:disabled {" in text
 
     def test_heard_and_waiting_cannot_both_be_on(self):
-        text = _read("ir-tangle-listen.ts")
-        assert "const waiting = !heard && (listening || arming);" in text
+        text = _read("ir-signal-editor.ts")
+        assert (
+            "const waiting = this._tangleListening && !this._tangleHeard;"
+            in text
+        )
 
     def test_a_press_that_does_not_settle_returns_to_waiting(self):
         """A garbled press and a mismatch both leave the row listening,
         so the button has to stop saying Heard and go back to asking.
         Without this it would sit on Heard forever while the person
         pressed again."""
-        text = _read("ir-tangle-listen.ts")
-        body = text.split("private async _onEvent(", 1)[1].split(
-            "\n    private", 1
+        text = _read("ir-signal-editor.ts")
+        body = text.split("private async _onTangleEvent(", 1)[1].split(
+            "\n    /** A settled press", 1
         )[0]
-        assert body.count("this._release(this._heard, row.id)") == 2
+        assert body.count("this._tangleHeard = false;") == 3, body.count(
+            "this._tangleHeard = false;"
+        )
 
     def test_the_apply_path_clears_it_too(self):
-        text = _read("ir-tangle-listen.ts")
-        body = text.split("private async _finishCapture(", 1)[1].split(
-            "\n    private", 1
+        text = _read("ir-signal-editor.ts")
+        body = text.split("private async _finishTangleCapture(", 1)[1].split(
+            "\n    /** What else this press", 1
         )[0]
-        assert "this._release(this._heard, row.id)" in body
+        assert "this._tangleHeard = false;" in body
 
     def test_use_it_anyway_never_claims_a_press_arrived(self):
         """USE IT ANYWAY applies a press already heard and judged; the
         listen button is not reporting anything new during that write,
         and _busy already disables it."""
-        text = _read("ir-tangle-listen.ts")
-        body = text.split("private async _useAnyway(", 1)[1].split(
-            "\n    private", 1
+        text = _read("ir-signal-editor.ts")
+        body = text.split("private async _useTangleAnyway(", 1)[1].split(
+            "\n    /**", 1
         )[0]
-        assert "_heard" not in body
+        assert "_tangleHeard" not in body
 class TestTheWitnessMatchTranslatesTheField:
     """Issue 18, ship-blocker for the witness flow.
 
@@ -3775,7 +3785,7 @@ class TestTheWitnessMatchTranslatesTheField:
         assert 'coordinates[POWER_FIELD] ?? "on"' in body
 
     def test_the_witness_branch_asks_for_the_translation(self):
-        text = _read("ir-tangle-listen.ts")
+        text = _read("ir-signal-editor.ts")
         branch = text.split("if (isWitness && cluster?.field) {", 1)[1].split(
             "} else {", 1
         )[0]
@@ -3810,7 +3820,7 @@ class TestTheWitnessMatchTranslatesTheField:
         """T5. The reading is a native lattice value, and quoting it raw
         put "Heard 26" under a row named 79, which reads as the panel
         disagreeing with itself rather than with the remote."""
-        text = _read("ir-tangle-listen.ts")
+        text = _read("ir-signal-editor.ts")
         assert "fieldWords(" in text
         body = text.split("const heard = fieldWords(", 1)[1].split(
             ");", 1
@@ -4099,41 +4109,48 @@ class TestTheWholeCardOpensIt:
         assert "@click=" in block
         assert "this._toggle(card)" in block
 
-    def test_the_button_does_not_handle_its_own_click(self):
-        """One handler, not two racing. The button is inside the cell,
+    def test_the_chevron_does_not_handle_its_own_click(self):
+        """One handler, not two racing. The chevron is inside the cell,
         so a click on it (and Enter on it, since it is a real button)
         lands on the cell by bubbling."""
         text = _read("ir-tangle-section.ts")
-        button = text.split(
-            'class="action-btn tcard-btn ${card}"', 1
-        )[1].split("</button>", 1)[0]
+        button = text.split('class="tcard-chevron ${card}', 1)[1].split(
+            "</button>", 1
+        )[0]
         assert "@click=" not in button
 
-    def test_the_button_is_still_a_button(self):
-        """It is the keyboard control and the accessible name for this
-        row; the clickable cell is a mouse convenience on top of it."""
+    def test_the_chevron_is_still_a_button(self):
+        """It is the keyboard control for this row; the clickable cell
+        is a mouse convenience on top of it. A control with no word has
+        to say what it is some other way, so it carries aria-expanded
+        and borrows the card's own sentence as its accessible name,
+        which says more than either Fix or Close did."""
         text = _read("ir-tangle-section.ts")
         assert (
-            '<button\n                            class="action-btn tcard-btn'
-            in text
+            '<button\n                            class="tcard-chevron' in text
         )
+        assert 'aria-expanded=${isOpen ? "true" : "false"}' in text
+        assert 'aria-labelledby="tname-${card}"' in text
+        assert '<div class="name-line" id="tname-${card}">' in text
 
-    def test_the_button_wears_the_shared_chip_and_not_a_copy(self):
-        """P7. It had grown its own anatomy, a taller box that read as
-        a different KIND of control from the command chips it stacks
-        with. ir-action-chip-styles is the one source of truth for
-        that anatomy and exists so a fourth copy cannot drift."""
+    def test_the_chevron_hand_rolls_no_chip_anatomy(self):
+        """P7 ruled that this control must not grow a private copy of
+        the shared chip anatomy. It is not a chip at all now, which
+        honours the same ruling by leaving nothing to drift: no border,
+        no fill, no type treatment of its own. The shared chip module
+        went with the chip it was there for."""
         text = _read("ir-tangle-section.ts")
-        assert 'import { actionChipStyles } from "./ir-action-chip-styles.js"' in text
-        assert "actionChipStyles," in text
-        body = text.split(".tcard-btn {", 1)[1].split("}", 1)[0]
-        # Only what is genuinely its own. Anything else here is the
-        # copy coming back.
-        assert "flex: 0 0 auto;" in body
-        for owned_by_the_shared_chip in (
-            "padding:", "font-size:", "border-radius:", "text-transform:",
+        assert "tcard-btn" not in text
+        assert "actionChipStyles" not in text
+        assert "ir-action-chip-styles" not in text
+        body = text.split(".tcard-chevron {", 1)[1].split("}", 1)[0]
+        assert "border: none;" in body
+        assert "background: none;" in body
+        for owned_by_a_chip in (
+            "font-size:", "text-transform:", "letter-spacing:",
+            "border-radius:",
         ):
-            assert owned_by_the_shared_chip not in body
+            assert owned_by_a_chip not in body
 
     def test_a_loading_section_is_not_clickable(self):
         text = _read("ir-tangle-section.ts")
@@ -4149,21 +4166,35 @@ class TestEveryCardsCallToActionReadsFix:
     this. The colors and the comb glyphs are what tell the cards
     apart."""
 
-    def test_all_three_open_labels_are_one_word_per_language(self):
+    def test_the_cards_two_words_retired_with_the_button(self):
+        """Fix and Close were the card button's words. A chevron says
+        which way it is by pointing, so neither word has a control left
+        to sit on and both are gone from all ten files. The ROW's Fix
+        button is a different control and keeps its own."""
         for name in LOCALE_NAMES:
             data = json.loads(
                 (LOCALES / f"{name}.json").read_text(encoding="utf-8")
             )
-            word = data["tangles.open_fix"]
-            assert data["tangles.open_listen"] == word, name
-            assert data["tangles.open_decide"] == word, name
+            for gone in (
+                "tangles.open_fix", "tangles.open_decide", "tangles.close",
+            ):
+                assert gone not in data, f"{name}: {gone}"
+            assert data["tangles.open_listen"], name
+        text = _read("ir-tangle-section.ts")
+        assert "tangles.close" not in text
+        assert "tangles.open_" not in text
 
-    def test_each_button_keeps_its_own_card_color(self):
+    def test_the_chevron_keeps_its_own_card_color(self):
+        """Blue FIX, amber LISTEN, copper DECIDE: the colors the comb
+        glyph beside it already carries, so the hinge and the glyph
+        cannot come to disagree about which card this is."""
         text = _read("ir-tangle-section.ts")
         for card, token in (("fix", "--tangle-blue"),
                             ("listen", "--tangle-amber"),
                             ("decide", "--tangle-copper")):
-            body = text.split(f".tcard-btn.{card} {{", 1)[1].split("}", 1)[0]
+            body = text.split(
+                f".tcard-chevron.{card} svg {{", 1
+            )[1].split("}", 1)[0]
             assert token in body, card
 
     def test_the_glyphs_still_match_their_cards(self):
@@ -4176,11 +4207,22 @@ class TestEveryCardsCallToActionReadsFix:
             )[1].split("}", 1)[0]
             assert token in body, card
 
-    def test_close_is_still_its_own_word(self):
-        """An open card says Close, which is the one label that has to
-        keep meaning what it says."""
-        text = _read("ir-tangle-section.ts")
-        assert 'isOpen ? t("tangles.close")' in text
+    def test_the_chevron_points_down_closed_and_up_open(self):
+        """One path, turned, rather than two glyphs that could drift
+        into disagreeing about which way is closed."""
+        section = _read("ir-tangle-section.ts")
+        assert 'class="tcard-chevron ${card} ${isOpen' in section
+        body = section.split(".tcard-chevron.open {", 1)[1].split("}", 1)[0]
+        assert "rotate(180deg)" in body
+        icons = _read("ir-icons.ts")
+        assert "export const ICON_CHEVRON_DOWN" in icons
+
+    def test_the_rows_underneath_keep_their_fix_buttons(self):
+        """Only the card-level open and close changed."""
+        listen = _read("ir-tangle-listen.ts")
+        assert 't("tangles.open_listen")' in listen
+        assert 'class="action-btn fix-btn"' in listen
+
 class TestTheFixPopupOnAListenRow:
     """0.14.1 B1, as descoped by the owner on 2026-09-02.
 
@@ -4194,9 +4236,9 @@ class TestTheFixPopupOnAListenRow:
     dialog would be a second place for the validation and the snap to
     drift apart.
 
-    NO LISTEN IN THE POPUP THIS ROUND. The inline Listen button is
-    untouched and still owns the press flow; consolidating the two
-    entries is queued with the Fix rename for the next cycle.
+    THE PRESS FLOW JOINED IT on 2026-09-03, which is what the class
+    below pins. What stays true here is the paste half: the same
+    trimmed dialog, the same shared apply door, the same refusal.
     """
 
     def test_the_row_can_open_it(self):
@@ -4222,13 +4264,23 @@ class TestTheFixPopupOnAListenRow:
         assert "this._fixing = row" in body
         assert 'target.kind === "cell"' not in body
 
-    def test_the_inline_listen_button_is_untouched(self):
-        """The descoped half, pinned so it cannot drift in by accident.
-        Listen still arms the press flow in place and keeps its own
-        label."""
+    def test_the_inline_press_flow_left_the_card(self):
+        """THIS PIN WAS ITS OWN OPPOSITE UNTIL 2026-09-03.
+
+        It stood for the descoped half of 0.14.1: Listen armed in place
+        and the popup only pasted. The owner then ruled the other way,
+        so the claim is rewritten rather than deleted -- the card is now
+        pinned to have NO press flow of its own, which is the same
+        boundary guarded from the other side.
+        """
         text = _read("ir-tangle-listen.ts")
-        assert "@click=${() => this._arm(row)}" in text
-        assert 't("tangles.listen")' in text
+        assert "this._arm(" not in text
+        assert "tangleListen" not in text
+        assert 't("tangles.listen")' not in text
+        # The popup is where it went, and it kept the word.
+        editor = _read("ir-signal-editor.ts")
+        assert "this.api.tangleListen(" in editor
+        assert 't("tangles.listen")' in editor
 
     def test_the_trimmed_fields_are_gone_in_the_tangle_context(self):
         """Name, send times and dittos describe a stored command. A
@@ -4593,3 +4645,566 @@ class TestTheListenCardSaysFix:
                 (LOCALES / f"{name}.json").read_text(encoding="utf-8")
             )
             assert "{count}" in data["tangles.card_listen.one"], name
+
+
+class TestTheListenRowHasOneButton:
+    """Owner ruled 2026-09-03. A Listen row carried three controls to
+    one job -- an inline Listen, a Skip for now, and the 0.14.1 Fix
+    that opened the paste popup -- and two of them could only do half
+    of it. The row now offers Fix and nothing else.
+    """
+
+    def test_the_row_renders_exactly_one_action(self):
+        text = _read("ir-tangle-listen.ts")
+        body = text.split("private _renderRow(row: TangleRow)", 1)[1]
+        body = body.split("static styles", 1)[0]
+        assert body.count("<button") == 1, body.count("<button")
+        assert 't("tangles.open_listen")' in body
+
+    def test_the_one_button_wears_the_cards_own_word(self):
+        """Every card on this surface says Fix. This one is not an
+        exception now that it is the only control on the row."""
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.open_listen"] == "Fix"
+
+    def test_skip_for_now_is_gone_from_the_surface(self):
+        """Closing the popup is the skip. It records nothing and the
+        row stays, so there is nothing for a control to say."""
+        text = _read("ir-tangle-listen.ts")
+        assert "tangles.skip_for_now" not in text
+        assert "_skip(" not in text
+        assert '"skipped"' not in text
+
+    def test_no_card_logic_waits_for_every_row_to_settle(self):
+        """Rows are independent. The all-settled sweep was what made a
+        row's fate the card's business, and it was also the only thing
+        holding the closing line hostage."""
+        text = _read("ir-tangle-listen.ts")
+        assert "_maybeClose" not in text
+        assert "allSettled" not in text
+        assert "_closing" not in text
+
+    def test_the_retired_strings_are_gone_from_all_ten(self):
+        """Left behind they would be two dead strings in ten files, and
+        the next reader would have to work out which surface they
+        belonged to."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for key in ("tangles.skip_for_now", "tangles.listen_captured"):
+                assert key not in data, f"{name}: {key}"
+
+    def test_the_words_the_flow_still_needs_survived(self):
+        """The retirement was two keys, not a sweep. Everything the
+        relocated ladder says is still there, in every language."""
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            for key in (
+                "tangles.listen",
+                "tangles.listen_heard",
+                "tangles.listen_garbled",
+                "tangles.listen_timeout",
+                "tangles.use_anyway",
+            ):
+                assert key in data, f"{name}: {key}"
+
+
+class TestThePopupOwnsTheWholeLadder:
+    """The substance of the round: arm, teardown, read-back, the
+    plain-words mismatches, the three-miss answer and the timeout all
+    moved into the editor's tangle context with their behaviour intact.
+
+    They are pinned here as the flow, not as a file layout, because the
+    ruling was that the BEHAVIOUR survives the move.
+    """
+
+    def _flow(self) -> str:
+        return _read("ir-signal-editor.ts")
+
+    def test_a_clean_press_applies_it(self):
+        """No accept step and no second gesture: a press that reads as
+        this row's own state is the repair, so it is written and the
+        popup gets out of the way."""
+        text = self._flow()
+        body = text.split("private async _onTangleEvent(", 1)[1]
+        body = body.split("private async _finishTangleCapture", 1)[0]
+        assert "if (good) {" in body
+        assert "await this._finishTangleCapture(capture.pronto, false);" in body
+        settle = text.split("private async _finishTangleCapture(", 1)[1]
+        settle = settle.split("private async _planCascade", 1)[0]
+        assert "this.api.tangleApply(" in settle
+        assert 'source: "capture"' in settle
+        assert "sendsFired: 0" in settle
+
+    def test_a_mismatch_says_what_was_heard(self):
+        """And says it in the panel's unit, which is the whole of T5:
+        quoting the lattice value raw put "Heard 26" under a row named
+        79 and read as the panel disagreeing with itself."""
+        text = self._flow()
+        body = text.split("private async _onTangleEvent(", 1)[1]
+        assert "const heard = fieldWords(" in body
+        assert "this.matrixUnit," in body
+        assert "installUnit(this.hass)," in body
+        squashed = " ".join(body.split())
+        assert 't(`tangles.listen_mismatch_${rung}`, { heard })' in squashed
+        assert 't(`tangles.listen_mismatch_${rung}_noread`)' in squashed
+
+    def test_a_witness_row_is_judged_on_its_field_not_on_matches(self):
+        """Bench finding 1. A legitimate witness press can honestly read
+        matches false, because it demonstrates a value from another
+        cell's coordinates."""
+        text = self._flow()
+        body = text.split("private async _onTangleEvent(", 1)[1]
+        assert 'cluster?.mechanic === "witness"' in body
+        assert "const asked = claimedFor(cluster.field, coords);" in body
+        assert "good = sameReading(witnessed, asked);" in body
+        # And the flat wig's unreadable verdict is still not a miss.
+        assert "claim === null || claim === undefined ? true" in body
+
+    def test_three_misses_offer_use_it_anyway(self):
+        text = self._flow()
+        body = text.split("private async _onTangleEvent(", 1)[1]
+        assert "const rung = misses >= 3 ? 3 : misses === 1 ? 1 : 2;" in body
+        assert 'this._raiseTangleLadder(capture.pronto, "capture");' in body
+        assert 't("tangles.use_anyway")' in text
+
+    def test_and_saying_yes_records_the_press_it_was_raised_for(self):
+        """The bytes the ladder applies are the ones that were HEARD,
+        never the row's own still-wrong bytes and never whatever ended
+        up in the box, and they go out declared."""
+        text = self._flow()
+        body = text.split("private async _useTangleAnyway(", 1)[1]
+        body = body.split("\n    /**", 1)[0]
+        assert "const pronto = this._tangleLadderPronto;" in body
+        assert 'this._tangleLadderSource === "capture"' in body
+        assert "await this._finishTangleCapture(pronto, true);" in body
+        settle = text.split("private async _finishTangleCapture(", 1)[1]
+        assert "readingDisagreed: true" in settle
+
+    def test_the_timeout_says_so(self):
+        """And does not call the dead unsubscribe on the way (issue 4)."""
+        text = self._flow()
+        body = text.split("private async _onTangleEvent(", 1)[1]
+        head = body.split("const capture =", 1)[0]
+        assert 'event.type === "tangle_listen_timeout"' in head
+        assert "this._tangleUnlisten = null;" in head
+        assert 't("tangles.listen_timeout")' in head
+
+    def test_a_garbled_press_is_not_a_miss(self):
+        """Nothing was read, so there is nothing to disagree with and
+        the ladder does not advance."""
+        text = self._flow()
+        body = text.split("private async _onTangleEvent(", 1)[1]
+        garbled = body.split("if (!capture.decoded) {", 1)[1]
+        garbled = garbled.split("}", 1)[0]
+        assert 't("tangles.listen_garbled")' in garbled
+        assert "_tangleMisses" not in garbled
+
+    def test_closing_the_popup_drops_the_arm(self):
+        """Closing IS the skip, and a skip that left the server armed
+        would spend the next press on a row nobody is looking at."""
+        text = self._flow()
+        body = text.split("disconnectedCallback(): void {", 1)[1]
+        body = body.split("\n    private", 1)[0]
+        assert "void this._tangleTeardown();" in body
+
+    def test_the_paste_road_is_untouched(self):
+        """0.14.1's half, re-pinned from this side: same door, same
+        source, same refusal, and a cross-reading paste still needs the
+        declaration before it is written."""
+        text = self._flow()
+        body = text.split("private async _applyToTangle(", 1)[1]
+        body = body.split("\n    /** The ladder, from either road", 1)[0]
+        assert "this.api.tangleApply(" in body
+        assert 'source: "paste"' in body
+        assert "reading_disagreed_required" in body
+        assert 'this._raiseTangleLadder(this._pronto, "paste");' in body
+
+    def test_a_paste_never_claims_a_press(self):
+        """The closing receipt says "Got your press. N codes replaced".
+        A paste that added itself to that tally would put words in the
+        person's hands they never did."""
+        text = self._flow()
+        paste = text.split("private async _applyToTangle(", 1)[1]
+        paste = paste.split("\n    /** The ladder, from either road", 1)[0]
+        assert "this._afterTangleApply(result, 0, 0);" in paste
+        press = text.split("private async _finishTangleCapture(", 1)[1]
+        press = press.split("private async _planCascade", 1)[0]
+        assert "this._afterTangleApply(result, 1, gained);" in press
+
+
+class TestTheCascadeStillReachesThePerson:
+    """A press that licenses more fixes has to say so. LISTEN used to
+    say it when every row in the card had settled, which is exactly the
+    logic the one-button ruling removed, so it says it on the apply
+    instead -- on the section, beside the Fixes ready card it points
+    at, which is where the person is looking once the popup closes.
+    """
+
+    def test_the_press_reports_what_it_licensed(self):
+        text = _read("ir-signal-editor.ts")
+        plan = text.split("private async _planCascade(", 1)[1]
+        assert "this.api.tanglePlan(" in plan
+        assert 'cluster?.mechanic !== "witness"' in plan
+        assert "tangle-batch-planned" in plan
+        assert "return gained;" in plan
+
+    def test_only_a_press_carries_a_gain(self):
+        """A paste is bytes somebody already had; a plan built off one
+        would be claiming the remote did something it did not."""
+        text = _read("ir-signal-editor.ts")
+        paste = text.split("private async _applyToTangle(", 1)[1]
+        paste = paste.split("\n    /** The ladder, from either road", 1)[0]
+        assert "_planCascade" not in paste
+
+    def test_the_section_holds_it_and_renders_it(self):
+        text = _read("ir-tangle-section.ts")
+        assert "_cascade: { count: number; gained: number } | null" in text
+        handler = text.split("private _handleMutated =", 1)[1]
+        handler = handler.split("private _handleBatchPlanned", 1)[0]
+        assert "const gained = ev.detail.gained ?? 0;" in handler
+        assert "this._cascade = { count: this._pressReplaced, gained };" in handler
+
+    def test_the_line_is_in_the_rendered_template(self):
+        """Not in a branch that only a settled card could reach: it
+        renders from the section's own body, above the cards."""
+        text = _read("ir-tangle-section.ts")
+        body = text.split("protected render()", 1)[1]
+        body = body.split("private _renderCard(", 1)[0]
+        squashed = " ".join(body.split())
+        assert "${this._cascade ? html`<div class=\"cascade-line\">" in squashed
+        assert 'tp("tangles.listen_closing", this._cascade.count, {' in squashed
+        assert "gained: this._cascade.gained," in squashed
+
+    def test_the_sentence_still_names_where_the_fixes_went(self):
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        for key in ("tangles.listen_closing.one", "tangles.listen_closing.other"):
+            assert "{gained}" in data[key]
+            assert "Fixes ready" in data[key]
+
+    def test_the_two_older_receipts_are_untouched(self):
+        """"Your wig has been updated." and the fixed count still land
+        on the section exactly as they did."""
+        text = _read("ir-tangle-section.ts")
+        assert 'tp("tangles.listen_receipt", this._pressReplaced)' in text
+        assert 't("tangles.updated")' in text
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.updated"] == "Your wig has been updated."
+        assert "Your wig has been updated." in data["tangles.listen_receipt.one"]
+
+    def test_a_device_change_forgets_it(self):
+        """It belongs to the device that was just repaired."""
+        text = _read("ir-tangle-section.ts")
+        forget = text.split("private _forget(): void {", 1)[1]
+        forget = forget.split("}", 1)[0]
+        assert "this._cascade = null;" in forget
+
+
+class TestThePopupLeadsWithThePressRoad:
+    """Owner walkthrough, 2026-09-03, finding 1.
+
+    Landing on the Fix popup showed a large code box first with Listen
+    beneath it, which reads as "paste something" and buries the road
+    most repairs actually take. The ruled order in the tangle context is
+    the reason line, one plain sentence, the Listen affordance, then the
+    code box.
+
+    ORDER ONLY. Nothing was added to the dialog or taken out of it, and
+    the ordinary editor keeps the sequence it has always had, which the
+    second pin holds.
+    """
+
+    def _dialog(self) -> str:
+        text = _read("ir-signal-editor.ts")
+        squashed = " ".join(text.split())
+        return squashed.split("<ha-dialog", 1)[1].split("</ha-dialog>", 1)[0]
+
+    def test_the_tangle_context_renders_in_the_ruled_order(self):
+        """The reason left the body for the window's header and the
+        press button left for the footer. What is left in the body, in
+        order, is the sentence, whatever the press flow last said, and
+        the code box."""
+        dialog = self._dialog()
+        assert 'class="tangle-reason"' not in dialog
+        intro = dialog.index("this._renderTangleIntro()")
+        status = dialog.index("this._renderTangleStatus()")
+        box = dialog.index("this._renderCodeBox()")
+        assert intro < status < box, (intro, status, box)
+
+    def test_the_ordinary_editor_still_leads_with_the_code_box(self):
+        """The other half of the same claim: a context was reordered,
+        not the component. Outside a tangle repair the box comes first
+        and the Replace block follows it, exactly as before."""
+        dialog = self._dialog()
+        assert (
+            "html`${this._renderCodeBox()} ${this._renderReplace()}`" in dialog
+        )
+
+    def test_the_two_orders_are_one_ternary_on_the_tangle_flag(self):
+        """So there is no third arrangement to drift into."""
+        dialog = self._dialog()
+        assert (
+            "${this._isTangle ? html`${this._renderTangleIntro()} "
+            "${this._renderTangleStatus()} ${this._renderCodeBox()}` "
+            ": html`${this._renderCodeBox()} ${this._renderReplace()}`}"
+        ) in dialog
+
+    def test_the_validation_still_follows_the_box_it_describes(self):
+        dialog = self._dialog()
+        assert dialog.index("this._renderCodeBox()") < dialog.index(
+            "this._renderFeedback()"
+        )
+
+    def test_the_box_carries_no_label_in_a_repair(self):
+        """Owner ruled 2026-09-03. The sentence above the box already
+        says what it holds and what to do with it, so the label over it
+        was a third line saying one thing. The ordinary editor keeps
+        its own label, and the retired string is gone from en.json."""
+        text = _read("ir-signal-editor.ts")
+        box = text.split("private _renderCodeBox()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "tangles.popup_code_label" not in box
+        assert 't("editor.pronto_code")' in box
+        assert '${this._isTangle\n                    ? ""' in box
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert "tangles.popup_code_label" not in data
+
+    def test_the_box_is_held_back_until_it_is_touched(self):
+        """Muted and short on landing, an ordinary field once focused.
+        The JS sizing has to honour it too: it fits the box to its
+        content, so a long Pronto would tower over the press road no
+        matter what the stylesheet said."""
+        text = _read("ir-signal-editor.ts")
+        box = text.split("private _renderCodeBox()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "const held = this._isTangle && !this._codeFocused;" in box
+        assert "@focus=${() => (this._codeFocused = true)}" in box
+        assert "@blur=${() => (this._codeFocused = false)}" in box
+        assert "textarea.held {" in text
+        assert "textarea.held:focus {" in text
+        sizing = text.split("updated(): void {", 1)[1].split("\n    }", 1)[0]
+        assert "const held = this._isTangle && !this._codeFocused;" in sizing
+        assert "held ? 96" in sizing
+
+    def test_the_box_does_not_take_the_cursor_in_a_repair(self):
+        """Autofocus would put the caret in the very field the ruling
+        de-emphasised, which is the old landing view by another road."""
+        text = _read("ir-signal-editor.ts")
+        box = text.split("private _renderCodeBox()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert "?autofocus=${!this._isTangle}" in box
+        assert "autofocus\n" not in box
+
+    def test_the_sentence_is_a_locale_string_in_all_ten(self):
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            assert "tangles.popup_intro" in data, name
+
+    def test_english_reads_as_ruled(self):
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["tangles.popup_intro"] == (
+            "To fix this, listen to a live press from your remote or "
+            "paste the proper code into the box below."
+        )
+
+    def test_every_sentence_is_its_own_language(self):
+        """The pin that held every translation to that file's own
+        Listen word retired with the sentence that quoted it: the ruled
+        English names no button now, it describes the action. What
+        stays checkable is that ten files say ten different things."""
+        seen = {}
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            seen[name] = data["tangles.popup_intro"]
+        assert len(set(seen.values())) == len(seen), seen
+
+    def test_the_new_strings_carry_no_dashes(self):
+        for name in LOCALE_NAMES:
+            data = json.loads(
+                (LOCALES / f"{name}.json").read_text(encoding="utf-8")
+            )
+            value = data["tangles.popup_intro"]
+            for bad in ("\u2014", "\u2013", " -- "):
+                assert bad not in value, f"{name}: {bad!r}"
+
+class TestTheListRendersWhatTheCountCounted:
+    """Owner walkthrough, 2026-09-03, finding 2, on the surface.
+
+    The section recomputes the listen rows from the freshly refetched
+    listing and the header sentence counts THAT array. The card was
+    rendering a copy of it taken once in connectedCallback, and a card
+    whose bucket stays open is never re-created, so the copy never
+    caught up. One list, two readers, two answers.
+
+    THE COPY IS THE BUG, so it is pinned gone rather than pinned
+    refreshed. An array read by both cannot disagree with itself, and
+    there is no refresh path left to forget.
+    """
+
+    def test_the_card_renders_the_rows_it_was_given(self):
+        text = _read("ir-tangle-listen.ts")
+        assert "${this.rows.map((row) => this._renderRow(row))}" in text
+
+    def test_it_holds_no_copy_of_them(self):
+        """THIS IS THE PIN THAT FAILS ON THE WALKTHROUGH BUILD. The
+        copy and the one hook that filled it are both gone."""
+        text = _read("ir-tangle-listen.ts")
+        assert "_snapshot" not in text
+        assert "connectedCallback" not in text
+
+    def test_the_section_counts_the_same_array_it_hands_down(self):
+        text = _read("ir-tangle-section.ts")
+        body = text.split("protected render()", 1)[1]
+        assert "const listenRows = bucketListenRows(" in body
+        assert ".rows=${listenRows}" in body
+        assert 'tp("tangles.card_listen", listenRows.length)' in body
+
+
+class TestTheFixWindowRedesign:
+    """Owner's bench walk of the popup, 2026-09-03.
+
+    Six changes to the TANGLE context of ir-signal-editor and none to
+    the ordinary editor: the reason takes the window's header, the
+    sentence is rewritten, the code box loses its heading and its
+    label, Listen moves to the footer's lower left, Create turns green,
+    and the card above opens with a chevron instead of a word.
+
+    THE ORDINARY EDITOR IS THE CONTROL GROUP. Every pin here that says
+    a thing left the repair has a partner saying it is still where it
+    was for everyone else.
+    """
+
+    def _dialog(self) -> str:
+        text = _read("ir-signal-editor.ts")
+        squashed = " ".join(text.split())
+        return squashed.split("<ha-dialog", 1)[1].split("</ha-dialog>", 1)[0]
+
+    def test_the_reason_is_the_windows_header(self):
+        """It was a light gray line inside the body under a title that
+        read Create signal over a repair. It is the header now, in the
+        slot and the treatment every other window in the panel uses for
+        one, and the wrong title is gone with it."""
+        text = _read("ir-signal-editor.ts")
+        block = text.split("const heading =", 1)[1].split(";", 1)[0]
+        assert "this._isTangle && this.tangleReason" in block
+        assert "? this.tangleReason" in block
+        # The fallback for every other context, and for a row whose
+        # check class this build has no sentence for, is untouched.
+        for key in ("editor.edit_command", "editor.edit_signal",
+                    "editor.create_signal"):
+            assert key in block, key
+        assert 'heading=${heading}' in " ".join(text.split())
+        assert 'class="tangle-reason"' not in text
+
+    def test_listen_sits_in_the_footer(self):
+        """Lower left, on the line where the window's other two
+        decisions are made, ahead of the spacer that holds Cancel and
+        the primary to the right."""
+        dialog = self._dialog()
+        actions = dialog.split('<div class="dialog-actions">', 1)[1]
+        listen = actions.index("this._renderTangleListenButton()")
+        spacer = actions.index('<span class="spacer">')
+        cancel = actions.index("common.cancel")
+        assert listen < spacer < cancel, (listen, spacer, cancel)
+        # And nowhere else: the body's press block is gone.
+        assert "_renderTangleListen()" not in dialog
+
+    def test_the_dots_moved_with_the_button(self):
+        """Owner ruling with a pin behind it (issue 14). Three states,
+        and the middle one animates."""
+        text = _read("ir-signal-editor.ts")
+        button = text.split(
+            "private _renderTangleListenButton()", 1
+        )[1].split("\n    /**", 1)[0]
+        assert 'class="pulse"' in button
+        assert button.count('<span class="dot">') == 3
+        assert 't("tangles.listen")' in button
+        assert 't("tangles.listen_heard")' in button
+        assert "@media (prefers-reduced-motion: reduce)" in text
+        reduced = text.split(
+            "@media (prefers-reduced-motion: reduce)", 1
+        )[1].split("}", 2)[0]
+        assert ".pulse .dot" in reduced
+
+    def test_the_corner_button_reads_bright(self):
+        """It keeps the amber it has worn on this surface all along:
+        the Fix chip that opens this window and the dots inside this
+        very button are the same yellow. HEARD's green still wins,
+        because it is declared after."""
+        text = _read("ir-signal-editor.ts")
+        amber = text.index(".dialog-actions .listen-btn {")
+        body = text[amber:].split("}", 1)[0]
+        assert "--tangle-amber" in body
+        assert text.index(".listen-btn.heard {") > amber
+
+    def test_the_press_flows_line_stays_on_the_press_road(self):
+        """The button went to the footer; what the flow says did not,
+        because a footer has no room for a sentence. It renders only
+        when there is something to say."""
+        text = _read("ir-signal-editor.ts")
+        status = text.split("private _renderTangleStatus()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert 't("editor.listen_hint")' in status
+        assert "this._tangleMessage" in status
+        assert "if (!line) return \"\";" in status
+
+    def test_create_is_green_in_a_repair(self):
+        text = _read("ir-signal-editor.ts")
+        assert 'class="action-btn create-btn ${this._isTangle' in text
+        body = text.split(".create-btn.tangle {", 1)[1].split("}", 1)[0]
+        assert "#2e7d32" in body
+
+    def test_the_ordinary_editor_keeps_its_copper_create(self):
+        """The green is a two-class rule on top, so every other dialog
+        that uses this button, and this one outside a repair, is
+        untouched."""
+        text = _read("ir-signal-editor.ts")
+        body = text.split("\n        .create-btn {", 1)[1].split("}", 1)[0]
+        assert "#b87333" in body
+
+    def test_replace_this_code_is_gone_from_the_repair(self):
+        """It was a heading over a block whose only member has left for
+        the footer, and it said what the sentence above it now says.
+        The ordinary editor's Replace block keeps it."""
+        text = _read("ir-signal-editor.ts")
+        tangle = text.split(
+            "private _renderTangleListenButton()", 1
+        )[1].split("private _renderCodeBox()", 1)[0]
+        assert "editor.replace_title" not in tangle
+        ordinary = text.split("private _renderReplace()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert 't("editor.replace_title")' in ordinary
+        data = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+        assert data["editor.replace_title"] == "Replace this code"
+
+    def test_the_ordinary_editors_layout_is_untouched(self):
+        """The control group, in one pin: outside a repair the box
+        leads with its own label, the Replace block follows it, and the
+        press button is inside that block rather than in the footer."""
+        text = _read("ir-signal-editor.ts")
+        dialog = self._dialog()
+        assert (
+            "html`${this._renderCodeBox()} ${this._renderReplace()}`"
+            in dialog
+        )
+        box = text.split("private _renderCodeBox()", 1)[1].split(
+            "\n    private", 1
+        )[0]
+        assert 'html`<label>${t("editor.pronto_code")}</label>`' in box
+        ordinary = text.split("private _renderReplace()", 1)[1].split(
+            "\n    /**", 1
+        )[0]
+        assert 'class="replace-row"' in ordinary
+        assert 'class="action-btn listen-btn ${this._listening' in ordinary

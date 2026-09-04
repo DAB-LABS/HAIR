@@ -55,8 +55,7 @@ import type { HairApi } from "./api.js";
 import type { TangleListing, TangleRow, TangleCluster, TangleBatchPlan } from "./types.js";
 import { t, tp } from "./localize.js";
 import type { MatrixUnit } from "./temperature.js";
-import { ICON_COMB, COMB_VIEWBOX } from "./ir-icons.js";
-import { actionChipStyles } from "./ir-action-chip-styles.js";
+import { ICON_COMB, COMB_VIEWBOX, ICON_CHEVRON_DOWN } from "./ir-icons.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import "./ir-tangle-fix.js";
 import "./ir-tangle-listen.js";
@@ -179,6 +178,20 @@ export class IrTangleSection extends LitElement {
      * ``_justRetired``, which IS state and pulls the re-render. A
      * device change clears it with everything else. */
     private _pressReplaced = 0;
+    /** THE CASCADE, once the card stopped being able to say it
+     * (2026-09-03). A witness press licenses fixes for its whole
+     * cluster, and the person has to be told: they pressed one button
+     * and a pile of other codes became repairable because of it.
+     *
+     * LISTEN used to say this when every row in the card had settled,
+     * which is exactly the all-rows-must-settle logic the one-button
+     * ruling removed. It says it here instead, on the apply, beside
+     * the "Fixes ready" card it is pointing at -- which is also where
+     * the person is looking, because the popup has just closed.
+     *
+     * It HOLDS. There is no timer and no dismiss: the person may have
+     * been across the room with the remote when the press landed. */
+    @state() private _cascade: { count: number; gained: number } | null = null;
     @state() private _witnessPlans = new Map<
         string,
         { witness: string; witnessTarget: string; plan: TangleBatchPlan }
@@ -213,6 +226,7 @@ export class IrTangleSection extends LitElement {
         this._witnessPlans = new Map();
         this._justRetired = false;
         this._pressReplaced = 0;
+        this._cascade = null;
         this._lastWigWrite = null;
         this._error = null;
     }
@@ -249,6 +263,7 @@ export class IrTangleSection extends LitElement {
             wigWritten: boolean | null;
             batchClusterApplied?: string;
             replaced?: number;
+            gained?: number;
         }>,
     ): Promise<void> => {
         if (ev.detail.wigWritten !== null) this._lastWigWrite = ev.detail.wigWritten;
@@ -259,6 +274,13 @@ export class IrTangleSection extends LitElement {
         // An ACCEPT of a donor candidate carries no count, because no
         // press was involved in it.
         this._pressReplaced += ev.detail.replaced ?? 0;
+        // WHAT THE PRESS LICENSED. Only a press carries a gain: a
+        // paste is bytes somebody already had, and a plan built off
+        // one would be claiming the remote did something it did not.
+        const gained = ev.detail.gained ?? 0;
+        if (gained > 0) {
+            this._cascade = { count: this._pressReplaced, gained };
+        }
         if (ev.detail.batchClusterApplied) {
             const entry = this._witnessPlans.get(ev.detail.batchClusterApplied);
             if (entry) {
@@ -433,6 +455,13 @@ export class IrTangleSection extends LitElement {
                 @tangle-batch-planned=${this._handleBatchPlanned}
             >
                 <div class="tangle-header">${t("tangles.section_header")}</div>
+                ${this._cascade
+                    ? html`<div class="cascade-line">
+                          ${tp("tangles.listen_closing", this._cascade.count, {
+                              gained: this._cascade.gained,
+                          })}
+                      </div>`
+                    : nothing}
                 <!-- At most three detangle rows, at the top (ruling
                      2026-08-29). There are only ever three cards, so
                      this is the shape rather than a limit that bites,
@@ -483,13 +512,29 @@ export class IrTangleSection extends LitElement {
                             </svg>
                         </span>
                     </div>
-                    <div class="name-line">${sentence}</div>
+                    <div class="name-line" id="tname-${card}">
+                        ${sentence}
+                    </div>
                     <div class="actions">
+                        <!-- A DISCLOSURE, NOT AN OFFER (owner ruled
+                             2026-09-03). Fix and Close were two words
+                             for one hinge, and the word was doing work
+                             the shape does better. It stays a real
+                             button, so it keeps focus and the Enter
+                             key, and it borrows its accessible name
+                             from the sentence beside it, which says
+                             more than either word did. -->
                         <button
-                            class="action-btn tcard-btn ${card}"
+                            class="tcard-chevron ${card} ${isOpen
+                                ? "open"
+                                : ""}"
+                            aria-expanded=${isOpen ? "true" : "false"}
+                            aria-labelledby="tname-${card}"
                             ?disabled=${this._loading}
                         >
-                            ${isOpen ? t("tangles.close") : t(`tangles.open_${card}`)}
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d=${ICON_CHEVRON_DOWN}></path>
+                            </svg>
                         </button>
                     </div>
                 </div>
@@ -499,7 +544,6 @@ export class IrTangleSection extends LitElement {
 
     static styles = [
         dialogStyles,
-        actionChipStyles,
         css`
             :host {
                 display: block;
@@ -604,30 +648,56 @@ export class IrTangleSection extends LitElement {
             .comb-glyph.decide svg {
                 fill: var(--tangle-copper, #b5651d);
             }
-            /* THE STANDARD CHIP, not a copy of it (P7). The card
-               button had grown its own anatomy, a taller 6px by 14px
-               box, and sat a row above the command chips it is
-               stacked with, reading as a different KIND of control.
-               ir-action-chip-styles is the one source of truth for
-               that anatomy, so the button takes it and keeps only what
-               is genuinely its own: the flex behaviour and the three
-               card colors, which the shared palette has no names for.
-               Both are two-class selectors, so they win over the
-               shared .action-btn without needing to shout. */
-            .tcard-btn {
+            /* THE HINGE (owner ruled 2026-09-03). The card's open
+               and close is a chevron now, so it is no longer a chip at
+               all: no border, no fill, no label, just the card's own
+               comb color turned to say which way this card is. P7's
+               ruling was that this control must not hand-roll a copy
+               of the shared chip anatomy; it now declares no chip
+               anatomy of any kind, which is the same ruling honoured
+               by having nothing to drift. The three card colors stay
+               exactly where they were, on the glyph and on this. */
+            .tcard-chevron {
                 flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 4px;
+                border: none;
+                background: none;
+                cursor: pointer;
+                transition: transform 150ms ease;
             }
-            .tcard-btn.fix {
-                color: var(--tangle-blue, #2196f3);
-                border-color: rgba(33, 150, 243, 0.3);
+            .tcard-chevron:disabled {
+                opacity: 0.5;
+                cursor: default;
             }
-            .tcard-btn.listen {
-                color: var(--tangle-amber, #b89930);
-                border-color: rgba(184, 153, 48, 0.3);
+            .tcard-chevron svg {
+                width: 18px;
+                height: 18px;
             }
-            .tcard-btn.decide {
-                color: var(--tangle-copper, #b5651d);
-                border-color: rgba(181, 101, 29, 0.3);
+            /* Down when closed, up when open. One path, turned. */
+            .tcard-chevron.open {
+                transform: rotate(180deg);
+            }
+            .tcard-chevron.fix svg {
+                fill: var(--tangle-blue, #2196f3);
+            }
+            .tcard-chevron.listen svg {
+                fill: var(--tangle-amber, #b89930);
+            }
+            .tcard-chevron.decide svg {
+                fill: var(--tangle-copper, #b5651d);
+            }
+            /* The same green the settled row wears, and the same
+               centred line the retirement receipt uses: both are the
+               surface reporting what a press just did. */
+            .cascade-line {
+                margin: 0 0 8px;
+                padding: 6px 0;
+                font-size: 0.85rem;
+                color: #2e7d32;
+                text-align: center;
             }
             .retired-line {
                 margin: 12px 0;

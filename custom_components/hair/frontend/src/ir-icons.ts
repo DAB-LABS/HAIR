@@ -44,6 +44,17 @@ export const ICON_COMB =
 export const COMB_VIEWBOX = "0 0 512 512";
 
 /**
+ * The disclosure chevron on a detangle card (owner ruled 2026-09-03).
+ *
+ * MDI's own, in MDI's 24x24 viewBox rather than the comb's 512 one.
+ * Drawn pointing DOWN and turned 180 degrees for the open state, so
+ * the two directions are one path and cannot drift into two glyphs
+ * that disagree about which way is closed.
+ */
+export const ICON_CHEVRON_DOWN =
+    "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
+
+/**
  * The row-level trash button, shared by all nine surfaces that draw
  * one, so there is one can and one behaviour rather than nine.
  *

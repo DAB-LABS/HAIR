@@ -16,8 +16,19 @@ import { customElement, property, state } from "./decorators.js";
 import { t, tp } from "./localize.js";
 import { dialogStyles } from "./ir-dialog-styles.js";
 import type { HairApi } from "./api.js";
-import type { ProntoValidation, RepeatVote, UnknownSignal } from "./types.js";
+import type {
+    ProntoValidation,
+    RepeatVote,
+    TangleApplyResult,
+    TangleCaptureEvent,
+    TangleCluster,
+    TangleListenEvent,
+    TangleRow,
+    UnknownSignal,
+} from "./types.js";
 import { isDittoable } from "./ir-tx-knobs.js";
+import { claimedFor, fieldWords, sameReading } from "./ir-tangle-copy.js";
+import { installUnit, type MatrixUnit } from "./temperature.js";
 
 // Mirrors PRONTO_SL_THRESHOLD / PRONTO_GAP_THRESHOLD in const.py. Used only
 // for the dialog's S/L preview; the stored pattern is computed server-side.
@@ -85,10 +96,49 @@ export class IrSignalEditor extends LitElement {
      * the person can see what they are fixing while they fix it. */
     @property({ attribute: false }) public tangleReason: string | null = null;
 
-    /** Set once the apply door has refused an undeclared cross-reading
-     * paste. The person is then offered the same ladder the LISTEN flow
-     * offers: use it anyway, or go back. */
+    /** The whole row, for the press flow that moved in here on
+     * 2026-09-03. The read-back needs the row's own coordinates to
+     * judge a witness press, which the bare target id cannot carry. */
+    @property({ attribute: false }) public tangleRow: TangleRow | null = null;
+
+    /** The row's cluster, or null. Its mechanic decides which match
+     * logic a press is judged by, and a witness cluster is the only
+     * shape a good press can seed further fixes from. */
+    @property({ attribute: false }) public tangleCluster: TangleCluster | null =
+        null;
+
+    /** The matrix's native unit, so a quoted reading is spoken in the
+     * unit the panel is showing (T5) rather than the lattice's own. */
+    @property({ attribute: false }) public matrixUnit: MatrixUnit = "C";
+
+    /** Only for installUnit; this dialog reads nothing else off it. */
+    @property({ attribute: false }) public hass: unknown = null;
+
+    /** Set once an apply has been refused for an undeclared
+     * cross-reading, or once three presses in a row have read as
+     * something else. Both offer the same answer -- use it anyway --
+     * and the two roads differ only in WHICH bytes that answer
+     * applies and under which source, which is what the two fields
+     * below carry. */
     @state() private _tangleLadder = false;
+    @state() private _tangleLadderPronto: string | null = null;
+    @state() private _tangleLadderSource: "paste" | "capture" = "paste";
+
+    /** The press flow's own state, relocated whole from
+     * ir-tangle-listen. Arming and listening are distinct because an
+     * arm can fail before it takes; heard is distinct from both
+     * because a press that has ARRIVED is being judged and applied,
+     * and the button that asked for it has to say so (issue 14). */
+    @state() private _tangleArming = false;
+    @state() private _tangleListening = false;
+    @state() private _tangleHeard = false;
+    @state() private _tangleMisses = 0;
+    @state() private _tangleMessage: string | null = null;
+    /** The most recent decoded press, good or mismatched. USE IT
+     * ANYWAY has to apply THIS, never the row's own current (still
+     * wrong) bytes and never whatever is in the box. */
+    private _tangleLastPronto: string | null = null;
+    private _tangleUnlisten: (() => Promise<void>) | null = null;
 
     @state() private _pronto = "";
     @state() private _alias = "";
@@ -100,6 +150,10 @@ export class IrSignalEditor extends LitElement {
     @state() private _copyHint: string | null = null;
     @state() private _snapping = false;
     @state() private _snapFlash = false;
+    /** Has the person touched the code box? Only the tangle context
+     * asks: there the box is the second road, so it stays small and
+     * quiet until it is the road being taken. */
+    @state() private _codeFocused = false;
     /** Command mode: the live bypass choice, saved on Save like the rest. */
     @state() private _bypass = false;
     @state() private _listening = false;
@@ -222,8 +276,14 @@ export class IrSignalEditor extends LitElement {
         // between a small baseline and ~45% of the viewport.
         const ta = this.shadowRoot?.querySelector<HTMLTextAreaElement>("textarea");
         if (!ta) return;
-        const minPx = 64;
-        const maxPx = Math.round(window.innerHeight * 0.45);
+        // A tangle popup's box is the code the row HAS, offered for
+        // replacing rather than for reading, and a long Pronto sized to
+        // fit pushed the press road off the bottom of the dialog. Until
+        // it is focused it gets a low ceiling; touching it hands back
+        // the ordinary fit-to-content behaviour.
+        const held = this._isTangle && !this._codeFocused;
+        const minPx = held ? 40 : 64;
+        const maxPx = held ? 96 : Math.round(window.innerHeight * 0.45);
         ta.style.height = "0px";
         const fit = Math.min(Math.max(ta.scrollHeight + 2, minPx), maxPx);
         ta.style.height = `${fit}px`;
@@ -237,6 +297,11 @@ export class IrSignalEditor extends LitElement {
         // A listen window outlives the dialog if nobody closes it, and
         // the next one would then land a capture in a box that is gone.
         void this._stopListening();
+        // The tangle arm is a second, separate window on the same
+        // principle: closing the popup IS the skip, and a skip that
+        // left the server armed would spend the next press on a row
+        // nobody is looking at.
+        void this._tangleTeardown();
     }
 
     private _close(): void {
@@ -353,6 +418,7 @@ export class IrSignalEditor extends LitElement {
         this._busy = true;
         this._error = null;
         try {
+            await this._tangleTeardown();
             const result = await this.api.tangleApply({
                 deviceId: this.deviceId,
                 target: this.tangleTarget as string,
@@ -361,29 +427,329 @@ export class IrSignalEditor extends LitElement {
                 // A paste is evidence of bytes, not of a transmission,
                 // so zero is the true tally and the receipt reads
                 // accepted rather than air-tested. Same value the
-                // listen flow sends for the same reason.
+                // press road sends for the same reason.
                 sendsFired: 0,
                 source: "paste",
                 ...(declared ? { readingDisagreed: true } : {}),
             });
-            this.dispatchEvent(
-                new CustomEvent("tangle-mutated", {
-                    detail: { wigWritten: result.wig?.written ?? null },
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
-            this._close();
+            // A PASTE IS NOT A PRESS, so it carries no replaced count.
+            // The section's closing receipt says "Got your press. N
+            // codes replaced", and a paste that added itself to that
+            // tally would put words in the person's hands they never
+            // did. Nothing is lost: the wig write-through still
+            // reports, and "Your wig has been updated." still lands.
+            this._afterTangleApply(result, 0, 0);
         } catch (err) {
             const message = (err as Error).message || String(err);
             if (message.includes("reading_disagreed_required")) {
-                this._tangleLadder = true;
-                this._error = t("tangles.listen_mismatch_3_noread");
+                this._raiseTangleLadder(this._pronto, "paste");
             } else {
                 this._error = message;
             }
         } finally {
             this._busy = false;
+        }
+    }
+
+    /** The ladder, from either road (2026-09-03).
+     *
+     * A refused paste and a third mismatched press are the same
+     * situation said two ways: the bytes read as something other than
+     * this row claims, and only the person can say whether the reading
+     * or the remote is wrong. Saying yes re-sends the SAME bytes with
+     * the declaration attached, which is what turns an accident into a
+     * decision, so the bytes and the source both have to be remembered
+     * rather than re-derived from whatever is in the box by then. */
+    private _raiseTangleLadder(
+        pronto: string,
+        source: "paste" | "capture",
+    ): void {
+        this._tangleLadder = true;
+        this._tangleLadderPronto = pronto;
+        this._tangleLadderSource = source;
+        this._error = t("tangles.listen_mismatch_3_noread");
+    }
+
+    private async _useTangleAnyway(): Promise<void> {
+        const pronto = this._tangleLadderPronto;
+        if (this._tangleLadderSource === "capture") {
+            if (!pronto) return;
+            await this._finishTangleCapture(pronto, true);
+            return;
+        }
+        await this._applyToTangle(true);
+    }
+
+    /** Common tail of any settled tangle apply: tell the surface what
+     * happened and get out of the way.
+     *
+     * ``replaced`` is how many codes THIS press put right, and
+     * ``gained`` is how many further fixes it licensed. The section
+     * adds the first up for its closing receipt and renders the second
+     * as the cascade line, because a press that builds more fixes has
+     * to say so and the popup is about to close. */
+    private _afterTangleApply(
+        result: TangleApplyResult,
+        replaced: number,
+        gained: number,
+    ): void {
+        this.dispatchEvent(
+            new CustomEvent("tangle-mutated", {
+                detail: {
+                    wigWritten: result.wig?.written ?? null,
+                    replaced,
+                    gained,
+                },
+                bubbles: true,
+                composed: true,
+            }),
+        );
+        this._close();
+    }
+
+    /** Drop the current arm, tolerating one that is already gone.
+     *
+     * The server tears its own arm down after FITTING_LISTEN_TIMEOUT_S
+     * of silence, and the stored unsubscribe then points at a
+     * subscription that no longer exists, so calling it REJECTS. That
+     * rejection was the first await in both the arm and the settle,
+     * which is how USE IT ANYWAY could die before apply was ever
+     * called and stay dead on every retry (issue 4). A dead arm is a
+     * normal outcome, not an error. */
+    private async _tangleTeardown(): Promise<void> {
+        const unlisten = this._tangleUnlisten;
+        this._tangleUnlisten = null;
+        this._tangleListening = false;
+        if (!unlisten) return;
+        try {
+            await unlisten();
+        } catch {
+            // Already gone server-side; nothing to release.
+        }
+    }
+
+    private static _tangleError(err: unknown): string {
+        if (err instanceof Error && err.message) return err.message;
+        const message = (err as { message?: unknown } | null)?.message;
+        return typeof message === "string" && message ? message : String(err);
+    }
+
+    /** Arm this row's listen window. One row listens at a time, and
+     * only one popup is ever open, so that is now structural. */
+    private async _armTangle(): Promise<void> {
+        if (this._tangleArming || this._busy) return;
+        if (!this._isTangle) return;
+        this._tangleArming = true;
+        this._error = null;
+        try {
+            await this._tangleTeardown();
+            this._tangleListening = true;
+            this._tangleMessage = null;
+            this._tangleUnlisten = await this.api.tangleListen(
+                this.deviceId,
+                (event) => void this._onTangleEvent(event),
+                this.tangleTarget as string,
+            );
+        } catch (err) {
+            // The arm never took. Say so and leave it re-armable
+            // rather than pretending it is listening.
+            this._tangleListening = false;
+            this._tangleMessage = IrSignalEditor._tangleError(err);
+        } finally {
+            this._tangleArming = false;
+        }
+    }
+
+    /** Judge a press against this row, exactly as the inline card did.
+     *
+     * WITNESS-CLASS MATCH LOGIC (kickoff ruling, bench finding 1): a
+     * legitimate witness capture can honestly read
+     * ``verdict.matches: false``, because it demonstrates a value from
+     * a DIFFERENT cell's coordinates on an axis this row's own label
+     * does not cover. So a witness row keys on the witnessed field's
+     * own value, never on bare ``matches``. A recapture row -- re-
+     * proving one already-correct code -- has no such axis problem and
+     * uses ``matches`` directly. */
+    private async _onTangleEvent(event: TangleListenEvent): Promise<void> {
+        if (event.type === "tangle_listen_timeout") {
+            // The server has already torn this arm down, so the stored
+            // unsubscribe is dead and must not be called (issue 4).
+            this._tangleUnlisten = null;
+            this._tangleListening = false;
+            this._tangleHeard = false;
+            this._tangleMessage = t("tangles.listen_timeout");
+            return;
+        }
+        const capture = event as TangleCaptureEvent;
+        // A PRESS ARRIVED (issue 14). The button stops waiting and says
+        // so, and keeps saying so through judgment and apply -- nothing
+        // used to acknowledge the press the button was sitting there
+        // asking for, so the wait read as a control that had died.
+        this._tangleHeard = true;
+        if (!capture.decoded) {
+            this._tangleHeard = false;
+            this._tangleMessage = t("tangles.listen_garbled");
+            return;
+        }
+        this._tangleLastPronto = capture.pronto;
+
+        const cluster = this.tangleCluster;
+        const isWitness = cluster?.mechanic === "witness";
+        let good: boolean;
+        if (isWitness && cluster?.field) {
+            // THE WITNESS COMPARISON (issue 18, ship-blocker). reads_as
+            // is keyed by map FIELD NAME and coordinates by cell AXIS,
+            // and this read one with the other's key, so for every
+            // temperature cluster the claim was undefined and a capture
+            // reading exactly the right value went to the ladder.
+            const readsAs = capture.verdict.reads_as as Record<
+                string,
+                unknown
+            > | null;
+            const witnessed = readsAs?.[cluster.field];
+            const coords = this.tangleRow?.target.coordinates as
+                | Record<string, unknown>
+                | undefined;
+            const asked = claimedFor(cluster.field, coords);
+            good = sameReading(witnessed, asked);
+        } else {
+            // ``matches`` is null when there was no claim to check the
+            // press against -- a flat wig has no lattice, so pre_read
+            // returns an unreadable verdict for every row on it. That
+            // is "nothing to disagree with", not "wrong", and reading
+            // it as a miss made recapture structurally impossible on
+            // flat wigs (issue 3, owner ruled). The ladder only appears
+            // where a reading exists to disagree with.
+            const claim = capture.verdict.matches;
+            good = claim === null || claim === undefined ? true : claim === true;
+        }
+
+        if (good) {
+            await this._finishTangleCapture(capture.pronto, false);
+            return;
+        }
+
+        const misses = this._tangleMisses + 1;
+        this._tangleMisses = misses;
+        // Defensively (F3): where there is no reading to quote, say so
+        // in words rather than interpolating a bare "?" into the
+        // sentence, which is what a flat wig used to render.
+        const heardWord = (
+            capture.verdict.reads_as as Record<string, unknown> | null
+        )?.[cluster?.field ?? ""];
+        // The ladder speaks the panel's unit (T5). The reading is a
+        // native lattice value, and quoting it raw put "Heard 26" under
+        // a row named 79, which reads as the panel disagreeing with
+        // itself rather than with the remote.
+        const heard = fieldWords(
+            cluster?.field,
+            heardWord,
+            this.matrixUnit,
+            installUnit(this.hass),
+        );
+        const rung = misses >= 3 ? 3 : misses === 1 ? 1 : 2;
+        this._tangleMessage =
+            heard === null
+                ? t(`tangles.listen_mismatch_${rung}_noread`)
+                : t(`tangles.listen_mismatch_${rung}`, { heard });
+        if (misses >= 3) {
+            this._raiseTangleLadder(capture.pronto, "capture");
+            // The ladder speaks for itself in the actions row; a red
+            // alert saying the same thing twice would read as a
+            // refusal of a press that has not been offered yet.
+            this._error = null;
+        }
+        // The arm is NOT dropped -- a miss never reverted it -- so the
+        // button goes back to waiting for the next press.
+        this._tangleHeard = false;
+    }
+
+    /** A settled press: write the row, then -- witness clusters only --
+     * ask what else this reading could seed and hand it up. */
+    private async _finishTangleCapture(
+        pronto: string,
+        readingDisagreed: boolean,
+    ): Promise<void> {
+        if (this._busy) return;
+        this._busy = true;
+        this._error = null;
+        try {
+            await this._tangleTeardown();
+            const result = await this.api.tangleApply({
+                deviceId: this.deviceId,
+                target: this.tangleTarget as string,
+                pronto,
+                tested: true,
+                // A captured press is evidence of a press, not of a
+                // transmission, so zero is the true tally and the
+                // receipt reads accepted, never air-tested.
+                sendsFired: 0,
+                source: "capture",
+                ...(readingDisagreed ? { readingDisagreed: true } : {}),
+            });
+            const gained = await this._planCascade(pronto);
+            this._afterTangleApply(result, 1, gained);
+        } catch (err) {
+            // An apply can be refused for real reasons (the target no
+            // longer carries a finding, an unusable pronto, an
+            // undeclared disagreement). Put the reason where it can be
+            // read and leave the popup usable, instead of pulsing at
+            // something that has stopped (issue 4).
+            const message = IrSignalEditor._tangleError(err);
+            if (message.includes("reading_disagreed_required")) {
+                this._raiseTangleLadder(pronto, "capture");
+            } else {
+                this._error = message;
+            }
+        } finally {
+            this._busy = false;
+            this._tangleHeard = false;
+        }
+    }
+
+    /** What else this press licensed, for the cascade line.
+     *
+     * Pure: ``tangle/plan`` writes nothing. The candidates are handed
+     * up so they can appear as ordinary Fix rows and move the "Fixes
+     * ready" count live, exactly per the brief's closing line. Writing
+     * them is still ACCEPT's job, in FIX, same as any other candidate.
+     * A recapture cluster never plans -- "nothing can be derived" is
+     * the whole meaning of that mechanic. Nor does a PASTE: the press
+     * road is the only one that was ever a witness reading. */
+    private async _planCascade(pronto: string): Promise<number> {
+        const cluster = this.tangleCluster;
+        if (cluster?.mechanic !== "witness" || !cluster.field) return 0;
+        try {
+            const plan = await this.api.tanglePlan({
+                deviceId: this.deviceId,
+                cluster: cluster.id,
+                witness: pronto,
+                witnessTarget: this.tangleTarget as string,
+            });
+            if (plan.refused) return 0;
+            const gained = Object.keys(plan.candidates).filter(
+                (member) => member !== this.tangleTarget,
+            ).length;
+            this.dispatchEvent(
+                new CustomEvent("tangle-batch-planned", {
+                    detail: {
+                        clusterId: cluster.id,
+                        witness: pronto,
+                        witnessTarget: this.tangleTarget as string,
+                        plan,
+                    },
+                    bubbles: true,
+                    composed: true,
+                }),
+            );
+            return gained;
+        } catch {
+            // Best-effort. The row this press was working is already
+            // applied and settled; a plan that fails to resolve just
+            // means no sibling rows show up early -- they are still
+            // reachable the ordinary way once this cell counts as a
+            // donor.
+            return 0;
         }
     }
 
@@ -564,6 +930,129 @@ export class IrSignalEditor extends LitElement {
                 // is not something to put in front of the person.
             }
         }
+    }
+
+    /** PRESS THE BUTTON, from the footer (owner ruled 2026-09-03).
+     *
+     * It began as a copy of the ordinary editor's Replace block, on the
+     * reasoning that it was the same offer: a second way to fill the
+     * code box. The owner's bench walk read it the other way round. In
+     * a repair the press is not an alternative to the box, it is the
+     * road the window is for, so the button belongs on the line where
+     * the window's decisions are made rather than in a block halfway
+     * up the body. What differs from the ordinary Replace is unchanged
+     * underneath: this press is judged against the row before anything
+     * is written, and a clean one applies and closes rather than
+     * landing in the box for a separate save.
+     *
+     * WHAT THE FLOW SAYS did not come with it: a footer has no room
+     * for a sentence, so the status line stayed on the press road, in
+     * _renderTangleStatus below. The three-miss answer is in neither
+     * -- it is the dialog's primary button, so that saying yes to it
+     * is the same gesture as saying yes to anything else. */
+    private _renderTangleListenButton() {
+        if (!this._isTangle) return "";
+        const waiting = this._tangleListening && !this._tangleHeard;
+        return html`
+            <button
+                class="action-btn listen-btn ${this._tangleHeard
+                    ? "heard"
+                    : waiting
+                      ? "pulsing"
+                      : ""}"
+                ?disabled=${this._busy ||
+                this._tangleArming ||
+                this._tangleHeard}
+                @click=${() => void this._armTangle()}
+            >
+                ${this._tangleHeard
+                    ? t("tangles.listen_heard")
+                    : waiting
+                      ? html`<span class="pulse"
+                            ><span class="dot"></span
+                            ><span class="dot"></span
+                            ><span class="dot"></span
+                        ></span>`
+                      : t("tangles.listen")}
+            </button>
+        `;
+    }
+
+    /** What the press flow last said: the waiting hint, a garbled
+     * press, a mismatch with the heard values quoted in the panel's own
+     * unit, or the timeout. It stays in the body, on the press road,
+     * rather than following the button into a footer with no room for a
+     * sentence. Nothing renders while there is nothing to say, so the
+     * landing view is no longer than it was. */
+    private _renderTangleStatus() {
+        if (!this._isTangle) return "";
+        const waiting = this._tangleListening && !this._tangleHeard;
+        const line = this._tangleMessage
+            ? this._tangleMessage
+            : waiting
+              ? t("editor.listen_hint")
+              : "";
+        if (!line) return "";
+        return html`<div class="tangle-status">${line}</div>`;
+    }
+
+    /** THE SENTENCE (owner ruled 2026-09-03, rewritten on the bench
+     * walk the same day). One plain line naming both roads out of
+     * here, the press and the paste, before either control is reached.
+     * It is also what names the code box now that the box carries no
+     * label of its own. */
+    private _renderTangleIntro() {
+        if (!this._isTangle) return "";
+        return html`<div class="tangle-intro">${t("tangles.popup_intro")}</div>`;
+    }
+
+    /** The code box, extracted so the tangle context can put it after
+     * the press road without the ordinary editor's copy moving. */
+    private _renderCodeBox() {
+        const held = this._isTangle && !this._codeFocused;
+        return html`
+            <div class="field">
+                <!-- NO LABEL IN A REPAIR (owner ruled 2026-09-03).
+                     The sentence above the box already says what the
+                     box holds and what to do with it; a label over it
+                     was a third line saying the same one thing. -->
+                ${this._isTangle
+                    ? ""
+                    : html`<label>${t("editor.pronto_code")}</label>`}
+                <div class="code-wrap">
+                    <textarea
+                        class="${this._snapFlash ? "snap-flash" : ""} ${held
+                            ? "held"
+                            : ""}"
+                        rows="4"
+                        .value=${this._pronto}
+                        placeholder="0000 006D ..."
+                        ?autofocus=${!this._isTangle}
+                        spellcheck="false"
+                        @focus=${() => (this._codeFocused = true)}
+                        @blur=${() => (this._codeFocused = false)}
+                        @input=${this._onProntoInput}
+                        @keydown=${this._onKeydown}
+                    ></textarea>
+                    ${this._pronto.trim()
+                        ? html`
+                              ${this._copyHint
+                                  ? html`<span class="copy-flash"
+                                        >${this._copyHint}</span
+                                    >`
+                                  : ""}
+                              <button
+                                  class="copy-icon"
+                                  title=${t("editor.select_all")}
+                                  @click=${this._selectCode}
+                              >
+                                  <ha-svg-icon .path=${ICON_COPY}></ha-svg-icon>
+                              </button>
+                          `
+                        : ""}
+                </div>
+            </div>
+        `;
     }
 
     private _renderReplace() {
@@ -770,11 +1259,21 @@ export class IrSignalEditor extends LitElement {
     }
 
     render() {
-        const heading = this._isCommand
-            ? t("editor.edit_command")
-            : this._isEdit
-              ? t("editor.edit_signal")
-              : t("editor.create_signal");
+        // THE REASON IS THE HEADER (owner ruled 2026-09-03). In a
+        // repair this window is about one broken row, so the row's own
+        // sentence takes the window's header slot and wears the header
+        // treatment every other window in the panel uses. Two things
+        // go with that: it stops being a light gray line inside the
+        // body, and the title stops reading "Create signal" over a
+        // repair, which is what it said before.
+        const heading =
+            this._isTangle && this.tangleReason
+                ? this.tangleReason
+                : this._isCommand
+                  ? t("editor.edit_command")
+                  : this._isEdit
+                    ? t("editor.edit_signal")
+                    : t("editor.create_signal");
         const primaryLabel = this._isEdit
             ? this._busy
                 ? t("common.saving")
@@ -799,50 +1298,25 @@ export class IrSignalEditor extends LitElement {
                 scrimClickAction=""
                 @closed=${this._close}
             >
-                ${this._isTangle && this.tangleReason
-                    ? html`<div class="tangle-reason">
-                          ${this.tangleReason}
-                      </div>`
-                    : ""}
                 ${this._error
                     ? html`<ha-alert alert-type="error">${this._error}</ha-alert>`
                     : ""}
 
-                <div class="field">
-                    <label>${t("editor.pronto_code")}</label>
-                    <div class="code-wrap">
-                        <textarea
-                            class=${this._snapFlash ? "snap-flash" : ""}
-                            rows="4"
-                            .value=${this._pronto}
-                            placeholder="0000 006D ..."
-                            autofocus
-                            spellcheck="false"
-                            @input=${this._onProntoInput}
-                            @keydown=${this._onKeydown}
-                        ></textarea>
-                        ${this._pronto.trim()
-                            ? html`
-                                  ${this._copyHint
-                                      ? html`<span class="copy-flash"
-                                            >${this._copyHint}</span
-                                        >`
-                                      : ""}
-                                  <button
-                                      class="copy-icon"
-                                      title=${t("editor.select_all")}
-                                      @click=${this._selectCode}
-                                  >
-                                      <ha-svg-icon
-                                          .path=${ICON_COPY}
-                                      ></ha-svg-icon>
-                                  </button>
-                              `
-                            : ""}
-                    </div>
-                </div>
-
-                ${this._renderReplace()} ${this._renderFeedback()}
+                <!-- THE RULED ORDER (owner, 2026-09-03, twice).
+                     In a repair the press road leads and the body is
+                     short: the sentence, whatever the press flow last
+                     said, then the code the row has now. Listen itself
+                     is downstairs in the footer and the reason is
+                     upstairs in the header, so what is left here is
+                     only what has to be read on the way. Everywhere
+                     else the code box leads exactly as it always has,
+                     and the validation, pill and snap keep following
+                     the box they describe either way. -->
+                ${this._isTangle
+                    ? html`${this._renderTangleIntro()}
+                      ${this._renderTangleStatus()} ${this._renderCodeBox()}`
+                    : html`${this._renderCodeBox()} ${this._renderReplace()}`}
+                ${this._renderFeedback()}
                 ${this._renderPill()} ${this._renderSnap()}
 
                 ${this._isTangle
@@ -901,7 +1375,12 @@ export class IrSignalEditor extends LitElement {
                     ? html`<div class="note">${triggerNoteText}</div>`
                     : ""}
 
+                <!-- LISTEN IN THE CORNER (owner ruled 2026-09-03).
+                     The press road ends on the line where the window's
+                     decisions are made: Listen at the far left, the
+                     spacer, then Cancel and the primary. -->
                 <div class="dialog-actions">
+                    ${this._renderTangleListenButton()}
                     <span class="spacer"></span>
                     <button
                         class="action-btn cancel-btn"
@@ -913,13 +1392,15 @@ export class IrSignalEditor extends LitElement {
                     ${this._isTangle && this._tangleLadder
                         ? html`<button
                               class="action-btn create-btn"
-                              @click=${() => void this._applyToTangle(true)}
+                              @click=${() => void this._useTangleAnyway()}
                               ?disabled=${this._busy}
                           >
                               ${t("tangles.use_anyway")}
                           </button>`
                         : html`<button
-                              class="action-btn create-btn"
+                              class="action-btn create-btn ${this._isTangle
+                                  ? "tangle"
+                                  : ""}"
                               @click=${this._save}
                               ?disabled=${!this._canSave}
                           >
@@ -933,13 +1414,106 @@ export class IrSignalEditor extends LitElement {
     static styles = [
         dialogStyles,
         css`
-            /* The row's own reason, leading the dialog so the person can
-               see what they are fixing while they fix it. */
-            .tangle-reason {
-                font-size: 0.8rem;
+            /* The press flow's own line, on the press road. It sits
+               where the block that used to hold both it and the button
+               sat, minus the heading and the rule: the sentence above
+               is already the separation, and the button is downstairs
+               in the footer. */
+            .tangle-status {
+                font-size: 0.78rem;
+                line-height: 1.35;
                 color: var(--secondary-text-color);
-                margin-bottom: 10px;
-                line-height: 1.4;
+                margin: 0 0 10px;
+            }
+            /* One plain line, in the dialog's own reading voice rather
+               than a label's. */
+            .tangle-intro {
+                font-size: 0.82rem;
+                line-height: 1.45;
+                color: var(--primary-text-color);
+                margin: 0 0 10px;
+            }
+            /* HELD BACK, NOT HIDDEN. The code is there to read and to
+               replace, but until it is touched it should not be the
+               first thing the eye lands on. Focus returns it to an
+               ordinary field. */
+            textarea.held {
+                opacity: 0.6;
+                font-size: 0.82rem;
+                border-color: var(--divider-color);
+                background: var(--secondary-background-color);
+            }
+            textarea.held:hover {
+                opacity: 0.85;
+            }
+            textarea.held:focus {
+                opacity: 1;
+            }
+            /* THE CORNER BUTTON (owner ruled 2026-09-03). Listen
+               keeps the amber it has worn on this surface all along:
+               the Fix chip that opens this window and the three dots
+               inside this very button are the same yellow, and in the
+               footer's corner it needs to read bright rather than
+               blend into Cancel. Scoped by the footer rather than by a
+               new class, so the button's own class list is untouched
+               and HEARD's green still wins by coming after. */
+            .dialog-actions .listen-btn {
+                color: var(--tangle-amber, #b89930);
+                border-color: rgba(184, 153, 48, 0.3);
+            }
+            /* HEARD, through judgment and apply. Green is already this
+               panel's word for a receiver caught it. It is reporting
+               rather than offering, so it is disabled -- but the shared
+               disabled fade would leave the one word the person is
+               waiting to read as the faintest thing in the row. */
+            .listen-btn.heard {
+                color: #2e7d32;
+                border-color: rgba(46, 125, 50, 0.4);
+            }
+            .listen-btn.heard:disabled {
+                opacity: 1;
+            }
+            /* The dots came with the flow (issue 14, ruled
+               2026-08-30). They were never the problem: the problem was
+               that nothing acknowledged the press, so they ran on and
+               read as a button that had died. With HEARD arriving at
+               the end they read as what they are, which is waiting. */
+            .pulse {
+                display: inline-flex;
+                gap: 3px;
+                align-items: center;
+                justify-content: center;
+            }
+            .pulse .dot {
+                width: 4px;
+                height: 4px;
+                border-radius: 50%;
+                background: var(--tangle-amber, #b89930);
+                animation: tangle-pulse 1s ease-in-out infinite;
+            }
+            .pulse .dot:nth-child(2) {
+                animation-delay: 0.15s;
+            }
+            .pulse .dot:nth-child(3) {
+                animation-delay: 0.3s;
+            }
+            @keyframes tangle-pulse {
+                0%,
+                80%,
+                100% {
+                    opacity: 0.3;
+                }
+                40% {
+                    opacity: 1;
+                }
+            }
+            /* Three dots at rest still read as a distinct state, and
+               the button says HEARD when the press lands either way. */
+            @media (prefers-reduced-motion: reduce) {
+                .pulse .dot {
+                    animation: none;
+                    opacity: 0.6;
+                }
             }
         .field {
             display: block;
@@ -1245,6 +1819,15 @@ export class IrSignalEditor extends LitElement {
         }
         .create-btn:hover:not(:disabled) {
             opacity: 0.9;
+        }
+        /* GREEN IN A REPAIR (owner ruled 2026-09-03). Copper is this
+           dialog's create color everywhere else. On a repair the button
+           is the yes at the end of a fix, and green is already this
+           panel's word for that: the settled row, the closing line, and
+           HEARD on the button sharing this footer. */
+        .create-btn.tangle {
+            background: #2e7d32;
+            border-color: #2e7d32;
         }
     `,
     ];

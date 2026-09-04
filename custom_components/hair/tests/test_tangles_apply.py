@@ -856,3 +856,79 @@ class TestKeepingAPairIsOneAnswer:
         assert result["record"]["target"] == rows[0].target.key
         assert len(device.tangle_attestations) == 1
         assert len(list_tangles(device, None).rows) == 1
+
+
+class TestARepairedRowLeavesTheListing:
+    """Owner walkthrough, 2026-09-03, finding 2.
+
+    Repairing one of two rows dropped the header count but left BOTH
+    rows on screen wearing their Fix buttons, until some later refresh
+    cleared it. The count and the rows were reading different snapshots
+    of one list.
+
+    THE DATA WAS NEVER STALE, which is what these two pin. One apply,
+    one re-listing, and the repaired row is gone from it while its
+    neighbour stays exactly where it was. Whatever the surface was
+    showing, the next listing already disagreed with it, so the fault
+    was never here. The surface half is pinned in test_polish_rulings.py,
+    on the component that was holding the copy.
+    """
+
+    async def _repair_one(self, hass, device, rows):
+        """Paste a code that combs clean onto the first row.
+
+        Nudged off the healthy command's own bytes rather than copied
+        from them: an exact duplicate would trade one finding for a
+        duplicated-neighbour finding and the row would stay for a
+        different reason, which would prove nothing about this one.
+        """
+        healthy = next(
+            c for c in device.commands
+            if c.id not in {r.target.command_id for r in rows}
+        )
+        words = healthy.code.split()
+        words[20] = format(int(words[20], 16) + 4, "04X")
+        connection = _conn()
+        await ws_tangle_apply(hass, connection, {
+            "id": 1, "type": "hair/device/tangle/apply",
+            "device_id": device.id, "target": rows[0].id,
+            "pronto": " ".join(words), "tested": True, "source": "paste",
+        })
+        connection.send_error.assert_not_called()
+        return connection
+
+    @pytest.mark.asyncio
+    async def test_the_repaired_row_is_gone_from_the_next_listing(
+        self, dreo_pair
+    ):
+        hass, device, _manager = dreo_pair
+        before = list_tangles(device, None).rows
+        assert len(before) == 2
+        repaired, untouched = before[0], before[1]
+
+        await self._repair_one(hass, device, before)
+
+        after = list_tangles(device, None).rows
+        ids = {row.id for row in after}
+        assert repaired.id not in ids
+        assert untouched.id in ids
+
+    @pytest.mark.asyncio
+    async def test_the_count_and_the_rows_come_from_one_list(
+        self, dreo_pair
+    ):
+        """There is one number to be wrong about, not two. The card's
+        rows and the card's count are the same array, so a listing that
+        has dropped a row has dropped it from both."""
+        hass, device, _manager = dreo_pair
+        before = list_tangles(device, None).rows
+        assert len(before) == 2
+        repaired = before[0]
+
+        await self._repair_one(hass, device, before)
+
+        after = list_tangles(device, None).rows
+        assert len(after) == 1
+        assert [row.id for row in after] == [
+            row.id for row in before if row.id != repaired.id
+        ]
