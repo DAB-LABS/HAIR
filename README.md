@@ -169,7 +169,7 @@ When the comb finds a problem in a wig, the device made from it shows a **Needs 
 To fix a code:
 
 1. Click **Fix** on the card.
-2. Do what the card asks. Some fixes are ready to accept. Some need a press from your remote. Some ask you to pick between two buttons that share a name.
+2. Do what the card asks. Some fixes are ready to accept. Some need a press from your remote, or a corrected code you paste in. Some ask you to pick between two buttons that share a name.
 3. The row goes away. The device sends the fixed code from then on.
 
 A code still sends as-is until you fix it, so nothing here stops you from using the device.
