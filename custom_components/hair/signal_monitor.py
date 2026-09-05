@@ -127,6 +127,11 @@ class NormalizedSignal:
     # per record it is compared against. None when the capture has no
     # structure to normalize; see identity.py.
     norm_fp: str | None = None
+    # THE COVERAGE VERDICT RIDES HERE TOO (GH #134). Mirror rows are
+    # built from this dataclass and wig identity is derived through it,
+    # so a verdict that stopped at the decoder would leave both of those
+    # doors minting rows with no idea whether their decode was real.
+    decode_covers: bool | None = None
 
 
 def normalize(parsed: Any) -> NormalizedSignal:
@@ -200,6 +205,7 @@ def normalize(parsed: Any) -> NormalizedSignal:
         decoded_extras=(
             dict(identity.extras) if identity and identity.extras else None
         ),
+        decode_covers=identity.covers_capture if identity else None,
         norm_fp=norm_fp,
     )
 
@@ -290,6 +296,11 @@ def _apply_signal_provenance(
     command.decoded_extras = (
         dict(signal.decoded_extras) if signal.decoded_extras else None
     )
+    # A COPY DOOR COPIES THE VERDICT (GH #134). These are the same bytes
+    # with the same decode, so re-deriving here would spend a decode to
+    # reach the answer already sitting on the signal -- and would put a
+    # second place in the tree that could reach a different one.
+    command.decode_covers = signal.decode_covers
     if repeat_count is not None:
         command.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
     else:
@@ -309,6 +320,30 @@ def _apply_signal_provenance(
     # else that reaches this helper.
     if signal.source in ("manual", "plucked"):
         command.source = CommandSource.IMPORTED
+
+
+def _imported_decode_covers(code: str, entry: dict) -> bool | None:
+    """The verdict for one row of a hand-authored codebook.
+
+    Returns None when nothing can be said: the code does not convert to
+    timings, or no registered decoder reads it. Returns False when a
+    decoder DOES read it and names something other than what the file
+    claims -- a copied triple that our own decoder contradicts is not an
+    identity to transmit from. Otherwise the decoder's own verdict.
+    """
+    from .ir_command import ProntoCommand
+
+    claimed = entry.get("decoded_fingerprint")
+    try:
+        timings = ProntoCommand(code).get_raw_timings()
+    except Exception:
+        return None
+    identity = try_decode_identity(timings)
+    if identity is None:
+        return None
+    if claimed and identity.fingerprint != claimed:
+        return False
+    return identity.covers_capture
 
 
 def _mint_plucked_signal(
@@ -356,6 +391,7 @@ def _mint_plucked_signal(
         decoded_extras=(
             dict(identity.extras) if identity and identity.extras else None
         ),
+        decode_covers=identity.covers_capture if identity else None,
         protocol="PRONTO",
         code=code,
         raw_timings=[],
@@ -1369,6 +1405,7 @@ class SignalMonitor:
                     decoded_extras=(
                         dict(n.decoded_extras) if n.decoded_extras else None
                     ),
+                    decode_covers=n.decode_covers,
                     protocol=n.protocol,
                     code=n.code,
                     raw_timings=list(n.raw_timings),
@@ -2359,8 +2396,16 @@ class SignalMonitor:
         # where a user first meets the problem: kno-te pasted a working
         # Pronto into the Clipper, tested it, got nothing, and reasonably
         # concluded the code was wrong. It was the re-encode.
+        # The catalog-signal half of the coverage gate (GH #134), the
+        # same clause the device send path carries. This is the Test
+        # button, and a Test that re-encodes from a false decode is the
+        # bench moment where somebody concludes the code is wrong.
         ir_cmd = None
-        if signal.decoded_fingerprint and not signal.tx_force_raw:
+        if (
+            signal.decoded_fingerprint
+            and not signal.tx_force_raw
+            and signal.decode_covers is not False
+        ):
             ir_cmd = build_decoded_command(
                 signal.decoded_protocol,
                 signal.decoded_address,
@@ -2992,6 +3037,13 @@ class SignalMonitor:
             signal.decoded_command = decoded_command
             signal.decoded_fingerprint = decoded_fingerprint
             signal.decoded_extras = decoded_extras
+            # RE-DERIVED, not carried: these are different bytes now, so
+            # the old verdict describes a code this row no longer holds.
+            # The knob-only path above never reaches here, which is the
+            # point -- editing Send times must not restate the decode.
+            signal.decode_covers = (
+                identity.covers_capture if identity else None
+            )
             if alias is not None:
                 signal.alias = alias.strip()
             if repeat_count is not None:
@@ -3133,6 +3185,16 @@ class SignalMonitor:
                 # one and CLIP silently drops the raw pin, which is the
                 # route a shared wig most often takes into a device.
                 bypass = entry.get("bypass_protocol", False)
+                # A HAND-AUTHORED CODEBOOK IS NOT A CAPTURE (GH #134).
+                # The decoded_* fields below are copied verbatim from the
+                # file and arrive with raw_timings empty, so nothing has
+                # judged them. Re-derive from the code itself: where a
+                # registered decoder reads it and disagrees with the
+                # copied triple, the copy is wrong about what these bytes
+                # are and the row is stamped uncovered. Where no decoder
+                # is registered for the claimed protocol there is nothing
+                # to disagree with, and the row stays unjudged.
+                covers = _imported_decode_covers(code, entry)
                 signal = UnknownSignal(
                     fingerprint=sig_fp,
                     byte_hash=byte_hash,
@@ -3141,6 +3203,7 @@ class SignalMonitor:
                     decoded_command=entry.get("decoded_command"),
                     decoded_fingerprint=entry.get("decoded_fingerprint"),
                     decoded_extras=entry.get("decoded_extras") or None,
+                    decode_covers=covers,
                     protocol="PRONTO",
                     code=code,
                     raw_timings=[],

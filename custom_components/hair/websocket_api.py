@@ -756,6 +756,13 @@ async def ws_duplicate_device(
         )
         if not copied:
             clone.climate_matrix = False
+            # And the porthole rows lose their coordinates with it
+            # (GH #134). The roster carries matrix_cell now, so without
+            # this the copy would hold windows onto a lattice that was
+            # never written -- and deleting one of those rows deletes a
+            # cell that does not exist.
+            for cloned_command in clone.commands:
+                cloned_command.matrix_cell = None
     await manager.async_create_device(clone)
     connection.send_result(msg["id"], await _device_full(hass, clone))
 
@@ -1001,7 +1008,6 @@ async def ws_save_captured_command(
     else:
         category = category_for_command_name(msg["command_name"])
 
-    command = result.to_command(msg["command_name"], category)
     # Decode at save so a captured NEC command transmits canonical timings on
     # the first press (mirrors the catalog-signal capture pipeline). Also sets
     # byte_hash at creation: the matcher's reverse index keys on
@@ -1009,17 +1015,23 @@ async def ws_save_captured_command(
     # just a tiebreaker. (A load-time backfill exists for pre-0.3.4 records,
     # but a freshly captured command should not need it.) Both fields default
     # to None on undecodable / non-Pronto captures.
+    #
+    # Through mint_command since GH #134, so the coverage verdict lands
+    # here the same way it lands at every other door.
+    from .mint import mint_command
     from .protocol_decode import try_decode_identity
 
     identity = try_decode_identity(result.raw_timings)
-    command.decoded_protocol = identity.protocol if identity else None
-    command.decoded_address = identity.address if identity else None
-    command.decoded_command = identity.command if identity else None
-    command.decoded_fingerprint = identity.fingerprint if identity else None
-    command.decoded_extras = (
-        dict(identity.extras) if identity and identity.extras else None
+    command = mint_command(
+        name=msg["command_name"],
+        category=category,
+        protocol=result.protocol,
+        code=result.code,
+        raw_timings=result.raw_timings,
+        frequency=result.frequency,
+        identity=identity,
+        byte_hash=canonical_byte_hash(result.code),
     )
-    command.byte_hash = canonical_byte_hash(result.code)
     await manager.async_add_command(device.id, command, placement="top")
     # Notify other tabs this signal now has an assignment (v0.5.7).
     save_fp = canonical_fingerprint(
@@ -3838,6 +3850,9 @@ async def ws_duplicate_trigger_remote(
         # Same shape as ws_duplicate_device: the file rides along under
         # the copy's id, and a failed copy clears the flag rather than
         # leaving a remote that claims a lattice it cannot read.
+        #
+        # No porthole rows to drop here, unlike the device duplicate: a
+        # trigger remote carries triggers, not commands.
         from .matrix_store import copy_matrix
 
         copied_matrix = await hass.async_add_executor_job(
@@ -5760,43 +5775,38 @@ def _command_from_wig_signal(
     same comb flags. The wig STATES what each row needs, so the catalog
     defaults never overrule it.
     """
-    from .models import CaptureResult, CommandCategory
+    from .mint import mint_command
+    from .models import CommandCategory
 
-    capture = CaptureResult(
+    name = sig.alias.strip() or f"Signal {index}"
+    # WHERE THE BYTES CAME FROM (2026-08-18). The default mint stamps
+    # CAPTURED, which is true of a sniffed row and of nothing here: this
+    # command came out of a wig file and never crossed the air. The
+    # receiver-tolerant identity tier reads this field, and IMPORTED is
+    # the value the enum already has for it (the panel renders no chip
+    # for it; the STATE chip is gated on "matrix" alone).
+    #
+    # The wig states what a row needs, per signal, so that is what the
+    # device gets -- explicit 0 ditto included, or the catalog default
+    # would resurrect a repeat the wig says nothing about. The comb
+    # fields are keyed by the wig's alias, which is what the comb
+    # recorded and what this command was just named after; a later
+    # rename does not clear them.
+    return mint_command(
+        name=name,
+        category=CommandCategory.CUSTOM,
+        source=CommandSource.IMPORTED,
         protocol="PRONTO",
         code=ident.pronto,
         raw_timings=list(ident.raw_timings),
         frequency=ident.frequency,
+        send_count=max(1, sig.send_count or 1),
+        repeat_count=sig.ditto_count,
+        tx_force_raw=sig.bypass_protocol,
+        identity=ident,
+        comb_suspect=sig.alias in suspects,
+        comb_finding=findings.get(sig.alias),
     )
-    name = sig.alias.strip() or f"Signal {index}"
-    command = capture.to_command(name, CommandCategory.CUSTOM)
-    # WHERE THE BYTES CAME FROM (2026-08-18). ``to_command`` stamps
-    # CAPTURED for every caller, which is true of a sniffed row and of
-    # nothing here: this command came out of a wig file and never
-    # crossed the air. The receiver-tolerant identity tier reads this
-    # field, and IMPORTED is the value the enum already has for it (the
-    # panel renders no chip for it; the STATE chip is gated on "matrix"
-    # alone).
-    command.source = CommandSource.IMPORTED
-    command.byte_hash = ident.byte_hash
-    command.decoded_protocol = ident.decoded_protocol
-    command.decoded_address = ident.decoded_address
-    command.decoded_command = ident.decoded_command
-    command.decoded_fingerprint = ident.decoded_fingerprint
-    command.decoded_extras = (
-        dict(ident.decoded_extras) if ident.decoded_extras else None
-    )
-    # The wig states what a row needs, per signal, so that is what the
-    # device gets -- explicit 0 ditto included, or the catalog default
-    # would resurrect a repeat the wig says nothing about.
-    command.send_count = max(1, sig.send_count or 1)
-    command.tx_force_raw = sig.bypass_protocol
-    command.repeat_count = sig.ditto_count
-    # Keyed by the wig's alias, which is what the comb recorded and what
-    # this command was just named after; a later rename does not clear it.
-    command.comb_suspect = sig.alias in suspects
-    command.comb_finding = findings.get(sig.alias)
-    return command
 
 
 @websocket_api.require_admin
@@ -6101,28 +6111,28 @@ async def ws_trigger_remote_make_device(
     await manager.async_create_device(device)
 
     from .identity import file_sourced_trigger
-    from .ir_command import ProntoCommand
-    from .models import IRCommand
+    from .mint import mint_from_code
 
     copied = 0
     triggers = store.get_triggers_for_remote(remote.id)
     for i, trig in enumerate(triggers, start=1):
-        raw_timings = None
-        if trig.code:
-            try:
-                raw_timings = ProntoCommand(trig.code).get_raw_timings()
-            except Exception:  # bad code: command just will not TX yet
-                raw_timings = None
-        command = IRCommand(
+        # THE REPAIR RULE (GH #134). This door used to copy the
+        # trigger's decoded_fingerprint across and fill in none of the
+        # triple beside it, so the row claimed an identity nothing here
+        # derived and the send path had nothing to rebuild from.
+        # mint_from_code re-derives all five from the code and drops the
+        # copied fingerprint when its own read disagrees.
+        #
+        # The trigger's provenance carries over with its bytes: a
+        # Remote minted from a wig gives a device whose commands came
+        # from that file (2026-08-18). The byte hash is the trigger's
+        # own, which is the one thing here that is not derivable.
+        command = mint_from_code(
             name=trig.name.strip() or f"Trigger {i}",
             protocol=trig.protocol,
             code=trig.code,
-            raw_timings=raw_timings,
             byte_hash=trig.byte_hash,
-            decoded_fingerprint=trig.decoded_fingerprint,
-            # The trigger's provenance carries over with its bytes: a
-            # Remote minted from a wig gives a device whose commands
-            # came from that file (2026-08-18).
+            claimed_fingerprint=trig.decoded_fingerprint,
             source=(
                 CommandSource.IMPORTED
                 if file_sourced_trigger(trig, store)
@@ -6504,6 +6514,12 @@ def _mint_cell_rows(
     devices adopted during the QA rounds carry rows this minted and
     named, and the rules those names were formed under are worth being
     able to read while those devices are still in the field.
+
+    NOT ABSORBED INTO mint_command (GH #134), deliberately: it is dead
+    code kept as a record, and moving it would make it look live again.
+    It mints no decoded fields and so needs no coverage verdict; the
+    rows it left in the field are judged by the load backfill like any
+    other.
 
     Keyed off the same suspect set the flat rows use, matched to cells
     by ``cell_key`` -- the comb records cell findings under exactly that
@@ -7187,7 +7203,6 @@ async def ws_device_matrix_command(
     if resolved is None:
         return
     data, device, matrix = resolved
-    from .models import CaptureResult
     from .wig_identity import wig_signal_identity
 
     # Mint-time naming (unit ruling 2026-07-29): the saved command's
@@ -7211,35 +7226,31 @@ async def ws_device_matrix_command(
             msg["id"], "invalid_format", "The code does not validate"
         )
         return
-    capture = CaptureResult(
-        protocol="PRONTO",
-        code=ident.pronto,
-        raw_timings=list(ident.raw_timings),
-        frequency=ident.frequency,
-    )
-    command = capture.to_command(name, CommandCategory.CUSTOM)
-    command.source = CommandSource.MATRIX
-    command.byte_hash = ident.byte_hash
-    command.decoded_protocol = ident.decoded_protocol
-    command.decoded_address = ident.decoded_address
-    command.decoded_command = ident.decoded_command
-    command.decoded_fingerprint = ident.decoded_fingerprint
-    command.decoded_extras = (
-        dict(ident.decoded_extras) if ident.decoded_extras else None
-    )
-    command.send_count = max(1, send_count or 1)
-    # Cells carry no dittos (plan 5.5), and an inherited catalog default
-    # would invent one. The porthole mint has always said so; this door
-    # did not, so the same cell sent from the card and from its saved
-    # row could differ by a repeat nobody asked for.
-    command.repeat_count = 0
     # WHICH STATE THIS ROW IS (0.10.1 item 7). Stamped at mint from the
     # coordinates the pick already resolved, so sending the row later
     # moves the climate card exactly as the card's own SEND does -- and
     # so a preset, which IS a starred STATE row, moves the dial rather
     # than only the readout. NOT ``matrix_cell``: that field marks a
     # porthole, and deleting a porthole deletes the lattice cell.
-    command.sent_state = dict(state)
+    #
+    # Cells carry no dittos (plan 5.5), and an inherited catalog default
+    # would invent one. The porthole mint has always said so; this door
+    # did not, so the same cell sent from the card and from its saved
+    # row could differ by a repeat nobody asked for.
+    from .mint import mint_command
+
+    command = mint_command(
+        name=name,
+        source=CommandSource.MATRIX,
+        protocol="PRONTO",
+        code=ident.pronto,
+        raw_timings=list(ident.raw_timings),
+        frequency=ident.frequency,
+        send_count=max(1, send_count or 1),
+        repeat_count=0,
+        identity=ident,
+        sent_state=dict(state),
+    )
     device.add_command(command, placement="top")
     manager: DeviceManager = data["device_manager"]
     await manager.async_update_device(device)

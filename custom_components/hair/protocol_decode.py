@@ -58,6 +58,27 @@ class DecodedIdentity:
     fingerprint: str
     extras: dict[str, int] | None
     source: str  # "upstream" | "local"
+    # DOES THIS DECODE EXPLAIN THE WHOLE CAPTURE? (GH #134)
+    #
+    # An air conditioner state blob is a long opaque payload, and a
+    # decoder looking for a short addressed frame can find one inside it
+    # by coincidence -- the reported case was a KASEIKYO48 match on a
+    # climate state, re-encoded into a meaningless 99-timing frame. The
+    # two adversarial reviews settled that re-encoding the identity and
+    # comparing it to the capture fails honest captures and passes this
+    # exact false class, and that the discriminator that works is frame
+    # coverage: a true decode explains every frame of its capture,
+    # directly or through repeat voting, and a false one explains a
+    # fraction.
+    #
+    # All three carry DEFAULTS on purpose. Every existing construction
+    # site stays valid, and ``covers_capture`` of None means the
+    # accounting was not computed rather than that it came out badly.
+    # None is TRUSTED: an upstream decoder whose vote count this repo
+    # cannot see must not be treated as a false decode.
+    frames_total: int = 0
+    frames_explained: int = 0
+    covers_capture: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +603,142 @@ def _storable(
     return True
 
 
+# How far over the kept frames a discarded one may be and still be
+# forgiven as the same frame seen badly. Half again on each axis.
+#
+# THE NUMBER CAME FROM THE CORPUS, not from taste. The Dreo Speed Down
+# capture is the boundary case the review named: four frames of one
+# button, two decoded and two not, all four ~18.8ms long, the discarded
+# pair carrying 13 and 14 marks against the winners' 12 because
+# receiver jitter split single pulses into extra edges. It has to pass.
+# A 120-edge air conditioner state frame beside a real one is 60 marks
+# and roughly five times the duration. It has to fail. Anything from
+# about 1.2 to about 2.5 separates those two; half again sits in the
+# middle of that window on both axes.
+_SHAPE_SLACK = 1.5
+
+
+def _mark_count(frame: list[int]) -> int:
+    """How many marks are in this frame -- half of its shape."""
+    return sum(1 for value in frame if value > 0)
+
+
+def _duration(frame: list[int]) -> int:
+    """How long this frame is in microseconds -- the other half."""
+    return sum(abs(value) for value in frame)
+
+
+def _winning_mark_count(frames: list[list[int]]) -> int:
+    """The mark count of the frame shape the decoder most likely won on.
+
+    The decoder reports HOW MANY frames it explained, not WHICH, so the
+    winning shape is inferred: the most common mark count wins, and a
+    tie goes to the SMALLER one. The tie-break is the conservative
+    direction -- it forgives less -- and it is what keeps a capture of
+    two real frames beside two junk frames from electing the junk.
+    """
+    if not frames:
+        return 0
+    counts: dict[int, int] = {}
+    for frame in frames:
+        marks = _mark_count(frame)
+        counts[marks] = counts.get(marks, 0) + 1
+    best = max(counts.values())
+    return min(marks for marks, seen in counts.items() if seen == best)
+
+
+def _same_shape(frame: list[int], marks: int, shortest: int) -> bool:
+    """Is this discarded frame the winning frame seen badly?
+
+    Two measures, because one of them alone gets the corpus wrong.
+    Edge count catches a dense payload; duration catches a long one,
+    and duration is the one that matters for the real boundary case,
+    where jitter added two marks to a frame of exactly the right
+    length. A truncated tail is SHORTER on both and passes, which is
+    what it should do: a cut frame is the same frame, cut.
+    """
+    return (
+        _mark_count(frame) <= marks * _SHAPE_SLACK
+        and _duration(frame) <= shortest * _SHAPE_SLACK
+    )
+
+
+def _coverage(
+    spec: ProtocolSpec, cmd: Any, attempt: list[int]
+) -> tuple[int, int, bool | None]:
+    """``(frames_total, frames_explained, covers_capture)`` for a win.
+
+    THE RULING SET, in order (GH #134 review 2):
+
+    1. Identity-only tiers are skipped entirely. GE-AC transmit always
+       replays the captured raw, so there is nothing for a verdict to
+       protect and computing one would only invite somebody to persist
+       it.
+    2. A decoder that declares no frame gap, or that returns an
+       instance carrying no census, has accounting this repo cannot
+       verify. That is the upstream NEC strict path today. Unknown, not
+       false.
+    3. The repeat-voting carve-out, BOUNDED. A voting decoder reaches
+       its verdict by discarding frames that disagree, and a vendor
+       preamble, a truncated tail and one jittered frame are exactly
+       that. Those are forgiven -- but only when each unexplained frame
+       is the same SIZE as the ones the decoder kept, on edge count and
+       on duration both. A truncation or a preamble is at most that
+       size; a 120-edge state frame sitting beside two good ones is
+       several times it, and forgiving that is how the false class
+       would walk straight back in.
+    4. Otherwise the base rule: every frame explained, or the decode
+       does not cover the capture.
+    """
+    if not spec.tx_rebuild:
+        return (0, 0, None)
+    gap = getattr(spec.command_cls, "FRAME_GAP_US", None)
+    explained = getattr(cmd, "frames_explained", None)
+    if not gap or explained is None:
+        return (0, 0, None)
+
+    from .decoders import split_frames
+
+    frames = split_frames(attempt, int(gap))
+    total = len(frames)
+    explained = int(explained)
+    if total == 0:
+        return (0, explained, None)
+    if explained >= total:
+        return (total, explained, True)
+
+    if int(getattr(spec.command_cls, "MIN_FRAME_VOTES", 1)) >= 2:
+        marks = _winning_mark_count(frames)
+        shortest = min(_duration(f) for f in frames)
+        if all(_same_shape(f, marks, shortest) for f in frames):
+            return (total, explained, True)
+    return (total, explained, False)
+
+
+def _salvage_coverage(spec: ProtocolSpec, attempt: list[int]) -> tuple[
+    int, int, bool | None
+]:
+    """Coverage for an identity that came out of the salvage hook.
+
+    WITHIN-FRAME ONLY. The salvage exists because one pulse of one
+    frame was jittered into the dead zone, and that frame is read and
+    explained. What it does NOT license is the rest of the capture:
+    every other frame still counts, so a salvage that rescues one frame
+    of six covers nothing.
+
+    The seek-trimmed prefix never reaches here -- ``attempt`` is already
+    the sliced capture -- which is the exemption stated as an absence.
+    """
+    if spec.key != "nec":
+        return (0, 0, None)
+    from .decoders import nec_recovery
+
+    total, explained = nec_recovery.salvaged_frame_census(attempt)
+    if total == 0:
+        return (0, 0, None)
+    return (total, explained, explained >= total)
+
+
 def _identify(
     raw_timings: list[int] | None,
 ) -> tuple[DecodedIdentity, ProtocolSpec] | None:
@@ -616,6 +773,7 @@ def _identify(
                     protocol = spec.labels[0]
                     if not _storable(protocol, address, command, None):
                         continue
+                    total, explained, covers = _salvage_coverage(spec, attempt)
                     return DecodedIdentity(
                         protocol=protocol,
                         address=address,
@@ -625,6 +783,9 @@ def _identify(
                         ),
                         extras=None,
                         source=spec.source,
+                        frames_total=total,
+                        frames_explained=explained,
+                        covers_capture=covers,
                     ), spec
             continue
         try:
@@ -636,6 +797,7 @@ def _identify(
         # left the signal stays undecoded (0.10.1 item 1).
         if not _storable(protocol, address, command, extras):
             continue
+        total, explained, covers = _coverage(spec, cmd, attempt)
         return DecodedIdentity(
             protocol=protocol,
             address=address,
@@ -643,6 +805,9 @@ def _identify(
             fingerprint=format_fingerprint(protocol, address, command, extras),
             extras=extras,
             source=spec.source,
+            frames_total=total,
+            frames_explained=explained,
+            covers_capture=covers,
         ), spec
     return None
 
@@ -720,6 +885,20 @@ def identity_from_command(command: Any) -> DecodedIdentity | None:
             source=spec.source,
         )
     return None
+
+
+def decode_coverage(raw_timings: list[int] | None) -> bool | None:
+    """Does the decode of this capture explain the whole capture?
+
+    The public read of the verdict, for the stores and the mint doors.
+    ``None`` means there is nothing to say -- no decode, an
+    identity-only tier, or a decoder whose accounting this repo cannot
+    verify -- and None is never persisted, so a row that could not be
+    judged stays judgeable later rather than being stamped trusted
+    forever.
+    """
+    identity = try_decode_identity(raw_timings)
+    return None if identity is None else identity.covers_capture
 
 
 def try_decode(raw_timings: list[int] | None) -> tuple[str, int, int] | None:

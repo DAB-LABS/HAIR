@@ -53,7 +53,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Self, override
 
-from . import decode_frames_majority, is_close, split_frames
+from . import decode_frames_majority, is_close, split_frames, stamp_census
 from ._base import Command
 
 # Nominal wire timings. The two sources disagree by ~10% (JP1's 460us
@@ -130,6 +130,12 @@ _FRAME_GAP_US = 6000
 class RCACommand(Command):
     """RCA IR command with decode support."""
 
+    #: The frame gap this protocol splits captures at, exposed so the
+    #: coverage accounting in ``protocol_decode`` can count frames the
+    #: way this decoder does. A generic gap is wrong: RCA's header space
+    #: is 4000us and would shred at a 4000us split.
+    FRAME_GAP_US = _FRAME_GAP_US
+
     device: int
     function: int
 
@@ -201,7 +207,10 @@ class RCACommand(Command):
         if result is None:
             return None
         (device, function), votes = result
-        return cls(device=device, function=function, repeat_count=votes - 1)
+        return stamp_census(
+            cls(device=device, function=function, repeat_count=votes - 1),
+            votes,
+        )
 
     @classmethod
     def _decode_frame(cls, frame: Sequence[int]) -> tuple[int, int] | None:

@@ -153,6 +153,28 @@ export class IrCommandRow extends LitElement {
             this.command?.source === "matrix"
         );
     }
+
+    /** When the chip states the protocol rather than offering it.
+     *
+     * TWO REASONS, ONE MODE (GH #134). A matrix state row was the first:
+     * it never re-encodes, so a toggle between decoded and captured has
+     * no two sides. A row whose decode does not cover its own capture is
+     * the second, and it is the same situation arrived at from the other
+     * end -- the server has already decided this row transmits its
+     * stored bytes, so the chip has nothing left to switch.
+     *
+     * THE VERDICT IS READ, NOT RECOMPUTED. There is no client-side rule
+     * here for what covers what; ``decode_covers`` rides ``to_dict``
+     * into the device payload and this reads it. Absent means not
+     * judged and stays interactive, which is what every row shipped
+     * before the verdict existed does.
+     *
+     * A STATE row gets no second cue out of this: it is already
+     * informational, and one fact per row is the ruling.
+     */
+    private get _chipIsInformational(): boolean {
+        return this._isMatrixState || this.command?.decode_covers === false;
+    }
     @property({ type: Boolean }) public busy = false;
 
     /** Label of the mapped action (e.g. "Power On"), or empty/null if unmapped. */
@@ -398,7 +420,9 @@ export class IrCommandRow extends LitElement {
                                 ? html`<ir-tx-knobs
                                       .sendCount=${this.command.send_count}
                                       .repeatCount=${this.command.repeat_count}
-                                      .decoded=${!!this.command.decoded_protocol}
+                                      .decoded=${!!this.command
+                                          .decoded_protocol &&
+                                      this.command.decode_covers !== false}
                                       .bypassed=${!!this.command.tx_force_raw}
                                   ></ir-tx-knobs>`
                                 : ""}
@@ -415,7 +439,7 @@ export class IrCommandRow extends LitElement {
                                                 .bypass=${!!this.command
                                                     .tx_force_raw}
                                                 ?interactive=${!this
-                                                    ._isMatrixState}
+                                                    ._chipIsInformational}
                                                 ?disabled=${this.busy}
                                                 @toggle-bypass=${() =>
                                                     this._emit("toggle-tx-raw")}

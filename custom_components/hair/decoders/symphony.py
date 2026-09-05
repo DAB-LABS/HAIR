@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Self, override
 
-from . import decode_frames_majority, split_frames
+from . import decode_frames_majority, split_frames, stamp_census
 from ._base import Command
 
 _SHORT_US = 460
@@ -46,6 +46,12 @@ _VALID_NBITS = (8, 12, 16)
 
 class SymphonyCommand(Command):
     """Symphony IR command (8/12/16-bit, rc_switch family)."""
+
+    #: The frame gap this protocol splits captures at, exposed so the
+    #: coverage accounting in ``protocol_decode`` can count frames the
+    #: way this decoder does. A generic gap is wrong: RCA's header space
+    #: is 4000us and would shred at a 4000us split.
+    FRAME_GAP_US = _FRAME_GAP_US
 
     #: How many frames must agree before this decoder accepts a capture.
     #:
@@ -118,7 +124,9 @@ class SymphonyCommand(Command):
         if result is None:
             return None
         (data, nbits), votes = result
-        return cls(data=data, nbits=nbits, repeat_count=votes - 1)
+        return stamp_census(
+            cls(data=data, nbits=nbits, repeat_count=votes - 1), votes
+        )
 
     @staticmethod
     def _decode_frame(frame: Sequence[int]) -> tuple[int, int] | None:

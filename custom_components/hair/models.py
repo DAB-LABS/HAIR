@@ -84,6 +84,17 @@ def _with_extra(out: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
 
 
 
+def _optional_bool(value: Any) -> bool | None:
+    """Read a stored tri-state flag without collapsing its third state.
+
+    ``bool(None)`` is False, and for the coverage verdict that is the
+    one answer that must not be invented: absent means not yet judged
+    and is trusted, where False means judged and found wanting. A
+    stored non-bool is treated as absent rather than coerced.
+    """
+    return value if isinstance(value, bool) else None
+
+
 # Keys IRCommand.from_dict consumes (0.10.1 item 2). A key not in here
 # rides through _extra untouched, which is exactly what an older build
 # should do with a field it has never heard of.
@@ -91,10 +102,56 @@ _KNOWN_COMMAND = frozenset({
     "id", "name", "category", "source", "protocol", "code", "raw_timings",
     "frequency", "repeat_count", "send_count", "byte_hash",
     "decoded_protocol", "decoded_address", "decoded_command",
-    "decoded_fingerprint", "decoded_extras", "tx_force_raw",
+    "decoded_fingerprint", "decoded_extras", "decode_covers",
+    "tx_force_raw",
     "plucked_command_name", "matrix_cell", "sent_state", "comb_suspect",
     "comb_finding", "created_at",
 })
+
+
+# EVERY FIELD A COPY CARRIES (GH #134 review 2). The roster is
+# ``_KNOWN_COMMAND`` minus the two things a copy must NOT reuse -- the
+# id, which has to be fresh, and created_at, which belongs to the
+# original -- and the test beside it holds that equality, so a field
+# added to the record cannot be silently dropped by the copy.
+#
+# It was hand-listed before and had already drifted: plucked_command_name,
+# matrix_cell, comb_suspect and comb_finding were on the record and not
+# on the copy. That is the failure mode this closes.
+_CLONE_SKIPS = frozenset({"id", "created_at"})
+
+
+def clone_command(
+    command: IRCommand, *, keep_matrix_cell: bool = True
+) -> IRCommand:
+    """Copy one command onto a fresh id.
+
+    A COPY, NOT A MINT. Nothing is derived here and nothing is judged:
+    these are the same bytes with the same identity, so the decoded
+    fields and the coverage verdict come across verbatim. Re-deriving
+    would be a second place that could reach a different answer about
+    bytes that never changed.
+
+    ``keep_matrix_cell`` is False when the caller's matrix copy failed.
+    A porthole row points AT a lattice cell, so a copy whose lattice
+    did not come with it would be a window onto nothing -- and deleting
+    such a row deletes a cell that is not there.
+    """
+    fresh = IRCommand(name=command.name)
+    for key in _KNOWN_COMMAND - _CLONE_SKIPS:
+        value = getattr(command, key)
+        if isinstance(value, dict):
+            value = dict(value)
+        elif isinstance(value, list):
+            value = list(value)
+        setattr(fresh, key, value)
+    # A newer build's fields ride the copy too (0.10.1 item 2); dropping
+    # them here would make duplicating a device the same quiet data loss
+    # the downgrade was.
+    fresh._extra = dict(command._extra)
+    if not keep_matrix_cell:
+        fresh.matrix_cell = None
+    return fresh
 
 
 @dataclass
@@ -133,10 +190,31 @@ class IRCommand:
     # no schema; None for protocols without extras and for commands
     # stored before v0.6.0.
     decoded_extras: dict[str, int] | None = None
+    # DOES THE DECODE EXPLAIN THE WHOLE SIGNAL? (GH #134)
+    #
+    # The frame-coverage verdict, computed once where the decode was
+    # minted and carried with the bytes ever since. False means a
+    # decoder found a valid-looking frame inside a signal it does not
+    # actually describe -- the reported case was an air conditioner
+    # state blob reading as KASEIKYO48 -- and the transmit path must
+    # replay the stored bytes rather than re-encode from that identity.
+    #
+    # THREE STATES, AND THE THIRD IS NOT FALSE. None means not yet
+    # computed, or computed and not answerable (an unregistered
+    # protocol, an identity-only tier, an upstream decoder whose vote
+    # count this repo cannot see). None is TRUSTED and is never
+    # persisted, so a row that could not be judged today gets judged
+    # the day the decoder that can judge it arrives.
+    decode_covers: bool | None = None
     # Per-command opt-out: when True, TX replays the captured Pronto rather
     # than re-encoding from the decoded value. Default False, so a command
     # with decoded fields transmits canonical timings unless the user
     # explicitly pins it to the captured ones.
+    #
+    # NOT the same fact as ``decode_covers`` above and not to be merged
+    # with it: this one is user intent, it is exported inside
+    # ``signal_row_digest``, and the verdict must never be read off it
+    # or written into it.
     tx_force_raw: bool = False
     # Source attribution carried from a plucked signal on assign-to-device
     # (Plucker, v0.5.0). The user-typed vendor command name; None for
@@ -206,6 +284,7 @@ class IRCommand:
             "decoded_extras": dict(self.decoded_extras)
             if self.decoded_extras
             else None,
+            "decode_covers": self.decode_covers,
             "tx_force_raw": self.tx_force_raw,
             "plucked_command_name": self.plucked_command_name,
             "matrix_cell": dict(self.matrix_cell)
@@ -236,6 +315,7 @@ class IRCommand:
             decoded_command=data.get("decoded_command"),
             decoded_fingerprint=data.get("decoded_fingerprint"),
             decoded_extras=data.get("decoded_extras") or None,
+            decode_covers=_optional_bool(data.get("decode_covers")),
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             plucked_command_name=data.get("plucked_command_name"),
             matrix_cell=data.get("matrix_cell") or None,
@@ -497,7 +577,8 @@ class IRDevice:
                 return True
         return False
 
-    def clone(self, new_name: str) -> IRDevice:
+    def clone(self, new_name: str, *, keep_matrix_cell: bool = True
+              ) -> IRDevice:
         """Return a deep copy of this device with a new id and name.
 
         Every ``IRCommand`` on the clone gets a fresh id but otherwise
@@ -513,45 +594,7 @@ class IRDevice:
         duplicate event entities firing on the same physical button.
         """
         cloned_commands = [
-            IRCommand(
-                name=cmd.name,
-                category=cmd.category,
-                source=cmd.source,
-                protocol=cmd.protocol,
-                code=cmd.code,
-                raw_timings=(
-                    list(cmd.raw_timings) if cmd.raw_timings else None
-                ),
-                frequency=cmd.frequency,
-                repeat_count=cmd.repeat_count,
-                send_count=cmd.send_count,
-                # Carry every signal-identity field so a clone matches and
-                # transmits exactly like its source. Dropping any of these
-                # silently degrades dedup (byte_hash) or canonical TX
-                # (decoded_*) on the clone.
-                byte_hash=cmd.byte_hash,
-                decoded_protocol=cmd.decoded_protocol,
-                decoded_extras=(
-                    dict(cmd.decoded_extras) if cmd.decoded_extras else None
-                ),
-                decoded_address=cmd.decoded_address,
-                decoded_command=cmd.decoded_command,
-                decoded_fingerprint=cmd.decoded_fingerprint,
-                tx_force_raw=cmd.tx_force_raw,
-                # The duplicate gets a byte copy of the source's
-                # lattice, so a STATE row's coordinates are as true on
-                # the clone as on the original (0.10.1 item 7). The
-                # setup backfill would restamp it either way; carrying
-                # it means the clone's card follows from the first send
-                # rather than from the next restart.
-                sent_state=(
-                    dict(cmd.sent_state) if cmd.sent_state else None
-                ),
-                # A newer build's fields ride the clone too (0.10.1
-                # item 2); dropping them here would make duplicating a
-                # device the same quiet data loss the downgrade was.
-                _extra=dict(cmd._extra),
-            )
+            clone_command(cmd, keep_matrix_cell=keep_matrix_cell)
             for cmd in self.commands
         ]
         cloned_entity_config = EntityConfig(
@@ -1302,6 +1345,7 @@ _KNOWN_SIGNAL = frozenset({
     "decoded_extras", "protocol", "code", "raw_timings", "frequency",
     "hit_count", "first_seen", "last_seen", "source", "alias",
     "plucked_command_name", "repeat_count", "send_count", "tx_force_raw",
+    "decode_covers",
     "observed_repeat_count", "echo_source", "heard_by", "sl_pattern",
     # DERIVED KEYS, listed here so from_dict drops them rather than
     # carrying them as unknown keys. They are computed in to_dict from
@@ -1375,6 +1419,22 @@ class UnknownSignal:
     # this rides through untouched like send_count and repeat_count
     # already do. Do not add a refresh-on-hit that resets it.
     tx_force_raw: bool = False
+    # DOES THE DECODE EXPLAIN THE WHOLE SIGNAL? (GH #134)
+    #
+    # The frame-coverage verdict, computed once where the decode was
+    # minted and carried with the bytes ever since. False means a
+    # decoder found a valid-looking frame inside a signal it does not
+    # actually describe -- the reported case was an air conditioner
+    # state blob reading as KASEIKYO48 -- and the transmit path must
+    # replay the stored bytes rather than re-encode from that identity.
+    #
+    # THREE STATES, AND THE THIRD IS NOT FALSE. None means not yet
+    # computed, or computed and not answerable (an unregistered
+    # protocol, an identity-only tier, an upstream decoder whose vote
+    # count this repo cannot see). None is TRUSTED and is never
+    # persisted, so a row that could not be judged today gets judged
+    # the day the decoder that can judge it arrives.
+    decode_covers: bool | None = None
     # Mirror provenance (v0.6.6). Only ever set on rows of the synthetic
     # Mirror device: a human-readable line describing the most recent send
     # ("Test AC / Temp 22 -- via Living Room Broadlink"), and the receiver
@@ -1418,6 +1478,7 @@ class UnknownSignal:
             "plucked_command_name": self.plucked_command_name,
             "repeat_count": self.repeat_count,
             "send_count": self.send_count,
+            "decode_covers": self.decode_covers,
             "tx_force_raw": self.tx_force_raw,
             "observed_repeat_count": self.observed_repeat_count,
             "echo_source": self.echo_source,
@@ -1467,6 +1528,7 @@ class UnknownSignal:
             plucked_command_name=data.get("plucked_command_name"),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
+            decode_covers=_optional_bool(data.get("decode_covers")),
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             observed_repeat_count=int(data.get("observed_repeat_count", 0)),
             echo_source=data.get("echo_source"),

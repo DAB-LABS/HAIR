@@ -54,6 +54,17 @@ _SPACE_MIDPOINT = 1125
 
 _DATA_BITS = 32
 
+# The NEC repeat marker: 9000us mark, 2250us space, one short end pulse.
+# It is the only thing that may legally follow a main frame's trailer,
+# and telling it apart from more data is what lets the end-of-frame
+# check below reject a longer frame without rejecting a held button.
+_REPEAT_SPACE = 2250
+
+# What separates one NEC frame from the next. The main frame is padded
+# to a 110ms period and the largest space inside a frame is the 4500us
+# leader, so any space above this is between frames rather than in one.
+FRAME_GAP_US = 8000
+
 
 def _within(value: int, nominal: int) -> bool:
     margin = nominal * _TOLERANCE
@@ -77,6 +88,70 @@ def seek_main_leader(timings: list[int]) -> list[int]:
         ):
             return timings if index == 0 else timings[index:]
     return timings
+
+
+def is_repeat_marker(frame: list[int]) -> bool:
+    """Is this frame the NEC 9000/2250/pulse repeat marker?
+
+    A held NEC button sends the main frame once and then repeats this
+    three-element shape. It carries no payload, so it is not data the
+    decode has to explain -- but it IS part of the capture, and the
+    coverage accounting has to count it as accounted for rather than as
+    a frame nobody read.
+    """
+    if len(frame) != 3:
+        return False
+    return (
+        frame[0] > 0
+        and _within(frame[0], _LEADER_MARK)
+        and _within(-frame[1], _REPEAT_SPACE)
+        and _MARK_MIN <= frame[2] <= _MARK_MAX
+    )
+
+
+def _tail_is_spaces_and_repeats(rest: list[int]) -> bool:
+    """Is everything after the trailer mark idle time or repeat markers?
+
+    Marks are what matter. A space of any length is idle time between
+    frames; a mark is more signal, and the only signal allowed to
+    follow a complete NEC frame is a repeat marker. A capture cut
+    partway through a trailing marker is accepted -- captures truncate
+    routinely, and the frame this function is judging already ended.
+    """
+    index = 0
+    while index < len(rest):
+        value = rest[index]
+        if value < 0:
+            index += 1
+            continue
+        if not _within(value, _LEADER_MARK):
+            return False
+        if index + 1 >= len(rest):
+            return True
+        if not _within(-rest[index + 1], _REPEAT_SPACE):
+            return False
+        if index + 2 >= len(rest):
+            return True
+        if not _MARK_MIN <= rest[index + 2] <= _MARK_MAX:
+            return False
+        index += 3
+    return True
+
+
+def salvaged_frame_census(timings: list[int]) -> tuple[int, int]:
+    """``(frames_total, frames_explained)`` for a salvaged NEC capture.
+
+    The salvage reads ONE main frame. That frame is explained, and so
+    is every repeat marker after it; anything else in the capture is a
+    frame nobody accounted for and counts against the verdict.
+    """
+    from . import split_frames
+
+    frames = split_frames(timings, FRAME_GAP_US)
+    if not frames:
+        return (0, 0)
+    explained = 1 + sum(1 for frame in frames[1:] if is_repeat_marker(frame))
+    return (len(frames), explained)
 
 
 def salvage_decode(timings: list[int]) -> tuple[int, int] | None:
@@ -108,6 +183,28 @@ def salvage_decode(timings: list[int]) -> tuple[int, int] | None:
             return None
         bits.append(1 if space > _SPACE_MIDPOINT else 0)
         index += 2
+
+    # THE FRAME HAS TO END HERE (GH #134). Without this the 32 pairs
+    # above are only a PREFIX: a 68-bit air conditioner state frame
+    # offers a perfectly good first 32 bits, and one in 256 of them
+    # satisfies the complement check by chance, which is a fake NEC
+    # identity minted from a state blob and then re-encoded over it.
+    # The strict local decoders all refuse a frame that keeps going
+    # (samsung.py, rca.py); the salvage was the one lenient reader that
+    # never looked, and leniency without a boundary is not leniency, it
+    # is guessing.
+    #
+    # The trailer mark has no upper bound, for the reason samsung.py
+    # gives at its own end pulse: an emitter replaying the packet can
+    # fuse the trailer into whatever follows, and once fusion is
+    # possible the length carries no information. The bound that
+    # matters is what comes AFTER it.
+    if index >= len(timings):
+        return None
+    if timings[index] < _MARK_MIN:
+        return None
+    if not _tail_is_spaces_and_repeats(timings[index + 1:]):
+        return None
 
     data = [0, 0, 0, 0]
     for bit_index, bit in enumerate(bits):

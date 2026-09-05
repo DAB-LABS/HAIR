@@ -94,6 +94,10 @@ export interface IRCommand {
     // Was missing from this interface -- the device-detail trigger dialog
     // reads it -- which surfaced as a TS2339 build warning.
     byte_hash?: string | null;
+    /** The server's frame-coverage verdict (GH #134). False means the
+     *  decode does not describe the whole signal, so the row transmits
+     *  its stored bytes; absent means not judged, and is trusted. */
+    decode_covers?: boolean | null;
     tx_force_raw?: boolean;
     // The comb doubted this row in the wig it was adopted from
     // (v0.9.5). Display only: it colours a dot on the row so the
@@ -946,6 +950,10 @@ export interface UnknownSignal {
     // decoded identity (Highlights, GH #78). The third knob of the same
     // kind: set here, carried onto the command at assign, into a wig at
     // export. A user decision that survives re-capture.
+    /** The server's frame-coverage verdict (GH #134). False means the
+     *  decode does not describe the whole signal, so the row transmits
+     *  its stored bytes; absent means not judged, and is trusted. */
+    decode_covers?: boolean | null;
     tx_force_raw?: boolean;
     observed_repeat_count?: number;
     // Derived at serialization, never stored, and present ONLY when this
