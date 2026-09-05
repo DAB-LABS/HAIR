@@ -235,6 +235,21 @@ Key components:
   AST test in test_mirror.py fails if one stops. A Mirror row records the
   counts the send actually used, last-send semantics, defaulting to None so
   the echo-heard path cannot erase them.
+- Decode trust (v0.14.2): every decoded identity carries a coverage
+  verdict computed where the decode is minted (protocol_decode). A label
+  must account for every frame of its capture -- the winning decoder's
+  votes plus its repeat markers -- with two carve-outs: a repeat-voting
+  decoder's discarded frames are forgiven when they are the same shape as
+  the winner (jitter, preambles), and an NEC salvage forgives only
+  within-frame doubt. The verdict persists as decode_covers on commands
+  and signals (absent means not yet judged, and judged-absent recovers
+  when a decoder library upgrade adds capability); both transmit sites
+  replay raw when it is False, alongside the 0.14.1 matrix guard. The
+  chip on an untrusted row is informational. All command-creating doors
+  share one mint helper (mint.py) and device clone copies a pinned field
+  roster. Codes shown to a person for copying carry a real trailing
+  terminator via a derived code_export key (stored text and wig files
+  keep the zero-gap canonical form).
 - Row column discipline (0.9.5): the Sniffer's protocol chip,
   hit count, relative time and frequency sit in fixed centred cells, and the
   device detail's action badge reserves the widest label its device type can

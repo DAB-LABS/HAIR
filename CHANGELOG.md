@@ -5,6 +5,20 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2] - 2026-09-05 -- Loose Ends
+
+### Fixed
+
+- A wrong protocol label can no longer transmit the wrong signal, anywhere. 0.14.1 stopped air conditioner state codes from being rebuilt from a false label, but only for codes born on a climate matrix. HAIR now checks every label against the whole captured signal at the moment the label is assigned: a label that does not account for every frame of its capture is kept for display and matching but never trusted to rebuild the signal on send, and the code always transmits exactly as stored. This closes the remaining doors from the original report (Sniffer assign, saved captures, wig adopt, catalog Test) and covers long multi-frame codes such as Daikin state messages. Existing stored codes are checked once on the first restart after upgrading. Closes the rest of GH #134.
+- Codes copied out of HAIR now work in other tools. Stored codes end in a zero-length trailing gap on purpose, which keeps signal identity stable across captures, and HAIR added the real gap only at the moment of transmit. Every code the panel shows a person now carries that real 50 ms gap, so a copy pasted into another tool arrives complete. Stored codes and wig files are unchanged. Closes GH #144, thanks lpuser13.
+- The NEC salvage reader now requires a frame to end where NEC ends. It could previously read the first 32 bits of a longer signal and call the whole thing NEC.
+- Duplicating a device no longer silently drops fields: comb marks, plucked command names and porthole links all survive the copy now.
+- A repair receipt's disagreement note only records what the reader actually said; empty sections are no longer written into the wig.
+
+### Changed
+
+- The protocol chip on a row whose label is not trusted for transmit renders as a plain label rather than a control, the same way state-row chips have since 0.14.1.
+
 ## [0.14.1] - 2026-09-04 -- Touch-Up
 
 ### Added
