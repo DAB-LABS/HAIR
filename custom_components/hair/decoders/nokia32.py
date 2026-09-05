@@ -28,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Self, override
 
-from . import decode_frames_majority, is_close, split_frames
+from . import decode_frames_majority, is_close, split_frames, stamp_census
 from ._base import Command
 
 _LEADER_MARK_US = 412
@@ -50,6 +50,12 @@ _FRAME_GAP_US = 8000
 
 class Nokia32Command(Command):
     """Nokia32 IR command with decode support."""
+
+    #: The frame gap this protocol splits captures at, exposed so the
+    #: coverage accounting in ``protocol_decode`` can count frames the
+    #: way this decoder does. A generic gap is wrong: RCA's header space
+    #: is 4000us and would shred at a 4000us split.
+    FRAME_GAP_US = _FRAME_GAP_US
 
     device: int
     subdevice: int
@@ -119,14 +125,16 @@ class Nokia32Command(Command):
         result = decode_frames_majority(frames, cls._decode_frame)
         if result is None:
             return None
-        (device, subdevice, toggle, extension, function), _votes = result
-        return cls(
+        (device, subdevice, toggle, extension, function), votes = result
+        # As in dyson: repeat_count is not set from the votes, but the
+        # votes are still the frames this decode accounted for.
+        return stamp_census(cls(
             device=device,
             subdevice=subdevice,
             function=function,
             extension=extension,
             toggle=toggle,
-        )
+        ), votes)
 
     @classmethod
     def _decode_frame(

@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Self, override
 
-from . import decode_frames_majority, is_close, split_frames
+from . import decode_frames_majority, is_close, split_frames, stamp_census
 from ._base import Command
 
 # Base unit at the family-standard 16-pulse burst / 38kHz carrier.
@@ -53,6 +53,12 @@ _MAX_PAYLOAD_BYTES = 12
 
 class KaseikyoCommand(Command):
     """Kaseikyo format IR command with decode support."""
+
+    #: The frame gap this protocol splits captures at, exposed so the
+    #: coverage accounting in ``protocol_decode`` can count frames the
+    #: way this decoder does. A generic gap is wrong: RCA's header space
+    #: is 4000us and would shred at a 4000us split.
+    FRAME_GAP_US = _FRAME_GAP_US
 
     address: int
     data: bytes
@@ -136,10 +142,13 @@ class KaseikyoCommand(Command):
         if result is None:
             return None
         (address, payload), votes = result
-        return cls(
-            address=address,
-            data=bytes(payload),
-            repeat_count=votes - 1 + repeat_markers,
+        return stamp_census(
+            cls(
+                address=address,
+                data=bytes(payload),
+                repeat_count=votes - 1 + repeat_markers,
+            ),
+            votes + repeat_markers,
         )
 
     @staticmethod

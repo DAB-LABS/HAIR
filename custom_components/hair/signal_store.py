@@ -801,7 +801,7 @@ def _transform_loaded(
     # Pronto code) and populate the identity. Non-decodable signals are
     # left untouched. Idempotent across restarts.
     from .ir_command import ProntoCommand
-    from .protocol_decode import try_decode_identity
+    from .protocol_decode import decode_coverage, try_decode_identity
 
     decoded_backfilled = 0
     for device in devices.values():
@@ -830,6 +830,35 @@ def _transform_loaded(
         _LOGGER.info(
             "Backfilled decoded protocol identity on %d catalog signal(s)",
             decoded_backfilled,
+        )
+
+    # THE VERDICT BACKFILL (GH #134). Same shape and the same reasoning
+    # as the device-command one in storage.py: the loop above skips
+    # rows that already decoded, and those are the rows carrying the
+    # false decodes this verdict exists to catch. Only a real answer is
+    # written, so an unjudgeable row is asked again next load and a
+    # judged one is never asked twice.
+    judged = 0
+    for device in devices.values():
+        for sig in device.signals:
+            if sig.decode_covers is not None:
+                continue
+            timings = sig.raw_timings
+            if not timings and sig.code:
+                try:
+                    timings = ProntoCommand(sig.code).get_raw_timings()
+                except (ValueError, IndexError):
+                    timings = None
+            verdict = decode_coverage(timings)
+            if verdict is None:
+                continue
+            sig.decode_covers = verdict
+            judged += 1
+    if judged:
+        dirty = True
+        _LOGGER.info(
+            "Recorded the decode-coverage verdict on %d catalog signal(s)",
+            judged,
         )
 
     # Canonical identity backfill (2026-08-17). Clipper and Plucker rows

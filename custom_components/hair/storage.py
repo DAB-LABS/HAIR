@@ -734,7 +734,7 @@ class HAIRStore:
         carries a ``decoded_fingerprint`` is skipped.
         """
         from .ir_command import ProntoCommand
-        from .protocol_decode import try_decode_identity
+        from .protocol_decode import decode_coverage, try_decode_identity
 
         changed = 0
         for device in self._data.values():
@@ -758,12 +758,47 @@ class HAIRStore:
                     dict(identity.extras) if identity.extras else None
                 )
                 changed += 1
+        # THE VERDICT BACKFILL (GH #134), deliberately a second pass.
+        #
+        # The loop above skips any command that already carries a
+        # decoded_fingerprint, and those are exactly the rows this one
+        # is for: the false decodes already sitting in stores, minted
+        # before anything asked whether they described their signal.
+        # They are caught on the next load and never again.
+        #
+        # ONLY A REAL ANSWER IS WRITTEN. A row whose protocol is not
+        # registered here, or whose decoder's accounting cannot be
+        # verified, leaves decode_covers absent and is asked again next
+        # load, which is how it gets judged the day that decoder lands.
+        # A row that HAS been judged is skipped, so a second load
+        # computes nothing.
+        judged = 0
+        for device in self._data.values():
+            for cmd in device.commands:
+                if cmd.decode_covers is not None:
+                    continue
+                raw = cmd.raw_timings
+                if not raw and cmd.code:
+                    try:
+                        raw = ProntoCommand(cmd.code).get_raw_timings()
+                    except (ValueError, IndexError):
+                        raw = None
+                verdict = decode_coverage(raw)
+                if verdict is None:
+                    continue
+                cmd.decode_covers = verdict
+                judged += 1
+        if judged:
+            _LOGGER.info(
+                "Recorded the decode-coverage verdict on %d device "
+                "command(s)", judged,
+            )
         if changed:
             _LOGGER.info(
                 "Backfilled decoded protocol identity on %d device command(s)",
                 changed,
             )
-        return changed > 0
+        return changed > 0 or judged > 0
 
     def get_device(self, device_id: str) -> IRDevice | None:
         return self._data.get(device_id)

@@ -26,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Self, override
 
-from . import decode_frames_majority, is_close, split_frames
+from . import decode_frames_majority, is_close, split_frames, stamp_census
 from ._base import Command
 
 _UNIT_US = 600
@@ -48,6 +48,12 @@ _TOTAL_BITS_TO_ADDRESS_BITS = {12: 5, 15: 8, 20: 13}
 
 class SonyCommand(Command):
     """SONY SIRC IR command (12/15/20-bit) with decode support."""
+
+    #: The frame gap this protocol splits captures at, exposed so the
+    #: coverage accounting in ``protocol_decode`` can count frames the
+    #: way this decoder does. A generic gap is wrong: RCA's header space
+    #: is 4000us and would shred at a 4000us split.
+    FRAME_GAP_US = _FRAME_GAP_US
 
     address: int
     address_bits: int
@@ -116,11 +122,14 @@ class SonyCommand(Command):
         if result is None:
             return None
         (address, address_bits, command), votes = result
-        return cls(
-            address=address,
-            address_bits=address_bits,
-            command=command,
-            repeat_count=votes - 1,
+        return stamp_census(
+            cls(
+                address=address,
+                address_bits=address_bits,
+                command=command,
+                repeat_count=votes - 1,
+            ),
+            votes,
         )
 
     @staticmethod

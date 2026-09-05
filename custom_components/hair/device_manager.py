@@ -288,6 +288,12 @@ class DeviceManager:
             command.decoded_extras = (
                 dict(identity.extras) if identity and identity.extras else None
             )
+            # RE-DERIVED with the bytes it describes. This block runs
+            # only inside the pronto-change branch, so a knob-only edit
+            # leaves the verdict exactly as it was.
+            command.decode_covers = (
+                identity.covers_capture if identity else None
+            )
             # Rewire on ANY identity component changing (v0.5.8): a
             # sub-threshold edit shifts only the byte_hash, never the S/L
             # fingerprint, and would otherwise orphan a scoped trigger.
@@ -734,10 +740,27 @@ class DeviceManager:
         # ever safe where the decode describes the WHOLE signal, and on
         # a state row it does not.
         #
-        # Both clauses carry weight and neither is redundant. A device
-        # clone drops matrix_cell but keeps source, and a saved STATE
-        # row has historically set source alone and never matrix_cell,
-        # so either one on its own leaves a real shape unguarded.
+        # Both clauses carry weight and neither is redundant. A saved
+        # STATE row has historically set source alone and never
+        # matrix_cell, so the source clause is load-bearing on its own.
+        # (The other half of this used to read that a device clone
+        # drops matrix_cell. It does not any more: since GH #134 the
+        # clone roster carries matrix_cell, and drops it only when the
+        # caller's lattice copy failed, so a cloned porthole is now
+        # guarded by both clauses rather than by source alone.)
+        #
+        # AND NOW THE GENERAL CASE (GH #134). The matrix guard below
+        # catches the shape the bug was reported on; the verdict catches
+        # the bug. A decode that does not explain its own capture is a
+        # decode of something else that happened to be inside it, and
+        # re-encoding from it emits a frame the device never sent --
+        # whatever kind of row it is sitting on. Doors without matrix
+        # provenance (Sniffer assign, save-captured, wig adopt) were the
+        # ones still open, and this is what closes them.
+        #
+        # ONLY FALSE BLOCKS. Absent means not yet judged and is trusted,
+        # because a decoder whose accounting this repo cannot verify
+        # must not silently stop transmitting canonically.
         #
         # The decoded identity fields stay exactly as they are. They
         # serve press matching, pin bindings and Mirror echo, none of
@@ -751,6 +774,7 @@ class DeviceManager:
             command.decoded_fingerprint
             and not command.tx_force_raw
             and not is_matrix_state
+            and command.decode_covers is not False
         ):
             ir_cmd = build_decoded_command(
                 command.decoded_protocol,

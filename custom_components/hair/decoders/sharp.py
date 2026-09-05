@@ -33,7 +33,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Self, override
 
-from . import decode_frames_majority, split_frames
+from . import decode_frames_majority, split_frames, stamp_census
 from ._base import Command
 
 _BIT_MARK_US = 320
@@ -59,6 +59,12 @@ _INVERT_MASK = 0x7FE0
 
 class SharpCommand(Command):
     """Sharp IR command with decode support."""
+
+    #: The frame gap this protocol splits captures at, exposed so the
+    #: coverage accounting in ``protocol_decode`` can count frames the
+    #: way this decoder does. A generic gap is wrong: RCA's header space
+    #: is 4000us and would shred at a 4000us split.
+    FRAME_GAP_US = _FRAME_GAP_US
 
     address: int
     command: int
@@ -129,14 +135,15 @@ class SharpCommand(Command):
         if result is None:
             return None
         (address, command, extension), votes = result
-        # Two frames (one pair) per press: votes count halves.
+        # Two frames (one pair) per press: votes count halves. The
+        # census is FRAMES, so it is the votes and not the presses.
         presses = (votes + 1) // 2
-        return cls(
+        return stamp_census(cls(
             address=address,
             command=command,
             extension=extension,
             repeat_count=presses - 1,
-        )
+        ), votes)
 
     @classmethod
     def _decode_normalized(

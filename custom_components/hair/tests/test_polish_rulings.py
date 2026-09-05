@@ -4342,9 +4342,18 @@ class TestTheProtocolChipDoesNotOfferADeadToggle:
         # Whitespace-squashed: the template wraps this binding across
         # two lines, and a reflow of it is not a behaviour change.
         squashed = " ".join(block.split())
-        assert "?interactive=${!this ._isMatrixState}" in squashed or (
-            "?interactive=${!this._isMatrixState}" in squashed
+        assert "?interactive=${!this ._chipIsInformational}" in squashed or (
+            "?interactive=${!this._chipIsInformational}" in squashed
         )
+        # The matrix half of that predicate, unchanged. The coverage
+        # half joined it in GH #134 and is pinned in its own class;
+        # what this line holds is that a STATE row still reaches the
+        # describing mode, by whatever name the predicate now has.
+        text = _read("ir-command-row.ts")
+        body = text.split("_chipIsInformational(): boolean {", 1)[1].split(
+            "}", 1
+        )[0]
+        assert "this._isMatrixState" in body
         # Still named, still shown: only the invitation goes away.
         assert ".protocol=${this.command" in squashed
 

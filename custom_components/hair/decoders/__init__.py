@@ -80,6 +80,32 @@ def split_frames(timings: Sequence[int], min_gap_us: int) -> list[list[int]]:
     return frames
 
 
+def stamp_census[T](command: T, explained: int) -> T:
+    """Record how many frames of the capture a decode explains.
+
+    THE COVERAGE SEAM (GH #134). A decode that explains one frame of a
+    six-frame capture has not read the capture; it has found something
+    inside it. ``protocol_decode`` turns that into a verdict, and it can
+    only do so if the decoder says how many frames it accounted for --
+    the vote count is a local inside ``from_raw_timings`` and nothing
+    outside could see it.
+
+    THE NUMBER IS FRAMES, NOT PRESSES. It is the votes cast for the
+    winning identity plus that protocol's own repeat markers, which is
+    not always ``repeat_count + 1``: Sharp counts two frames per press,
+    Dyson and Nokia32 discard the count entirely, and a future decoder
+    reading a wire ditto field would part company with it completely.
+    Those three are exactly why this is stated rather than inferred.
+
+    Set on the instance rather than returned alongside it so the
+    ``from_raw_timings`` contract (``Self | None``) is unchanged and an
+    upstream class that never learned about this simply has no
+    attribute, which reads as "accounting unknown".
+    """
+    command.frames_explained = int(explained)
+    return command
+
+
 def majority[T](values: Sequence[T]) -> tuple[T, int] | None:
     """Return the most common value and its count, or None if empty.
 

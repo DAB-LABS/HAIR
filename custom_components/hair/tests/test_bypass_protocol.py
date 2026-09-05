@@ -235,13 +235,37 @@ class TestExportAdoptRoundTrip:
     def test_adopt_maps_it_back(self):
         """Without this half the marker exports and does nothing on the
         receiving end, which is the gap that made the whole feature
-        necessary."""
-        import inspect
+        necessary.
 
-        from custom_components.hair import websocket_api
+        BEHAVIORAL SINCE GH #134. This used to assert one line of
+        websocket_api source; the adopt door now mints through
+        mint_command, so the line moved and the assertion would have
+        failed while the behaviour it guards was intact. Adopting a
+        bypassed wig signal and reading the minted command holds the
+        same claim and survives the next extraction too.
+        """
+        from types import SimpleNamespace
 
-        src = inspect.getsource(websocket_api)
-        assert "command.tx_force_raw = sig.bypass_protocol" in src
+        from custom_components.hair.websocket_api import (
+            _command_from_wig_signal,
+        )
+        from custom_components.hair.wig_identity import wig_signal_identity
+
+        ident = wig_signal_identity(PRONTO)
+        assert ident is not None
+        sig = SimpleNamespace(
+            alias="Power", send_count=1, ditto_count=0,
+            bypass_protocol=True,
+        )
+        command = _command_from_wig_signal(sig, ident, set(), {}, 1)
+        assert command.tx_force_raw is True
+
+        sig_plain = SimpleNamespace(
+            alias="Mode", send_count=1, ditto_count=0,
+            bypass_protocol=False,
+        )
+        plain = _command_from_wig_signal(sig_plain, ident, set(), {}, 2)
+        assert plain.tx_force_raw is False
 
 
 # ---------------------------------------------------------------------------

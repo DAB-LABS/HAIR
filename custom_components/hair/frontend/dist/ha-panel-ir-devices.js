@@ -424,7 +424,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
         .dot.grey {
             background: #5f6368;
         }
-    `,e([ue({type:String})],co.prototype,"color",void 0),e([ue({type:Number})],co.prototype,"count",void 0),co=e([_e("ir-count-dot")],co);let po=class extends de{constructor(){super(...arguments),this.templateName="",this.command=null,this.busy=!1,this.actionLabel=null,this.hasTrigger=!1,this.triggerCount=0,this.actionBadgeLabel=null,this.actionBadgeFontPx=null,this.actionFontPx=null,this.showActionMapping=!0,this.showStar=!1,this.starred=!1,this._editingName=!1,this._draftName=""}get _isMatrixState(){return null!=this.command?.matrix_cell||"matrix"===this.command?.source}_commandLabel(){const e=this.command;return e.protocol&&e.code?`${e.protocol}: ${e.code}`:e.raw_timings?.length?Se("cmdrow.raw_timings",{count:e.raw_timings.length}):e.protocol??"IR"}_prontoSlArray(e){const t=e.trim().split(/\s+/);if(t.length<6)return null;const i=parseInt(t[2],16)+parseInt(t[3],16),o=t.slice(4);if(o.length<2*i)return null;const a=[];for(let e=0;e<2*i;e++){const t=parseInt(o[e],16);a.push(t>=48)}return a.length>0?a:null}_combTitle(){const e=this.command?.comb_finding;return e?`${Se(`comb.class.${e}`)} -- ${Se(`comb.what.${e}`)}`:Se("cmdrow.comb_suspect")}_repairTitle(){const e=this.command?.hair_repair;if(!e)return"";let t=e.applied;try{t=new Date(e.applied).toLocaleString()}catch{}return Se("cmdrow.repaired_tooltip",{date:t})}_renderDiamonds(){const e=this.command;if(!e||"PRONTO"!==e.protocol?.toUpperCase()||!e.code)return null;const t=this._prontoSlArray(e.code);return t?U`<span class="diamonds">${t.map(e=>e?U`<span class="diamond long">◆</span>`:U`<span class="diamond short">◇</span>`)}</span>`:null}_emit(e,t){const i=t?.currentTarget?.getBoundingClientRect()??null;this.dispatchEvent(new CustomEvent(e,{detail:{templateName:this.templateName,command:this.command,buttonRect:i},bubbles:!0,composed:!0}))}_startRename(e){this.command&&!this.busy&&(e.stopPropagation(),this._draftName=this.command.name,this._editingName=!0,this.updateComplete.then(()=>{const e=this.shadowRoot?.querySelector(".name-input");e?.focus(),e?.select()}))}_commitRename(){if(!this._editingName)return;const e=this._draftName.trim();this._editingName=!1,this.command&&e&&e!==this.command.name&&this.dispatchEvent(new CustomEvent("rename-command",{detail:{command:this.command,name:e},bubbles:!0,composed:!0}))}_onRenameKeydown(e){"Enter"===e.key?(e.preventDefault(),this._commitRename()):"Escape"===e.key&&(this._editingName=!1)}render(){const e=null!==this.command,t=e?this._renderDiamonds():null,i=e&&this.showActionMapping;return U`
+    `,e([ue({type:String})],co.prototype,"color",void 0),e([ue({type:Number})],co.prototype,"count",void 0),co=e([_e("ir-count-dot")],co);let po=class extends de{constructor(){super(...arguments),this.templateName="",this.command=null,this.busy=!1,this.actionLabel=null,this.hasTrigger=!1,this.triggerCount=0,this.actionBadgeLabel=null,this.actionBadgeFontPx=null,this.actionFontPx=null,this.showActionMapping=!0,this.showStar=!1,this.starred=!1,this._editingName=!1,this._draftName=""}get _isMatrixState(){return null!=this.command?.matrix_cell||"matrix"===this.command?.source}get _chipIsInformational(){return this._isMatrixState||!1===this.command?.decode_covers}_commandLabel(){const e=this.command;return e.protocol&&e.code?`${e.protocol}: ${e.code_export??e.code}`:e.raw_timings?.length?Se("cmdrow.raw_timings",{count:e.raw_timings.length}):e.protocol??"IR"}_prontoSlArray(e){const t=e.trim().split(/\s+/);if(t.length<6)return null;const i=parseInt(t[2],16)+parseInt(t[3],16),o=t.slice(4);if(o.length<2*i)return null;const a=[];for(let e=0;e<2*i;e++){const t=parseInt(o[e],16);a.push(t>=48)}return a.length>0?a:null}_combTitle(){const e=this.command?.comb_finding;return e?`${Se(`comb.class.${e}`)} -- ${Se(`comb.what.${e}`)}`:Se("cmdrow.comb_suspect")}_repairTitle(){const e=this.command?.hair_repair;if(!e)return"";let t=e.applied;try{t=new Date(e.applied).toLocaleString()}catch{}return Se("cmdrow.repaired_tooltip",{date:t})}_renderDiamonds(){const e=this.command;if(!e||"PRONTO"!==e.protocol?.toUpperCase()||!e.code)return null;const t=this._prontoSlArray(e.code);return t?U`<span class="diamonds">${t.map(e=>e?U`<span class="diamond long">◆</span>`:U`<span class="diamond short">◇</span>`)}</span>`:null}_emit(e,t){const i=t?.currentTarget?.getBoundingClientRect()??null;this.dispatchEvent(new CustomEvent(e,{detail:{templateName:this.templateName,command:this.command,buttonRect:i},bubbles:!0,composed:!0}))}_startRename(e){this.command&&!this.busy&&(e.stopPropagation(),this._draftName=this.command.name,this._editingName=!0,this.updateComplete.then(()=>{const e=this.shadowRoot?.querySelector(".name-input");e?.focus(),e?.select()}))}_commitRename(){if(!this._editingName)return;const e=this._draftName.trim();this._editingName=!1,this.command&&e&&e!==this.command.name&&this.dispatchEvent(new CustomEvent("rename-command",{detail:{command:this.command,name:e},bubbles:!0,composed:!0}))}_onRenameKeydown(e){"Enter"===e.key?(e.preventDefault(),this._commitRename()):"Escape"===e.key&&(this._editingName=!1)}render(){const e=null!==this.command,t=e?this._renderDiamonds():null,i=e&&this.showActionMapping;return U`
             <div class="row" data-learned=${e?"true":"false"}>
                 <div class="top-line">
                     <div class="status" aria-hidden="true">
@@ -465,7 +465,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                             ${e&&this.command?U`<ir-tx-knobs
                                       .sendCount=${this.command.send_count}
                                       .repeatCount=${this.command.repeat_count}
-                                      .decoded=${!!this.command.decoded_protocol}
+                                      .decoded=${!!this.command.decoded_protocol&&!1!==this.command.decode_covers}
                                       .bypassed=${!!this.command.tx_force_raw}
                                   ></ir-tx-knobs>`:""}
                         </div>
@@ -476,7 +476,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                                       ${this.command?.decoded_protocol?U`<ir-protocol-chip
                                                 .protocol=${this.command.decoded_protocol}
                                                 .bypass=${!!this.command.tx_force_raw}
-                                                ?interactive=${!this._isMatrixState}
+                                                ?interactive=${!this._chipIsInformational}
                                                 ?disabled=${this.busy}
                                                 @toggle-bypass=${()=>this._emit("toggle-tx-raw")}
                                             ></ir-protocol-chip>`:""}
@@ -9450,7 +9450,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                           .api=${this.api}
                           .deviceId=${this.device.id}
                           .commandId=${this._editCommand.id}
-                          .initialPronto=${this._editCommand.code??""}
+                          .initialPronto=${this._editCommand.code_export??this._editCommand.code??""}
                           .initialAlias=${this._editCommand.name}
                           .initialSendCount=${this._editCommand.send_count??1}
                           .initialDitto=${this._editCommand.repeat_count??1}
@@ -13428,7 +13428,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
                       .signalId=${this._editSignal.signal.id}
-                      .initialPronto=${this._editSignal.signal.code??""}
+                      .initialPronto=${this._editSignal.signal.code_export??this._editSignal.signal.code??""}
                       .initialAlias=${this._editSignal.signal.alias??""}
                       .initialSendCount=${this._editSignal.signal.send_count??1}
                       .initialDitto=${this._editSignal.signal.repeat_count??1}
@@ -14652,7 +14652,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
                       .signalId=${this._editSignal.signal.id}
-                      .initialPronto=${this._editSignal.signal.code??""}
+                      .initialPronto=${this._editSignal.signal.code_export??this._editSignal.signal.code??""}
                       .initialAlias=${this._editSignal.signal.alias??""}
                       .initialSendCount=${this._editSignal.signal.send_count??1}
                       .initialDitto=${this._editSignal.signal.repeat_count??1}
@@ -16218,7 +16218,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
                       .signalId=${this._editSignal.signal.id}
-                      .initialPronto=${this._editSignal.signal.code??""}
+                      .initialPronto=${this._editSignal.signal.code_export??this._editSignal.signal.code??""}
                       .initialAlias=${this._editSignal.signal.alias??""}
                       .initialSendCount=${this._editSignal.signal.send_count??1}
                       .initialDitto=${this._editSignal.signal.repeat_count??1}
@@ -16989,7 +16989,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                       .api=${this.api}
                       .deviceId=${this._device.id}
                       .signalId=${this._editSignal.id}
-                      .initialPronto=${this._editSignal.code??""}
+                      .initialPronto=${this._editSignal.code_export??this._editSignal.code??""}
                       .initialAlias=${this._editSignal.alias??""}
                       .initialSendCount=${this._editSignal.send_count??1}
                       .initialDitto=${this._editSignal.repeat_count??1}
@@ -17655,7 +17655,7 @@ function e(e,t,i,o){var a,r=arguments.length,s=r<3?t:null===o?o=Object.getOwnPro
                       ></ir-add-trigger-remote-dialog>
                   `:""}
 
-            <div class="version-footer">v${"0.14.1"}</div>
+            <div class="version-footer">v${"0.14.2"}</div>
             </ha-top-app-bar-fixed>
         `:U`<div class="loading">${Se("panel.loading")}</div>`}};Tr.styles=n`
         :host {

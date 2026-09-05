@@ -43,6 +43,11 @@ class WigSignalIdentity:
     decoded_command: int | None
     decoded_fingerprint: str | None
     decoded_extras: dict[str, int] | None
+    # THE VERDICT CROSSES INTO THE WIG DOORS HERE (GH #134). Both the
+    # STATE mint and wig adopt read their decoded fields off this
+    # dataclass; without the verdict on it, a wig row carrying a false
+    # decode would be adopted as a fully trusted command.
+    decode_covers: bool | None = None
 
 
 def wig_signal_identity(pronto: str) -> WigSignalIdentity | None:
@@ -97,6 +102,7 @@ def wig_signal_identity(pronto: str) -> WigSignalIdentity | None:
         decoded_command=n.decoded_command,
         decoded_fingerprint=n.decoded_fingerprint,
         decoded_extras=n.decoded_extras,
+        decode_covers=n.decode_covers,
     )
 
 

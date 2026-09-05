@@ -159,6 +159,10 @@ async def test_a_decoded_capture_is_not_claimed_on_shape_alone():
         return_value=SimpleNamespace(
             protocol="NEC", address=0x99, command=0x01,
             fingerprint="NEC:0x0099:0x01", extras=None,
+            # The real DecodedIdentity carries the coverage verdict
+            # (GH #134); None is what an unjudgeable decode reports and
+            # is what this stand-in should say.
+            covers_capture=None,
         ),
     ):
         await monitor._process_parsed_signal(

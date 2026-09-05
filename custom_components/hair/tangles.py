@@ -1044,12 +1044,24 @@ def build_provenance(
         # reading and exactly what the reading said. Repeated
         # same-family off-by-ones are how a field gets re-ratified, and
         # they can only accumulate if they are written down.
-        record["reading_disagreed"] = {
-            "user_attested": True,
-            "reads_as": dict(disagreed.get("reads_as") or {}),
-            "claims": dict(disagreed.get("claims") or {}),
-            "mismatches": list(disagreed.get("mismatches") or []),
-        }
+        #
+        # THE ATTESTATION IS THE RECORD; the rest is what there was to
+        # say. A press the reader could not read at all disagrees with
+        # nothing in particular, and writing three empty containers
+        # beside the attestation said "we looked and found nothing"
+        # three times in a row. Each of the three appears only when it
+        # carries something.
+        note: dict[str, Any] = {"user_attested": True}
+        reads_as = dict(disagreed.get("reads_as") or {})
+        claims = dict(disagreed.get("claims") or {})
+        mismatches = list(disagreed.get("mismatches") or [])
+        if reads_as:
+            note["reads_as"] = reads_as
+        if claims:
+            note["claims"] = claims
+        if mismatches:
+            note["mismatches"] = mismatches
+        record["reading_disagreed"] = note
     return record
 
 

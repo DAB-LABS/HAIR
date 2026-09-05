@@ -43,7 +43,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Self, override
 
-from . import decode_frames_majority, is_close, split_frames
+from . import decode_frames_majority, is_close, split_frames, stamp_census
 from ._base import Command
 
 _UNIT_US = 780
@@ -66,6 +66,12 @@ _FRAME_GAP_US = 8000
 
 class DysonCommand(Command):
     """Dyson IR command with decode support."""
+
+    #: The frame gap this protocol splits captures at, exposed so the
+    #: coverage accounting in ``protocol_decode`` can count frames the
+    #: way this decoder does. A generic gap is wrong: RCA's header space
+    #: is 4000us and would shred at a 4000us split.
+    FRAME_GAP_US = _FRAME_GAP_US
 
     device: int
     function: int
@@ -127,8 +133,14 @@ class DysonCommand(Command):
         result = decode_frames_majority(frames, cls._decode_frame)
         if result is None:
             return None
-        (device, function, counter), _votes = result
-        return cls(device=device, function=function, counter=counter)
+        (device, function, counter), votes = result
+        # The vote count is discarded for repeat_count on purpose (a
+        # Dyson counter advances per frame, so frames are not
+        # dittos), but it is still what this decode explained.
+        return stamp_census(
+            cls(device=device, function=function, counter=counter),
+            votes,
+        )
 
     @classmethod
     def _decode_frame(
