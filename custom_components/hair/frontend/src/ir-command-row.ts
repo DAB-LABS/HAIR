@@ -235,7 +235,10 @@ export class IrCommandRow extends LitElement {
     private _commandLabel(): string {
         const cmd = this.command!;
         if (cmd.protocol && cmd.code) {
-            return `${cmd.protocol}: ${cmd.code}`;
+            // The copyable form (GH #144). This label is the one place a
+            // row shows the code itself rather than a name, so it is a
+            // read surface like the editor box and serves the same form.
+            return `${cmd.protocol}: ${cmd.code_export ?? cmd.code}`;
         }
         if (cmd.raw_timings?.length) {
             return t("cmdrow.raw_timings", { count: cmd.raw_timings.length });

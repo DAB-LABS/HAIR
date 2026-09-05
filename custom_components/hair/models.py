@@ -84,6 +84,36 @@ def _with_extra(out: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
 
 
 
+def _add_export_code(
+    payload: dict[str, Any], protocol: str | None, code: str | None
+) -> None:
+    """Attach the copyable form of ``code`` to a payload (GH #144).
+
+    DERIVED, NEVER STORED, in the same shape ``sl_pattern`` uses below
+    and for the same reason: it is a pure function of the code, it is
+    recomputed on every write, and it is listed in the known-key sets
+    so a copy that reached a store file comes back dropped rather than
+    carried in ``_extra`` where it could outlive the code it described.
+
+    The stored ``code`` beside it is untouched. That one is identity --
+    fingerprints, byte hashes, claims and wig text all bind to it --
+    and this is the form to put in front of a person who is going to
+    select it and paste it somewhere else.
+
+    Absent when there is nothing to say: a non-Pronto row, or a code
+    that will not parse. Callers fall back to ``code``, which is what
+    every surface showed before this existed.
+    """
+    if not code or (protocol or "").upper() != "PRONTO":
+        return
+    from .ir_command import pronto_for_export
+
+    try:
+        payload["code_export"] = pronto_for_export(code)
+    except (ValueError, IndexError, TypeError):
+        return
+
+
 def _optional_bool(value: Any) -> bool | None:
     """Read a stored tri-state flag without collapsing its third state.
 
@@ -106,19 +136,30 @@ _KNOWN_COMMAND = frozenset({
     "tx_force_raw",
     "plucked_command_name", "matrix_cell", "sent_state", "comb_suspect",
     "comb_finding", "created_at",
+    # DERIVED, listed so from_dict drops it (GH #144). to_dict computes
+    # the copyable form of the code on every write; a stale one riding
+    # back in through _extra would describe a code this row no longer
+    # holds.
+    "code_export",
 })
 
 
 # EVERY FIELD A COPY CARRIES (GH #134 review 2). The roster is
-# ``_KNOWN_COMMAND`` minus the two things a copy must NOT reuse -- the
-# id, which has to be fresh, and created_at, which belongs to the
-# original -- and the test beside it holds that equality, so a field
-# added to the record cannot be silently dropped by the copy.
+# ``_KNOWN_COMMAND`` minus the things a copy must NOT reuse -- the id,
+# which has to be fresh, and created_at, which belongs to the original
+# -- and the test beside it holds that equality, so a field added to
+# the record cannot be silently dropped by the copy.
 #
 # It was hand-listed before and had already drifted: plucked_command_name,
 # matrix_cell, comb_suspect and comb_finding were on the record and not
 # on the copy. That is the failure mode this closes.
-_CLONE_SKIPS = frozenset({"id", "created_at"})
+#
+# code_export is the third and a different kind (GH #144): it is on the
+# record because from_dict must DROP it, but there is no attribute
+# behind it to copy. The roster walks attributes, so a derived key has
+# to leave here or the walk asks a command for something it does not
+# have.
+_CLONE_SKIPS = frozenset({"id", "created_at", "code_export"})
 
 
 def clone_command(
@@ -265,7 +306,7 @@ class IRCommand:
     )
 
     def to_dict(self) -> dict[str, Any]:
-        return _with_extra({
+        d = _with_extra({
             "id": self.id,
             "name": self.name,
             "category": str(self.category),
@@ -295,6 +336,8 @@ class IRCommand:
             "comb_finding": self.comb_finding,
             "created_at": self.created_at,
         }, self._extra)
+        _add_export_code(d, self.protocol, self.code)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IRCommand:
@@ -1346,6 +1389,9 @@ _KNOWN_SIGNAL = frozenset({
     "hit_count", "first_seen", "last_seen", "source", "alias",
     "plucked_command_name", "repeat_count", "send_count", "tx_force_raw",
     "decode_covers",
+    # DERIVED (GH #144), for the reason the block below gives about
+    # every other derived key here.
+    "code_export",
     "observed_repeat_count", "echo_source", "heard_by", "sl_pattern",
     # DERIVED KEYS, listed here so from_dict drops them rather than
     # carrying them as unknown keys. They are computed in to_dict from
@@ -1503,7 +1549,9 @@ class UnknownSignal:
             vote = frame_disagreement(self.code)
             if vote is not None:
                 d["repeats_disagree"] = vote.as_dict()
-        return _with_extra(d, self._extra)
+        out = _with_extra(d, self._extra)
+        _add_export_code(out, self.protocol, self.code)
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UnknownSignal:

@@ -266,6 +266,38 @@ def raw_to_pronto(
     return " ".join(f"{w:04X}" for w in words)
 
 
+def pronto_for_export(pronto: str) -> str:
+    """The form of ``pronto`` to put in front of a person (GH #144).
+
+    Stored codes end in a ZERO-LENGTH trailing space. That is
+    deliberate: the constructor strip above has been part of signal
+    identity since 0.9.8, and the transmit boundary re-adds a bounded
+    terminator on its way to the emitter (TerminatedCommand). Nobody
+    who only ever sends a code notices.
+
+    People who COPY one do. A code lifted out of the panel and pasted
+    into another tool arrives with no inter-frame gap at all, which
+    reads as malformed and misbehaves against hardware whose AGC wants
+    one (GH #144). So anything HAIR SHOWS a human carries the real
+    terminator, and the zero-gap form stays what it always was: a
+    storage detail.
+
+    DISPLAY-TIME, NOT COPY-TIME (ruled). The panel runs in an iframe
+    with no clipboard-write grant, so the copy affordance is
+    select-the-textarea-and-let-the-user-press-copy, and text that is
+    not displayed cannot be selected.
+
+    The same two helpers the transmit path uses, in the same order, so
+    the terminator here and the terminator on the wire can never come
+    to differ. Raises what ``ProntoCommand`` raises for a code that
+    will not parse; callers that show a stored code fall back to it.
+    """
+    command = ProntoCommand(pronto)
+    timings = command.get_raw_timings()
+    _normalize_trailing_space(timings)
+    return raw_to_pronto(timings, frequency=command.modulation)
+
+
 def snap_pronto(pronto: str, target_frequency: int) -> str:
     """Re-encode a normalized Pronto string at a standard carrier.
 

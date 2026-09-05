@@ -1392,7 +1392,9 @@ export class IrPluck extends LitElement {
                       .api=${this.api}
                       .deviceId=${this._editSignal.deviceId}
                       .signalId=${this._editSignal.signal.id}
-                      .initialPronto=${this._editSignal.signal.code ?? ""}
+                      .initialPronto=${this._editSignal.signal.code_export ??
+                          this._editSignal.signal.code ??
+                          ""}
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}

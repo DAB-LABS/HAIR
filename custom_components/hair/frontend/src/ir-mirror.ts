@@ -1246,7 +1246,9 @@ export class IrMirror extends LitElement {
                       .api=${this.api}
                       .deviceId=${this._device.id}
                       .signalId=${this._editSignal.id}
-                      .initialPronto=${this._editSignal.code ?? ""}
+                      .initialPronto=${this._editSignal.code_export ??
+                          this._editSignal.code ??
+                          ""}
                       .initialAlias=${this._editSignal.alias ?? ""}
                       .initialSendCount=${this._editSignal.send_count ?? 1}
                       .initialDitto=${this._editSignal.repeat_count ?? 1}

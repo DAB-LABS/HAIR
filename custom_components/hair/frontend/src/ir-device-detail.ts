@@ -1907,7 +1907,9 @@ export class IrDeviceDetail extends LitElement {
                           .api=${this.api}
                           .deviceId=${this.device.id}
                           .commandId=${this._editCommand.id}
-                          .initialPronto=${this._editCommand.code ?? ""}
+                          .initialPronto=${this._editCommand.code_export ??
+                              this._editCommand.code ??
+                              ""}
                           .initialAlias=${this._editCommand.name}
                           .initialSendCount=${this._editCommand.send_count ?? 1}
                           .initialDitto=${this._editCommand.repeat_count ?? 1}

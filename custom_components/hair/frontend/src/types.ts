@@ -98,6 +98,12 @@ export interface IRCommand {
      *  decode does not describe the whole signal, so the row transmits
      *  its stored bytes; absent means not judged, and is trusted. */
     decode_covers?: boolean | null;
+    /** The copyable form of the code (GH #144): the same bytes with
+     *  the real 50ms terminator the stored form leaves off. Derived by
+     *  the server on every payload, never stored. Absent for a
+     *  non-Pronto row or a code that will not parse, and callers fall
+     *  back to `code`. */
+    code_export?: string | null;
     tx_force_raw?: boolean;
     // The comb doubted this row in the wig it was adopted from
     // (v0.9.5). Display only: it colours a dot on the row so the
@@ -954,6 +960,12 @@ export interface UnknownSignal {
      *  decode does not describe the whole signal, so the row transmits
      *  its stored bytes; absent means not judged, and is trusted. */
     decode_covers?: boolean | null;
+    /** The copyable form of the code (GH #144): the same bytes with
+     *  the real 50ms terminator the stored form leaves off. Derived by
+     *  the server on every payload, never stored. Absent for a
+     *  non-Pronto row or a code that will not parse, and callers fall
+     *  back to `code`. */
+    code_export?: string | null;
     tx_force_raw?: boolean;
     observed_repeat_count?: number;
     // Derived at serialization, never stored, and present ONLY when this
