@@ -164,6 +164,11 @@ remote_receiver:
   # Uncomment to see what is received in the device's log.
   # dump: all
 
+  # How much silence ends a capture. ESPHome's default is 10ms, which
+  # is shorter than the gaps inside one air conditioner message, so a
+  # single press arrives split into several codes.
+  idle: 100ms
+
   # Flash the RGB LED in red, but only if the transmitter
   # has not turned it on yet. Needed to not flash green and
   # red when transmitting data, which is read back.

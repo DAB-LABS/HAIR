@@ -105,9 +105,14 @@ def _ext_corpus() -> list[str]:
 
     ``.pronto`` files, the ``<ccf>`` elements of the Girr adapters (which
     are line-wrapped in the source and must be whitespace-joined before
-    they parse), and the gzipped air-path captures. 79 unique, and mostly
+    they parse), and the gzipped air-path captures. 80 unique, and mostly
     gap-tailed where the JSON corpus is mostly zero-tailed -- which is
     exactly why both are measured.
+
+    Was 79 until the ARC486A1 field capture landed under
+    fixtures/field-captures/ (2026-09-12). A real 293-pair Daikin press
+    is exactly the kind of code this corpus exists to sweep, so it
+    joining is the guard below working rather than a break.
     """
     found: list[str] = []
     for path in sorted(FIXTURES.rglob("*.pronto")):
@@ -209,9 +214,11 @@ def _legacy_device_fingerprint(code: str) -> str | None:
 
 def test_the_corpus_is_the_one_the_measurement_was_taken_on():
     """A guard on the guards: if extraction breaks, the counts below
-    would pass vacuously. 853 + 79 as measured at v0.12.0."""
+    would pass vacuously. 853 + 79 as measured at v0.12.0, and 80 on
+    the external side since the ARC486A1 field capture landed
+    (2026-09-12); every invariant in this file now sweeps it too."""
     assert len(JSON_CORPUS) == 853
-    assert len(EXT_CORPUS) == 79
+    assert len(EXT_CORPUS) == 80
 
 
 def test_every_fixture_pronto_hashes_the_same_wire_or_canonical():

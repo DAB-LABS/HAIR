@@ -21,6 +21,12 @@
  *   rule already existed on the device command rows; folding it in here
  *   is what extends it to the three surfaces that lacked it.
  *
+ * A row that carries a tuned SPACING says so in the same tooltip
+ * (GH #151): the glyph itself stays one orange number, because a
+ * second badge on a list row would cost more attention than the fact
+ * is worth, but hovering it tells you the cadence the row was proved
+ * at rather than just how many times it fires.
+ *
  * The tooltip keys are properties rather than constants because the
  * hosts word the same fact differently and correctly: a command "sends
  * this command N times", a catalog signal "sends this signal N times".
@@ -42,21 +48,28 @@ const ICON_DITTO =
 /**
  * The protocol whose repeat frame a ditto actually is.
  *
- * Measured against infrared-protocols rather than assumed (owner call,
- * 2026-08-02), by counting the timings each protocol emits as
- * repeat_count goes 0, 1, 3:
+ * Measured against infrared-protocols rather than assumed, by counting
+ * the timings each protocol emits as repeat_count goes 0, 1, 3.
+ * Re-measured 2026-09-12 against 5.8.1, which corrects the last two
+ * rows: the original note (2026-08-02) recorded Sharp and Sony as
+ * ignoring repeat_count, and they do not.
  *
  *   NEC         67 -> 71 -> 79    a 4-entry ditto frame. The real thing.
  *   Samsung32   67 -> 135 -> 271  duplicates the entire frame
  *   RC-5        21 -> 43 -> 87    duplicates the entire frame
- *   Sharp       64 -> 64 -> 64    ignores repeat_count
- *   Sony        26 -> 26 -> 26    ignores repeat_count
+ *   Sharp       64 -> 128 -> 256  duplicates the entire frame
+ *   Sony        26 -> 52 -> 104   duplicates the entire frame
  *
- * Only the first is a ditto. The two that duplicate are doing what
- * send_count already does, except from inside the content hash, where
- * a delivery detail has no business being; the two that ignore it
- * would hash a number that never reaches the wire. So the knob is
- * NEC-only everywhere it appears.
+ * Only the first is a ditto. The other four are doing what send_count
+ * already does, except from inside the content hash, where a delivery
+ * detail has no business being. So the knob stays NEC-only everywhere
+ * it appears, for the same reason it always was; only the reason
+ * given for two of the four has changed.
+ *
+ * The correction matters beyond this comment: a whole-frame duplicate
+ * lives INSIDE the block an encoder returns, so it is counted by the
+ * send-spacing air-time cap and by the spacing estimate, both of which
+ * measure the built command rather than the frame (GH #151).
  */
 export const DITTO_PROTOCOL = "NEC";
 
@@ -79,10 +92,40 @@ export class IrTxKnobs extends LitElement {
     @property({ type: Boolean }) public decoded = false;
     /** True when the row is pinned to raw replay. Hides the ditto glyph. */
     @property({ type: Boolean }) public bypassed = false;
+    /** Start-to-start spacing between those sends, in milliseconds
+     *  (GH #151). Null on an old row, which is most rows: only a row
+     *  somebody tuned carries one. Never an estimate -- a list surface
+     *  reports what a row STORES, and showing a computed number here
+     *  would put a figure on every row that nobody chose. */
+    @property({ attribute: false }) public spacingMs?: number | null;
+    /** True when at least one of the row's emitters cannot hold the
+     *  spacing and will send at its own pace. Off by default: emitter
+     *  capability is a per-emitter server fact and list rendering does
+     *  not fetch it, so today only a host that already knows can pass
+     *  it. The editor's status line carries the same warning where the
+     *  answer is available. */
+    @property({ type: Boolean }) public approxEmitter = false;
     /** Localization key for the send-count tooltip. */
     @property({ attribute: false }) public sendsKey = "cmdrow.sends_times";
     /** Localization key for the ditto tooltip. */
     @property({ attribute: false }) public dittoKey = "cmdrow.dittos";
+
+    /** The send glyph's tooltip.
+     *
+     * A tuned row's sentence is about CADENCE and says nothing about
+     * what the row is, so unlike the plain sentence it is one string
+     * for every host rather than one per surface.
+     */
+    private _sendsTitle(sends: number): string {
+        const spacing = this.spacingMs ?? null;
+        const base =
+            spacing === null
+                ? t(this.sendsKey, { count: sends })
+                : t("cmdrow.sends_spaced", { count: sends, ms: spacing });
+        return this.approxEmitter
+            ? `${base} ${t("cmdrow.sends_approx")}`
+            : base;
+    }
 
     render() {
         const sends = this.sendCount ?? 1;
@@ -99,7 +142,7 @@ export class IrTxKnobs extends LitElement {
             ${showSends
                 ? html`<span
                       class="knob repeat"
-                      title=${t(this.sendsKey, { count: sends })}
+                      title=${this._sendsTitle(sends)}
                       ><ha-svg-icon .path=${ICON_REPEAT}></ha-svg-icon
                       >${sends}</span
                   >`

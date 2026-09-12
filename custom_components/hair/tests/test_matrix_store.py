@@ -260,11 +260,17 @@ class _FakeMonitor:
                     # Accepted so the fake tracks the real signature: the
                     # Mirror now takes the transmitted TX knobs explicitly
                     # (send_count is a loop bound, never a Command field).
-                    send_count=None, repeat_count=None):
+                    send_count=None, repeat_count=None,
+                    # And how long the send holds the air, plus the
+                    # shape it holds it with, which is what sizes the
+                    # echo ticket (send spacing, GH #151).
+                    air_s=0.0, burst=None):
         self.calls.append({
             "label": source_label,
             "emitters": emitter_entity_ids,
             "decoded_fingerprint": decoded_fingerprint,
+            "air_s": air_s,
+            "burst": burst,
         })
         if self._log is not None:
             self._log.append("record")

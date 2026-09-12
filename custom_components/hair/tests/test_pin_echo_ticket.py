@@ -70,7 +70,10 @@ def _ticket(
         "garble_expires": 0.0,
         "cancel": None,
         "heard_future": None,
-        "claimed_by": set(),
+        # A budget of 1 is what a hand-built ticket has always had:
+        # these tests exercise ticket accounting for a single frame.
+        "claim_budget": 1,
+        "claims_left": {},
         "emitters": ["infrared.bench_tx_1"],
         "armed_at": (now - 10.0) if armed else None,
         "guard_until": (now + 10.0) if guard else 0.0,
@@ -248,7 +251,7 @@ async def test_the_handsets_own_repeat_frames_cannot_spend_a_pre_send_ticket():
         await monitor._process_parsed_signal(parsed, receiver_entity_id=ATHOM)
 
     assert tm.on_signal_captured.call_count == 3
-    assert monitor._echo_expectations[0]["claimed_by"] == set()
+    assert monitor._echo_expectations[0]["claims_left"] == {}
 
 
 @pytest.mark.asyncio
@@ -375,4 +378,4 @@ async def test_record_send_builds_a_ticket_with_an_empty_claim_set():
         )
 
     assert len(monitor._echo_expectations) == 1
-    assert monitor._echo_expectations[0]["claimed_by"] == set()
+    assert monitor._echo_expectations[0]["claims_left"] == {}

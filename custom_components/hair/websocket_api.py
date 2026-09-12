@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import voluptuous as vol
@@ -31,6 +32,9 @@ from .const import (
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
     MIRROR_DEVICE_FP,
+    SEND_AIR_TIME_MAX_MS,
+    SEND_SPACING_MAX_MS,
+    SEND_SPACING_MIN_MS,
     WS_PREFIX,
     CaptureState,
     CommandCategory,
@@ -73,6 +77,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_duplicate_device)
     websocket_api.async_register_command(hass, ws_delete_command)
     websocket_api.async_register_command(hass, ws_command_update)
+    websocket_api.async_register_command(hass, ws_send_spacing_info)
     websocket_api.async_register_command(hass, ws_set_command_tx_force_raw)
     websocket_api.async_register_command(hass, ws_reorder_commands)
     websocket_api.async_register_command(hass, ws_reorder_devices)
@@ -259,6 +264,273 @@ async def _device_full(
 
                 full["matrix"] = matrix_summary(matrix)
     return full
+
+
+# --- Send spacing (GH #151) --------------------------------------------
+
+# The save doors are the ONE place a stored ``send_spacing_ms`` is
+# checked. Three refusals, each with its own code so the editor can say
+# which one happened rather than painting a generic red box:
+#
+#   spacing_out_of_range  the number is outside the stored bounds
+#   spacing_air_time      count x block + gaps exceeds the air-time cap
+#   spacing_unsupported   this device has no emitter that can honour it
+#
+# HA's ``send_error`` carries a code and a message and nothing else, so
+# the numbers ride in the message text. The editor does not parse them
+# back out: it reads them structurally from ``send_spacing_info``, which
+# computes the same figures from the same functions.
+
+
+def _spacing_emitters_for(hass: HomeAssistant, device_id: str | None) -> list[str]:
+    """The emitters a spacing has to be judged against.
+
+    A HAIR device answers with its own. A catalog or clipped remote has
+    none of its own -- the row is not bound to anything until somebody
+    adopts it -- so the question widens to whether this install has an
+    emitter that could ever honour the value; the adopt door then asks
+    the narrow question again against the real device.
+    """
+    data = _get_first_entry_data(hass)
+    store = data.get("store") if data else None
+    if store is not None and device_id:
+        device = store.get_device(device_id)
+        if device is not None:
+            return list(device.emitter_entity_ids)
+    try:
+        from .const import TWEEZER_OBSERVER_ATTR
+
+        return [
+            state.entity_id
+            for state in hass.states.async_all("infrared")
+            if not state.attributes.get(TWEEZER_OBSERVER_ATTR)
+        ]
+    except Exception:  # a lookup must never turn into a refusal
+        return []
+
+
+def _signal_by_ids(
+    data: dict[str, Any] | None, device_id: str, signal_id: str
+) -> Any:
+    """A catalog signal, or None. Lookup only; the door still validates."""
+    store = data.get("signal_store") if data else None
+    if store is None:
+        return None
+    device = store.get_device(device_id)
+    return device.get_signal_by_id(signal_id) if device is not None else None
+
+
+def _command_by_ids(
+    data: dict[str, Any] | None, device_id: str, command_id: str
+) -> Any:
+    """A stored device command, or None. Lookup only."""
+    store = data.get("store") if data else None
+    if store is None:
+        return None
+    device = store.get_device(device_id)
+    return device.get_command(command_id) if device is not None else None
+
+
+def _spacing_emitter_list(
+    hass: HomeAssistant, emitter_entity_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Per-emitter capability, for the editor's note."""
+    from .send_plan import capability, emitter_platform
+
+    out: list[dict[str, Any]] = []
+    for entity_id in emitter_entity_ids:
+        state = hass.states.get(entity_id)
+        name = entity_id
+        if state is not None:
+            name = state.attributes.get("friendly_name") or entity_id
+        out.append({
+            "entity_id": entity_id,
+            "name": name,
+            "capability": capability(emitter_platform(hass, entity_id)),
+        })
+    return out
+
+
+def _check_send_spacing(
+    hass: HomeAssistant,
+    value: Any,
+    *,
+    send_count: Any,
+    inner: Any,
+    emitter_entity_ids: list[str],
+) -> tuple[int | None, tuple[str, str] | None]:
+    """Validate one payload's spacing. Returns (stored value, error).
+
+    The stored value is None whenever the row should stay an old row,
+    which includes a send count of 1: a burst of one has nothing to
+    space, and a number stored there would put the row on the bundled
+    path for no reason.
+    """
+    from .send_plan import capability, emitter_platform, realised_air_ms
+
+    if value is None:
+        return None, None
+    count = max(1, int(send_count or 1))
+    if count <= 1:
+        return None, None
+    value = int(value)
+    if not SEND_SPACING_MIN_MS <= value <= SEND_SPACING_MAX_MS:
+        return None, (
+            "spacing_out_of_range",
+            f"Send spacing must be between {SEND_SPACING_MIN_MS} and "
+            f"{SEND_SPACING_MAX_MS} ms",
+        )
+    if inner is not None:
+        from .ir_command import block_duration_us
+
+        air_ms = realised_air_ms(inner, count, value)
+        if air_ms > SEND_AIR_TIME_MAX_MS:
+            block_ms = round(
+                block_duration_us(inner.get_raw_timings()) / 1000
+            )
+            return None, (
+                "spacing_air_time",
+                f"{count} sends of a {block_ms} ms code at {value} ms "
+                f"apart is {air_ms} ms on the air, over the "
+                f"{SEND_AIR_TIME_MAX_MS} ms limit",
+            )
+    # Refused only when HAIR KNOWS the answer is no. An empty list means
+    # nothing could be resolved, and a lookup that came back empty is not
+    # evidence that a device cannot honour a cadence.
+    if emitter_entity_ids and not any(
+        capability(emitter_platform(hass, entity_id)) == "exact"
+        for entity_id in emitter_entity_ids
+    ):
+        return None, (
+            "spacing_unsupported",
+            "No emitter on this device can send an exact spacing: "
+            + ", ".join(emitter_entity_ids),
+        )
+    return value, None
+
+
+def _spacing_row_for_pronto(
+    pronto: str,
+    *,
+    repeat_count: int = 0,
+    tx_force_raw: bool = False,
+) -> Any:
+    """A stand-in row for a code that has no stored row yet.
+
+    The decode is the point. A bare Pronto measured as raw is the frame
+    and nothing else, but the send path re-encodes a decodable row from
+    its identity WITH its dittos, and on NEC a ditto count of 8 turns a
+    64.6 ms frame into a 1.03 s block. A door that judged the bare frame
+    accepted a spacing the code cannot hold and an air time the cap
+    exists to refuse (QA on VM999, 2026-09-12).
+
+    So this runs the same identify step the paste scan already runs to
+    say "Recognized as NEC", and hands the decoded fields to
+    ``build_like_send_path`` exactly as a stored row would. The coverage
+    verdict comes from the same decode, so a code whose label does not
+    describe every frame is measured raw here for the same reason it
+    would transmit raw (GH #134).
+    """
+    from .ir_command import ProntoCommand
+    from .protocol_decode import try_decode_identity
+
+    identity = None
+    try:
+        identity = try_decode_identity(ProntoCommand(pronto).get_raw_timings())
+    except Exception:  # an unbuildable code fails its own validator
+        identity = None
+    return SimpleNamespace(
+        protocol="PRONTO",
+        code=pronto,
+        raw_timings=None,
+        frequency=None,
+        repeat_count=repeat_count,
+        tx_force_raw=tx_force_raw,
+        decoded_protocol=getattr(identity, "protocol", None),
+        decoded_address=getattr(identity, "address", None),
+        decoded_command=getattr(identity, "command", None),
+        decoded_fingerprint=getattr(identity, "fingerprint", None),
+        decoded_extras=(
+            dict(identity.extras)
+            if identity is not None and identity.extras else None
+        ),
+        decode_covers=getattr(identity, "covers_capture", None),
+        matrix_cell=None,
+        source=None,
+    )
+
+
+_ROW_FIELDS = (
+    "protocol", "code", "raw_timings", "frequency", "repeat_count",
+    "tx_force_raw", "decoded_protocol", "decoded_address",
+    "decoded_command", "decoded_fingerprint", "decoded_extras",
+    "decode_covers", "matrix_cell", "source",
+)
+
+
+def _spacing_row_with(row: Any, repeat_count: int, tx_force_raw: bool) -> Any:
+    """``row`` as the save is about to leave it, for measuring only.
+
+    A knob-only edit changes the ditto count without touching the code,
+    and on a decodable row the ditto count IS part of the block. Judging
+    the stored row unchanged would measure the block the row has rather
+    than the one it is about to have.
+    """
+    fields = {name: getattr(row, name, None) for name in _ROW_FIELDS}
+    fields["repeat_count"] = repeat_count
+    fields["tx_force_raw"] = tx_force_raw
+    return SimpleNamespace(**fields)
+
+
+def _spacing_block(
+    pronto: str | None,
+    row: Any = None,
+    *,
+    repeat_count: Any = None,
+    tx_force_raw: Any = None,
+) -> Any:
+    """The block a spacing is measured against, or None.
+
+    ALWAYS through ``build_like_send_path``, never from a bare Pronto:
+    that function is what the send path itself uses, so the block a
+    door judges is the block the emitter will get, dittos included.
+
+    A door that is creating or replacing a code has no stored row for
+    the new bytes, so the code is decoded into a stand-in first (see
+    ``_spacing_row_for_pronto``); measuring the raw frame there was the
+    defect QA found on VM999. ``repeat_count`` and ``tx_force_raw`` are
+    the payload's values when it carries them, so a knob-only edit is
+    measured against the knobs it is setting rather than the stored
+    ones.
+    """
+    try:
+        from .send_plan import build_like_send_path
+
+        effective_repeat = (
+            int(repeat_count)
+            if repeat_count is not None
+            else (getattr(row, "repeat_count", 0) or 0)
+        )
+        effective_raw = (
+            bool(tx_force_raw)
+            if tx_force_raw is not None
+            else bool(getattr(row, "tx_force_raw", False))
+        )
+        if pronto:
+            return build_like_send_path(
+                _spacing_row_for_pronto(
+                    pronto,
+                    repeat_count=effective_repeat,
+                    tx_force_raw=effective_raw,
+                )
+            )
+        if row is not None:
+            return build_like_send_path(
+                _spacing_row_with(row, effective_repeat, effective_raw)
+            )
+    except Exception:  # an unbuildable code fails its own validator
+        return None
+    return None
 
 
 # --- Device Operations ---
@@ -1708,6 +1980,7 @@ async def ws_undismiss_unknown(
     vol.Optional("send_count"): vol.All(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
+    vol.Optional("send_spacing_ms"): vol.Any(None, int),
     vol.Optional("repeat_count"): vol.All(
         int, vol.Range(min=0, max=MAX_DITTO_COUNT)
     ),
@@ -1724,6 +1997,24 @@ async def ws_assign_signal(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
+    source_signal = _signal_by_ids(
+        data, msg["device_id"], msg["signal_id"]
+    )
+    # The one place a saved spacing is checked (GH #151). Refused
+    # before anything is written, so a row never lands holding a value
+    # its own editor would reject.
+    spacing, spacing_error = _check_send_spacing(
+        hass, msg.get("send_spacing_ms"),
+        send_count=msg.get("send_count") or getattr(source_signal, "send_count", 1),
+        inner=_spacing_block(
+            None, source_signal,
+            repeat_count=msg.get("repeat_count"),
+        ),
+        emitter_entity_ids=_spacing_emitters_for(hass, msg["hair_device_id"]),
+    )
+    if spacing_error is not None:
+        connection.send_error(msg["id"], spacing_error[0], spacing_error[1])
+        return
     result = await monitor.assign_signal(
         msg["device_id"],
         msg["signal_id"],
@@ -1732,6 +2023,8 @@ async def ws_assign_signal(
         msg.get("command_category", "custom"),
         send_count=msg.get("send_count"),
         repeat_count=msg.get("repeat_count"),
+        send_spacing_ms=spacing,
+        set_send_spacing="send_spacing_ms" in msg,
     )
     if not result["success"]:
         connection.send_error(
@@ -1838,6 +2131,7 @@ async def ws_rename_unknown(
     vol.Optional("send_count"): vol.All(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
+    vol.Optional("send_spacing_ms"): vol.Any(None, int),
     vol.Optional("repeat_count"): vol.All(
         int, vol.Range(min=0, max=MAX_DITTO_COUNT)
     ),
@@ -1854,6 +2148,24 @@ async def ws_assign_new_device(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
+    source_signal = _signal_by_ids(
+        data, msg["device_id"], msg["signal_id"]
+    )
+    # The one place a saved spacing is checked (GH #151). Refused
+    # before anything is written, so a row never lands holding a value
+    # its own editor would reject.
+    spacing, spacing_error = _check_send_spacing(
+        hass, msg.get("send_spacing_ms"),
+        send_count=msg.get("send_count") or getattr(source_signal, "send_count", 1),
+        inner=_spacing_block(
+            None, source_signal,
+            repeat_count=msg.get("repeat_count"),
+        ),
+        emitter_entity_ids=list(msg["emitter_entity_ids"]),
+    )
+    if spacing_error is not None:
+        connection.send_error(msg["id"], spacing_error[0], spacing_error[1])
+        return
     result = await monitor.assign_to_new_device(
         msg["device_id"],
         msg["signal_id"],
@@ -1864,6 +2176,8 @@ async def ws_assign_new_device(
         msg.get("command_category", "custom"),
         send_count=msg.get("send_count"),
         repeat_count=msg.get("repeat_count"),
+        send_spacing_ms=spacing,
+        set_send_spacing="send_spacing_ms" in msg,
     )
     if not result["success"]:
         connection.send_error(
@@ -2377,6 +2691,7 @@ async def ws_clip_create_remote(
     vol.Optional("send_count"): vol.All(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
+    vol.Optional("send_spacing_ms"): vol.Any(None, int),
     vol.Optional("tx_force_raw"): bool,
 })
 @websocket_api.async_response
@@ -2391,11 +2706,28 @@ async def ws_clip_create_signal(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
+    # The one place a saved spacing is checked (GH #151). Refused
+    # before anything is written, so a row never lands holding a value
+    # its own editor would reject.
+    spacing, spacing_error = _check_send_spacing(
+        hass, msg.get("send_spacing_ms"),
+        send_count=msg.get("send_count"),
+        inner=_spacing_block(
+            msg["pronto"],
+            repeat_count=msg.get("repeat_count"),
+            tx_force_raw=msg.get("tx_force_raw"),
+        ),
+        emitter_entity_ids=_spacing_emitters_for(hass, None),
+    )
+    if spacing_error is not None:
+        connection.send_error(msg["id"], spacing_error[0], spacing_error[1])
+        return
     result = await monitor.create_manual_signal(
         msg["device_id"], msg["pronto"], msg.get("alias", ""),
         repeat_count=msg.get("repeat_count"),
         send_count=msg.get("send_count"),
         tx_force_raw=msg.get("tx_force_raw"),
+        send_spacing_ms=spacing,
     )
     if not result["success"]:
         connection.send_error(
@@ -2457,6 +2789,7 @@ async def ws_signal_set_tx_force_raw(
     vol.Optional("send_count"): vol.All(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
+    vol.Optional("send_spacing_ms"): vol.Any(None, int),
 })
 @websocket_api.async_response
 async def ws_unknown_signal_edit_pronto(
@@ -2470,10 +2803,28 @@ async def ws_unknown_signal_edit_pronto(
         connection.send_error(msg["id"], "not_configured", "HAIR not configured")
         return
     monitor: SignalMonitor = data["signal_monitor"]
+    edited_signal = _signal_by_ids(data, msg["device_id"], msg["signal_id"])
+    # The one place a saved spacing is checked (GH #151). Refused
+    # before anything is written, so a row never lands holding a value
+    # its own editor would reject.
+    spacing, spacing_error = _check_send_spacing(
+        hass, msg.get("send_spacing_ms"),
+        send_count=msg.get("send_count") or getattr(edited_signal, "send_count", 1),
+        inner=_spacing_block(
+            msg["pronto"], edited_signal,
+            repeat_count=msg.get("repeat_count"),
+        ),
+        emitter_entity_ids=_spacing_emitters_for(hass, None),
+    )
+    if spacing_error is not None:
+        connection.send_error(msg["id"], spacing_error[0], spacing_error[1])
+        return
     result = await monitor.edit_signal_pronto(
         msg["device_id"], msg["signal_id"], msg["pronto"], msg.get("alias"),
         repeat_count=msg.get("repeat_count"),
         send_count=msg.get("send_count"),
+        send_spacing_ms=spacing,
+        set_send_spacing="send_spacing_ms" in msg,
     )
     if not result["success"]:
         connection.send_error(
@@ -2536,6 +2887,7 @@ async def ws_clip_validate_pronto(
     vol.Optional("send_count"): vol.All(
         int, vol.Range(min=1, max=MAX_SEND_COUNT)
     ),
+    vol.Optional("send_spacing_ms"): vol.Any(None, int),
     vol.Optional("repeat_count"): vol.All(
         int, vol.Range(min=0, max=MAX_DITTO_COUNT)
     ),
@@ -2576,6 +2928,22 @@ async def ws_command_update(
         )
         return
 
+    stored = _command_by_ids(data, msg["device_id"], msg["command_id"])
+    # The one place a saved spacing is checked (GH #151). Refused
+    # before anything is written, so a row never lands holding a value
+    # its own editor would reject.
+    spacing, spacing_error = _check_send_spacing(
+        hass, msg.get("send_spacing_ms"),
+        send_count=msg.get("send_count") or getattr(stored, "send_count", 1),
+        inner=_spacing_block(
+            msg.get("pronto"), stored,
+            repeat_count=msg.get("repeat_count"),
+        ),
+        emitter_entity_ids=_spacing_emitters_for(hass, msg["device_id"]),
+    )
+    if spacing_error is not None:
+        connection.send_error(msg["id"], spacing_error[0], spacing_error[1])
+        return
     result = await device_manager.async_update_command(
         msg["device_id"],
         msg["command_id"],
@@ -2583,6 +2951,8 @@ async def ws_command_update(
         pronto=msg.get("pronto"),
         send_count=msg.get("send_count"),
         repeat_count=msg.get("repeat_count"),
+        send_spacing_ms=spacing,
+        set_send_spacing="send_spacing_ms" in msg,
         trigger_manager=trigger_manager,
     )
     if not result["success"]:
@@ -2596,6 +2966,120 @@ async def ws_command_update(
         "command": result["command"],
         "triggers": result["triggers"],
         "mappings_updated": result["mappings_updated"],
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{WS_PREFIX}/send_spacing_info",
+    vol.Optional("pronto"): vol.Any(None, str),
+    vol.Optional("protocol"): vol.Any(None, str),
+    vol.Optional("code"): vol.Any(None, str),
+    vol.Optional("raw_timings"): vol.Any(None, [int]),
+    vol.Optional("frequency"): vol.Any(None, int),
+    vol.Optional("decoded_protocol"): vol.Any(None, str),
+    vol.Optional("decoded_address"): vol.Any(None, int),
+    vol.Optional("decoded_command"): vol.Any(None, int),
+    vol.Optional("decoded_fingerprint"): vol.Any(None, str),
+    vol.Optional("decode_covers"): vol.Any(None, bool),
+    vol.Optional("tx_force_raw"): bool,
+    vol.Optional("send_count", default=1): int,
+    vol.Optional("repeat_count", default=0): int,
+    vol.Optional("send_spacing_ms"): vol.Any(None, int),
+    vol.Optional("device_id"): vol.Any(None, str),
+})
+@callback
+def ws_send_spacing_info(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Everything the editor needs to render the send-spacing line.
+
+    Computed on request, never stored: the editor asks when it opens,
+    when the send count crosses 1, and when the code box's validated
+    code changes. Every number here comes from the same functions the
+    save doors and the send path use, so an estimate the editor shows
+    and a refusal a door raises can never disagree (GH #151).
+    """
+    from .ir_command import block_duration_us
+    from .send_plan import (
+        SEND_SILENCE_FLOOR_US,
+        estimate_spacing_ms,
+        realised_air_ms,
+        silence_us,
+    )
+
+    code = msg.get("code") or msg.get("pronto")
+    repeat_count = int(msg.get("repeat_count") or 0)
+    tx_force_raw = bool(msg.get("tx_force_raw"))
+    if msg.get("decoded_fingerprint") or msg.get("raw_timings") or not code:
+        # The caller already knows what this row is, or is handing over
+        # raw timings that have no Pronto to decode.
+        row = SimpleNamespace(
+            protocol=msg.get("protocol")
+            or ("PRONTO" if msg.get("pronto") else None),
+            code=code,
+            raw_timings=msg.get("raw_timings"),
+            frequency=msg.get("frequency"),
+            repeat_count=repeat_count,
+            tx_force_raw=tx_force_raw,
+            decoded_protocol=msg.get("decoded_protocol"),
+            decoded_address=msg.get("decoded_address"),
+            decoded_command=msg.get("decoded_command"),
+            decoded_fingerprint=msg.get("decoded_fingerprint"),
+            decoded_extras=None,
+            decode_covers=msg.get("decode_covers"),
+            matrix_cell=None,
+            source=None,
+        )
+    else:
+        # The editor holds the code and the recognized protocol NAME,
+        # never the decoded address and command, so a payload that
+        # carries no fingerprint has to be decoded here or the block is
+        # the bare frame with no dittos in it. That understated a
+        # ditto-carrying NEC row by a factor of sixteen and let a
+        # spacing through that the air-time cap exists to refuse (QA on
+        # VM999, 2026-09-12).
+        row = _spacing_row_for_pronto(
+            code, repeat_count=repeat_count, tx_force_raw=tx_force_raw
+        )
+    inner = _spacing_block(None, row)
+    count = max(1, int(msg.get("send_count") or 1))
+    stored = msg.get("send_spacing_ms")
+    emitters = _spacing_emitters_for(hass, msg.get("device_id"))
+
+    block_ms: int | None = None
+    estimate: int | None = None
+    air_ms: int | None = None
+    floor_hit = False
+    if inner is not None:
+        block_us = block_duration_us(inner.get_raw_timings())
+        block_ms = round(block_us / 1000)
+        estimate = estimate_spacing_ms(inner)
+        # The figure the editor is about to show is the stored value when
+        # there is one and the estimate otherwise, because that is what
+        # the box will contain.
+        shown = stored if stored is not None else estimate
+        air_ms = realised_air_ms(inner, count, shown)
+        # The floor bites when the code is simply longer than the number
+        # asked for. Worth saying out loud: the frames still go out, just
+        # not at the cadence typed.
+        floor_hit = silence_us(block_us, shown) == SEND_SILENCE_FLOOR_US
+
+    connection.send_result(msg["id"], {
+        "send_spacing_ms": stored,
+        "estimate_ms": estimate,
+        "min_ms": SEND_SPACING_MIN_MS,
+        "max_ms": SEND_SPACING_MAX_MS,
+        "block_ms": block_ms,
+        "air_ms": air_ms,
+        "air_limit_ms": SEND_AIR_TIME_MAX_MS,
+        "floor_hit": floor_hit,
+        "emitters": (
+            _spacing_emitter_list(hass, emitters)
+            if msg.get("device_id") else []
+        ),
     })
 
 
@@ -5801,6 +6285,13 @@ def _command_from_wig_signal(
         raw_timings=list(ident.raw_timings),
         frequency=ident.frequency,
         send_count=max(1, sig.send_count or 1),
+        # A wig that carries a spacing adopts with it; a wig without
+        # one adopts as an OLD row and stays on today's send path
+        # until the user opens it and saves (design R4). Adopt never
+        # invents a value, which is why the estimate is switched off
+        # here and nowhere else.
+        send_spacing_ms=sig.send_spacing_ms,
+        estimate_spacing=False,
         repeat_count=sig.ditto_count,
         tx_force_raw=sig.bypass_protocol,
         identity=ident,
@@ -7374,6 +7865,11 @@ async def ws_tangle_pre_read(
     vol.Required("device_id"): str,
     vol.Required("pronto"): vol.All(str, vol.Length(max=20000)),
     vol.Optional("send_count", default=1): vol.All(int, vol.Range(min=1, max=10)),
+    # Accepted and ignored (GH #151). The tangle editor hides the
+    # spacing box -- a candidate is being judged before anything is
+    # written, so there is no stored row for a cadence to belong to --
+    # but a client that sends the field must not get a schema error.
+    vol.Optional("send_spacing_ms"): vol.Any(None, int),
 })
 @websocket_api.async_response
 async def ws_tangle_test_send(

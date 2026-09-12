@@ -82,6 +82,11 @@ export interface IRCommand {
     // Whole-frame send count (v0.4.x): transmit the built signal this many
     // times (1 = once). Drives the orange row indicator and the editor field.
     send_count: number;
+    // Start-to-start spacing between those sends, in milliseconds
+    // (GH #151). Null or absent is an OLD row: it keeps today's send
+    // path exactly, and only a save through the editor gives it a
+    // value. Delivery, not identity -- outside every digest.
+    send_spacing_ms?: number | null;
     // Decoded protocol identity (v0.4.0). Present when the command was
     // decoded as a known protocol; gates the canonical-TX toggle and labels
     // its button (e.g. NEC).
@@ -952,6 +957,10 @@ export interface UnknownSignal {
     // observation surfaced as an editor hint.
     repeat_count?: number;
     send_count?: number;
+    // Start-to-start spacing between whole-frame repeats (GH #151).
+    // Null or absent means the signal has never been tuned and stays
+    // on today's send path.
+    send_spacing_ms?: number | null;
     // Send the captured Pronto verbatim instead of re-encoding from the
     // decoded identity (Highlights, GH #78). The third knob of the same
     // kind: set here, carried onto the command at assign, into a wig at
@@ -1161,6 +1170,35 @@ export interface PluckRunResult {
  * Result of validating a pasted Pronto code (hair/clip/validate-pronto).
  * Mirrors ProntoValidationResult in pronto_validator.py.
  */
+/** What ``hair/send_spacing_info`` answers with (GH #151).
+ *
+ * Every number here is computed by the same backend functions the save
+ * doors and the send path use, so the editor never has to reimplement
+ * an estimate or a cap and then disagree with the server about it. */
+export interface SendSpacingInfo {
+    /** The stored value, echoed back. Null on an old row. */
+    send_spacing_ms: number | null;
+    /** What this code's repeats are spaced at today, near enough to
+     *  show: the number the box is filled with when it is empty. */
+    estimate_ms: number | null;
+    min_ms: number;
+    max_ms: number;
+    /** The stripped block's own length. Null when no code was given. */
+    block_ms: number | null;
+    /** Real air time for the count and the value being shown. */
+    air_ms: number | null;
+    air_limit_ms: number;
+    /** True when the code is longer than the spacing asked for, so the
+     *  silence floor decides the gap instead of the number. */
+    floor_hit: boolean;
+    /** Present only when the request named a device. */
+    emitters: Array<{
+        entity_id: string;
+        name: string;
+        capability: "exact" | "incapable";
+    }>;
+}
+
 export interface ProntoValidation {
     valid: boolean;
     errors: string[];

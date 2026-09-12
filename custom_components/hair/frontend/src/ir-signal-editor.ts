@@ -19,6 +19,7 @@ import type { HairApi } from "./api.js";
 import type {
     ProntoValidation,
     RepeatVote,
+    SendSpacingInfo,
     TangleApplyResult,
     TangleCaptureEvent,
     TangleCluster,
@@ -64,6 +65,14 @@ export class IrSignalEditor extends LitElement {
     @property({ attribute: false }) public initialAlias = "";
     /** Current whole-frame send count (all modes). */
     @property({ attribute: false }) public initialSendCount = 1;
+    /** Current start-to-start spacing between whole-frame sends, in
+     *  milliseconds, or null for a row that has never been tuned
+     *  (GH #151). Null is not "use the default": it is what keeps the
+     *  row on today's send path, so it survives every save that does
+     *  not deliberately set a number. */
+    @property({ attribute: false }) public initialSendSpacingMs:
+        | number
+        | null = null;
     /** Current NEC ditto count (all modes). */
     @property({ attribute: false }) public initialDitto = 1;
     /** Read-only hint: dittos observed following this signal at capture. */
@@ -154,6 +163,12 @@ export class IrSignalEditor extends LitElement {
     @state() private _pronto = "";
     @state() private _alias = "";
     @state() private _sendCount = 1;
+    @state() private _spacingMs: number | null = null;
+    /** The server's answer about this code: bounds, estimate, air time,
+     *  and what each of the device's emitters can actually do. Every
+     *  number the spacing row shows comes from here rather than from a
+     *  literal, so the editor and the save door can never disagree. */
+    @state() private _spacingInfo: SendSpacingInfo | null = null;
     @state() private _ditto = 1;
     @state() private _busy = false;
     @state() private _error: string | null = null;
@@ -195,14 +210,94 @@ export class IrSignalEditor extends LitElement {
             this._pronto !== this.initialPronto ||
             this._alias !== this.initialAlias ||
             this._sendCount !== this.initialSendCount ||
+            this._spacingPayload !== this.initialSendSpacingMs ||
             this._ditto !== this.initialDitto ||
             (this._isCommand && this._bypass !== this.initialTxForceRaw)
         );
     }
 
+    /**
+     * Whether Save may be pressed.
+     *
+     * NOT gated on _dirty any more (owner ruling 2026-09-12). Edit mode
+     * used to require a change, so somebody who opened a row to check
+     * it had to close the dialog instead of saving it, and a person who
+     * meant to confirm what was there was told there was nothing to
+     * confirm. A save with no changes is a round trip the doors already
+     * handle as a no-op, which is cheaper than the dead end was.
+     *
+     * The refusals still disable it. Validity and a spacing the save
+     * door would reject are both answers this dialog already has, and
+     * spending a round trip to be told them is not the same thing as
+     * saving an unchanged row.
+     */
     private get _canSave(): boolean {
         if (this._busy || this._validation?.valid !== true) return false;
-        return this._isEdit ? this._dirty : true;
+        // A spacing the save door would refuse is not saveable here
+        // either. Letting the button through would spend a round trip
+        // to be told what this dialog already knows.
+        if (this._spacingRefusal !== null) return false;
+        return true;
+    }
+
+    /** What the save payload carries for the spacing.
+     *
+     * Null at a send count of 1: a burst of one has nothing to space,
+     * and the field going quiet is what puts a row back on the old
+     * send path. That is a real edit, so it counts toward _dirty. */
+    private get _spacingPayload(): number | null {
+        if (this._sendCount <= 1) return null;
+        return this._spacingMs;
+    }
+
+    /** Which refusal the current combination would earn, or null.
+     *
+     * Only ever one, and the refusals come first: a person cannot act
+     * on "the floor bites" while the value is one the device could not
+     * store anyway. */
+    private get _spacingRefusal(): "unsupported" | "air_time" | null {
+        if (this._spacingPayload === null) return null;
+        const info = this._spacingInfo;
+        if (info === null) return null;
+        if (
+            info.emitters.length > 0 &&
+            !info.emitters.some((e) => e.capability === "exact")
+        ) {
+            return "unsupported";
+        }
+        if (info.air_ms !== null && info.air_ms > info.air_limit_ms) {
+            return "air_time";
+        }
+        return null;
+    }
+
+    /** The first emitter that cannot hold the spacing, when the device
+     *  has one AND another that can. On a device where nothing can, the
+     *  refusal above says so instead. */
+    private get _approximateEmitter(): string | null {
+        if (this._spacingPayload === null) return null;
+        const emitters = this._spacingInfo?.emitters ?? [];
+        if (!emitters.some((e) => e.capability === "exact")) return null;
+        return emitters.find((e) => e.capability !== "exact")?.name ?? null;
+    }
+
+    /** The one line under the send row, or null. */
+    private get _spacingStatus(): string | null {
+        switch (this._spacingRefusal) {
+            case "unsupported":
+                return t("editor.spacing_unsupported");
+            case "air_time":
+                return t("editor.spacing_air_time", {
+                    air: this._spacingInfo?.air_ms ?? 0,
+                    limit: this._spacingInfo?.air_limit_ms ?? 0,
+                });
+        }
+        if (this._spacingPayload === null) return null;
+        if (this._spacingInfo?.floor_hit) return t("editor.spacing_floor");
+        const slow = this._approximateEmitter;
+        return slow === null
+            ? null
+            : t("editor.spacing_approx", { name: slow });
     }
 
     /**
@@ -273,11 +368,13 @@ export class IrSignalEditor extends LitElement {
         this._pronto = this.initialPronto;
         this._alias = this.initialAlias;
         this._sendCount = this.initialSendCount;
+        this._spacingMs = this.initialSendSpacingMs;
         this._ditto = this.initialDitto;
         this._bypass = this.initialTxForceRaw;
         if (this._pronto.trim()) {
             void this._validate();
         }
+        void this._refreshSpacingInfo();
     }
 
     updated(): void {
@@ -323,9 +420,64 @@ export class IrSignalEditor extends LitElement {
 
     private _onSendCountInput(e: Event): void {
         const raw = parseInt((e.target as HTMLInputElement).value, 10);
+        const before = this._sendCount;
         this._sendCount = Number.isNaN(raw)
             ? 1
             : Math.max(1, Math.min(raw, 10));
+        // Crossing 1 is what turns the spacing box on and off, so it is
+        // the moment worth another round trip: the air time changes with
+        // the count, and an empty box wants filling with the estimate.
+        if (before <= 1 !== this._sendCount <= 1 || this._spacingMs !== null) {
+            void this._refreshSpacingInfo();
+        }
+    }
+
+    private _onSpacingInput(e: Event): void {
+        const value = (e.target as HTMLInputElement).value.trim();
+        if (value === "") {
+            // An emptied box is an old row again, deliberately. It is
+            // the only way back to today's send path from in here.
+            this._spacingMs = null;
+        } else {
+            const raw = parseInt(value, 10);
+            this._spacingMs = Number.isNaN(raw) ? null : raw;
+        }
+        void this._refreshSpacingInfo();
+    }
+
+    /** Ask the server what this code, count and value add up to.
+     *
+     * The editor holds the code in the box and the protocol the live
+     * validation recognized; it does not hold the decoded address and
+     * command, so the server measures the box rather than the stored
+     * row's re-encode. The two differ by less than the estimate's own
+     * 5 ms rounding.
+     */
+    private async _refreshSpacingInfo(): Promise<void> {
+        if (this._isTangle) return;
+        try {
+            const info = await this.api.sendSpacingInfo({
+                pronto: this._pronto || null,
+                repeat_count: this._dittoCountDisabled ? 0 : this._ditto,
+                tx_force_raw: this._bypass,
+                send_count: this._sendCount,
+                send_spacing_ms: this._spacingPayload,
+                device_id: this._isCommand ? this.deviceId : null,
+            });
+            this._spacingInfo = info;
+            // Fill an empty box the moment the row starts repeating, so
+            // the number a person adjusts is the cadence the row already
+            // has rather than a blank they have to guess at.
+            if (
+                this._spacingMs === null &&
+                this._sendCount > 1 &&
+                info.estimate_ms !== null
+            ) {
+                this._spacingMs = info.estimate_ms;
+            }
+        } catch {
+            this._spacingInfo = null;
+        }
     }
 
     private _onDittoInput(e: Event): void {
@@ -388,10 +540,16 @@ export class IrSignalEditor extends LitElement {
     }
 
     private async _validate(): Promise<void> {
+        const before = this._validation?.normalized ?? null;
         try {
             this._validation = await this.api.validatePronto(this._pronto);
         } catch {
             this._validation = null;
+        }
+        // A different code is a different block, so every number on the
+        // spacing row is stale until this comes back.
+        if ((this._validation?.normalized ?? null) !== before) {
+            void this._refreshSpacingInfo();
         }
     }
 
@@ -805,6 +963,11 @@ export class IrSignalEditor extends LitElement {
                     name: this._alias.trim(),
                     pronto: this._pronto,
                     send_count: this._sendCount,
+                    // Always sent, because null is a value here: a count
+                    // back down to 1 puts the row on the old send path,
+                    // and omitting the key would silently keep the old
+                    // cadence on a row that no longer repeats.
+                    send_spacing_ms: this._spacingPayload,
                     repeat_count: ditto,
                 });
                 // The pin rides its own command, so it is written after
@@ -833,6 +996,7 @@ export class IrSignalEditor extends LitElement {
                     pronto: this._pronto,
                     alias: this._alias.trim(),
                     send_count: this._sendCount,
+                    send_spacing_ms: this._spacingPayload,
                     repeat_count: ditto,
                 });
                 this.dispatchEvent(
@@ -849,6 +1013,7 @@ export class IrSignalEditor extends LitElement {
                         pronto: this._pronto,
                         alias: this._alias.trim() || undefined,
                         send_count: this._sendCount,
+                        send_spacing_ms: this._spacingPayload,
                         repeat_count: ditto,
                     });
                 this.dispatchEvent(
@@ -1368,19 +1533,53 @@ export class IrSignalEditor extends LitElement {
                       </div>`}
 
                 <div class="field tx-knobs" ?hidden=${this._isTangle}>
-                    <div class="knob">
-                        <label>${t("assign.send_times")}</label>
-                        <input
-                            class="num-input"
-                            type="number"
-                            min="1"
-                            max="10"
-                            .value=${String(this._sendCount)}
-                            title=${t("editor.send_times_title")}
-                            @input=${this._onSendCountInput}
-                            @keydown=${this._onKeydown}
-                        />
+                    <div class="knob-row">
+                        <div class="knob">
+                            <label>${t("assign.send_times")}</label>
+                            <input
+                                class="num-input"
+                                type="number"
+                                min="1"
+                                max="10"
+                                .value=${String(this._sendCount)}
+                                title=${t("editor.send_times_title")}
+                                @input=${this._onSendCountInput}
+                                @keydown=${this._onKeydown}
+                            />
+                        </div>
+                        <div class="knob">
+                            <label>${t("editor.send_spacing")}</label>
+                            <input
+                                class="num-input"
+                                type="number"
+                                min=${this._spacingInfo?.min_ms ?? 20}
+                                max=${this._spacingInfo?.max_ms ?? 1000}
+                                .value=${this._spacingMs === null
+                                    ? ""
+                                    : String(this._spacingMs)}
+                                title=${t("editor.send_spacing_title")}
+                                ?disabled=${this._sendCount <= 1 ||
+                                this._spacingRefusal === "unsupported"}
+                                @input=${this._onSpacingInput}
+                                @keydown=${this._onKeydown}
+                            />
+                        </div>
+                        <span class="send-sentence"
+                            >${tp("editor.send_sentence", this._sendCount, {
+                                ms: String(this._spacingMs ?? ""),
+                            })}</span
+                        >
                     </div>
+                    ${this._spacingStatus === null
+                        ? ""
+                        : html`<div
+                              class="spacing-status ${this._spacingRefusal !==
+                              null
+                                  ? "refusal"
+                                  : ""}"
+                          >
+                              ${this._spacingStatus}
+                          </div>`}
                     ${this._dittoCountDisabled
                         ? ""
                         : html`<div class="knob">
@@ -1646,11 +1845,35 @@ export class IrSignalEditor extends LitElement {
         }
         .tx-knobs {
             display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        /* Send times, spacing and the sentence that reads them back,
+           on one line. The ditto knob keeps its own line below. */
+        .knob-row {
+            display: flex;
             gap: 16px;
+            align-items: flex-end;
+            flex-wrap: wrap;
         }
         .knob {
             display: flex;
             flex-direction: column;
+        }
+        .send-sentence {
+            padding-bottom: 8px;
+            font-size: 0.82rem;
+            color: var(--secondary-text-color);
+        }
+        /* One line, never two: a refusal and a note about the same
+           value at the same time would leave the reader deciding which
+           of them to act on. */
+        .spacing-status {
+            font-size: 0.78rem;
+            color: var(--secondary-text-color);
+        }
+        .spacing-status.refusal {
+            color: var(--error-color, #db4437);
         }
         input.num-input {
             width: 80px;

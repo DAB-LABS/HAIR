@@ -38,7 +38,12 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
-from .const import MAX_DITTO_COUNT, MAX_SEND_COUNT
+from .const import (
+    MAX_DITTO_COUNT,
+    MAX_SEND_COUNT,
+    SEND_SPACING_MAX_MS,
+    SEND_SPACING_MIN_MS,
+)
 from .pronto_validator import validate_pronto
 
 WIG_FORMAT_NAME = "hair-wig"
@@ -173,7 +178,8 @@ def identifier_values(
 
 
 _KNOWN_SIGNAL = {
-    "alias", "pronto", "send_count", "ditto_count", "bypass_protocol",
+    "alias", "pronto", "send_count", "send_spacing_ms", "ditto_count",
+    "bypass_protocol",
 }
 
 _OPTIONAL_TOP_STRINGS = ("brand", "model", "kind", "notes", "origin")
@@ -196,6 +202,15 @@ class WigSignal:
     # 3, 4, 3, 5 and 4 sends are proving THE SAME WIG, and now hash
     # identically so their fittings accumulate on one file.
     send_count: int = 1
+    # Start-to-start spacing between whole-frame repeats, in
+    # milliseconds, when the author had one worth carrying. A RIDE-
+    # ALONG like send_count and OUT of every canonical form: what a
+    # spacing does to the waveform depends on the importing house's
+    # blaster (exact on ESPHome and Broadlink, not deliverable on a
+    # Zigbee bridge), and a canonicalization contract cannot carry a
+    # member whose meaning changes with the reader's hardware. Two
+    # wigs that differ only in spacing therefore dedupe as one.
+    send_spacing_ms: int | None = None
     # Encoder repeat frames appended to each transmitted frame. IN the
     # content hash, always explicit, because dittos change the waveform
     # and the fitting transmits them.
@@ -473,6 +488,26 @@ def parse_wig(text: str) -> WigParseResult:
             # silently change what the signal transmits AND what it
             # hashes to, so a wrong type has to be an error a writer can
             # see, not a value we guess at.
+            # Refused rather than coerced, the same posture send_count
+            # takes: a spacing outside the range is an authoring
+            # mistake, and silently clamping it would transmit a
+            # cadence nobody chose.
+            send_spacing_ms = raw.get("send_spacing_ms")
+            if send_spacing_ms is not None and (
+                not isinstance(send_spacing_ms, int)
+                or isinstance(send_spacing_ms, bool)
+                or not (
+                    SEND_SPACING_MIN_MS
+                    <= send_spacing_ms
+                    <= SEND_SPACING_MAX_MS
+                )
+            ):
+                errors.append(
+                    f"signals[{i}].send_spacing_ms: must be an integer "
+                    f"between {SEND_SPACING_MIN_MS} and "
+                    f"{SEND_SPACING_MAX_MS} when present"
+                )
+                send_spacing_ms = None
             bypass = raw.get("bypass_protocol", False)
             if not isinstance(bypass, bool):
                 errors.append(
@@ -502,6 +537,7 @@ def parse_wig(text: str) -> WigParseResult:
                 # Clamp on materialize per plan; parse stores the clamp
                 # so every consumer sees one truth.
                 send_count=max(1, min(send_count, MAX_SEND_COUNT)),
+                send_spacing_ms=send_spacing_ms,
                 ditto_count=max(0, min(ditto_count, MAX_DITTO_COUNT)),
                 bypass_protocol=bypass,
                 extra={k: v for k, v in raw.items() if k not in _KNOWN_SIGNAL},
@@ -812,6 +848,8 @@ def _signal_out(sig: WigSignal) -> dict:
     out: dict = {"alias": sig.alias, "pronto": sig.pronto}
     if sig.send_count != 1:
         out["send_count"] = sig.send_count
+    if sig.send_spacing_ms is not None:
+        out["send_spacing_ms"] = sig.send_spacing_ms
     out["ditto_count"] = sig.ditto_count
     out["bypass_protocol"] = sig.bypass_protocol
     out.update(sig.extra)

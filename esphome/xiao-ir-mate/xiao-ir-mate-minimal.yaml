@@ -81,7 +81,7 @@ remote_receiver:
     inverted: true
   dump: all
   tolerance: 25%
-  idle: 10ms
+  idle: 100ms
 
   # Legacy HAIR bridge (pre-2026.6). No longer needed on HA 2026.6+.
   # on_pronto:

@@ -476,6 +476,10 @@ class TestTheVerdictRidesTheCarriageDataclasses:
         sig = SimpleNamespace(
             alias="State", send_count=1, ditto_count=0,
             bypass_protocol=False,
+            # Adopt carries a wig's spacing across, so this stand-in
+            # needs the field a real WigSignal has (send spacing,
+            # GH #151). None is what an old wig says.
+            send_spacing_ms=None,
         )
         command = _command_from_wig_signal(sig, ident, set(), {}, 1)
         assert command.decode_covers is False

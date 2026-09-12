@@ -1912,6 +1912,8 @@ export class IrDeviceDetail extends LitElement {
                               ""}
                           .initialAlias=${this._editCommand.name}
                           .initialSendCount=${this._editCommand.send_count ?? 1}
+                          .initialSendSpacingMs=${this._editCommand
+                              .send_spacing_ms ?? null}
                           .initialDitto=${this._editCommand.repeat_count ?? 1}
                           .initialTxForceRaw=${this._editCommand.tx_force_raw ?? false}
                           .initialDecodedProtocol=${this._editCommand

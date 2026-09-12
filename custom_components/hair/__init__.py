@@ -140,6 +140,14 @@ async def async_setup_entry(
         "config_entry": entry,
     }
 
+    # An emitter's platform decides whether a spaced row's repeats can
+    # go out as one bundled list (send_plan). The answer is cached per
+    # entity id and dropped whenever the registry moves, because a
+    # rename or a re-add can put a different integration behind the
+    # same id.
+    from .send_plan import register_platform_cache_invalidation
+
+    entry.async_on_unload(register_platform_cache_invalidation(hass))
 
     async_register_websocket_commands(hass)
 
@@ -280,6 +288,14 @@ async def async_unload_entry(
         except Exception:
             _LOGGER.debug("Panel %s already removed", PANEL_URL)
         hass.data[DOMAIN].pop("_panel_registered", None)
+
+    # The emitter-platform cache is per entity id and outlives no entry:
+    # a reload can repoint an emitter at a different integration, and a
+    # stale "esphome" would bundle a burst at a blaster that cannot take
+    # one (send_plan).
+    from .send_plan import clear_platform_cache
+
+    clear_platform_cache(hass)
 
     return True
 

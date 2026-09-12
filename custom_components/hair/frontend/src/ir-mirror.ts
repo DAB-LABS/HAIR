@@ -1020,6 +1020,7 @@ export class IrMirror extends LitElement {
                             : ""}
                         <ir-tx-knobs
                             .sendCount=${sendCount}
+                            .spacingMs=${sig.send_spacing_ms ?? null}
                             .repeatCount=${repeatCount}
                             .decoded=${!!sig.decoded_protocol}
                             .sendsKey=${"mirror.sends_times"}
@@ -1251,6 +1252,8 @@ export class IrMirror extends LitElement {
                           ""}
                       .initialAlias=${this._editSignal.alias ?? ""}
                       .initialSendCount=${this._editSignal.send_count ?? 1}
+                      .initialSendSpacingMs=${this._editSignal
+                          .send_spacing_ms ?? null}
                       .initialDitto=${this._editSignal.repeat_count ?? 1}
                       .initialObservedRepeatCount=${this._editSignal
                           .observed_repeat_count ?? 0}

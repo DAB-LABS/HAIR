@@ -20,10 +20,54 @@ DEFAULT_CARRIER_FREQUENCY = 38000
 DEFAULT_REPEAT_COUNT = 1
 # Whole-frame "send N times" for a device command. Orthogonal to the NEC
 # ditto repeat_count above: this loops the entire built frame, protocol-
-# agnostically. 1 = transmit once (default). MAX_SEND_COUNT caps the value;
-# SEND_REPEAT_GAP is the inter-frame pause in seconds between whole-frame sends.
+# agnostically. 1 = transmit once (default). MAX_SEND_COUNT caps the value.
+#
+# SEND_REPEAT_GAP paces OLD ROWS ONLY -- a row with no stored
+# send_spacing_ms, which is every row until somebody saves it. Those take
+# the frame-outer loop they always took, and this is the sleep between
+# frames. It is NOT what sets the spacing a receiver sees: the measured
+# start-to-start is the block plus the 50ms terminator plus about 60ms of
+# pipeline, and this sleep sits inside that (bench 2026-09-08). A row that
+# carries a spacing value builds its repeats into ONE timing list instead,
+# and the only place this constant still applies to such a row is the
+# incapable-emitter branch of its plan (send_plan.py), where a bundle
+# cannot be delivered and the frames go out one at a time exactly as they
+# do today.
 MAX_SEND_COUNT = 10
 SEND_REPEAT_GAP = 0.1
+
+# --- Send spacing (bundled whole-frame repeats) -----------------------------
+# Bounds for a row's stored ``send_spacing_ms``, start-to-start over the
+# stripped block. Validated in ONE place (the websocket save doors and the
+# wig reader); the editor reads them off the payload rather than hardcoding.
+SEND_SPACING_MIN_MS = 20
+SEND_SPACING_MAX_MS = 1000
+# Floor for the silence inserted between blocks. A spacing shorter than the
+# block itself cannot be honoured -- the code is simply longer than the
+# number -- so the blocks go out back to back separated by this much and
+# the editor says so.
+SEND_SILENCE_FLOOR_US = 10_000
+# Ceiling on the REAL air time of one send: count x block + (count - 1) x
+# silence. Ditto frames live inside the block, so this sees them, which is
+# what keeps a 20-ditto row at 10 sends from becoming a 21 second burst.
+SEND_AIR_TIME_MAX_MS = 3000
+# Measured pipeline overhead between whole-frame sends on the old path
+# (HA call, API, emitter queue): the mean of the bench residual, which
+# spans roughly -25 to +120ms per gap. Good enough to LABEL an estimate,
+# never good enough to hit a target with a sleep -- so this is used by the
+# editor's estimate and by mint, and never in the send path.
+PIPELINE_MS = 60
+# Per-platform ceilings on one bundled call. ESPHome takes a raw timing
+# list over its protobuf API and is bounded by entry count; Broadlink is
+# bounded by packet BYTES, not by any per-value limit (its per-value
+# ceiling is about 2.0s, far above SEND_SPACING_MAX_MS).
+SINGLE_LIST_MAX_ENTRIES = 2000
+BROADLINK_MAX_PACKET_BYTES = 1500  # provisional, to be set by bench B4
+# Slack added to every echo window on top of the send's own planned air
+# time, so a burst whose last frame arrives late still lands inside its
+# ticket's life. Covers the measured per-gap residual (roughly -25 to
+# +120ms) with room for a slow emitter queue.
+MIRROR_ECHO_MARGIN_S = 0.5
 
 # Garbled-echo swallow (shampoo, owner design 2026-07-18). When HAIR's
 # own send comes back damaged -- merged tail, truncated head, shard --
@@ -42,9 +86,16 @@ ECHO_GARBLE_SIMILARITY = 0.35
 # marks and spaces at any receiver in range of both; the hybrid arrives
 # as a valid pulse train that decodes as nothing, fails the echo claim,
 # and mints a junk Sniffer row (owner bench 2026-07-18: dual-emitter
-# test of a SAMSUNG32 signal). Enforced by tx_gate.gated_send. Measured
-# from the previous send's service ack, so it also absorbs the blaster's
-# own post-ack transmit time. Same-emitter pacing (SEND_REPEAT_GAP)
+# test of a SAMSUNG32 signal). Enforced by tx_gate.gated_send, measured
+# from the previous send's service ack.
+#
+# MINIMUM, not the whole answer. The ack says the blaster accepted the
+# bytes, not that it finished radiating them, so this figure is only an
+# allowance for an ordinary frame's post-ack transmit time. A send that
+# knows its own PLANNED air time hands it to the gate, which holds for
+# max(this, that) instead -- a bundled burst keeps the air for over a
+# second and this constant alone would let the next emitter talk over
+# its tail (send spacing, GH #151). Same-emitter pacing (SEND_REPEAT_GAP)
 # is untouched -- devices queue their own back-to-back sends.
 EMITTER_STAGGER_GAP_S = 0.3
 

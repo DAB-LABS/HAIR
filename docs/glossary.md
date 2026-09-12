@@ -203,6 +203,19 @@ between each. Useful for devices that need waking up before they listen, or
 that expect two presses. This is separate from ditto count and applies to any
 signal.
 
+**Spacing.** The gap between those repeated sends, in milliseconds, measured
+from the start of one to the start of the next. It appears in the editor as
+soon as send times is above 1, opening on what the code is spaced at today.
+Exact on ESPHome and Broadlink emitters; approximate elsewhere, and the
+editor says which. Rows saved before it existed keep transmitting as they
+always did until they are opened and saved.
+
+**Hidden.** A remote in the Sniffer you have put out of the way with the eye
+at the bottom-right corner of its row. It keeps a "hidden" badge, comes back
+with Show hidden, and the open eye restores it. Hiding is not deleting: a
+deleted remote returns the next time a receiver hears it, a hidden one stays
+hidden.
+
 **Preset star.** The star on every command row of an air-conditioner Device.
 Starred commands become presets on the thermostat card in Home Assistant,
 named after the command. It works for learned commands and for states saved
