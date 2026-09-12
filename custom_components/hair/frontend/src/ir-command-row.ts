@@ -422,6 +422,8 @@ export class IrCommandRow extends LitElement {
                             ${learned && this.command
                                 ? html`<ir-tx-knobs
                                       .sendCount=${this.command.send_count}
+                                      .spacingMs=${this.command
+                                          .send_spacing_ms ?? null}
                                       .repeatCount=${this.command.repeat_count}
                                       .decoded=${!!this.command
                                           .decoded_protocol &&

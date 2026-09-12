@@ -256,13 +256,17 @@ class TestExportAdoptRoundTrip:
         sig = SimpleNamespace(
             alias="Power", send_count=1, ditto_count=0,
             bypass_protocol=True,
+            # Adopt carries a wig's spacing across, so this stand-in has
+            # to carry the field a real WigSignal has (send spacing,
+            # GH #151). None is what an old wig says.
+            send_spacing_ms=None,
         )
         command = _command_from_wig_signal(sig, ident, set(), {}, 1)
         assert command.tx_force_raw is True
 
         sig_plain = SimpleNamespace(
             alias="Mode", send_count=1, ditto_count=0,
-            bypass_protocol=False,
+            bypass_protocol=False, send_spacing_ms=None,
         )
         plain = _command_from_wig_signal(sig_plain, ident, set(), {}, 2)
         assert plain.tx_force_raw is False

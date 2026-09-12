@@ -93,8 +93,8 @@ function fmtTime(iso: string): string {
 const ICON_CLIPPER =
     "M12.462,10.448c-0.639-0.639-1.678-0.639-2.317,0c-0.639,0.639-0.639,1.678,0,2.317l1.09,1.09c0.319,0.319,0.739,0.479,1.159,0.479c0.42,0,0.839-0.16,1.159-0.479c0-0,0-0,0-0c0.639-0.639,0.639-1.678,0-2.317L12.462,10.448z M12.763,13.066c-0.204,0.204-0.535,0.204-0.739,0l-1.09-1.09c-0.204-0.204-0.204-0.535,0-0.739c0.102-0.102,0.236-0.153,0.369-0.153c0.134,0,0.267,0.051,0.369,0.153l1.09,1.09C12.966,12.531,12.966,12.863,12.763,13.066z M23.998,6.609l-0.104-1.419c-0.02-0.276-0.24-0.496-0.516-0.516l-0.938-0.068l-0.068-0.938c-0.02-0.276-0.24-0.496-0.516-0.516l-0.938-0.068l-0.069-0.938c-0.02-0.276-0.24-0.496-0.516-0.516l-0.938-0.068l-0.069-0.938c-0.02-0.276-0.24-0.496-0.516-0.516l-1.419-0.103c-0.162-0.012-0.321,0.047-0.435,0.162l-1.993,1.993c-0,0.001-0.001,0.001-0.001,0.001c-0.097,0.097-0.191,0.197-0.282,0.298c-1.933,2.042-12.871,13.598-13.716,14.551c-0.722,0.814-0.712,1.983,0.023,2.717l0.341,0.341L0.539,20.852c-0.719,0.719-0.719,1.889,0,2.609c0.36,0.36,0.832,0.539,1.304,0.539c0.472,0,0.945-0.18,1.304-0.539l0.787-0.787l0.341,0.341c0.735,0.735,1.903,0.745,2.717,0.023c0.953-0.845,12.509-11.783,14.551-13.716c0.102-0.091,0.201-0.186,0.299-0.283c0.001-0.001,0.001-0.001,0.001-0.002l1.992-1.992C23.951,6.93,24.01,6.771,23.998,6.609z M20.61,4.179l0.684,0.05l0.05,0.684l-1.418,1.418l-0.733-0.734L20.61,4.179z M19.087,2.656l0.684,0.05l0.05,0.684L18.403,4.807L17.67,4.074L19.087,2.656z M17.564,1.133l0.684,0.05l0.05,0.684l-1.418,1.418l-0.733-0.733L17.564,1.133z M2.359,22.671c-0.284,0.284-0.746,0.284-1.03,0c-0.284-0.284-0.284-0.746,0-1.03l0.787-0.787l1.03,1.03L2.359,22.671z M6.253,22.202c-0.366,0.324-0.877,0.334-1.188,0.023l-0.735-0.735l-2.555-2.555c-0.311-0.311-0.301-0.822,0.023-1.188c0.633-0.715,7.3-7.769,11.189-11.88c-0.014,0.084-0.026,0.169-0.036,0.253c-0.179,1.482,0.239,2.815,1.176,3.752c0.937,0.937,2.27,1.355,3.752,1.176c0.084-0.01,0.169-0.022,0.253-0.036C14.022,14.901,6.968,21.568,6.253,22.202z M14.917,9.083c-0.69-0.69-0.994-1.694-0.857-2.829c0.123-1.019,0.585-2.03,1.315-2.897l0.717,0.717l-0.879,0.879c-0.218,0.218-0.218,0.571,0,0.789c0.218,0.218,0.571,0.218,0.789,0l0.879-0.879l0.734,0.734l-0.879,0.879c-0.218,0.218-0.218,0.571,0,0.789c0.218,0.218,0.571,0.218,0.789,0l0.879-0.879l0.734,0.734l-0.879,0.879c-0.218,0.218-0.218,0.571,0,0.789c0.218,0.218,0.571,0.218,0.789,0l0.879-0.879l0.717,0.717C18.756,10.213,16.277,10.443,14.917,9.083z M21.449,7.853l-0.734-0.734l1.418-1.418l0.684,0.05l0.05,0.684L21.449,7.853z";
 // mdi:chevron-down / up
-const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
-const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
+const ICON_CLOSE =
+    "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
 // MDI: drag (six-dot grip) -- same handle used by the command reorder.
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
@@ -1241,7 +1241,10 @@ export class IrClips extends LitElement {
         const expanded = this._expandedId === d.id;
         return html`
             <ha-card class="device clip-device">
-                <div class="device-row" @click=${() => this._toggleExpand(d.id)}>
+                <div
+                    class="device-row ${expanded ? "row-expanded" : ""}"
+                    @click=${() => this._toggleExpand(d.id)}
+                >
                     <div class="device-info">
                         <div class="device-header">
                             ${this._editingDeviceId === d.id
@@ -1285,8 +1288,27 @@ export class IrClips extends LitElement {
                             color="green"
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
+                    </span>
                     <button
-                        class="trash-btn"
+                        class="expand-btn"
+                        title=${expanded ? t("sniffer.collapse") : t("sniffer.expand")}
+                        aria-label=${expanded ? t("sniffer.collapse") : t("sniffer.expand")}
+                        aria-expanded=${expanded ? "true" : "false"}
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._toggleExpand(d.id);
+                        }}
+                    >
+                        <svg
+                            class="chevron ${expanded ? "chevron-open" : ""}"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                        >
+                            <path d="M6 9l6 6 6-6"></path>
+                        </svg>
+                    </button>
+                    <button
+                        class="corner-btn corner-delete"
                         title=${t("clips.delete_remote_title")}
                         aria-label=${t("clips.delete_remote_title")}
                         @click=${(e: Event) => {
@@ -1294,16 +1316,8 @@ export class IrClips extends LitElement {
                             this._openDeleteRemote(d);
                         }}
                     >
-                        <ha-svg-icon
-                            .path=${ICON_TRASH}
-                            .viewBox=${TRASH_VIEWBOX}
-                        ></ha-svg-icon>
+                        <ha-svg-icon .path=${ICON_CLOSE}></ha-svg-icon>
                     </button>
-                    </span>
-                    <ha-svg-icon
-                        class="expand-icon"
-                        .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
-                    ></ha-svg-icon>
                 </div>
 
                 ${expanded && this._expandedDevice
@@ -1377,6 +1391,7 @@ export class IrClips extends LitElement {
                         <ir-tx-knobs
                             slot="trailing"
                             .sendCount=${sig.send_count}
+                            .spacingMs=${sig.send_spacing_ms ?? null}
                             .repeatCount=${sig.repeat_count}
                             .decoded=${!!sig.decoded_protocol}
                             .bypassed=${!!sig.tx_force_raw}
@@ -1498,6 +1513,8 @@ export class IrClips extends LitElement {
                           ""}
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                      .initialSendSpacingMs=${this._editSignal.signal
+                          .send_spacing_ms ?? null}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
                       .initialTxForceRaw=${!!this._editSignal.signal
                           .tx_force_raw}
@@ -1943,10 +1960,12 @@ export class IrClips extends LitElement {
         }
         .device.clip-device {
             border: 1px solid rgba(184, 115, 51, 0.3);
-            /* Clip the row's rectangular hover highlight to the card's
-               rounded corners so its square corners do not poke out over
-               the border stroke. */
-            overflow: hidden;
+            /* The row clips its own hover highlight now (see the
+               border-radius rule on .device-row); the card stopped
+               clipping so the corner delete can sit on its edge without
+               a big-radius theme eating the button (remote-header
+               redesign, extended to this tab 2026-09-12). */
+            overflow: visible;
         }
         .device.dismissed {
             opacity: 0.6;
@@ -1957,9 +1976,29 @@ export class IrClips extends LitElement {
             padding: 12px 16px;
             cursor: pointer;
             gap: 12px;
+            /* The corner delete anchors to the header row (remote-header
+               redesign, 2026-09-12); two 24px corner boxes at a 4px inset
+               need 56px of row. */
+            position: relative;
+            box-sizing: border-box;
+            min-height: 56px;
             /* Three header actions now (2026-07-29 footer merge): let the
                row wrap on narrow viewports instead of crushing the name. */
             flex-wrap: wrap;
+        }
+        .device-row {
+            /* NOT border-radius: inherit. The card is an ha-card and the
+               row is slotted content: inherit reads the slot's radius,
+               which is zero, so the hover and flash backgrounds drew
+               square corners past the card's round ones once the card
+               stopped clipping (owner bench 2026-09-12). Follow the
+               card's own token instead, one pixel tighter so the row
+               nests inside the card's 1px border. */
+            border-radius: calc(var(--ha-card-border-radius, 12px) - 1px);
+        }
+        .device-row.row-expanded {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
         }
         .device-row:hover {
             background: var(--secondary-background-color);
@@ -2076,10 +2115,90 @@ export class IrClips extends LitElement {
         .action-btn.adopt-btn:hover:not(:disabled) {
             background: rgba(76, 175, 80, 0.08);
         }
-        .expand-icon {
-            --mdc-icon-size: 24px;
-            color: var(--secondary-text-color);
+        .expand-btn {
+            /* Bare chevron (owner, 2026-09-12, after the first visual
+               pass): no circle, no ring, no hover wash. The weight comes
+               from a stroked path instead of the filled MDI glyph, so
+               it reads as a deliberate control rather than a thin mark
+               at the row's edge. The three custom properties are the
+               live tuning knobs; edit them in the inspector and report
+               the numbers back. */
+            --hair-chevron-size: 32px;
+            --hair-chevron-glyph: 22px;
+            --hair-chevron-weight: 2.5;
+            width: var(--hair-chevron-size);
+            height: var(--hair-chevron-size);
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: 0;
+            background: none;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            transition: color 150ms ease;
+            /* Room between the chevron and the corner controls: 24px
+               puts the chevron's right edge 10px clear of the corner
+               button's left edge (owner, second visual pass
+               2026-09-12: chevron and corner controls read as one
+               tighter group). */
+            margin-right: 24px;
+            /* And between USE and the chevron: the row's own gap is
+               12px; this brings it to 20, so USE sits clear of the
+               chevron even when its linked-count dot is showing. */
+            margin-left: 8px;
+        }
+        .expand-btn .chevron {
+            width: var(--hair-chevron-glyph);
+            height: var(--hair-chevron-glyph);
+            fill: none;
+            stroke: currentColor;
+            stroke-width: var(--hair-chevron-weight);
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: transform 150ms ease;
+        }
+        .expand-btn .chevron-open {
+            transform: rotate(180deg);
+        }
+        .expand-btn:hover {
+            color: var(--primary-text-color);
+        }
+        .corner-btn {
+            position: absolute;
+            right: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 3px;
+            border: none;
+            border-radius: 4px;
+            background: none;
+            cursor: pointer;
+            color: var(--disabled-text-color, #999);
+            opacity: 0.08;
+            transition: background 150ms ease, color 150ms ease,
+                opacity 150ms ease;
+            z-index: 2;
+        }
+        .corner-delete {
+            top: 4px;
+        }
+        .device-row:hover .corner-btn {
+            opacity: 0.5;
+        }
+        .corner-delete:hover {
+            opacity: 1;
+            background: rgba(230, 81, 0, 0.2);
+            color: #e65100;
+        }
+        @media (hover: none) {
+            .corner-btn {
+                opacity: 0.5;
+            }
         }
 
         .expanded {

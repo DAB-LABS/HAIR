@@ -38,6 +38,7 @@ import type {
     ReverseSupersessionBlock,
     SavePlan,
     SaveResult,
+    SendSpacingInfo,
     SignalRemovedEvent,
     SignalSourceId,
     SignalUpdatedEvent,
@@ -991,6 +992,7 @@ export class HairApi {
         alias?: string;
         send_count?: number;
         repeat_count?: number;
+        send_spacing_ms?: number | null;
     }): Promise<{ signal: UnknownSignal }> {
         return this.hass.connection.sendMessagePromise<{ signal: UnknownSignal }>({
             type: "hair/clip/create-signal",
@@ -1005,6 +1007,7 @@ export class HairApi {
         alias?: string | null;
         send_count?: number;
         repeat_count?: number;
+        send_spacing_ms?: number | null;
     }): Promise<{
         signal: UnknownSignal;
         triggers: { rewired: string[]; skipped: string[] };
@@ -1019,6 +1022,33 @@ export class HairApi {
         return this.hass.connection.sendMessagePromise<ProntoValidation>({
             type: "hair/clip/validate-pronto",
             pronto,
+        });
+    }
+
+    /** Everything the editor needs to render the send-spacing line
+     *  (GH #151). Read-only: computed on request, stored nowhere. The
+     *  editor asks on open, when the send count crosses 1, and when the
+     *  code box's validated code changes. */
+    sendSpacingInfo(payload: {
+        pronto?: string | null;
+        protocol?: string | null;
+        code?: string | null;
+        raw_timings?: number[] | null;
+        frequency?: number | null;
+        decoded_protocol?: string | null;
+        decoded_address?: number | null;
+        decoded_command?: number | null;
+        decoded_fingerprint?: string | null;
+        decode_covers?: boolean | null;
+        tx_force_raw?: boolean;
+        send_count?: number;
+        repeat_count?: number;
+        send_spacing_ms?: number | null;
+        device_id?: string | null;
+    }): Promise<SendSpacingInfo> {
+        return this.hass.connection.sendMessagePromise<SendSpacingInfo>({
+            type: "hair/send_spacing_info",
+            ...payload,
         });
     }
 
@@ -1039,6 +1069,7 @@ export class HairApi {
         pronto?: string;
         send_count?: number;
         repeat_count?: number;
+        send_spacing_ms?: number | null;
     }): Promise<{
         command: IRCommand;
         triggers: { rewired: string[]; skipped: string[] };

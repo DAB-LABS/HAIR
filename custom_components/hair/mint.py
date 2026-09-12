@@ -22,9 +22,12 @@ canonically, which is what a row with no decode has always done.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .models import CommandCategory, CommandSource, IRCommand
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _knob(explicit: Any, fallback: Any, floor: int) -> int:
@@ -51,6 +54,8 @@ def mint_command(
     raw_timings: list[int] | None = None,
     frequency: int | None = None,
     send_count: int | None = None,
+    send_spacing_ms: int | None = None,
+    estimate_spacing: bool = True,
     repeat_count: int | None = None,
     tx_force_raw: bool = False,
     identity: Any = None,
@@ -91,7 +96,69 @@ def mint_command(
     apply_identity(command, identity)
     if byte_hash is not None:
         command.byte_hash = byte_hash
+    _apply_send_spacing(command, send_spacing_ms, estimate_spacing)
     return command
+
+
+def _apply_send_spacing(
+    command: IRCommand,
+    send_spacing_ms: int | None,
+    estimate_spacing: bool,
+) -> None:
+    """Decide the row's whole-frame spacing, once, at the one door.
+
+    A caller that KNOWS the value passes it and it is stored as given;
+    the websocket doors validate before they get here. A caller that
+    passes None gets the estimate of what this code does on the air
+    today, so a row minted with send times above 1 lands where an old
+    row lands -- exactly, instead of by accident (GH #151).
+
+    Three rows never get an estimate. A row that sends once has nothing
+    to space. A matrix porthole points at a lattice cell, and cells
+    carry no spacing at all. And a row whose estimate would put its own
+    burst over the air-time cap stays old-style rather than being born
+    holding a value its editor would refuse to save.
+
+    Called AFTER apply_identity: the estimate is measured on the block
+    the send path will build, and for a decoded row that block does not
+    exist until the decoded fields are stamped.
+    """
+    if send_spacing_ms is not None:
+        command.send_spacing_ms = int(send_spacing_ms)
+        return
+    command.send_spacing_ms = None
+    if not estimate_spacing:
+        return
+    if command.send_count <= 1 or not command.code:
+        return
+    if command.source == CommandSource.MATRIX:
+        return
+    from .const import SEND_AIR_TIME_MAX_MS
+    from .send_plan import (
+        build_like_send_path,
+        estimate_spacing_ms,
+        realised_air_ms,
+    )
+
+    try:
+        inner = build_like_send_path(command)
+        estimate = estimate_spacing_ms(inner)
+        air_ms = realised_air_ms(inner, command.send_count, estimate)
+    except Exception:
+        # A code that will not build is not this door's problem to
+        # report; it stays an old row and the send path handles it
+        # exactly as it does today.
+        _LOGGER.debug("Send spacing: could not estimate for %s", command.name)
+        return
+    if air_ms > SEND_AIR_TIME_MAX_MS:
+        _LOGGER.debug(
+            "Send spacing: %s sends of a %s ms code is %s ms of air, over "
+            "the %s ms cap; leaving %s without a spacing",
+            command.send_count, estimate, air_ms, SEND_AIR_TIME_MAX_MS,
+            command.name,
+        )
+        return
+    command.send_spacing_ms = estimate
 
 
 def apply_identity(command: IRCommand, identity: Any) -> None:

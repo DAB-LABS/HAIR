@@ -53,6 +53,7 @@ from .const import (
     MAX_SEND_COUNT,
     MIRROR_DEVICE_FP,
     MIRROR_DEVICE_LABEL,
+    MIRROR_ECHO_MARGIN_S,
     MIRROR_ECHO_TTL_S,
     MIRROR_OWN_BEACON_WINDOW_S,
     MIRROR_UNKNOWN_SEND_FP_PREFIX,
@@ -266,6 +267,8 @@ def _apply_signal_provenance(
     *,
     send_count: int | None = None,
     repeat_count: int | None = None,
+    send_spacing_ms: int | None = None,
+    set_send_spacing: bool = False,
 ) -> None:
     """Carry identity from an UnknownSignal onto a newly-assigned IRCommand.
 
@@ -309,6 +312,17 @@ def _apply_signal_provenance(
         command.send_count = max(1, send_count)
     else:
         command.send_count = max(1, signal.send_count or 1)
+    # The spacing rides across with the count it belongs to. A signal
+    # with no value hands the command no value, and the command stays
+    # an old row until somebody saves it (GH #151).
+    #
+    # ``set_send_spacing`` is what tells a payload that OMITTED the
+    # field from one that sent null: only the second clears the value
+    # the signal carried. send_count's Optional sentinel cannot do that
+    # job here, because None is also a legitimate stored value.
+    command.send_spacing_ms = (
+        send_spacing_ms if set_send_spacing else signal.send_spacing_ms
+    )
     # The raw pin is a user decision on the catalog signal, and this is
     # the only place it crosses onto a command (Highlights, GH #78).
     command.tx_force_raw = signal.tx_force_raw
@@ -402,6 +416,10 @@ def _mint_plucked_signal(
         source="plucked",
         alias=(alias or "").strip(),
         plucked_command_name=command_name,
+        # No send_spacing_ms: a vendor's learned store records bytes and
+        # nothing about how often to repeat them, so there is no source
+        # value to carry. The row is old-style until somebody saves it,
+        # which is what R4 says for a source that has none (GH #151).
     )
 
 
@@ -932,6 +950,8 @@ class SignalMonitor:
         heard_future: asyncio.Future[str | None] | None = None,
         send_count: int | None = None,
         repeat_count: int | None = None,
+        air_s: float = 0.0,
+        burst: tuple[int, int] | None = None,
     ) -> None:
         """Log an outgoing HAIR transmission on the Mirror, send-time.
 
@@ -948,6 +968,13 @@ class SignalMonitor:
         entity_id (or None when unknown) the moment a capture claims
         this send's echo -- the fitting flow's live "heard back" fact.
         It is never resolved on silence; the caller owns the timeout.
+
+        ``air_s`` is how long the send will occupy the air, and
+        ``burst`` is ``(count, silence_us)`` when the send goes out as
+        one bundled list (send spacing, GH #151). Both size the echo
+        ticket: a window that closes while the burst is still radiating
+        turns HAIR's own last frame into a handset press, and a ticket
+        that expects one frame cannot recognise a capture of ten.
         """
         try:
             n = normalize_command(command)
@@ -964,6 +991,29 @@ class SignalMonitor:
             self._own_send_marks[entity_id] = now
 
         row_key = decoded_fp or n.sig_fp
+        # How much longer than a bare frame this send keeps the air, and
+        # how many echoes of it one receiver may legitimately hear.
+        # send_count is Optional in this signature (callers that do not
+        # care omit it), so it is never read raw.
+        extra_window_s = max(0.0, float(air_s or 0.0)) + MIRROR_ECHO_MARGIN_S
+        claim_budget = max(1, int(send_count or 1))
+        # A bundled burst reaches a receiver as ONE long capture, so the
+        # ticket carries that shape beside the single frame's. Computed
+        # once here rather than per arriving capture; a failure costs
+        # only the extra shape, never the send.
+        burst_n: NormalizedSignal | None = None
+        if burst is not None and burst[0] > 1:
+            try:
+                from .ir_command import RepeatedCommand
+
+                burst_n = normalize_command(
+                    RepeatedCommand(command, burst[0], burst[1])
+                )
+            except Exception:  # audit bookkeeping, never the send
+                _LOGGER.debug(
+                    "Mirror: could not shape the burst for %s", source_label
+                )
+                burst_n = None
         self._hass.async_create_task(
             self._mirror_upsert(
                 n,
@@ -1012,7 +1062,15 @@ class SignalMonitor:
             # identity the ticket held, and only this closes it.
             "norm_fp": n.norm_fp,
             "row_key": row_key,
-            "expires": now + MIRROR_ECHO_TTL_S,
+            # WIDENED BY THE SEND'S OWN LENGTH (send spacing, GH #151).
+            # The TTL was written when every send was a frame or two and
+            # the whole thing was over in a fraction of a second. A
+            # bundled burst can occupy the air for well over a second,
+            # so a fixed window closes partway through one and the last
+            # frames come back as a stranger's press. The margin on top
+            # covers the emitter queue's own lateness.
+            "extra_window_s": extra_window_s,
+            "expires": now + MIRROR_ECHO_TTL_S + extra_window_s,
             # The transmitted frame's S/L pattern, for the garbled-echo
             # swallow: a damaged echo misses both identity claims, but
             # its shape still resembles what we just sent. Lives a bit
@@ -1020,7 +1078,22 @@ class SignalMonitor:
             # a queued Broadlink can blast later than the echo TTL, and
             # the bench proved it).
             "sl": EventParser._pronto_sl_pattern(n.code),
-            "garble_expires": now + MIRROR_OWN_BEACON_WINDOW_S,
+            "garble_expires": (
+                now + MIRROR_OWN_BEACON_WINDOW_S + extra_window_s
+            ),
+            # The shape of the bundled list, when there is one: the
+            # whole burst arrives at a receiver as ONE long capture, so
+            # the ticket has to know that shape as well as the single
+            # frame's. ``(count, silence_us)``; None on the old path.
+            "burst": burst,
+            "burst_sl": (
+                EventParser._pronto_sl_pattern(burst_n.code)
+                if burst_n is not None else None
+            ),
+            "burst_sig_fp": burst_n.sig_fp if burst_n is not None else None,
+            # How many pulses one frame is, so a claim can tell a single
+            # frame's echo from one capture of the whole burst.
+            "frame_entries": len(n.raw_timings),
             "cancel": None,
             "heard_future": heard_future,
             # SINGLE-USE TICKET (signpost 4, Track 3, owner-ruled
@@ -1043,7 +1116,19 @@ class SignalMonitor:
             # nobody spends -- emitter aimed away, receiver in another
             # room -- must still die on the clock, or it sits armed and
             # eats a real press an hour later.
-            "claimed_by": set(),
+            # A BUDGET, not a single use. One send of eight frames is
+            # heard as up to eight captures at one receiver, and a
+            # ticket good for one of them left the other seven to be
+            # read as genuine presses. The budget is the send count, so
+            # a receiver can spend exactly as many claims as HAIR
+            # actually put in the air and no more. Per receiver, so two
+            # receivers hearing the same burst each spend their own and
+            # the Mirror's heard_by stays complete.
+            "claim_budget": claim_budget,
+            "claims_left": {},
+            # The garbled-echo swallow's own per-receiver allowance,
+            # the same size as the clean budget and spent separately.
+            "garble_left": {},
             # BEACON ANCHOR (Track 3a, owner-ruled 2026-08-18 after the
             # bench runaway). A ticket is NOT live when it is minted.
             # It becomes live only when IR has actually left an
@@ -1090,7 +1175,14 @@ class SignalMonitor:
         if exp.get("armed_at") is not None:
             return
         exp["armed_at"] = now
-        exp["guard_until"] = now + PINNED_ECHO_GUARD_S
+        # The guard is measured from ARMING, not from minting, so the
+        # send's own length has to be added here rather than in
+        # record_send: this is the only place that knows when the IR
+        # actually left. A hand-built expectation without the key gets
+        # the old fixed guard (send spacing, GH #151).
+        exp["guard_until"] = (
+            now + PINNED_ECHO_GUARD_S + float(exp.get("extra_window_s") or 0.0)
+        )
 
     def _arm_expectations_for(self, entity_id: str, now: float) -> None:
         """Arm every ticket waiting on this emitter's beacon."""
@@ -1228,28 +1320,65 @@ class SignalMonitor:
                     and n.norm_fp == exp.get("norm_fp")
                 )
             )
+            # THE BURST SHAPE (send spacing, GH #151). A bundled send is
+            # one long transmission, and a receiver that hears the whole
+            # thing hands back one capture of the whole thing. Usually
+            # that still carries the frame's identity, because a Pronto
+            # identity stops at the end-of-signal gap and the first gap
+            # in a burst IS the spacing -- but a spacing short enough to
+            # fall under that threshold runs the frames together into
+            # one longer identity, and only the burst's own fingerprint
+            # recognises that.
+            if not matched and n.sig_fp == exp.get("burst_sig_fp"):
+                matched = True
             if not matched:
                 continue
+            # HOW MUCH OF THE BURST THIS CAPTURE IS, in frames. A
+            # receiver merges what arrives inside its own idle window,
+            # and at a short spacing that is rarely all or nothing: the
+            # bench delivered a four-send burst as one frame, then two
+            # merged, then one, then a truncated fragment. Reading the
+            # merge as "the whole burst" spent all four claims on the
+            # second capture and left the last two unprotected, which is
+            # the defect QA found on VM999 (2026-09-12). So the capture
+            # pays for what it actually carries, in units of the single
+            # frame's pulse count, and a capture at or above the burst's
+            # own length still pays for everything.
+            frames_heard = 1
+            if exp.get("burst") is not None:
+                # Seam-aware, because a merge of k frames is k blocks
+                # AND k-1 silences: k * (frame + 1) - 1 pulses. Dividing
+                # by the bare frame length would round a three-frame
+                # merge of a short code up to four.
+                frame_entries = max(1, int(exp.get("frame_entries") or 1))
+                frames_heard = max(
+                    1,
+                    round((len(n.raw_timings) + 1) / (frame_entries + 1)),
+                )
             # Remember the first armed, identity-matching ticket still
             # inside its guard window, in case every ticket turns out
             # to be spent for this receiver.
             if guard_hit is None and now < exp.get("guard_until", 0.0):
                 guard_hit = exp
-            # Single use, per receiver (Track 3). A ticket this receiver
-            # has already spent cannot claim again; the loop falls
-            # through to any other live ticket, which is what lets a
-            # fan-out's second device send claim this receiver's second
-            # echo.
+            # A BUDGET, per receiver (Track 3, widened for GH #151). A
+            # receiver may claim this ticket as many times as HAIR put
+            # frames in the air, and no more; once its budget is spent
+            # the loop falls through to any other live ticket, which is
+            # what lets a fan-out's second device send claim this
+            # receiver's second echo.
             #
             # setdefault, not direct access: record_send is the only
-            # production creator and always sets the key, but the
+            # production creator and always sets the keys, but the
             # Mirror suite hand-builds expectations to exercise this
             # loop, and an echo guard is the wrong place to be brittle
-            # about the shape of its own input.
-            claimed = exp.setdefault("claimed_by", set())
-            if receiver_entity_id in claimed:
+            # about the shape of its own input. A hand-built ticket
+            # gets a budget of 1, which is exactly what it used to have.
+            claims = exp.setdefault("claims_left", {})
+            budget = max(1, int(exp.get("claim_budget") or 1))
+            left = claims.setdefault(receiver_entity_id, budget)
+            if left <= 0:
                 continue
-            claimed.add(receiver_entity_id)
+            claims[receiver_entity_id] = left - min(left, frames_heard)
             self._resolve_heard(exp, receiver_entity_id)
             await self._mirror_mark_heard(exp["row_key"], receiver_entity_id)
             return True
@@ -1323,14 +1452,35 @@ class SignalMonitor:
                     # clean-claim loop above.
                     if exp.get("armed_at") is None:
                         continue
-                    # The swallow spends the same ticket a clean claim
-                    # would (Track 3): a mangled echo and a clean one
-                    # are both this send coming back, so they must not
-                    # each get a free pass off one expectation.
-                    claimed = exp.setdefault("claimed_by", set())
-                    if receiver_entity_id in claimed:
+                    # ITS OWN ALLOWANCE, not the clean budget (QA on
+                    # VM999, 2026-09-12). A garbled echo and a clean one
+                    # are both this send coming back, but they are not
+                    # interchangeable: the frames a receiver merged are
+                    # counted against the clean budget, and a truncated
+                    # fragment of the same burst arrives AFTER that
+                    # budget is gone. Sharing one counter meant the
+                    # fragment fell through to the Sniffer and minted a
+                    # junk row, which is exactly what the swallow
+                    # exists to prevent. Same size, same per-receiver
+                    # shape, bounded by the same garble window.
+                    garble = exp.setdefault("garble_left", {})
+                    budget = max(1, int(exp.get("claim_budget") or 1))
+                    left = garble.setdefault(receiver_entity_id, budget)
+                    if left <= 0:
                         continue
+                    # Tried against the burst shape too, and the LONGER
+                    # shape is the haystack: the ratio normalizes by the
+                    # needle, so a frame-sized capture measured against a
+                    # burst-sized transmission is the way round that
+                    # scores a mangled frame of a burst correctly.
                     ratio = _sl_fuzzy_substring_ratio(cap_sl, exp_sl)
+                    burst_sl = exp.get("burst_sl")
+                    burst_ratio = (
+                        _sl_fuzzy_substring_ratio(cap_sl, burst_sl)
+                        if burst_sl and len(burst_sl) >= len(cap_sl)
+                        else 1.0
+                    )
+                    ratio = min(ratio, burst_ratio)
                     if ratio <= ECHO_GARBLE_SIMILARITY:
                         _LOGGER.debug(
                             "Mirror: swallowed garbled echo (ratio %.2f)"
@@ -1338,7 +1488,7 @@ class SignalMonitor:
                             ratio,
                             exp["row_key"],
                         )
-                        claimed.add(receiver_entity_id)
+                        garble[receiver_entity_id] = left - 1
                         self._resolve_heard(exp, receiver_entity_id)
                         await self._mirror_mark_heard(
                             exp["row_key"], receiver_entity_id
@@ -2134,6 +2284,8 @@ class SignalMonitor:
         command_category: str,
         send_count: int | None = None,
         repeat_count: int | None = None,
+        send_spacing_ms: int | None = None,
+        set_send_spacing: bool = False,
     ) -> dict[str, Any]:
         """Assign an unknown signal as a named command on a HAIR device.
 
@@ -2183,6 +2335,8 @@ class SignalMonitor:
                 ir_command, signal,
                 send_count=send_count,
                 repeat_count=repeat_count,
+                send_spacing_ms=send_spacing_ms,
+                set_send_spacing=set_send_spacing,
             )
 
             hair_device.add_command(ir_command, placement="top")
@@ -2214,6 +2368,8 @@ class SignalMonitor:
         command_category: str,
         send_count: int | None = None,
         repeat_count: int | None = None,
+        send_spacing_ms: int | None = None,
+        set_send_spacing: bool = False,
     ) -> dict[str, Any]:
         """Create a new HAIR device and assign the signal in one atomic op.
 
@@ -2264,6 +2420,8 @@ class SignalMonitor:
                 ir_command, signal,
                 send_count=send_count,
                 repeat_count=repeat_count,
+                send_spacing_ms=send_spacing_ms,
+                set_send_spacing=set_send_spacing,
             )
 
             # Create device in memory (NOT persisted yet).
@@ -2432,6 +2590,28 @@ class SignalMonitor:
         # with SEND_REPEAT_GAP between so the receiver registers them as
         # distinct presses. send_count defaults to 1.
         send_count = max(1, signal.send_count or 1)
+        # The two-path split, on one emitter (send spacing, GH #151).
+        # A signal with no stored spacing gets no plan and runs the loop
+        # below exactly as it always ran.
+        from .ir_command import TERMINATOR_SPACE_US, block_duration_us
+        from .send_plan import emitter_platform, plan_send, silence_us
+
+        block_us = block_duration_us(ir_cmd.get_raw_timings())
+        plan = plan_send(
+            ir_cmd,
+            send_count,
+            signal.send_spacing_ms,
+            emitter_platform(self._hass, emitter_entity_id),
+        )
+        if plan is None:
+            air_s = (
+                send_count * (block_us + TERMINATOR_SPACE_US) / 1_000_000
+                + (send_count - 1) * SEND_REPEAT_GAP
+            )
+            burst: tuple[int, int] | None = None
+        else:
+            air_s = plan.air_s
+            burst = (send_count, silence_us(block_us, signal.send_spacing_ms))
         # The Mirror (v0.6.6): a catalog test is a send; audit it and arm
         # echo attribution BEFORE transmitting so the emitter's state
         # beacon and the loopback capture both attribute here.
@@ -2450,6 +2630,9 @@ class SignalMonitor:
             # loop bound resolved just above; it never reaches ir_cmd.
             send_count=send_count,
             repeat_count=signal.repeat_count or 0,
+            # How long the air is busy, and the shape it is busy with.
+            air_s=air_s,
+            burst=burst,
         )
         # Route through the transmit gate: the frontend fires one test
         # call per selected emitter concurrently, and without the gate
@@ -2458,19 +2641,48 @@ class SignalMonitor:
         from .ir_command import TerminatedCommand
         from .tx_gate import gated_send
 
-        # GH #98: same bounded trailing terminator as the device
-        # broadcast path -- the wire copy only.
-        ir_cmd = TerminatedCommand(ir_cmd)
         try:
-            for i in range(send_count):
-                if i:
-                    await asyncio.sleep(SEND_REPEAT_GAP)
-                await asyncio.wait_for(
-                    gated_send(
-                        self._hass, emitter_entity_id, ir_cmd, ir_send
-                    ),
-                    timeout=ASSIGN_SERVICE_TIMEOUT_S,
+            if plan is None:
+                # OLD SIGNAL: today's path, line for line. One
+                # terminated frame per call, SEND_REPEAT_GAP between.
+                # GH #98: same bounded trailing terminator as the
+                # device broadcast path -- the wire copy only.
+                wire_cmd = TerminatedCommand(ir_cmd)
+                for i in range(send_count):
+                    if i:
+                        await asyncio.sleep(SEND_REPEAT_GAP)
+                    await asyncio.wait_for(
+                        gated_send(
+                            self._hass, emitter_entity_id, wire_cmd, ir_send
+                        ),
+                        timeout=ASSIGN_SERVICE_TIMEOUT_S,
+                    )
+            else:
+                # NEW SIGNAL: the whole burst in as few calls as the
+                # emitter's cap allows. Only the last chunk is
+                # terminated; the others end on their own seam silence,
+                # which a terminator would clamp away.
+                _LOGGER.debug(
+                    "Test %s via %s: %s, %d call(s), %.3fs of air",
+                    label, emitter_entity_id,
+                    "exact" if plan.exact else "incapable",
+                    plan.chunks, plan.air_s,
                 )
+                for index, call in enumerate(plan.calls):
+                    if index and plan.sleep_s > 0:
+                        await asyncio.sleep(plan.sleep_s)
+                    wire_cmd = (
+                        TerminatedCommand(call.command)
+                        if call.terminate
+                        else call.command
+                    )
+                    await asyncio.wait_for(
+                        gated_send(
+                            self._hass, emitter_entity_id, wire_cmd, ir_send,
+                            air_s=call.air_s,
+                        ),
+                        timeout=ASSIGN_SERVICE_TIMEOUT_S,
+                    )
         except (TimeoutError, asyncio.TimeoutError, asyncio.CancelledError):  # noqa: UP041
             return {"success": False, "code": "send_timeout",
                     "error": "Emitter timed out"}
@@ -2547,6 +2759,7 @@ class SignalMonitor:
         repeat_count: int | None = None,
         send_count: int | None = None,
         tx_force_raw: bool | None = None,
+        send_spacing_ms: int | None = None,
     ) -> dict[str, Any]:
         """Add a manually-pasted Pronto signal to a clipped remote.
 
@@ -2650,6 +2863,10 @@ class SignalMonitor:
                 signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
             if tx_force_raw is not None:
                 signal.tx_force_raw = bool(tx_force_raw)
+            # The door has already validated this against the bounds, the
+            # air-time cap and the install's emitters, and hands over None
+            # for anything that should stay an old row (GH #151).
+            signal.send_spacing_ms = send_spacing_ms
             # New signal goes on top so the just-added clip surfaces.
             device.signals.insert(0, signal)
             # Indexed but never consulted for a paste: the Clipper files
@@ -2937,6 +3154,8 @@ class SignalMonitor:
         alias: str | None = None,
         repeat_count: int | None = None,
         send_count: int | None = None,
+        send_spacing_ms: int | None = None,
+        set_send_spacing: bool = False,
     ) -> dict[str, Any]:
         """Edit a stored signal's Pronto in place, re-evaluated as a capture.
 
@@ -3050,6 +3269,11 @@ class SignalMonitor:
                 signal.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
             if send_count is not None:
                 signal.send_count = max(1, min(int(send_count), MAX_SEND_COUNT))
+            # Only a payload that CARRIED the field touches the spacing:
+            # an editor that never showed the box must not clear a value
+            # somebody set elsewhere (GH #151).
+            if set_send_spacing:
+                signal.send_spacing_ms = send_spacing_ms
             signal.last_seen = datetime.now(UTC).isoformat()
 
             rewire: dict[str, list[str]] = {"rewired": [], "skipped": []}

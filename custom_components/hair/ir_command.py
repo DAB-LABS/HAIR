@@ -103,6 +103,92 @@ class TerminatedCommand(Command):
         return getattr(self._inner, name)
 
 
+def stripped_block(timings: list[int]) -> list[int]:
+    """A copy of ``timings`` with any trailing space removed.
+
+    The unit whole-frame spacing is measured over. Most library
+    encoders already end on a mark, but Sharp's ends on a -40ms space
+    of its own, and a block that carried that space would put it
+    INSIDE the gap and land every repeat 40ms early.
+    """
+    out = list(timings)
+    if out and out[-1] < 0:
+        out.pop()
+    return out
+
+
+def block_duration_us(timings: list[int]) -> int:
+    """How long the stripped block occupies the air, in microseconds."""
+    return sum(abs(v) for v in stripped_block(timings))
+
+
+class RepeatedCommand(Command):
+    """Transmit-boundary wrapper bundling whole-frame repeats.
+
+    One timing list carrying ``count`` copies of the inner command's
+    block separated by ``silence_us`` of quiet, so the spacing between
+    frames is what the list says instead of what the scheduler and the
+    emitter queue happen to produce. Only rows that carry a stored
+    ``send_spacing_ms`` are built this way; a row without one takes the
+    frame-per-call loop it always took.
+
+    WRAPPER ORDER, and only one order is right:
+    ``TerminatedCommand(RepeatedCommand(inner))``. The reverse would put
+    a 50ms terminator inside every gap and silently add 50ms to each
+    one. Each copy of the block is stripped before the silence goes in,
+    so an encoder that ends on a space cannot overshoot either.
+
+    Parse-side consumers (identity, triggers, decode, storage) never see
+    this wrapper or the terminator; both live at the transmit boundary,
+    exactly as TerminatedCommand's docstring describes.
+
+    ``trailing_silence`` is for the seam between chunks when a platform
+    cap splits one burst across several calls: the chunk ends on its own
+    gap so the spacing survives the seam. Such a chunk must NOT be
+    wrapped in TerminatedCommand -- _normalize_trailing_space CLAMPS a
+    trailing space over 50ms down to 50ms, which would cut the seam to
+    the terminator. send_plan marks those calls terminate=False and
+    wraps only the last one.
+    """
+
+    def __init__(
+        self,
+        inner: Command,
+        count: int,
+        silence_us: int,
+        trailing_silence: bool = False,
+    ) -> None:
+        # Deliberately no super().__init__, for the reason
+        # TerminatedCommand gives: everything but the timing array
+        # delegates to the inner command.
+        self._inner = inner
+        self._count = max(1, int(count))
+        self._silence_us = max(0, int(silence_us))
+        self._trailing_silence = bool(trailing_silence)
+
+    def get_raw_timings(self) -> list[int]:
+        block = stripped_block(self._inner.get_raw_timings())
+        out = list(block)
+        for _ in range(self._count - 1):
+            out.append(-self._silence_us)
+            out.extend(block)
+        if self._trailing_silence:
+            out.append(-self._silence_us)
+        return out
+
+    @property
+    def planned_air_us(self) -> int:
+        """Microseconds of air this call occupies, silences included."""
+        block_us = block_duration_us(self._inner.get_raw_timings())
+        total = self._count * block_us + (self._count - 1) * self._silence_us
+        if self._trailing_silence:
+            total += self._silence_us
+        return total
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+
 class ProntoCommand(Command):
     """Wrap a Pronto hex string as an infrared_protocols.Command."""
 
@@ -153,15 +239,12 @@ class ProntoCommand(Command):
 
         # SmartIR trailing gap (smartir-trailing-gap.md, 4a): drop a
         # trailing space of any size before it reaches an emitter. This
-        # is safe because (1) a transmitter stops at the end of the
+        # is safe because a transmitter stops at the end of the
         # timings array regardless of what the final value is -- the
         # source formats themselves say a trailing silence is
-        # meaningless on transmit -- and (2) whole-frame send_count
-        # spacing never came from this value; it's produced by
-        # device_manager._async_broadcast's own SEND_REPEAT_GAP sleep
-        # between frames. Left in place, this same value is a captured
-        # Broadlink RM's ~102ms learning-mode timeout, which 16-bit
-        # emitters (Tuya/ZoSung) reject outright (GH #93). A trailing
+        # meaningless on transmit. Left in place, this same value is a
+        # captured Broadlink RM's ~102ms learning-mode timeout, which
+        # 16-bit emitters (Tuya/ZoSung) reject outright (GH #93). A trailing
         # MARK is left untouched -- that would be a malformed code, a
         # different problem for the comb, not this strip. The transmit
         # boundary re-adds a BOUNDED trailing space after this strip

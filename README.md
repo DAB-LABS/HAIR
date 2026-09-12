@@ -88,7 +88,7 @@ To capture a remote:
 
 When you assign a signal, pick a name from the device-type template list (Power On, Volume Up, Mode: Cool) or type your own, and set a Send Times count if the device needs a command repeated to register; you can change this later in the editor. For an AC device, naming commands "Temp 22" or "Temp 24" wires them straight into the climate card's thermostat control, stepped to whatever temperatures you name. Assigning copies the signal into the device rather than removing it from the Sniffer, so you can assign the same signal to several devices or commands; an assigned row keeps flashing when you press its button, so you can tell the remote is still alive. Drag the grip handle on a remote, or on a signal row, to reorder them; the order sticks.
 
-A remote that leaks in from outside (a neighbor's clicker, for example) can be hidden with **Dismiss** and brought back later with **Show Dismissed**. A dot lights up on that button if a dismissed remote is still transmitting in the background. Delete on a remote or a single signal clears it, but anything a receiver hears again comes right back; Dismiss is the tool for keeping a remote hidden for good. A remote already used to make a Device or Remote shows a count dot on **USE**; click it to jump to what you made, or use it again for a second room.
+A remote that leaks in from outside (a neighbor's clicker, for example) can be hidden with the eye at the bottom-right corner of its row and brought back later with **Show hidden**; a hidden remote wears a small "hidden" badge and the open eye restores it. A dot lights up on the Show hidden button if a hidden remote is still transmitting in the background. The X at the top-right corner of a row deletes the remote, and the trash can on a signal row deletes that one signal; both controls stay faint until you hover the row. Anything a receiver hears again comes right back after a delete, so hiding is the tool for keeping a remote out of the way for good. A remote already used to make a Device or Remote shows a count dot on **USE**; click it to jump to what you made, or use it again for a second room.
 
 ![Sniffer showing captured signals with S/L diamond fingerprints, trigger buttons, and hit counts](images/screenshots/sniffer-signals.png)
 
@@ -258,6 +258,10 @@ The tab splits into two sections. **DEVICES** holds the things HAIR sends codes 
 
 Every signal and command has a copy/edit glyph that opens a single editor: read the raw Pronto code, copy it, or replace it by pasting a new code or pressing **LISTEN** to capture it fresh off the remote. Editing updates the fingerprint and decoded identity, and moves any trigger bound to that signal along with it. Renaming a command updates any action mapping that pointed at the old name. A device command is a copy of the signal it was assigned from, so editing a catalog signal in the Sniffer or Clipper does not change commands already assigned from it; edit the command on the device itself to change what that device transmits. If a signal's carrier reads off the common IR standards, the editor offers a "Snap to N kHz" button that re-encodes it to the nearest standard (30, 33, 36, 38, 40, or 56 kHz) before you save.
 
+The same editor carries the two transmit knobs. **Send times** is how many times the whole code goes out as independent presses, for gear that needs a repeat to register. **Spacing** is the gap between those presses, measured from the start of one to the start of the next, and it turns on as soon as send times rises above 1. The box opens on what the code is spaced at today, so the number you adjust is the cadence the command already has rather than a blank.
+
+Spacing is exact on ESPHome and Broadlink emitters, which accept the whole burst in a single call and lay it out to the microsecond. Anything else keeps sending one frame per call at its own pace, and the editor says so under the field rather than promising a cadence it cannot hold. It also says when a code is simply longer than the spacing asked for, in which case the presses go out back to back, and it refuses a combination that would hold the air for more than three seconds. Commands and signals saved before this existed carry no spacing and transmit exactly as they always did; opening one and saving it is what gives it a value.
+
 ### Device settings and power sensing
 
 IR devices are send-only, so HAIR normally has to assume a command landed. Any device that plausibly draws current (AC, media player, fan, light, switch) shows a small settings button beside its emitter picker; open it to point a power sensor at the device, such as a smart plug's wattage reading. Set two thresholds, and the device counts as off at or below the lower one and on at or above the higher one, with a live reading shown once a sensor is picked. Readings that cross a threshold override what HAIR assumed from the last command sent, and keep doing so across a Home Assistant restart, so a device switched off with its original remote stops claiming to be on. Devices without a sensor still restore their last-known state after a restart instead of resetting to blank.
@@ -327,7 +331,7 @@ remote_receiver:
       pullup: true
   dump: all
   tolerance: 25%
-  idle: 10ms
+  idle: 100ms
 
 # --- Register both on HA's native infrared platform ---
 infrared:
@@ -343,6 +347,12 @@ infrared:
 ```
 
 </details>
+
+#### Air conditioners and long messages
+
+The `idle` value above is how much silence ends a capture. ESPHome's own default is 10 ms, and that is shorter than the gaps inside a single air conditioner message: a Daikin press carries about 35 ms of silence in the middle of it. At 10 ms the receiver closes the capture in those gaps, so one press arrives as several codes, and because each piece looks like a different signal it can show up as several remotes in the Sniffer.
+
+100 ms is the value to use. It is field-proven on the units in this folder and it comfortably clears the longest in-message gap those protocols use. The trade-off at very high values is the opposite problem: hold a button down and the repeats start merging into one capture instead of arriving as separate presses. HAIR's decoders split a merged capture back into frames per protocol, and 100 ms is well inside the range where that works, so it is a safe place to sit.
 
 <details>
 <summary>Legacy bridge for HA 2026.4-2026.5 (only if you cannot upgrade)</summary>

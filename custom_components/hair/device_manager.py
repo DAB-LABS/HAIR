@@ -15,6 +15,7 @@ from .const import (
     ASSIGN_SERVICE_TIMEOUT_S,
     DEFAULT_CARRIER_FREQUENCY,
     DOMAIN,
+    EMITTER_STAGGER_GAP_S,
     MAX_DITTO_COUNT,
     MAX_SEND_COUNT,
     SEND_REPEAT_GAP,
@@ -172,6 +173,8 @@ class DeviceManager:
         pronto: str | None = None,
         send_count: int | None = None,
         repeat_count: int | None = None,
+        send_spacing_ms: int | None = None,
+        set_send_spacing: bool = False,
         trigger_manager: TriggerManager | None = None,
     ) -> dict[str, Any]:
         """Edit a device command's name and/or Pronto in place.
@@ -321,6 +324,15 @@ class DeviceManager:
         # --- NEC ditto count ---
         if repeat_count is not None:
             command.repeat_count = max(0, min(int(repeat_count), MAX_DITTO_COUNT))
+
+        # --- Send spacing (GH #151) ---
+        # ``set_send_spacing`` separates a payload that omitted the field
+        # from one that sent null, because None is a legitimate stored
+        # value here: it is what puts the row back on the old path. The
+        # websocket door has already validated the number against the
+        # bounds, the air-time cap and the device's emitters.
+        if set_send_spacing:
+            command.send_spacing_ms = send_spacing_ms
 
         await self.async_update_device(device)
         return {
@@ -692,6 +704,10 @@ class DeviceManager:
         ir_cmd = build_command(protocol="PRONTO", code=pronto)
         return await self._async_broadcast(
             device, ir_cmd, label, send_count=max(1, min(int(send_count), 10)),
+            # No stored row exists yet: this is a candidate being judged
+            # before anything is written, so there is no saved spacing to
+            # honour and the test press rides the old path (GH #151).
+            send_spacing_ms=None,
             heard_future=heard_future,
         )
 
@@ -802,6 +818,10 @@ class DeviceManager:
             ir_cmd,
             command.name,
             send_count=max(1, command.send_count or 1),
+            # The field alone picks the path (GH #151). None here is a
+            # row saved before this feature landed, and it transmits
+            # exactly as it always did.
+            send_spacing_ms=command.send_spacing_ms,
             decoded_fingerprint=(
                 command.decoded_fingerprint
                 if not command.tx_force_raw else None
@@ -849,6 +869,7 @@ class DeviceManager:
         send_name: str,
         *,
         send_count: int = 1,
+        send_spacing_ms: int | None = None,
         decoded_fingerprint: str | None = None,
         heard_future: Any | None = None,
         pinned: bool = False,
@@ -880,6 +901,8 @@ class DeviceManager:
             async_send_command as ir_send,
         )
 
+        from .ir_command import TERMINATOR_SPACE_US, block_duration_us
+        from .send_plan import emitter_platform, plan_send, silence_us
         from .tx_gate import gated_send
 
         # Emitter resilience (GH #65, rvgfox): multi-emitter is the
@@ -911,6 +934,46 @@ class DeviceManager:
             raise RuntimeError(
                 f"All emitters for {device.name} are unavailable"
             )
+
+        # How long this send will occupy the air, and (on the new path)
+        # the shape it will occupy it with. Both are computed BEFORE
+        # record_send because the Mirror's echo ticket is armed there:
+        # an expectation that does not know how long the burst lasts
+        # closes its window in the middle of one (GH #151).
+        block_us = block_duration_us(ir_cmd.get_raw_timings())
+        plans: dict[str, Any] = {}
+        burst: tuple[int, int] | None = None
+        if send_spacing_ms is None:
+            # Old path: every frame is its own terminated call, the
+            # loop paces them, and the gate staggers emitter changes.
+            air_s = (
+                send_count * (block_us + TERMINATOR_SPACE_US) / 1_000_000
+                + (send_count - 1) * SEND_REPEAT_GAP
+            )
+            if len(attempt_ids) > 1:
+                air_s += (
+                    send_count * len(attempt_ids) - 1
+                ) * EMITTER_STAGGER_GAP_S
+        else:
+            # New path: each emitter's plan knows its own air exactly,
+            # so the total is theirs plus the holds between them. The
+            # hold is sized on the LONGEST plan on the device, because
+            # a mixed device's slowest emitter is the one still keying
+            # up when the next one starts.
+            for emitter_id in attempt_ids:
+                plans[emitter_id] = plan_send(
+                    ir_cmd,
+                    send_count,
+                    send_spacing_ms,
+                    emitter_platform(self._hass, emitter_id),
+                )
+            air_s = sum(plan.air_s for plan in plans.values())
+            if len(attempt_ids) > 1:
+                air_s += (len(attempt_ids) - 1) * max(
+                    EMITTER_STAGGER_GAP_S,
+                    max(plan.air_s for plan in plans.values()),
+                )
+            burst = (send_count, silence_us(block_us, send_spacing_ms))
 
         # The Mirror (v0.6.6): audit this send and arm echo attribution
         # BEFORE transmitting, so every emitter's state beacon reads as
@@ -946,6 +1009,11 @@ class DeviceManager:
                 # so reporting whether it came back costs one future
                 # rather than a second capture path.
                 heard_future=heard_future,
+                # How long the air is busy, and with what shape. The
+                # echo ticket widens its window by the first and
+                # matches the burst list with the second.
+                air_s=air_s,
+                burst=burst,
             )
 
         # Whole-frame repetition: transmit the built Command send_count times
@@ -965,26 +1033,70 @@ class DeviceManager:
         # ir_cmd's own array stays identity-stable.
         from .ir_command import TerminatedCommand
 
-        ir_cmd = TerminatedCommand(ir_cmd)
         failures: dict[str, str] = {}
-        for i in range(send_count):
-            if i:
-                await asyncio.sleep(SEND_REPEAT_GAP)
+        if send_spacing_ms is None:
+            # OLD ROW: today's path, line for line. Frame-outer loop,
+            # SEND_REPEAT_GAP between frames, emitters alternating, one
+            # terminator per frame. A row that has never been saved
+            # since this feature landed transmits exactly as it did
+            # before it (GH #151).
+            wire_cmd = TerminatedCommand(ir_cmd)
+            for i in range(send_count):
+                if i:
+                    await asyncio.sleep(SEND_REPEAT_GAP)
+                for emitter_id in attempt_ids:
+                    if emitter_id in failures:
+                        continue
+                    try:
+                        await asyncio.wait_for(
+                            gated_send(
+                                self._hass, emitter_id, wire_cmd, ir_send
+                            ),
+                            timeout=ASSIGN_SERVICE_TIMEOUT_S,
+                        )
+                        landed.add(emitter_id)
+                    except TimeoutError:
+                        failures[emitter_id] = "timed out"
+                    except Exception as err:
+                        failures[emitter_id] = str(err) or type(err).__name__
+        else:
+            # NEW ROW: each emitter gets its whole burst as one bundled
+            # call (or the fewest chunks a platform cap allows), so the
+            # spacing is what the list says. An emitter that cannot take
+            # a bundle gets today's per-frame calls with today's pause,
+            # which is what the editor's "approximate" line warns about.
+            # Emitter-outer, because there is nothing left to interleave.
             for emitter_id in attempt_ids:
-                if emitter_id in failures:
-                    continue
-                try:
-                    await asyncio.wait_for(
-                        gated_send(
-                            self._hass, emitter_id, ir_cmd, ir_send
-                        ),
-                        timeout=ASSIGN_SERVICE_TIMEOUT_S,
+                plan = plans[emitter_id]
+                _LOGGER.debug(
+                    "Send %s / %s via %s: %s, %d call(s), %.3fs of air",
+                    device.name, send_name, emitter_id,
+                    "exact" if plan.exact else "incapable",
+                    plan.chunks, plan.air_s,
+                )
+                for index, call in enumerate(plan.calls):
+                    if emitter_id in failures:
+                        break
+                    if index and plan.sleep_s > 0:
+                        await asyncio.sleep(plan.sleep_s)
+                    wire_cmd = (
+                        TerminatedCommand(call.command)
+                        if call.terminate
+                        else call.command
                     )
-                    landed.add(emitter_id)
-                except TimeoutError:
-                    failures[emitter_id] = "timed out"
-                except Exception as err:
-                    failures[emitter_id] = str(err) or type(err).__name__
+                    try:
+                        await asyncio.wait_for(
+                            gated_send(
+                                self._hass, emitter_id, wire_cmd, ir_send,
+                                air_s=call.air_s,
+                            ),
+                            timeout=ASSIGN_SERVICE_TIMEOUT_S,
+                        )
+                        landed.add(emitter_id)
+                    except TimeoutError:
+                        failures[emitter_id] = "timed out"
+                    except Exception as err:
+                        failures[emitter_id] = str(err) or type(err).__name__
 
         if not landed:
             # Every attempt failed: honest message, not the raw driver
@@ -1081,6 +1193,10 @@ class DeviceManager:
         await self._async_broadcast(
             device, ir_cmd, cell_name,
             send_count=max(1, send_count or 1),
+            # A matrix cell is not a row and carries no spacing field
+            # (design R4): the lattice is thousands of cells with one
+            # shared cadence, and nowhere to put a per-cell number.
+            send_spacing_ms=None,
             heard_future=heard_future,
             # Signpost 4, Track 4: a heard state driving a pinned
             # matrix Device rides here, and the Mirror row has to read

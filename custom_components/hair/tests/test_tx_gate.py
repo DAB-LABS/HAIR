@@ -115,3 +115,66 @@ async def test_failed_send_still_stamps_the_gate():
         await gated_send(None, "infrared.b", "cmd", _recording_sender(sent))
 
     assert len(sleeps) == 1
+
+
+@pytest.mark.asyncio
+async def test_air_time_lengthens_the_hold():
+    """A bundled burst keeps the air long after its own ack, so the
+    next emitter waits on the air rather than on the stagger constant
+    (send spacing, GH #151)."""
+    sent: list[str] = []
+    sleeps: list[float] = []
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+
+    with patch.object(tx_gate.asyncio, "sleep", fake_sleep):
+        await gated_send(
+            None, "infrared.a", "cmd", _recording_sender(sent), air_s=1.25
+        )
+        await gated_send(None, "infrared.b", "cmd", _recording_sender(sent))
+
+    assert sent == ["infrared.a", "infrared.b"]
+    assert len(sleeps) == 1
+    assert 1.2 < sleeps[0] <= 1.25
+
+
+@pytest.mark.asyncio
+async def test_air_time_below_the_constant_changes_nothing():
+    """An ordinary frame's air is well under the stagger gap, so the
+    constant still wins and today's behaviour is unchanged."""
+    sent: list[str] = []
+    sleeps: list[float] = []
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+
+    with patch.object(tx_gate.asyncio, "sleep", fake_sleep):
+        await gated_send(
+            None, "infrared.a", "cmd", _recording_sender(sent), air_s=0.06
+        )
+        await gated_send(None, "infrared.b", "cmd", _recording_sender(sent))
+
+    assert len(sleeps) == 1
+    assert 0 < sleeps[0] <= tx_gate.EMITTER_STAGGER_GAP_S
+
+
+@pytest.mark.asyncio
+async def test_the_hold_does_not_block_the_same_emitter():
+    """The hold is slept OUTSIDE the lock. A second send on the emitter
+    that is already talking owes nothing, and must not queue behind
+    another emitter's wait -- which is what holding the lock through a
+    second and a half of quiet would do."""
+    order: list[str] = []
+
+    async def sender(hass, emitter_id, ir_cmd):
+        order.append(emitter_id)
+
+    # a keys up with 0.4s of planned air, so b owes 0.4s.
+    await gated_send(None, "infrared.a", "cmd", sender, air_s=0.4)
+    waiting = asyncio.create_task(gated_send(None, "infrared.b", "cmd", sender))
+    await asyncio.sleep(0.02)  # let b reach its hold
+    await gated_send(None, "infrared.a", "cmd", sender)
+    assert order == ["infrared.a", "infrared.a"]
+    await waiting
+    assert order == ["infrared.a", "infrared.a", "infrared.b"]

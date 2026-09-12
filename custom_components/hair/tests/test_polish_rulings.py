@@ -29,9 +29,14 @@ def _read(name: str) -> str:
 
 class TestDittoIsNecOnly:
     """Measured against infrared-protocols, not assumed: NEC appends a
-    4-entry repeat frame, Samsung32 and RC-5 duplicate the whole frame,
-    Sharp and Sony ignore repeat_count entirely. Only the first is a
-    ditto, so only NEC gets the knob."""
+    4-entry repeat frame, and Samsung32, RC-5, Sharp and Sony all
+    duplicate the whole frame instead. Only the first is a ditto, so
+    only NEC gets the knob.
+
+    The Sharp and Sony readings were corrected on 2026-09-12 against
+    5.8.1; the original note had them ignoring repeat_count. The gate
+    is unchanged either way, and ir-tx-knobs.ts carries the same
+    correction beside the table it comes from."""
 
     def test_the_predicate_names_nec(self):
         text = _read("ir-tx-knobs.ts")
@@ -5245,11 +5250,11 @@ class TestTheCardsChevronIsThePanelsChevron:
         icons = _read("ir-icons.ts")
         down = icons.split("ICON_CHEVRON_DOWN =", 1)[1].split(";", 1)[0]
         up = icons.split("ICON_CHEVRON_UP =", 1)[1].split(";", 1)[0]
-        # The literals the Sniffer and Clipper declare for themselves.
-        for other in ("ir-signal-monitor.ts", "ir-clips.ts"):
-            body = _read(other)
-            assert down.strip().strip('"') in " ".join(body.split()).replace(
-                '" "', ""), other
+        # The Sniffer, Clipper and Plucker all left this family on
+        # 2026-09-12: their row chevron is a stroked path with its own
+        # weight (owner ruling after the first visual pass of the
+        # remote-header redesign), pinned in TestTheSnifferRowCornerControls.
+        # The detangle card keeps the two mdi paths on its own.
         assert "M7.41,8.58" in down
         assert "M7.41,15.41" in up
 
@@ -5461,3 +5466,229 @@ class TestTheFixCardsRuledCopy:
                     continue
                 for bad in ("\u2014", "\u2013", " -- "):
                     assert bad not in data[key], f"{name}: {key}"
+
+
+class TestTheSnifferRowCornerControls:
+    """The remote-header redesign, owner-approved 2026-08-22, narrowed
+    to the Sniffer (fixup 2, 2026-09-12).
+
+    The row's delete moved out of the inline button cluster and into
+    the card's top-right corner as an X; Dismiss and Restore stopped
+    being text buttons and became an eye-off and an eye in the
+    bottom-right; the chevron became a round button of its own. The
+    Clipper and the Plucker are deliberately NOT part of this round and
+    keep their inline cans, so these pins are Sniffer-only on purpose.
+    """
+
+    def test_the_inline_cluster_is_use_and_nothing_else(self):
+        text = _read("ir-signal-monitor.ts")
+        row = text.split("_renderDevice(d: UnknownDeviceSummary)", 1)[1]
+        row = row.split("_renderExpanded", 1)[0]
+        cluster = row.split('<span class="row-btns">', 1)[1]
+        cluster = cluster.split("</span>", 1)[0]
+        assert "adopt-btn" in cluster
+        assert "trash-btn" not in cluster
+        assert "device-dismiss-btn" not in cluster
+
+    def test_the_text_buttons_are_gone_not_merely_hidden(self):
+        """They were replaced, not kept as a fallback. A surviving
+        second road is how two ways to hide a remote drift apart."""
+        text = _read("ir-signal-monitor.ts")
+        assert "device-dismiss-btn" not in text
+
+    def test_the_corner_controls_exist_and_are_named(self):
+        text = _read("ir-signal-monitor.ts")
+        for cls in ("corner-delete", "corner-hide", "corner-restore"):
+            assert f"corner-btn {cls}" in text or f'"{cls}"' in text, cls
+        for block in text.split('class="corner-btn')[1:]:
+            head = block.split(">", 1)[0]
+            assert "title=" in head
+            assert "aria-label=" in head
+
+    def test_delete_still_asks_the_same_dialog(self):
+        """Only the trigger's position and glyph moved. The confirm is
+        the one the row always used."""
+        text = _read("ir-signal-monitor.ts")
+        block = text.split('class="corner-btn corner-delete"', 1)[1]
+        assert "this._deleteRemote = d;" in block.split("</button>", 1)[0]
+        assert "<ir-confirm-dialog" in text
+
+    def test_hide_and_restore_keep_their_no_confirm_behaviour(self):
+        text = _read("ir-signal-monitor.ts")
+        block = text.split('class="corner-btn ${d.dismissed', 1)[1]
+        block = block.split("</button>", 1)[0]
+        assert "this._undismiss(d.id)" in block
+        assert "this._dismiss(d.id)" in block
+        assert "ir-confirm-dialog" not in block
+
+    def test_the_three_opacity_stages_are_all_there(self):
+        text = _read("ir-signal-monitor.ts")
+        rest = text.split(".corner-btn {", 1)[1].split("}", 1)[0]
+        assert "opacity: 0.08" in rest
+        assert ".device-row:hover .corner-btn {" in text
+        hover = text.split(".device-row:hover .corner-btn {", 1)[1].split("}", 1)[0]
+        assert "opacity: 0.5" in hover
+
+    def test_hiding_does_not_borrow_deletes_red(self):
+        """Delete is ember because it is destructive. Hiding is not, so
+        it is blue going out of sight and green coming back."""
+        text = _read("ir-signal-monitor.ts")
+        delete = text.split(".corner-delete:hover {", 1)[1].split("}", 1)[0]
+        assert "#e65100" in delete
+        hide = text.split(".corner-hide:hover {", 1)[1].split("}", 1)[0]
+        assert "77, 171, 247" in hide
+        restore = text.split(".corner-restore:hover {", 1)[1].split("}", 1)[0]
+        assert "#4caf50" in restore
+
+    def test_touch_gets_the_middle_stage_permanently(self):
+        """Owner ruling 2026-09-12. A reveal whose middle stage is
+        row-hover has no middle stage on a touchscreen, so without this
+        the rest state would be the near-invisible one and nobody would
+        find either control."""
+        text = _read("ir-signal-monitor.ts")
+        assert "@media (hover: none) {" in text
+        block = text.split("@media (hover: none) {", 1)[1].split("}", 1)[0]
+        assert ".corner-btn" in block
+        assert "opacity: 0.5" in block
+
+    def test_the_chevron_numbers_are_tunable_in_one_place(self):
+        """Owner ruling 2026-09-12: these three are being tuned live,
+        so they are custom properties on the button rather than
+        literals sprinkled through the rule."""
+        text = _read("ir-signal-monitor.ts")
+        block = text.split(".expand-btn {", 1)[1].split("}", 1)[0]
+        assert "--hair-chevron-size: 32px" in block
+        assert "--hair-chevron-glyph: 22px" in block
+        assert "--hair-chevron-weight:" in block
+        assert "width: var(--hair-chevron-size)" in block
+
+    def test_the_chevron_is_bare_and_stroked(self):
+        """Owner ruling 2026-09-12, after the first visual pass: no
+        circle, no ring, no hover wash. Weight comes from a stroked
+        path, not a filled MDI glyph, and open is a rotation of the
+        same path rather than a second one."""
+        text = _read("ir-signal-monitor.ts")
+        block = text.split(".expand-btn {", 1)[1].split("}", 1)[0]
+        assert "border: 0" in block
+        assert "border-radius" not in block
+        assert "margin-right: 24px" in block
+        hover = text.split(".expand-btn:hover {", 1)[1].split("}", 1)[0]
+        assert "background" not in hover
+        glyph = text.split(".expand-btn .chevron {", 1)[1].split("}", 1)[0]
+        assert "stroke: currentColor" in glyph
+        assert "stroke-width: var(--hair-chevron-weight)" in glyph
+        assert "fill: none" in glyph
+        markup = text.split('class="expand-btn"', 1)[1].split("</button>", 1)[0]
+        assert 'd="M6 9l6 6 6-6"' in markup
+        assert "ha-svg-icon" not in markup
+        assert "chevron-open" in markup
+
+    def test_the_chevron_is_reachable_by_keyboard(self):
+        """It was a bare ha-svg-icon with no handler: the row's own
+        click did the work, so Tab never reached it."""
+        text = _read("ir-signal-monitor.ts")
+        assert "expand-icon" not in text
+        block = text.split('class="expand-btn"', 1)[1].split("</button>", 1)[0]
+        assert "this._toggleExpand(d.id)" in block
+        assert "e.stopPropagation()" in block
+        assert "aria-expanded=" in block
+
+    def test_the_card_stopped_clipping_and_the_row_took_it_over(self):
+        """Measured in a browser: from about a 20px card radius up, the
+        card's own rounding ate the outer corner of a corner button.
+        The clipping only ever existed for the hit flash, so the flash
+        clips itself now."""
+        text = _read("ir-signal-monitor.ts")
+        card = text.split(".device {", 1)[1].split("}", 1)[0]
+        assert "overflow: visible" in card
+        assert "position: relative" in card
+        assert ".device-row.row-expanded {" in text
+        # The row is slotted inside an ha-card, and inherit reads the
+        # slot's radius (zero), which drew square hover corners past the
+        # card's round ones (owner bench 2026-09-12). It follows the
+        # card's own token instead, one pixel inside the card border.
+        row = text.split(".device-row {\n            /* NOT border-radius: inherit", 1)[1]
+        row = row.split("}", 1)[0]
+        assert "border-radius: calc(var(--ha-card-border-radius, 12px) - 1px)" in row
+        assert "border-radius: inherit" not in row
+
+    def test_the_row_has_room_for_two_stacked_corner_boxes(self):
+        """Two 24px boxes at a 4px inset need 56px of card. The 32px
+        chevron already produces it; the floor keeps it true if the
+        chevron is tuned down, so the two hit areas cannot overlap."""
+        text = _read("ir-signal-monitor.ts")
+        block = text.split(".device-row {\n            display: flex;", 1)[1]
+        block = block.split("}", 1)[0]
+        assert "min-height: 56px" in block
+        assert "padding: 12px 16px" in block
+
+    def test_the_footer_speaks_of_hiding_not_dismissing(self):
+        data = json.loads(
+            (LOCALES / "en.json").read_text(encoding="utf-8")
+        )
+        assert data["sniffer.show_dismissed"] == "Show hidden"
+        assert data["sniffer.hide_dismissed"] == "Hide"
+        assert data["sniffer.dismiss"] == "Hide"
+        assert "dismissed" not in data["sniffer.show_dismissed_title"].lower()
+
+    def test_the_footer_glow_and_dot_are_untouched(self):
+        """Only the label moved. The transient pulse and the sticky dot
+        around new hidden-remote activity are a separate mechanism."""
+        text = _read("ir-signal-monitor.ts")
+        assert "dismiss-glow" in text
+        assert "_dismissDotVisible" in text
+
+    def test_the_clipper_and_the_plucker_got_the_same_corner_delete(self):
+        """Owner ruling 2026-09-12, after the Sniffer pass was locked:
+        the other two tabs get the corner X, the bare chevron, the row
+        radius and the touch rule, and NO eye (they have no hide
+        concept). Their per-signal cans inside the expanded list stay;
+        only the remote header's inline can went."""
+        for name in ("ir-clips.ts", "ir-pluck.ts"):
+            text = _read(name)
+            assert 'class="corner-btn corner-delete"' in text, name
+            assert "corner-hide" not in text, name
+            assert "corner-restore" not in text, name
+            assert 'class="expand-btn"' in text, name
+            assert 'd="M6 9l6 6 6-6"' in text, name
+            assert "expand-icon" not in text, name
+            assert "@media (hover: none)" in text, name
+            assert "border-radius: calc(var(--ha-card-border-radius, 12px) - 1px)" in text, name
+            header = text.split('class="device-row ${expanded', 1)[1].split("</div>", 1)[0]
+            assert 'class="trash-btn"' not in header, name
+            assert 'class="trash-btn"' in text, name  # the signal rows
+
+
+class TestSaveNoLongerNeedsAChange:
+    """Owner ruling 2026-09-12.
+
+    The editor's Save was gated on _dirty in edit mode, so opening a
+    row to check it left Close as the only way out: the button that
+    says Save was greyed precisely when somebody wanted to confirm what
+    was already there. A save with no changes is a no-op the doors
+    already handle.
+    """
+
+    def test_edit_mode_does_not_require_a_change(self):
+        text = _read("ir-signal-editor.ts")
+        block = text.split("private get _canSave(): boolean {", 1)[1]
+        block = block.split("\n    }", 1)[0]
+        assert "this._dirty" not in block
+        assert "return true;" in block
+
+    def test_the_refusals_still_hold_it_shut(self):
+        """Validity and a spacing the door would reject are answers the
+        dialog already has, which is not the same as saving an
+        unchanged row."""
+        text = _read("ir-signal-editor.ts")
+        block = text.split("private get _canSave(): boolean {", 1)[1]
+        block = block.split("\n    }", 1)[0]
+        assert "this._validation?.valid !== true" in block
+        assert "this._spacingRefusal !== null" in block
+        assert "this._busy" in block
+
+    def test_dirty_still_drives_the_trigger_note(self):
+        """The note about a bound trigger moving is about a CHANGE, so
+        it keeps the gate Save gave up."""
+        text = _read("ir-signal-editor.ts")
+        assert "this._isEdit && this.hasTrigger && this._dirty" in text

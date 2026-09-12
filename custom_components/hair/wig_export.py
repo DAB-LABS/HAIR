@@ -133,6 +133,12 @@ def build_wig_from_device(
             notes.append(note)
         signals.append(WigSignal(
             alias=alias, pronto=pronto, send_count=command.send_count,
+            # A tuned spacing travels with the codes for the same
+            # reason the raw pin does: the next person should get the
+            # cadence this device was proved at, not rediscover it
+            # (GH #151). It rides beside send_count and stays out of
+            # every digest.
+            send_spacing_ms=command.send_spacing_ms,
             # The raw pin travels with the codes (Highlights, GH #78).
             # Dropping it here is what made a repaired device export a
             # wig that arrived broken for the next person.

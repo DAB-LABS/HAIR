@@ -5,6 +5,23 @@ All notable changes to HAIR will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-12 -- Even Cut
+
+### Added
+
+- A send spacing you can set. A command or signal that sends more than once now takes a millisecond gap between those sends, measured start to start, and the editor opens on what the code is spaced at today so the number you adjust is the cadence it already has. On ESPHome and Broadlink emitters the whole burst goes out in one call and the gap is exact; other emitters keep sending one frame per call at their own pace, which the editor says plainly rather than promising a cadence it cannot hold. It also names the two ways a value can be refused: a code longer than the gap asked for, and a combination that would hold the air for more than three seconds. Rows saved before this transmit exactly as they always did until somebody opens one and saves it. The value travels in wig files beside the send count, and stays out of every code digest, since what a gap does to the waveform depends on the emitter rather than on the code.
+
+### Changed
+
+- The remote rows in the Sniffer, Clipper and Plucker lost their inline controls. Delete is an X in the row's top-right corner, the Sniffer's hide and restore are an eye in the bottom-right corner, and both stay faint until you hover the row (on a touch screen they sit at half strength all the time). The expand chevron is a plain stroked mark with a little weight to it, and the Sniffer's footer button now reads Show hidden. "Hidden" replaces "dismissed" everywhere the panel says it.
+- Save in the signal editor is enabled whenever the row is valid, not only after a change, so you can open a row to check it and leave through Save.
+
+### Fixed
+
+- A repeated send no longer leaks its own echo into the trigger pipeline. HAIR's echo ticket was worth one claim and lived for a fixed window, which is right for a single frame and wrong for a command that fires eight times over more than a second: the frames the ticket could not cover came back looking like somebody pressing the handset. The ticket is now sized to the send that minted it, so every frame of a burst is recognized as HAIR's own and a genuine press after it still reaches the triggers. Thanks avbfr, whose bisection of a repeating Pioneer amplifier command is what located this.
+- The shipped ESPHome receiver configurations now end a capture after 100 ms of silence instead of 10 ms. Ten milliseconds is shorter than the gaps inside a single air conditioner message, so one press arrived split into several codes and could appear as several remotes. The README explains the value and its trade-off. Existing devices keep whatever is in their own YAML until it is updated.
+- The transmit gate no longer lets a second emitter key up while the first is still radiating. A service call returns when the blaster accepted the bytes, not when it finished sending them, so the gate now waits on the send's planned air time rather than on the acknowledgement alone.
+
 ## [0.14.2] - 2026-09-05 -- Loose Ends
 
 ### Fixed

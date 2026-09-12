@@ -114,6 +114,21 @@ def _add_export_code(
         return
 
 
+def _optional_int(value: Any) -> int | None:
+    """An int, or None for a key that is absent or explicitly null.
+
+    None is meaningful for ``send_spacing_ms``: it is the difference
+    between an old row and a row somebody tuned, so it must survive a
+    round trip rather than collapsing to a default.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _optional_bool(value: Any) -> bool | None:
     """Read a stored tri-state flag without collapsing its third state.
 
@@ -130,7 +145,8 @@ def _optional_bool(value: Any) -> bool | None:
 # should do with a field it has never heard of.
 _KNOWN_COMMAND = frozenset({
     "id", "name", "category", "source", "protocol", "code", "raw_timings",
-    "frequency", "repeat_count", "send_count", "byte_hash",
+    "frequency", "repeat_count", "send_count", "send_spacing_ms",
+    "byte_hash",
     "decoded_protocol", "decoded_address", "decoded_command",
     "decoded_fingerprint", "decoded_extras", "decode_covers",
     "tx_force_raw",
@@ -213,6 +229,15 @@ class IRCommand:
     # entire frame protocol-agnostically. Set at assign, edited in the command
     # editor. Defaults to 1 so existing commands send once exactly as before.
     send_count: int = 1
+    # Start-to-start spacing between whole-frame repeats, in
+    # milliseconds, or None for an OLD ROW. The field alone decides
+    # which send path this row takes: None means the frame-per-call
+    # loop it has always taken, a value means the repeats are built
+    # into one timing list and go out in one call per capable emitter,
+    # so the cadence is what the number says instead of what the
+    # scheduler produced (GH #151). Written at mint, at an editor
+    # save, and by a wig that carries one; never by a migration.
+    send_spacing_ms: int | None = None
     # Quantized byte hash carried over from the source signal on assign
     # (the v0.3.4 duplicate-guard tiebreaker). Optional; None for commands
     # created before 0.3.4 or from sources without a Pronto code.
@@ -317,6 +342,12 @@ class IRCommand:
             "frequency": self.frequency,
             "repeat_count": self.repeat_count,
             "send_count": self.send_count,
+            # Written only when set, so an old row's record stays
+            # byte-identical to what it was before this field existed.
+            **(
+                {"send_spacing_ms": self.send_spacing_ms}
+                if self.send_spacing_ms is not None else {}
+            ),
             "byte_hash": self.byte_hash,
             "decoded_protocol": self.decoded_protocol,
             "decoded_address": self.decoded_address,
@@ -352,6 +383,7 @@ class IRCommand:
             frequency=int(data.get("frequency", DEFAULT_CARRIER_FREQUENCY)),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
+            send_spacing_ms=_optional_int(data.get("send_spacing_ms")),
             byte_hash=data.get("byte_hash"),
             decoded_protocol=data.get("decoded_protocol"),
             decoded_address=data.get("decoded_address"),
@@ -1387,7 +1419,8 @@ _KNOWN_SIGNAL = frozenset({
     "decoded_address", "decoded_command", "decoded_fingerprint",
     "decoded_extras", "protocol", "code", "raw_timings", "frequency",
     "hit_count", "first_seen", "last_seen", "source", "alias",
-    "plucked_command_name", "repeat_count", "send_count", "tx_force_raw",
+    "plucked_command_name", "repeat_count", "send_count",
+    "send_spacing_ms", "tx_force_raw",
     "decode_covers",
     # DERIVED (GH #144), for the reason the block below gives about
     # every other derived key here.
@@ -1453,6 +1486,15 @@ class UnknownSignal:
     # the new IRCommand at assign time via _apply_signal_provenance.
     repeat_count: int = DEFAULT_REPEAT_COUNT  # NEC ditto count
     send_count: int = 1  # whole-frame TX count
+    # Start-to-start spacing between whole-frame repeats, in
+    # milliseconds, or None for an OLD ROW. The field alone decides
+    # which send path this row takes: None means the frame-per-call
+    # loop it has always taken, a value means the repeats are built
+    # into one timing list and go out in one call per capable emitter,
+    # so the cadence is what the number says instead of what the
+    # scheduler produced (GH #151). Written at mint, at an editor
+    # save, and by a wig that carries one; never by a migration.
+    send_spacing_ms: int | None = None
     # Send the captured Pronto verbatim instead of re-encoding from the
     # decoded identity (Highlights, GH #78). The third knob of exactly
     # the same kind as the two above, and it exists because a capture
@@ -1524,6 +1566,10 @@ class UnknownSignal:
             "plucked_command_name": self.plucked_command_name,
             "repeat_count": self.repeat_count,
             "send_count": self.send_count,
+            **(
+                {"send_spacing_ms": self.send_spacing_ms}
+                if self.send_spacing_ms is not None else {}
+            ),
             "decode_covers": self.decode_covers,
             "tx_force_raw": self.tx_force_raw,
             "observed_repeat_count": self.observed_repeat_count,
@@ -1576,6 +1622,7 @@ class UnknownSignal:
             plucked_command_name=data.get("plucked_command_name"),
             repeat_count=int(data.get("repeat_count", DEFAULT_REPEAT_COUNT)),
             send_count=int(data.get("send_count", 1)),
+            send_spacing_ms=_optional_int(data.get("send_spacing_ms")),
             decode_covers=_optional_bool(data.get("decode_covers")),
             tx_force_raw=bool(data.get("tx_force_raw", False)),
             observed_repeat_count=int(data.get("observed_repeat_count", 0)),

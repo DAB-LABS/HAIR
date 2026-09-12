@@ -65,8 +65,8 @@ import { singleOppositeLink } from "./ir-pin-link-match.js";
 // Tweezers (SVG Repo, scaled to a 24x24 box), the Plucker / HAIR Tweezer motif.
 const ICON_PLUCK =
     "M0.861,24c-0.22,0-0.441-0.084-0.609-0.252c-0.336-0.336-0.336-0.882,0-1.218l1.563-1.563c1.648-1.649,3.474-4.166,5.588-7.082c2.984-4.116,6.367-8.781,10.695-13.109c0.081-0.081,0.178-0.145,0.284-0.189l1.283-0.523c0.441-0.18,0.943,0.032,1.123,0.472l-0.472,1.123L19.194,2.116c-4.175,4.199-7.478,8.755-10.397,12.78c-0.275,0.379-0.545,0.752-0.811,1.117c0.365-0.266,0.738-0.536,1.117-0.811C13.128,12.284,17.685,8.98,21.884,4.806l0.457-1.121L23.464,3.212c0.44,0.18,0.652,0.682,0.472,1.123l-0.523,1.283c-0.043,0.106-0.107,0.203-0.188,0.284c-4.329,4.329-8.994,7.711-13.109,10.695c-2.915,2.114-5.433,3.939-7.082,5.588l-1.563,1.563C1.302,23.916,1.082,24,0.861,24z";
-const ICON_EXPAND = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
-const ICON_COLLAPSE = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
+const ICON_CLOSE =
+    "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
 
@@ -1082,7 +1082,10 @@ export class IrPluck extends LitElement {
         const expanded = this._expandedId === d.id;
         return html`
             <ha-card class="device pluck-device">
-                <div class="device-row" @click=${() => this._toggleExpand(d.id)}>
+                <div
+                    class="device-row ${expanded ? "row-expanded" : ""}"
+                    @click=${() => this._toggleExpand(d.id)}
+                >
                     <div class="device-info">
                         <div class="device-header">
                             ${this._editingDeviceId === d.id
@@ -1136,8 +1139,27 @@ export class IrPluck extends LitElement {
                             color="green"
                             .count=${d.linked_devices?.length ?? 0}
                         ></ir-count-dot></button>
+                    </span>
                     <button
-                        class="trash-btn"
+                        class="expand-btn"
+                        title=${expanded ? t("sniffer.collapse") : t("sniffer.expand")}
+                        aria-label=${expanded ? t("sniffer.collapse") : t("sniffer.expand")}
+                        aria-expanded=${expanded ? "true" : "false"}
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._toggleExpand(d.id);
+                        }}
+                    >
+                        <svg
+                            class="chevron ${expanded ? "chevron-open" : ""}"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                        >
+                            <path d="M6 9l6 6 6-6"></path>
+                        </svg>
+                    </button>
+                    <button
+                        class="corner-btn corner-delete"
                         title=${t("pluck.delete_blaster_title")}
                         aria-label=${t("pluck.delete_blaster_title")}
                         @click=${(e: Event) => {
@@ -1145,16 +1167,8 @@ export class IrPluck extends LitElement {
                             this._openDeleteRemote(d);
                         }}
                     >
-                        <ha-svg-icon
-                            .path=${ICON_TRASH}
-                            .viewBox=${TRASH_VIEWBOX}
-                        ></ha-svg-icon>
+                        <ha-svg-icon .path=${ICON_CLOSE}></ha-svg-icon>
                     </button>
-                    </span>
-                    <ha-svg-icon
-                        class="expand-icon"
-                        .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
-                    ></ha-svg-icon>
                 </div>
 
                 ${expanded && this._expandedDevice
@@ -1397,6 +1411,8 @@ export class IrPluck extends LitElement {
                           ""}
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                      .initialSendSpacingMs=${this._editSignal.signal
+                          .send_spacing_ms ?? null}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
                       .initialObservedRepeatCount=${this._editSignal.signal
                           .observed_repeat_count ?? 0}
@@ -1683,7 +1699,12 @@ export class IrPluck extends LitElement {
         }
         .device.pluck-device {
             border: 1px solid rgba(69, 90, 100, 0.3);
-            overflow: hidden;
+            /* The row clips its own hover highlight now (see the
+               border-radius rule on .device-row); the card stopped
+               clipping so the corner delete can sit on its edge without
+               a big-radius theme eating the button (remote-header
+               redesign, extended to this tab 2026-09-12). */
+            overflow: visible;
         }
         .device-row {
             display: flex;
@@ -1691,9 +1712,29 @@ export class IrPluck extends LitElement {
             padding: 12px 16px;
             cursor: pointer;
             gap: 12px;
+            /* The corner delete anchors to the header row (remote-header
+               redesign, 2026-09-12); two 24px corner boxes at a 4px inset
+               need 56px of row. */
+            position: relative;
+            box-sizing: border-box;
+            min-height: 56px;
             /* Three header actions now (2026-07-29 footer merge): let the
                row wrap on narrow viewports instead of crushing the name. */
             flex-wrap: wrap;
+        }
+        .device-row {
+            /* NOT border-radius: inherit. The card is an ha-card and the
+               row is slotted content: inherit reads the slot's radius,
+               which is zero, so the hover and flash backgrounds drew
+               square corners past the card's round ones once the card
+               stopped clipping (owner bench 2026-09-12). Follow the
+               card's own token instead, one pixel tighter so the row
+               nests inside the card's 1px border. */
+            border-radius: calc(var(--ha-card-border-radius, 12px) - 1px);
+        }
+        .device-row.row-expanded {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
         }
         .device-row:hover {
             background: var(--secondary-background-color);
@@ -1805,10 +1846,90 @@ export class IrPluck extends LitElement {
         .stat strong {
             color: var(--primary-text-color);
         }
-        .expand-icon {
-            --mdc-icon-size: 24px;
-            color: var(--secondary-text-color);
+        .expand-btn {
+            /* Bare chevron (owner, 2026-09-12, after the first visual
+               pass): no circle, no ring, no hover wash. The weight comes
+               from a stroked path instead of the filled MDI glyph, so
+               it reads as a deliberate control rather than a thin mark
+               at the row's edge. The three custom properties are the
+               live tuning knobs; edit them in the inspector and report
+               the numbers back. */
+            --hair-chevron-size: 32px;
+            --hair-chevron-glyph: 22px;
+            --hair-chevron-weight: 2.5;
+            width: var(--hair-chevron-size);
+            height: var(--hair-chevron-size);
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: 0;
+            background: none;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            transition: color 150ms ease;
+            /* Room between the chevron and the corner controls: 24px
+               puts the chevron's right edge 10px clear of the corner
+               button's left edge (owner, second visual pass
+               2026-09-12: chevron and corner controls read as one
+               tighter group). */
+            margin-right: 24px;
+            /* And between USE and the chevron: the row's own gap is
+               12px; this brings it to 20, so USE sits clear of the
+               chevron even when its linked-count dot is showing. */
+            margin-left: 8px;
+        }
+        .expand-btn .chevron {
+            width: var(--hair-chevron-glyph);
+            height: var(--hair-chevron-glyph);
+            fill: none;
+            stroke: currentColor;
+            stroke-width: var(--hair-chevron-weight);
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: transform 150ms ease;
+        }
+        .expand-btn .chevron-open {
+            transform: rotate(180deg);
+        }
+        .expand-btn:hover {
+            color: var(--primary-text-color);
+        }
+        .corner-btn {
+            position: absolute;
+            right: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 3px;
+            border: none;
+            border-radius: 4px;
+            background: none;
+            cursor: pointer;
+            color: var(--disabled-text-color, #999);
+            opacity: 0.08;
+            transition: background 150ms ease, color 150ms ease,
+                opacity 150ms ease;
+            z-index: 2;
+        }
+        .corner-delete {
+            top: 4px;
+        }
+        .device-row:hover .corner-btn {
+            opacity: 0.5;
+        }
+        .corner-delete:hover {
+            opacity: 1;
+            background: rgba(230, 81, 0, 0.2);
+            color: #e65100;
+        }
+        @media (hover: none) {
+            .corner-btn {
+                opacity: 0.5;
+            }
         }
         .expanded {
             border-top: 1px solid var(--divider-color);

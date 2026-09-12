@@ -88,6 +88,14 @@ const ICON_SIGNAL =
 const ICON_DISMISS =
     "M2,5.27L3.28,4L20,20.72L18.73,22L15.65,18.92C14.5,19.3 13.28,19.5 12,19.5C7,19.5 2.73,16.39 1,12C1.69,10.24 2.79,8.69 4.19,7.46L2,5.27M12,9A3,3 0 0,1 15,12C15,12.35 14.94,12.69 14.83,13L11,9.17C11.31,9.06 11.65,9 12,9M12,4.5C17,4.5 21.27,7.61 23,12C22.18,14.08 20.79,15.88 19,17.19L17.58,15.76C18.94,14.82 20.06,13.54 20.82,12C19.17,8.64 15.76,6.5 12,6.5C10.91,6.5 9.84,6.68 8.84,7L7.3,5.47C8.74,4.85 10.33,4.5 12,4.5M3.18,12C4.83,15.36 8.24,17.5 12,17.5C12.69,17.5 13.37,17.43 14,17.29L11.72,15C10.29,14.85 9.15,13.71 9,12.28L5.6,8.87C4.61,9.72 3.78,10.78 3.18,12Z";
 
+// MDI path: mdi:close. The corner delete's glyph (remote-header
+// redesign, owner-approved 2026-08-22): the row's delete moved out of
+// the inline button cluster and into the card's top-right corner, and
+// an X reads as "remove this" at a corner where a can would read as a
+// second, unrelated control.
+const ICON_CLOSE =
+    "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z";
+
 // MDI path: mdi:delete-outline
 const ICON_CLEAR =
     "M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z";
@@ -101,13 +109,7 @@ const ICON_PENCIL =
     "M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6.02 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z";
 
 // MDI path: mdi:chevron-down
-const ICON_EXPAND =
-    "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
-
 // MDI path: mdi:chevron-up
-const ICON_COLLAPSE =
-    "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
-
 // MDI: drag (six-dot grip) -- same handle used by the command reorder.
 const ICON_GRIP =
     "M7,19V17H9V19H7M11,19V17H13V19H11M15,19V17H17V19H15M7,15V13H9V15H7M11,15V13H13V15H11M15,15V13H17V15H15M7,11V9H9V11H7M11,11V9H13V11H11M15,11V9H17V11H15M7,7V5H9V7H7M11,7V5H13V7H11M15,7V5H17V7H15Z";
@@ -1475,6 +1477,8 @@ export class IrSignalMonitor extends LitElement {
                           ""}
                       .initialAlias=${this._editSignal.signal.alias ?? ""}
                       .initialSendCount=${this._editSignal.signal.send_count ?? 1}
+                      .initialSendSpacingMs=${this._editSignal.signal
+                          .send_spacing_ms ?? null}
                       .initialDitto=${this._editSignal.signal.repeat_count ?? 1}
                       .initialTxForceRaw=${!!this._editSignal.signal
                           .tx_force_raw}
@@ -1592,7 +1596,9 @@ export class IrSignalMonitor extends LitElement {
         return html`
             <ha-card class="device ${d.dismissed ? "dismissed" : ""}">
                 <div
-                    class="device-row ${flashing ? "flash-row" : ""}"
+                    class="device-row ${flashing ? "flash-row" : ""} ${
+                        expanded ? "row-expanded" : ""
+                    }"
                     @click=${() => this._toggleExpand(d.id)}
                 >
                     <div class="device-info">
@@ -1658,23 +1664,29 @@ export class IrSignalMonitor extends LitElement {
                                   color="green"
                                   .count=${d.linked_devices?.length ?? 0}
                               ></ir-count-dot></button>`}
+                    </span>
+                    <button
+                        class="expand-btn"
+                        title=${expanded ? t("sniffer.collapse") : t("sniffer.expand")}
+                        aria-label=${expanded ? t("sniffer.collapse") : t("sniffer.expand")}
+                        aria-expanded=${expanded ? "true" : "false"}
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            this._toggleExpand(d.id);
+                        }}
+                    >
+                        <svg
+                            class="chevron ${expanded ? "chevron-open" : ""}"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                        >
+                            <path d="M6 9l6 6 6-6"></path>
+                        </svg>
+                    </button>
                     ${d.dismissed
-                        ? html`<button
-                              class="action-btn device-dismiss-btn"
-                              @click=${(e: Event) => {
-                                  e.stopPropagation();
-                                  void this._undismiss(d.id);
-                              }}
-                          >${t("sniffer.restore")}</button>`
+                        ? ""
                         : html`<button
-                              class="action-btn device-dismiss-btn"
-                              @click=${(e: Event) => {
-                                  e.stopPropagation();
-                                  void this._dismiss(d.id);
-                              }}
-                          >${t("sniffer.dismiss")}</button>
-                          <button
-                              class="trash-btn"
+                              class="corner-btn corner-delete"
                               title=${t("sniffer.delete_remote_title")}
                               aria-label=${t("sniffer.delete_remote_title")}
                               @click=${(e: Event) => {
@@ -1682,16 +1694,31 @@ export class IrSignalMonitor extends LitElement {
                                   this._deleteRemote = d;
                               }}
                           >
-                              <ha-svg-icon
-                                  .path=${ICON_TRASH}
-                                  .viewBox=${TRASH_VIEWBOX}
-                              ></ha-svg-icon>
+                              <ha-svg-icon .path=${ICON_CLOSE}></ha-svg-icon>
                           </button>`}
-                    </span>
-                    <ha-svg-icon
-                        class="expand-icon"
-                        .path=${expanded ? ICON_COLLAPSE : ICON_EXPAND}
-                    ></ha-svg-icon>
+                    <button
+                        class="corner-btn ${d.dismissed
+                            ? "corner-restore"
+                            : "corner-hide"}"
+                        title=${d.dismissed
+                            ? t("sniffer.restore")
+                            : t("sniffer.dismiss")}
+                        aria-label=${d.dismissed
+                            ? t("sniffer.restore")
+                            : t("sniffer.dismiss")}
+                        @click=${(e: Event) => {
+                            e.stopPropagation();
+                            if (d.dismissed) {
+                                void this._undismiss(d.id);
+                            } else {
+                                void this._dismiss(d.id);
+                            }
+                        }}
+                    >
+                        <ha-svg-icon
+                            .path=${d.dismissed ? ICON_RESTORE : ICON_DISMISS}
+                        ></ha-svg-icon>
+                    </button>
                 </div>
 
                 ${expanded && this._expandedDevice
@@ -1740,6 +1767,8 @@ export class IrSignalMonitor extends LitElement {
                                         <ir-tx-knobs
                                             slot="trailing"
                                             .sendCount=${sig.send_count}
+                                            .spacingMs=${sig.send_spacing_ms ??
+                                            null}
                                             .repeatCount=${sig.repeat_count}
                                             .decoded=${!!sig.decoded_protocol}
                                             .bypassed=${!!sig.tx_force_raw}
@@ -1986,9 +2015,17 @@ export class IrSignalMonitor extends LitElement {
 
         .device {
             transition: box-shadow 200ms ease;
-            /* Clip the row's rectangular hover highlight to the card's
-               rounded corners so it does not poke past the border stroke. */
-            overflow: hidden;
+            position: relative;
+            /* NOT overflow: hidden any more, and the spec asked why.
+               Measured in a real browser at the card radii themes
+               actually use: at HA's default 12px nothing is clipped,
+               but from about 20px up the rounded corner starts eating
+               the outer corner of a 24px button inset 6px, which is
+               the whole hit target's edge and its hover wash with it.
+               Clipping was only ever there for the hit flash, so the
+               flash now clips itself on .device-row (below) and the
+               card stops clipping anything. */
+            overflow: visible;
             /* Subtle stroke in the Sniffer's accent blue (the radio-icon
                colour) at the same 0.3 as the Clips copper stroke. The
                rgba line is a fallback for webviews without color-mix. */
@@ -2002,6 +2039,24 @@ export class IrSignalMonitor extends LitElement {
            list below calm. */
         .device-row.flash-row {
             animation: row-flash 900ms ease-out;
+        }
+        /* The flash's own clipping, taken over from the card. A
+           collapsed row IS the whole card, so it rounds all four
+           corners; an expanded one is only the top of it and keeps its
+           bottom edge square against the divider below. */
+        .device-row {
+            /* NOT border-radius: inherit. The card is an ha-card and the
+               row is slotted content: inherit reads the slot's radius,
+               which is zero, so the hover and flash backgrounds drew
+               square corners past the card's round ones once the card
+               stopped clipping (owner bench 2026-09-12). Follow the
+               card's own token instead, one pixel tighter so the row
+               nests inside the card's 1px border. */
+            border-radius: calc(var(--ha-card-border-radius, 12px) - 1px);
+        }
+        .device-row.row-expanded {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
         }
         @keyframes row-flash {
             0% { background: transparent; }
@@ -2021,9 +2076,23 @@ export class IrSignalMonitor extends LitElement {
             padding: 12px 16px;
             cursor: pointer;
             gap: 12px;
+            /* The corner controls anchor to the HEADER ROW, not the
+               card (owner bench 2026-09-12): anchored to the card, the
+               eye slid to the bottom of the signal list whenever a row
+               was open. Both controls belong to the header. */
+            position: relative;
             /* Four header actions now (2026-07-29 footer merge): let the
                row wrap on narrow viewports instead of crushing the name. */
             flex-wrap: wrap;
+            /* The two corner controls are 24px boxes stacked on the
+               right edge with a 4px inset each, so the card needs 56px
+               of inside height or their hit areas overlap and the one
+               below steals clicks from the one above. The 32px chevron
+               already produces exactly that; this floor keeps it true
+               if --hair-chevron-size is tuned down. Padding is
+               untouched, per the spec's "must not change" list. */
+            box-sizing: border-box;
+            min-height: 56px;
         }
         .device-row:hover {
             background: var(--secondary-background-color);
@@ -2128,9 +2197,6 @@ export class IrSignalMonitor extends LitElement {
         .action-btn.adopt-btn:hover:not(:disabled) {
             background: rgba(76, 175, 80, 0.08);
         }
-        .device-dismiss-btn {
-            flex-shrink: 0;
-        }
         .rename-input {
             font-weight: 600;
             font-size: 0.95rem;
@@ -2166,10 +2232,155 @@ export class IrSignalMonitor extends LitElement {
         .stat strong {
             color: var(--primary-text-color);
         }
-        .expand-icon {
-            --mdc-icon-size: 24px;
-            color: var(--secondary-text-color);
+        /* THE CORNER CONTROLS (remote-header redesign, owner-approved
+           2026-08-22; Sniffer only this round, the Clipper and the
+           Plucker keep their inline cans).
+           Three stages, and the middle one is the whole idea: nearly
+           invisible until you are looking at this row at all, plain
+           grey once you are, and only coloured once you are on the
+           control itself. Delete and hide are rare, and one of them is
+           destructive, so they recede until wanted while the chevron
+           stays the obviously-clickable thing on the row's right edge.
+
+           Vertical inset is 4px, not the spec's 6px. The spec assumed
+           the corner boxes fit in space the row already leaves empty;
+           measured, they do not. A 24px box at a 6px inset needs 60px
+           of card and the row is 56px inside, so at 6px the two boxes
+           overlapped by 4px and the lower one took clicks meant for
+           the upper. 4px is the inset that makes two 24px boxes meet
+           exactly, with no overlap. Horizontal inset stays 6px, which
+           is what the chevron's clearance is measured from. */
+        .corner-btn {
+            position: absolute;
+            right: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 3px;
+            border: none;
+            border-radius: 4px;
+            background: none;
+            cursor: pointer;
+            color: var(--disabled-text-color, #999);
+            opacity: 0.08;
+            transition: background 150ms ease, color 150ms ease,
+                opacity 150ms ease;
+            z-index: 2;
+        }
+        .corner-btn ha-svg-icon {
+            --mdc-icon-size: 18px;
+        }
+        .corner-delete {
+            top: 4px;
+        }
+        .corner-hide,
+        .corner-restore {
+            bottom: 4px;
+        }
+        .corner-hide ha-svg-icon,
+        .corner-restore ha-svg-icon {
+            /* A shade smaller than the X above it (owner, 2026-09-12):
+               the eye is a round glyph and reads larger than an X of
+               the same nominal size, so 18px minus about 7% evens the
+               pair out; the owner settled on 15px after seeing 16.7
+               live. The 24px hit box is unchanged. */
+            --mdc-icon-size: 15px;
+        }
+        .device-row:hover .corner-btn {
+            opacity: 0.5;
+        }
+        /* Delete keeps the house can's exact hover treatment, ember on
+           an ember wash, so the act reads the same wherever it lives. */
+        .corner-delete:hover {
+            opacity: 1;
+            background: rgba(230, 81, 0, 0.2);
+            color: #e65100;
+        }
+        /* Hiding is not destructive, so it does not borrow delete's
+           red. Blue going out of sight, green coming back. */
+        .corner-hide:hover {
+            opacity: 1;
+            background: rgba(77, 171, 247, 0.2);
+            color: var(--focus-blue, #4dabf7);
+        }
+        .corner-restore:hover {
+            opacity: 1;
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+        }
+        /* TOUCH (owner ruling 2026-09-12). A three-stage reveal whose
+           middle stage is row-hover has no middle stage on a
+           touchscreen, so the rest state would be the near-invisible
+           one and nobody would find either control. Where there is no
+           hover at all, both sit permanently at the row-hover level:
+           still grey, still uncoloured, but visible. Their own tap
+           still runs the rules above. */
+        @media (hover: none) {
+            .corner-btn {
+                opacity: 0.5;
+            }
+        }
+
+        /* THE CHEVRON (Row B of the r3 mockup). A round hit target with
+           nothing in it at rest but a faint ring, and a soft grey wash
+           on hover -- the same wash language the corner controls use,
+           circular instead of rounded-square.
+
+           The three numbers are custom properties because the owner is
+           tuning them live (ruling 2026-09-12). The border is declared
+           at rest rather than added on hover so hovering can never
+           change the button's size. */
+        .expand-btn {
+            /* Bare chevron (owner, 2026-09-12, after the first visual
+               pass): no circle, no ring, no hover wash. The weight comes
+               from a stroked path instead of the filled MDI glyph, so
+               it reads as a deliberate control rather than a thin mark
+               at the row's edge. The three custom properties are the
+               live tuning knobs; edit them in the inspector and report
+               the numbers back. */
+            --hair-chevron-size: 32px;
+            --hair-chevron-glyph: 22px;
+            --hair-chevron-weight: 2.5;
+            width: var(--hair-chevron-size);
+            height: var(--hair-chevron-size);
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: 0;
+            background: none;
+            color: var(--secondary-text-color);
+            cursor: pointer;
+            transition: color 150ms ease;
+            /* Room between the chevron and the corner controls: 24px
+               puts the chevron's right edge 10px clear of the corner
+               button's left edge (owner, second visual pass
+               2026-09-12: chevron and corner controls read as one
+               tighter group). */
+            margin-right: 24px;
+            /* And between USE and the chevron: the row's own gap is
+               12px; this brings it to 20, so USE sits clear of the
+               chevron even when its linked-count dot is showing. */
+            margin-left: 8px;
+        }
+        .expand-btn .chevron {
+            width: var(--hair-chevron-glyph);
+            height: var(--hair-chevron-glyph);
+            fill: none;
+            stroke: currentColor;
+            stroke-width: var(--hair-chevron-weight);
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: transform 150ms ease;
+        }
+        .expand-btn .chevron-open {
+            transform: rotate(180deg);
+        }
+        .expand-btn:hover {
+            color: var(--primary-text-color);
         }
 
         .expanded {
